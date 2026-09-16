@@ -87,10 +87,24 @@ class ObservationBatch(BaseModel):
 
     Empty lists are legal. A flush with nothing in it is a no-op the client is allowed to
     send rather than a condition it must check for.
+
+    ⚠ **`agent_id` AND `direction` ARE ON THE BATCH AND NOT ONLY ON THE EVENTS, AND THAT
+    WAS A CORRECTION RATHER THAN A CHOICE (16 Sep 2026).** `TranscriptTurn` carries neither
+    and `CallEvent` declares `agent_id` nullable, so the FIRST batch of a call — which is
+    routinely a flush of turns, because Pipecat dispatches every handler as its own task and
+    a turn can beat the event that opened the call — named nothing the server could mint a
+    `calls` row from. The in-process sink never had this problem: it held the session's four
+    ids. They are session facts, so they travel with the session's batch; deriving them from
+    whichever event happened to be in it would be a guess on a FORCE-RLS'd row's
+    `agent_id`.
     """
 
     model_config = _STRICT
 
+    #: Whose agent this call is running. The server refuses a batch whose events name a
+    #: different one (`worker/service._refuse_identity`).
+    agent_id: UUID
+    direction: CallDirection
     events: list[CallEvent] = Field(default_factory=list)
     turns: list[TranscriptTurn] = Field(default_factory=list)
 
@@ -144,11 +158,17 @@ class SettlementRefusal(BaseModel):
 class SettlementRequest(BaseModel):
     """The terminal write, and the one that carries D-607.
 
-    **EITHER A REFUSAL OR QUANTITIES, NEVER BOTH AND NEVER NEITHER**, mirroring
-    `sink.settle`'s own branch: `metered_rows` is all-or-nothing by design ("THERE IS NO
-    PARTIAL SETTLEMENT"), so a body offering three priced legs and one refusal would be a
-    shape the ledger cannot hold. The server validates the exclusivity rather than trusting
-    it, because a client is a thing on somebody else's infrastructure.
+    **A REFUSAL OR QUANTITIES, NEVER BOTH**, mirroring `sink.settle`'s own branch:
+    `metered_rows` is all-or-nothing by design ("THERE IS NO PARTIAL SETTLEMENT"), so a body
+    offering three priced legs and one refusal would be a shape the ledger cannot hold. The
+    server validates the exclusivity rather than trusting it, because a client is a thing on
+    somebody else's infrastructure.
+
+    ⚠ **NEITHER IS LEGAL AND THIS PARAGRAPH USED TO SAY IT WAS NOT.** Both empty is the third
+    state `meter.py` distinguishes deliberately — a session that transcribed and synthesised
+    nothing has no leg to price, which is not a leg nobody can price — and it still has to
+    settle, because the outbox row that starts the post-call pipeline rides the settlement
+    (D-607).
 
     The server writes the call row, the ledger-or-refusal and the outbox row that triggers
     the post-call pipeline IN ONE TRANSACTION, exactly as the sink does today. That

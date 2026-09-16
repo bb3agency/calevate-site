@@ -18,12 +18,13 @@ It is a TOP-LEVEL module on `sys.path`, which `voice_worker/__init__.py` warns a
 this tree today, and the collision that docstring is about is between two deployables'
 INTERNAL modules; this one is a name the platform chose.
 
-**WHAT IS COMPLETE HERE AND WHAT IS NOT.** Complete: the boot gate, the process-scoped
-runtime, admission control, the readiness state, and the shutdown that settles or records
-every in-flight leg. Not complete, each as a NAMED refusal rather than a silent hole:
-
-  * the normalized event writer (`boot.build_event_sink`) — §6 step 11's next wave;
-  * the normalized event writer (`boot.build_event_sink`) — §6 step 11's next wave.
+**WHAT IS COMPLETE HERE.** The boot gate, the process-scoped runtime, admission control,
+the readiness state, the normalized event writer, and the shutdown that settles or records
+every in-flight leg. ⚠ **THIS SECTION USED TO LIST THE EVENT WRITER AS A NAMED REFUSAL —
+TWICE, THE SECOND A COPY-PASTE OF THE FIRST.** `boot.build_event_sink` raised
+`EventSinkNotBuiltError` and this container could not serve a call at all; D-621 built it
+(`sink.HttpEventSink`, posting to `/v1/worker`), so the refusal and the duplicate line are
+gone together.
 
 **`resolve_call_identity` IS NOW BUILT (D-610)** and it is the second half of one design:
 the answer document `apps/voice-runtime/carrier_routes.py` serves puts the agent ref in
@@ -35,9 +36,11 @@ configuration: the carrier credentials `create_transport` reads, a number, and
 `PIPECAT_STREAM_BASE_URL`.
 
 So this container still refuses to serve a call it cannot record, loudly, at the first
-thing it cannot do. That is deliberate: the alternative shapes — a sink that discards, an
-identity invented from the dialed number — both produce a container that answers the phone
-and lies about what happened on it.
+thing it cannot do — the boot gate now proves the platform API answers AND accepts this
+container's token before `container()` returns (`boot.open_runtime`, `verify`). That is
+deliberate: the alternative shapes — a sink that discards, an identity invented from the
+dialed number — both produce a container that answers the phone and lies about what happened
+on it.
 """
 
 from __future__ import annotations
@@ -63,7 +66,6 @@ from voice_worker.boot import (
     build_event_sink,
     load_worker_config,
     open_runtime,
-    tenant_connection,
 )
 from voice_worker.carrier import UnroutableCallError, arm_first_turn, route_of
 from voice_worker.config import load_session_config
@@ -124,11 +126,13 @@ async def container(config: WorkerConfig | None = None) -> tuple[WorkerRuntime, 
     async with _runtime_lock:
         if _runtime is None or _registry is None:
             resolved = config or load_worker_config()
+            # `open_runtime` PROVES the platform API answers this container's token before
+            # anything is marked started. That is where "a container with nowhere to write a
+            # transcript must not answer a phone" now lives: the sink itself is built per
+            # call (it holds one session's four ids), so there is nothing to build at boot —
+            # what there is to prove is that the far end is reachable, and `verify` proves it.
             _runtime = await open_runtime(resolved)
             _registry = SessionRegistry(marker=ReadinessFile(resolved.ready_file))
-            # The sink is built at BOOT, not per call: a container with nowhere to write a
-            # transcript must not answer a phone. See `boot.EventSinkNotBuiltError`.
-            build_event_sink(_runtime.engine)
             _shutdown.install()
             _drain_task = asyncio.create_task(_drain_on_signal())
             _registry.mark_started()
@@ -209,6 +213,13 @@ async def resolve_call_identity(
 async def bot(runner_args: RunnerArguments) -> None:
     """One session, start to finish. The signature is the platform's.
 
+    **THE AGENT REF IS READ OFF THE SOCKET ONCE AND USED TWICE** — `resolve_call_identity`
+    parses it into ids, and `load_session_config` presents the ref itself to the platform API,
+    which resolves the tenant from it and reads under that tenant's RLS (D-621). Both come
+    from the same `_route_token`, so a call cannot be routed as one agent and configured as
+    another; `load_session_config` refuses the mismatch anyway, because a check that costs a
+    comparison should not rest on two call sites staying in step.
+
     **THE CONFIGURATION IS READ BEFORE THE CREDENTIAL IS CHOSEN, AND THAT IS WHY THIS USES
     `load_session_config` + `open_session` RATHER THAN `start_session`.** Which LLM key
     this call spends is decided by the agent's own `ModelConfig.llm_provider`, which is in
@@ -218,22 +229,31 @@ async def bot(runner_args: RunnerArguments) -> None:
     name.
     """
     runtime, registry = await container()
+    engine_agent_ref = _route_token(runner_args)
     call_id, tenant_id, agent_id, direction = await resolve_call_identity(runner_args)
 
     transport = await create_transport(runner_args, _TRANSPORT_PARAMS)
-    async with tenant_connection(runtime.engine, tenant_id) as connection:
-        config = await load_session_config(
-            connection,
-            call_id=call_id,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            direction=direction,
-        )
+    config = await load_session_config(
+        runtime.api,
+        call_id=call_id,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        direction=direction,
+        engine_agent_ref=engine_agent_ref,
+    )
     call = await open_session(
         config=config,
         credentials=runtime.config.credentials_for(config.models.llm_provider),
         transport=transport,
-        sink=build_event_sink(runtime.engine),
+        sink=build_event_sink(
+            runtime.api,
+            call_id=call_id,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            direction=direction,
+            turn_batch_size=runtime.config.turn_batch_size,
+            turn_flush_seconds=runtime.config.turn_flush_seconds,
+        ),
         fetcher=runtime.fetcher,
         embedder=runtime.embedder,
     )

@@ -271,6 +271,21 @@ ENV_ONLY_REASONS: dict[str, str] = {
     # `cartesia_api_key` — which IS console-managed and is also read by that container —
     # in the one way that decides the classification: an `apps/api` adapter reads the
     # Cartesia value (`engine/__init__.py`), and NOTHING on this host reads this one.
+    # THE WORKER'S API BASE URL (D-621). Same category and the same reader as the three
+    # above, and the one entry on this list that is NOT a credential: it is the address the
+    # voice worker posts its calls' events to, read by `voice_worker/boot.py` inside a
+    # container on Pipecat Cloud. The TOKEN it presents is console-managed — `apps/api`
+    # reads that one to verify the header, so it has a reader on this host — and this does
+    # not: nothing on the VPS ever asks where the worker thinks we are. A box for it in the
+    # console would be a value nothing could deliver and nothing could read.
+    "voice_worker_api_base_url": (
+        "the API base URL is read by the voice worker's own HTTP client, inside a container "
+        "on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can never open "
+        "this credential store — and no process on this host reads it at all. Set "
+        "VOICE_WORKER_API_BASE_URL in the `calevate-voice-worker` secret set (`pipecat "
+        "cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would be one nothing "
+        "can read."
+    ),
     "gnani_api_key": (
         "the Gnani TTS credential is read by the voice worker's own synthesis leg, inside "
         "a container on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can "
@@ -303,6 +318,7 @@ ENV_ONLY_FOREIGN_ENV: dict[str, str] = {
     "plivo_auth_id": "the Pipecat Cloud secret set for `calevate-voice-worker`",
     "plivo_auth_token": "the Pipecat Cloud secret set for `calevate-voice-worker`",
     "gnani_api_key": "the Pipecat Cloud secret set for `calevate-voice-worker`",
+    "voice_worker_api_base_url": "the Pipecat Cloud secret set for `calevate-voice-worker`",
 }
 
 # Asserted at import rather than tested, for `_assert_holds_no_secret`'s reason: an entry

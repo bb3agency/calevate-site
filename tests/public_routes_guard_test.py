@@ -126,8 +126,26 @@ class TestWiring:
         be able to end every other session AND rotate the credential those sessions were
         opened with; a permission check is the wrong obstacle in front of either, because
         changing your own password is not a role you hold. The pair moves the count by two
-        and the surface by nothing a reader has to newly understand."""
-        assert len(exempt) <= 40, sorted(exempt)
+        and the surface by nothing a reader has to newly understand.
+
+        RAISED 40 -> 43 by D-621, and this is the largest single jump since the auth slice,
+        so it earns the longest note. The three are `/v1/worker/*`: the voice worker's
+        session read and its two writes. They are exempt from the RBAC registry for the same
+        structural reason `/v1/engine/caller-data/` is — a container on Pipecat Cloud holds
+        no Calevate session and no membership a permission could be checked against — and
+        they present the same class of credential, a Bearer token THIS deployment issued,
+        compared in constant time, with an unconfigured deployment answering nobody.
+
+        **WHAT IS NEW AND IS THE THING TO RE-READ FIRST IF THIS BOUND MOVES AGAIN:** two of
+        the three MUTATE, and they mutate the ledger. Every other mutating row on this list
+        writes an event, a session or a report; these write `calls`, `transcript_turns`,
+        `usage_events` and the outbox. What makes that acceptable is not the token alone —
+        it is that the token holder cannot choose a tenant: the tenant is PARSED out of the
+        engine-space call ref (`tenant_of_pipecat_ref`) and every statement then runs under
+        that tenant's RLS, so a leaked token reaches exactly the calls whose refs it holds.
+        A fourth route here, or any route on this surface that took a tenant id as an
+        argument, is the conversation this tripwire is for."""
+        assert len(exempt) <= 43, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

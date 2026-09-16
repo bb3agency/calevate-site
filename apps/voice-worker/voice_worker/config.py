@@ -1,43 +1,52 @@
-"""One call's configuration, loaded out of OUR database (`docs/PIPECAT-MIGRATION.md` §2).
+"""One call's configuration, read over HTTP from `apps/api` (D-621).
 
 **WHAT THIS MODULE IS FOR, IN ONE SENTENCE.** It turns three ids — a call, a tenant, an
 agent — into the `SessionConfig` that `pipeline.assemble_call` takes, and it is the only
-place in this worker that knows which tables that configuration lives in.
+place in this worker that knows where that configuration comes from.
+
+⚠ **IT USED TO KNOW WHICH TABLES IT LIVED IN, AND IT NO LONGER DOES.** `docs/DEPLOYMENT.md`
+§12.5 gate 6: this container runs on Pipecat Cloud and cannot reach our Postgres at all, so
+the three-table join that used to be here now runs in `apps/api/worker/service.load_session`
+and this presents an `engine_agent_ref` and reads the answer. The join did not change — it
+is the same statement against the same three tables, for the reason it always had: three
+round trips would let a publish land between them and produce a `SessionConfig` whose prompt
+came from one version and whose knowledge pack came from the next.
 
 **IT READS A VERSION, NOT AN AGENT, AND THAT IS §1.1's WHOLE DESIGN.** `pipecat_agents`
 holds a pointer to the immutable `agent_config_versions` row the control plane last
-published, and the prompt and the resolved `ModelConfig` are read FROM THAT ROW rather
-than recomposed here. A worker that composed its own prompt would be a second author of
-the sentences hard rule 5 requires, and its attestation — `prompt_sha256` recomputed over
-what it actually loaded (`pipeline.recompute_prompt_sha256`) — would agree with the
-control plane by construction, which is the exact defect the attestation exists to catch.
+published, and the prompt and the resolved `ModelConfig` come FROM THAT ROW rather than
+being recomposed here. A worker that composed its own prompt would be a second author of the
+sentences hard rule 5 requires, and its attestation — `prompt_sha256` recomputed over what
+it actually loaded (`pipeline.recompute_prompt_sha256`) — would agree with the control plane
+by construction, which is the exact defect the attestation exists to catch. That is
+unchanged by the move: the digest is recomputed over the prompt that arrived on the wire.
 
-**HARD RULE 1.** Every statement here runs on a connection whose `app.tenant_id` is
-already set, because that GUC is the isolation; the `tenant_id` in the WHERE clause is
-belt to its braces (`apps/api/kb/pack.py::_ENTRIES_SQL` makes the same call for the same
-reason — a predicate a reviewer can see, over a policy they have to go and read). This
-module never opens a connection of its own; see `load_session_config` on who does.
+**HARD RULE 1 IS THE SERVER'S NOW, AND IT IS STRICTLY STRONGER THERE.** This process no
+longer sets a `tenant_id` GUC because it no longer holds a connection; what it presents is
+`pipecat:<tenant>:<agent>`, and the server parses the tenant out of that ref and runs the
+read under that tenant's RLS. A worker that could name a tenant could name somebody else's;
+a worker that names its own ref can only ever reach the tenant the ref says.
 
-**NO VENDOR SDK, IN THE ONE PACKAGE THAT IS ALLOWED ONE.** `SessionConfig` is plain data
-and so is everything on the way to it; the Pipecat legs are built from it in `pipeline.py`.
-Hard rule 2's third home (D-592) is a permission, not an instruction.
+**HARD RULE 5 IS CHECKED ON BOTH SIDES AND NEITHER CHECK IS REDUNDANT.** The server refuses
+to serve a session for an agent with no AI-disclosure sentence or a prompt that does not
+carry the truthful-answer floor, because that is where the rows are. `refuse_unless_disclosed`
+below re-asks both questions of what actually arrived, because THIS process is the last
+reader before a model speaks — which is the argument it was written with, and the move
+across a wire strengthens it rather than retiring it.
+
+**NO VENDOR SDK, IN THE ONE PACKAGE THAT IS ALLOWED ONE.** `SessionConfig` is plain data and
+so is everything on the way to it; the Pipecat legs are built from it in `pipeline.py`.
 """
 
 from __future__ import annotations
 
-from typing import Final
 from uuid import UUID
 
-from calevate_shared.engine import (
-    AgentConfig,
-    ModelConfig,
-    carries_truthful_answer_floor,
-)
+from calevate_shared.engine import carries_truthful_answer_floor
 from calevate_shared.events import CallDirection
 from loguru import logger
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
 
+from voice_worker.api_client import WorkerApiClient, WorkerApiError
 from voice_worker.pipeline import SessionConfig
 
 
@@ -57,133 +66,96 @@ class AgentNotRunnableError(RuntimeError):
     """
 
 
-#: One read, three tables, and the join is not a convenience.
-#:
-#: `pipecat_agents` is the runtime row (what the control plane last published, §1.1),
-#: `agent_config_versions` is the immutable content it points at, and `agents` is where the
-#: knowledge pack pointer lives (migration `b5d3a91e7c64`). Three round trips would let a
-#: publish land between them and produce a `SessionConfig` whose prompt came from one
-#: version and whose pack came from the next — a combination that never existed and that no
-#: attestation could describe.
-#:
-#: **`ai_disclosure_line` IS SELECTED FOR ONE REASON AND IT IS HARD RULE 5** — see
-#: `refuse_unless_disclosed`. It is read in the SAME statement as the prompt, not in a
-#: second query, for this join's own reason: two reads could straddle an edit and let a
-#: call start on a version whose disclosure row no longer exists.
-#:
-#: **`knowledge_pack_sha256` IS SELECTED HERE AND NOWHERE ELSE**, which is the seam this
-#: module closes: `kb/pack.refresh_published_pack` writes that column on publish, and until
-#: this read existed nothing carried it into the process that answers the phone.
-#:
-#: **`engine_agent_ref` IS READ AND NOT REBUILT**, for the same class of reason. It is
-#: `pipecat:<tenant>:<agent>` and the worker could compose that string in one line — but
-#: `engine/pipecat.engine_agent_ref_for` is its author, this container must not import the
-#: monolith, and a second spelling of one handle is the drift `_engine_name` records. It is
-#: what `memory.ApiCallerMemoryReader` presents to the caller-data endpoint.
-_SESSION_CONFIG_SQL: Final = """
-SELECT p.agent_config_version_id,
-       p.resolved_config,
-       v.composed_prompt,
-       v.prompt_sha256,
-       v.model_config,
-       a.knowledge_pack_sha256,
-       a.engine_agent_ref,
-       a.ai_disclosure_line
-FROM pipecat_agents AS p
-JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
-JOIN agents AS a ON a.id = p.agent_id
-WHERE p.agent_id = :aid AND p.tenant_id = :tid
-"""
-
-
 async def load_session_config(
-    connection: AsyncConnection,
+    api: WorkerApiClient,
     *,
     call_id: str,
     tenant_id: UUID,
     agent_id: UUID,
     direction: CallDirection,
+    engine_agent_ref: str,
 ) -> SessionConfig:
     """The configuration for one call. Raises `AgentNotRunnableError` when there is none.
 
-    **`connection` IS AN ARGUMENT AND THIS MODULE OWNS NO ENGINE, WHICH IS A DECISION.**
-    The obvious alternative — a process-global `AsyncEngine` built from `DATABASE_URL`
-    right here — would put half a bootstrap in whichever module happened to need the
-    database first. The worker's other database citizen is `NormalizedEventSink`, whose
-    writer is the next wave (`pipeline.py`, "what is deliberately not here"), and one
-    process wants ONE pool sized against ONE workload. So the engine belongs with the
-    container entrypoint that owns both; until that entrypoint exists the caller supplies a
-    connection — which is also what lets this be tested against a real database through
-    `tenant_session`, with the RLS policy genuinely in force rather than mocked away.
+    **`api` IS AN ARGUMENT AND THIS MODULE OWNS NO CLIENT, WHICH IS THE SAME DECISION THIS
+    FUNCTION ALWAYS MADE.** It used to take an `AsyncConnection` and own no engine, on the
+    ground that "one process wants ONE pool sized against ONE workload. So the engine belongs
+    with the container entrypoint that owns both". One `httpx.AsyncClient` per process is the
+    same argument with a different noun — a client per request re-does DNS, TCP and TLS — and
+    it is also what lets this be tested with a transport the test owns and no socket at all.
+
+    **`engine_agent_ref` IS AN ARGUMENT AND IS NOT REBUILT FROM THE IDS**, although this
+    function is handed both. `engine/pipecat.engine_agent_ref_for` is its author, this
+    container must not import the monolith, and a second spelling of one handle is the drift
+    the quality bar refuses. `carrier.route_of` reads it off the stream URL the carrier
+    connected to, which is where it comes from on the only path a call reaches this worker
+    by.
 
     **`direction` IS AN ARGUMENT AND NOT A COLUMN**, because `AgentConfig.direction` may be
     `both`: it says what the agent is ALLOWED to do, and `CallDirection` says what this call
     IS. Deriving one from the other would make every call on a `both` agent claim inbound.
 
-    **`call_id` IS OURS AND IS READ FROM NOWHERE.** §1.2 splits the record: the carrier's
-    CDR is reconciled AGAINST this id rather than being its source.
-    """
-    row = (
-        await connection.execute(text(_SESSION_CONFIG_SQL), {"aid": agent_id, "tid": tenant_id})
-    ).first()
-    if row is None:
-        # Ids only (hard rule 6). Both causes are named because they need different people:
-        # an agent nobody published is a client-facing state, and an agent whose row this
-        # tenant cannot see is an isolation fault.
-        raise AgentNotRunnableError(
-            f"agent {agent_id} has no published runtime row visible to tenant {tenant_id}"
-        )
+    **`call_id` IS OURS AND IS READ FROM NOWHERE.** §1.2 splits the record: the carrier's CDR
+    is reconciled AGAINST this id rather than being its source.
 
-    (
-        version_id,
-        resolved_config,
-        composed_prompt,
-        prompt_sha256,
-        model_config,
-        pack_sha,
-        engine_agent_ref,
-        ai_disclosure_line,
-    ) = row
+    **THE TENANT AND AGENT ARE CHECKED, NOT TAKEN.** The answer carries both, resolved from
+    the ref by the server; disagreeing with the ids this call was routed to would mean the
+    ref and the route named different agents, which is a hard rule 1 fault and is refused
+    rather than reconciled — `sink.SinkIdentityError`'s rule, at the other end of the call.
+    """
+    try:
+        answer = await api.session(engine_agent_ref)
+    except WorkerApiError as failure:
+        # NOT DEGRADED. Every other read on the ring fails open — caller memory to `()`, the
+        # knowledge pack to an agent that cannot answer questions about the business — and
+        # this one must not: the thing that could not be read is the prompt carrying hard
+        # rule 5's sentences, and a call assembled without it puts a live caller in front of
+        # a model running on whatever system message the vendor defaults to.
+        raise AgentNotRunnableError(
+            f"the configuration for agent {agent_id} could not be read from the platform "
+            f"API, so no call may run on it: {failure}"
+        ) from failure
+    if answer.tenant_id != tenant_id or answer.agent_id != agent_id:
+        raise AgentNotRunnableError(
+            f"the platform API resolved this call's agent ref to agent {answer.agent_id} of "
+            f"tenant {answer.tenant_id}, and the call was routed to agent {agent_id} of "
+            f"tenant {tenant_id}"
+        )
     refuse_unless_disclosed(
         agent_id=agent_id,
-        ai_disclosure_line=ai_disclosure_line,
-        composed_prompt=composed_prompt,
+        ai_disclosure_line=answer.ai_disclosure_line,
+        composed_prompt=answer.system_prompt,
     )
-    published = AgentConfig.model_validate(resolved_config)
-    models = ModelConfig.model_validate(model_config)
 
     logger.info(
         "session config loaded",
         call_id=call_id,
         tenant_id=str(tenant_id),
         agent_id=str(agent_id),
-        agent_config_version_id=str(version_id),
+        agent_config_version_id=str(answer.agent_config_version_id),
         # A digest is an id and is loggable; the prompt it was taken over is not.
-        prompt_sha256=prompt_sha256,
-        # WHETHER this call has a pack, not which one. The digest is logged by
-        # `knowledge.py` on the load itself, and two places logging one id is two places to
-        # get hard rule 6 wrong later.
-        knowledge_pack=pack_sha is not None,
+        prompt_sha256=answer.prompt_sha256,
+        # WHETHER this call has a pack, not which one. The digest is logged by `knowledge.py`
+        # on the load itself, and two places logging one id is two places to get hard rule 6
+        # wrong later.
+        knowledge_pack=answer.knowledge_pack_sha256 is not None,
     )
     return SessionConfig(
         call_id=call_id,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        agent_config_version_id=version_id,
+        agent_config_version_id=answer.agent_config_version_id,
         direction=direction,
-        system_prompt=composed_prompt,
-        prompt_sha256=prompt_sha256,
-        models=models,
-        language=_session_language(published, models),
-        # EVERY AGENT SPEAKS FIRST, ON BOTH LEGS, AND NO COLUMN DECIDES IT TODAY. D-163
-        # makes the AI disclosure and the recording notice sentences the agent VOLUNTEERS
-        # at the start of a call, inbound and outbound alike, and a caller cannot be
-        # volunteered anything by a pipeline that waits for them to talk first. If a
-        # per-agent "listen first" ever becomes a product question it is a column on
-        # `agents` and a field on `AgentConfig`, not a default quietly flipped here.
-        greet_first=True,
-        knowledge_pack_sha256=pack_sha,
-        engine_agent_ref=None if engine_agent_ref is None else str(engine_agent_ref),
+        system_prompt=answer.system_prompt,
+        prompt_sha256=answer.prompt_sha256,
+        models=answer.models,
+        # EVERY AGENT SPEAKS FIRST, ON BOTH LEGS, AND NO COLUMN DECIDES IT TODAY (D-163).
+        # The server is what answers `greet_first` now; the argument moved with it rather
+        # than being restated in two places.
+        language=answer.language,
+        greet_first=answer.greet_first,
+        knowledge_pack_sha256=answer.knowledge_pack_sha256,
+        engine_agent_ref=answer.engine_agent_ref,
     )
 
 
@@ -191,6 +163,13 @@ def refuse_unless_disclosed(
     *, agent_id: UUID, ai_disclosure_line: str | None, composed_prompt: str | None
 ) -> None:
     """HARD RULE 5, AT THE ONE DOOR EVERY CALL OF THIS ENGINE COMES THROUGH.
+
+    ⚠ **THE SERVER ASKS BOTH QUESTIONS TOO (D-621), AND THIS IS NOT THEREFORE REDUNDANT.**
+    `apps/api/worker/service.load_session` serves no session for an undisclosed agent,
+    because that is where the rows are and a worker cannot check what it was never sent.
+    This re-asks both of what ARRIVED, because this process is the last reader before a
+    model speaks — which is the argument the paragraph below was written with, and putting a
+    network between the two readers makes it stronger rather than weaker.
 
     **WHY IT IS HERE AND NOT IN THE CARRIER ENTRYPOINT.** `apps/api` refuses an
     undisclosed agent twice already — `agents.ai_disclosure_line` is NOT NULL with a
@@ -232,20 +211,6 @@ def refuse_unless_disclosed(
             f"agent {agent_id} has a published prompt that does not carry the "
             "truthful-answer floor, so no call may run on it (hard rule 5)"
         )
-
-
-def _session_language(published: AgentConfig, models: ModelConfig) -> str | None:
-    """The BCP-47 code to pin the transcriber to, or `None` to let it detect.
-
-    `stt_autodetect` WINS, and that is not a preference: D-584 records that no Sarvam model
-    on our declared leg accepts `te-IN` at all, so an operator who turned detection on did
-    it because pinning was refused on the wire. Sending the pin anyway would re-create the
-    refusal the flag exists to route around — `pipeline._language` would hand Pipecat a
-    language whose service rejects it at construction.
-    """
-    if models.stt_autodetect:
-        return None
-    return published.language_primary
 
 
 __all__ = ["AgentNotRunnableError", "load_session_config", "refuse_unless_disclosed"]

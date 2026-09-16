@@ -166,25 +166,21 @@ env_file_value() {
     | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
 }
 
-# A VALUE THAT WORKS ON THIS HOST CAN BE MEANINGLESS IN THE CONTAINER THAT WILL READ IT,
-# and `DATABASE_URL` is the case that bites: this deployment runs Postgres ON THE HOST and
-# containers reach it over the Docker bridge as `host.docker.internal`
-# (`compose.prod.yml:36`, DEPLOYMENT §"Postgres on the host"). The voice worker is box 1
-# — Pipecat Cloud, a DIFFERENT NETWORK — where that name resolves to nothing and the host's
-# Postgres is not reachable at all.
+# A VALUE THAT WORKS ON THIS HOST CAN BE MEANINGLESS IN THE CONTAINER THAT WILL READ IT.
 #
-# Found the first time `sources` was run on the real host: `psql` could not translate
-# `host.docker.internal`. Refused rather than warned, because the failure it prevents is
-# silent at this step and only surfaces as a worker that cannot boot in a container whose
-# logs are somewhere else. The override exists for the deployment where somebody HAS made
-# the database reachable and knows they have.
-host_local_dsn() {
-  local v=$1
-  [[ "$v" == *host.docker.internal* ]] && return 0
-  [[ "$v" == *@localhost* || "$v" == *@127.0.0.1* ]] && return 0
-  [[ "$v" =~ @10\. || "$v" =~ @192\.168\. || "$v" =~ @172\.(1[6-9]|2[0-9]|3[01])\. ]] && return 0
-  return 1
-}
+# ⚠ THE CASE THIS GUARDED IS GONE, AND THE REASON IT IS GONE IS WORTH KEEPING (D-621).
+# `DATABASE_URL` used to be in the contract above, and `host_local_dsn` refused a value
+# naming `host.docker.internal`, `localhost` or any RFC1918 address — because this
+# deployment runs Postgres ON THE HOST behind the Docker bridge (`compose.prod.yml:36`) and
+# the worker is box 1 on Pipecat Cloud, a different network. Found the first time `sources`
+# was run on the real host: `psql` could not translate `host.docker.internal`.
+#
+# That was §12.5 gate 6, and it is CLOSED the only way it could be without putting the
+# database on the public internet: the worker no longer touches Postgres. It reads its
+# configuration and posts its calls' events over HTTPS to `apps/api`, so what this secret
+# set now carries is a base URL and a token. There is nothing left here to refuse — a wrong
+# base URL fails loudly at `bot.py --preflight`, which is the check that replaced the DSN
+# probe and proves strictly more than it did (it proves the credential too).
 
 # NEVER the value — only enough to recognise it. Four characters is what the ops console
 # itself shows (`SecretRecord.last_four`), so the two surfaces agree on how much is safe.
@@ -203,7 +199,8 @@ tail4() {
 # which no per-row flag can express — `secrets_cmd` enforces that separately, and the three
 # rows are marked `llm`.
 readonly ENV_CONTRACT=(
-  "DATABASE_URL|yes|the same value as the VPS .env, APP role and never the owner (RLS depends on it)"
+  "VOICE_WORKER_API_BASE_URL|yes|where apps/api is, e.g. https://api.calevate.tech — the worker reads its config and posts its calls' events here (D-621). NOT a database DSN: this container cannot reach Postgres at all"
+  "VOICE_WORKER_API_TOKEN|yes|the Bearer token this deployment issued its worker. The SAME value goes in the ops console under voice_worker_api_token; nothing copies one to the other"
   "OBJECT_STORE_ENDPOINT|yes|the R2 endpoint the knowledge pack is fetched from"
   "OBJECT_STORE_BUCKET|yes|the R2 bucket holding knowledge packs"
   "AWS_ACCESS_KEY_ID|yes|R2 credential; botocore resolves it itself"
@@ -460,20 +457,6 @@ secrets_cmd() {
       fi
       continue
     fi
-    if [[ "$name" == DATABASE_URL ]] && host_local_dsn "$value" && [[ -z "${ALLOW_HOST_LOCAL_DSN:-}" ]]; then
-      die "that DATABASE_URL names a host-local address, and the voice worker does not run on
-     this host. It runs on Pipecat Cloud (box 1, docs/PIPECAT-MIGRATION.md §8), where
-     'host.docker.internal', 'localhost' and any RFC1918 address reach nothing — this
-     deployment keeps Postgres ON THE HOST behind the Docker bridge, which is why the VPS
-     value looks like this and why it CANNOT be reused here.
-
-     Nothing is saved. DEPLOYMENT §12.5 gate 6 is the open question this belongs to: how a
-     container outside this host reaches this database at all. Do not paste a guess — a DSN
-     that resolves to the wrong database is worse than one that resolves to none.
-
-     If this host really has made the database reachable from outside and you know the DSN
-     is the external one, re-run with ALLOW_HOST_LOCAL_DSN=1."
-    fi
     printf '%s=%s\n' "$name" "$value" >>"$envfile"
     [[ "$required" == llm ]] && llm_given=1
   done
@@ -543,6 +526,9 @@ sources_cmd() {
   # Read through the RUNNING api container rather than reimplementing the query or needing a
   # psql on the host: that process already holds the pool and the role, and this asks it for
   # the same metadata the console renders. Degrades to the SQL when it cannot.
+  # THIS HOST'S database, and not the worker's: since D-621 the worker has no DSN at all.
+  # It is read here only to show the last four of what the ops console already holds, so an
+  # operator can confirm the value they are pasting into the secret set is the same one.
   local dsn; dsn=$(env_file_value DATABASE_URL 2>/dev/null || true)
   if [[ -n "$dsn" ]] && have psql; then
     psql "${dsn/postgresql+psycopg:/postgresql:}" -At -F' ' -c \

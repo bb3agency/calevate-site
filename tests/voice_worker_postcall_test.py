@@ -45,8 +45,8 @@ from apps.workers.pipeline import POSTCALL_JOB, run_post_call_pipeline
 from calevate_shared.engine import VoiceEngine, pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from sqlalchemy import text
-from voice_worker.db import WorkerDatabase
-from voice_worker.sink import DatabaseEventSink
+from tests.worker_api_harness import worker_client
+from voice_worker.sink import HttpEventSink
 
 pytestmark = [pytest.mark.rls]
 
@@ -153,9 +153,9 @@ async def _run_one_call(
     tenant_id: uuid.UUID, agent_id: uuid.UUID, call_id: str, *, settlements: int = 1
 ) -> list[Any]:
     """Drive a whole call through the real sink. Returns each settlement's result."""
-    database = WorkerDatabase(get_settings().database_url)
-    sink = DatabaseEventSink(
-        database,
+    api = worker_client()
+    sink = HttpEventSink(
+        api,
         call_id=call_id,
         tenant_id=tenant_id,
         agent_id=agent_id,
@@ -202,7 +202,7 @@ async def _run_one_call(
         for _ in range(settlements):
             results.append(await sink.settle(_NothingToMeter(), carrier=None, runtime=None))  # type: ignore[arg-type]
     finally:
-        await database.aclose()
+        await api.aclose()
     return results
 
 
@@ -240,7 +240,7 @@ async def _outbox_rows(call_row_id: uuid.UUID) -> list[Any]:
 # ---------------------------------------------------------------------------------------
 
 
-async def test_settling_a_pipecat_call_enqueues_the_post_call_pipeline() -> None:
+async def test_settling_a_pipecat_call_enqueues_the_post_call_pipeline(worker_token: None) -> None:
     tenant_id, agent_id = await _seed_tenant()
     call_id = f"call-{uuid.uuid4().hex[:10]}"
     (settlement,) = await _run_one_call(tenant_id, agent_id, call_id)
@@ -259,21 +259,29 @@ async def test_settling_a_pipecat_call_enqueues_the_post_call_pipeline() -> None
     assert payload["execution_id"] == pipecat_call_ref(tenant_id, call_id)
 
 
-async def test_the_worker_and_the_fleet_name_one_job() -> None:
-    """`voice_worker.sink.POSTCALL_JOB` is a RESTATEMENT of
-    `apps.workers.pipeline.POSTCALL_JOB` — the worker cannot import the monolith — so the
-    two spellings need something holding them in step, and this is it. A drift here is a
-    job arq accepts, warns about once and drops."""
+async def test_the_worker_and_the_fleet_name_one_job(worker_token: None) -> None:
+    """`apps.api.worker.service.POSTCALL_JOB` is a RESTATEMENT of
+    `apps.workers.pipeline.POSTCALL_JOB` — restated rather than imported so
+    `scripts/check_job_wiring.py` can resolve it as a module-level constant IN THE FILE THAT
+    ENQUEUES IT — so the two spellings need something holding them in step, and this is it.
+    A drift here is a job arq accepts, warns about once and drops.
+
+    ⚠ **THE RESTATEMENT MOVED WITH THE ENQUEUE (D-621).** It used to live in
+    `voice_worker/sink.py`, which wrote the outbox row itself; the worker cannot reach that
+    database from Pipecat Cloud (§12.5 gate 6), so the row is written by `apps/api/worker`
+    and the constant is where the write is. The worker imports the monolith no more than it
+    did, and now enqueues nothing at all.
+    """
+    from apps.api.worker.service import POSTCALL_JOB as WORKER_SPELLING
     from apps.workers.settings import FUNCTIONS
-    from voice_worker.sink import POSTCALL_JOB as WORKER_SPELLING
 
     assert WORKER_SPELLING == POSTCALL_JOB
     assert WORKER_SPELLING in {fn.__name__ for fn in FUNCTIONS}, (
-        "the worker enqueues a job no arq worker registers"
+        "the worker's settlement enqueues a job no arq worker registers"
     )
 
 
-async def test_settling_twice_promises_the_pipeline_once() -> None:
+async def test_settling_twice_promises_the_pipeline_once(worker_token: None) -> None:
     """Hard rule 4's neighbour: the ledger converges with `ON CONFLICT DO NOTHING` and so
     must the trigger. Two pipelines on one call would mean two hot-lead alerts to the
     client and two CRM fan-outs under two delivery ids they cannot deduplicate."""
@@ -291,7 +299,7 @@ async def test_settling_twice_promises_the_pipeline_once() -> None:
 # ---------------------------------------------------------------------------------------
 
 
-async def test_the_outbox_payload_drives_the_real_post_call_pipeline() -> None:
+async def test_the_outbox_payload_drives_the_real_post_call_pipeline(worker_token: None) -> None:
     """End to end over a real database: settle, take the row the dispatcher would take, and
     run the job it names. The extraction row at the end is the product's core value
     arriving — the thing that was silently absent for every call on this engine."""
@@ -362,7 +370,9 @@ async def test_the_outbox_payload_drives_the_real_post_call_pipeline() -> None:
 # ---------------------------------------------------------------------------------------
 
 
-async def test_the_adapter_reads_the_call_back_under_the_tenant_its_id_names() -> None:
+async def test_the_adapter_reads_the_call_back_under_the_tenant_its_id_names(
+    worker_token: None,
+) -> None:
     """`get_execution` carries no tenant and `calls` is FORCE-RLS'd. The tenant comes out of
     the engine-space id the sink minted, and nothing else."""
     tenant_id, agent_id = await _seed_tenant()
@@ -382,7 +392,9 @@ async def test_the_adapter_reads_the_call_back_under_the_tenant_its_id_names() -
     assert snapshot.billable_ready is False
 
 
-async def test_a_call_id_this_engine_never_minted_is_reported_as_no_record() -> None:
+async def test_a_call_id_this_engine_never_minted_is_reported_as_no_record(
+    worker_token: None,
+) -> None:
     """A bare uuid, or another engine's execution id, resolves to no tenant. The adapter
     must say "no record of that call" and must never guess one (hard rule 1)."""
     from apps.api.core.errors import ProblemError

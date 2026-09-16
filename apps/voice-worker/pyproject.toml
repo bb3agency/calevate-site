@@ -67,13 +67,15 @@ dependencies = [
     # `<3.13`, so the stdlib `audioop` is what gets used here and that package is not
     # installed at all.
     "pipecat-ai[sarvam,websocket]==1.10.0",
-    # The worker writes our normalized events itself: §3 category D of
-    # `docs/PIPECAT-MIGRATION.md` records that `verify_webhook`/`parse_webhook` have no
-    # counterpart here because nothing external calls us. There is no webhook to receive
-    # and no intake path to extend — this process is inside our trust boundary and
-    # authenticates as itself, so it needs a database client and not an HTTP server.
-    "sqlalchemy>=2.0.44",
-    "psycopg[binary,pool]>=3.2",
+    # ⚠ **`sqlalchemy` AND `psycopg` WERE HERE AND ARE GONE (D-621).** They were declared on
+    # the ground that this worker "needs a database client and not an HTTP server", which was
+    # true of its role and false of its network: `docs/DEPLOYMENT.md` §12.5 gate 6 found that
+    # this container cannot reach our Postgres at all — it is on box 2's host behind the
+    # Docker bridge, and this runs on Pipecat Cloud. So the worker reads its configuration and
+    # posts its calls' events over HTTPS to `apps/api` instead, through `httpx` below, and
+    # nothing under this deployable imports SQLAlchemy. Removing them is not a size
+    # optimisation: a database driver in an image that can never open a connection is a
+    # dependency whose presence would keep suggesting one could.
     # The knowledge pack is fetched from the S3-compatible object store at session start
     # (`voice_worker/storage.py`), so this container needs an S3 client of its own. Same
     # floor as `apps/workers`, which reads the same bucket with the same SDK — one version
@@ -110,8 +112,11 @@ dependencies = [
     # edge to a package the one venv already installs, at the SAME floor — two ranges for
     # one vendor would mean whichever member resolved first decided for both.
     "httpx>=0.28",
-    # The surrogate primary keys this container mints for the rows `voice_worker/sink.py`
-    # writes (`calls`, `transcript_turns`, `usage_events`). `uuid_utils.compat.uuid7`
+    # OUR OWN `call_id`, minted per session by `bot.resolve_call_identity` (§1.2: the id is
+    # ours and the carrier's CDR is reconciled against it rather than being its source).
+    # ⚠ It used to be the surrogate primary keys this container minted for `calls`,
+    # `transcript_turns` and `usage_events`; since D-621 the server mints those, and the one
+    # id left is the one no other party can supply. `uuid_utils.compat.uuid7`
     # returns a stdlib `uuid.UUID`, which is what SQLAlchemy binds — the repo's own
     # `apps.api.db.base.uuid7` is the same function written by hand before the vendor
     # shipped that shim, and reaching into the monolith for one line would contradict this

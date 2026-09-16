@@ -165,6 +165,13 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         # and reach nothing.
         "plivo_auth_id",
         "plivo_auth_token",
+        # D-621. The voice worker's API BASE URL, env-only for `gnani_api_key`'s reason
+        # exactly: it is read by that same container and by no process on this host, so a
+        # box for it here would be a value nothing could deliver and nothing could read.
+        # Its TOKEN is deliberately NOT here — `apps/api/worker/service.authorized` reads
+        # that one to verify a header, so it has a reader on this host and is console-
+        # managed. One wire, two halves, two classifications, because they have two readers.
+        "voice_worker_api_base_url",
     } == ENV_ONLY_KEYS
 
     before = get_settings().app_env

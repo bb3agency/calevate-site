@@ -2,9 +2,9 @@
 §6 step 6).
 
 **WHAT THIS MODULE IS FOR, IN ONE SENTENCE.** It turns an inbound carrier connection into
-the three arguments `session.start_session` already takes — a tenant-scoped database
-connection, the two ids of the agent being called, and a Pipecat transport — and it is the
-only place in this repository that knows the carrier is Plivo.
+the three arguments `session.start_session` already takes — the platform API client, the
+two ids of the agent being called, and a Pipecat transport — and it is the only place in
+this repository that knows the carrier is Plivo.
 
 **THE ACCOUNT IS THE GATE ON THE CALL, NOT ON THE CODE.** A Plivo account in the India data
 region (BLOCKER-1) is what step 6 waits for; nothing here waits for it. Every Plivo-shaped
@@ -72,8 +72,6 @@ tenant and agent ids, the carrier's own stream id, and words.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
@@ -88,8 +86,8 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
-from sqlalchemy.ext.asyncio import AsyncConnection
 
+from voice_worker.api_client import WorkerApiClient
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.pipeline import (
     TELEPHONY_SAMPLE_RATE_HZ,
@@ -346,17 +344,8 @@ def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: st
     transport.add_event_handler(CLIENT_CONNECTED_EVENT, _greet)
 
 
-#: A connection scoped to ONE tenant, as a context manager.
-#:
-#: The worker owns no database engine (`config.load_session_config` records why: one process
-#: wants one pool, sized against one workload, and that belongs to the container entrypoint
-#: that owns both). So the entrypoint hands this in, and hard rule 1 becomes visible in the
-#: signature: a carrier call cannot reach a row until a tenant has been named.
-TenantConnection = Callable[[UUID], AbstractAsyncContextManager[AsyncConnection]]
-
-
 async def start_carrier_call(
-    connection_for: TenantConnection,
+    api: WorkerApiClient,
     *,
     token: str,
     call_id: str,
@@ -373,10 +362,15 @@ async def start_carrier_call(
     1. **Route.** The token off the stream URL becomes a tenant and an agent, or the call is
        refused (`route_of`). Nothing is read from the database before this: a connection
        cannot be opened until a tenant is named.
-    2. **Scope.** `connection_for(tenant_id)` — hard rule 1, in the signature.
+    2. **Scope.** The token IS the agent ref, so it is what `start_session` presents to the
+       platform API — and the server resolves the tenant from it and reads under that
+       tenant's RLS (D-621). Hard rule 1 is still in the signature, one indirection out: a
+       carrier call cannot reach a row without naming the ref it was routed by, and the ref
+       names the tenant.
     3. **Load and assemble.** `session.start_session` is the existing seam and is called
-       unchanged: the agent's published config version, its knowledge pack, then
-       `assemble_call`. The hard rule 5 refusal lives inside its first step.
+       unchanged in everything but its first argument: the agent's published config version,
+       its knowledge pack, then `assemble_call`. The hard rule 5 refusal lives inside its
+       first step.
     4. **Arm the first turn**, so the agent volunteers its disclosure toggles (D-163) rather
        than waiting for a caller who has just heard a click.
 
@@ -390,20 +384,20 @@ async def start_carrier_call(
     over a call that has not been assembled.
     """
     route = route_of(token)
-    async with connection_for(route.tenant_id) as connection:
-        call = await start_session(
-            connection,
-            call_id=call_id,
-            tenant_id=route.tenant_id,
-            agent_id=route.agent_id,
-            direction=direction,
-            credentials=credentials,
-            transport=transport,
-            sink=sink,
-            fetcher=fetcher,
-            cache=cache,
-            embedder=embedder,
-        )
+    call = await start_session(
+        api,
+        call_id=call_id,
+        tenant_id=route.tenant_id,
+        agent_id=route.agent_id,
+        direction=direction,
+        engine_agent_ref=token,
+        credentials=credentials,
+        transport=transport,
+        sink=sink,
+        fetcher=fetcher,
+        cache=cache,
+        embedder=embedder,
+    )
     arm_first_turn(transport, call, call_id=call_id)
     # Ids and words (hard rule 6). No number is available here and none would be logged if
     # it were; the carrier's stream id is what ties this line to their side of the call.
@@ -448,7 +442,6 @@ __all__ = [
     "CarrierWiringError",
     "PlivoCredentials",
     "PlivoHandshake",
-    "TenantConnection",
     "UnroutableCallError",
     "arm_first_turn",
     "build_plivo_transport",

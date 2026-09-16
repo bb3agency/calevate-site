@@ -1,10 +1,11 @@
 """The container bootstrap, end to end: a real pipeline writing to a real database.
 
-`voice_worker_sink_test.py` holds the writer to its columns and its tenancy. This file
-holds the PROCESS to the two promises `runtime.py`'s docstring makes, and neither is
-provable by reading the source:
+`tests/worker_api_test.py` holds the WRITER to its columns and its tenancy, and
+`voice_worker_sink_test.py` holds the client's buffer to its bounds. This file holds the
+PROCESS to the two promises `runtime.py`'s docstring makes, and neither is provable by
+reading the source:
 
-1. **A turn the sink accepted is committed before the process is allowed to exit.** The
+1. **A turn the sink accepted is written before the process is allowed to exit.** The
    whole graceful-shutdown argument rests on a VENDOR behaviour — that Pipecat dispatches
    each event handler as its own task and then awaits every outstanding one in
    `cleanup()` — and hard rule 11 says a claim about the outside world is asserted from a
@@ -33,9 +34,8 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
-from apps.api.engine.pipecat import PipecatEngine
+from apps.api.engine.pipecat import PipecatEngine, engine_agent_ref_for
 from calevate_shared.engine import pipecat_call_ref
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.workers.runner import WorkerRunner
@@ -43,28 +43,29 @@ from sqlalchemy import text
 from tests.kb_workflow_test import _tenant_with_published_agent
 from tests.voice_worker_pipeline_test import CREDENTIALS, FakeLLM, FakeTransport, _PassThrough
 from tests.voice_worker_session_test import _agent_config
+from tests.worker_api_harness import worker_client
 from voice_worker import pipeline, runtime
-from voice_worker.db import WorkerDatabase
-from voice_worker.sink import DatabaseEventSink
+from voice_worker.api_client import WorkerApiClient
+from voice_worker.sink import HttpEventSink
 
 pytestmark = [pytest.mark.rls]
 
 _REPLY = "నమస్కారం, ఎలా సహాయం చేయగలను"
 
 
-async def _live_call() -> tuple[uuid.UUID, uuid.UUID, str, WorkerDatabase, DatabaseEventSink]:
+async def _live_call() -> tuple[uuid.UUID, uuid.UUID, str, WorkerApiClient, HttpEventSink]:
     tenant_id, agent_id = await _tenant_with_published_agent()
     tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    database = WorkerDatabase(get_settings().database_url)
-    sink = DatabaseEventSink(
-        database,
+    api = worker_client()
+    sink = HttpEventSink(
+        api,
         call_id=call_id,
         tenant_id=tenant_id,
         agent_id=agent_id,
         direction="inbound",
     )
-    return tenant_id, agent_id, call_id, database, sink
+    return tenant_id, agent_id, call_id, api, sink
 
 
 def _assemble(call_id: str, tenant_id: uuid.UUID, agent_id: uuid.UUID, sink: Any) -> Any:
@@ -77,7 +78,9 @@ def _assemble(call_id: str, tenant_id: uuid.UUID, agent_id: uuid.UUID, sink: Any
     return pipeline.assemble_call(config=config, legs=legs, transport=FakeTransport(), sink=sink)
 
 
-async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive_the_end() -> None:
+async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive_the_end(
+    worker_token: None,
+) -> None:
     """**THE MID-CALL-SHUTDOWN GUARANTEE, EXERCISED RATHER THAN ARGUED.**
 
     A real `PipelineWorker` under a real `WorkerRunner` produces an agent turn, and the
@@ -86,16 +89,16 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
     which is the only way to tell "committed" from "the task object still exists".
 
     A partial write is structurally impossible rather than merely absent: each flush is ONE
-    transaction (`WorkerDatabase.tenant_connection` opens `engine.begin()`), so an
-    interrupted flush commits nothing rather than half a batch. What this test adds is the
-    other half — that an accepted turn is not simply DROPPED when the process winds down.
+    request and the server writes it in ONE transaction, so an interrupted flush commits
+    nothing rather than half a batch. What this test adds is the other half — that an
+    accepted turn is not simply DROPPED when the process winds down.
 
     ⚠ Since turns are BUFFERED, "accepted" and "committed" are no longer the same instant,
     and this test says so: it flushes explicitly, exactly as `settle` does. The property it
     guards is unchanged and is now carried by `run_call`'s `finally` rather than by the
     handler task itself.
     """
-    tenant_id, agent_id, call_id, database, sink = await _live_call()
+    tenant_id, agent_id, call_id, api, sink = await _live_call()
     call = _assemble(call_id, tenant_id, agent_id, sink)
     worker = call.worker
 
@@ -115,7 +118,7 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
         # what a hang-up and what a SIGTERM both reduce to.
         for _ in range(200):
             # TURNS ARE BUFFERED (sink.DEFAULT_TURN_BATCH_SIZE), so this asks the sink to
-            # write what it has rather than waiting for a batch that one turn will never
+            # send what it has rather than waiting for a batch that one turn will never
             # fill. It is the same call `settle` and `run_call`'s `finally` make; polling the
             # table without it would be waiting on the timer, which is a ten-second sleep.
             await sink.flush()
@@ -137,7 +140,7 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
     finally:
         if not run.done():
             run.cancel()
-        await database.aclose()
+        await api.aclose()
 
     async with tenant_session(tenant_id) as db:
         status, row_id = (
@@ -165,11 +168,14 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
     # HARD RULE 5 on the live path: the column every content reader names is populated at
     # write time, not left for a later pass that does not run for this engine.
     # `NormalizedEventBoundary` hands the sink `text_redacted=None` (asserted in
-    # `voice_worker_pipeline_test`); the ROW must not carry that NULL.
+    # `voice_worker_pipeline_test`) and the worker no longer fills it either (D-621 moved the
+    # redactor to the server, where the row is written); the ROW must not carry that NULL.
     assert agent_rows[0][2] is not None
 
 
-async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accepted() -> None:
+async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accepted(
+    worker_token: None,
+) -> None:
     """The ungraceful half. `runner.run()` is cancelled from outside rather than ended.
 
     Pipecat's own `run()` responds to an outside cancellation by cancelling the pipeline and
@@ -177,7 +183,7 @@ async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accep
     accepted are still there. What is asserted is exactly that: nothing accepted is lost,
     and nothing half-written appears — every turn present is a complete row.
     """
-    tenant_id, agent_id, call_id, database, sink = await _live_call()
+    tenant_id, agent_id, call_id, api, sink = await _live_call()
     call = _assemble(call_id, tenant_id, agent_id, sink)
     worker = call.worker
 
@@ -203,7 +209,7 @@ async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accep
         with contextlib.suppress(asyncio.CancelledError):
             await run
     finally:
-        await database.aclose()
+        await api.aclose()
 
     async with tenant_session(tenant_id) as db:
         row = (
@@ -234,6 +240,7 @@ async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accep
 
 async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
     monkeypatch: pytest.MonkeyPatch,
+    worker_token: None,
 ) -> None:
     """One keyword argument, and a live caller's last sentence depends on it.
 
@@ -266,10 +273,10 @@ async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
         async def run(self) -> None:
             return None
 
-    tenant_id, agent_id, call_id, database, _sink = await _live_call()
-    # `run_call` LOADS the config out of the database, so the agent needs the runtime row the
-    # control plane really publishes — minted by the adapter rather than hand-inserted here,
-    # for `voice_worker_session_test._runtime_agent`'s reason.
+    tenant_id, agent_id, call_id, api, _sink = await _live_call()
+    # `run_call` LOADS the config over the platform API, so the agent needs the runtime row
+    # the control plane really publishes — minted by the adapter rather than hand-inserted
+    # here, for `voice_worker_session_test._runtime_agent`'s reason.
     await PipecatEngine().create_agent(_agent_config(tenant_id, agent_id))
     monkeypatch.setattr(runtime, "WorkerRunner", _Recording)
 
@@ -279,13 +286,14 @@ async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
         async def fetch(self, _key: str) -> bytes | None:
             return None
 
-    worker_runtime = runtime.WorkerRuntime(database, fetcher=_NoPacks())
+    worker_runtime = runtime.WorkerRuntime(api, fetcher=_NoPacks())
     try:
         outcome = await worker_runtime.run_call(
             call_id=call_id,
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction="inbound",
+            engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
             credentials=CREDENTIALS,
             transport=FakeTransport(),
         )

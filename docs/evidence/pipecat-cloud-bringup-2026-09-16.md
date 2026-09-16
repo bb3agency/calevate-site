@@ -152,7 +152,10 @@ database"*. That sentence and the box diagram at §8 were both settled, and betw
 sits a network edge nobody drew. Nothing else in the contract has the problem: the object
 store is R2 and is internet-reachable already; every other value is a credential.
 
-It is now `docs/DEPLOYMENT.md` §12.5 **gate 6**, with four options and none chosen, because
+It is now `docs/DEPLOYMENT.md` §12.5 **gate 6** — ⚠ **CLOSED the same day by D-621**, which
+took the third of its four options (the worker stops touching Postgres and speaks HTTP to
+`apps/api`); the paragraph below records the state at the time of writing, with four
+options and none chosen, because
 this is an infrastructure decision and not a credential. `voice-worker-setup.sh secrets`
 REFUSES a host-local DSN rather than accepting one that cannot work
 (`ALLOW_HOST_LOCAL_DSN=1` overrides, for the deployment where somebody has genuinely made

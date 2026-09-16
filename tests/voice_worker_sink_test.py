@@ -1,90 +1,69 @@
-"""The worker's writer, against a real database with RLS genuinely in force.
+"""The worker's sink, over HTTP, against the real API with RLS genuinely in force.
 
-`voice_worker/sink.py` is the first thing in this repository that writes `calls`,
-`transcript_turns` and `usage_events` from OUTSIDE the monolith, while a call is still
-happening. Four properties are worth a test each, and every one of them is a hard rule:
+⚠ **THIS FILE USED TO HOLD `DatabaseEventSink` AND ITS SQL (D-621).** The worker runs on
+Pipecat Cloud and cannot reach our Postgres at all (`docs/DEPLOYMENT.md` §12.5 gate 6), so
+the statements moved to `apps/api/worker/service.py` and the clauses that held them moved to
+`tests/worker_api_test.py` — tenancy, the refusal-not-a-zero rule, the append-only
+idempotency, the redaction. What is left here is what is genuinely the CLIENT's, and it is
+three things:
 
-1. **It writes what it was given, under the right tenant** (hard rule 1). Proved by reading
-   the rows back through `tenant_session`, which is the same RLS the dashboard reads
-   through — not by reading them back through the sink's own connection, which would only
-   prove the sink agrees with itself.
-2. **A leg it cannot price is RECORDED, never zeroed** (hard rule 7). The test asserts BOTH
-   halves, because only one of them is the interesting one: a refusal row exists AND
-   `usage_events` holds nothing at all for that call. A sink that wrote four legs and a
-   refusal for the fifth would pass a test that only looked for the refusal, and would have
-   quietly invented a settled call.
-3. **Another tenant sees zero rows** (hard rule 1), on all three tables plus the new
-   `call_metering_refusals`.
-4. **Nothing it logs quotes a transcript** (hard rule 6), asserted over a real `loguru`
-   capture of a whole session rather than by reading the source.
+1. **The buffer and both its bounds (D-620).** Size, timer, flush-on-settle, flush-on-close,
+   and — the one that matters most — that a failed flush HOLDS the turns for the next
+   attempt rather than dropping the conversation. That property was worth having against a
+   database connection and is worth more against a network.
+2. **The identity refusal.** A sink is built for one session, and an event naming another
+   session's ids is refused BEFORE the request is built, so a crossed wire between two
+   concurrent calls never puts another tenant's words in a body at all. The server refuses
+   it too (`worker_api_test`), and neither check is redundant: this one is about what we
+   send, that one is about what a client on somebody else's infrastructure may claim.
+3. **Hard rule 6.** Nothing this path logs quotes a transcript or a number — asserted over a
+   real `loguru` capture of a whole session rather than by reading the source.
 
-SHARED DATABASE DISCIPLINE: every organisation is minted by this module, every assertion is
-scoped to ids this module created, and nothing counts rows globally.
+**IT RUNS AGAINST THE REAL APP OVER `httpx.ASGITransport`**, not a mock: the point of a
+contract split across two deployables is that the two halves AGREE, and a mocked transport
+would only prove this half is self-consistent. `tests/worker_api_harness.py` owns the
+harness that joins the two.
+
+SHARED DATABASE DISCIPLINE: every organisation is minted by that harness, every assertion is
+scoped to ids it created, and nothing counts rows globally.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from loguru import logger
 from sqlalchemy import text
-from tests.kb_workflow_test import _tenant_with_published_agent
-from voice_worker.db import (
-    MAX_OVERFLOW,
-    POOL_SIZE,
-    DatabaseNotConfiguredError,
-    WorkerDatabase,
-)
+from tests.worker_api_harness import published_agent, worker_client
+from voice_worker.api_client import WorkerApiClient, WorkerApiError
 from voice_worker.meter import (
-    CarrierCdr,
-    LegNotMeterableError,
+    CarrierFactsMissingError,
     MeteredLeg,
-    RuntimeUsage,
     UsageRow,
 )
-from voice_worker.sink import DatabaseEventSink, SinkIdentityError
+from voice_worker.sink import HttpEventSink, SinkIdentityError
 
 pytestmark = [pytest.mark.rls]
 
 
-# ---------------------------------------------------------------------------------------
-# Fixtures. A real tenant, a real agent, and a sink pointed at the suite's own database.
-# ---------------------------------------------------------------------------------------
-
-
-def _database() -> WorkerDatabase:
-    """A `WorkerDatabase` over the DSN this suite already runs against.
-
-    Built from `get_settings()` rather than `WorkerDatabase.from_env()` so the test does not
-    depend on `DATABASE_URL` being exported into the process — `from_env`'s own refusal is
-    covered separately below.
-    """
-    return WorkerDatabase(get_settings().database_url)
-
-
-async def _sink(
-    call_id: str, **kwargs: Any
-) -> tuple[DatabaseEventSink, uuid.UUID, uuid.UUID, WorkerDatabase]:
-    tenant_id, agent_id = await _tenant_with_published_agent()
-    tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
-    database = _database()
-    sink = DatabaseEventSink(
-        database,
+async def _sink(call_id: str, **kwargs: Any) -> tuple[HttpEventSink, uuid.UUID, uuid.UUID, Any]:
+    tenant_id, agent_id, _ref = await published_agent()
+    api = worker_client()
+    sink = HttpEventSink(
+        api,
         call_id=call_id,
         tenant_id=tenant_id,
         agent_id=agent_id,
         direction="inbound",
         **kwargs,
     )
-    return sink, tenant_id, agent_id, database
+    return sink, tenant_id, agent_id, api
 
 
 def _event(
@@ -101,20 +80,8 @@ def _event(
     )
 
 
-def _row(leg: MeteredLeg, unit: str, qty: str, cost: str) -> UsageRow:
-    return UsageRow(
-        leg=leg,
-        unit_type=unit,
-        qty=Decimal(qty),
-        unit_cost_inr=Decimal(cost),
-        total_inr=Decimal(qty) * Decimal(cost),
-        meta={"source": "test"},
-    )
-
-
-# ---------------------------------------------------------------------------------------
-# 1b. The buffer: both bounds, both flush paths, and what a failure leaves behind.
-# ---------------------------------------------------------------------------------------
+def _t(call_id: str, idx: int) -> TranscriptTurn:
+    return TranscriptTurn(call_id=call_id, idx=idx, speaker="caller", text=f"turn {idx}")
 
 
 async def _turn_count(tenant_id: uuid.UUID, call_id: str) -> int:
@@ -132,46 +99,90 @@ async def _turn_count(tenant_id: uuid.UUID, call_id: str) -> int:
         )
 
 
-def _t(call_id: str, idx: int) -> TranscriptTurn:
-    return TranscriptTurn(call_id=call_id, idx=idx, speaker="caller", text=f"turn {idx}")
+class _Flaky:
+    """A `WorkerApiClient` whose observation POST can be made to fail and then recover.
+
+    A WRAPPER RATHER THAN A MONKEYPATCHED METHOD: `WorkerApiClient` declares `__slots__`, so
+    there is no instance attribute to rebind — which is the class doing its job (a client on
+    this path should not be mutable by anything that holds one) and which this respects
+    rather than works around.
+    """
+
+    def __init__(self, real: WorkerApiClient) -> None:
+        self._real = real
+        self.broken = False
+
+    async def post_observations(self, *args: Any, **kwargs: Any) -> Any:
+        if self.broken:
+            raise WorkerApiError("connection reset")
+        return await self._real.post_observations(*args, **kwargs)
+
+    async def post_settlement(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._real.post_settlement(*args, **kwargs)
+
+    async def aclose(self) -> None:
+        await self._real.aclose()
 
 
-async def test_a_turn_under_the_batch_size_is_held_and_not_written() -> None:
-    """THE PROPERTY THE WHOLE CHANGE RESTS ON, stated as a test rather than as a comment.
+class _RefusesTheCarrier:
+    """The meter every production call has today: no CDR, so nothing is priced (BLOCKER-1)."""
 
-    Buffering is only worth its risk if it actually removes writes, and "it wrote anyway"
-    is a regression no other assertion here would catch: every other test flushes first.
+    def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
+        raise CarrierFactsMissingError
+
+
+class _NoLegs:
+    """A session that transcribed and synthesised nothing — distinct from an unpriceable one."""
+
+    def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
+        return ()
+
+
+# ---------------------------------------------------------------------------------------
+# 1. The buffer (D-620), which is now a buffer in front of a NETWORK.
+# ---------------------------------------------------------------------------------------
+
+
+async def test_a_turn_under_the_batch_size_is_held_and_not_sent(worker_token: None) -> None:
+    """THE PROPERTY THE WHOLE OF D-620 RESTS ON, stated as a test rather than as a comment.
+
+    Buffering is only worth its risk if it actually removes round trips, and "it sent anyway"
+    is a regression no other assertion here would catch: every other test flushes first. It
+    is worth MORE since D-621, because each avoided flush is now an authenticated HTTPS
+    request against a 1 vCPU host rather than a statement on a pooled connection.
     """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, _agent_id, database = await _sink(call_id, turn_batch_size=4)
+    sink, tenant_id, _agent_id, api = await _sink(call_id, turn_batch_size=4)
     try:
         for idx in range(3):
             await sink.on_transcript_turn(_t(call_id, idx))
-        assert await _turn_count(tenant_id, call_id) == 0, "a turn was written before its batch"
+        assert await _turn_count(tenant_id, call_id) == 0, "a turn was sent before its batch"
         await sink.aclose()
-        assert await _turn_count(tenant_id, call_id) == 3, "aclose did not write the remainder"
+        assert await _turn_count(tenant_id, call_id) == 3, "aclose did not send the remainder"
     finally:
-        await database.aclose()
+        await api.aclose()
 
 
-async def test_the_batch_writes_itself_the_moment_it_is_full() -> None:
+async def test_the_batch_sends_itself_the_moment_it_is_full(worker_token: None) -> None:
     """The size bound, and that it does not wait for the timer or for the hang-up."""
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, _agent_id, database = await _sink(
+    sink, tenant_id, _agent_id, api = await _sink(
         call_id, turn_batch_size=3, turn_flush_seconds=3600
     )
     try:
         for idx in range(3):
             await sink.on_transcript_turn(_t(call_id, idx))
-        assert await _turn_count(tenant_id, call_id) == 3, "a full batch did not write"
+        assert await _turn_count(tenant_id, call_id) == 3, "a full batch did not send"
         await sink.on_transcript_turn(_t(call_id, 3))
-        assert await _turn_count(tenant_id, call_id) == 3, "the next batch wrote early"
+        assert await _turn_count(tenant_id, call_id) == 3, "the next batch sent early"
         await sink.aclose()
     finally:
-        await database.aclose()
+        await api.aclose()
 
 
-async def test_the_timer_writes_a_conversation_that_never_fills_a_batch() -> None:
+async def test_the_timer_sends_a_conversation_that_never_fills_a_batch(
+    worker_token: None,
+) -> None:
     """THE BOUND THAT CAPS WHAT A CRASH COSTS, and the reason a size-only rule is not enough.
 
     A slow caller produces one turn and then silence. Without this arm those words sit in
@@ -179,7 +190,7 @@ async def test_the_timer_writes_a_conversation_that_never_fills_a_batch() -> Non
     the interval and nothing more.
     """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, _agent_id, database = await _sink(
+    sink, tenant_id, _agent_id, api = await _sink(
         call_id, turn_batch_size=100, turn_flush_seconds=0.05
     )
     try:
@@ -188,401 +199,187 @@ async def test_the_timer_writes_a_conversation_that_never_fills_a_batch() -> Non
             if await _turn_count(tenant_id, call_id):
                 break
             await asyncio.sleep(0.05)
-        assert await _turn_count(tenant_id, call_id) == 1, "the timer never wrote the turn"
+        assert await _turn_count(tenant_id, call_id) == 1, "the timer never sent the turn"
         await sink.aclose()
     finally:
-        await database.aclose()
+        await api.aclose()
 
 
-async def test_settlement_writes_the_transcript_before_it_prices_anything() -> None:
-    """`settle` writes the outbox row that starts the post-call pipeline (D-607), and that
-    pipeline reads this call's turns. Pricing first would race a dispatcher tick against
+async def test_a_terminal_event_is_never_held_by_the_buffer(worker_token: None) -> None:
+    """**THE ONE BOUND D-621 ADDED, AND IT IS NOT AN OPTIMISATION.**
+
+    Events are buffered now too — over SQL a lifecycle event was one statement and there was
+    no reason to hold it; over HTTP an unbuffered event is a whole round trip for a status
+    nobody is waiting on. But `is_terminal` is the one status a reader OUTSIDE this container
+    acts on: `admin/health.py` stops the board for a call stuck at `in_progress`, and the
+    post-call pipeline waits on the row. Held for ten seconds it is a call that looks live
+    after the caller hung up; held through a container replacement it stays that way for
+    ever.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(
+        call_id, turn_batch_size=100, turn_flush_seconds=3600
+    )
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        async with tenant_session(tenant_id) as db:
+            rows = (
+                await db.execute(
+                    text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
+                    {"c": pipecat_call_ref(tenant_id, call_id)},
+                )
+            ).scalar_one()
+        assert rows == 0, "an opening status cost a round trip the buffer exists to avoid"
+
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
+        async with tenant_session(tenant_id) as db:
+            status = (
+                await db.execute(
+                    text("SELECT status FROM calls WHERE engine_call_id = :c"),
+                    {"c": pipecat_call_ref(tenant_id, call_id)},
+                )
+            ).scalar_one()
+        assert status == "completed", "the terminal event was held in the buffer"
+    finally:
+        await sink.aclose()
+        await api.aclose()
+
+
+async def test_settlement_sends_the_transcript_before_it_settles_anything(
+    worker_token: None,
+) -> None:
+    """`settle` triggers the outbox row that starts the post-call pipeline (D-607), and that
+    pipeline reads this call's turns. Settling first would race a dispatcher tick against
     turns still in memory."""
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id, turn_batch_size=100)
+    sink, tenant_id, agent_id, api = await _sink(call_id, turn_batch_size=100)
     try:
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
         await sink.on_transcript_turn(_t(call_id, 0))
         assert await _turn_count(tenant_id, call_id) == 0
 
-        class _NoLegs:
-            def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-                return ()
-
         await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
-        assert await _turn_count(tenant_id, call_id) == 1, "settle priced before it flushed"
+        assert await _turn_count(tenant_id, call_id) == 1, "settle ran before it flushed"
     finally:
         await sink.aclose()
-        await database.aclose()
+        await api.aclose()
 
 
-async def test_a_flush_that_fails_keeps_the_turns_for_the_next_one() -> None:
-    """A BAD CONNECTION MUST NOT COST THE CONVERSATION. The buffer is cleared only after the
-    transaction returns, so a failed flush is retried rather than swallowed — which is the
-    difference between "one flush was lost" and "the call was"."""
+async def test_a_flush_that_fails_keeps_the_turns_for_the_next_one(worker_token: None) -> None:
+    """A BAD REQUEST MUST NOT COST THE CONVERSATION. The buffer is cleared only after the
+    request returns, so a failed flush is retried rather than swallowed — the difference
+    between "one flush was lost" and "the call was".
+
+    The retry is SAFE because the server dedupes on `(call_id, idx)`, a constraint that
+    already existed: `worker_api_test` proves the second delivery inserts nothing twice, and
+    this proves the client really does re-send.
+    """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, _agent_id, database = await _sink(call_id, turn_batch_size=2)
+    tenant_id, agent_id, _ref = await published_agent()
+    api = _Flaky(worker_client())
+    sink = HttpEventSink(
+        api,  # type: ignore[arg-type]
+        call_id=call_id,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        direction="inbound",
+        turn_batch_size=2,
+    )
     try:
         await sink.on_transcript_turn(_t(call_id, 0))
-
-        boom = RuntimeError("connection reset")
-
-        def _explode(_tenant: uuid.UUID) -> Any:
-            raise boom
-
-        original = database.tenant_connection
-        database.tenant_connection = _explode  # type: ignore[method-assign]
-        with pytest.raises(RuntimeError):
+        api.broken = True
+        with pytest.raises(WorkerApiError):
             await sink.on_transcript_turn(_t(call_id, 1))
-        database.tenant_connection = original  # type: ignore[method-assign]
+        api.broken = False
 
         assert await _turn_count(tenant_id, call_id) == 0
-        written = await sink.flush()
-        assert written == 2, "the failed flush dropped turns instead of holding them"
+        assert await sink.flush() == 2, "the failed flush dropped turns instead of holding them"
         assert await _turn_count(tenant_id, call_id) == 2
     finally:
         await sink.aclose()
-        await database.aclose()
+        await api.aclose()
 
 
-async def test_a_transcript_that_cannot_be_written_stops_the_call_being_priced() -> None:
+async def test_a_transcript_that_cannot_be_sent_stops_the_call_being_settled(
+    worker_token: None,
+) -> None:
     """**A COUPLING D-620 INTRODUCED, PINNED RATHER THAN DISCOVERED LATER.**
 
-    `settle` flushes before it prices, because it also writes the outbox row that starts the
-    post-call pipeline and that pipeline READS this call's turns. So a flush that fails now
-    takes settlement down with it, which was not true when each turn wrote itself.
+    `settle` flushes first, because it also triggers the outbox row that starts the post-call
+    pipeline and that pipeline READS this call's turns. So a flush that fails takes
+    settlement down with it, which was not true when each turn wrote itself.
 
     That is the intended direction and not an oversight: a lost settlement is RECOVERABLE —
     §12.4 reconciles the call from the carrier's CDR afterwards — and a lost transcript is
     not. Better to stall the ledger than to promise a pipeline over words that were dropped.
-    What must not happen is the quiet version: priced, pipeline promised, transcript short.
+    What must not happen is the quiet version: settled, pipeline promised, transcript short.
     """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id, turn_batch_size=100)
+    tenant_id, agent_id, _ref = await published_agent()
+    api = _Flaky(worker_client())
+    sink = HttpEventSink(
+        api,  # type: ignore[arg-type]
+        call_id=call_id,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        direction="inbound",
+        turn_batch_size=100,
+    )
     try:
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
         await sink.on_transcript_turn(_t(call_id, 0))
 
-        class _NoLegs:
-            def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-                return ()
-
-        original = database.tenant_connection
-
-        def _explode(_tenant: uuid.UUID) -> Any:
-            raise RuntimeError("connection reset")
-
-        database.tenant_connection = _explode  # type: ignore[method-assign]
-        with pytest.raises(RuntimeError):
+        api.broken = True
+        with pytest.raises(WorkerApiError):
             await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
-        database.tenant_connection = original  # type: ignore[method-assign]
+        api.broken = False
 
-        # Nothing was priced, and the turn is still held rather than lost.
         async with tenant_session(tenant_id) as db:
-            usage = (
+            promised = (
                 await db.execute(
                     text(
-                        "SELECT count(*) FROM usage_events u JOIN calls c ON c.id = u.call_id "
-                        "WHERE c.engine_call_id = :c"
+                        "SELECT count(*) FROM outbox_messages o JOIN calls c "
+                        "ON o.dedupe_key = 'post-call:' || c.id WHERE c.engine_call_id = :c"
                     ),
                     {"c": pipecat_call_ref(tenant_id, call_id)},
                 )
             ).scalar_one()
-        assert usage == 0, "the call was priced over a transcript that had not landed"
+        assert promised == 0, "a pipeline was promised over a transcript that had not landed"
         assert await sink.flush() == 1, "the turn was dropped by the failed settlement"
     finally:
         await sink.aclose()
-        await database.aclose()
+        await api.aclose()
 
 
-async def test_closing_twice_is_harmless() -> None:
+async def test_closing_twice_is_harmless(worker_token: None) -> None:
     """`run_call`'s `finally` runs after `settle`, which has already flushed, so the ordinary
     path closes a sink that has nothing left. That must not raise."""
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, _agent_id, database = await _sink(call_id)
+    sink, tenant_id, _agent_id, api = await _sink(call_id)
     try:
         await sink.on_transcript_turn(_t(call_id, 0))
         await sink.aclose()
         await sink.aclose()
         assert await _turn_count(tenant_id, call_id) == 1
     finally:
-        await database.aclose()
+        await api.aclose()
 
 
 # ---------------------------------------------------------------------------------------
-# 1. It writes what it was given.
+# 2. The settlement the worker actually reaches, and what it reports back.
 # ---------------------------------------------------------------------------------------
 
 
-async def test_a_call_event_and_its_turns_persist_under_the_calling_tenant() -> None:
-    """The ordinary path, read back through RLS.
+async def test_a_call_with_no_cdr_settles_as_a_recorded_refusal(worker_token: None) -> None:
+    """**THE PRODUCTION SHAPE OF EVERY CALL TODAY**, end to end across the wire.
 
-    The turn is one the redactor has something to do with, so this also proves the second
-    column is populated by the pass that owns it rather than by a copy of `text`.
+    `metered_rows` raises `CarrierFactsMissingError` before it prices anything, so the worker
+    sends the refusal its meter reached and the server records it — one
+    `call_metering_refusals` row, no `usage_events`, and the post-call pipeline promised
+    exactly once. Hard rule 7: an unmetered call is RECORDED as unmetered, never zeroed.
     """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
-        await sink.on_transcript_turn(
-            TranscriptTurn(
-                call_id=call_id,
-                idx=0,
-                speaker="caller",
-                text="my number is 9876543210",
-                lang="te-IN",
-                start_ms=0,
-                end_ms=1500,
-            )
-        )
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
-        # TURNS ARE BUFFERED NOW, so the read-back below needs the flush that a real call
-        # gets from `settle` (and, failing that, from `run_call`'s `finally`). This line is
-        # the test paying the same cost production pays, not a workaround.
-        await sink.aclose()
-    finally:
-        await database.aclose()
-
-    async with tenant_session(tenant_id) as db:
-        call = (
-            await db.execute(
-                text(
-                    "SELECT id, tenant_id, agent_id, direction, status, from_e164, to_e164 "
-                    "FROM calls WHERE engine_call_id = :c"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).one()
-        turns = (
-            await db.execute(
-                text(
-                    "SELECT idx, speaker, text, text_redacted, lang, start_ms, end_ms "
-                    "FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
-                ),
-                {"cid": call[0]},
-            )
-        ).all()
-
-    assert uuid.UUID(str(call[1])) == tenant_id
-    assert uuid.UUID(str(call[2])) == agent_id
-    assert call[3] == "inbound"
-    assert call[4] == "completed"
-    # §1.2: the carrier is the authority for who rang whom, so the worker leaves both alone.
-    assert call[5] is None and call[6] is None
-
-    assert len(turns) == 1
-    idx, speaker, raw, redacted, lang, start_ms, end_ms = turns[0]
-    assert (idx, speaker, lang, start_ms, end_ms) == (0, "caller", "te-IN", 0, 1500)
-    assert raw == "my number is 9876543210"
-    # HARD RULE 5: `text_redacted` is the column every CONTENT reader names — and names
-    # EXCLUSIVELY, skipping a turn that has none (`crm/assist.py::_TURNS_SQL`,
-    # `workers/caller_memory_distil.py::_TURNS_SQL`). A NULL here is therefore a turn that
-    # never reaches the client at all, and nothing downstream would fill it: the pass that
-    # would runs off a poller that returns nothing for this engine. So the VALUE is
-    # asserted, not merely that the column is set.
-    assert redacted is not None
-    assert "9876543210" not in redacted
-    assert redacted != raw
-
-
-async def test_a_turn_that_arrives_before_the_started_event_still_lands() -> None:
-    """Pipecat dispatches every handler as its own task (`utils/base_object.py:256-261`), so
-    the order the sink sees them in is not ours to choose.
-
-    A first turn reaching the sink before the pipeline-started event must not fail on the
-    `transcript_turns -> calls` foreign key. The sink converges every write path on one
-    upsert for exactly this.
-    """
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        await sink.on_transcript_turn(
-            TranscriptTurn(call_id=call_id, idx=0, speaker="agent", text="namaskaram")
-        )
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
-        await sink.aclose()
-    finally:
-        await database.aclose()
-
-    async with tenant_session(tenant_id) as db:
-        count = (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM transcript_turns t JOIN calls c ON c.id = t.call_id "
-                    "WHERE c.engine_call_id = :c"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).scalar_one()
-    assert count == 1
-
-
-async def test_a_status_never_moves_backwards_off_a_terminal_row() -> None:
-    """A late `in_progress` must not un-complete a finished call — the clause
-    `apps/workers/pipeline.py::_upsert_call_row` records in full, held here because this is
-    now a second writer of that column."""
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
-        # A SECOND sink for the same call, because the first memoises the row id and would
-        # not re-issue the upsert. This is the shape a container restart produces.
-        late = DatabaseEventSink(
-            database,
-            call_id=call_id,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            direction="inbound",
-        )
-        await late.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
-    finally:
-        await database.aclose()
-
-    async with tenant_session(tenant_id) as db:
-        status = (
-            await db.execute(
-                text("SELECT status FROM calls WHERE engine_call_id = :c"),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).scalar_one()
-    assert status == "completed"
-
-
-async def test_an_event_naming_another_tenant_is_refused_before_it_reaches_the_database() -> None:
-    """Hard rule 1, one layer above RLS.
-
-    RLS would refuse the write anyway, and that is the point: this refuses it with a message
-    naming both ids, so an isolation fault is diagnosable instead of surfacing as a policy
-    violation three frames down.
-    """
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        with pytest.raises(SinkIdentityError):
-            await sink.on_call_event(_event(call_id, uuid.uuid4(), agent_id, "in_progress"))
-        with pytest.raises(SinkIdentityError):
-            await sink.on_call_event(_event(call_id, tenant_id, uuid.uuid4(), "in_progress"))
-        with pytest.raises(SinkIdentityError):
-            await sink.on_transcript_turn(
-                TranscriptTurn(call_id="somebody-elses-call", idx=0, speaker="agent", text="hi")
-            )
-        # Nothing was written by any of the three.
-        async with tenant_session(tenant_id) as db:
-            planted = (
-                await db.execute(
-                    text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
-                    {"c": pipecat_call_ref(tenant_id, call_id)},
-                )
-            ).scalar_one()
-        assert planted == 0
-    finally:
-        await database.aclose()
-
-
-# ---------------------------------------------------------------------------------------
-# 2. Money: settled, or recorded as unsettleable. Never zeroed.
-# ---------------------------------------------------------------------------------------
-
-
-class _AllFive:
-    """A meter stub that priced everything. The sink does not care HOW the rows were made —
-    `CallMeter` has its own suite — only that it writes exactly what it is handed."""
-
-    def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-        return (
-            _row(MeteredLeg.CARRIER, "telephony_s", "94", "0.0213"),
-            _row(MeteredLeg.RUNTIME, "platform_min", "1.6", "2.5000"),
-            _row(MeteredLeg.STT, "stt_s", "88.5", "0.0040"),
-            _row(MeteredLeg.TTS, "tts_kchars", "0.412", "3.4496"),
-            _row(MeteredLeg.LLM, "llm_ktok_in", "1.204", "0.0143"),
-        )
-
-
-class _RefusesTheCarrier:
-    """A meter that cannot price the carrier leg, which is EVERY production call today
-    (BLOCKER-1: there is no carrier, so there is no CDR)."""
-
-    def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-        raise LegNotMeterableError(
-            leg=MeteredLeg.CARRIER,
-            code="meter_carrier_cdr_missing",
-            detail="no carrier CDR was supplied.",
-            remediation="Retrieve the CDR from the carrier and meter again.",
-        )
-
-
-async def test_five_priced_legs_become_five_ledger_rows_and_the_new_unit_types_are_accepted() -> (
-    None
-):
-    """The settled path, including `llm_ktok_in` — which the `usage_events` CHECK constraint
-    REFUSED until migration `a3f1c6e82d47`, so this is also the proof that landed."""
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
-        settlement = await sink.settle(
-            _AllFive(),  # type: ignore[arg-type]
-            carrier=CarrierCdr(
-                connected_seconds=Decimal("94"),
-                charge_inr=Decimal("2.0"),
-                carrier="plivo",
-                cdr_id="cdr-1",
-            ),
-            runtime=RuntimeUsage(
-                active_minutes=Decimal("1.6"),
-                inr_per_active_minute=Decimal("2.5"),
-                attested_by="founder",
-                source="invoice",
-            ),
-        )
-    finally:
-        await database.aclose()
-
-    assert settlement.rows == 5
-    assert settlement.refusal_code is None
-
-    async with tenant_session(tenant_id) as db:
-        rows = (
-            await db.execute(
-                text(
-                    "SELECT u.unit_type, u.qty, u.unit_cost_paid, u.meta->>'leg' "
-                    "FROM usage_events u JOIN calls c ON c.id = u.call_id "
-                    "WHERE c.engine_call_id = :c ORDER BY u.unit_type"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).all()
-
-    by_unit = {row[0]: row for row in rows}
-    assert sorted(by_unit) == [
-        "llm_ktok_in",
-        "platform_min",
-        "stt_s",
-        "telephony_s",
-        "tts_kchars",
-    ]
-    # HARD RULE 7: NUMERIC, and the column's own quantum with half-up rounding — the sink
-    # hands the rate over unquantized and lets `NUMERIC(12,4)` do it once.
-    assert by_unit["tts_kchars"][2] == Decimal("3.4496")
-    assert by_unit["llm_ktok_in"][2] == Decimal("0.0143")
-    assert by_unit["llm_ktok_in"][1] == Decimal("1.2040")
-    # The leg is stamped on the row, because `unit_type` alone does not say which of §1.3's
-    # five produced it.
-    assert by_unit["stt_s"][3] == "stt"
-
-
-async def test_a_leg_that_cannot_be_priced_records_an_absence_and_meters_nothing() -> None:
-    """**THE HARD RULE 7 TEST, AND BOTH HALVES MATTER.**
-
-    A refusal row must exist — otherwise the only record of unmetered spend is a log line in
-    a container that is about to be destroyed. And `usage_events` must hold NOTHING for this
-    call: `metered_rows` is all-or-nothing by design ("THERE IS NO PARTIAL SETTLEMENT"), so
-    a sink that wrote the four legs it could price and a refusal for the fifth would have
-    produced a settled-looking call that is short by a leg, on an append-only ledger where
-    no UPDATE can finish it.
-    """
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
+    sink, tenant_id, agent_id, api = await _sink(call_id)
     try:
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
         settlement = await sink.settle(
@@ -591,267 +388,124 @@ async def test_a_leg_that_cannot_be_priced_records_an_absence_and_meters_nothing
             runtime=None,
         )
     finally:
-        await database.aclose()
+        await sink.aclose()
+        await api.aclose()
 
     assert settlement.rows == 0
     assert settlement.refusal_code == "meter_carrier_cdr_missing"
-    assert settlement.refusal_leg == "carrier"
+    assert settlement.refusal_leg == MeteredLeg.CARRIER.value
+    assert settlement.post_call_enqueued is True
+    assert settlement.already_settled is False
 
     async with tenant_session(tenant_id) as db:
-        metered = (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM usage_events u JOIN calls c ON c.id = u.call_id "
-                    "WHERE c.engine_call_id = :c"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).scalar_one()
-        refusals = (
-            await db.execute(
-                text(
-                    "SELECT r.leg, r.code, r.detail, r.remediation, r.tenant_id "
-                    "FROM call_metering_refusals r JOIN calls c ON c.id = r.call_id "
-                    "WHERE c.engine_call_id = :c"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).all()
-
-    # NOT A ZERO ROW, AND NOT A PARTIAL SETTLEMENT.
-    assert metered == 0
-    assert len(refusals) == 1
-    leg, code, detail, remediation, refusal_tenant = refusals[0]
-    assert (leg, code) == ("carrier", "meter_carrier_cdr_missing")
-    # The two things an operator acts on survived the trip, which is the whole reason the
-    # row carries prose at all.
-    assert detail and remediation
-    assert uuid.UUID(str(refusal_tenant)) == tenant_id
-
-
-async def test_a_call_with_nothing_to_meter_writes_neither_a_row_nor_a_refusal() -> None:
-    """A session that transcribed and synthesised nothing is not an unpriceable call — it is
-    a call with no leg to price, which `meter.py` distinguishes by design. Recording a
-    refusal for it would cry wolf on the one board that stops for unmetered spend."""
-
-    class _Nothing:
-        def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-            return ()
-
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
-        settlement = await sink.settle(_Nothing(), carrier=None, runtime=None)  # type: ignore[arg-type]
-    finally:
-        await database.aclose()
-
-    # `post_call_enqueued=True` even here, and that is the point rather than an accident:
-    # a call with no leg to price still has a transcript, so its post-call pipeline — the
-    # extraction, the CRM columns, the lead — is owed exactly as much as a priced call's
-    # (D-607). The metering answer and the pipeline trigger are separate facts.
-    assert settlement == type(settlement)(rows=0, post_call_enqueued=True)
-    async with tenant_session(tenant_id) as db:
-        refusals = (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM call_metering_refusals r "
-                    "JOIN calls c ON c.id = r.call_id WHERE c.engine_call_id = :c"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).scalar_one()
-    assert refusals == 0
-
-
-async def test_a_settlement_that_fails_part_way_writes_no_row_at_all() -> None:
-    """**A MID-SETTLEMENT DEATH LEAVES NOTHING PARTIAL.**
-
-    Every row of one settlement goes in ONE transaction, so a process killed — or a
-    statement refused — between the third leg and the fourth commits none of them. Driven
-    here by a unit type the `usage_events` CHECK constraint rejects, which is the cheapest
-    way to make the database refuse the LAST statement of a batch whose earlier statements
-    already succeeded.
-
-    This is the half of "a mid-call shutdown does not write a partial row" that the database
-    guarantees; the half Pipecat guarantees — that a turn already handed to the sink is
-    awaited before the process exits — is `lifecycle.ShutdownSignal` draining via
-    `stop_when_done()` plus `PipelineWorker.cleanup`, and is asserted in
-    `voice_worker_runtime_test.py`.
-    """
-
-    class _LastLegIsUnwritable:
-        def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-            return (
-                _row(MeteredLeg.STT, "stt_s", "88.5", "0.0040"),
-                _row(MeteredLeg.TTS, "tts_kchars", "0.412", "3.4496"),
-                _row(MeteredLeg.LLM, "not_a_unit_type", "1.0", "1.0"),
-            )
-
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
-        with pytest.raises(Exception):  # noqa: B017 - the driver's IntegrityError, by any name
-            await sink.settle(_LastLegIsUnwritable(), carrier=None, runtime=None)  # type: ignore[arg-type]
-    finally:
-        await database.aclose()
-
-    async with tenant_session(tenant_id) as db:
-        metered = (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM usage_events u JOIN calls c ON c.id = u.call_id "
-                    "WHERE c.engine_call_id = :c"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).scalar_one()
-        # The CALL row survives, because it was written by an earlier, separate transaction.
-        # That is the correct split: a call that happened happened, and what is missing is
-        # its money — which is exactly what `calls_unmetered` looks for.
-        call_rows = (
-            await db.execute(
-                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).scalar_one()
-    assert metered == 0, "two legs committed without the third — the settlement was partial"
-    assert call_rows == 1
-
-
-async def test_settling_twice_converges_on_one_row_per_leg() -> None:
-    """`usage_events` is append-only, so the second settlement cannot UPDATE and must not
-    duplicate. `ON CONFLICT DO NOTHING` over the partial unique indexes is what makes a
-    re-drive idempotent — including over `ux_usage_events_tenant_call_ktok`, which landed
-    with the two new unit types."""
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    try:
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
-        for _ in range(2):
-            await sink.settle(
-                _AllFive(),  # type: ignore[arg-type]
-                carrier=None,
-                runtime=None,
-            )
-    finally:
-        await database.aclose()
-
-    async with tenant_session(tenant_id) as db:
-        counts = (
-            await db.execute(
-                text(
-                    "SELECT u.unit_type, count(*) FROM usage_events u "
-                    "JOIN calls c ON c.id = u.call_id WHERE c.engine_call_id = :c "
-                    "GROUP BY u.unit_type"
-                ),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
-            )
-        ).all()
-    assert dict(counts) == {
-        "telephony_s": 1,
-        "platform_min": 1,
-        "stt_s": 1,
-        "tts_kchars": 1,
-        "llm_ktok_in": 1,
-    }
-
-
-# ---------------------------------------------------------------------------------------
-# 3. Cross-tenant zero rows (hard rule 1).
-# ---------------------------------------------------------------------------------------
-
-
-async def test_a_neighbour_sees_zero_rows_on_every_table_this_sink_writes() -> None:
-    """All four, in one test, because the interesting failure is a table somebody forgot.
-
-    `call_metering_refusals` is the new one and the one with no history: its policy was
-    written in migration `a3f1c6e82d47` and this is the cross-tenant zero-rows test hard
-    rule 1 requires of it. `scripts/check_rls_coverage.py` proves the policy EXISTS and
-    references the GUC; this proves it isolates.
-    """
-    call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    neighbour_id, _ = await _tenant_with_published_agent()
-    neighbour_id = uuid.UUID(str(neighbour_id))
-    try:
-        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
-        await sink.on_transcript_turn(
-            TranscriptTurn(call_id=call_id, idx=0, speaker="caller", text="anything")
-        )
-        await sink.settle(_AllFive(), carrier=None, runtime=None)  # type: ignore[arg-type]
-        await sink.settle(_RefusesTheCarrier(), carrier=None, runtime=None)  # type: ignore[arg-type]
-    finally:
-        await database.aclose()
-
-    # The control: the owner can see all four, so "zero" below is a refusal and not an
-    # empty table.
-    async with tenant_session(tenant_id) as db:
-        owner_call = (
+        row_id = (
             await db.execute(
                 text("SELECT id FROM calls WHERE engine_call_id = :c"),
                 {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
-        for table in ("transcript_turns", "usage_events", "call_metering_refusals"):
-            planted = (
-                await db.execute(
-                    text(f"SELECT count(*) FROM {table} WHERE call_id = :cid"),
-                    {"cid": owner_call},
-                )
-            ).scalar_one()
-            assert planted > 0, f"the control failed: nothing was written to {table}"
-
-    async with tenant_session(neighbour_id) as db:
-        assert (
+        refusals = (
             await db.execute(
-                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
-                {"c": pipecat_call_ref(tenant_id, call_id)},
+                text("SELECT leg, code FROM call_metering_refusals WHERE call_id = :c"),
+                {"c": row_id},
             )
-        ).scalar_one() == 0
-        for table in ("transcript_turns", "usage_events", "call_metering_refusals"):
-            leaked = (
-                await db.execute(
-                    text(f"SELECT count(*) FROM {table} WHERE call_id = :cid"),
-                    {"cid": owner_call},
-                )
-            ).scalar_one()
-            assert leaked == 0, f"{table} leaked another tenant's rows"
+        ).all()
+        usage = (
+            await db.execute(
+                text("SELECT count(*) FROM usage_events WHERE call_id = :c"), {"c": row_id}
+            )
+        ).scalar_one()
+    assert refusals == [("carrier", "meter_carrier_cdr_missing")]
+    assert usage == 0
 
 
-async def test_a_neighbour_cannot_write_a_refusal_against_someone_elses_call() -> None:
-    """The WRITE direction, which matters more than the read here: a row saying another
-    tenant's call was unmeterable is a row that re-attributes their spend, and
-    `check_rls_coverage` rule 3 exists because a `WITH CHECK` nobody wrote is a policy that
-    reads correctly and writes anywhere."""
+async def test_settling_twice_is_reported_and_not_re_applied(worker_token: None) -> None:
+    """The client half of the append-only guarantee (`worker_api_test` holds the server half).
+
+    A worker whose POST timed out after the server committed MUST be able to retry, and the
+    answer it gets has to reach the caller as a fact rather than as an error — `run_call`
+    logs `post_call_enqueued`, and `False` on a re-settlement is correct and expected.
+    """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
-    neighbour_id, _ = await _tenant_with_published_agent()
-    neighbour_id = uuid.UUID(str(neighbour_id))
+    sink, tenant_id, agent_id, api = await _sink(call_id)
     try:
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
+        first = await sink.settle(_RefusesTheCarrier(), carrier=None, runtime=None)  # type: ignore[arg-type]
+        second = await sink.settle(_RefusesTheCarrier(), carrier=None, runtime=None)  # type: ignore[arg-type]
     finally:
-        await database.aclose()
+        await sink.aclose()
+        await api.aclose()
+
+    assert (first.already_settled, first.post_call_enqueued) == (False, True)
+    assert (second.already_settled, second.post_call_enqueued) == (True, False)
 
     async with tenant_session(tenant_id) as db:
-        owner_call = (
+        row_id = (
             await db.execute(
                 text("SELECT id FROM calls WHERE engine_call_id = :c"),
                 {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
-
-    with pytest.raises(Exception):  # noqa: B017 - psycopg raises its own RLS violation type
-        async with tenant_session(neighbour_id) as db:
+        refusals = (
             await db.execute(
-                text(
-                    "INSERT INTO call_metering_refusals "
-                    "(id, tenant_id, call_id, leg, code, detail, remediation) "
-                    "VALUES (gen_random_uuid(), :tid, :cid, 'carrier', 'x', 'y', 'z')"
-                ),
-                {"tid": tenant_id, "cid": owner_call},
+                text("SELECT count(*) FROM call_metering_refusals WHERE call_id = :c"),
+                {"c": row_id},
             )
+        ).scalar_one()
+        promises = (
+            await db.execute(
+                text("SELECT count(*) FROM outbox_messages WHERE dedupe_key = :k"),
+                {"k": f"post-call:{row_id}"},
+            )
+        ).scalar_one()
+    assert refusals == 1, "a retried settlement wrote a second, uncorrectable refusal row"
+    assert promises == 1, "the post-call pipeline was promised twice"
+
+
+# ---------------------------------------------------------------------------------------
+# 3. The identity refusal (hard rule 1), before anything reaches the wire.
+# ---------------------------------------------------------------------------------------
+
+
+async def test_an_event_naming_another_session_never_reaches_the_request(
+    worker_token: None,
+) -> None:
+    """**A SINK IS BUILT FOR ONE SESSION.** Three shapes, because they arrive differently: a
+    turn for another call, an event claiming another tenant, and an event claiming another
+    agent. Each is either a bug in the producer or a crossed wire between two concurrent
+    calls in one container, and both are hard rule 1 faults that must stop the write rather
+    than pick one of the two tenants and be right half the time.
+
+    Refused HERE, before the body exists, so another session's words never travel at all —
+    which is what this check buys over the server's own (`worker_api_test`).
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    tenant_id, agent_id, _ref = await published_agent()
+
+    class _NothingMayBeSent:
+        async def post_observations(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("a refused event reached the wire")
+
+        async def aclose(self) -> None:
+            return None
+
+    api = _NothingMayBeSent()
+    sink = HttpEventSink(
+        api,  # type: ignore[arg-type]
+        call_id=call_id,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        direction="inbound",
+    )
+    try:
+        with pytest.raises(SinkIdentityError):
+            await sink.on_transcript_turn(_t("someone-elses-call", 0))
+        with pytest.raises(SinkIdentityError):
+            await sink.on_call_event(_event(call_id, uuid.uuid4(), agent_id, "completed"))
+        with pytest.raises(SinkIdentityError):
+            await sink.on_call_event(_event(call_id, tenant_id, uuid.uuid4(), "completed"))
+    finally:
+        await api.aclose()
 
 
 # ---------------------------------------------------------------------------------------
@@ -859,16 +513,18 @@ async def test_a_neighbour_cannot_write_a_refusal_against_someone_elses_call() -
 # ---------------------------------------------------------------------------------------
 
 
-async def test_the_sink_logs_ids_and_never_a_word_of_what_was_said() -> None:
+async def test_the_sink_logs_ids_and_never_a_word_of_what_was_said(worker_token: None) -> None:
     """A whole session's logging, captured.
 
     The turn below carries both things hard rule 6 names — a phone number and ordinary
-    speech — and the redacted form is checked too: `RedactionResult.kinds` IS logged (an
-    operator needs to know the pass ran), and a lazy implementation that logged the redacted
-    TEXT instead of the kinds would still hide the number while leaking the sentence.
+    speech. ⚠ **THE REDACTION KIND IS NO LONGER LOGGED HERE AND THAT IS THE CHANGE D-621
+    MADE**: this container does not redact any more, because `text_redacted` is the column
+    hard rule 5 promises and its value may not be one a vendor's runtime computed. So the
+    strictness moves the other way — the sink now holds RAW text in its buffer and must be
+    proved to log none of it, which is what this asserts.
     """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
-    sink, tenant_id, agent_id, database = await _sink(call_id)
+    sink, tenant_id, agent_id, api = await _sink(call_id)
     spoken = "please call my husband on 9876543210 about the blouse"
     captured: list[str] = []
 
@@ -884,7 +540,8 @@ async def test_the_sink_logs_ids_and_never_a_word_of_what_was_said() -> None:
         await sink.settle(_RefusesTheCarrier(), carrier=None, runtime=None)  # type: ignore[arg-type]
     finally:
         logger.remove(handler)
-        await database.aclose()
+        await sink.aclose()
+        await api.aclose()
 
     blob = "\n".join(captured)
     assert blob, "nothing was logged at all, so this test proves nothing"
@@ -894,71 +551,78 @@ async def test_the_sink_logs_ids_and_never_a_word_of_what_was_said() -> None:
     assert call_id in blob
     assert str(tenant_id) in blob
     assert "meter_carrier_cdr_missing" in blob
-    assert "phone" in blob  # the redaction KIND, which is our own vocabulary
 
 
-def test_the_redaction_import_does_not_drag_the_monolith() -> None:
-    """`sink.py` imports `apps.workers.redaction` rather than owning a second redactor, and
-    its docstring justifies that by a MEASUREMENT: the module's import graph contains no
-    `apps.api` module.
+def test_nothing_in_this_container_imports_sqlalchemy() -> None:
+    """**THE PASS CONDITION FOR §12.5 GATE 6, AS AN ASSERTION RATHER THAN A CLAIM.**
 
-    That is a property somebody could break without noticing — one `from apps.api.core...`
-    added to `redaction.py` for a settings lookup would put the monolith's settings loader,
-    its platform-config store and its egress guard inside a latency-critical voice
-    container. Asserted rather than trusted.
+    `docs/evidence/worker-http-contract.md` §"What must be true when this is finished", item
+    3. A database driver re-entering this deployable would not fail anything on its own — the
+    container would simply carry a client it can never connect with — so the property has to
+    be measured, not trusted. It is measured over the SOURCE rather than over `sys.modules`,
+    because the test process legitimately has SQLAlchemy imported for `apps/api`.
     """
-    import subprocess
-    import sys
+    import pathlib
 
-    probe = (
-        "import sys, json; import apps.workers.redaction; "
-        "print(json.dumps([m for m in sys.modules if m.startswith('apps.api')]))"
+    root = pathlib.Path(__file__).resolve().parents[1] / "apps" / "voice-worker"
+    offenders = [
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.startswith(("import sqlalchemy", "from sqlalchemy"))
+    ]
+    assert offenders == [], f"the voice worker imports SQLAlchemy again: {offenders}"
+
+
+def test_the_worker_declares_no_database_driver() -> None:
+    """The other half of the same property, one layer out: the DEPENDENCY is gone too.
+
+    A declared driver is what keeps suggesting a connection is possible, and this container's
+    whole deployment argument since D-621 is that it is not. Read off the manifest rather
+    than off the lockfile, because the manifest is what a human edits.
+    """
+    import pathlib
+
+    manifest = (
+        pathlib.Path(__file__).resolve().parents[1] / "apps" / "voice-worker" / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    declared = [
+        line.strip()
+        for line in manifest.splitlines()
+        if line.strip().startswith('"') and ("sqlalchemy" in line or "psycopg" in line)
+    ]
+    assert declared == [], f"a database driver is declared again: {declared}"
+
+
+def test_the_client_is_the_only_way_the_worker_reaches_the_platform() -> None:
+    """One door, so there is one place the Bearer header, the wall-clock bound and the hard
+    rule 6 error handling live.
+
+    `memory.py` is the ONE sanctioned exception and it is named rather than excluded by
+    accident: it predates this seam, it calls a DIFFERENT endpoint that the rented engine
+    also calls (`/v1/engine/caller-data/{engine}`), and it fails OPEN where everything on
+    this client fails loud. Folding it in would mean widening that endpoint or narrowing this
+    client's posture; both are worse than one named exception.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "apps" / "voice-worker"
+    allowed = {"voice_worker/api_client.py", "voice_worker/memory.py", "voice_worker/embedding.py"}
+    offenders = sorted(
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        if str(path.relative_to(root)) not in allowed
+        and any(
+            line.startswith(("import httpx", "from httpx"))
+            for line in path.read_text(encoding="utf-8").splitlines()
+        )
     )
-    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
-    assert out.stdout.strip() == "[]", f"redaction now reaches the monolith: {out.stdout}"
+    assert offenders == [], f"a second HTTP client appeared in the worker: {offenders}"
 
 
-# ---------------------------------------------------------------------------------------
-# 5. The engine's own refusals.
-# ---------------------------------------------------------------------------------------
+def test_the_client_module_is_what_the_sink_and_the_config_read_both_use() -> None:
+    """One client type, both callers — the "one way per problem" property in executable form."""
+    from voice_worker import config, sink
 
-
-def test_a_container_with_no_dsn_refuses_at_startup_and_names_the_variable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`storage.ObjectStoreNotConfiguredError`'s pattern, for the other half of the
-    bootstrap: a deploy fault must be a startup failure somebody sees, not a call that
-    answers the phone and then records nothing that happened on it."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with pytest.raises(DatabaseNotConfiguredError) as caught:
-        WorkerDatabase.from_env()
-    assert "DATABASE_URL" in str(caught.value)
-
-
-async def test_the_configured_container_builds_one_pool_with_the_bounds_it_declares(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The other side of `from_env`, and the pool's shape read off the object rather than
-    off the constants beside it.
-
-    `hide_parameters` is the hard rule 6 control (a DBAPI error must not render a transcript
-    turn into its message) and `max_overflow=0` is the "nothing here holds two connections"
-    claim — both are properties of the ENGINE, so both are asserted on the engine.
-    """
-    monkeypatch.setenv("DATABASE_URL", get_settings().database_url)
-    database = WorkerDatabase.from_env()
-    try:
-        engine = database.engine
-        assert engine.dialect.name == "postgresql"
-        assert engine.pool.size() == POOL_SIZE
-        assert engine.pool._max_overflow == MAX_OVERFLOW
-        assert engine.sync_engine.hide_parameters is True
-        # And it really reaches the database under the GUC, which is the module's one job.
-        tenant_id, _ = await _tenant_with_published_agent()
-        async with database.tenant_connection(uuid.UUID(str(tenant_id))) as connection:
-            current = (
-                await connection.execute(text("SELECT current_setting('app.tenant_id', true)"))
-            ).scalar_one()
-        assert current == str(tenant_id)
-    finally:
-        await database.aclose()
+    assert sink.WorkerApiClient is WorkerApiClient
+    assert config.WorkerApiClient is WorkerApiClient

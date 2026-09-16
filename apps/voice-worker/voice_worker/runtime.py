@@ -1,18 +1,19 @@
-"""The container's entrypoint: one engine, one pack cache, one call at a time.
+"""The container's entrypoint: one API client, one pack cache, one call at a time.
 
 **WHAT THIS CLOSES.** Every other module in this package is deliberately ignorant of the
-process it runs in — `config.py` takes a connection and owns no engine, `pipeline.py` takes
-a transport and a sink and owns neither, `session.py` orders the three loads and owns
-nothing. That ignorance is what makes each of them testable with no database, no network
-and no carrier, and it has to be paid for exactly once, in the module that owns the
-process. This is that module.
+process it runs in — `config.py` takes an API client and owns none, `pipeline.py` takes a
+transport and a sink and owns neither, `session.py` orders the three loads and owns nothing.
+That ignorance is what makes each of them testable with no network and no carrier, and it
+has to be paid for exactly once, in the module that owns the process. This is that module.
 
 **THE BOOTSTRAP ORDER, AND WHY IT IS THIS ORDER.**
 
-1. `WorkerDatabase` — built ONCE for the container, before any call. It is the shared thing
-   `config.py`'s docstring asked for by name: *"one process wants ONE pool sized against
-   ONE workload"*. The config read and the sink both borrow from it, so the pool's size is
-   a property of the container rather than of whichever module needed a row first.
+1. `WorkerApiClient` — built ONCE for the container, before any call. It is the shared
+   thing `config.py`'s docstring asked for by name: *"one process wants ONE pool sized
+   against ONE workload"*, with `httpx` where `sqlalchemy` used to be (D-621: this container
+   cannot reach our Postgres at all, §12.5 gate 6). The config read and the sink both borrow
+   from it, so the connection pool is a property of the container rather than of whichever
+   module needed a row first.
 2. `PackFetcher` — likewise once, because `ObjectStorePackFetcher.from_env` raises when the
    container has no bucket and that must be a STARTUP failure somebody sees, not a call
    that answers the phone and then cannot find the client's knowledge.
@@ -21,7 +22,7 @@ process. This is that module.
    ids and not a `SessionConfig` — `start_session` loads the config itself and takes the
    sink as an argument, so a sink that needed the config could not be passed to it.
 4. Per call, after the pipeline has drained: settle.
-5. At shutdown: dispose the pool, last.
+5. At shutdown: close the client, last.
 
 **SHUTTING DOWN MID-CALL IS THE PART WORTH READING.** A container orchestrator stops a
 process with SIGTERM, and Pipecat's runner does NOT handle that by default — `WorkerRunner`
@@ -44,13 +45,13 @@ complete"). So the runner is built with `handle_sigterm=False` and
 * the drain ends the worker by letting the pipeline finish;
 * `PipelineWorker.cleanup` waits on every outstanding event-handler task
   (`pipecat/utils/base_object.py:167-177`), and those tasks are exactly the sink's handlers;
-* only then does `run_call` settle, and only then does `aclose` dispose the pool.
+* only then does `run_call` settle, and only then does `aclose` close the client.
 
 ⚠ **THE SECOND BULLET USED TO END "so a turn the sink accepted is committed before `run()`
 returns", AND BUFFERING MADE THAT FALSE (16 Sep 2026).** A turn the sink accepts is now
 held in memory until a flush, so what `cleanup` waits on is the handler that BUFFERED it,
 not a transaction. The guarantee did not weaken, it MOVED, and the ordering above is still
-what carries it: `sink.settle` flushes before it prices anything, and `run_call` settles
+what carries it: `sink.settle` flushes before it measures anything, and `run_call` settles
 after the drain — so every accepted turn is committed before the process is allowed to
 finish, and a flush that fails leaves the turns pending rather than dropping them. Between
 flushes the bound is the timer (`DEFAULT_TURN_FLUSH_SECONDS`), which is why that second
@@ -58,7 +59,7 @@ bound exists at all. The `finally` below is what makes this true on the paths th
 reach `settle`.
 
 That ordering is the whole guarantee, and it is why `aclose()` is not registered as a
-signal handler of its own: a pool disposed while the drain is still writing would turn a
+signal handler of its own: a client closed while the drain is still posting would turn a
 settled row into a lost one, which is precisely the failure the graceful path exists to
 avoid.
 
@@ -75,7 +76,6 @@ Pipecat Cloud image is part of step 6 rather than of this seam.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
@@ -84,9 +84,9 @@ from pipecat.observers.service_metrics_observer import ServiceMetricsObserver
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
-from voice_worker.boot import turn_buffer_bounds
+from voice_worker.api_client import WorkerApiClient
+from voice_worker.boot import load_worker_config, turn_buffer_bounds
 from voice_worker.config import load_session_config
-from voice_worker.db import WorkerDatabase
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.meter import CallMeter, CarrierCdr, RateCard, RuntimeUsage
 from voice_worker.pipeline import VendorCredentials
@@ -94,7 +94,7 @@ from voice_worker.session import open_session, pack_cache
 from voice_worker.sink import (
     DEFAULT_TURN_BATCH_SIZE,
     DEFAULT_TURN_FLUSH_SECONDS,
-    DatabaseEventSink,
+    HttpEventSink,
     Settlement,
 )
 from voice_worker.storage import ObjectStorePackFetcher
@@ -117,12 +117,11 @@ class CallOutcome:
 
 
 class WorkerRuntime:
-    """The process. One database, one pack cache, and the wiring one call needs.
+    """The process. One API client, one pack cache, and the wiring one call needs.
 
-    An object rather than module-level functions over module-level globals, for
-    `db.WorkerDatabase`'s reason: a test must be able to hand it a database of its own, and
-    a module global connected at import time would reach whatever `DATABASE_URL` the test
-    runner happened to export.
+    An object rather than module-level functions over module-level globals: a test must be
+    able to hand it a client of its own, and a module global built at import time would
+    reach whatever `VOICE_WORKER_API_BASE_URL` the test runner happened to export.
 
     **THE PACK CACHE IS THE ONE THING IT DOES NOT OWN**, and that is deliberate rather than
     an oversight: `session.pack_cache()` already holds the process's cache and argues at
@@ -132,7 +131,7 @@ class WorkerRuntime:
 
     def __init__(
         self,
-        database: WorkerDatabase,
+        api: WorkerApiClient,
         *,
         fetcher: PackFetcher,
         rates: RateCard | None = None,
@@ -141,7 +140,7 @@ class WorkerRuntime:
         turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
         turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
     ) -> None:
-        self._db = database
+        self._api = api
         self._fetcher = fetcher
         self._rates = rates
         self._cache = cache if cache is not None else pack_cache()
@@ -162,6 +161,13 @@ class WorkerRuntime:
         price. `None` is therefore a legitimate deployment — the worker meters QUANTITIES
         and refuses every leg at settlement, loudly and on the record, which is the correct
         behaviour for a worker nobody has priced.
+
+        ⚠ **AND SINCE D-621 THE PRICE NEVER LEAVES THIS PROCESS EVEN WHEN A CARD IS
+        INSTALLED.** `sink.settle` sends `MeteredQuantity` — leg, unit type, quantity — and
+        `apps/api/worker/service._price` multiplies, because the rate that reaches
+        `unit_cost_paid` must be one an operator attested to US rather than one a container
+        on a vendor's infrastructure computed. The argument survives for the measurement it
+        still gates and for the refusals it still raises.
         """
         # THE TWO BUFFER BOUNDS COME THROUGH `boot`'s PARSERS, not through a second reading
         # of the same variables here. `load_worker_config` is the authority on this
@@ -169,8 +175,12 @@ class WorkerRuntime:
         # value; a `os.environ.get` in this method would be a second, weaker parse that
         # could disagree with the one `--preflight` proved.
         batch, flush = turn_buffer_bounds()
+        config = load_worker_config()
         return cls(
-            WorkerDatabase.from_env(),
+            WorkerApiClient.from_config(
+                base_url=config.voice_worker_api_base_url,
+                token=config.voice_worker_api_token,
+            ),
             fetcher=ObjectStorePackFetcher.from_env(),
             rates=rates,
             turn_batch_size=batch,
@@ -184,6 +194,7 @@ class WorkerRuntime:
         tenant_id: UUID,
         agent_id: UUID,
         direction: CallDirection,
+        engine_agent_ref: str,
         credentials: VendorCredentials,
         transport: BaseTransport,
         carrier: CarrierCdr | None = None,
@@ -210,8 +221,8 @@ class WorkerRuntime:
         RECORDED REFUSAL rather than as rupees. That is not a defect to code around — it is
         what an unwitnessed billable fact looks like when nothing is allowed to invent one.
         """
-        sink = DatabaseEventSink(
-            self._db,
+        sink = HttpEventSink(
+            self._api,
             call_id=call_id,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -223,14 +234,14 @@ class WorkerRuntime:
         observer = ServiceMetricsObserver()
         meter.attach(observer)
 
-        async with self._db.tenant_connection(tenant_id) as connection:
-            config = await load_session_config(
-                connection,
-                call_id=call_id,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                direction=direction,
-            )
+        config = await load_session_config(
+            self._api,
+            call_id=call_id,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            direction=direction,
+            engine_agent_ref=engine_agent_ref,
+        )
         call = await open_session(
             config=config,
             credentials=credentials,
@@ -261,12 +272,7 @@ class WorkerRuntime:
             await runner.run()
 
             drained = call.worker.has_finished()
-            settlement = await sink.settle(
-                meter,
-                carrier=carrier,
-                runtime=runtime_usage,
-                at=datetime.now(UTC),
-            )
+            settlement = await sink.settle(meter, carrier=carrier, runtime=runtime_usage)
         finally:
             await sink.aclose()
         logger.info(
@@ -287,8 +293,8 @@ class WorkerRuntime:
         return CallOutcome(call_id=call_id, drained=drained, settlement=settlement)
 
     async def aclose(self) -> None:
-        """Release the pool. LAST, after every call this container ran has settled."""
-        await self._db.aclose()
+        """Release the client. LAST, after every call this container ran has settled."""
+        await self._api.aclose()
 
 
 __all__ = ["CallOutcome", "WorkerRuntime"]

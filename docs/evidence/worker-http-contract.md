@@ -6,6 +6,13 @@
 
 # The worker→API contract (D-621): what replaces the worker's database connection
 
+> **STATUS: BUILT, 16 Sep 2026.** Both halves exist — `apps/api/worker/` serves the three
+> endpoints and `apps/voice-worker/voice_worker/api_client.py` + `sink.py` + `config.py`
+> speak to them. `DEPLOYMENT.md` §12.5 gate 6 is closed. Every item under *What must be
+> true when this is finished* is asserted by a test named in the list below; two things
+> in the design as first written turned out to be wrong and are corrected in place, each
+> marked ⚠ where it stood.
+
 ## Why this exists
 
 `docs/DEPLOYMENT.md` §12.5 **gate 6**: the voice worker runs on Pipecat Cloud (box 1) and
@@ -74,7 +81,21 @@ who guesses learns nothing.
 ### `POST /v1/worker/calls/{engine_call_id}/observations`
 
 One batch, mixed: call status events and transcript turns. Both are things the worker
-*witnessed*. The server upserts the call row, inserts turns `ON CONFLICT DO NOTHING`, and
+*witnessed*.
+
+⚠ **THE BATCH ALSO CARRIES `agent_id` AND `direction`, WHICH THIS DESIGN OMITTED.** They
+are session facts, and without them the FIRST batch of a call — routinely a flush of turns,
+because Pipecat dispatches every handler as its own task and a turn can beat the event that
+opened the call — names nothing the server can mint a `calls` row from. `TranscriptTurn`
+carries neither and `CallEvent` declares `agent_id` nullable. The in-process sink never had
+this problem because it held the session's four ids; the wire model now does the same.
+
+⚠ **AND THE SERVER REDACTS.** Not stated here at all when this was written, and it is the
+one behaviour change the move makes rather than relocates: `text_redacted` is the column
+every content reader in this repository names, so its value may not be one computed by a
+container a vendor's runtime operates. `apps/workers/redaction.redact` is still the one
+redactor; it now runs where the row is written, and a `text_redacted` arriving in the body
+is ignored. The server upserts the call row, inserts turns `ON CONFLICT DO NOTHING`, and
 moves status forward only (never backward — the existing rule).
 
 Batched because turns already are (D-620), and because one authenticated round trip per
@@ -100,3 +121,20 @@ database, which is where a transaction belongs.
    would, proven by a test that sends each twice.
 5. The endpoints refuse an unauthenticated caller, and refuse a `engine_call_id` whose
    tenant does not match the token's deployment.
+
+## Where each of those five is asserted
+
+| # | Clause |
+| --- | --- |
+| 1 | `tests/voice_worker_sink_test.py::test_the_worker_declares_no_database_driver`; `boot.load_worker_config` names neither a DSN nor `DATABASE_URL` (`tests/voice_worker_boot_test.py`) |
+| 2 | `voice_worker/sink.py` holds ONE sink class; `tests/voice_worker_sink_test.py::test_the_client_is_the_only_way_the_worker_reaches_the_platform` |
+| 3 | `tests/voice_worker_sink_test.py::test_nothing_in_this_container_imports_sqlalchemy` |
+| 4 | `tests/worker_api_test.py::test_the_same_observation_batch_twice_leaves_exactly_one_row_per_turn` and `::test_the_same_settlement_twice_writes_one_refusal_and_answers_already_settled`, plus their client-side twins in `voice_worker_sink_test.py`. Both sabotage-checked. |
+| 5 | `tests/worker_api_test.py::test_every_route_refuses_a_caller_with_no_token`, `::test_an_unconfigured_deployment_authenticates_nobody`, `::test_a_call_ref_naming_another_tenant_cannot_be_written_through` |
+
+**A SIXTH PROPERTY THIS DESIGN DID NOT NAME AND SHOULD HAVE**, because it is the one a
+reviewer asks about first: what stops a token holder reaching another client's call? Not the
+token — the REF. The tenant is parsed out of `pipecat:<tenant>:<call>`
+(`tenant_of_pipecat_ref`) and every statement then runs under that tenant's RLS, so a leaked
+token reaches exactly the calls whose refs it holds and no others. That is why the worker
+never sends a `calls.id`, and it is asserted by the tenancy clause above.

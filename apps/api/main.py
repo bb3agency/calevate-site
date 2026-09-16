@@ -194,6 +194,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.security.routes import router as csp_report_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
+    from apps.api.worker.routes import router as worker_router
 
     application.include_router(tenancy_router)
     # D-170's first-party authentication. Mounted unconditionally and gated per request by
@@ -291,6 +292,14 @@ def _mount_routers(application: FastAPI) -> None:
     # voice-runtime because it derives a keyed caller reference and reads a tenant's
     # store, which that service's import surface forbids it to hold.
     application.include_router(caller_data_router)
+    # The voice worker's own server half (D-621). Its own literal `/v1/worker` prefix,
+    # declared in `core.rbac.PUBLIC_PREFIXES` and row by row in
+    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES` — the worker holds no Calevate
+    # session and authenticates with a Bearer token this deployment issued it. It is here
+    # and not in voice-runtime because it writes the ledger under a tenant's RLS and runs
+    # the redactor, which hard rule 3 forbids that service by name. None of its routes is
+    # in the OpenAPI schema: no browser client consumes them.
+    application.include_router(worker_router)
     # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
     # which collides with nothing above, so mount order is not load-bearing here — unlike
     # `voice_router`, whose literal segment lives under `/v1/agents/`.

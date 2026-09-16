@@ -1,194 +1,68 @@
-"""`NormalizedEventSink`, over the database. The worker's record of what happened on a call.
+"""`NormalizedEventSink`, over HTTP. The worker's record of what happened on a call.
 
-**WHAT ALREADY EXISTED, AND WHAT THIS IS.** `apps/workers/pipeline.py` is this repository's
-writer of `calls`, `transcript_turns` and `usage_events`, and nothing here replaces it: every
-statement below is the SAME shape, against the same columns, with the same idempotency key
-and the same redactor, so the two writers converge on one row rather than producing two
-readings of it. What did not exist is a writer that runs while the call is still happening,
-because until D-592 no process of ours was ON the call — a rented engine told us afterwards.
-That is the whole difference, and it is why this is a new file and not a new function over
-there: `apps/workers/pipeline.py` reaches its rows through `apps.api.db.session`,
-`apps.api.core.settings` and the engine factory, i.e. the monolith, which this container
-does not carry (`pyproject.toml`, `storage.py`, `db.py`).
+**WHAT THIS USED TO BE, AND WHY IT IS NOT THAT ANY MORE (D-621).** Until now this file held
+`DatabaseEventSink`: the same INSERTs `apps/workers/pipeline.py` issues, run from this
+container against our Postgres. `docs/DEPLOYMENT.md` §12.5 gate 6 is what ended that — the
+worker runs on Pipecat Cloud and **cannot reach that database at all**, because it lives on
+the VPS host behind the Docker bridge. So the rows still get written, by the same
+statements, under the same idempotency keys; they are written by `apps/api/worker/service.
+py` instead, and this posts to it. **There is exactly ONE sink, and this is it** — a
+database writer surviving beside an HTTP one would be two writers of one ledger, which is
+the drift this repository keeps guards for.
 
-**THE ONE THING IT DOES NOT DO IS REDACT ITS OWN WAY.** `apps/workers/redaction.py::redact`
-is the repository's single redaction primitive — validators, Luhn, the numbering plan, the
-Telugu spoken-digit pass, and a coverage-ratchet entry naming it "hard rule 5/6: the
-redaction primitive". A second redactor here would be two ways of doing one thing with the
-WEAKER of the two on the live path, which is the drift the quality bar refuses outright. So
-it is imported, and the import is safe to make from this container for a measured reason
-rather than a hopeful one: `apps.workers.redaction` imports `re` and `dataclasses` and
-nothing else, `apps/__init__.py` and `apps/workers/__init__.py` are both empty, and the
-module graph it pulls in contains no `apps.api` module at all (measured 15 Sep 2026;
-`tests/voice_worker_sink_test.py::test_the_redaction_import_does_not_drag_the_monolith`
-asserts it, so it cannot quietly stop being true).
+**THE RULE THE SHAPE FOLLOWS, from `docs/evidence/worker-http-contract.md`:**
 
-**HARD RULE 1.** Every statement runs inside `WorkerDatabase.tenant_connection`, whose
-transaction sets `app.tenant_id`; the `tenant_id` in each WHERE/VALUES clause is belt to
-that braces, on `config.py`'s and `apps/api/kb/pack.py`'s stated pattern. The sink is built
-for ONE session and refuses an event naming a different tenant, agent or call than the
-four ids it was built from — see `_check_identity`. That refusal is not paranoia
-about our own code: `NormalizedEventBoundary` is the only producer today, and the day a
-second one exists it must not be able to write across a tenant boundary by constructing an
-event badly.
+    THE WORKER SENDS WHAT IT OBSERVED. THE SERVER DECIDES WHAT THAT MEANS.
 
-**HARD RULE 6.** Transcript text reaches exactly two places: the `text` column and
-`redact()`. It is never logged, never rendered into an exception (`db.py` sets
-`hide_parameters=True` for exactly that), and never counted in a log line beyond its
-index. Nothing here logs a phone number because nothing here HAS one — the worker is
-handed no party numbers, and `calls.from_e164`/`to_e164` stay NULL for the reconciliation
-that owns them to fill (§1.2: the carrier is the authority for who rang whom).
+So three things that used to happen here do not any more, and each is a property rather
+than a simplification:
 
-**HARD RULE 4 AND 7, WHICH ARE THE SAME DECISION SEEN TWICE.** `usage_events` is
-INSERT-only, so a leg written wrong can never be corrected by an UPDATE — only by a
-compensating row. That is why `settle` writes all five legs or none of them, and why a leg
-whose quantity could not be read produces a `call_metering_refusals` row instead of a
-zero. `meter.py`'s refusal classes already carry the four things such a row needs (`leg`,
-`code`, `detail`, `remediation`); this catches `LegNotMeterableError` to RECORD it, which
-is the one thing that base class's docstring permits — what it forbids is catching it to
-substitute a zero, and no zero is written anywhere below.
+* **The tenant is not resolved here.** The server parses it out of the engine-space call
+  ref this sink mints (`pipecat_call_ref`) and runs every statement under that tenant's RLS.
+* **The redactor does not run here.** `apps/workers/redaction.redact` now runs on our side
+  of the wall, which is where the value in a column hard rule 5 promises belongs. A
+  `text_redacted` this process computed would be a client-supplied value in that column.
+  That import is gone from this container with it.
+* **Nothing is priced here.** `settle` sends the refusal its meter reached, or the
+  QUANTITIES it measured with the prices stripped off. `unit_cost_inr` cannot travel: the
+  wire model has no field for it (`calevate_shared.worker_api.MeteredQuantity`).
+
+**WHAT DID NOT CHANGE, AND MUST NOT.** The buffer and both its bounds (D-620), the identity
+refusal, the flush-before-settle ordering, and the fact that a failed write leaves the turns
+pending rather than dropping the conversation. If anything the buffer matters more now: each
+flush was a transaction and is now an authenticated HTTP round trip.
+
+**HARD RULE 6.** Transcript text reaches exactly one place — the `turns` list on the way to
+the request body — and is never logged, never rendered into an exception (`api_client.py`
+carries no response body into a message for this reason), and never counted in a log line
+beyond its index. Nothing here logs a phone number because nothing here HAS one.
+
+**HARD RULE 4 AND 7.** `usage_events` is INSERT-only, so a leg written wrong can never be
+corrected by an UPDATE. That is why `settle` is all-or-nothing, why a leg whose quantity
+could not be read produces a refusal instead of a zero, and why a RE-SETTLEMENT is answered
+`already_settled` by the server rather than writing the ledger twice.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Final
 from uuid import UUID
 
-from apps.workers.redaction import redact
 from calevate_shared.engine import pipecat_call_ref
-from calevate_shared.events import (
-    TERMINAL_STATUSES,
-    CallDirection,
-    CallEvent,
-    CallStatus,
-    TranscriptTurn,
+from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
+from calevate_shared.worker_api import (
+    MeteredQuantity,
+    ObservationBatch,
+    SettlementRefusal,
+    SettlementRequest,
 )
 from loguru import logger
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
 
-# `uuid_utils.compat.uuid7` and NOT `apps.api.db.base.uuid7`, which is what the rest of the
-# tree imports. The two produce the same thing — a stdlib `uuid.UUID` holding a v7 — and the
-# repo's helper exists only because it predates the vendor shipping this shim (it hand-copies
-# `.bytes`). Reaching into `apps.api` for one line would contradict this container's whole
-# dependency argument for no gain. Hard rule 9: `uuid-utils` already resolves in this one
-# venv for `apps/api`; declaring it in `apps/voice-worker/pyproject.toml` adds an edge, not a
-# distribution.
-from uuid_utils.compat import uuid7
-
-from voice_worker.db import WorkerDatabase
+from voice_worker.api_client import WorkerApiClient
 from voice_worker.meter import CallMeter, CarrierCdr, LegNotMeterableError, RuntimeUsage, UsageRow
-from voice_worker.outbox import enqueue_outbox_once
-from voice_worker.pipeline import ENGINE_NAME
-
-#: The call row, minted or converged on. `apps/workers/pipeline.py::_upsert_call_row`'s
-#: statement with the columns this worker is the author of and no others.
-#:
-#: **`from_e164`/`to_e164` ARE ABSENT RATHER THAN NULL-ED**, which is the difference between
-#: "we do not know" and "there is nobody". The reconciliation that reads the carrier's CDR
-#: owns those two columns (§1.2), and an UPDATE from here would overwrite a witnessed number
-#: with our own ignorance the moment a late event arrived.
-#:
-#: **THE STATUS CLAUSE IS THE CONSTANT, NOT A COPY OF ITS MEMBERS**, for the reason
-#: `_upsert_call_row` records in full: a sixth terminal status added to
-#: `calevate_shared.events` must be terminal to every statement that asks the question, and
-#: a SQL literal is the one that silently would not be.
-_UPSERT_CALL_SQL: Final = """
-INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status,
-                   started_at, ended_at, duration_s, created_at, updated_at)
-VALUES (:id, :tid, :aid, :ecid, :dir, :status, :started, :ended, :dur, now(), now())
-ON CONFLICT (engine_call_id) DO UPDATE SET
-  status = EXCLUDED.status,
-  started_at = COALESCE(calls.started_at, EXCLUDED.started_at),
-  ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at),
-  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s),
-  updated_at = now()
-WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed'
-RETURNING id
-"""
-
-#: One turn. `ON CONFLICT (call_id, idx) DO UPDATE` rather than `DO NOTHING` so this agrees
-#: with `_persist_transcript`, which is the other writer of this table and replaces a turn
-#: on a re-read (D-187). `transcript_turns` is NOT an append-only ledger
-#: (`db/registry.APPEND_ONLY_TABLES`), so a correction is a correction and not a rewrite of
-#: evidence.
-_INSERT_TURN_SQL: Final = """
-INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, text_redacted,
-                              lang, start_ms, end_ms, created_at, updated_at)
-VALUES (:id, :tid, :cid, :idx, :speaker, :text, :redacted, :lang, :start, :end, now(), now())
-ON CONFLICT (call_id, idx) DO UPDATE SET
-  speaker = EXCLUDED.speaker, text = EXCLUDED.text,
-  text_redacted = EXCLUDED.text_redacted, lang = EXCLUDED.lang,
-  start_ms = EXCLUDED.start_ms, end_ms = EXCLUDED.end_ms,
-  updated_at = now()
-"""
-
-#: One metered leg. **`DO NOTHING`, NEVER `DO UPDATE`** — this table is append-only under
-#: hard rule 4 and carries a `calevate_forbid_mutation` trigger, so an `ON CONFLICT DO
-#: UPDATE` would not be a design choice here, it would be a runtime error on the second
-#: settlement of a call. Converging on the first row is also the right SEMANTICS: a
-#: re-settlement that priced the leg differently is a fact somebody needs to see, and the
-#: way this ledger shows it is a compensating entry, never an overwrite.
-#:
-#: The money is handed over UNQUANTIZED and the COLUMN rounds it. `UsageRow` promises an
-#: exact, unquantized rate and asks the writer to quantize once at the column's own quantum
-#: with `ROUND_HALF_UP`; `NUMERIC(12,4)` rounds half-away-from-zero, which is the same
-#: function on the non-negative values this ledger holds (verified against Postgres 16 —
-#: `0.00005::numeric(12,4)` = `0.0001`). Doing it here instead would put a second home for
-#: `billing/rates.MONEY_Q` in a deployable that does not otherwise know that constant
-#: exists.
-_INSERT_USAGE_SQL: Final = """
-INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, unit_cost_paid,
-                          occurred_at, meta, created_at)
-VALUES (:id, :tid, :cid, :unit, :qty, :cost, :at, CAST(:meta AS jsonb), now())
-ON CONFLICT DO NOTHING
-"""
-
-#: A leg we could not honestly price, recorded so that "why did this call meter nothing" has
-#: an answer that is not a shrug. Append-only: a refusal is evidence about one settlement
-#: attempt, and a later attempt that succeeds writes `usage_events` rows rather than editing
-#: the record of the attempt that failed.
-_INSERT_REFUSAL_SQL: Final = """
-INSERT INTO call_metering_refusals (id, tenant_id, call_id, leg, code, detail, remediation,
-                                    occurred_at, created_at)
-VALUES (:id, :tid, :cid, :leg, :code, :detail, :remediation, :at, now())
-"""
-
-#: The ARQ job the post-call pipeline runs under — extraction, the CRM columns, the lead,
-#: the hot-lead alert. `apps/workers/pipeline.POSTCALL_JOB`, RESTATED AS A LITERAL RATHER
-#: THAN IMPORTED, and the duplication is deliberate and tested rather than accidental.
-#:
-#: Importing it would drag `apps.workers.pipeline` — and through it `apps.api.engine`,
-#: `apps.api.db.session` and the whole monolith — into a voice container whose entire
-#: dependency argument is that it carries none of that (`pyproject.toml`, `db.py`,
-#: `storage.py`). `apps/workers/pipeline.py:136-145` records the same trade for
-#: `billing.service.INBOUND_CUTOVER_JOB` and the same reason it must be a module-level
-#: constant and not an inline literal: `scripts/check_job_wiring.py` resolves a job name
-#: only as a literal or a module-level constant IN THE FILE THAT ENQUEUES IT, and an
-#: unresolvable name is exactly the hole its shape 3 hides in.
-#:
-#: `tests/voice_worker_postcall_test.py::test_the_worker_and_the_fleet_name_one_job`
-#: is what holds the two spellings in step.
-POSTCALL_JOB: Final = "run_post_call_pipeline"
-
-#: What makes the promise idempotent. The KEY NAMES THE SIDE EFFECT AND NOT THE ROW
-#: (`enqueue_outbox_once`'s own rule: "a key containing a fresh uuid is a key that dedupes
-#: nothing"), and the side effect here is "this call's post-call pipeline", once, ever.
-#:
-#: **KEYED ON `calls.id` AND NOT ON THE ENGINE CALL REF**, which is the narrower of the two
-#: and the correct one: `calls.engine_call_id` is the unique key the row converges on, so
-#: the surrogate id is one-to-one with it, and every OTHER consumer of this pipeline
-#: already addresses a call by `calls.id` — including `job_id_for(POSTCALL_JOB,
-#: str(call_id))`, the ARQ-level dedupe the dispatcher applies on top of this one.
-#: `post-call:` prefixed for the reason the existing keyspaces are (`hot-lead:`,
-#: `campaign-escalation:`): a reader of the column can tell what promised it.
-_POSTCALL_DEDUPE_PREFIX: Final = "post-call:"
-
 
 #: How many turns may wait in memory before they are written, and how long the oldest one
 #: may wait. Two bounds rather than one, because either alone has a hole: a size-only rule
@@ -196,26 +70,19 @@ _POSTCALL_DEDUPE_PREFIX: Final = "post-call:"
 #: fast one.
 #:
 #: **WHY BUFFER AT ALL — AND WHAT IT COSTS, SAID PLAINLY.** A write per turn is one round
-#: trip per sentence, and the transport this leg is moving to (DEPLOYMENT §12.5 gate 6:
-#: the worker runs on Pipecat Cloud and cannot reach this database at all) turns each of
-#: those into an HTTP request against a 1 vCPU host. The saving is real — a three-minute
-#: call is roughly 35 turns and ~4 flushes at these defaults.
+#: trip per sentence, and since D-621 that round trip is an authenticated HTTPS request
+#: against a 1 vCPU host rather than a statement on a pooled connection. The saving is real
+#: — a three-minute call is roughly 35 turns and ~4 flushes at these defaults.
 #:
 #: The cost is equally real and is the whole reason the second bound exists: a container
 #: that dies with turns in memory loses them, where a per-turn write loses only the tail.
 #: The interval is what CAPS that loss — never "the call", only "the last few seconds".
-#: A buffer with no timer would trade a small certain cost for a large occasional one,
-#: which is the wrong direction on a path that feeds a client's transcript and their CRM.
 #:
-#: ⚠ NOTHING HERE READS A TURN WHILE THE CALL IS RUNNING, WHICH IS WHAT MAKES THIS SAFE,
-#: and it was CHECKED rather than assumed (16 Sep 2026): every reader of `transcript_turns`
-#: is post-call (`crm/service.py`, `crm/assist.py`, `compliance/export_routes.py`,
-#: `compliance/tenant_erasure.py`), and no transcript surface in `apps/web` polls — none of
-#: `transcriptAccess.tsx`, `speakers.tsx` or `KeyMomentsCard.tsx` carries a `refetchInterval`.
-#: `on_transcript_turn`'s own docstring says a turn is "visible WHILE THE CALL IS HAPPENING";
-#: that remains true of the DATA and has no consumer today. If one is ever built, this
-#: buffer is what has to be reconsidered — which is why that is written here and not
-#: discovered later.
+#: ⚠ NOTHING READS A TURN WHILE THE CALL IS RUNNING, WHICH IS WHAT MAKES THIS SAFE, and it
+#: was CHECKED rather than assumed (16 Sep 2026): every reader of `transcript_turns` is
+#: post-call (`crm/service.py`, `crm/assist.py`, `compliance/export_routes.py`,
+#: `compliance/tenant_erasure.py`), and no transcript surface in `apps/web` polls. If one is
+#: ever built, this buffer is what has to be reconsidered.
 DEFAULT_TURN_BATCH_SIZE: Final[int] = 8
 DEFAULT_TURN_FLUSH_SECONDS: Final[float] = 10.0
 
@@ -225,8 +92,13 @@ class SinkIdentityError(RuntimeError):
 
     RAISED and not logged-and-dropped. A sink is built for one session; an event carrying
     another session's ids is either a bug in the producer or a crossed wire between two
-    concurrent calls in one container, and both of those are hard rule 1 faults that must
-    stop the write rather than pick one of the two tenants and be right half the time.
+    concurrent calls in one container, and both are hard rule 1 faults that must stop the
+    write rather than pick one of the two tenants and be right half the time.
+
+    **IT IS CHECKED HERE AS WELL AS ON THE SERVER, AND NEITHER IS REDUNDANT.** The server
+    refuses a batch whose contents disagree with the ref it was posted to, because a client
+    is a thing on somebody else's infrastructure. This refuses BEFORE the request is built,
+    so a crossed wire never puts another session's words in a body at all.
 
     Ids only (hard rule 6).
     """
@@ -238,8 +110,8 @@ class Settlement:
 
     `refused` is a tri-state in disguise and the three cases matter: `rows` written and no
     refusal is a settled call; a `refusal_code` and no rows is a call recorded as unmetered;
-    and zero of both is a call with nothing to meter at all (a session that transcribed and
-    synthesised nothing), which `meter.py` distinguishes from an unpriceable one by design.
+    and zero of both is a call with nothing to meter at all, which `meter.py` distinguishes
+    from an unpriceable one by design.
     """
 
     rows: int
@@ -247,34 +119,40 @@ class Settlement:
     refusal_leg: str | None = None
     #: Whether THIS settlement wrote the outbox row that starts the post-call pipeline.
     #: `False` on a re-settlement is the correct and expected answer — the promise was
-    #: already on the books and the pipeline must run once, not twice (`_enqueue_post_call`).
+    #: already on the books and the pipeline must run once, not twice.
     post_call_enqueued: bool = False
+    #: Whether the server answered "this call was already settled". A retried POST whose
+    #: first attempt committed gets this, and it is not an error: an append-only ledger has
+    #: no UPDATE with which to correct a double write, so answering the retry is the only
+    #: shape available.
+    already_settled: bool = False
 
 
-class DatabaseEventSink:
-    """The production `NormalizedEventSink`: OUR normalized models in, our own rows out.
+class HttpEventSink:
+    """The production `NormalizedEventSink`: OUR normalized models in, HTTP requests out.
 
-    **ONE PER CALL, AND THAT IS WHAT MAKES THE TENANCY CHECK POSSIBLE.** `TranscriptTurn`
+    **ONE PER CALL, AND THAT IS WHAT MAKES THE IDENTITY CHECK POSSIBLE.** `TranscriptTurn`
     carries a `call_id` and no tenant — it cannot, it is the shape every engine's transcript
     normalizes to — so the tenant a turn belongs to has to come from somewhere, and the only
     honest somewhere is the `SessionConfig` this call was assembled from. A process-wide
-    sink would have to infer it from the call id, i.e. read it back out of a table it is
-    about to write to, which is how a crossed wire becomes a cross-tenant write.
+    sink would have to infer it from the call id.
 
     **WRITES ARE SERIALIZED BEHIND ONE LOCK.** Pipecat dispatches every event handler as its
     own task (`pipecat/utils/base_object.py:256-261`, read in the installed 1.10.0 tree), so
     two turns and the call-ended event can be in flight at once. Serializing them costs
-    nothing on a path that is already off the conversation's critical path — the same
-    dispatch that makes them concurrent is what keeps them off it — and it buys two
-    properties worth having: the `calls` row exists before any turn references it (the FK is
-    `ON DELETE RESTRICT`, so a race would surface as an IntegrityError mid-call), and one
-    connection is the most this sink ever holds, which is what `db.MAX_OVERFLOW` being zero
-    rests on.
+    nothing on a path that is already off the conversation's critical path, and it buys the
+    property the server's own call-row upsert depends on being able to assume: one request
+    about this call at a time, so two concurrent batches cannot interleave a status backwards
+    past a status forwards.
+
+    **THE CLIENT IS SHARED AND THIS OBJECT DOES NOT CLOSE IT.** One `httpx.AsyncClient` per
+    process (`api_client.WorkerApiClient`), not one per call: a client per call re-does DNS,
+    TCP and TLS on every session, and the container is reused across sessions.
     """
 
     def __init__(
         self,
-        database: WorkerDatabase,
+        api: WorkerApiClient,
         *,
         call_id: str,
         tenant_id: UUID,
@@ -283,70 +161,67 @@ class DatabaseEventSink:
         turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
         turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
     ) -> None:
-        """The four ids this call is, and nothing else.
+        """The four ids this call is, and the client it posts them through.
 
         **FOUR IDS RATHER THAN A `SessionConfig`, WHICH IS THE ONE SHAPE DECISION HERE.**
         Those are the only fields of that object this sink would read — and taking the whole
-        thing would mean the sink could not exist until the config had been loaded out of the
-        database, which is precisely the order `session.start_session` does NOT have: it
-        takes the sink as an argument and loads the config itself, exactly as it takes the
-        transport. Narrowing the dependency is what lets that function keep its signature and
-        keeps this testable with no `SessionConfig` at all.
+        thing would mean the sink could not exist until the config had been fetched, which is
+        precisely the order `session.start_session` does NOT have: it takes the sink as an
+        argument and loads the config itself, exactly as it takes the transport.
         """
-        self._db = database
+        self._api = api
         self._call_id = call_id
         #: What lands in `calls.engine_call_id` — the idempotency key every writer of that
-        #: row converges on, and the handle `apps/api/engine/pipecat.py` is later handed
-        #: back as `get_execution(call_id)`.
+        #: row converges on, and, since D-621, the ONLY handle this worker ever names a call
+        #: by. The server parses the tenant back out of it (`tenant_of_pipecat_ref`) and
+        #: reads the row under that tenant's RLS, which is what lets the worker address a
+        #: call without ever holding a `calls.id`.
         #:
         #: **MINTED HERE RATHER THAN TAKEN AS A FIFTH ARGUMENT**, because this is the only
-        #: place that has both halves by construction and the only place that writes the
-        #: column. A caller that had to assemble it could assemble it wrongly, and the
-        #: failure would be silent and late: the adapter parses the tenant back OUT of this
-        #: string to find the row under RLS (`pipecat_call_ref`), so a plain uuid here is a
-        #: call whose post-call pipeline can never read its own transcript.
+        #: place that has both halves by construction. A caller that had to assemble it
+        #: could assemble it wrongly, and the failure would be silent and late.
         self._engine_call_id = pipecat_call_ref(tenant_id, call_id)
         self._tenant_id = tenant_id
         self._agent_id = agent_id
         self._direction = direction
         self._lock = asyncio.Lock()
-        #: `calls.id`, resolved on the first write and reused. NOT the same value as
-        #: `config.call_id`: that is OUR call id and lands in `engine_call_id`, which is the
-        #: idempotency key; this is the row's own surrogate, which every child table's FK
-        #: points at.
-        self._call_row_id: UUID | None = None
-        #: Redacted turns waiting to be written. Redaction happens on the way IN rather
-        #: than on the way out, so a turn that is never flushed was never held here in a
-        #: form that could reach a log or a core file un-redacted.
-        self._pending: list[tuple[TranscriptTurn, str]] = []
+        #: Turns waiting to be sent. RAW, because redaction is the server's now — which also
+        #: means this buffer holds exactly what the wire will carry and nothing derived.
+        self._pending: list[TranscriptTurn] = []
+        #: Call events waiting to go with them. Buffered TOO, and that is new: over SQL a
+        #: lifecycle event was one statement and there was no reason to hold it, but over
+        #: HTTP an unbuffered event is a whole round trip for a status nobody is waiting on.
+        #: A TERMINAL event forces the flush (see `on_call_event`), so the one status that
+        #: matters is never held.
+        self._events: list[CallEvent] = []
         self._batch_size = max(1, turn_batch_size)
         self._flush_seconds = turn_flush_seconds
         #: The timer arm. Started on the FIRST buffered turn rather than in `__init__`,
-        #: because a sink is constructed before there is a running loop to attach to in
-        #: some of this repository's tests, and a task created there would warn and die.
+        #: because a sink is constructed before there is a running loop to attach to in some
+        #: of this repository's tests, and a task created there would warn and die.
         self._flusher: asyncio.Task[None] | None = None
         self._closed = False
 
     # -- the Protocol --------------------------------------------------------------------
 
     async def on_call_event(self, event: CallEvent) -> None:
-        """One lifecycle event. Status only ever moves forward."""
+        """One lifecycle event. Status only ever moves forward, and the server enforces it.
+
+        **A TERMINAL EVENT FLUSHES IMMEDIATELY AND THE REST DO NOT.** `is_terminal` is the
+        one status a reader outside this container acts on: `admin/health.py` stops the board
+        for a call stuck at `in_progress`, and the post-call pipeline waits on the row. An
+        opening status held for ten seconds costs nothing; a terminal one held for ten
+        seconds is a call that looks live after the caller hung up, and a container replaced
+        in those ten seconds leaves it that way for ever.
+        """
         self._check_identity(
             call_id=event.call_id, tenant_id=event.tenant_id, agent_id=event.agent_id
         )
-        async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            # `_upsert_call` and NOT `_ensure_call_row`: a lifecycle event is the one path
-            # that must ALWAYS issue the statement. The memo below is what stops a turn
-            # costing a round trip it does not need, and routing the terminal event through
-            # it left every call sitting at `in_progress` for ever — caught by
-            # `test_a_call_event_and_its_turns_persist_under_the_calling_tenant`, which read
-            # the status back rather than trusting that the write happened.
-            await self._upsert_call(
-                connection,
-                status=event.status,
-                started_at=event.started_at,
-                ended_at=event.ended_at,
-            )
+        async with self._lock:
+            self._events.append(event)
+            self._start_flusher()
+            if event.is_terminal or len(self._pending) >= self._batch_size:
+                await self._flush_locked()
         logger.info(
             "call event recorded",
             call_id=self._call_id,
@@ -356,60 +231,27 @@ class DatabaseEventSink:
         )
 
     async def on_transcript_turn(self, turn: TranscriptTurn) -> None:
-        """One turn, raw and redacted, in the two columns every reader already knows.
+        """One turn, buffered, and sent raw for the server to redact and store.
 
-        **`text_redacted` IS FILLED HERE AND `NormalizedEventBoundary` LEAVES IT `None` —
-        BOTH ARE CORRECT AND THE SPLIT IS THE POINT.** The boundary converts a vendor object
-        into our model and does nothing else; redaction is a property of the ROW, not of the
-        event.
-
-        **WHAT A NULL IN THAT COLUMN ACTUALLY COSTS, CHECKED RATHER THAN ASSUMED.** This
-        paragraph first said a NULL "serves RAW TEXT to the dashboard", on the strength of a
-        `COALESCE(text_redacted, text)` the author had seen and not opened. That is wrong in
-        the direction that matters, and the truth is worse for a different reason. Every
-        CONTENT reader in this repository names `text_redacted` and only `text_redacted` —
-        `apps/api/crm/assist.py::_TURNS_SQL` ("THE COLUMN IS `text_redacted` AND THE RAW ONE
-        IS NOT NAMED IN THIS FILE", `:270-279`) and `apps/workers/caller_memory_distil.py::
-        _TURNS_SQL`, which SKIPS a turn whose redaction has not landed and says why
-        (`:235-242`). The two places that do COALESCE ask for a `length()` and never a
-        character (`apps/workers/pipeline.py:3112-3128`,
-        `apps/api/billing/tts_speaking_rate.py:107`), so they engage no rule.
-
-        So a turn written with `text_redacted` NULL is not a leak — it is INVISIBLE. It does
-        not reach the client's transcript, the copilot or caller memory. ⚠ **AND IT USED TO
-        STAY INVISIBLE FOR EVER, WHICH IS NO LONGER TRUE AND THIS PARAGRAPH USED TO SAY IT
-        WAS.** The pass that fills that column downstream is `apps/workers/pipeline.py::
-        _persist_transcript`, and until D-607 it had no way to run on this engine: it rides
-        the post-call pipeline, which rode the reconciliation poller, and
-        `PipecatEngine.list_executions` reports nothing for an `owned_runtime` call by
-        design. `settle` now writes the outbox row that starts that pipeline in its own
-        transaction, so the downstream pass DOES run.
-
-        Writing the column here is still right and is not made redundant by that. It is what
-        makes a turn visible WHILE THE CALL IS HAPPENING and for the minutes between hang-up
-        and the dispatcher's next tick, and it is what a call whose pipeline is retrying
-        still has. Doing it with the repository's one redactor is what keeps hard rule 5's
-        promise about which column that is.
+        **`text_redacted` IS FILLED BY THE SERVER AND THIS PROCESS DOES NOT COMPUTE IT.**
+        ⚠ It used to, and the move is deliberate rather than a loss: that column is what
+        every CONTENT reader in this repository names (`crm/assist.py::_TURNS_SQL`,
+        `workers/caller_memory_distil.py::_TURNS_SQL`), i.e. it is what a client's dashboard,
+        the copilot and caller memory are allowed to see. Computing it in a container on a
+        vendor's infrastructure and storing the answer would put the least trusted party in
+        the system in charge of the redaction hard rule 5 promises. `apps/workers/redaction.
+        redact` is still the repository's one redactor; it now runs where the row is written.
         """
         self._check_identity(call_id=turn.call_id)
-        # The one call, and it happens on the way IN. `RedactionResult.kinds` says WHAT was
-        # found and is loggable; the text either side of it is not, and neither is counted
-        # or sampled anywhere below. Redacting here rather than at flush time means the
-        # buffer never holds a shape that has not been through the repository's one redactor.
-        redacted = redact(turn.text)
         logger.info(
             "transcript turn buffered",
             call_id=self._call_id,
             tenant_id=str(self._tenant_id),
             idx=turn.idx,
             speaker=turn.speaker,
-            # WHAT was redacted, never what was said. `kinds` is a list of category names
-            # this repository authored ("phone", "aadhaar"); an operator needs it to know
-            # the pass is running at all, and it quotes nothing.
-            redacted_kinds=",".join(redacted.kinds),
         )
         async with self._lock:
-            self._pending.append((turn, redacted.text))
+            self._pending.append(turn)
             self._start_flusher()
             if len(self._pending) >= self._batch_size:
                 await self._flush_locked()
@@ -417,7 +259,7 @@ class DatabaseEventSink:
     # -- the buffer ----------------------------------------------------------------------
 
     async def flush(self) -> int:
-        """Write every buffered turn now, and answer how many. Safe to call at any time.
+        """Send every buffered turn now, and answer how many. Safe to call at any time.
 
         **THE DRAIN PATH CALLS THIS, AND THAT IS WHAT BOUNDS THE LOSS.** `settle` calls it
         too, so a call that ends normally never depends on the timer having fired.
@@ -428,49 +270,43 @@ class DatabaseEventSink:
     async def _flush_locked(self) -> int:
         """The one writer. Assumes `_lock` is held.
 
-        **ONE TRANSACTION FOR THE WHOLE BATCH**, which is strictly better than the per-turn
-        write it replaces rather than merely cheaper: the `calls` row and every turn that
-        references it now land together, so the FK this sink already guards can never be
-        half-satisfied by a crash between two statements.
+        **ONE REQUEST FOR THE WHOLE BATCH, EVENTS AND TURNS TOGETHER**, which is the shape
+        the server needs rather than merely the cheap one: it upserts the call row once and
+        every turn in the batch references it, so the foreign key can never be half-satisfied
+        by a crash between two requests.
 
-        The buffer is cleared only AFTER the transaction returns. A failed flush therefore
-        leaves the turns pending and the next flush retries them, rather than dropping the
-        conversation on one bad connection.
+        The buffer is cleared only AFTER the request returns. A failed flush therefore leaves
+        the turns pending and the next flush retries them, rather than dropping the
+        conversation on one bad connection — and a retry is safe because the server dedupes
+        on `(call_id, idx)`, a constraint that already existed.
         """
-        if not self._pending:
+        if not self._pending and not self._events:
             return 0
-        batch = list(self._pending)
-        async with self._db.tenant_connection(self._tenant_id) as connection:
-            call_row_id = await self._ensure_call_row(connection)
-            for turn, redacted_text in batch:
-                await connection.execute(
-                    text(_INSERT_TURN_SQL),
-                    {
-                        "id": uuid7(),
-                        "tid": self._tenant_id,
-                        "cid": call_row_id,
-                        "idx": turn.idx,
-                        "speaker": turn.speaker,
-                        "text": turn.text,
-                        "redacted": redacted_text,
-                        "lang": turn.lang,
-                        "start": turn.start_ms,
-                        "end": turn.end_ms,
-                    },
-                )
-        del self._pending[: len(batch)]
+        batch = ObservationBatch(
+            agent_id=self._agent_id,
+            direction=self._direction,
+            events=list(self._events),
+            turns=list(self._pending),
+        )
+        answer = await self._api.post_observations(self._engine_call_id, batch)
+        sent = len(batch.turns)
+        del self._pending[:sent]
+        del self._events[: len(batch.events)]
         logger.info(
-            "transcript turns written",
+            "observations posted",
             call_id=self._call_id,
             tenant_id=str(self._tenant_id),
-            turns=len(batch),
-            first_idx=batch[0][0].idx,
-            last_idx=batch[-1][0].idx,
+            events=len(batch.events),
+            turns=sent,
+            # WHAT THE SERVER DID, which is not the same number and must not be read as
+            # loss: a smaller `turns_written` is a retry meeting rows we already had.
+            turns_written=answer.turns_written,
+            turns_already_present=answer.turns_already_present,
         )
-        return len(batch)
+        return sent
 
     def _start_flusher(self) -> None:
-        """Arm the timer once, on the first buffered turn.
+        """Arm the timer once, on the first buffered turn or event.
 
         **THE TIMER IS THE HALF THAT MAKES BUFFERING HONEST.** Size alone never flushes a
         conversation that goes quiet, and "quiet then the container is replaced" is exactly
@@ -484,9 +320,9 @@ class DatabaseEventSink:
     async def _flush_forever(self) -> None:
         """Flush on a clock until the sink closes.
 
-        Failures are swallowed HERE and nowhere else: a timer that dies on one bad
-        connection would silently disarm the bound this buffer's safety rests on, and the
-        turns it could not write stay pending for the next tick either way.
+        Failures are swallowed HERE and nowhere else: a timer that dies on one bad request
+        would silently disarm the bound this buffer's safety rests on, and the turns it could
+        not send stay pending for the next tick either way.
         """
         while not self._closed:
             await asyncio.sleep(self._flush_seconds)
@@ -502,7 +338,7 @@ class DatabaseEventSink:
                 )
 
     async def aclose(self) -> None:
-        """Stop the timer and write what is left. Idempotent.
+        """Stop the timer and send what is left. Idempotent.
 
         Ordering is deliberate: the flag first so the timer cannot re-arm, the FLUSH before
         the cancel so a turn buffered microseconds ago is not thrown away by the shutdown
@@ -526,46 +362,40 @@ class DatabaseEventSink:
         *,
         carrier: CarrierCdr | None,
         runtime: RuntimeUsage | None,
-        at: datetime | None = None,
     ) -> Settlement:
-        """Price the five legs and write them, or record why they could not be priced.
+        """Send what this call measured, or the refusal the meter reached. One request.
 
-        **ALL FIVE OR NONE, IN ONE TRANSACTION.** `metered_rows` is all-or-nothing by design
-        ("THERE IS NO PARTIAL SETTLEMENT") and so is this: a crash between the STT row and
-        the LLM row would leave an append-only ledger holding a call that cost a third of
-        what it cost, with no UPDATE available to finish it.
+        **THE TRANSCRIPT LANDS BEFORE THE SETTLEMENT DOES, and the order is the point:** the
+        settlement is what writes the outbox row that starts the post-call pipeline (D-607),
+        and that pipeline reads this call's turns. Settling first would race a dispatcher
+        tick against turns still sitting in memory.
 
-        **AND THE POST-CALL TRIGGER IS INSIDE THAT SAME TRANSACTION (D-607).** The outbox row
-        that starts `run_post_call_pipeline` commits with the ledger and with the call row, so
-        a settled call cannot exist without its trigger and a trigger cannot exist without
-        the row that justifies it. The cost of putting it here is stated rather than hidden:
-        a settlement that RAISES rolls the trigger back with everything else, so a call whose
-        settlement crashed has no pipeline — which is the correct pairing (nothing claims to
-        have settled) and is loud (the exception reaches `runtime.run_call`), rather than a
-        half-written call quietly carrying a promise about a ledger that was never written.
+        **THE WORKER SENDS QUANTITIES AND THE SERVER PRICES THEM (D-621).** `metered_rows`
+        still measures and still refuses all-or-nothing, but the RATE it multiplied by cannot
+        cross this wire: `MeteredQuantity` has no money field, and `apps/api/billing/rates.py`
+        is the one door a rupee comes through. What travels is what this container witnessed.
+
+        ⚠ **TWO OF THE FIVE LEGS §1.3 NAMES ARE NO LONGER SETTLEABLE FROM HERE, AND THAT IS
+        THE DESIGN RATHER THAN A REGRESSION.** The carrier's connected minute is priced by
+        the CARRIER (§1.2 makes their CDR the authority for the quantity AND the charge) and
+        Pipecat Cloud's active minute is an unanswered vendor question (§7 P-1). Neither is a
+        rate; both are outside facts somebody hands us, and a worker asserting one would be
+        the third party in this system telling us what a call cost. The server records a
+        refusal naming the leg. **This changes nothing in production**: `carrier` and
+        `runtime` are `None` on every production call (there is no CDR — BLOCKER-1), so
+        `metered_rows` raises `CarrierFactsMissingError` before anything is measured and the
+        call settles as ONE `call_metering_refusals` row, exactly as it did yesterday.
 
         **CALLED AFTER THE PIPELINE HAS DRAINED, NEVER FROM INSIDE ITS TEARDOWN.**
-        `CallMeter.attach` states the reason: usage reports arrive as their own tasks, so a
-        report pushed in the last instants of a session is only counted if the loop gets one
-        more turn. `runtime.py` settles after `PipelineWorker` has stopped and before the
-        pool is disposed.
+        `CallMeter.attach` states the reason: usage reports arrive as their own tasks.
 
-        Both `carrier` and `runtime` are required-and-nullable rather than optional, which
-        is `metered_rows`' own choice carried through unchanged: a caller must SPELL
-        `carrier=None` to reach a refusal, and cannot reach one by forgetting an argument.
-        ⚠ **TODAY EVERY PRODUCTION CALL REACHES `CarrierFactsMissingError` HERE**, because
-        the CDR is the carrier's and there is no carrier yet (BLOCKER-1). That is not a
-        defect in this method: it is §1.2's split working — the worker cannot witness the
-        billable minute, so it records that nobody has, and the reconciliation settles the
-        call when the CDR lands.
+        ⚠ **THE `at` ARGUMENT IS GONE, AND ITS ABSENCE IS THE SAME DECISION AS THE PRICE'S.**
+        `usage_events.occurred_at` and `call_metering_refusals.occurred_at` are stamped by
+        the SERVER now. A ledger row's instant is a fact about when WE recorded it, and a
+        container on a vendor's infrastructure with an unverified clock is not the authority
+        for that — the same reason `_duration_s` is not the billable minute.
         """
-        # THE TRANSCRIPT LANDS BEFORE THE MONEY DOES, and the order is the point: `settle`
-        # writes the outbox row that starts the post-call pipeline (D-607), and that pipeline
-        # reads this call's turns. Pricing first would race a dispatcher tick against turns
-        # still sitting in memory, and the pipeline would run over a short transcript.
-        # Flushing here also means a normal hang-up never depends on the timer having fired.
         await self.flush()
-        occurred_at = at or datetime.now(UTC)
         refusal: LegNotMeterableError | None = None
         rows: tuple[UsageRow, ...] = ()
         try:
@@ -573,141 +403,54 @@ class DatabaseEventSink:
         except LegNotMeterableError as caught:
             refusal = caught
 
-        # ONE TRANSACTION FOR ALL THREE WRITES, AND THAT IS THE WHOLE GUARANTEE (D-607).
-        # The call row, the ledger (or the refusal that stands in for it) and the outbox
-        # row that triggers the post-call pipeline commit together or not at all. Before
-        # this there were three transactions and one of the three branches — a call with
-        # nothing to meter — opened none at all; a crash between them could leave a settled
-        # call with no trigger, which on this engine means no extraction, no CRM columns
-        # and no lead, silently and for ever (there is no poller behind it: `PipecatEngine.
-        # list_executions` reports nothing by design, `apps/api/engine/pipecat.py`).
-        async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            call_row_id = await self._ensure_call_row(connection)
-            if refusal is not None:
-                await self._write_refusal(connection, call_row_id, refusal, at=occurred_at)
-            else:
-                await self._write_usage(connection, call_row_id, rows, at=occurred_at)
-            enqueued = await self._enqueue_post_call(connection, call_row_id)
+        request = SettlementRequest(
+            # `completed` and not the observed status: `settle` runs after the pipeline has
+            # drained, so this is the worker saying the SESSION finished. The server's clause
+            # is forward-only and a terminal status already on the row wins, so a call cut
+            # off mid-sentence keeps the status its terminal event reported.
+            final_status="completed",
+            direction=self._direction,
+            agent_id=self._agent_id,
+            refusal=None if refusal is None else _refusal_of(refusal),
+            quantities=[_quantity_of(row) for row in rows],
+        )
+        answer = await self._api.post_settlement(self._engine_call_id, request)
 
-        if refusal is not None:
+        if answer.refusal_recorded or refusal is not None:
             # `error` and not `warning`: an unmetered call is spend we absorbed and cannot
             # bill, and it is the state `admin/health.py::calls_unmetered` stops the board
-            # for.
+            # for. The code is the SERVER's when it priced nothing and ours when our own
+            # meter refused first.
             logger.error(
                 "call leg not meterable",
                 call_id=self._call_id,
                 tenant_id=str(self._tenant_id),
-                leg=refusal.leg.value,
-                code=refusal.code,
-                post_call_enqueued=enqueued,
+                leg=None if refusal is None else refusal.leg.value,
+                code=None if refusal is None else refusal.code,
+                already_settled=answer.already_settled,
+                post_call_enqueued=answer.post_call_enqueued,
             )
             return Settlement(
                 rows=0,
-                refusal_code=refusal.code,
-                refusal_leg=refusal.leg.value,
-                post_call_enqueued=enqueued,
+                refusal_code=None if refusal is None else refusal.code,
+                refusal_leg=None if refusal is None else refusal.leg.value,
+                post_call_enqueued=answer.post_call_enqueued,
+                already_settled=answer.already_settled,
             )
         logger.info(
             "call settled",
             call_id=self._call_id,
             tenant_id=str(self._tenant_id),
             legs=",".join(sorted({row.leg.value for row in rows})),
-            rows=len(rows),
-            post_call_enqueued=enqueued,
+            rows=answer.rows_written,
+            already_settled=answer.already_settled,
+            post_call_enqueued=answer.post_call_enqueued,
         )
-        return Settlement(rows=len(rows), post_call_enqueued=enqueued)
-
-    async def _write_usage(
-        self,
-        connection: AsyncConnection,
-        call_row_id: UUID,
-        rows: tuple[UsageRow, ...],
-        *,
-        at: datetime,
-    ) -> None:
-        """The metered legs. Zero rows writes nothing and is not an error — `meter.py`
-        distinguishes a call with nothing to meter from one it cannot price, and so does
-        this."""
-        for row in rows:
-            await connection.execute(
-                text(_INSERT_USAGE_SQL),
-                {
-                    "id": uuid7(),
-                    "tid": self._tenant_id,
-                    "cid": call_row_id,
-                    "unit": row.unit_type,
-                    "qty": row.qty,
-                    "cost": row.unit_cost_inr,
-                    "at": at,
-                    "meta": _meta_json(row),
-                },
-            )
-
-    async def _write_refusal(
-        self,
-        connection: AsyncConnection,
-        call_row_id: UUID,
-        refusal: LegNotMeterableError,
-        *,
-        at: datetime,
-    ) -> None:
-        await connection.execute(
-            text(_INSERT_REFUSAL_SQL),
-            {
-                "id": uuid7(),
-                "tid": self._tenant_id,
-                "cid": call_row_id,
-                "leg": refusal.leg.value,
-                "code": refusal.code,
-                # OUR OWN PROSE, from `meter.py`'s refusal classes. Every one of these
-                # strings is authored in this repository and quotes no payload, no
-                # transcript and no number — which is the same bar `core/alerting.alert`
-                # sets for its `detail` ("a message we authored — never a payload").
-                "detail": refusal.detail,
-                "remediation": refusal.remediation,
-                "at": at,
-            },
+        return Settlement(
+            rows=answer.rows_written,
+            post_call_enqueued=answer.post_call_enqueued,
+            already_settled=answer.already_settled,
         )
-
-    async def _enqueue_post_call(self, connection: AsyncConnection, call_row_id: UUID) -> bool:
-        """Promise the post-call pipeline, in the settlement's own transaction. Once ever.
-
-        **WHY A ROW AND NOT A JOB.** This container can reach Postgres and nothing else;
-        it holds no Redis client and must not grow one (`pyproject.toml` declares no arq
-        and no redis, and an enqueue that failed after the ledger committed would be a
-        call that settled and never extracted). The outbox is this repository's existing
-        answer to exactly that — BACKEND-PATTERNS §4 — and `dispatch_outbox` on its
-        ten-second beat is the half that owns Redis.
-
-        **WHY THE POST-CALL PIPELINE AND NOT THE INGEST JOB.** `ingest_engine_event` exists
-        to turn a vendor's webhook into a call row: it fetches the execution, resolves the
-        tenant from `engine_agent_routes` and upserts `calls`. This worker has already done
-        all three — it IS the engine — so routing through ingest would re-derive facts it
-        wrote itself and would need an `engine_agent_ref` it has no reason to carry.
-        `run_post_call_pipeline` is the entry point the Bolna path reaches after that
-        resolution, and it is the SAME function, not a copy: extraction, the moments, the
-        knowledge gaps, the lead, the hot-lead alert and the CRM fan-out all run there.
-
-        **IDEMPOTENT AT THE DATABASE.** A re-settlement of the same call — a retried
-        container, a second `settle()` after a resumed session — hits the partial unique
-        index on `dedupe_key` and writes nothing, exactly as the `usage_events` insert next
-        to it converges with `ON CONFLICT DO NOTHING`. `False` here therefore means "it was
-        already promised", never "it failed".
-        """
-        message_id = await enqueue_outbox_once(
-            connection,
-            job=POSTCALL_JOB,
-            payload={
-                "tenant_id": str(self._tenant_id),
-                "call_id": str(call_row_id),
-                "engine": ENGINE_NAME,
-                # The ENGINE-SPACE handle, which is what `get_execution` takes and what
-                # the adapter parses this call's tenant back out of. Never the bare uuid.
-                "execution_id": self._engine_call_id,
-            },
-            dedupe_key=f"{_POSTCALL_DEDUPE_PREFIX}{call_row_id}",
-        )
-        return message_id is not None
 
     # -- internals -----------------------------------------------------------------------
 
@@ -738,90 +481,39 @@ class DatabaseEventSink:
                 f"event names agent {agent_id}, sink was built for {self._agent_id}"
             )
 
-    async def _ensure_call_row(self, connection: AsyncConnection) -> UUID:
-        """This call's `calls.id`, minting the row in `in_progress` if it is not there yet.
 
-        **IT EXISTS BECAUSE THE ORDER OF EVENTS IS NOT OURS TO CHOOSE.** Pipecat runs each
-        handler as its own task, so a first turn can reach the sink before the
-        pipeline-started event that opened the call — and `transcript_turns.call_id` is a
-        foreign key, so a race would surface as an IntegrityError mid-call. Every write path
-        therefore passes through here, and the one that is NOT a lifecycle event opens the
-        call rather than failing on its absence.
+def _refusal_of(error: LegNotMeterableError) -> SettlementRefusal:
+    """`meter.py`'s refusal, as the four fields `call_metering_refusals` already stores.
 
-        The memo is what keeps that from costing a round trip per turn. It is deliberately
-        NOT used by `on_call_event`: a status must always be written.
-        """
-        if self._call_row_id is not None:
-            return self._call_row_id
-        return await self._upsert_call(connection, status="in_progress")
-
-    async def _upsert_call(
-        self,
-        connection: AsyncConnection,
-        *,
-        status: CallStatus,
-        started_at: datetime | None = None,
-        ended_at: datetime | None = None,
-    ) -> UUID:
-        """Write the call row and answer its id. Status only ever moves forward.
-
-        A status the forward-only clause REFUSES returns no row, which is not an error: a
-        terminal call receiving a late `in_progress` is exactly what that clause is for, and
-        the id is then read back — the same fallback `_upsert_call_row` uses.
-        """
-        row = (
-            await connection.execute(
-                text(_UPSERT_CALL_SQL),
-                {
-                    "id": uuid7(),
-                    "tid": self._tenant_id,
-                    "aid": self._agent_id,
-                    "ecid": self._engine_call_id,
-                    "dir": self._direction,
-                    "status": status,
-                    "started": started_at,
-                    "ended": ended_at,
-                    "dur": _duration_s(started_at, ended_at),
-                    "terminal": sorted(TERMINAL_STATUSES),
-                },
-            )
-        ).first()
-        if row is None:
-            row = (
-                await connection.execute(
-                    text("SELECT id FROM calls WHERE engine_call_id = :ecid"),
-                    {"ecid": self._engine_call_id},
-                )
-            ).first()
-            if row is None:  # pragma: no cover - only on a concurrent delete
-                raise RuntimeError("call row vanished during upsert")
-        self._call_row_id = UUID(str(row[0]))
-        return self._call_row_id
-
-
-def _duration_s(started_at: datetime | None, ended_at: datetime | None) -> int | None:
-    """Our own wall clock across the session, or `None`.
-
-    ⚠ **THIS IS NOT THE BILLABLE DURATION AND MUST NEVER BE USED AS ONE.** §1.2 gives the
-    connected minute to the carrier, and `CarrierFactsMissingError`'s remediation names
-    substituting our own clock as the thing not to do. It is written to `calls.duration_s`
-    because that column is what a screen shows a client about their own call; the meter
-    reads `CarrierCdr.connected_seconds` and never this.
+    OUR OWN PROSE, all four of them: every string is authored in this repository and quotes
+    no payload, no transcript and no number — the same bar `core/alerting.alert` sets for its
+    `detail`.
     """
-    if started_at is None or ended_at is None:
-        return None
-    return max(0, round((ended_at - started_at).total_seconds()))
+    return SettlementRefusal(
+        leg=error.leg.value,
+        code=error.code,
+        detail=error.detail,
+        remediation=error.remediation,
+    )
 
 
-def _meta_json(row: UsageRow) -> str:
-    """`usage_events.meta`, as JSON text for the CAST in the statement.
+def _quantity_of(row: UsageRow) -> MeteredQuantity:
+    """One measured leg, with the price stripped off. Hard rule 7 at the wire.
 
-    Built by hand rather than with `json.dumps(dict(row.meta))` plus a total, because the
-    one field that is NOT in `UsageRow.meta` is the leg name — and a ledger row whose
-    `unit_type` is `llm_ktok_in` needs to say which of §1.3's five legs produced it without
-    a reader having to know the mapping.
+    `unit_cost_inr` and `total_inr` are DROPPED rather than absent-by-accident: the server
+    re-derives them from the rate card it holds, so the figure that reaches `unit_cost_paid`
+    is one an operator attested and never one this container computed. The leg name travels
+    because `unit_type` alone does not say which of §1.3's five legs produced it.
     """
-    return json.dumps({"leg": row.leg.value, "total_inr": str(row.total_inr), **dict(row.meta)})
+    return MeteredQuantity(
+        leg=row.leg.value, unit_type=row.unit_type, qty=row.qty, meta=dict(row.meta)
+    )
 
 
-__all__ = ["DatabaseEventSink", "Settlement", "SinkIdentityError"]
+__all__ = [
+    "DEFAULT_TURN_BATCH_SIZE",
+    "DEFAULT_TURN_FLUSH_SECONDS",
+    "HttpEventSink",
+    "Settlement",
+    "SinkIdentityError",
+]

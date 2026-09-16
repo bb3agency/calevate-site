@@ -370,8 +370,6 @@ dependencies = [
     { name = "httpx" },
     { name = "pipecat-ai", extra = ["sarvam", "websocket"] },
     { name = "pipecat-gnani" },
-    { name = "psycopg", extra = ["binary", "pool"] },
-    { name = "sqlalchemy" },
     { name = "uuid-utils" },
 ]
 
@@ -382,8 +380,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "pipecat-ai", extras = ["sarvam", "websocket"], specifier = "==1.10.0" },
     { name = "pipecat-gnani", specifier = "==0.5.12" },
-    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
-    { name = "sqlalchemy", specifier = ">=2.0.44" },
     { name = "uuid-utils", specifier = ">=0.10" },
 ]
 
