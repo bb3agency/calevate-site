@@ -222,7 +222,7 @@ def _refuse_unknown_call() -> ProblemError:
         title="That is not a call of this platform",
         detail="The call reference does not name a call this deployment is running.",
         remediation=(
-            "The worker mints this reference itself (`pipecat_call_ref`); a request "
+            "The worker mints this reference itself (`pipecat_call_ref`); a call "
             "carrying another engine's id is a wiring fault, not a missing row."
         ),
     )
@@ -256,8 +256,8 @@ def _refuse_identity(what: str) -> ProblemError:
         kind="validation",
         code="worker_identity_mismatch",
         title="This body is not about the call it was sent to",
-        detail=f"The request names a different {what} than the call reference it was posted to.",
-        remediation="One sink, one call: build the request from the session's own ids.",
+        detail=f"This names a different {what} than the call reference it was sent to.",
+        remediation="One sink, one call: build it from the session's own ids.",
     )
 
 
