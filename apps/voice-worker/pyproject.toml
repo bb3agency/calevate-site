@@ -122,6 +122,20 @@ dependencies = [
     # already installs, at the SAME floor — two ranges for one vendor would mean whichever
     # member resolved first decided for both.
     "uuid-utils>=0.10",
+    # THE GNANI TTS PLUGIN (D-618), PINNED EXACTLY because it is community-maintained
+    # rather than vendor-released, so a patch release is not a thing we find out about
+    # from a changelog we can read.
+    #
+    # ⚠ **IT CAPS `websockets<16.0` FOR THE WHOLE WORKSPACE, AND ADDING IT DOWNGRADED
+    # THE TREE 16.1.1 -> 15.0.1** (measured from the installed METADATA on 16 Sep 2026:
+    # `pipecat-gnani` requires `websockets<16.0,>=12.0`; `pipecat-ai` asks `>=13.1`,
+    # `sarvamai` `>=12.0`, `gnani-vachana` `>=12.0`, so nothing else objects and the
+    # resolution is sound). Recorded because the cost is invisible in a diff: the
+    # constraint belongs to a package NOBODY HERE CONTROLS, it binds the transport
+    # library the Pipecat leg actually speaks, and the next person who needs a
+    # websockets 16 behaviour will find the ceiling without finding the reason. There is
+    # no workaround short of forking the plugin or dropping it; neither is warranted
+    # today, because no code in this tree asks for anything 15.0.1 lacks.
     "pipecat-gnani==0.5.12",
 ]
 
