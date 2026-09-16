@@ -1,0 +1,201 @@
+<!-- EVIDENCE CLASS: MIXED, and labelled per claim below. This file records the FIRST time
+     any part of the Pipecat Cloud leg was exercised against a real host and a real vendor
+     CLI (16 Sep 2026). Everything this repository knew about that CLI before this date was
+     REPORTED — transcribed into docs/DEPLOYMENT.md §12.1 from material nobody here could
+     open, because `docs.pipecat.ai` is egress-blocked from the development container and
+     the `cli` extra is not installed in it. The VERIFIED rows below are the first facts
+     about it that came from the tool itself.
+
+     Commands were run by the founder on the deploy host (srv1929611) as the `calevate`
+     account and the output relayed. That is why host-observed rows are REPORTED-BY-OPERATOR
+     rather than VERIFIED: nobody in this container watched the terminal. Hard rule 11 means
+     no row here may be restated as fact from this file alone once it matters to money, a
+     wire value or a client-facing claim — re-run the command, which is the point of
+     `scripts/deploy/voice-worker-setup.sh` existing. -->
+
+# Bringing the voice worker up on Pipecat Cloud — what the first real host taught us
+
+**Date:** 2026-09-16. **Host:** the production VPS, as the `calevate` deploy account.
+**Related:** D-592 (the engine swap), D-618 (the Gnani TTS leg), D-619 (this bring-up made
+executable), `docs/DEPLOYMENT.md` §12, `docs/PIPECAT-MIGRATION.md` §6.
+
+## Why this file exists
+
+`docs/DEPLOYMENT.md` §12.5 is the CONTRACT — the seven things a human must do, and the pass
+condition for each. This file is the RECORD: what actually happened the first time somebody
+ran them, which of the unknowns closed, and what the attempt taught us about our own tooling.
+The two are deliberately separate. A contract that accumulates war stories stops being
+readable as a contract, and a record that gets edited to match the current state stops being
+evidence of anything.
+
+## Evidence classes used here
+
+| Class | Meaning in this file |
+| --- | --- |
+| VERIFIED | Read this session from a primary source: the tool's own output, or an installed file in this tree |
+| REPORTED-BY-OPERATOR | Run on the deploy host by the founder and relayed; not observed from this container |
+| UNKNOWN | Not filled. The command or page that would close it is named |
+
+## The state before
+
+**NO REAL CALL HAS EVER BEEN PLACED ON THIS PRODUCT** (BLOCKER-1), and the reason had
+narrowed to one thing: the worker ran nowhere. The Gnani TTS leg, the Plivo carrier answer
+document, the knowledge-pack loader and the pipeline were all built and tested against fakes.
+Every one of them was waiting on the same prerequisite — a Pipecat Cloud account — which is
+why §12.5 gate 1 was the only gate that mattered.
+
+## What closed
+
+### Gate 1 — the account. CLOSED.
+
+The account exists and `pipecat cloud auth login` was reached. REPORTED-BY-OPERATOR.
+
+### Gate 3 — the base image digest. CLOSED.
+
+```
+dailyco/pipecat-base@sha256:c34a7c605b0f42d790a7593c9870417a098b0d6258b87119ebd6142d27c11e82
+```
+
+REPORTED-BY-OPERATOR, resolved with `voice-worker-setup.sh digest` on the deploy host, which
+has the registry access this container does not: Docker Hub's blob CDN answers **403 through
+this environment's proxy** (re-measured 16 Sep 2026, on `pgvector/pgvector:pg16` and
+`redis:7-alpine`), which is the same failure `apps/voice-worker/Dockerfile` already records.
+
+**It is recorded in the DOC (§12.5 gate 3) and NOT defaulted in the Dockerfile.** A digest is
+a statement about what one registry held on one day. Baking it into the build file would make
+a stale pin look like a verified one the next time somebody moves hosts, and the `ARG` would
+stop being the question it is meant to ask. `build` and `deploy` both REFUSE without
+`PIPECAT_BASE`, so the pin cannot be lost by forgetting it.
+
+## What the vendor's CLI told us — the first verified facts about it
+
+### `pipecat` on PATH is NOT `pipecat cloud` available. VERIFIED.
+
+`uv tool install "pipecat-ai[cli]"` succeeds and puts a working `pipecat` on PATH. The
+`cloud` verb then answers:
+
+> The `pipecat cloud` command requires the optional `pipecatcloud` plugin, which isn't
+> installed.
+
+The base `cli` extra does not carry it, and **every verb this product needs is a `cloud`
+verb**. Its two remedies, quoted from the tool:
+
+* `uv tool install "pipecat-ai[cli]" --with pipecat-ai-context-hub --with pipecatcloud`
+* `uv pip install pipecatcloud`
+
+The second is what establishes that **`pipecatcloud` alone is the distribution the `cloud`
+verb needs** — which is why `voice-worker-setup.sh` passes only that. `pipecat-ai-context-hub`
+is a different plugin nothing here uses; ⚠ it arrives as a transitive dependency anyway
+(`pipecat-ai-context-hub==0.8.0` in the host's install), so omitting it from `--with` is
+redundant rather than exclusionary.
+
+The install pulls **131 packages** and installs two executables, `pc` and `pipecat`.
+REPORTED-BY-OPERATOR.
+
+### The host's own toolchain. REPORTED-BY-OPERATOR.
+
+| | |
+| --- | --- |
+| deploy account | `calevate`, uid 1001, home `/home/calevate` |
+| docker | 29.8.1 |
+| uv | **0.12.5**, already on PATH |
+| free disk | 28 GB |
+
+The pre-existing uv matters for one reason: `voice-worker-setup.sh` extracts a
+**digest-pinned uv 0.8.17** from the image the root `Dockerfile` already trusts, but only
+when uv is ABSENT. On this host it was not, so that path went unexercised and the host's own
+uv did the install. That is correct — the pinned digest governs what goes INSIDE the image,
+not what installs a local tool — but it means the extraction path is still unproven on a real
+host. It will run on the next clean VPS, which is exactly the case the script exists for.
+
+## What is still UNKNOWN, by name
+
+None of these is guessed at anywhere in the tree.
+
+1. **How `ap-south` is selected.** The vendor's `pcc-deploy.toml` template has no region key.
+   *Closes when*: the deployed agent reports its region and whatever selects it — a key, a
+   flag, an account setting — is written into `pcc-deploy.toml` or beside it. **This one has
+   teeth**: the whole product is India-latency-bound, and an agent that silently lands
+   elsewhere is a latency defect nothing in CI can see. §12.5 gate 2.
+2. **Whether Pipecat Cloud injects the secret set as process ENVIRONMENT.** `boot.py` reads
+   `os.environ`. The vendor's scaffold wording implies environment; nobody has confirmed it.
+   *Closes when*: `--preflight` prints OK inside the deployed container. If it prints FAIL
+   listing variables that were definitely set, that IS the answer, and the fix is small and
+   local to `boot.py`.
+3. **The real syntax of `pipecat cloud secrets set`.** §12.1 records
+   `<set> --file <file>` as REPORTED. `voice-worker-setup.sh secrets` checks the CLI's own
+   `--help` before sending anything and refuses, printing that help, on a mismatch.
+4. **Whether `pipecat cloud auth login` completes on a headless host.** Unread.
+5. **The SIGTERM-to-SIGKILL window.** `VOICE_WORKER_DRAIN_GRACE_SECONDS` defaults to 20.0,
+   reasoned from OUR bounds and nothing the platform has stated. §12.5 gate 6.
+6. **`min_agents`.** One warm instance is a pilot choice; zero means a documented ~10 s cold
+   start on an inbound call. §12.5 gate 7.
+7. **What a barge-in costs in milliseconds on Gnani.** Their protocol documents no cancel
+   message, so closing the socket IS the interruption, and Pipecat awaits `_disconnect()` then
+   `_connect()` INLINE when the bot was speaking (`pipecat/services/tts_service.py:2011-2013`,
+   VERIFIED). A full WSS reconnect therefore sits between the caller interrupting and the
+   agent's next word, inside the 500 ms budget. *Closes when*: measured on a live call.
+
+## Two defects this found in OUR tooling, not the vendor's
+
+Both were found by RUNNING things, and neither was visible from a diff.
+
+### A diagnostic that hangs is worthless on the only host it matters for
+
+`voice-worker-setup.sh doctor` hung indefinitely in its DISK section. Cause: the measurement
+asks the daemon where it writes (`docker_root`), and **`docker info` against a wedged daemon
+BLOCKS rather than erroring**. A wedged daemon is precisely the host somebody runs a doctor
+on. Fixed: every probe goes through `DOCKER_PROBE_TIMEOUT`, doctor distinguishes "did not
+answer" from "refused", and DISK skips rather than hangs. Proven against an unroutable
+`DOCKER_HOST`: 3.0 s to a clean refusal where it previously never returned.
+
+### CLAUDE.md claimed the Pipecat `cli` extra was installed. It is not.
+
+The `apps/voice-worker` section told the next session to run `check_deprecation` /
+`search_api` "rather than recalling an API", on the stated ground that the extra IS
+installed. The pin is `pipecat-ai[sarvam,websocket]==1.10.0`; `typer` and `questionary` are
+absent and `.venv/bin/pipecat --help` says so. **The claim was written from memory inside the
+paragraph that exists to warn against writing from memory.** What made it plausible: the
+vendor's `AGENTS.md` IS readable at that path, and it is package DATA that ships with the
+wheel whether or not the CLI's dependencies do — so its presence proved nothing about the
+extra. Corrected in place, with the substitute that needs no extra: read the installed source
+under `site-packages/pipecat/`.
+
+## The sequence that works
+
+Run as the deploy account; `doctor` first on any host, and it changes nothing.
+
+```
+scripts/deploy/voice-worker-setup.sh doctor
+scripts/deploy/voice-worker-setup.sh install-cli
+scripts/deploy/voice-worker-setup.sh login          # needs a tty
+scripts/deploy/voice-worker-setup.sh digest
+scripts/deploy/voice-worker-setup.sh secrets        # needs a tty
+export PIPECAT_BASE=dailyco/pipecat-base@sha256:<the digest above>
+scripts/deploy/voice-worker-setup.sh build
+scripts/deploy/voice-worker-setup.sh preflight
+scripts/deploy/voice-worker-setup.sh deploy
+```
+
+**`preflight` printing FAIL with no secret set injected is the expected result**, and it is
+worth saying twice because it looks like a failure and is not. It lists every missing
+variable at once, by design (`boot.load_worker_config` raises ONE error naming all of them,
+rather than teaching an operator about eight variables across eight deploys). What it proves
+locally is the LAYOUT — that `bot.py` and `voice_worker/` are where the base image's
+entrypoint will look. An `ImportError` is the real failure.
+
+## What a future session should not repeat
+
+* **Do not transcribe a vendor CLI's flags into a doc and then trust the doc.** Everything in
+  §12.1 was written that way and the very first verb we ran contradicted the premise that the
+  tool was even complete. The script's `require_cli_shape` exists for this: it reads the
+  tool's `--help` and refuses rather than sending a credential to a flag that may not exist,
+  because that particular failure LOOKS like success and leaves the key unset.
+* **Do not assume a binary on PATH means its subcommand works.** Plugins are a vendor
+  mechanism; check by running the verb.
+* **Do not conclude a package's extra is installed because a file from that package is
+  readable.** Package data and optional dependencies ship independently.
+* **Do not build on the VPS without checking disk first.** The worker resolves 76
+  distributions on top of a base image of then-unknown size, and this host needed the reclaim
+  ladder run earlier the same night. `doctor` and `build` both refuse below a 6 GB floor and
+  name `docker-reclaim.sh`.

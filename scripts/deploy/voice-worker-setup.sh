@@ -138,6 +138,41 @@ manifest_value() {
   sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$PCC_MANIFEST" | head -1
 }
 
+# --- where a value already lives on this host --------------------------------------------
+#
+# MOST OF THE WORKER'S CONTRACT IS ALREADY ON THE BOX. DEPLOYMENT §12.2 says a human puts the
+# same value in two places — the ops console for the VPS stack, the vendor's secret set for
+# this container — and the VPS half is sitting in the deploy checkout's `.env`. Retyping a
+# DSN by hand is how a worker ends up talking to the wrong database, or to the OWNER role
+# that RLS depends on it not being, so this offers what is already there and lets ENTER take
+# it.
+#
+# ⚠ WHAT CANNOT BE OFFERED, AND WHY THAT IS CORRECT: a credential stored in the ops console
+# is sealed with `PLATFORM_KEK` and `ops/secret_service.read_secrets` returns METADATA ONLY
+# — version, kek id and `last_four`. There is no read-back of a platform secret anywhere in
+# this product, deliberately. So for those the source of truth is the VENDOR'S dashboard, and
+# the most this script can do is show the last four of what the platform already holds so an
+# operator can confirm the value they are pasting is the same one.
+ENV_FILE=${ENV_FILE:-$REPO_ROOT/.env}
+
+# The value for one key from the deploy `.env`, or nothing. `tail -1` because a later
+# assignment wins in a dotenv, and the quote stripping is deliberate: a DSN is routinely
+# quoted there and the quotes are not part of it.
+env_file_value() {
+  local key=$1
+  [[ -r "$ENV_FILE" ]] || return 1
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$ENV_FILE" \
+    | tail -1 \
+    | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
+}
+
+# NEVER the value — only enough to recognise it. Four characters is what the ops console
+# itself shows (`SecretRecord.last_four`), so the two surfaces agree on how much is safe.
+tail4() {
+  local v=$1
+  (( ${#v} > 4 )) && printf '…%s' "${v: -4}" || printf '…'
+}
+
 # --- the environment contract, in ONE list -----------------------------------------------
 #
 # Derived from DEPLOYMENT §12.2, whose own authority is `voice_worker/boot.py`. Each row is
@@ -386,12 +421,22 @@ secrets_cmd() {
     say ""
     say "$label"
     say "    $what"
+    local prefill=""
+    prefill=$(env_file_value "$name" 2>/dev/null || true)
+    if [[ -n "$prefill" ]]; then
+      say "    found in $ENV_FILE ($(tail4 "$prefill")) — press ENTER to use it"
+    fi
     printf '    > '
     IFS= read -rs value || true
     printf '\n'
+    if [[ -z "$value" && -n "$prefill" ]]; then
+      value=$prefill
+      say "    using the value from $ENV_FILE"
+    fi
     if [[ -z "$value" ]]; then
       if [[ "$required" == yes ]]; then
-        die "$name is required by voice_worker/boot.py and cannot be blank"
+        die "$name is required by voice_worker/boot.py and cannot be blank.
+     It is not in $ENV_FILE either — run '$0 sources' to see where each value comes from."
       fi
       continue
     fi
@@ -410,6 +455,76 @@ secrets_cmd() {
   warn "the Gnani key alone changes nothing a client can see: no Gnani voice is offerable
      until somebody ATTESTS what a Gnani minute costs (hard rule 7, OPERATIONS §2 gate 56).
      Gnani publishes no price, and a reseller's figure is not Gnani's."
+}
+
+# --- sources --------------------------------------------------------------------------------
+
+# WHERE EVERY VALUE COMES FROM, ANSWERED PER VARIABLE INSTEAD OF PER DOCUMENT. The question
+# this closes is the one an operator actually has in front of the prompt — "I do not know
+# how to find them all" — and the honest answer differs by variable in a way no single
+# sentence covers: some are in the deploy `.env`, some are sealed in the ops console and
+# CANNOT be read back at all, and some exist only in a vendor's dashboard.
+#
+# It prints NO value. The last four characters are the most it will show, which is exactly
+# what the ops console shows for the same credentials.
+sources_cmd() {
+  local row name required what found=0 missing=0
+
+  rule; say "WHERE EACH WORKER CREDENTIAL COMES FROM"; rule
+  if [[ -r "$ENV_FILE" ]]; then
+    say "deploy env file: $ENV_FILE"
+  else
+    warn "deploy env file NOT READABLE at $ENV_FILE — nothing can be offered from it"
+  fi
+  say ""
+
+  for row in "${ENV_CONTRACT[@]}"; do
+    IFS='|' read -r name required what <<<"$row"
+    local v; v=$(env_file_value "$name" 2>/dev/null || true)
+    if [[ -n "$v" ]]; then
+      ok "$name  — in $ENV_FILE ($(tail4 "$v")); 'secrets' will offer it"
+      found=$((found + 1))
+    else
+      case "$name" in
+        PLIVO_*)
+          warn "$name  — NOT on this host. Plivo dashboard; this secret set is its only home." ;;
+        GNANI_API_KEY)
+          warn "$name  — NOT on this host. Gnani account; this secret set is its only home." ;;
+        SARVAM_API_KEY|CARTESIA_API_KEY|AZURE_OPENAI_API_KEY|OPENAI_API_KEY|GEMINI_API_KEY)
+          warn "$name  — sealed in the ops console and NOT readable back (PLATFORM_KEK).
+     Source of truth is the vendor's own dashboard. See the last four below to confirm
+     you are pasting the same key this platform already uses." ;;
+        *)
+          warn "$name  — not in $ENV_FILE. DEPLOYMENT §12.2 names its origin." ;;
+      esac
+      missing=$((missing + 1))
+    fi
+  done
+
+  rule
+  say "$found offered from the env file, $missing to be supplied by hand."
+  rule
+  say "WHAT THE OPS CONSOLE ALREADY HOLDS (last four only — no secret is readable back):"
+  say ""
+  # Read through the RUNNING api container rather than reimplementing the query or needing a
+  # psql on the host: that process already holds the pool and the role, and this asks it for
+  # the same metadata the console renders. Degrades to the SQL when it cannot.
+  local dsn; dsn=$(env_file_value DATABASE_URL 2>/dev/null || true)
+  if [[ -n "$dsn" ]] && have psql; then
+    psql "${dsn/postgresql+psycopg:/postgresql:}" -At -F' ' -c \
+      "SELECT DISTINCT ON (key) key, version, last_four FROM platform_secrets ORDER BY key, version DESC" \
+      2>/dev/null | sed 's/^/    /' \
+      || warn "could not query platform_secrets with the DSN from $ENV_FILE"
+  else
+    warn "no psql on this host (or no DATABASE_URL), so run this yourself to see them:"
+    say  "    SELECT DISTINCT ON (key) key, version, last_four"
+    say  "      FROM platform_secrets ORDER BY key, version DESC;"
+  fi
+  rule
+  warn "A CREDENTIAL IS NOT COPIED FROM THE CONSOLE TO THE SECRET SET BY ANY MACHINERY, and
+     that is deliberate: PLATFORM_KEK is not in the worker image and must never be, so the
+     container cannot open this platform's store. DEPLOYMENT §12.2: a human puts the same
+     value in both places, and nothing fetches one from the other."
 }
 
 # --- build --------------------------------------------------------------------------------
@@ -471,6 +586,7 @@ Bring up (or repair) the Pipecat Cloud voice worker.
   install-cli   install digest-pinned uv, then the Pipecat CLI
   login         authenticate the CLI against Pipecat Cloud
   digest        resolve and print the vendor base image's sha256 digest
+  sources       say where each credential comes from; prints no value
   secrets       prompt for every worker credential and push the secret set
   build         build the worker image (needs PIPECAT_BASE for a real deploy)
   preflight     run the image's own configuration proof
@@ -492,6 +608,7 @@ main() {
     login)       shift || true; login_cmd "$@" ;;
     digest)      shift || true; digest_cmd "$@" ;;
     secrets)     shift || true; secrets_cmd "$@" ;;
+    sources)     shift || true; sources_cmd "$@" ;;
     build)       shift || true; build_cmd "$@" ;;
     preflight)   shift || true; preflight_cmd "$@" ;;
     deploy)      shift || true; deploy_cmd "$@" ;;
