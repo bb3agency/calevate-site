@@ -1936,6 +1936,26 @@ on every exit path including a signal.
    (a §12.2 reason, not an `ImportError` and not a silent non-start). With no live calls,
    a wrong build costs a rerun — which is why this one is safe to settle empirically and
    was not safe to settle by guessing.
+
+   ✅ **THE BUILD RAN AND SUCCEEDED, 16 Sep 2026 (REPORTED-BY-OPERATOR).** Build
+   `85554203-766d-4b6c-b379-1169c0249c7c`, region `ap-south`, organization
+   `calevate-voice`, **74 seconds**, from a context of **1,271 files / 10.0MB compressed**
+   — against the 1,268 files this repository predicted, the difference being
+   `.deploy-state/`. The CLI's review panel echoed the manifest back unchanged
+   (`Region: ap-south`, `agent-1x`, `Min agents: 1`), which also retires the last doubt in
+   gate 2.
+
+   ⚠ **AND THE DEPLOY THEN REFUSED, CORRECTLY**: *"Secret set
+   'calevate-pipecat-worker-secrets' not found"*. `secrets` had aborted on a missing
+   `PLIVO_AUTH_ID` and pushes only after collecting every value, so nothing existed. The
+   vendor fails CLOSED here rather than starting an agent with an empty environment — the
+   state their own guide calls the bad one. Re-running `deploy` after `secrets` reuses the
+   build, which is cached by context hash.
+
+   **WHAT A SUCCESSFUL BUILD DOES NOT PROVE, AND THIS GATE STAYS OPEN FOR IT**: what it
+   targeted. An amd64 build of this image would have succeeded identically. Nothing has yet
+   been observed STARTING. *Pass condition, unchanged*: a deployed container reaches its own
+   `--preflight` — a §12.2 reason rather than a failure to start.
 5. **Create the secret set** with the §12.2 table. *Pass condition*: `--preflight` prints
    OK inside the deployed container.
 6. ✅ **HOW THE WORKER REACHES THIS DATABASE AT ALL — CLOSED BY D-621 (opened and closed

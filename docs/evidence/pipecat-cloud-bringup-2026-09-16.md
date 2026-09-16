@@ -422,3 +422,72 @@ scripts/deploy/pipecat-worker-setup.sh preflight
 `build` is gone. There is nothing on an amd64 host to build an arm64 image with, and keeping
 a subcommand that cannot run on the only host that runs it is the second way to do one thing
 that this repository does not keep.
+
+---
+
+## The first real cloud build, 16 Sep 2026 — it worked
+
+**EVIDENCE CLASS: REPORTED-BY-OPERATOR** — run by the founder on the deploy host as the
+`calevate` account, output relayed verbatim. This is the first time any part of this
+deployable has been accepted by the vendor's infrastructure.
+
+```
+Build context: 1271 files, 10.0 MB compressed, hash=63b65093368e9a4f
+No cached build found, starting new build...
+Upload complete
+Build started: 85554203-766d-4b6c-b379-1169c0249c7c
+Build Complete (74s)
+```
+
+### What that settles
+
+**The context estimate was right, and the method was sound.** `scripts/pipecat_build_context.py`
+predicted 1,268 files / 29.2MB from this repository; the deploy host produced **1,271 files /
+29.2MB, 10.0MB compressed**. The three-file difference is `.deploy-state/`, which exists only
+on a machine that has deployed — see below. Predicting a vendor-side number to within three
+files, from a re-implementation of their matcher, is the check that the matcher was read
+correctly rather than approximately.
+
+**A cloud build takes 74 seconds.** For comparison, the alternative was an emulated arm64
+build of an ONNX-carrying image on a 1-vCPU VPS. That is the whole of D-622's argument,
+measured.
+
+**The manifest was accepted exactly as written.** The CLI's own review panel echoed
+`Region: ap-south`, `Agent profile: agent-1x`, `Min agents: 1`, `Krisp VIVA: Disabled`,
+`Max session duration: Default`, `Organization: calevate-voice` — so `region` in the manifest
+is real and load-bearing, closing the last doubt in gate 2. It also warns *"Usage costs will
+apply for 1 reserved agent(s)"*, which is `[scaling] min_agents = 1` being charged for, as
+that key's comment says it will be.
+
+### And it FAILED CLOSED, which is the part worth keeping
+
+```
+Error: Secret set 'calevate-pipecat-worker-secrets' not found in organization 'calevate-voice'
+```
+
+`secrets` had aborted earlier on a missing `PLIVO_AUTH_ID`, and because that command pushes
+only after collecting every value, nothing had been created. The vendor's `deploy` then
+**refused rather than deploying an agent with an empty environment** — which is the outcome
+their own guide describes as the bad one ("it starts but every service call fails on missing
+keys"). Worth recording as a vendor behaviour we can rely on: a missing secret set is a
+deploy-time error, not a runtime surprise.
+
+Note also that the BUILD is unaffected by the secret set and is cached by context hash, so
+re-running `deploy` after `secrets` reuses build `85554203-…` rather than paying for it
+again.
+
+### `.deploy-state/` — the guard's known blind spot, found in the field
+
+The three extra files were `scripts/vps-deploy.sh`'s `deployed-sha` and `history`. Harmless
+content, but git-ignored state and therefore exactly what `tests/build_context_test.py`
+forbids in a context. The guard could not have caught it, and its docstring already said why:
+that directory exists only on a machine that has run a deploy, and CI always builds from a
+fresh clone. Now excluded, and sabotage-checked both ways.
+
+### What is STILL unknown after a successful build
+
+**The architecture of the produced image.** The build completed, which proves the Dockerfile
+and the aarch64 wheel set are fine, but a build completing says nothing about what it
+targeted — an amd64 build of this image would also have succeeded. The deploy has not yet
+placed a container, so nothing has been observed STARTING. That is the gate, and it closes
+when a deployed container reaches its own `--preflight` rather than failing to start.
