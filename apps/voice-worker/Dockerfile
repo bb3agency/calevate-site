@@ -41,19 +41,35 @@
 # installing it). We do not supply that entrypoint and must not: the contract between it
 # and the platform is the thing we cannot read.
 #
-# `:latest` IS A TAG SOMEBODY ELSE CAN MOVE, WHICH HARD RULE 9 SAYS IS NOT ACCEPTABLE FOR
-# A BUILD INPUT — and it is what the vendor's own template names, it is the only tag any
-# material in this tree mentions, and no digest can be resolved from here (the registry is
-# unreachable through this environment's proxy, so neither `docker pull` nor a manifest
-# GET can be done the way the root Dockerfile's uv digest was obtained and verified). So
-# it is an ARG rather than a literal: the human who runs the first real build resolves the
-# digest on a machine that can reach the registry and passes it —
+# THE BASE IMAGE IS PINNED BY DIGEST, AND THE DIGEST IS THE arm64 ONE.
 #
-#     docker build --build-arg PIPECAT_BASE=dailyco/pipecat-base@sha256:<digest> ...
+# `:latest` is a tag somebody else can move, which hard rule 9 does not accept as a build
+# input. It stays an ARG so a local build can override it, but the DEFAULT is now the
+# resolved digest rather than the mutable tag, and that is not cosmetic — a Pipecat Cloud
+# build cannot be given a `--build-arg` at all. `pipecatcloud`'s build request carries
+# exactly three things (`_utils/deploy_utils.py` -> `api.py::_build_create`: `uploadId`,
+# `dockerfilePath`, `region`), so whatever this line says IS what their builder builds on.
+# Leaving `:latest` here would have meant every cloud build silently taking a tag nobody
+# pinned, with the ARG looking like it was protecting something.
 #
-# — and records it in docs/DEPLOYMENT.md §12 gate 3. Until then this file is honest about
-# being unpinned rather than carrying a digest nobody checked.
-ARG PIPECAT_BASE=dailyco/pipecat-base:latest
+# ⚠ THE COMMENT THIS REPLACES SAID THE DIGEST COULD NOT BE RESOLVED FROM HERE, AND THAT
+# WAS WRONG. It assumed resolving a digest meant PULLING the image, which this
+# environment's proxy does block (Docker Hub's blob CDN answers 403). Reading a manifest
+# list is a different request and is not blocked:
+#
+#     docker buildx imagetools inspect dailyco/pipecat-base:latest --raw
+#
+# VERIFIED 16 Sep 2026, from the Docker Hub registry, by that command. The index lists
+# linux/amd64 `sha256:613244ff092d65f9d9b5c9ba8f6a405c7557639508680f6a57d38f59069ce071`
+# and linux/arm64 (below). The arm64 one is the one that matters: EVERY Pipecat Cloud
+# region is arm64 (`pipecat cloud regions list`, read on the deploy host 16 Sep 2026 --
+# ap-south, eu-central, us-east, us-west, no amd64 anywhere), so an amd64 base produces a
+# container that never starts, with nothing in any build or deploy output naming why.
+#
+# This is a statement about what one registry held on one day. Re-resolve it with the
+# command above -- `pipecat-worker-setup.sh digest` is that command with the architecture
+# check attached -- rather than trusting this line to still be current.
+ARG PIPECAT_BASE=dailyco/pipecat-base@sha256:7dcc71f3e658b66fcb36fa420a16673d3ca1c52b932d496365763dbbb9844c4c
 FROM ${PIPECAT_BASE}
 
 # Both from the vendor's scaffold and both worth keeping: bytecode compiled at build time

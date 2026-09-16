@@ -74,7 +74,7 @@ PCC_MANIFEST="$REPO_ROOT/apps/voice-worker/pcc-deploy.toml"
 #: distributions on top of a vendor base image of UNKNOWN size (it has never been pulled
 #: from the development container), so this is a floor chosen to fail EARLY and loudly
 #: rather than at 80% of a layer, which is how a full disk usually presents.
-BUILD_FLOOR_GB=${BUILD_FLOOR_GB:-6}
+BUILD_FLOOR_GB=${BUILD_FLOOR_GB:-3}
 
 #: THE ONLY ARCHITECTURE PIPECAT CLOUD RUNS. `pipecat cloud regions list`, read on the deploy
 #: host on 16 Sep 2026: ap-south (Mumbai), eu-central, us-east and us-west each list
@@ -298,23 +298,40 @@ doctor_cmd() {
   esac
   say "  this host        $host_arch"
   say "  Pipecat Cloud    $PIPECAT_TARGET_ARCH (every region; there is no amd64 one)"
+  # ⚠ THIS USED TO DEMAND buildx AND FAIL THE HOST WITHOUT IT. It does not any more, and
+  # the reason is D-622: nothing is built here. An amd64 host cannot cross-build for arm64
+  # without QEMU binfmt handlers (this one has none — /proc/sys/fs/binfmt_misc holds only
+  # `python3.12`), and rather than install emulation on a production VPS and then stand up
+  # a registry and an image-pull secret so the platform can fetch the result, the build is
+  # handed to Pipecat, who run the right architecture already.
   if [[ "$host_arch" == "$PIPECAT_TARGET_ARCH" ]]; then
-    ok "native build — no emulation needed"
-  elif docker buildx version >/dev/null 2>&1; then
-    ok "cross-build available (buildx present); 'build' passes --platform $TARGET_PLATFORM"
+    ok "same architecture as the platform (nothing is built here either way)"
   else
-    bad "this host is $host_arch, Pipecat Cloud runs $PIPECAT_TARGET_ARCH, and docker buildx
-     is MISSING — so a build here produces an image the platform cannot start. Install the
-     buildx plugin and QEMU binfmt handlers, or use Pipecat's own cloud build."
-    failures=$((failures + 1))
+    ok "mismatch is expected and harmless — the image is built on Pipecat Cloud, not here"
+  fi
+  if [[ -r /proc/sys/fs/binfmt_misc ]] && ls /proc/sys/fs/binfmt_misc 2>/dev/null | grep -qi qemu; then
+    say "  (QEMU binfmt handlers are registered, so a local cross-build would also work)"
   fi
 
   rule; say "BASE IMAGE"; rule
-  if [[ -n "${PIPECAT_BASE:-}" ]]; then
-    ok "PIPECAT_BASE is set: $PIPECAT_BASE"
+  local base
+  base=$(dockerfile_base)
+  if [[ -z "$base" ]]; then
+    bad "apps/voice-worker/Dockerfile has no 'ARG PIPECAT_BASE=' line to build from"
+    failures=$((failures + 1))
+  elif [[ "$base" == *@sha256:* ]]; then
+    ok "pinned by digest"
+    say "    $base"
+    say "  re-check it against the registry with: $0 digest"
   else
-    warn "PIPECAT_BASE unset — the build would use the vendor's MUTABLE :latest tag, which"
-    warn "hard rule 9 does not accept as a build input. Run: $0 digest"
+    bad "pinned to '$base', which is a MUTABLE TAG. A cloud build takes no --build-arg, so
+     that tag IS the build input and hard rule 9 refuses it. Run '$0 digest' and commit the
+     digest into that file."
+    failures=$((failures + 1))
+  fi
+  if [[ -n "${PIPECAT_BASE:-}" ]]; then
+    warn "PIPECAT_BASE is exported in this shell ($PIPECAT_BASE). A CLOUD BUILD IGNORES IT —"
+    warn "only the Dockerfile's own default is used. It still works for a local docker build."
   fi
 
   rule
@@ -412,31 +429,67 @@ login_cmd() {
 digest_cmd() {
   have docker || die "docker is required"
   local repo=${1:-dailyco/pipecat-base} tag=${2:-latest}
-  say "resolving $repo:$tag for $TARGET_PLATFORM ..."
-  # `--platform` IS NOT OPTIONAL HERE, and getting this wrong is silent. `docker pull` on a
-  # multi-arch tag resolves to the HOST's architecture and `RepoDigests` then names that
-  # platform's manifest — so a digest resolved on an amd64 VPS pins the amd64 base image,
-  # and the agent built on it cannot run on a platform that is arm64 everywhere
-  # (PIPECAT_TARGET_ARCH). The resulting failure is a container that does not start, with
-  # nothing naming the cause.
-  docker pull --platform "$TARGET_PLATFORM" "$repo:$tag" >/dev/null
+  say "reading $repo:$tag manifest list for $TARGET_PLATFORM ..."
+
+  # ⚠ THIS USED `docker pull --platform` AND THAT WAS THE WRONG INSTRUMENT (16 Sep 2026).
+  # Pulling requires the host to be ABLE to hold the image, needs the blob CDN, and on a
+  # host with no binfmt handlers `--platform` can quietly return the host's own image
+  # anyway. Reading the manifest LIST needs none of that: it is a registry metadata request,
+  # it transfers no layers, and it names every platform at once. `--raw` rather than
+  # `--format` deliberately — `--format` fetches each child's config blob, which 403s
+  # wherever the blob CDN is proxied, while `--raw` returns the index itself.
+  local raw
+  raw=$(docker buildx imagetools inspect "$repo:$tag" --raw) || die "could not read the
+     manifest list for $repo:$tag.
+
+     A 429 above is Docker Hub's ANONYMOUS pull-rate limit and is the common cause on a
+     deploy host — it is per source IP, it clears on its own, and 'docker login' raises it.
+     Anything else means the registry is unreachable from here; note that this needs
+     registry access and NOT a working pull, so a blocked blob CDN is not the explanation."
+
   local digest
-  digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$tag")
-  [[ -n "$digest" ]] || die "could not resolve a digest for $repo:$tag"
-  local got
-  got=$(docker inspect --format='{{.Architecture}}' "$repo:$tag" 2>/dev/null || printf '?')
-  [[ "$got" == "$PIPECAT_TARGET_ARCH" ]] || die "pulled a $got image while Pipecat Cloud runs
-     $PIPECAT_TARGET_ARCH. The digest below would pin an image that cannot start there.
-     This host may lack binfmt/qemu for cross-platform pulls; see 'build'."
+  digest=$(printf '%s' "$raw" | python3 -c '
+import json, sys
+index = json.load(sys.stdin)
+want = sys.argv[1]
+for entry in index.get("manifests", []):
+    platform = entry.get("platform") or {}
+    if platform.get("os") == "linux" and platform.get("architecture") == want:
+        print(entry["digest"])
+        break
+' "$PIPECAT_TARGET_ARCH") || die "could not parse the manifest list"
+
+  [[ -n "$digest" ]] || die "$repo:$tag publishes no linux/$PIPECAT_TARGET_ARCH image, and
+     every Pipecat Cloud region runs $PIPECAT_TARGET_ARCH. Nothing built on this base can
+     start there. Check the tag before going further."
+
   rule
-  ok "base image digest resolved"
-  say "    $digest"
+  ok "base image digest resolved for linux/$PIPECAT_TARGET_ARCH"
+  say "    $repo@$digest"
   rule
-  say "Use it for every build on this host:"
-  say "    export PIPECAT_BASE='$digest'"
+  say "This is what apps/voice-worker/Dockerfile's ARG PIPECAT_BASE should hold. It is a"
+  say "statement about what one registry held today, so compare rather than assume:"
   say
-  warn "RECORD IT. docs/DEPLOYMENT.md §12.5 gate 3 is only closed once this digest is
-     written down — a digest that lives in one shell is not a pinned build input."
+  say "    grep '^ARG PIPECAT_BASE=' $REPO_ROOT/apps/voice-worker/Dockerfile"
+  say
+  local pinned
+  pinned=$(dockerfile_base)
+  if [[ "$pinned" == "$repo@$digest" ]]; then
+    ok "the Dockerfile already pins exactly this digest — nothing to do"
+  else
+    warn "the Dockerfile pins a DIFFERENT value:"
+    warn "    $pinned"
+    warn "If the vendor moved :latest, update that line in the repository (with the date and"
+    warn "this command in the comment above it) and commit it. A cloud build takes NO"
+    warn "--build-arg, so the Dockerfile is the only place this can be said."
+  fi
+}
+
+#: The value the build will actually use. A cloud build cannot be handed a `--build-arg`
+#: (`pipecatcloud` sends only uploadId/dockerfilePath/region), so this line IS the build
+#: input — which is why `deploy` refuses when it is a tag rather than a digest.
+dockerfile_base() {
+  sed -n 's/^ARG PIPECAT_BASE=//p' "$REPO_ROOT/apps/voice-worker/Dockerfile" | head -1
 }
 
 # --- secrets ------------------------------------------------------------------------------
@@ -600,40 +653,17 @@ sources_cmd() {
 
 # --- build --------------------------------------------------------------------------------
 
-build_cmd() {
-  have docker || die "docker is required"
-  local free; free=$(reclaim_free_gb "$REPO_ROOT")
-  (( free >= BUILD_FLOOR_GB )) || die "${free}GB free, below the ${BUILD_FLOOR_GB}GB floor.
-     Reclaim first: $SCRIPT_DIR/docker-reclaim.sh"
-
-  # EVERY Pipecat Cloud region is arm64 (`pipecat cloud regions list`, read on the deploy
-  # host 16 Sep 2026: ap-south, eu-central, us-east and us-west all list arm64 and nothing
-  # else). A deploy host is routinely amd64, so the platform is stated on every build rather
-  # than inherited — an image built for the host's own architecture is one the platform
-  # cannot run, and `deploy --architecture` only DESCRIBES the image, it does not convert it.
-  local -a args=(buildx build --platform "$TARGET_PLATFORM" --load
-                 -f apps/voice-worker/Dockerfile -t calevate/voice-worker:local)
-  docker buildx version >/dev/null 2>&1 || die "docker buildx is required to build for
-     $TARGET_PLATFORM from this host. Install the buildx plugin and QEMU binfmt handlers
-     (docker run --privileged --rm tonistiigi/binfmt --install arm64), or build with
-     Pipecat's own cloud build (deploy --build-dir/--dockerfile)."
-  if [[ -n "${PIPECAT_BASE:-}" ]]; then
-    args+=(--build-arg "PIPECAT_BASE=$PIPECAT_BASE")
-    ok "building on pinned base: $PIPECAT_BASE"
-  else
-    warn "PIPECAT_BASE unset — building on the vendor's MUTABLE :latest tag. Acceptable to
-     PROVE the image builds; not acceptable as the image you deploy (hard rule 9). Run
-     '$0 digest' and rebuild before deploying."
-  fi
-  args+=(.)
-
-  # The build context is the REPOSITORY ROOT — see the Dockerfile's own header. Running it
-  # from anywhere else silently changes which files the COPY lines can see.
-  ( cd "$REPO_ROOT" && docker "${args[@]}" )
-  ok "image built: calevate/voice-worker:local"
+context_cmd() {
+  rule; say "BUILD CONTEXT"; rule
+  say "  what 'deploy' would upload to Pipecat's builder, computed with THEIR exclusion"
+  say "  rules (component-wise fnmatch, no negation) rather than Docker's:"
+  say
+  ( cd "$REPO_ROOT" && uv run python -m scripts.pipecat_build_context )
+  rule
+  say "Their CLI builds this tarball IN MEMORY before uploading it, so the number above is"
+  say "a resource question and not a curiosity. tests/build_context_test.py holds the"
+  say "ceiling and the rule that nothing git ignores may appear here."
 }
-
-# --- preflight ------------------------------------------------------------------------------
 
 preflight_cmd() {
   have docker || die "docker is required"
@@ -650,14 +680,31 @@ preflight_cmd() {
 
 deploy_cmd() {
   have pipecat || die "pipecat CLI is not installed — run: $0 install-cli"
-  [[ -n "${PIPECAT_BASE:-}" ]] || die "refusing to deploy an image built on a mutable tag.
-     Run '$0 digest', export PIPECAT_BASE, rebuild, then deploy (hard rule 9)."
-  ( cd "$REPO_ROOT/apps/voice-worker" && pipecat cloud deploy )
-  ok "deploy submitted"
-  say "logs:  pipecat cloud agent logs $(manifest_value agent_name)"
-}
 
-# --- usage ------------------------------------------------------------------------------------
+  # WE DO NOT BUILD THIS IMAGE AND THERE IS NO REGISTRY (D-622). With no `image` and no
+  # `build_id` in the manifest, `--yes` makes the CLI upload the context and build it on
+  # the platform's own architecture ("No image specified, using Pipecat Cloud Build",
+  # cli/commands/deploy.py:909-945), and cloud builds use MANAGED image-pull credentials so
+  # no `--credentials` secret is needed (:953-957). That is what removes the amd64 deploy
+  # host from the picture entirely: every Pipecat Cloud region is arm64 and this one cannot
+  # execute an arm64 binary at all.
+  local base
+  base=$(dockerfile_base)
+  case "$base" in
+    *@sha256:*) ok "base image is pinned by digest: $base" ;;
+    *) die "apps/voice-worker/Dockerfile pins '$base', which is a MUTABLE TAG. A cloud build
+     takes no --build-arg, so that tag is what would be built on, and hard rule 9 does not
+     accept it as a build input. Run '$0 digest' and commit the digest." ;;
+  esac
+
+  # `--config-file` sets the loader's path (`_utils/deploy_utils.py`), while `context_dir`
+  # in that file is resolved against the PROCESS's working directory — so this must run from
+  # the repository root, which is also what the manifest's `context_dir = "."` means.
+  ( cd "$REPO_ROOT" && pipecat cloud deploy --yes --config-file apps/voice-worker/pcc-deploy.toml )
+  ok "deploy submitted"
+  say "logs:   pipecat cloud agent logs $(manifest_value agent_name)"
+  say "builds: pipecat cloud build list"
+}
 
 usage() {
   cat <<EOF
@@ -666,17 +713,20 @@ Bring up (or repair) the Pipecat Cloud voice worker.
   doctor        report this host's readiness and change nothing   <-- start here
   install-cli   install digest-pinned uv, then the Pipecat CLI
   login         authenticate the CLI against Pipecat Cloud
-  digest        resolve and print the vendor base image's sha256 digest
+  digest        read the vendor base image's arm64 digest from the registry
   sources       say where each credential comes from; prints no value
   secrets       prompt for every worker credential and push the secret set
-  build         build the worker image (needs PIPECAT_BASE for a real deploy)
+  context       print what a cloud build would upload, and how big it is
   preflight     run the image's own configuration proof
-  deploy        pipecat cloud deploy
+  deploy        upload the context, build it on Pipecat Cloud, and deploy
 
 Run them in that order on a new host. Every one is idempotent.
 
+The image is built BY PIPECAT, on the platform's own architecture — this host is amd64
+and every Pipecat Cloud region is arm64, so there is nothing here to build with. The base
+image is pinned in apps/voice-worker/Dockerfile because a cloud build takes no --build-arg.
+
 Environment:
-  PIPECAT_BASE    dailyco/pipecat-base@sha256:...  (from 'digest')
   UV_BIN_DIR      where uv and the CLI shims go     (default \$HOME/.local/bin)
   BUILD_FLOOR_GB  free GB required before a build   (default $BUILD_FLOOR_GB)
 EOF
@@ -690,7 +740,7 @@ main() {
     digest)      shift || true; digest_cmd "$@" ;;
     secrets)     shift || true; secrets_cmd "$@" ;;
     sources)     shift || true; sources_cmd "$@" ;;
-    build)       shift || true; build_cmd "$@" ;;
+    context)     shift || true; context_cmd "$@" ;;
     preflight)   shift || true; preflight_cmd "$@" ;;
     deploy)      shift || true; deploy_cmd "$@" ;;
     -h|--help|help) usage ;;

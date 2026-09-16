@@ -313,3 +313,112 @@ entrypoint will look. An `ImportError` is the real failure.
   distributions on top of a base image of then-unknown size, and this host needed the reclaim
   ladder run earlier the same night. `doctor` and `build` both refuse below a 6 GB floor and
   name `docker-reclaim.sh`.
+
+---
+
+## Addendum, same day: the build moves to Pipecat (D-622)
+
+**How these facts were obtained, and it is a different route from everything above.**
+`docs.pipecat.ai` is egress-blocked from this container, but `pipecatcloud` is an ordinary
+PyPI package: it was installed into a scratch virtualenv here (**version 1.2.0**) and its
+source read directly. That makes the claims below **VERIFIED-VENDOR-SOURCE** — the code that
+actually builds the request — rather than REPORTED-BY-OPERATOR readings of `--help`. Two
+things in the section above were half wrong and are corrected here.
+
+### `pipecat cloud build` cannot start a build
+
+Its subcommands are `logs`, `status`, `list`. A cloud build is started by `deploy`, and is
+what happens when no `image` and no `build_id` are supplied: *"No image specified, using
+Pipecat Cloud Build"* (`cli/commands/deploy.py:909-945`). **Cloud builds use managed pull
+credentials**, so the `--credentials` image-pull secret a pre-built image requires is skipped
+entirely (`:953-957`). That is what removes a registry from this deployment's surface.
+
+### The region IS a manifest key, and "the scaffold has no region key" proved nothing
+
+`_utils/deploy_utils.py::load_deploy_config` has an `expected_keys` set that is both the
+schema and a refusal list — an unknown key raises *"Unexpected keys in config file"*. It
+contains `agent_name`, `image`, `build_id`, `image_credentials`, `secret_set`, **`region`**,
+`scaling`, `docker`, `build`, `agent_profile`, `krisp_viva`, `git`, `websocket_auth`,
+`max_session_duration`, `resources`, **`architecture`**.
+
+The earlier conclusion came from the vendor's scaffold TEMPLATE, which emits none of those.
+A template is what the vendor chose to generate, not what the parser accepts — that
+distinction is the whole error. `apps/voice-worker/pcc-deploy.toml` was then loaded through
+that function to confirm it: `region='ap-south'`, `architecture='arm64'`, `image=None`,
+`build_id=None`, `build.context_dir='.'`, `build.dockerfile='apps/voice-worker/Dockerfile'`.
+
+### The build request carries no architecture, and no build args
+
+`api.py::_build_create` sends `uploadId`, `dockerfilePath` and `region`. Two consequences:
+
+* **There is no `--build-arg`.** Whatever `ARG PIPECAT_BASE` defaults to in the Dockerfile
+  IS what their builder builds on, which is why the digest moved into that file.
+* **Region is the only architecture lever the client has.** Builds are cached per
+  `(context_hash, region)` (`_cloud_build_flow`), which only makes sense if the output
+  differs by region. Combined with every region being arm64-only, that is strong structural
+  evidence the build is arm64 — but the server's behaviour is **not in the client source**,
+  so it stays UNKNOWN until `build logs` says otherwise. It is safe to settle empirically
+  because no live call exists to break (BLOCKER-1).
+
+### The secret set does reach the container as process environment
+
+Previously open. Three independent readings agree, and none of them is an inference from
+naming:
+
+* the secrets CLI parses `KEY=VALUE` lines (`cli/commands/secrets.py:148,178`) and the
+  vendor's instruction is `pipecat cloud secrets set <name> --file .env`;
+* their guide: a deployed bot *"has none of your local `.env`, so without it it starts but
+  every service call fails on missing keys"* (`pipecat/cli/agent_templates/AGENTS.md:302-304`,
+  inside the pinned wheel);
+* their own scaffold branches on `os.environ.get("ENV")` to decide whether Krisp is available
+  once deployed (`AGENTS.md:310`), which only works if the platform sets process environment.
+
+### Their `.dockerignore` matcher is not Docker's, and the context was 2.3GB
+
+`_utils/build_utils.py` uses `fnmatch` against **every path component** as well as the whole
+relative path, and `load_dockerignore` keeps `!` lines as literal patterns — so **negation
+does nothing** and a root-level `*.md` also matches `runbooks/alarm-index.md`. Docker uses
+Go's `filepath.Match`, whose `*` does not cross a `/`.
+
+Running their exclusion code over this repository produced **78,540 files / 2.3GB**:
+`.dockerignore` had never excluded `.claude/worktrees/` (a full checkout per agent) or
+`mergewt/`, both git-ignored. `create_deterministic_tarball` builds the tarball **in memory**
+before uploading, so that is an OOM rather than a slow build. After excluding them: **1,268
+files / 29.2MB**. `scripts/pipecat_build_context.py` is now the single implementation used by
+both `pipecat-worker-setup.sh context` and `tests/build_context_test.py`, whose git-ignore
+clause immediately found two more leaks (`apps/web/next-env.d.ts`,
+`apps/web/tsconfig.tsbuildinfo`).
+
+### The digest never needed to be relayed from the deploy host
+
+*"No digest can be resolved from here (the registry is unreachable through this
+environment's proxy)"* confused **pulling** with **reading a manifest list**. The blob CDN
+does answer 403; the manifest API does not. `docker buildx imagetools inspect
+dailyco/pipecat-base:latest --raw`, run in this container on 16 Sep 2026, returns the OCI
+index naming `linux/arm64` as
+`sha256:7dcc71f3e658b66fcb36fa420a16673d3ca1c52b932d496365763dbbb9844c4c` and `linux/amd64`
+as `sha256:613244ff092d65f9d9b5c9ba8f6a405c7557639508680f6a57d38f59069ce071`. Note `--raw`
+and not `--format`: the latter fetches each child's config blob and hits the blocked CDN.
+
+That also removes the older failure mode. `docker pull --platform` is silently a no-op on a
+host with no binfmt handlers — proven on the deploy host, where `docker run --platform
+linux/arm64 alpine:3.20 uname -m` answers `exec format error` while
+`/proc/sys/fs/binfmt_misc` holds only `python3.12`.
+
+### Revised bring-up order
+
+```
+scripts/deploy/pipecat-worker-setup.sh doctor
+scripts/deploy/pipecat-worker-setup.sh install-cli
+scripts/deploy/pipecat-worker-setup.sh login          # needs a tty; auth use-pat works headless
+scripts/deploy/pipecat-worker-setup.sh digest         # diffs the registry against the committed pin
+scripts/deploy/pipecat-worker-setup.sh sources
+scripts/deploy/pipecat-worker-setup.sh secrets        # needs a tty
+scripts/deploy/pipecat-worker-setup.sh context        # what would be uploaded, and how big
+scripts/deploy/pipecat-worker-setup.sh deploy         # uploads, builds on Pipecat, deploys
+scripts/deploy/pipecat-worker-setup.sh preflight
+```
+
+`build` is gone. There is nothing on an amd64 host to build an arm64 image with, and keeping
+a subcommand that cannot run on the only host that runs it is the second way to do one thing
+that this repository does not keep.

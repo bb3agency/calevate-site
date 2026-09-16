@@ -1842,58 +1842,100 @@ on every exit path including a signal.
    stored to `~/.config/pipecatcloud/pipecatcloud.toml`. (An
    `ssh -L 8400:127.0.0.1:8400` tunnel also works; the PAT needs neither tunnel nor
    browser.) *Pass condition*: `pipecat cloud auth whoami` names the organization.
-2. **Establish how `ap-south` is selected.** ✅ **ANSWERED (16 Sep 2026): IT IS A
-   DEPLOY-TIME FLAG, NOT A MANIFEST KEY.** `pipecat cloud deploy` takes `--region` / `-r`,
-   and a `regions` command lists them. The manifest genuinely cannot carry one — the
-   vendor's own scaffold inside the pinned wheel
-   (`pipecat/cli/templates/server/pcc-deploy.toml.jinja2`) emits only `agent_name`,
-   `secret_set`, `agent_profile`, optional `[krisp_viva]` and `[scaling] min_agents`, and
-   ours matches it.
+2. **Establish how `ap-south` is selected.** ✅ **CLOSED (16 Sep 2026). IT IS BOTH — A
+   DEPLOY FLAG AND A MANIFEST KEY — AND THE EARLIER ANSWER HERE WAS HALF WRONG.**
+   `pipecat cloud deploy` takes `--region` / `-r`, and `pipecat cloud organizations
+   default-region ap-south` sets the account default (done, on the deploy host).
 
-   ⚠ **AND `--architecture` (amd64/arm64) MUST MATCH HOW THE IMAGE WAS BUILT**, with the
-   region's default applying when omitted: *"Regions support specific architectures — see
-   'regions list'."* Our image is built on the VPS (amd64); a region defaulting to arm64
-   yields a container that does not start, with no error naming the cause.
+   ⚠ **"THE MANIFEST GENUINELY CANNOT CARRY ONE" WAS A MISREADING AND IS WITHDRAWN.** It
+   came from the vendor's SCAFFOLD TEMPLATE (`pipecat/cli/templates/server/
+   pcc-deploy.toml.jinja2`), which emits no region — but a template is what the vendor
+   chose to GENERATE, not what the parser ACCEPTS. The parser is
+   `pipecatcloud/_utils/deploy_utils.py::load_deploy_config`, whose `expected_keys` set is
+   authoritative and contains both `region` and `architecture` (version 1.2.0, installed
+   from PyPI and read 16 Sep 2026). That set is also a refusal list — an unknown key raises
+   "Unexpected keys in config file" rather than being ignored — so the manifest is now the
+   one place both are declared, and the CLI validated it: loading
+   `apps/voice-worker/pcc-deploy.toml` through that function returns `region='ap-south'`,
+   `architecture='arm64'`, `image=None`, `build_id=None`.
 
-   *Pass condition*: `pipecat cloud regions list` is run, the region id and its architecture
-   are recorded in `docs/evidence/pipecat-cloud-bringup-2026-09-16.md`, and the deploy
-   passes `--region` (and `--architecture` if it differs from that region's default).
-3. **Pin the base image by digest.** ⚠ **RE-OPENED THE SAME DAY IT CLOSED, AND THE REASON
-   IS THE ARCHITECTURE.** `pipecat cloud regions list` (read on the deploy host, 16 Sep
-   2026) shows **every** region — `ap-south` (Mumbai), `eu-central`, `us-east`, `us-west` —
-   supporting `arm64` and nothing else. There is no amd64 region. The digest below was
-   resolved with a plain `docker pull` on an **amd64** VPS, and a multi-arch tag resolves to
-   the HOST's architecture, so it names the amd64 manifest: an image built on it cannot
-   start on Pipecat Cloud, and that failure does not announce its cause.
+   ⚠ **AND `--architecture` DESCRIBES THE IMAGE, IT DOES NOT CONVERT ONE.** The CLI
+   pre-validates it against the region's `supported_architectures`
+   (`_utils/regions.py::validate_architecture_for_region`), so a mismatch is refused at the
+   edge rather than becoming a container that never starts.
 
-   `pipecat-worker-setup.sh digest` now pulls with `--platform linux/arm64` and REFUSES a
-   digest whose architecture is not the target; `build` uses `buildx --platform`; and
-   `doctor` reports the host/platform mismatch before any of it. *Re-run `digest` and record
-   the arm64 value below.* The amd64 one is kept only so the next reader sees what was
-   wrong with it.
-
-   **(The original closure follows, superseded.)** `apps/voice-worker/
-   Dockerfile` takes `--build-arg PIPECAT_BASE=dailyco/pipecat-base@sha256:…`; the default
-   is the mutable tag the vendor's own scaffold names, which hard rule 9 does not accept
-   for a build input. The digest, resolved on the deploy host (which has registry access
-   this repository's container does not) with
-   `scripts/deploy/pipecat-worker-setup.sh digest` and relayed by the founder:
+   *Pass condition — met*: `pipecat cloud regions list` run, the architectures recorded in
+   `docs/evidence/pipecat-cloud-bringup-2026-09-16.md`, and both `region` and
+   `architecture` declared in the manifest with a test asserting them
+   (`tests/pipecat_target_platform_test.py`).
+3. **Pin the base image by digest.** ✅ **CLOSED (16 Sep 2026), WITH THE ARCHITECTURE
+   RIGHT AND ONE PREMISE OF THE PREVIOUS ENTRY CORRECTED.**
 
    ```
-   dailyco/pipecat-base@sha256:c34a7c605b0f42d790a7593c9870417a098b0d6258b87119ebd6142d27c11e82
+   dailyco/pipecat-base@sha256:7dcc71f3e658b66fcb36fa420a16673d3ca1c52b932d496365763dbbb9844c4c
    ```
 
-   **EVIDENCE CLASS: REPORTED** — read from `docker inspect` on the deploy host, not from a
-   registry this container can reach (Docker Hub's blob CDN answers 403 through its proxy,
-   re-measured 16 Sep 2026). It is recorded HERE rather than defaulted in the Dockerfile
-   deliberately: a digest is a statement about what one registry held on one day, and
-   baking it into the build file would make a stale pin look like a verified one the next
-   time somebody moves hosts. `pipecat-worker-setup.sh build` and `deploy` both REFUSE
-   without `PIPECAT_BASE` set, so the pin cannot be skipped by forgetting it.
-4. **Build the image once, by hand.** *Pass condition*: the build completes and the
-   container's `python bot.py --preflight` prints FAIL for a reason from §12.2 and not an
-   `ImportError` — the layout assumptions (`bot.py` and `voice_worker/` at the base
-   image's WORKDIR) are the thing this proves.
+   **EVIDENCE CLASS: VERIFIED** — read from the Docker Hub registry on 16 Sep 2026 with
+   `docker buildx imagetools inspect dailyco/pipecat-base:latest --raw`, which returns the
+   OCI image index and names each platform's child digest. The amd64 sibling is
+   `sha256:613244ff092d65f9d9b5c9ba8f6a405c7557639508680f6a57d38f59069ce071`, and that is
+   the one a plain `docker pull` on this amd64 fleet resolves to.
+
+   ⚠ **"NO DIGEST CAN BE RESOLVED FROM HERE" WAS FALSE, AND IT SHAPED THE PREVIOUS THREE
+   ENTRIES.** It assumed resolving a digest meant PULLING, which the proxy does block
+   (Docker Hub's blob CDN answers 403). Reading a manifest list is a different request and
+   is not blocked — so the digest never needed to be a REPORTED figure relayed from the
+   deploy host at all. `pipecat-worker-setup.sh digest` now reads the index and selects the
+   entry whose platform is `linux/arm64`, which also removes the older failure mode:
+   `docker pull --platform` is silently a no-op on a host with no binfmt handlers and can
+   return the host's image anyway.
+
+   ⚠ **AND IT IS NOW THE DOCKERFILE'S DEFAULT RATHER THAN AN OPERATOR ENV VAR, REVERSING
+   THE REASONING RECORDED HERE.** That reasoning — "baking it into the build file would
+   make a stale pin look like a verified one" — loses to a fact about the build path chosen
+   in gate 4: **a Pipecat Cloud build cannot be handed a `--build-arg`.** Its request
+   carries `uploadId`, `dockerfilePath` and `region` and nothing else
+   (`_utils/deploy_utils.py` -> `api.py::_build_create`). An `ARG` defaulting to a mutable
+   tag would therefore mean every cloud build silently taking that tag, with the ARG
+   looking like it was protecting something. The staleness concern is answered instead by
+   `digest`, which now DIFFS the registry against the committed line and says so.
+4. **Build the image.** ⚠ **REPLACED BY D-622: WE DO NOT BUILD IT. PIPECAT DOES.**
+
+   The deploy host is amd64 and every Pipecat Cloud region is arm64, so a local build must
+   cross-compile — and this host cannot execute an arm64 binary at all:
+   `/proc/sys/fs/binfmt_misc` holds only `python3.12`, and `docker run --platform
+   linux/arm64 alpine:3.20 uname -m` answers `exec format error` (measured on the deploy
+   host, 16 Sep 2026). The alternatives were to install QEMU emulation on a production VPS
+   and emulate an entire image build, **and then** stand up a registry plus an image-pull
+   secret so the platform could fetch the result — `pipecat cloud deploy` PULLS an `image`
+   it is given, and this repository publishes the worker image nowhere.
+
+   With no `image` and no `build_id` in the manifest, `deploy --yes` uploads the build
+   context and builds it on the platform ("No image specified, using Pipecat Cloud Build",
+   `cli/commands/deploy.py:909-945`), and **cloud builds use managed pull credentials**, so
+   the `--credentials` secret is not needed either (`:953-957`). Builds are
+   content-addressed and cached per region, so a redeploy that changes nothing re-uploads
+   nothing.
+
+   ⚠ **THE BUILD CONTEXT WAS 2.3GB AND NOBODY HAD MEASURED IT.** Computed with the vendor's
+   own exclusion code, this repository's context came to **78,540 files / 2.3GB**, because
+   `.dockerignore` had never heard of `.claude/worktrees/` (a full checkout per agent) or
+   `mergewt/`, both of which `.gitignore` knows. That is an OOM rather than a slow build on
+   this path specifically: `docker build` streams its context to a local daemon, while
+   `create_deterministic_tarball` builds the whole tarball in memory first. It is now 1,268
+   files / 29.2MB, `scripts/pipecat_build_context.py` computes it for both the operator
+   (`pipecat-worker-setup.sh context`) and CI, and `tests/build_context_test.py` holds a
+   ceiling plus the rule that nothing `.gitignore` ignores may appear in it.
+
+   ⚠ **WHAT IS STILL UNKNOWN, AND IT IS NARROW.** The CLI never states which architecture
+   the vendor's builder targets, and we will not infer one: the build request carries a
+   `region` and no architecture field, every region is arm64-only, and `--architecture` is
+   validated against the region — but what the server does with that is not in the client
+   source. *Pass condition*: `pipecat cloud build list` / `build logs <id>` shows a
+   successful build for `ap-south`, and the deployed container reaches its own preflight
+   (a §12.2 reason, not an `ImportError` and not a silent non-start). With no live calls,
+   a wrong build costs a rerun — which is why this one is safe to settle empirically and
+   was not safe to settle by guessing.
 5. **Create the secret set** with the §12.2 table. *Pass condition*: `--preflight` prints
    OK inside the deployed container.
 6. ✅ **HOW THE WORKER REACHES THIS DATABASE AT ALL — CLOSED BY D-621 (opened and closed
