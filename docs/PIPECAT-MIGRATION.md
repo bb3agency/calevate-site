@@ -375,6 +375,20 @@ accepted, are both UNKNOWN and the second reaches money — gate 56.
   for text already accepted.** Their protocol documents no cancel message, so closing is the
   only interruption there is, and barge-in happens constantly on a phone product. The second
   half reaches money. §5, gate 56.
+- **WHAT A BARGE-IN COSTS IN MILLISECONDS ON THIS VENDOR, which nothing here measures.**
+  Because their protocol documents no cancel message, closing the socket IS the
+  interruption — and Pipecat's interruption path does not close it lazily: 
+  `InterruptibleTTSService._handle_interruption` AWAITS `_disconnect()` and then
+  `_connect()` inline whenever the bot was speaking (`.venv/lib/python3.12/site-packages/
+  pipecat/services/tts_service.py:2011-2013`, read 16 Sep 2026). So a full WSS reconnect —
+  TLS handshake included, to a host whose region nobody here knows — sits between the
+  caller interrupting and the agent's next word, INSIDE the 500ms voice-to-voice budget
+  (D-522), on the one event that happens constantly on a phone product. This is not a
+  defect in our gap-fill: the override is what makes the interruption work at all, and the
+  alternative is a vendor synthesising into a socket nobody is listening to. It is a
+  MEASUREMENT WE DO NOT HAVE, and it cannot be taken from here — no real call has ever been
+  placed (BLOCKER-1) and `api.vachana.ai` is egress-blocked. Take it on the first live call
+  before Gnani carries a client's traffic. §5 gap 2, gate 56.
 - **Whether Gnani supports cloned voices at all.** D-593's whole ground for replacing Sarvam
   on Clear is that `SarvamTTSSpeakerV3` is a closed enum with nowhere to put a client's own
   cloned voice. If Gnani cannot clone either, the swap buys only the price.

@@ -58,6 +58,7 @@ from apps.api.agents import prompts, publishing, voice_routes
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
+from apps.api.agents.voice_admission import OUR_PROVIDERS
 from apps.api.agents.voice_offer import (
     NO_CARTESIA_CREDENTIAL_REASON,
     NOT_CURATED_REASON,
@@ -1216,14 +1217,28 @@ async def test_a_tier_with_nothing_in_it_says_so_rather_than_simply_not_appearin
     assert response.status_code == 200, response.text
     tiers = {row["provider"]: row for row in response.json()["tiers"]}
 
-    assert set(tiers) == {"sarvam", "cartesia"}, "a tier the product sells has no line"
-    assert tiers["sarvam"]["label"] == voice_tier_label("sarvam")
-    # The suite's platform offers nine Sarvam voices and no Cartesia one, so this is the
-    # founder's exact state: a tier with nothing in it, which now states its own absence.
+    # DERIVED FROM THE REGISTRY, NOT LISTED HERE. ⚠ This read
+    # `== {"sarvam", "cartesia"}` and went red the moment D-618 added a third provider —
+    # a set in prose, which is the defect class hard rule 4 names, in the test guarding a
+    # bug that was ITSELF a list built from the wrong source. Comparing against
+    # `OUR_PROVIDERS` is not tautological: the bug under guard is deriving the report from
+    # the catalogue ROWS, which yields a strict SUBSET of the registry and still fails.
+    assert set(tiers) == set(OUR_PROVIDERS), "a tier the product sells has no line"
+
+    # The suite's platform offers nine Sarvam voices and nothing on any other provider, so
+    # this is the founder's exact state: a tier with nothing in it, which now states its
+    # own absence. Asserted over EVERY empty provider rather than a named one, so a fourth
+    # provider cannot arrive without a line.
     assert tiers["sarvam"]["note"] is None, "a tier with choices in it invented a refusal"
-    assert tiers["cartesia"]["offerable"] == 0 and tiers["cartesia"]["in_catalogue"] == 0
-    assert tiers["cartesia"]["note"], "the empty tier said nothing"
-    assert voice_tier_label("cartesia") in tiers["cartesia"]["note"]
+    assert tiers["sarvam"]["label"] == voice_tier_label("sarvam")
+    empty = [p for p in OUR_PROVIDERS if p != "sarvam"]
+    assert empty, "the fixture stopped having an empty tier, so this proves nothing"
+    for provider in empty:
+        row = tiers[provider]
+        assert row["offerable"] == 0 and row["in_catalogue"] == 0
+        assert row["note"], f"the empty {provider} tier said nothing"
+        assert voice_tier_label(provider) in row["note"]
+        assert row["label"] == voice_tier_label(provider)
 
 
 async def test_an_engine_that_dictates_its_voices_reports_no_tiers_at_all() -> None:
