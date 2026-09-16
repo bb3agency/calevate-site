@@ -503,6 +503,17 @@ sources_cmd() {
       found=$((found + 1))
     else
       case "$name" in
+        VOICE_WORKER_API_TOKEN)
+          warn "$name  — A NEW CREDENTIAL YOU CREATE (D-621). It exists nowhere yet.
+     Generate a long random string, install it in the ops console as
+     'voice_worker_api_token', and put THE SAME VALUE here. Nothing copies it between the
+     two — the console is what \`apps/api\` checks the header against, this secret set is
+     what the worker presents. Until both hold it, every /v1/worker route answers 401 to
+     everybody, which is the deliberate posture of an unconfigured deployment." ;;
+        VOICE_WORKER_API_BASE_URL)
+          warn "$name  — NOT a secret: the https:// base of THIS deployment's API, the one
+     the worker calls instead of opening a database connection (D-621). The origin your
+     own console is served from, with no trailing path." ;;
         PLIVO_*)
           warn "$name  — NOT on this host. Plivo dashboard; this secret set is its only home." ;;
         GNANI_API_KEY)

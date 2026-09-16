@@ -42,6 +42,7 @@ from calevate_shared.worker_api import (
     SettlementRefusal,
     SettlementRequest,
 )
+from pydantic import ValidationError
 from sqlalchemy import text
 from tests.worker_api_harness import call_ref, published_agent, worker_client
 from voice_worker.api_client import WorkerApiError
@@ -656,3 +657,59 @@ async def test_a_priced_leg_is_multiplied_by_the_rate_card_this_host_holds(
     assert unit == "stt_s"
     assert qty == Decimal("42.5")
     assert cost == stt_rate_inr_per_second().quantize(Decimal("0.0001"))
+
+
+async def test_a_batch_larger_than_the_ceiling_is_refused_at_the_edge() -> None:
+    """**EVERY CALLER-CONTROLLED LIST HAS A CEILING, AND THIS IS WHAT PROVES IT.**
+
+    `check_list_bounds` governs RESPONSES and correctly does not reach a request body, but
+    its argument does: what needs a ceiling is a list whose length the CALLER controls, and
+    from the server's side that is exactly what this is. The client is a container on a
+    third party's infrastructure holding a token — "our own worker would never send a
+    million turns" is a fact about the code we ship, not about what can arrive on the socket.
+
+    Refused by Pydantic at the edge (422), so the host never materialises the list in Python
+    and never loops INSERTs over it. The ceilings sit far above any real flush
+    (`VOICE_WORKER_TURN_BATCH_SIZE` defaults to 8), so nothing legitimate is ever refused.
+    """
+    from calevate_shared.worker_api import (
+        MAX_EVENTS_PER_BATCH,
+        MAX_QUANTITIES,
+        MAX_TURNS_PER_BATCH,
+    )
+
+    with pytest.raises(ValidationError):
+        ObservationBatch(
+            agent_id=uuid.uuid4(),
+            direction="inbound",
+            turns=[
+                TranscriptTurn(call_id="c", idx=i, speaker="caller", text="x")
+                for i in range(MAX_TURNS_PER_BATCH + 1)
+            ],
+        )
+    with pytest.raises(ValidationError):
+        ObservationBatch(
+            agent_id=uuid.uuid4(),
+            direction="inbound",
+            events=[
+                CallEvent(
+                    call_id="c",
+                    tenant_id=uuid.uuid4(),
+                    agent_id=uuid.uuid4(),
+                    direction="inbound",
+                    status="in_progress",
+                    engine="pipecat",
+                )
+                for _ in range(MAX_EVENTS_PER_BATCH + 1)
+            ],
+        )
+    with pytest.raises(ValidationError):
+        SettlementRequest(
+            final_status="completed",
+            direction="inbound",
+            agent_id=uuid.uuid4(),
+            quantities=[
+                MeteredQuantity(leg="stt", unit_type="second", qty=Decimal("1"))
+                for _ in range(MAX_QUANTITIES + 1)
+            ],
+        )

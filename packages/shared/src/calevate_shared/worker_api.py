@@ -36,7 +36,7 @@ Two consequences that look like omissions and are the design:
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,6 +48,32 @@ from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 #: is a client built against a different contract, and answering it 422 at the edge is how
 #: that is found on the first call rather than in a column nobody filled.
 _STRICT = ConfigDict(extra="forbid")
+
+#: Ceilings on every list a client can grow. `check_list_bounds` governs RESPONSES and
+#: correctly does not reach these, but its argument does: *"what needs a ceiling is a list
+#: whose length is CALLER-CONTROLLED"*, and from the server's side that is exactly what a
+#: request body is. The client here is a container on a third party's infrastructure holding
+#: a token; "our own worker would never send a million turns" is a fact about the code we
+#: ship today, not about what can arrive on the socket.
+#:
+#: Both are far above any legitimate batch — `VOICE_WORKER_TURN_BATCH_SIZE` defaults to 8
+#: (D-620) — so no real flush is ever refused. They exist so that the failure mode of a
+#: malformed or hostile body is a 422 at the edge rather than a 1 vCPU host materialising
+#: the list in Python and then looping INSERTs over it.
+MAX_TURNS_PER_BATCH: Final = 500
+MAX_EVENTS_PER_BATCH: Final = 50
+
+#: A settlement carries one quantity per metered leg, and §1.3 declares a handful
+#: (`meter.MeteredLeg`). ⚠ **DELIBERATELY NOT `len(MeteredLeg)` AND NOT THAT COUNT WRITTEN
+#: OUT.** `packages/shared` may not import `apps/` — that is a kept import contract — so the
+#: enum is unreachable from here, and restating its size as a literal would be a number that
+#: drifts silently the day a sixth leg is declared (hard rule 4's defect class).
+#:
+#: So this is a MEMORY BOUND and not a claim about how many legs exist: comfortably above
+#: any real settlement, low enough that a malformed body is refused at the edge. The
+#: all-or-nothing rule over the real leg set is enforced where the legs are actually known —
+#: `worker/service`, against `MeteredLeg` itself.
+MAX_QUANTITIES: Final = 32
 
 
 class WorkerSessionOut(BaseModel):
@@ -105,8 +131,8 @@ class ObservationBatch(BaseModel):
     #: different one (`worker/service._refuse_identity`).
     agent_id: UUID
     direction: CallDirection
-    events: list[CallEvent] = Field(default_factory=list)
-    turns: list[TranscriptTurn] = Field(default_factory=list)
+    events: list[CallEvent] = Field(default_factory=list, max_length=MAX_EVENTS_PER_BATCH)
+    turns: list[TranscriptTurn] = Field(default_factory=list, max_length=MAX_TURNS_PER_BATCH)
 
 
 class ObservationsOut(BaseModel):
@@ -182,7 +208,7 @@ class SettlementRequest(BaseModel):
     direction: CallDirection
     agent_id: UUID
     refusal: SettlementRefusal | None = None
-    quantities: list[MeteredQuantity] = Field(default_factory=list)
+    quantities: list[MeteredQuantity] = Field(default_factory=list, max_length=MAX_QUANTITIES)
 
 
 class SettlementOut(BaseModel):
@@ -203,6 +229,9 @@ class SettlementOut(BaseModel):
 
 
 __all__ = [
+    "MAX_EVENTS_PER_BATCH",
+    "MAX_QUANTITIES",
+    "MAX_TURNS_PER_BATCH",
     "MeteredQuantity",
     "ObservationBatch",
     "ObservationsOut",
