@@ -2,8 +2,11 @@
 
     GET  /v1/ops/model-prices               every catalogue model: provider, reference
                                              price, attested price (or "needs a price"),
-                                             offerability — AND the two VOICE tiers, the
+                                             offerability — AND every VOICE PROVIDER, the
                                              same three questions one vendor further down
+                                             (PROVIDERS, not tiers: D-618 gave this panel a
+                                             row whose whole point is that it has no tier
+                                             until somebody attests its price)
     POST /v1/ops/model-prices/{model}       attest a model price; step-up
                                              `attest_model_price:<model>`
     POST /v1/ops/model-prices/tts/{provider} attest a VOICE provider's price; step-up
@@ -50,7 +53,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.voice_offer import cartesia_credential_installed, default_tts_price_is_billable
-from apps.api.agents.voices import CARTESIA_TTS_MODEL, DEFAULT_TTS_MODEL
+from apps.api.agents.voices import tts_models_for_provider
 from apps.api.billing.plans import parse_billing_month
 from apps.api.billing.rates import VoiceTier, voice_tier_label
 from apps.api.compliance.audit import write_audit
@@ -59,7 +62,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import ENV_ONLY_FOREIGN_ENV, get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
     TTS_PROVIDERS,
@@ -350,9 +353,21 @@ class TtsPriceOut(BaseModel):
     source_note: str | None
     #: THIS TREE'S OWN figure, pre-filled into the form GREYED and labelled "confirm
     #: against your vendor invoice". Never authoritative: Sarvam's is a published list rate
-    #: and Cartesia's is the plan fee divided by its allotment, which is why hard rule 7
+    #: and Cartesia's is the vendor's marginal overage rate, which is why hard rule 7
     #: keeps both out of `unit_cost_paid` (`ops/model_pricing.reference_tts_price`).
-    reference_inr_per_1k_chars: str
+    #:
+    #: ⚠ **`null` WHEN THE VENDOR PUBLISHES NOTHING (D-618).** Gnani publish no figure at
+    #: all, so there is no pre-fill to render — and the alternative this field used to
+    #: force, a non-null string, could only have been another vendor's number wearing
+    #: Gnani's name.
+    reference_inr_per_1k_chars: str | None
+    #: True when the credential for this provider is held in ANOTHER deployment's
+    #: environment, so `credential_installed` is structurally False here and says nothing
+    #: (D-618, `core/settings.ENV_ONLY_FOREIGN_ENV`). Gnani's key lives in the
+    #: `calevate-voice-worker` secret set; this process holds no Gnani client to give one
+    #: to. Without this the panel would tell an operator who HAS attested a Gnani price
+    #: that the tier is still not offerable, and point them at a box that can never fill.
+    credential_held_elsewhere: bool = False
 
 
 class EmbeddingPriceOut(BaseModel):
@@ -726,16 +741,26 @@ async def _rows(session: AsyncSession, *, at: datetime) -> list[ModelPriceOut]:
     return [_row(offers[model], attested.get(model)) for model in sorted(offers)]
 
 
-#: The synthesizer model each leg speaks with. Both values are named constants in the voice
-#: catalogue — `agents/voices` declares one model per provider and says why (`TtsModel`) —
-#: so this maps the two rather than spelling either string here. It is not derived from
-#: `CATALOG` because a provider with no personas listed yet (Cartesia, until Q1 is answered)
-#: would then have no model to report on a row whose whole purpose is to get its price
-#: attested before those personas arrive.
-_TTS_MODEL: Final[dict[str, str]] = {
-    "sarvam": DEFAULT_TTS_MODEL,
-    "cartesia": CARTESIA_TTS_MODEL,
-}
+def _tts_model_of(provider: str) -> str:
+    """The synthesizer model this leg speaks with — from the ONE registry that knows.
+
+    ⚠ **THIS WAS A HAND-WRITTEN TWO-ENTRY DICT AND D-618's THIRD PROVIDER TURNED IT INTO A
+    `KeyError` ON A LIVE ROUTE** — a 500 on the ops price panel, from a map that looked
+    complete. `agents/voices.tts_models_for_provider` answers the same question from
+    `TtsModel` and `TTS_MODEL_LIFECYCLE`, which is where a model's provider is written down
+    once; a fourth provider now reaches this panel by existing.
+
+    Still NOT derived from the voice CATALOGUE, which is what the deleted dict's comment
+    was protecting: a provider with no personas synced yet must still have a model to
+    report on a row whose whole purpose is to get its price attested BEFORE those personas
+    arrive. `tts_models_for_provider` reads the model registry, not the personas.
+
+    Joined with `/` rather than assuming one, because that tuple is deliberately allowed to
+    hold more than one model (see its docstring) — and empty means the registry has no
+    model for this provider at all, which is a real answer rather than a crash.
+    """
+    return "/".join(tts_models_for_provider(provider))
+
 
 #: Why the Sarvam leg is billable with nothing attested. The console renders it where the
 #: attestation form would otherwise be, so an operator does not go looking for an invoice
@@ -749,17 +774,34 @@ BILLABLE_WITHOUT_ATTESTATION_REASON: Final = (
 
 
 def _tts_credential_installed(provider: str) -> bool:
-    """Is a key for this voice vendor installed here?
+    """Is a key for this voice vendor installed HERE?
 
     Cartesia goes through `agents/voice_offer.cartesia_credential_installed` — the picker's
     own ground 1, so the panel and the picker cannot disagree about a key. Sarvam has no
     such function because no ground of the picker depends on it (the engine holds that leg),
     so it is read the same way, off the settings the ops console overlays its encrypted
     store onto, rather than inventing a second notion of installed.
+
+    **FALSE, PERMANENTLY AND CORRECTLY, FOR A KEY HELD IN ANOTHER ENVIRONMENT** — see
+    `_tts_credential_held_elsewhere`, which is what stops that False being read as a fault.
     """
     if provider == "cartesia":
         return cartesia_credential_installed()
+    if provider in ENV_ONLY_FOREIGN_ENV:
+        return False
     return bool((get_settings().sarvam_api_key or "").strip())
+
+
+def _tts_credential_held_elsewhere(provider: str) -> bool:
+    """Does this provider's key live in a DIFFERENT deployment's environment? (D-618)
+
+    Derived from `core/settings.ENV_ONLY_FOREIGN_ENV` — the same mapping the config panel
+    renders "held by the Pipecat Cloud secret set for `calevate-voice-worker`" from — so
+    the two screens cannot come to disagree about where a credential lives. Keyed on the
+    `Settings` field name rather than on the provider, because that mapping is the
+    authority and a second `provider == "gnani"` here would be the copy that drifts.
+    """
+    return f"{provider}_api_key" in ENV_ONLY_FOREIGN_ENV
 
 
 def _tts_row(
@@ -768,6 +810,7 @@ def _tts_row(
     *,
     billable: bool,
     credential_installed: bool,
+    credential_held_elsewhere: bool,
 ) -> TtsPriceOut:
     # "Would this tier be unbillable with nothing attested?" — asked of the one function
     # that states which legs carry a cost of their own (`default_tts_price_is_billable`,
@@ -778,11 +821,11 @@ def _tts_row(
     return TtsPriceOut(
         provider=provider,
         tier_label=voice_tier_label(tier),
-        tts_model=_TTS_MODEL[provider],
+        tts_model=_tts_model_of(provider),
         credential_installed=credential_installed,
         price_attested=attested is not None,
         price_billable=billable,
-        offerable=credential_installed and billable,
+        offerable=(credential_installed or credential_held_elsewhere) and billable,
         billable_without_attestation_reason=(
             None if needs else BILLABLE_WITHOUT_ATTESTATION_REASON
         ),
@@ -791,7 +834,10 @@ def _tts_row(
         attested_at=attested.attested_at.isoformat() if attested else None,
         attested_by=attested.attested_by if attested else None,
         source_note=attested.source_note if attested else None,
-        reference_inr_per_1k_chars=str(reference_tts_price(provider)),
+        reference_inr_per_1k_chars=(
+            str(reference) if (reference := reference_tts_price(provider)) is not None else None
+        ),
+        credential_held_elsewhere=credential_held_elsewhere,
     )
 
 
@@ -814,6 +860,7 @@ async def _tts_rows(session: AsyncSession, *, at: datetime) -> list[TtsPriceOut]
             attested.get(provider),
             billable=await tts_price_is_billable(session, provider=provider, at=at),
             credential_installed=_tts_credential_installed(provider),
+            credential_held_elsewhere=_tts_credential_held_elsewhere(provider),
         )
         for provider in TTS_PROVIDERS
     ]
@@ -1130,6 +1177,7 @@ async def attest_voice_price(
             current,
             billable=await tts_price_is_billable(session, provider=provider, at=at),
             credential_installed=_tts_credential_installed(provider),
+            credential_held_elsewhere=_tts_credential_held_elsewhere(provider),
         ),
         as_of=at.isoformat(),
     )

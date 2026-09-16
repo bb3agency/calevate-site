@@ -49,8 +49,18 @@ has the same clock on it as a language model — a caller on the line, a vendor'
 the same two ways of going undated. `tts_refusals` holds `TTS_MODEL_LIFECYCLE` to
 `agents/voices.TtsModel` exactly as `refusals` holds `MODEL_LIFECYCLE` to `LLM_MODEL_NAMES`:
 every catalogue model dated-or-explicitly-unread, no orphan entry, no `none-announced` on
-unverified evidence, and — since every TTS model is selectable by construction — no `unread`
-at all. A second script would have been a second place for the doctrine to drift.
+unverified evidence, and no `unread` on a model a client can be put on. A second script
+would have been a second place for the doctrine to drift.
+
+⚠ **THAT LAST CLAUSE USED TO READ "since every TTS model is selectable by construction —
+no `unread` at all", AND D-618 MADE THE PREMISE FALSE.** `timbre-v2.5` is in the catalogue
+and is on a provider with NO PRICED TIER (`voices.VOICE_TIER_OF_PROVIDER` maps `gnani` to
+`None`, because Gnani publish no price and nobody has attested one), so hard rule 7 refuses
+it before offerability is even asked: there is no path by which a client is put on it
+today. `tts_refusals` now derives "choosable" from that mapping rather than assuming it,
+which is the SAME distinction the LLM half has always made with `selectable` — and it arms
+itself rather than forgiving anything: the moment an operator attests a Gnani price, the
+model becomes choosable and this gate goes red until somebody reads a Gnani lifecycle page.
 
 Run: `uv run python -m scripts.check_model_lifecycle`   (also in `make guardrails`)
 """
@@ -62,7 +72,11 @@ from datetime import date
 from pathlib import Path
 from typing import get_args
 
-from apps.api.agents.voices import TtsModel
+from apps.api.agents.voices import (
+    VOICE_TIER_OF_PROVIDER,
+    TtsModel,
+    provider_of_tts_model,
+)
 from calevate_shared.engine import (
     AZURE_LOCATION,
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -423,15 +437,30 @@ def warnings(
     return notes
 
 
-def tts_refusals(models: frozenset[str], table: dict[str, TtsModelLifecycle]) -> list[str]:
-    """Reasons the TTS half cannot MEASURE — exit 2, the same shape as `refusals`.
+def tts_choosable(models: frozenset[str]) -> frozenset[str]:
+    """The catalogue models a client can actually be put on — `selectable`'s TTS twin.
 
-    `models` is the whole `TtsModel` Literal, and every member is offerable to a client
-    (there is no `selectable` flag on a voice model: offerability is decided per voice by
-    `agents/voice_offer.py`, on grounds that have nothing to do with the model's date). So an
-    `unread` stance refuses unconditionally here — a voice model nobody has read a page for
-    is one a client can be put on today.
+    There is still no `selectable` flag on a voice model, and per-voice offerability is
+    still `agents/voice_offer.py`'s business on grounds that have nothing to do with a
+    date. What a MODEL can be excluded by is the one ground that precedes all of them:
+    hard rule 7. A model whose provider has no priced tier cannot be offered to anybody,
+    because nobody could be charged for the minute — `VOICE_TIER_OF_PROVIDER` is where that
+    is decided, and reading it here is what keeps this gate and the offer seam from having
+    two opinions about who can be put on what.
+
+    Derived, never listed: attesting a price moves a model INTO this set with no edit here,
+    which is the direction that must not need somebody to remember this file exists.
     """
+    return frozenset(
+        model
+        for model in models
+        if (provider := provider_of_tts_model(model)) is not None
+        and VOICE_TIER_OF_PROVIDER[provider] is not None
+    )
+
+
+def tts_refusals(models: frozenset[str], table: dict[str, TtsModelLifecycle]) -> list[str]:
+    """Reasons the TTS half cannot MEASURE — exit 2, the same shape as `refusals`."""
     problems: list[str] = []
     if not models:
         problems.append("TtsModel is empty: there is no voice catalogue to score.")
@@ -468,12 +497,13 @@ def tts_refusals(models: frozenset[str], table: dict[str, TtsModelLifecycle]) ->
                     f"{name}: {label} evidence claims to have been read on "
                     f"{evidence.read_on.isoformat()}, which is in the future."
                 )
-        if entry.retirement_stance == "unread" and name in models:
+        if entry.retirement_stance == "unread" and name in tts_choosable(models):
             problems.append(
                 f"{name} is a voice model a client can be put on and NOBODY HAS READ a "
                 f"retirement page for it ({entry.retirement.source}). Open the vendor's page "
                 "and file what it says — a date, or `none-announced` — or take the model out "
-                "of TtsModel."
+                "of TtsModel. (A model whose provider has no priced tier is exempt until "
+                "somebody attests a price, which is what makes it choosable.)"
             )
     return problems
 

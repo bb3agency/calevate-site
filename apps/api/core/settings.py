@@ -266,6 +266,19 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "carrier goes on billing. Set PLIVO_AUTH_TOKEN in the `calevate-voice-worker` "
         "secret set (DEPLOYMENT §12.2)."
     ),
+    # THE GNANI TTS KEY (D-618). Same category and the same reader as the carrier pair
+    # above: a container on Pipecat Cloud that can never open this store. It differs from
+    # `cartesia_api_key` — which IS console-managed and is also read by that container —
+    # in the one way that decides the classification: an `apps/api` adapter reads the
+    # Cartesia value (`engine/__init__.py`), and NOTHING on this host reads this one.
+    "gnani_api_key": (
+        "the Gnani TTS credential is read by the voice worker's own synthesis leg, inside "
+        "a container on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can "
+        "never open this credential store — and no process on this host holds a Gnani "
+        "client to give it to. Set GNANI_API_KEY in the `calevate-voice-worker` secret "
+        "set (`pipecat cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would "
+        "be one nothing can read."
+    ),
 }
 
 #: Env-only keys whose environment IS NOT THIS DEPLOYMENT'S (D-614).
@@ -289,6 +302,7 @@ ENV_ONLY_REASONS: dict[str, str] = {
 ENV_ONLY_FOREIGN_ENV: dict[str, str] = {
     "plivo_auth_id": "the Pipecat Cloud secret set for `calevate-voice-worker`",
     "plivo_auth_token": "the Pipecat Cloud secret set for `calevate-voice-worker`",
+    "gnani_api_key": "the Pipecat Cloud secret set for `calevate-voice-worker`",
 }
 
 # Asserted at import rather than tested, for `_assert_holds_no_secret`'s reason: an entry

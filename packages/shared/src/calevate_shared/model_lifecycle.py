@@ -167,12 +167,19 @@ ATTESTATION_PATH: Final = Path("docs/evidence/azure-deployment-attestation.json"
 #: to the field hard rule 11 was written about.
 RetirementStance = Literal["dated", "none-announced", "unread"]
 
-#: THE TWO VOICE PROVIDERS THIS PRODUCT RUNS TTS ON — and, by D-547 §2.3 invariant 7, the
-#: two VOICE TIERS an agent can be on. Defined HERE rather than in `apps/api/agents/voices.py`
-#: because this registry must name a provider without importing the app (the direction
-#: `LlmProvider` already takes for the LLM legs); `voices.VoiceProvider` is this type, not a
-#: second spelling of it.
-TtsProvider = Literal["sarvam", "cartesia"]
+#: THE VOICE PROVIDERS THIS PRODUCT RUNS TTS ON. Defined HERE rather than in
+#: `apps/api/agents/voices.py` because this registry must name a provider without importing
+#: the app (the direction `LlmProvider` already takes for the LLM legs);
+#: `voices.VoiceProvider` is this type, not a second spelling of it.
+#:
+#: ⚠ **THIS USED TO SAY "THE TWO … AND, BY D-547 §2.3 INVARIANT 7, THE TWO VOICE TIERS AN
+#: AGENT CAN BE ON", AND D-618 SPLITS THE SECOND HALF OFF.** `gnani` is a third provider
+#: and is NOT a third tier: a tier is a PRICE (`billing/rates.VoiceTier`, its label, its
+#: cost floor and the two rates frozen on every credit lot), and Gnani publish no price at
+#: all. Provider and tier were the same Literal while every provider happened to have one;
+#: `voices.voice_tier()` now maps the first to the second and REFUSES where there is
+#: nothing to map to, which is hard rule 7's shape rather than a new rule.
+TtsProvider = Literal["sarvam", "cartesia", "gnani"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -725,7 +732,12 @@ class TtsModelLifecycle:
         return None if self.retires_on is None else (self.retires_on - today).days
 
 
-#: When the pinned Bolna mirror was read for the two rows below. The mirror is hash-pinned
+#: When the Gnani evidence was gathered: the founder's reading of `docs.gnani.ai` and this
+#: container's reading of the installed `gnani-vachana` wheel, which were the same day.
+_GNANI_READ_ON: Final = date(2026, 9, 15)
+
+#: When the pinned Bolna mirror was read for the two Bolna-cited rows below. The mirror
+#: is hash-pinned
 #: (`bolna-findings/mirror/MANIFEST.json`), so unlike the founder-relayed rows above this
 #: reading can be re-made by anyone with the tree.
 _TTS_READ_ON: Final = date(2026, 9, 7)
@@ -817,6 +829,55 @@ TTS_MODEL_LIFECYCLE: Final[dict[str, TtsModelLifecycle]] = {
                 "than to a current one, and `engine/bolna._cartesia_synthesizer_config` "
                 "refuses rather than defaults. Whether the HOSTED platform runs that commit "
                 "is UNKNOWN: OPERATIONS §2 gate 52."
+            ),
+        ),
+    ),
+    "timbre-v2.5": TtsModelLifecycle(
+        model="timbre-v2.5",
+        provider="gnani",
+        retires_on=None,
+        # **`unread`, NOT `none-announced`, AND THE DIFFERENCE IS THE WHOLE OF HARD RULE
+        # 11.** Nobody has opened a Gnani lifecycle, deprecation or API-changes page —
+        # there may not be one — and `__post_init__` would refuse `none-announced` on
+        # unverified evidence anyway. This is the stance `gpt-5.6-luna` carries for the
+        # same reason: withheld solely because nobody has read a page for it.
+        retirement_stance="unread",
+        replacement=None,
+        retirement=Evidence(
+            source="docs.gnani.ai/api/introduction/introduction",
+            read_on=_GNANI_READ_ON,
+            verified=False,
+            note=(
+                "UNREAD. The four Gnani pages this product is built on are the two TTS "
+                "pages, the VC page and the introduction (sitemap `lastmod` 2026-08-05 / "
+                "2026-08-10; the introduction itself prints 'Last verified: 5 August "
+                "2026'), read by the founder at docs.gnani.ai on 15 Sep 2026 and relayed. "
+                "NONE of them is a lifecycle page, and no deprecation notice, sunset date "
+                "or successor model was found on any of them — which is 'nobody has "
+                "looked at a page that would say so', not 'the vendor announced nothing'. "
+                "⚠ `docs.gnani.ai`, `gnani.ai` and `api.vachana.ai` are EGRESS-BLOCKED "
+                "from this container (all measured HTTP 000 on 15 Sep 2026), so this "
+                "cannot be re-read here. Settle it with Gnani: OPERATIONS §2 gate 56."
+            ),
+        ),
+        availability=Evidence(
+            source="gnani/tts/client.py:34-104 (gnani-vachana 0.7.9, installed wheel)",
+            read_on=_GNANI_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-SDK, and it is the strongest evidence class available for "
+                "this leg because the HOST is blocked and the WHEEL is not. The vendor's "
+                "own installed SDK carries `SUPPORTED_MODELS = {'timbre-v2.0', "
+                "'timbre-v2.5'}`, the 42-name `TIMBRE_V25_VOICES` set and the validator "
+                "that makes `language` a `timbre-v2.5`-only parameter — every one of which "
+                "agrees with the founder's reading of docs.gnani.ai/api/TTS/available-"
+                "voices (lastmod 2026-08-05). Pinned by `uv.lock` at sha256 "
+                "20146a9df14ad3e0942dad5de10d92b1a2a94ecac7b931b3cc2d8f2e8f2fd8e8. "
+                "⚠ THERE IS NO ENGINE IN FRONT OF THIS ONE: the two rows above cite what "
+                "BOLNA accepts, because Bolna parses their identifiers. Gnani is called "
+                "from our own container (`voice_worker/gnani_tts.py`), so the vendor's own "
+                "acceptance is the only acceptance there is. NOT VERIFIED BY A CALL: no "
+                "Gnani request has ever been made from this product."
             ),
         ),
     ),

@@ -13278,7 +13278,7 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "sarvam" | "cartesia";
+            provider: "sarvam" | "cartesia" | "gnani";
             /** Speaker */
             speaker: string;
             /** Tier Label */
@@ -13287,7 +13287,7 @@ export interface components {
              * Tts Model
              * @enum {string}
              */
-            tts_model: "bulbul:v3" | "sonic-3.5";
+            tts_model: "bulbul:v3" | "sonic-3.5" | "timbre-v2.5";
             /** Unavailable Reason */
             unavailable_reason: string | null;
             /**
@@ -16852,6 +16852,11 @@ export interface components {
             attested_by: string | null;
             /** Billable Without Attestation Reason */
             billable_without_attestation_reason: string | null;
+            /**
+             * Credential Held Elsewhere
+             * @default false
+             */
+            credential_held_elsewhere: boolean;
             /** Credential Installed */
             credential_installed: boolean;
             /** Effective From */
@@ -16867,7 +16872,7 @@ export interface components {
             /** Provider */
             provider: string;
             /** Reference Inr Per 1K Chars */
-            reference_inr_per_1k_chars: string;
+            reference_inr_per_1k_chars: string | null;
             /** Source Note */
             source_note: string | null;
             /** Tier Label */
@@ -17261,14 +17266,14 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "sarvam" | "cartesia";
+            provider: "sarvam" | "cartesia" | "gnani";
             /** Speaker */
             speaker: string;
             /**
              * Tts Model
              * @enum {string}
              */
-            tts_model: "bulbul:v3" | "sonic-3.5";
+            tts_model: "bulbul:v3" | "sonic-3.5" | "timbre-v2.5";
             /**
              * Verified
              * @default false
@@ -17346,7 +17351,7 @@ export interface components {
          */
         VoiceProviderOptionOut: {
             /** Models */
-            models: ("bulbul:v3" | "sonic-3.5")[];
+            models: ("bulbul:v3" | "sonic-3.5" | "timbre-v2.5")[];
             /** Provider */
             provider: string;
             /** Selectable */

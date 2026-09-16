@@ -220,6 +220,15 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "the simulated vendor payload (hard rule 2), not to our offer — a fake that read "
         "our declaration could not model a vendor whose list disagrees with it"
     ),
+    "apps/api/agents/gnani_voices.py": (
+        "a VENDOR's per-voice fact — which single locale Gnani tunes each `timbre-v2.5` "
+        "voice for — read off their own SDK and their own listing page (D-618). Like "
+        "`engine/fake.py` above it is the vendor's vocabulary rather than our offer, and "
+        "it cannot be derived from either end: our declaration cannot say which voice "
+        "Gnani tuned for Telugu, and the tag is the VALUE per voice rather than a list of "
+        "languages. That our three are a subset of what we sell IS asserted, from the "
+        "declaration, in `tests/gnani_voices_test.py`"
+    ),
     "apps/web/src/lib/agentState.ts": (
         "the console's one table of language NAMES, `Record<AgentLanguage, string>` over "
         "the generated union — exhaustive by the type checker, so the keys are the same "

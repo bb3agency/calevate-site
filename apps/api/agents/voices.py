@@ -238,6 +238,7 @@ only knowledge of where the string is pasted into the vendor's JSON.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, Literal, cast, get_args
 
@@ -246,6 +247,7 @@ from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE, TtsProvider
 from pydantic import BaseModel, ConfigDict
 
 from apps.api.agents.languages import Language
+from apps.api.billing.rates import VoiceTier as BillingVoiceTier
 from apps.api.billing.rates import voice_tier_label
 
 # `Language` MOVED TO `agents/languages.py` AND IS IMPORTED, NOT DECLARED (see that
@@ -267,7 +269,7 @@ from apps.api.billing.rates import voice_tier_label
 #
 # `sonic-3.5` and not `sonic-3`: the module docstring carries the vendor's line and the
 # REPORTED sunset, in that order of standing.
-TtsModel = Literal["bulbul:v3", "sonic-3.5"]
+TtsModel = Literal["bulbul:v3", "sonic-3.5", "timbre-v2.5"]
 
 #: Who synthesises a voice — and, by plan §2.3 invariant 7, the agent's VOICE TIER. ONE
 #: definition, shared with the lifecycle registry so the two cannot spell a provider
@@ -275,8 +277,18 @@ TtsModel = Literal["bulbul:v3", "sonic-3.5"]
 VoiceProvider = TtsProvider
 
 #: The tier vocabulary a consumer (the pipeline's `meta.voice_tier`, the lot debit, the
-#: runway) reads. The SAME type as the provider on purpose: the tier IS the provider, and a
-#: second Literal would be the place the two could be made to disagree.
+#: runway) reads.
+#:
+#: ⚠ **IT USED TO BE `= VoiceProvider`, WITH THE COMMENT "the tier IS the provider, and a
+#: second Literal would be the place the two could be made to disagree". D-618 SEPARATES
+#: THEM, AND NOT BY ADDING A SECOND SPELLING.** It is now `billing/rates.VoiceTier` — the
+#: ONE definition that already carries the client-facing label, the cost floor and the two
+#: rates frozen on every credit lot — imported, so there is still exactly one place a tier
+#: is named. What changed is that a PROVIDER is no longer automatically a tier: `gnani` is
+#: a third provider with NO published price, so there is no rate to freeze on a lot and no
+#: floor to clear, and minting a `"gnani"` tier would have put an unpriced minute into the
+#: money lane's vocabulary — which is precisely what hard rule 7 forbids. `voice_tier()`
+#: maps provider to tier and REFUSES where the mapping is empty.
 #:
 #: **IT IS `meta.voice_tier` AND NOT `meta.tts_tier`, AND THIS COMMENT NAMED THE WRONG KEY.**
 #: `usage_events.meta.tts_tier` is the PLAN'S OVERAGE RUNG (`BASE_OVERAGE_RUNG`, the
@@ -284,7 +296,7 @@ VoiceProvider = TtsProvider
 #: same call; the money lane stamps the two separately and says why in as many words
 #: (`apps/workers/pipeline.py`, beside `"tts_tier"`). No code here read it wrongly — the
 #: comment was the only thing that would have misled the next reader into folding them.
-VoiceTier = VoiceProvider
+VoiceTier = BillingVoiceTier
 
 Gender = Literal["female", "male", "neutral"]
 
@@ -513,6 +525,20 @@ _CARTESIA_NOTE: Final = (
 )
 
 
+#: The shared half of every GNANI entry's `note` (D-618). It names NO tier, because Gnani
+#: is not one: `VOICE_TIER_OF_PROVIDER` maps it to nothing until a price is attested, and a
+#: sentence inventing a tier name here would be the one place a client could read that an
+#: unpriced minute is on sale. It names no vendor-published price either, because there is
+#: none — the only Gnani figure anywhere in this tree is a RESELLER's (₹27/10 000
+#: characters, a third-party platform's own price, recorded as not-Gnani's in
+#: `docs/PIPECAT-MIGRATION.md` §7) and hard rule 7 keeps it out of every surface.
+_GNANI_NOTE: Final = (
+    "Gnani Timbre v2.5 — Telugu, Hindi and Indian English, each voice tuned for one of "
+    "them. Not yet on sale: this voice cannot be offered until the platform's Gnani "
+    "credential is installed and somebody has attested what a Gnani minute costs."
+)
+
+
 def catalogue_note(provider: VoiceProvider) -> str:
     """THE one line an operator or client reads beside a voice, per provider.
 
@@ -521,7 +547,11 @@ def catalogue_note(provider: VoiceProvider) -> str:
     copy that drifts the day the tier labels change, which is the whole reason `_NOTE` is
     composed from `voice_tier_label` rather than typed.
     """
-    return _NOTE if provider == "sarvam" else _CARTESIA_NOTE
+    if provider == "sarvam":
+        return _NOTE
+    if provider == "cartesia":
+        return _CARTESIA_NOTE
+    return _GNANI_NOTE
 
 
 #: Where the voices currently in force came from. `"engine"` means a sync read them off the
@@ -692,6 +722,41 @@ def tts_model_of_voice_id(voice_id: str | None) -> TtsModel | None:
     return None
 
 
+#: WHICH PRICED TIER EACH PROVIDER BILLS ON, and the `None` is the load-bearing entry.
+#:
+#: A provider mapped to `None` has no rate on a credit lot, no cost floor and no
+#: client-facing label — because nobody has published or attested what a minute on it
+#: costs. It is not "the cheap one" and it is not "free": it is a provider no minute may be
+#: billed against yet. Total over `VoiceProvider`, so adding a fourth provider fails
+#: `voice_tier` at the type level rather than silently inheriting Sarvam's rate.
+VOICE_TIER_OF_PROVIDER: Final[Mapping[VoiceProvider, VoiceTier | None]] = {
+    "sarvam": "sarvam",
+    "cartesia": "cartesia",
+    # D-618. Gnani publish NO price — no per-character rate, no per-second rate, no
+    # currency, no free tier. The only figure in this tree is a reseller's price for their
+    # own platform and is not Gnani's (`docs/PIPECAT-MIGRATION.md` §7). `docs/
+    # PIPECAT-MIGRATION.md` §6 step 9 is where this becomes a tier: it gates the Clear
+    # flip on an ATTESTED price, and this entry is what has to change when one exists.
+    "gnani": None,
+}
+
+
+class UnpricedVoiceProviderError(ValueError):
+    """A voice was asked what it bills at, on a provider nothing can bill.
+
+    Raised rather than defaulted, for `billing/rates.llm_inr_per_ktok`'s reason and
+    `docs/PIPECAT-MIGRATION.md` §1.3's instruction in as many words: *"a leg we cannot
+    price raises"*. Defaulting to the Sarvam tier would be the same defect D-585's
+    catalogue-membership lookup had — a minute billed at a rate nobody struck for it, on an
+    append-only ledger, silently.
+
+    **UNREACHABLE TODAY AND THAT IS NOT AN ARGUMENT FOR SOFTENING IT.** No agent row can
+    name a Gnani voice: the offer seam will not offer one with no attested price, so the
+    only way here is a row written by something that bypassed it — which is exactly when a
+    refusal is worth more than a number.
+    """
+
+
 def voice_tier(tts_voice: str | None) -> VoiceTier:
     """THE agent's voice tier: the provider of the voice on its row, and nothing else.
 
@@ -714,6 +779,11 @@ def voice_tier(tts_voice: str | None) -> VoiceTier:
     `bulbul:v3:…` is Sarvam and `sonic-3.5:…` is Cartesia whether or not a row for that
     voice exists anywhere, which is the property the money lane needs.
 
+    ⚠ **IT NO LONGER RETURNS THE PROVIDER, BECAUSE A PROVIDER IS NO LONGER A TIER
+    (D-618).** It returns the PRICED tier the provider bills on, through
+    `VOICE_TIER_OF_PROVIDER`, and RAISES `UnpricedVoiceProviderError` for a provider that
+    has none. Gnani is the first such provider and the reason the distinction had to exist.
+
     `sarvam` for an empty id or one naming none of our models, and that is a decision
     rather than a fallback: an agent with no voice speaks the engine's default Sarvam
     persona, and a legacy free-text row (`bulbul:v3`, the pre-split spelling) is a Sarvam
@@ -722,7 +792,16 @@ def voice_tier(tts_voice: str | None) -> VoiceTier:
     """
     model = tts_model_of_voice_id(tts_voice)
     provider = provider_of_tts_model(model) if model is not None else None
-    return provider if provider is not None else "sarvam"
+    if provider is None:
+        return "sarvam"
+    tier = VOICE_TIER_OF_PROVIDER[provider]
+    if tier is None:
+        raise UnpricedVoiceProviderError(
+            f"voice {tts_voice!r} is synthesised by {provider!r}, which has no priced tier "
+            "on this deployment — a minute on it cannot be billed until an operator "
+            "attests what it costs (hard rule 7)."
+        )
+    return tier
 
 
 # --- the capability seam (D-93) -------------------------------------------------
@@ -787,10 +866,12 @@ __all__ = [
     "DEFAULT_TTS_MODEL",
     "DEFAULT_VOICE_ORIGIN",
     "ENGINE_DICTATES_TTS_REASON",
+    "VOICE_TIER_OF_PROVIDER",
     "CatalogueSource",
     "CurationState",
     "Gender",
     "TtsModel",
+    "UnpricedVoiceProviderError",
     "Voice",
     "VoiceOrigin",
     "VoiceProvider",

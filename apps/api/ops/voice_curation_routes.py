@@ -76,7 +76,7 @@ typed confirmation becomes a reflex and stops meaning anything on `outbox/replay
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, get_args
+from typing import Annotated, Final, get_args
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -102,6 +102,7 @@ from apps.api.agents.voice_curation import (
 from apps.api.agents.voice_offer import offerability_of
 from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import (
+    VOICE_TIER_OF_PROVIDER,
     CurationState,
     TtsModel,
     Voice,
@@ -282,12 +283,34 @@ class AddVoiceFormOut(Strict):
     voice_lab_url: str
 
 
+#: Why a provider this product RUNS still cannot have a voice added against it (D-618).
+#:
+#: Written for an OPERATOR, so it names the console act that closes it — the same audience
+#: and the same shape as `voice_offer.NO_ATTESTED_TTS_PRICE_REASON`, which is the sentence
+#: a client-facing surface never sees. It names no figure, because there is none: the only
+#: Gnani number in the wild belongs to a reseller's platform and is not a Gnani rate.
+UNPRICED_PROVIDER_REASON: Final = (
+    "nobody has recorded what a minute on this provider costs, so a voice added here could "
+    "not be billed for — attest its TTS price in the ops console first"
+)
+
+
 def _form() -> AddVoiceFormOut:
     """The form's options, derived from the catalogue rather than typed.
 
     `OUR_PROVIDERS` comes from the model registry and `UNPUBLISHABLE_CLONING_PROVIDERS` from
     the cloning-provider reading, so this function adds no fact of its own — it only decides
     the ORDER, which is ours: what you can pick first, what you cannot pick last.
+
+    ⚠ **THE FIRST GROUP USED TO BE `selectable=True` UNCONDITIONALLY, AND D-618 MADE THAT
+    FALSE FOR ONE OF ITS MEMBERS.** `OUR_PROVIDERS` is derived from `TtsModel`, so `gnani`
+    joined it the moment the Gnani leg shipped — but a provider with no PRICED TIER cannot
+    have a voice admitted against it, because an admitted voice arrives ENABLED
+    (`ADDED_CURATION_STATE`) and hard rule 7 has nothing to charge its minutes against.
+    Offering it as selectable would put an operator one form away from a voice the offer
+    seam then refuses for a reason the form never mentioned. Derived from
+    `VOICE_TIER_OF_PROVIDER` rather than listed, so attesting a price makes the provider
+    selectable with no edit here.
     """
     return AddVoiceFormOut(
         providers=[
@@ -295,8 +318,12 @@ def _form() -> AddVoiceFormOut:
                 provider=provider,
                 tier_label=voice_tier_label(provider),
                 models=list(tts_models_for_provider(provider)),
-                selectable=True,
-                unavailable_reason=None,
+                selectable=VOICE_TIER_OF_PROVIDER[provider] is not None,
+                unavailable_reason=(
+                    None
+                    if VOICE_TIER_OF_PROVIDER[provider] is not None
+                    else UNPRICED_PROVIDER_REASON
+                ),
             )
             for provider in OUR_PROVIDERS
         ]

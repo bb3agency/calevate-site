@@ -371,6 +371,21 @@ class Settings(BaseSettings):
     #: than dial from whatever number the vendor picks: a promotional campaign leaving on
     #: a service-series number is a TCCCPR breach we would discover from a complaint.
     cartesia_from_number_id: str | None = Field(default=None, max_length=128)
+    #: The Gnani TTS key (D-618), read by `apps/voice-worker` and by nothing on this host.
+    #:
+    #: **A `Settings` FIELD THAT THIS DEPLOYMENT NEVER READS THE VALUE OF, FOR D-614's
+    #: REASON EXACTLY.** Declared here because `Settings` is what `env_var_for`,
+    #: `env_declares`, `ENV_ONLY_DISPLAY` and the ops console's env-only panel are all
+    #: derived from — a credential outside it has no row anywhere an operator looks, which
+    #: is what made the carrier pair undiscoverable. It is classified `ENV_ONLY` in
+    #: `core/settings.ENV_ONLY_REASONS` (so the console shows it and REFUSES to store it)
+    #: and tagged in `ENV_ONLY_FOREIGN_ENV` (so its absence from this host renders as the
+    #: correct permanent state rather than as a fault).
+    #:
+    #: The consumer is `voice_worker.gnani_tts` inside the Pipecat Cloud container, which
+    #: must never hold `PLATFORM_KEK` and therefore can never open `platform_secrets`.
+    #: `apps/api` holds no Gnani client at all: there is nothing here to give a key to.
+    gnani_api_key: str | None = None
     # The engine's egress addresses — comma-separated, literal IPs only. This is the
     # ENTIRE authenticity control for an unsigned engine, and it is a value the VENDOR
     # owns: they can renumber without telling us, and while it is stale every webhook

@@ -78,7 +78,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from types import MappingProxyType
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -86,6 +86,7 @@ from calevate_shared.engine import (
     LLM_MODELS,
     SELECTABLE_LLM_MODELS,
 )
+from calevate_shared.model_lifecycle import TtsProvider
 
 from apps.api.billing.models import MONEY
 
@@ -1985,10 +1986,37 @@ VOICE_TIER_LABELS: Final[Mapping[VoiceTier, str]] = {
     "cartesia": "Studio",
 }
 
+#: What a voice on a provider with NO PRICED TIER is called (D-618).
+#:
+#: Gnani is the first such provider: a third TTS vendor whose leg is built
+#: (`voice_worker/gnani_tts.py`) and whose minute nobody has priced — no published rate,
+#: no attestation, so no rate to freeze on a credit lot and no floor to clear. The two
+#: entries above are tiers because they are PRICES; this is deliberately not one of them
+#: and is not a third column on any lot.
+#:
+#: It says what is true and nothing more. Not "Gnani", because no client-facing surface
+#: names a vendor as a product tier (founder, 7 Sep 2026); not a ladder word like "Basic"
+#: or "Preview", because both are claims about the voice that nobody here has measured.
+UNPRICED_TIER_LABEL: Final = "Unreleased"
 
-def voice_tier_label(voice: VoiceTier) -> str:
-    """The client-facing name of a voice tier. Total over the Literal."""
-    return VOICE_TIER_LABELS[voice]
+
+def voice_tier_label(voice: TtsProvider) -> str:
+    """The client-facing name of the tier a voice PROVIDER bills on.
+
+    ⚠ **IT TAKES A PROVIDER AND USED TO TAKE A `VoiceTier`, AND THE WIDENING IS THE
+    HONEST DIRECTION (D-618).** Every caller in this tree passes `Voice.provider` — the
+    picker, the ops curation table, the add-voice form and the client's unofferable
+    sentence — which was the same type only while every provider had a price. `gnani` has
+    none, so the argument type is now `TtsProvider` (the ONE provider vocabulary, shared
+    with `TTS_MODEL_LIFECYCLE`) and the function stays TOTAL over it by naming the
+    unpriced case rather than by raising into a route that is rendering a table.
+
+    A minute is a different question and has a different answer: `voices.voice_tier()`
+    REFUSES an unpriced provider, because a label is something to render and a tier is
+    something to charge against.
+    """
+    priced = VOICE_TIER_LABELS.get(cast("VoiceTier", voice))
+    return priced if priced is not None else UNPRICED_TIER_LABEL
 
 
 def cost_floor_inr_per_min(voice: VoiceTier) -> Decimal:

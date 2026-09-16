@@ -867,12 +867,18 @@ def reference_embedding_price(model: str) -> tuple[Decimal, bool]:
 # the pair across two modules would put one attestation in each.
 
 
-#: The voice tiers that CAN carry an attested TTS price. The same vocabulary as
-#: `agents/voices.VoiceProvider` and `billing/lots.VoiceTier`, spelled here as the DB's
-#: `platform_tts_prices.provider` column values; `tests/tts_price_attestation_test.py`
-#: holds the three in step so a fourth vendor cannot be priced under a name the pipeline
-#: does not stamp.
-TTS_PROVIDERS: Final[tuple[str, ...]] = ("sarvam", "cartesia")
+#: The voice PROVIDERS that CAN carry an attested TTS price, spelled here as the DB's
+#: `platform_tts_prices.provider` column values. `tests/tts_price_attestation_test.py`
+#: holds this in step with `agents/voices.VoiceProvider` so a vendor cannot be priced under
+#: a name the pipeline does not stamp.
+#:
+#: ⚠ **IT USED TO SAY "the voice TIERS … the same vocabulary as `VoiceProvider` AND
+#: `billing/lots.VoiceTier`", AND D-618 SPLIT THOSE TWO.** This set is the PROVIDERS, and
+#: `gnani` is in it precisely BECAUSE it has no tier: attesting a Gnani price is the act
+#: that gives it one, so a set that excluded unpriced providers would lock the only door
+#: out of being unpriced. A tier is what a lot's rates are frozen against
+#: (`billing/rates.VoiceTier`, two members); a provider is who synthesises.
+TTS_PROVIDERS: Final[tuple[str, ...]] = ("sarvam", "cartesia", "gnani")
 
 
 @dataclass(frozen=True, slots=True)
@@ -993,7 +999,7 @@ async def tts_price_is_billable(session: AsyncSession, *, provider: str, at: dat
     return provider in await attested_tts_prices(session, at=at)
 
 
-def reference_tts_price(provider: str) -> Decimal:
+def reference_tts_price(provider: str) -> Decimal | None:
     """The tree's OWN per-1,000-character figure for `provider` — the form's pre-fill.
 
     `reference_price`'s job for a voice, and it carries `reference_price`'s warning twice
@@ -1015,15 +1021,23 @@ def reference_tts_price(provider: str) -> Decimal:
     still not a price anybody read off ours, which is why hard rule 7 keeps both out of
     `unit_cost_paid` and why the attestation exists.
 
+    ⚠ **`None` IS A REAL ANSWER AND IT ARRIVED WITH D-618.** This used to be a two-branch
+    expression — Sarvam's figure, else Cartesia's — which a third provider silently turned
+    into "Gnani is priced at the Cartesia rate" on the very form an operator types a real
+    price into. **Gnani publish no figure of any kind**: no per-character rate, no
+    per-second rate, no currency, no free tier. The one number in the wild belongs to a
+    RESELLER's platform and is not Gnani's, so it is not a reference either. A form with no
+    pre-fill is the correct rendering; a pre-fill somebody else's vendor supplied is the
+    laundering hard rule 11 forbids, on the one screen that reaches money.
+
     Raises for an unknown provider, like every other reader here.
     """
     _require_tts_provider(provider)
-    per_10k = (
-        rates.TTS_INR_PER_10K_CHARS
-        if provider == "sarvam"
-        else rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
-    )
-    return per_10k / Decimal("10")
+    if provider == "sarvam":
+        return rates.TTS_INR_PER_10K_CHARS / Decimal("10")
+    if provider == "cartesia":
+        return rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS / Decimal("10")
+    return None
 
 
 async def attest_tts_price(

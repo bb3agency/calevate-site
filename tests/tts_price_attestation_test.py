@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import get_args
 
 import pytest
-from apps.api.agents.voices import VoiceProvider
+from apps.api.agents.voices import VOICE_TIER_OF_PROVIDER, VoiceProvider
 from apps.api.billing.lots import VoiceTier
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import untenanted_session
@@ -48,13 +48,27 @@ async def _operator() -> uuid.UUID:
 
 
 def test_the_provider_vocabulary_is_the_voice_catalogues_and_the_ledgers() -> None:
-    """THREE spellings of a vendor held equal, because they are three files apart and each
-    one alone looks right: `agents/voices.VoiceProvider` (who synthesises), `billing/lots
-    .VoiceTier` (which of a lot's two rates prices a minute) and this (which price an
-    operator may attest). A fourth vendor added to one of them and not the others is a
+    """TWO spellings of a vendor held equal, because they are two files apart and each one
+    alone looks right: `agents/voices.VoiceProvider` (who synthesises) and `TTS_PROVIDERS`
+    (whose price an operator may attest). A vendor added to one and not the other is a
     price attested under a name the pipeline never stamps — the leg then meters as free
-    while the console shows it priced, which is the one failure nobody investigates."""
-    assert set(TTS_PROVIDERS) == set(get_args(VoiceProvider)) == set(get_args(VoiceTier))
+    while the console shows it priced, which is the one failure nobody investigates.
+
+    ⚠ **THIS WAS A THREE-WAY EQUALITY WITH `VoiceTier` UNTIL D-618, AND THE THIRD MEMBER
+    HAD TO GO — NOT BE WIDENED.** A TIER is a price: a label, a cost floor, and two rates
+    frozen on every credit lot. Gnani publish none, so `gnani` is a provider with no tier
+    and `VOICE_TIER_OF_PROVIDER` maps it to `None`. It IS in `TTS_PROVIDERS`, and that is
+    the point rather than an exception: attesting a Gnani price is the act that would give
+    it a tier, so an attestable set that excluded unpriced providers would lock the only
+    door out of being unpriced. The relationship the tier now has to the others is a
+    SUBSET, asserted below.
+    """
+    assert set(TTS_PROVIDERS) == set(get_args(VoiceProvider))
+    assert set(get_args(VoiceTier)) < set(TTS_PROVIDERS)
+    # Every priced tier is a provider somebody can attest a price for; the reverse is what
+    # D-618 made false.
+    assert set(VOICE_TIER_OF_PROVIDER) == set(get_args(VoiceProvider))
+    assert {t for t in VOICE_TIER_OF_PROVIDER.values() if t is not None} == set(get_args(VoiceTier))
 
 
 async def test_an_attested_price_reads_back_at_its_own_instant() -> None:

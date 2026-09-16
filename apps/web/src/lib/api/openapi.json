@@ -15084,7 +15084,8 @@
           "provider": {
             "enum": [
               "sarvam",
-              "cartesia"
+              "cartesia",
+              "gnani"
             ],
             "title": "Provider",
             "type": "string"
@@ -15100,7 +15101,8 @@
           "tts_model": {
             "enum": [
               "bulbul:v3",
-              "sonic-3.5"
+              "sonic-3.5",
+              "timbre-v2.5"
             ],
             "title": "Tts Model",
             "type": "string"
@@ -23467,6 +23469,11 @@
             ],
             "title": "Billable Without Attestation Reason"
           },
+          "credential_held_elsewhere": {
+            "default": false,
+            "title": "Credential Held Elsewhere",
+            "type": "boolean"
+          },
           "credential_installed": {
             "title": "Credential Installed",
             "type": "boolean"
@@ -23510,8 +23517,15 @@
             "type": "string"
           },
           "reference_inr_per_1k_chars": {
-            "title": "Reference Inr Per 1K Chars",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Inr Per 1K Chars"
           },
           "source_note": {
             "anyOf": [
@@ -24484,7 +24498,8 @@
           "provider": {
             "enum": [
               "sarvam",
-              "cartesia"
+              "cartesia",
+              "gnani"
             ],
             "title": "Provider",
             "type": "string"
@@ -24496,7 +24511,8 @@
           "tts_model": {
             "enum": [
               "bulbul:v3",
-              "sonic-3.5"
+              "sonic-3.5",
+              "timbre-v2.5"
             ],
             "title": "Tts Model",
             "type": "string"
@@ -24620,7 +24636,8 @@
             "items": {
               "enum": [
                 "bulbul:v3",
-                "sonic-3.5"
+                "sonic-3.5",
+                "timbre-v2.5"
               ],
               "type": "string"
             },

@@ -259,6 +259,14 @@ module = [
     # touches four of its names and holds nothing it returns as `Any` beyond the cell
     # values, which `_cell_text` narrows by isinstance before using.
     "openpyxl.*",
+    # `pipecat-gnani` 0.5.12 ships no `py.typed` (checked in the installed wheel — the
+    # vendor's OTHER package, `gnani-vachana`, ships one for `gnani.stt` and not for
+    # `gnani.tts`, and the plugin itself ships none at all). `voice_worker/gnani_tts.py`
+    # is the only importer; it subclasses ONE class and holds nothing the plugin returns
+    # — its three overrides all return `None` and its factory's return type is our own
+    # subclass, so the `Any` stops at that module's boundary.
+    "pipecat_gnani.*",
+    "gnani.*",
 ]
 ignore_missing_imports = true
 

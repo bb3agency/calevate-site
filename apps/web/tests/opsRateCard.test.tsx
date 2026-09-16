@@ -342,6 +342,9 @@ function ttsRow(over: Partial<TtsPrice> = {}): TtsPrice {
     provider: "cartesia",
     tier_label: "Studio",
     tts_model: "sonic-3.5",
+    // D-618. False for Cartesia, whose key this deployment really does hold or not; true
+    // belongs to a provider whose credential lives in the voice worker's own secret set.
+    credential_held_elsewhere: false,
     // The CATALOGUE figure — a pre-fill to confirm an invoice against, never the value a
     // minute is metered at. Required on `TtsPriceOut`.
     reference_inr_per_1k_chars: "3.4496",
