@@ -421,6 +421,29 @@ class Settings(BaseSettings):
     #: `bolna_api_key` reused — that key authenticates US to THEM and would be travelling in
     #: the opposite direction, so a leak of one would be a leak of the other.
     bolna_caller_data_token: str | None = Field(default=None, max_length=256)
+    #: The credential the VOICE WORKER presents to `/v1/worker/*` (D-621), and the base URL
+    #: it presents it to.
+    #:
+    #: **A SEPARATE TOKEN FROM `bolna_caller_data_token`, DELIBERATELY.** That one is held by
+    #: a rented engine and opens a READ of caller memory. This one opens the worker's WRITE
+    #: surface — transcript turns, call status and the settlement that carries D-607 — and
+    #: reusing the first would hand a third-party engine the ability to write our ledger. Two
+    #: credentials because they are two blast radii, which is the same reason
+    #: `bolna_caller_data_token` is not `bolna_api_key`.
+    #:
+    #: CONSOLE-MANAGED, unlike `gnani_api_key`: `apps/api` READS this value to verify the
+    #: header, so it has a reader on this host and belongs in the credential store. The SAME
+    #: value also goes in the worker's Pipecat Cloud secret set — DEPLOYMENT §12.2's standing
+    #: instruction that a human puts the value in both places, with nothing fetching one from
+    #: the other. `cartesia_api_key` is the existing precedent for that shape.
+    #:
+    #: ABSENT => every `/v1/worker/*` route answers 401 to everybody, which is
+    #: `caller_data_routes._authorized`'s posture and for its reason: an unconfigured
+    #: deployment authenticates nobody rather than authenticating anybody.
+    voice_worker_api_token: str | None = Field(default=None, max_length=256)
+    #: Where the worker reaches `apps/api`. NOT a secret; read by the worker only, which is
+    #: why it is env-only on that side and has no reader on this host.
+    voice_worker_api_base_url: str | None = Field(default=None, max_length=512)
     #: The `wss://` base of the DEPLOYED voice worker, which the carrier is sent to by the
     #: answer document (`apps/voice-runtime/carrier_routes.py`, D-610).
     #:
