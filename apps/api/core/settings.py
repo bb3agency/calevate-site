@@ -256,14 +256,14 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "the carrier credential is read by the voice worker's own telephony serializer, "
         "inside a container on Pipecat Cloud that must never hold PLATFORM_KEK and "
         "therefore can never open this credential store. Set PLIVO_AUTH_ID in the "
-        "`calevate-voice-worker` secret set (`pipecat cloud secrets set`, DEPLOYMENT "
+        "`calevate-pipecat-worker` secret set (`pipecat cloud secrets set`, DEPLOYMENT "
         "§12.2) — a value saved here would be one nothing can read."
     ),
     "plivo_auth_token": (
         "the other half of the pair above, with the same reader and the same reason. "
         "Without it the serializer cannot hang the leg up at EndFrame (DELETE "
         "/v1/Account/{auth_id}/Call/{call_id}/), and a leg nobody hung up is a leg the "
-        "carrier goes on billing. Set PLIVO_AUTH_TOKEN in the `calevate-voice-worker` "
+        "carrier goes on billing. Set PLIVO_AUTH_TOKEN in the `calevate-pipecat-worker` "
         "secret set (DEPLOYMENT §12.2)."
     ),
     # THE GNANI TTS KEY (D-618). Same category and the same reader as the carrier pair
@@ -278,11 +278,11 @@ ENV_ONLY_REASONS: dict[str, str] = {
     # reads that one to verify the header, so it has a reader on this host — and this does
     # not: nothing on the VPS ever asks where the worker thinks we are. A box for it in the
     # console would be a value nothing could deliver and nothing could read.
-    "voice_worker_api_base_url": (
+    "pipecat_worker_api_base_url": (
         "the API base URL is read by the voice worker's own HTTP client, inside a container "
         "on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can never open "
         "this credential store — and no process on this host reads it at all. Set "
-        "VOICE_WORKER_API_BASE_URL in the `calevate-voice-worker` secret set (`pipecat "
+        "PIPECAT_WORKER_API_BASE_URL in the `calevate-pipecat-worker` secret set (`pipecat "
         "cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would be one nothing "
         "can read."
     ),
@@ -290,7 +290,7 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "the Gnani TTS credential is read by the voice worker's own synthesis leg, inside "
         "a container on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can "
         "never open this credential store — and no process on this host holds a Gnani "
-        "client to give it to. Set GNANI_API_KEY in the `calevate-voice-worker` secret "
+        "client to give it to. Set GNANI_API_KEY in the `calevate-pipecat-worker` secret "
         "set (`pipecat cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would "
         "be one nothing can read."
     ),
@@ -315,10 +315,10 @@ ENV_ONLY_REASONS: dict[str, str] = {
 #: absent from this mapping are held by this deployment's own environment, which is why the
 #: mapping is the exception rather than a field on every entry.
 ENV_ONLY_FOREIGN_ENV: dict[str, str] = {
-    "plivo_auth_id": "the Pipecat Cloud secret set for `calevate-voice-worker`",
-    "plivo_auth_token": "the Pipecat Cloud secret set for `calevate-voice-worker`",
-    "gnani_api_key": "the Pipecat Cloud secret set for `calevate-voice-worker`",
-    "voice_worker_api_base_url": "the Pipecat Cloud secret set for `calevate-voice-worker`",
+    "plivo_auth_id": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
+    "plivo_auth_token": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
+    "gnani_api_key": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
+    "pipecat_worker_api_base_url": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
 }
 
 # Asserted at import rather than tested, for `_assert_holds_no_secret`'s reason: an entry

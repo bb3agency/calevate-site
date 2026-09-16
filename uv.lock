@@ -6,9 +6,9 @@ requires-python = "==3.12.*"
 members = [
     "calevate",
     "calevate-api",
+    "calevate-pipecat-worker",
     "calevate-shared",
     "calevate-voice-runtime",
-    "calevate-voice-worker",
     "calevate-workers",
 ]
 
@@ -323,6 +323,29 @@ requires-dist = [
 ]
 
 [[package]]
+name = "calevate-pipecat-worker"
+version = "0.1.0"
+source = { virtual = "apps/voice-worker" }
+dependencies = [
+    { name = "boto3" },
+    { name = "calevate-shared" },
+    { name = "httpx" },
+    { name = "pipecat-ai", extra = ["sarvam", "websocket"] },
+    { name = "pipecat-gnani" },
+    { name = "uuid-utils" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.40" },
+    { name = "calevate-shared", editable = "packages/shared" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pipecat-ai", extras = ["sarvam", "websocket"], specifier = "==1.10.0" },
+    { name = "pipecat-gnani", specifier = "==0.5.12" },
+    { name = "uuid-utils", specifier = ">=0.10" },
+]
+
+[[package]]
 name = "calevate-shared"
 version = "0.1.0"
 source = { editable = "packages/shared" }
@@ -358,29 +381,6 @@ requires-dist = [
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38" },
-]
-
-[[package]]
-name = "calevate-voice-worker"
-version = "0.1.0"
-source = { virtual = "apps/voice-worker" }
-dependencies = [
-    { name = "boto3" },
-    { name = "calevate-shared" },
-    { name = "httpx" },
-    { name = "pipecat-ai", extra = ["sarvam", "websocket"] },
-    { name = "pipecat-gnani" },
-    { name = "uuid-utils" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", specifier = ">=1.40" },
-    { name = "calevate-shared", editable = "packages/shared" },
-    { name = "httpx", specifier = ">=0.28" },
-    { name = "pipecat-ai", extras = ["sarvam", "websocket"], specifier = "==1.10.0" },
-    { name = "pipecat-gnani", specifier = "==0.5.12" },
-    { name = "uuid-utils", specifier = ">=0.10" },
 ]
 
 [[package]]

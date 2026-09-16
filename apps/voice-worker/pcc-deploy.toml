@@ -19,15 +19,15 @@
 
 # The deployed agent's name. Matches the workspace member and the image, so a log line,
 # `pipecat cloud agent logs <name>` and this repository all say one word.
-agent_name = "calevate-voice-worker"
+agent_name = "calevate-pipecat-worker"
 
 # The secret set the platform injects into the container's environment. A deployed bot has
 # none of the developer's `.env` (`pipecat/cli/agent_templates/AGENTS.md:302-304`), so this
 # name is the whole of the runtime configuration story: `pipecat cloud secrets set
-# calevate-voice-worker-secrets --file <file>` is what puts the values in, and
+# calevate-pipecat-worker-secrets --file <file>` is what puts the values in, and
 # `voice_worker/boot.py` is the list of what they must be. PLATFORM_KEK is NOT among them
 # and never will be — see that module's docstring.
-secret_set = "calevate-voice-worker-secrets"
+secret_set = "calevate-pipecat-worker-secrets"
 
 # No video on either leg: this is a phone call. `agent-2x` is the scaffold's choice when
 # video input or output is enabled, and neither is.

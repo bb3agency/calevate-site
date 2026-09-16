@@ -31,8 +31,8 @@ from voice_worker.pipeline import AssembledCall, NormalizedEventBoundary, Sessio
 PROMPT = "You are Calevate's receptionist. You are an AI. This call is recorded."
 
 COMPLETE_ENV: dict[str, str] = {
-    "VOICE_WORKER_API_BASE_URL": "https://api.calevate.tech",
-    "VOICE_WORKER_API_TOKEN": "a-token-this-deployment-issued-its-worker",
+    "PIPECAT_WORKER_API_BASE_URL": "https://api.calevate.tech",
+    "PIPECAT_WORKER_API_TOKEN": "a-token-this-deployment-issued-its-worker",
     "OBJECT_STORE_BUCKET": "calevate-prod",
     "OBJECT_STORE_ENDPOINT": "https://account.r2.cloudflarestorage.com",
     "AWS_ACCESS_KEY_ID": "key",

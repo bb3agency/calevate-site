@@ -121,7 +121,7 @@ class WorkerRuntime:
 
     An object rather than module-level functions over module-level globals: a test must be
     able to hand it a client of its own, and a module global built at import time would
-    reach whatever `VOICE_WORKER_API_BASE_URL` the test runner happened to export.
+    reach whatever `PIPECAT_WORKER_API_BASE_URL` the test runner happened to export.
 
     **THE PACK CACHE IS THE ONE THING IT DOES NOT OWN**, and that is deliberate rather than
     an oversight: `session.pack_cache()` already holds the process's cache and argues at
@@ -178,8 +178,8 @@ class WorkerRuntime:
         config = load_worker_config()
         return cls(
             WorkerApiClient.from_config(
-                base_url=config.voice_worker_api_base_url,
-                token=config.voice_worker_api_token,
+                base_url=config.pipecat_worker_api_base_url,
+                token=config.pipecat_worker_api_token,
             ),
             fetcher=ObjectStorePackFetcher.from_env(),
             rates=rates,

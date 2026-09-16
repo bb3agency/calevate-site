@@ -195,7 +195,7 @@ def authorized(header: str | None) -> bool:
     `compliance/caller_data_routes._authorized`'s posture, and it matters more here: that
     endpoint READS a nicety, this one WRITES the ledger.
     """
-    expected = get_settings().voice_worker_api_token
+    expected = get_settings().pipecat_worker_api_token
     if not expected or not header:
         return False
     scheme, _, presented = header.partition(" ")

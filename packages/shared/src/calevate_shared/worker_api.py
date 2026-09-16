@@ -56,7 +56,7 @@ _STRICT = ConfigDict(extra="forbid")
 #: a token; "our own worker would never send a million turns" is a fact about the code we
 #: ship today, not about what can arrive on the socket.
 #:
-#: Both are far above any legitimate batch — `VOICE_WORKER_TURN_BATCH_SIZE` defaults to 8
+#: Both are far above any legitimate batch — `PIPECAT_WORKER_TURN_BATCH_SIZE` defaults to 8
 #: (D-620) — so no real flush is ever refused. They exist so that the failure mode of a
 #: malformed or hostile body is a 422 at the edge rather than a 1 vCPU host materialising
 #: the list in Python and then looping INSERTs over it.

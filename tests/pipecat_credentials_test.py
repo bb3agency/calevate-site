@@ -122,7 +122,7 @@ def test_only_the_voice_containers_own_keys_are_held_by_a_foreign_environment() 
     acquire a `held_by` and stop being reported when it is genuinely missing.
 
     ⚠ **AND BY ONE AGAIN AT D-621, ON THE SAME GROUND AND WITH ONE DIFFERENCE WORTH SAYING.**
-    `voice_worker_api_base_url` is read by that same container and by nothing on this host,
+    `pipecat_worker_api_base_url` is read by that same container and by nothing on this host,
     so `configured: false` is its correct and permanent state here. It is NOT a credential —
     the TOKEN beside it is, and that one is console-managed precisely because
     `apps/api/worker/service.authorized` reads it. Two halves of one wire, classified
@@ -132,7 +132,7 @@ def test_only_the_voice_containers_own_keys_are_held_by_a_foreign_environment() 
     assert set(ENV_ONLY_FOREIGN_ENV) == {
         *CARRIER_KEYS,
         "gnani_api_key",
-        "voice_worker_api_base_url",
+        "pipecat_worker_api_base_url",
     }
     assert set(ENV_ONLY_FOREIGN_ENV) <= set(ENV_ONLY_DISPLAY)
 

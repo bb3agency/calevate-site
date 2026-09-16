@@ -571,6 +571,22 @@ decision-log entry.
 
 ## When touching `apps/voice-worker` (the Pipecat leg)
 
+⚠ **THE DIRECTORY IS `voice-worker` AND EVERYTHING AN OPERATOR TYPES IS `pipecat-worker`.
+THAT IS DELIBERATE, NOT DRIFT (16 Sep 2026).** Renamed because "voice worker" does not say
+where the thing runs: the env vars (`PIPECAT_WORKER_*`), the `Settings` fields
+(`pipecat_worker_api_token` / `_base_url`), the Pipecat Cloud `agent_name` and `secret_set`,
+and `scripts/deploy/pipecat-worker-setup.sh` all carry the platform's name now. What did NOT
+move is the DIRECTORY and the Python package `voice_worker`, because hard rule 2 names the
+path, the Dockerfile copies it, `[tool.importlinter]` contracts are written against it and
+every import in this deployable spells it — a blast radius with nothing on the other side,
+since nobody outside this repository ever types it.
+
+**AND THE TOKEN IS NOT `PIPECAT_API_TOKEN`, WHICH WAS ASKED FOR AND IS THE ONE NAME THAT
+WOULD BE WRONG.** It authenticates OUR worker to OUR API; it is not a credential for
+Pipecat's own API and never travels there. A name implying otherwise sends the next person
+looking in the wrong dashboard for a value that does not exist in it.
+
+
 The vendor ships its own agent-authoring guide INSIDE the pinned wheel, and it is the
 primary source for this deployable — `.venv/lib/python3.12/site-packages/pipecat/cli/
 agent_templates/AGENTS.md` (315 lines; their `CLAUDE.md` beside it is a one-line include of

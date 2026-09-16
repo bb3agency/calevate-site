@@ -5,7 +5,7 @@
 # their command". This one differs in every other way: a different platform (Pipecat
 # Cloud `ap-south`, box 1 of docs/PIPECAT-MIGRATION.md §8), a different base image
 # (theirs, which supplies the entrypoint that calls `bot()`), a different dependency set
-# (`--package calevate-voice-worker`: 76 distributions, none of them arq, sentry-sdk or
+# (`--package calevate-pipecat-worker`: 76 distributions, none of them arq, sentry-sdk or
 # uvicorn), and a different deploy verb (`pipecat cloud deploy`, not
 # `docker compose up -d`). Adding it to the shared image would put the monolith's
 # dependency surface in a latency-critical voice container, which is the whole argument
@@ -79,11 +79,11 @@ ENV UV_COMPILE_BYTECODE=1 \
 # the lock spans the workspace and uv reads all of them to resolve any one of them; only
 # the voice worker's own dependency set is INSTALLED.
 #
-# `--package calevate-voice-worker` IS WHAT KEEPS THE MONOLITH OUT. The root Dockerfile
+# `--package calevate-pipecat-worker` IS WHAT KEEPS THE MONOLITH OUT. The root Dockerfile
 # uses `--all-packages` because its image runs api, workers and voice-runtime; here that
 # flag would install arq, sentry-sdk, uvicorn, the payment and sheets clients and the rest
 # of `apps/api`'s surface into the container that answers the phone. Measured on this
-# lockfile, 15 Sep 2026: `--package calevate-voice-worker` resolves 76 distributions
+# lockfile, 15 Sep 2026: `--package calevate-pipecat-worker` resolves 76 distributions
 # (75 third-party plus `calevate-shared`), and none of the three names above is among
 # them.
 COPY pyproject.toml uv.lock ./
@@ -93,7 +93,7 @@ COPY apps/voice-worker/pyproject.toml apps/voice-worker/pyproject.toml
 COPY apps/workers/pyproject.toml apps/workers/pyproject.toml
 COPY packages/shared/pyproject.toml packages/shared/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --package calevate-voice-worker --no-install-workspace
+    uv sync --frozen --no-dev --package calevate-pipecat-worker --no-install-workspace
 
 # Phase 2: the workspace itself. `calevate-shared` is the only DISTRIBUTION (hatchling);
 # `apps/voice-worker` is a `package = false` virtual member imported from source, which is
@@ -106,7 +106,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY packages/shared packages/shared
 COPY apps/voice-worker/voice_worker voice_worker
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --package calevate-voice-worker
+    uv sync --frozen --no-dev --package calevate-pipecat-worker
 
 # The entrypoint module, last, because it is the file that changes most often. The NAME is
 # the platform's convention, not ours — see `bot.py`'s docstring for the evidence and for

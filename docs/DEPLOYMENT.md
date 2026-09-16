@@ -1686,10 +1686,10 @@ with its evidence attached, exactly as §4d asks you to read the VPS deploy.
 |---|---|
 | **Artifact** | `apps/voice-worker/Dockerfile`, built from the REPOSITORY ROOT: `docker build -f apps/voice-worker/Dockerfile .` The workspace lock spans every member and `calevate-shared` is a workspace distribution, so the context cannot be narrower. |
 | **Base image** | `dailyco/pipecat-base`, which carries the entrypoint that imports `bot.py` and calls `bot(runner_args)` per session, and `uv`. Ours supplies neither. |
-| **Dependencies** | `uv sync --frozen --no-dev --package calevate-voice-worker` — 76 distributions, none of them arq, sentry-sdk or uvicorn. That is measured against this lockfile (15 Sep 2026, `uv sync --dry-run`), not estimated; `--all-packages`, which the root `Dockerfile` needs, would put the monolith's dependency surface in the container that answers the phone. |
+| **Dependencies** | `uv sync --frozen --no-dev --package calevate-pipecat-worker` — 76 distributions, none of them arq, sentry-sdk or uvicorn. That is measured against this lockfile (15 Sep 2026, `uv sync --dry-run`), not estimated; `--all-packages`, which the root `Dockerfile` needs, would put the monolith's dependency surface in the container that answers the phone. |
 | **Manifest** | `apps/voice-worker/pcc-deploy.toml` — agent name, secret set, `agent-1x` profile, `min_agents = 1`. |
-| **Deploy verb** | `pipecat cloud auth login` (a browser login, one-time, a human), then `pipecat cloud secrets set calevate-voice-worker-secrets --file <file>`, then `pipecat cloud deploy`. |
-| **Logs** | `pipecat cloud agent logs calevate-voice-worker`. |
+| **Deploy verb** | `pipecat cloud auth login` (a browser login, one-time, a human), then `pipecat cloud secrets set calevate-pipecat-worker-secrets --file <file>`, then `pipecat cloud deploy`. |
+| **Logs** | `pipecat cloud agent logs calevate-pipecat-worker`. |
 
 Every one of those verbs is from the vendor's own scaffold, which ships INSIDE the pinned
 `pipecat-ai==1.10.0` wheel and is therefore a primary source this repository can read
@@ -1717,8 +1717,8 @@ container. Nothing fetches one from the other.
 
 | Variable | Required | Where it comes from | What it is for |
 |---|---|---|---|
-| `VOICE_WORKER_API_BASE_URL` | yes | the public base URL of `apps/api` (e.g. `https://api.calevate.tech`) | where the worker reads its published agent from and posts its calls' events to (D-621). ⚠ **`DATABASE_URL` WAS THIS ROW AND IS GONE.** The worker cannot reach our Postgres at all — it is on the VPS host behind the Docker bridge (`compose.prod.yml:36`) and this container is box 1 on Pipecat Cloud, a different network — so a DSN here was a value that could never have connected. See §12.5 gate 6, now closed. It is a `Settings` field classified `ENV_ONLY`, because nothing on the VPS reads it. |
-| `VOICE_WORKER_API_TOKEN` | yes | ops console (`voice_worker_api_token`) | the Bearer token the worker presents to `/v1/worker/*`. CONSOLE-MANAGED, unlike the base URL beside it and unlike `GNANI_API_KEY`: `apps/api/worker/service.authorized` reads it to verify the header, so it has a reader on this host and belongs in the credential store. The SAME value goes in this secret set — a human puts it in both places and nothing fetches one from the other. ⚠ It is NOT `bolna_caller_data_token` reused: that one opens a READ of caller memory for a rented engine, this one opens the WRITE surface for our ledger. Absent on the API side ⇒ every `/v1/worker/*` route answers 401 to everybody. |
+| `PIPECAT_WORKER_API_BASE_URL` | yes | the public base URL of `apps/api` (e.g. `https://api.calevate.tech`) | where the worker reads its published agent from and posts its calls' events to (D-621). ⚠ **`DATABASE_URL` WAS THIS ROW AND IS GONE.** The worker cannot reach our Postgres at all — it is on the VPS host behind the Docker bridge (`compose.prod.yml:36`) and this container is box 1 on Pipecat Cloud, a different network — so a DSN here was a value that could never have connected. See §12.5 gate 6, now closed. It is a `Settings` field classified `ENV_ONLY`, because nothing on the VPS reads it. |
+| `PIPECAT_WORKER_API_TOKEN` | yes | ops console (`pipecat_worker_api_token`) | the Bearer token the worker presents to `/v1/worker/*`. CONSOLE-MANAGED, unlike the base URL beside it and unlike `GNANI_API_KEY`: `apps/api/worker/service.authorized` reads it to verify the header, so it has a reader on this host and belongs in the credential store. The SAME value goes in this secret set — a human puts it in both places and nothing fetches one from the other. ⚠ It is NOT `bolna_caller_data_token` reused: that one opens a READ of caller memory for a rented engine, this one opens the WRITE surface for our ledger. Absent on the API side ⇒ every `/v1/worker/*` route answers 401 to everybody. |
 | `OBJECT_STORE_ENDPOINT` / `OBJECT_STORE_BUCKET` | yes | secrets manager | the R2 bucket the knowledge pack is fetched from at session start |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | yes | secrets manager | botocore resolves these itself; the boot gate only checks that they are PRESENT, because a field of ours would be a second value the SDK ignores |
 | `AWS_REGION` | no | defaults to `auto` | R2's documented signature scope (D-450), not a placement |
@@ -1727,10 +1727,10 @@ container. Nothing fetches one from the other.
 | `GNANI_API_KEY` | no | **Gnani account, into THIS secret set only** | the Gnani TTS leg (D-618), used by an agent whose `ModelConfig.tts_provider` names it; a container without it refuses that call by name and serves every other one. It is a `Settings` field so the ops console can LIST it under *Set outside this console* with `held_by` naming this secret set — and it REFUSES to store it, because `PLATFORM_KEK` is not in this image and, unlike `CARTESIA_API_KEY`, nothing in `apps/api` holds a Gnani client to give a stored value to. ⚠ No Gnani voice is offerable until somebody also attests what a Gnani minute costs (hard rule 7, OPERATIONS §2 gate 56), so installing this key alone changes nothing a client can see. |
 | `AZURE_OPENAI_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | **at least one** | ops console | the in-call LLM. WHICH one a call needs is decided per agent by `ModelConfig.llm_provider`, so the gate demands one and a call for a provider this container has no key for is refused by name rather than run on another vendor's credential. |
 | `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | yes | Plivo account (BLOCKER-1), into THIS secret set only | read by PIPECAT, not by us. Without them the serializer cannot hang the call up at `EndFrame`, and a leg nobody hung up is a leg the carrier goes on billing. Since D-614 both are `Settings` fields, so the ops console LISTS them under *Set outside this console* with the reason and with `held_by` naming this secret set — and refuses to store them, because `PLATFORM_KEK` is not in this image and a stored value would be one nothing here could ever read. |
-| `VOICE_WORKER_TURN_BATCH_SIZE` | no | default 8 | how many spoken turns wait in memory before one batched write (D-620). `1` restores a write per turn. |
-| `VOICE_WORKER_TURN_FLUSH_SECONDS` | no | default 10.0 | how long the oldest buffered turn may wait. **This is the bound on what a crash costs** — a size-only rule never flushes a conversation that has gone quiet, which is exactly when a container is replaced. Refuses zero; set the BATCH to 1 instead. |
-| `VOICE_WORKER_DRAIN_GRACE_SECONDS` | no | default 20.0 | §12.4 |
-| `VOICE_WORKER_READY_FILE` | no | unset by default | §12.3 |
+| `PIPECAT_WORKER_TURN_BATCH_SIZE` | no | default 8 | how many spoken turns wait in memory before one batched write (D-620). `1` restores a write per turn. |
+| `PIPECAT_WORKER_TURN_FLUSH_SECONDS` | no | default 10.0 | how long the oldest buffered turn may wait. **This is the bound on what a crash costs** — a size-only rule never flushes a conversation that has gone quiet, which is exactly when a container is replaced. Refuses zero; set the BATCH to 1 instead. |
+| `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` | no | default 20.0 | §12.4 |
+| `PIPECAT_WORKER_READY_FILE` | no | unset by default | §12.3 |
 
 **It fails at BOOT, loudly, naming every missing variable at once** —
 `boot.load_worker_config` raises one `WorkerConfigError` listing all of them, rather than
@@ -1745,8 +1745,8 @@ which loads the configuration, opens the HTTP client and asks `/v1/worker/sessio
 ref that names no agent — a 404 proves the API is reachable AND that this container's token
 is the one the deployment installed, which is strictly more than the `SELECT 1` it replaced
 proved (a DSN carries its own credential; a base URL does not). The two variables
-that are not `Settings` fields (`VOICE_WORKER_DRAIN_GRACE_SECONDS`,
-`VOICE_WORKER_READY_FILE` — neither is a credential) are registered in
+that are not `Settings` fields (`PIPECAT_WORKER_DRAIN_GRACE_SECONDS`,
+`PIPECAT_WORKER_READY_FILE` — neither is a credential) are registered in
 `scripts/check_env_parity.py` (`CONTAINER_ENV_KEYS`) with the argument for each;
 `tests/voice_worker_boot_test.py` is what keeps that registry honest in both directions,
 because the parity guard's AST scan cannot see this module at all, and
@@ -1768,7 +1768,7 @@ of a conversation is perfectly healthy and has nothing to offer a scheduler.
 one object so the two cannot disagree, with four states: `starting`, `ready`, `busy`,
 `draining`.
 
-That state is published as a FILE — `VOICE_WORKER_READY_FILE`, present exactly while the
+That state is published as a FILE — `PIPECAT_WORKER_READY_FILE`, present exactly while the
 container would accept a call — because a file needs no contract with a platform whose
 probe contract we have not read. An exec probe (`test -f`), a sidecar or a human with a
 shell can all use it, and it costs nothing when nobody does.
@@ -1814,7 +1814,7 @@ makes that reconciliation possible.
 `dailyco/pipecat-base` cannot be pulled through its proxy, so the following are UNKNOWN
 rather than decided. None of them is guessed at in code.
 
-**RUN THEM WITH `scripts/deploy/voice-worker-setup.sh`, WHICH IS WHERE THIS LIST NOW
+**RUN THEM WITH `scripts/deploy/pipecat-worker-setup.sh`, WHICH IS WHERE THIS LIST NOW
 LIVES AS SOMETHING EXECUTABLE.** Each numbered step below is a subcommand (`doctor`,
 `install-cli`, `login`, `digest`, `secrets`, `build`, `preflight`, `deploy`), every one is
 idempotent, and `doctor` changes nothing and reports what a host is still missing — which
@@ -1846,7 +1846,7 @@ on every exit path including a signal.
    is the mutable tag the vendor's own scaffold names, which hard rule 9 does not accept
    for a build input. The digest, resolved on the deploy host (which has registry access
    this repository's container does not) with
-   `scripts/deploy/voice-worker-setup.sh digest` and relayed by the founder:
+   `scripts/deploy/pipecat-worker-setup.sh digest` and relayed by the founder:
 
    ```
    dailyco/pipecat-base@sha256:c34a7c605b0f42d790a7593c9870417a098b0d6258b87119ebd6142d27c11e82
@@ -1857,7 +1857,7 @@ on every exit path including a signal.
    re-measured 16 Sep 2026). It is recorded HERE rather than defaulted in the Dockerfile
    deliberately: a digest is a statement about what one registry held on one day, and
    baking it into the build file would make a stale pin look like a verified one the next
-   time somebody moves hosts. `voice-worker-setup.sh build` and `deploy` both REFUSE
+   time somebody moves hosts. `pipecat-worker-setup.sh build` and `deploy` both REFUSE
    without `PIPECAT_BASE` set, so the pin cannot be skipped by forgetting it.
 4. **Build the image once, by hand.** *Pass condition*: the build completes and the
    container's `python bot.py --preflight` prints FAIL for a reason from §12.2 and not an
@@ -1868,7 +1868,7 @@ on every exit path including a signal.
 6. ✅ **HOW THE WORKER REACHES THIS DATABASE AT ALL — CLOSED BY D-621 (opened and closed
    16 Sep 2026).** It does not reach it, and it no longer tries.
 
-   **What the gate was.** Found by running `voice-worker-setup.sh sources` on the deploy
+   **What the gate was.** Found by running `pipecat-worker-setup.sh sources` on the deploy
    host: `psql` could not translate `host.docker.internal`, because Postgres runs ON THE
    HOST and only the Docker bridge reaches it. The worker is **box 1** (Pipecat Cloud,
    `docs/PIPECAT-MIGRATION.md` §8) and `:181` had the adapter speaking to it THROUGH THE
@@ -1901,7 +1901,7 @@ on every exit path including a signal.
    is what proves the API answers this container's token from box 1. That is now the whole of
    step 5's pass condition too — there is no second dependency to prove.
 
-7. **Learn the SIGTERM-to-SIGKILL window and set `VOICE_WORKER_DRAIN_GRACE_SECONDS`.** The
+7. **Learn the SIGTERM-to-SIGKILL window and set `PIPECAT_WORKER_DRAIN_GRACE_SECONDS`.** The
    20-second default is reasoned from OUR bounds (a 5 s pipeline flush, a 2 s tool
    ceiling, one INSERT) and from nothing the platform has told us. *Pass condition*: a
    measured number replaces the default, or the default is confirmed against a documented

@@ -260,7 +260,7 @@ async def test_an_unconfigured_deployment_authenticates_nobody() -> None:
     from apps.api.core.settings import get_settings
 
     get_settings.cache_clear()
-    assert get_settings().voice_worker_api_token is None, (
+    assert get_settings().pipecat_worker_api_token is None, (
         "the control failed: a token is configured in this environment, so this clause "
         "would pass for the wrong reason"
     )
@@ -670,7 +670,7 @@ async def test_a_batch_larger_than_the_ceiling_is_refused_at_the_edge() -> None:
 
     Refused by Pydantic at the edge (422), so the host never materialises the list in Python
     and never loops INSERTs over it. The ceilings sit far above any real flush
-    (`VOICE_WORKER_TURN_BATCH_SIZE` defaults to 8), so nothing legitimate is ever refused.
+    (`PIPECAT_WORKER_TURN_BATCH_SIZE` defaults to 8), so nothing legitimate is ever refused.
     """
     from calevate_shared.worker_api import (
         MAX_EVENTS_PER_BATCH,

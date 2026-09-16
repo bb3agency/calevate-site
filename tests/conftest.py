@@ -660,7 +660,7 @@ def s3(monkeypatch: pytest.MonkeyPatch) -> FakeS3:
 
 @pytest.fixture
 def worker_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """`Settings.voice_worker_api_token` — the credential this deployment issued its own
+    """`Settings.pipecat_worker_api_token` — the credential this deployment issued its own
     voice worker (D-621), configured for the duration of one test.
 
     **IT IS HERE AND NOT IN A HELPER MODULE FOR A MECHANICAL REASON.** Six test files need
@@ -676,7 +676,7 @@ def worker_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """
     from tests.worker_api_harness import TOKEN
 
-    monkeypatch.setenv("VOICE_WORKER_API_TOKEN", TOKEN)
+    monkeypatch.setenv("PIPECAT_WORKER_API_TOKEN", TOKEN)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

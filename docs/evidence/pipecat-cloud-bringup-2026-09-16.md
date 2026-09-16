@@ -11,7 +11,7 @@
      rather than VERIFIED: nobody in this container watched the terminal. Hard rule 11 means
      no row here may be restated as fact from this file alone once it matters to money, a
      wire value or a client-facing claim — re-run the command, which is the point of
-     `scripts/deploy/voice-worker-setup.sh` existing. -->
+     `scripts/deploy/pipecat-worker-setup.sh` existing. -->
 
 # Bringing the voice worker up on Pipecat Cloud — what the first real host taught us
 
@@ -56,7 +56,7 @@ The account exists and `pipecat cloud auth login` was reached. REPORTED-BY-OPERA
 dailyco/pipecat-base@sha256:c34a7c605b0f42d790a7593c9870417a098b0d6258b87119ebd6142d27c11e82
 ```
 
-REPORTED-BY-OPERATOR, resolved with `voice-worker-setup.sh digest` on the deploy host, which
+REPORTED-BY-OPERATOR, resolved with `pipecat-worker-setup.sh digest` on the deploy host, which
 has the registry access this container does not: Docker Hub's blob CDN answers **403 through
 this environment's proxy** (re-measured 16 Sep 2026, on `pgvector/pgvector:pg16` and
 `redis:7-alpine`), which is the same failure `apps/voice-worker/Dockerfile` already records.
@@ -84,7 +84,7 @@ verb**. Its two remedies, quoted from the tool:
 * `uv pip install pipecatcloud`
 
 The second is what establishes that **`pipecatcloud` alone is the distribution the `cloud`
-verb needs** — which is why `voice-worker-setup.sh` passes only that. `pipecat-ai-context-hub`
+verb needs** — which is why `pipecat-worker-setup.sh` passes only that. `pipecat-ai-context-hub`
 is a different plugin nothing here uses; ⚠ it arrives as a transitive dependency anyway
 (`pipecat-ai-context-hub==0.8.0` in the host's install), so omitting it from `--with` is
 redundant rather than exclusionary.
@@ -101,7 +101,7 @@ REPORTED-BY-OPERATOR.
 | uv | **0.12.5**, already on PATH |
 | free disk | 28 GB |
 
-The pre-existing uv matters for one reason: `voice-worker-setup.sh` extracts a
+The pre-existing uv matters for one reason: `pipecat-worker-setup.sh` extracts a
 **digest-pinned uv 0.8.17** from the image the root `Dockerfile` already trusts, but only
 when uv is ABSENT. On this host it was not, so that path went unexercised and the host's own
 uv did the install. That is correct — the pinned digest governs what goes INSIDE the image,
@@ -123,10 +123,10 @@ None of these is guessed at anywhere in the tree.
    listing variables that were definitely set, that IS the answer, and the fix is small and
    local to `boot.py`.
 3. **The real syntax of `pipecat cloud secrets set`.** §12.1 records
-   `<set> --file <file>` as REPORTED. `voice-worker-setup.sh secrets` checks the CLI's own
+   `<set> --file <file>` as REPORTED. `pipecat-worker-setup.sh secrets` checks the CLI's own
    `--help` before sending anything and refuses, printing that help, on a mismatch.
 4. **Whether `pipecat cloud auth login` completes on a headless host.** Unread.
-5. **The SIGTERM-to-SIGKILL window.** `VOICE_WORKER_DRAIN_GRACE_SECONDS` defaults to 20.0,
+5. **The SIGTERM-to-SIGKILL window.** `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` defaults to 20.0,
    reasoned from OUR bounds and nothing the platform has stated. §12.5 gate 7.
 6. **`min_agents`.** One warm instance is a pilot choice; zero means a documented ~10 s cold
    start on an inbound call. §12.5 gate 8.
@@ -156,7 +156,7 @@ It is now `docs/DEPLOYMENT.md` §12.5 **gate 6** — ⚠ **CLOSED the same day b
 took the third of its four options (the worker stops touching Postgres and speaks HTTP to
 `apps/api`); the paragraph below records the state at the time of writing, with four
 options and none chosen, because
-this is an infrastructure decision and not a credential. `voice-worker-setup.sh secrets`
+this is an infrastructure decision and not a credential. `pipecat-worker-setup.sh secrets`
 REFUSES a host-local DSN rather than accepting one that cannot work
 (`ALLOW_HOST_LOCAL_DSN=1` overrides, for the deployment where somebody has genuinely made
 the database reachable).
@@ -173,7 +173,7 @@ Both were found by RUNNING things, and neither was visible from a diff.
 
 ### A diagnostic that hangs is worthless on the only host it matters for
 
-`voice-worker-setup.sh doctor` hung indefinitely in its DISK section. Cause: the measurement
+`pipecat-worker-setup.sh doctor` hung indefinitely in its DISK section. Cause: the measurement
 asks the daemon where it writes (`docker_root`), and **`docker info` against a wedged daemon
 BLOCKS rather than erroring**. A wedged daemon is precisely the host somebody runs a doctor
 on. Fixed: every probe goes through `DOCKER_PROBE_TIMEOUT`, doctor distinguishes "did not
@@ -197,15 +197,15 @@ under `site-packages/pipecat/`.
 Run as the deploy account; `doctor` first on any host, and it changes nothing.
 
 ```
-scripts/deploy/voice-worker-setup.sh doctor
-scripts/deploy/voice-worker-setup.sh install-cli
-scripts/deploy/voice-worker-setup.sh login          # needs a tty
-scripts/deploy/voice-worker-setup.sh digest
-scripts/deploy/voice-worker-setup.sh secrets        # needs a tty
+scripts/deploy/pipecat-worker-setup.sh doctor
+scripts/deploy/pipecat-worker-setup.sh install-cli
+scripts/deploy/pipecat-worker-setup.sh login          # needs a tty
+scripts/deploy/pipecat-worker-setup.sh digest
+scripts/deploy/pipecat-worker-setup.sh secrets        # needs a tty
 export PIPECAT_BASE=dailyco/pipecat-base@sha256:<the digest above>
-scripts/deploy/voice-worker-setup.sh build
-scripts/deploy/voice-worker-setup.sh preflight
-scripts/deploy/voice-worker-setup.sh deploy
+scripts/deploy/pipecat-worker-setup.sh build
+scripts/deploy/pipecat-worker-setup.sh preflight
+scripts/deploy/pipecat-worker-setup.sh deploy
 ```
 
 **`preflight` printing FAIL with no secret set injected is the expected result**, and it is

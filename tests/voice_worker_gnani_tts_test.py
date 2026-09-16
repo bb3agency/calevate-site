@@ -461,8 +461,8 @@ def test_the_container_reads_the_key_from_its_own_secret_set() -> None:
     from voice_worker.boot import GNANI_KEY_ENV, load_worker_config
 
     env = {
-        "VOICE_WORKER_API_BASE_URL": "https://api.example",
-        "VOICE_WORKER_API_TOKEN": "t",
+        "PIPECAT_WORKER_API_BASE_URL": "https://api.example",
+        "PIPECAT_WORKER_API_TOKEN": "t",
         "OBJECT_STORE_BUCKET": "b",
         "OBJECT_STORE_ENDPOINT": "https://s3.example",
         "AWS_ACCESS_KEY_ID": "a",
@@ -493,7 +493,7 @@ def test_the_ops_console_offers_the_key_where_it_is_actually_read() -> None:
     assert "gnani_api_key" in Settings.model_fields
     assert env_var_for("gnani_api_key") == "GNANI_API_KEY"
     assert "gnani_api_key" in ENV_ONLY_KEYS
-    assert "calevate-voice-worker" in ENV_ONLY_FOREIGN_ENV["gnani_api_key"]
+    assert "calevate-pipecat-worker" in ENV_ONLY_FOREIGN_ENV["gnani_api_key"]
     assert "GNANI_API_KEY" in ENV_ONLY_DISPLAY["gnani_api_key"]
     # A box the console would let an operator type into would store a value nothing reads.
     assert "gnani_api_key" not in manageable_secret_keys()

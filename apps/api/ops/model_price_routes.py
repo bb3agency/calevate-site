@@ -364,7 +364,7 @@ class TtsPriceOut(BaseModel):
     #: True when the credential for this provider is held in ANOTHER deployment's
     #: environment, so `credential_installed` is structurally False here and says nothing
     #: (D-618, `core/settings.ENV_ONLY_FOREIGN_ENV`). Gnani's key lives in the
-    #: `calevate-voice-worker` secret set; this process holds no Gnani client to give one
+    #: `calevate-pipecat-worker` secret set; this process holds no Gnani client to give one
     #: to. Without this the panel would tell an operator who HAS attested a Gnani price
     #: that the tier is still not offerable, and point them at a box that can never fill.
     credential_held_elsewhere: bool = False
@@ -796,7 +796,7 @@ def _tts_credential_held_elsewhere(provider: str) -> bool:
     """Does this provider's key live in a DIFFERENT deployment's environment? (D-618)
 
     Derived from `core/settings.ENV_ONLY_FOREIGN_ENV` — the same mapping the config panel
-    renders "held by the Pipecat Cloud secret set for `calevate-voice-worker`" from — so
+    renders "held by the Pipecat Cloud secret set for `calevate-pipecat-worker`" from — so
     the two screens cannot come to disagree about where a credential lives. Keyed on the
     `Settings` field name rather than on the provider, because that mapping is the
     authority and a second `provider == "gnani"` here would be the copy that drifts.

@@ -18,7 +18,7 @@
 `docs/DEPLOYMENT.md` §12.5 **gate 6**: the voice worker runs on Pipecat Cloud (box 1) and
 **cannot reach our Postgres at all** — that database runs on the VPS host and is reached
 only over the Docker bridge (`compose.prod.yml:36`, `DEPLOYMENT.md:102`). Found by running
-`voice-worker-setup.sh sources` on the deploy host, where `psql` could not translate
+`pipecat-worker-setup.sh sources` on the deploy host, where `psql` could not translate
 `host.docker.internal`.
 
 Of the four options recorded at gate 6, this builds the third: **the worker stops touching

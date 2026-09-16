@@ -1166,7 +1166,7 @@ describe("the keys this console can never change", () => {
           reason:
             "the carrier credential is read by the voice worker's own telephony serializer.",
           configured: false,
-          held_by: "the Pipecat Cloud secret set for `calevate-voice-worker`",
+          held_by: "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
         },
       ],
     });
@@ -1195,7 +1195,7 @@ describe("the keys this console can never change", () => {
     // set, and a VPS declaring it would be a VPS holding a live carrier credential with
     // no reader. It gets the location, not a verdict.
     expect(container.textContent).toContain(
-      "Held by the Pipecat Cloud secret set for `calevate-voice-worker`",
+      "Held by the Pipecat Cloud secret set for `calevate-pipecat-worker`",
     );
   });
 });

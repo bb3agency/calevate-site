@@ -32,8 +32,8 @@ fields now — classified `ENV_ONLY`, so the ops console SHOWS them with the rea
 only come from this container's environment and refuses to store a value nothing here
 could read. Nothing about how this module reads them changed.
 
-⚠ **AND THE COUNT MOVED AGAIN WITH D-621**: `VOICE_WORKER_API_BASE_URL` is a `Settings`
-field classified `ENV_ONLY` (nothing on the VPS reads it), while `VOICE_WORKER_API_TOKEN` is
+⚠ **AND THE COUNT MOVED AGAIN WITH D-621**: `PIPECAT_WORKER_API_BASE_URL` is a `Settings`
+field classified `ENV_ONLY` (nothing on the VPS reads it), while `PIPECAT_WORKER_API_TOKEN` is
 CONSOLE-MANAGED — `apps/api/worker/service.authorized` verifies the header against it, so it
 has a reader on that host and belongs in the credential store. Same value, two homes, one
 human putting it in both.
@@ -81,7 +81,7 @@ from voice_worker.vendor_logging import install_vendor_log_guard
 #: ⚠ **`DATABASE_URL` USED TO BE HERE AND IS GONE.** This process cannot reach our Postgres
 #: at all: the database is on the VPS host behind the Docker bridge and this container runs
 #: on Pipecat Cloud, a different network (`docs/DEPLOYMENT.md` §12.5 gate 6, found by running
-#: `voice-worker-setup.sh sources` on the real host, where `psql` could not translate
+#: `pipecat-worker-setup.sh sources` on the real host, where `psql` could not translate
 #: `host.docker.internal`). A DSN in this secret set was a value that could never have
 #: connected — which is worse than a missing one, because it looks configured. The published
 #: configuration is now READ over HTTP and the call's events are POSTED over HTTP, so what
@@ -91,8 +91,8 @@ from voice_worker.vendor_logging import install_vendor_log_guard
 #: call, which is the same class of failure `EventSinkNotBuiltError` used to refuse at boot:
 #: an image that answered the phone and lost the conversation while every health signal
 #: stayed green.
-API_BASE_URL_ENV: Final[str] = "VOICE_WORKER_API_BASE_URL"
-API_TOKEN_ENV: Final[str] = "VOICE_WORKER_API_TOKEN"
+API_BASE_URL_ENV: Final[str] = "PIPECAT_WORKER_API_BASE_URL"
+API_TOKEN_ENV: Final[str] = "PIPECAT_WORKER_API_TOKEN"
 
 #: botocore's own pair. NOT read as configuration — `ObjectStorePackFetcher` passes no
 #: credentials to boto3 and never will (`storage._client`) — but their ABSENCE is checked
@@ -140,10 +140,10 @@ PLIVO_AUTH_TOKEN_ENV: Final[str] = "PLIVO_AUTH_TOKEN"
 #: Optional, because it has a default and because the number it WANTS to be is the
 #: platform's SIGTERM-to-SIGKILL window, which is UNKNOWN here (`docs.pipecat.ai` is
 #: egress-blocked). See `DEFAULT_DRAIN_GRACE_S`.
-DRAIN_GRACE_ENV: Final[str] = "VOICE_WORKER_DRAIN_GRACE_SECONDS"
+DRAIN_GRACE_ENV: Final[str] = "PIPECAT_WORKER_DRAIN_GRACE_SECONDS"
 
 #: Where to write the readiness marker, or unset for none. See `lifecycle.ReadinessFile`.
-READY_FILE_ENV: Final[str] = "VOICE_WORKER_READY_FILE"
+READY_FILE_ENV: Final[str] = "PIPECAT_WORKER_READY_FILE"
 
 #: The two bounds on how long a spoken turn may sit in memory before it is written, and how
 #: many may wait. VARIABLES RATHER THAN CONSTANTS for the same reason the drain grace is one:
@@ -151,8 +151,8 @@ READY_FILE_ENV: Final[str] = "VOICE_WORKER_READY_FILE"
 #: SIGTERM window, and what the API host can absorb once turns post over HTTP (§12.5 gate 6)
 #: — so the operator who measures them must be able to change them without a rebuild.
 #: `sink.DEFAULT_TURN_BATCH_SIZE` / `DEFAULT_TURN_FLUSH_SECONDS` argue the defaults.
-TURN_BATCH_ENV: Final[str] = "VOICE_WORKER_TURN_BATCH_SIZE"
-TURN_FLUSH_ENV: Final[str] = "VOICE_WORKER_TURN_FLUSH_SECONDS"
+TURN_BATCH_ENV: Final[str] = "PIPECAT_WORKER_TURN_BATCH_SIZE"
+TURN_FLUSH_ENV: Final[str] = "PIPECAT_WORKER_TURN_FLUSH_SECONDS"
 
 #: ⚠ **AN ASSUMPTION WITH A REASONED FLOOR, NOT A MEASUREMENT.** What this wants to be is
 #: the platform's own SIGTERM-to-SIGKILL window, and nothing in this tree knows it:
@@ -206,8 +206,8 @@ class WorkerConfig:
     #: (`api_base_url`) costs the property that makes the spelling worth anything:
     #: `scripts/check_half_wired.py` finds a `Settings` field's readers by NAME, so a
     #: shortened field here is a console key with no reader anywhere in the tree.
-    voice_worker_api_base_url: str
-    voice_worker_api_token: str
+    pipecat_worker_api_base_url: str
+    pipecat_worker_api_token: str
     object_store_bucket: str
     object_store_endpoint: str
     sarvam_api_key: str
@@ -393,8 +393,8 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         )
 
     return WorkerConfig(
-        voice_worker_api_base_url=required[API_BASE_URL_ENV] or "",
-        voice_worker_api_token=required[API_TOKEN_ENV] or "",
+        pipecat_worker_api_base_url=required[API_BASE_URL_ENV] or "",
+        pipecat_worker_api_token=required[API_TOKEN_ENV] or "",
         object_store_bucket=required[BUCKET_ENV] or "",
         object_store_endpoint=required[ENDPOINT_ENV] or "",
         sarvam_api_key=required[SARVAM_KEY_ENV] or "",
@@ -507,7 +507,7 @@ async def open_runtime(
     # deployable those parameters are transcript text (hard rule 6). The database is gone;
     # the lesson is not, which is why the client's construction has exactly one home.
     api = WorkerApiClient.from_config(
-        base_url=config.voice_worker_api_base_url, token=config.voice_worker_api_token
+        base_url=config.pipecat_worker_api_base_url, token=config.pipecat_worker_api_token
     )
     if verify:
         await api.probe()

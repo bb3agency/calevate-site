@@ -1,5 +1,5 @@
 [project]
-name = "calevate-voice-worker"
+name = "calevate-pipecat-worker"
 version = "0.1.0"
 description = "The conversation loop we RUN: Pipecat pipeline, our container, Pipecat Cloud ap-south."
 requires-python = ">=3.12,<3.13"

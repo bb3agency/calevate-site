@@ -38,7 +38,7 @@ from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 from voice_worker import carrier
 
-STREAM_BASE = "wss://calevate-voice-worker.example.invalid/ws"
+STREAM_BASE = "wss://calevate-pipecat-worker.example.invalid/ws"
 
 
 @pytest.fixture

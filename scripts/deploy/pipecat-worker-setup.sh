@@ -38,7 +38,7 @@
 # RUN IT AS THE DEPLOY ACCOUNT. The checkout is `calevate:calevate` and the tooling this
 # installs lands in that account's `~/.local/bin`:
 #
-#     sudo -u calevate bash -lc '/var/www/calevate/scripts/deploy/voice-worker-setup.sh doctor'
+#     sudo -u calevate bash -lc '/var/www/calevate/scripts/deploy/pipecat-worker-setup.sh doctor'
 #
 set -euo pipefail
 
@@ -199,8 +199,8 @@ tail4() {
 # which no per-row flag can express — `secrets_cmd` enforces that separately, and the three
 # rows are marked `llm`.
 readonly ENV_CONTRACT=(
-  "VOICE_WORKER_API_BASE_URL|yes|where apps/api is, e.g. https://api.calevate.tech — the worker reads its config and posts its calls' events here (D-621). NOT a database DSN: this container cannot reach Postgres at all"
-  "VOICE_WORKER_API_TOKEN|yes|the Bearer token this deployment issued its worker. The SAME value goes in the ops console under voice_worker_api_token; nothing copies one to the other"
+  "PIPECAT_WORKER_API_BASE_URL|yes|where apps/api is, e.g. https://api.calevate.tech — the worker reads its config and posts its calls' events here (D-621). NOT a database DSN: this container cannot reach Postgres at all"
+  "PIPECAT_WORKER_API_TOKEN|yes|the Bearer token this deployment issued its worker. The SAME value goes in the ops console under pipecat_worker_api_token; nothing copies one to the other"
   "OBJECT_STORE_ENDPOINT|yes|the R2 endpoint the knowledge pack is fetched from"
   "OBJECT_STORE_BUCKET|yes|the R2 bucket holding knowledge packs"
   "AWS_ACCESS_KEY_ID|yes|R2 credential; botocore resolves it itself"
@@ -503,14 +503,14 @@ sources_cmd() {
       found=$((found + 1))
     else
       case "$name" in
-        VOICE_WORKER_API_TOKEN)
+        PIPECAT_WORKER_API_TOKEN)
           warn "$name  — A NEW CREDENTIAL YOU CREATE (D-621). It exists nowhere yet.
      Generate a long random string, install it in the ops console as
-     'voice_worker_api_token', and put THE SAME VALUE here. Nothing copies it between the
+     'pipecat_worker_api_token', and put THE SAME VALUE here. Nothing copies it between the
      two — the console is what \`apps/api\` checks the header against, this secret set is
      what the worker presents. Until both hold it, every /v1/worker route answers 401 to
      everybody, which is the deliberate posture of an unconfigured deployment." ;;
-        VOICE_WORKER_API_BASE_URL)
+        PIPECAT_WORKER_API_BASE_URL)
           warn "$name  — NOT a secret: the https:// base of THIS deployment's API, the one
      the worker calls instead of opening a database connection (D-621). The origin your
      own console is served from, with no trailing path." ;;

@@ -669,7 +669,7 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # THE VOICE WORKER'S OWN SERVER HALF (D-621). Unauthenticated in the registry's sense
     # — `apps/voice-worker` runs on Pipecat Cloud, holds no Calevate session and has no
     # membership to check a permission against — and gated by a Bearer token THIS
-    # deployment issues it (`voice_worker_api_token`), compared in constant time, with an
+    # deployment issues it (`pipecat_worker_api_token`), compared in constant time, with an
     # unconfigured deployment answering nobody. It is the widest of the tokens on this
     # list, because it opens a WRITE surface rather than a read, which is why it is its own
     # credential and not a reuse of `bolna_caller_data_token`. The trailing slash keeps the

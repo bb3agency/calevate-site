@@ -69,7 +69,7 @@ SESSION_FETCH_BUDGET_S: Final[float] = 3.0
 #: critical path — nothing reads a turn while the call is running, and the settlement runs
 #: after the pipeline has drained — so the bound is not about a caller waiting. It is about
 #: not holding the drain open for ever against an API that accepted the connection and then
-#: stopped talking: `VOICE_WORKER_DRAIN_GRACE_SECONDS` defaults to 20 s and a write that
+#: stopped talking: `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` defaults to 20 s and a write that
 #: outlasted it would be killed mid-flight anyway.
 WRITE_BUDGET_S: Final[float] = 5.0
 
@@ -221,7 +221,7 @@ class WorkerApiClient:
             return
         raise WorkerApiError(
             "the worker API did not answer the preflight probe with 404: it answered "
-            f"{response.status_code}. 401 means this container's VOICE_WORKER_API_TOKEN is "
+            f"{response.status_code}. 401 means this container's PIPECAT_WORKER_API_TOKEN is "
             "not the one the deployment installed; anything else means the base URL does "
             "not name this platform's API."
         )

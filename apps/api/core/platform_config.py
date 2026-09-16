@@ -673,7 +673,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # set, and a worker still presenting the old one is 401 from the moment this is saved
     # until that secret set is updated and the container redeployed (DEPLOYMENT §12.2 — a
     # human puts the value in both places, and nothing fetches one from the other).
-    "voice_worker_api_token": AppliesRule(LIVE),
+    "pipecat_worker_api_token": AppliesRule(LIVE),
     # Read per request inside the handler, from the settings snapshot
     # (`apps/voice-runtime/carrier_routes._stream_base_url`) — nothing captures it at boot,
     # so an operator who points a redeployed worker somewhere new is in force on the next

@@ -440,10 +440,10 @@ class Settings(BaseSettings):
     #: ABSENT => every `/v1/worker/*` route answers 401 to everybody, which is
     #: `caller_data_routes._authorized`'s posture and for its reason: an unconfigured
     #: deployment authenticates nobody rather than authenticating anybody.
-    voice_worker_api_token: str | None = Field(default=None, max_length=256)
+    pipecat_worker_api_token: str | None = Field(default=None, max_length=256)
     #: Where the worker reaches `apps/api`. NOT a secret; read by the worker only, which is
     #: why it is env-only on that side and has no reader on this host.
-    voice_worker_api_base_url: str | None = Field(default=None, max_length=512)
+    pipecat_worker_api_base_url: str | None = Field(default=None, max_length=512)
     #: The `wss://` base of the DEPLOYED voice worker, which the carrier is sent to by the
     #: answer document (`apps/voice-runtime/carrier_routes.py`, D-610).
     #:
