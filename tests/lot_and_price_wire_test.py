@@ -45,7 +45,7 @@ from apps.api.ops.model_price_routes import (
     tts_router,
 )
 from apps.api.ops.model_price_routes import router as model_price_router
-from apps.api.ops.model_pricing import attested_tts_prices
+from apps.api.ops.model_pricing import TTS_PROVIDERS, attested_tts_prices
 from apps.api.ops.pricing_snapshot import (
     install_pricing_readers,
     refresh_pricing_snapshot,
@@ -154,16 +154,35 @@ def _is_money(value: object) -> bool:
 # --- 1 + 3: the voice price attestation, and the panel it lands on -----------------
 
 
-async def test_the_model_price_panel_carries_both_voice_tiers_with_their_verdicts() -> None:
-    """Shape 3. Both tiers, always — the one nobody has priced is the row an operator
-    opened this panel for, so a shorter list would hide the only outstanding job."""
+async def test_the_model_price_panel_carries_every_voice_provider_with_its_verdicts() -> None:
+    """Shape 3. Every provider, always — the one nobody has priced is the row an operator
+    opened this panel for, so a shorter list would hide the only outstanding job.
+
+    ⚠ **THIS SAID "both voice TIERS" AND PINNED TWO UNTIL D-618.** The panel's rows are
+    PROVIDERS, and `gnani` is one with no tier at all precisely because nobody has priced
+    it — which makes it the strongest possible example of the sentence above rather than an
+    exception to it. Pinned to `TTS_PROVIDERS`, the set an operator may attest against, so
+    a fourth vendor reaches this assertion by existing.
+    """
     token = await _make_admin()
     async with _client() as http:
         read = await http.get("/v1/ops/model-prices", headers=_headers(token))
 
     assert read.status_code == 200, read.text
     rows = {row["provider"]: row for row in read.json()["tts_prices"]}
-    assert set(rows) == {"sarvam", "cartesia"}
+    assert set(rows) == set(TTS_PROVIDERS)
+
+    # THE UNPRICED PROVIDER'S ROW IS THE ONE THAT CAN LIE, so it is pinned hardest. It
+    # carries NO reference figure (Gnani publish none, and the only number in the wild is a
+    # reseller's), and its credential is reported as held in another environment rather
+    # than as missing — otherwise an operator who attests the price is told the tier is
+    # still unofferable and sent to a box that can never be filled.
+    gnani = rows["gnani"]
+    assert gnani["reference_inr_per_1k_chars"] is None
+    assert gnani["credential_installed"] is False
+    assert gnani["credential_held_elsewhere"] is True
+    assert gnani["billable_without_attestation_reason"] is None
+    assert gnani["offerable"] is gnani["price_billable"]
 
     for provider, row in rows.items():
         assert row["tier_label"] == rates.voice_tier_label(provider)
@@ -640,7 +659,7 @@ async def test_the_speaking_rate_card_prices_the_measurement_per_vendor() -> Non
         attested = await attested_tts_prices(session, at=datetime.now(UTC))
 
     rows = {row.provider: row for row in _by_provider_out(summarize([]), attested=attested)}
-    assert set(rows) == {"sarvam", "cartesia"}
+    assert set(rows) == set(TTS_PROVIDERS)
     assert rows["cartesia"].price_attested is True
     assert rows["cartesia"].inr_per_1k_chars is not None
     # NUMERIC(12,6) pads it to "3.449600" — the same number, compared as a Decimal and

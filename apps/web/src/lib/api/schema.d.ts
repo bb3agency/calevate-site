@@ -16852,6 +16852,11 @@ export interface components {
             attested_by: string | null;
             /** Billable Without Attestation Reason */
             billable_without_attestation_reason: string | null;
+            /**
+             * Credential Held Elsewhere
+             * @default false
+             */
+            credential_held_elsewhere: boolean;
             /** Credential Installed */
             credential_installed: boolean;
             /** Effective From */
@@ -16867,7 +16872,7 @@ export interface components {
             /** Provider */
             provider: string;
             /** Reference Inr Per 1K Chars */
-            reference_inr_per_1k_chars: string;
+            reference_inr_per_1k_chars: string | null;
             /** Source Note */
             source_note: string | null;
             /** Tier Label */

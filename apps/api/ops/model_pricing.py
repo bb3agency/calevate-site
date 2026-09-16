@@ -999,7 +999,7 @@ async def tts_price_is_billable(session: AsyncSession, *, provider: str, at: dat
     return provider in await attested_tts_prices(session, at=at)
 
 
-def reference_tts_price(provider: str) -> Decimal:
+def reference_tts_price(provider: str) -> Decimal | None:
     """The tree's OWN per-1,000-character figure for `provider` — the form's pre-fill.
 
     `reference_price`'s job for a voice, and it carries `reference_price`'s warning twice
@@ -1021,15 +1021,23 @@ def reference_tts_price(provider: str) -> Decimal:
     still not a price anybody read off ours, which is why hard rule 7 keeps both out of
     `unit_cost_paid` and why the attestation exists.
 
+    ⚠ **`None` IS A REAL ANSWER AND IT ARRIVED WITH D-618.** This used to be a two-branch
+    expression — Sarvam's figure, else Cartesia's — which a third provider silently turned
+    into "Gnani is priced at the Cartesia rate" on the very form an operator types a real
+    price into. **Gnani publish no figure of any kind**: no per-character rate, no
+    per-second rate, no currency, no free tier. The one number in the wild belongs to a
+    RESELLER's platform and is not Gnani's, so it is not a reference either. A form with no
+    pre-fill is the correct rendering; a pre-fill somebody else's vendor supplied is the
+    laundering hard rule 11 forbids, on the one screen that reaches money.
+
     Raises for an unknown provider, like every other reader here.
     """
     _require_tts_provider(provider)
-    per_10k = (
-        rates.TTS_INR_PER_10K_CHARS
-        if provider == "sarvam"
-        else rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
-    )
-    return per_10k / Decimal("10")
+    if provider == "sarvam":
+        return rates.TTS_INR_PER_10K_CHARS / Decimal("10")
+    if provider == "cartesia":
+        return rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS / Decimal("10")
+    return None
 
 
 async def attest_tts_price(

@@ -201,6 +201,7 @@ const MODEL_PRICES: ModelPrices = {
       tier_label: "Studio",
       tts_model: "sonic-3.5",
       credential_installed: false,
+      credential_held_elsewhere: false,
       price_attested: false,
       price_billable: false,
       offerable: false,

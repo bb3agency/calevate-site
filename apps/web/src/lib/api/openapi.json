@@ -23469,6 +23469,11 @@
             ],
             "title": "Billable Without Attestation Reason"
           },
+          "credential_held_elsewhere": {
+            "default": false,
+            "title": "Credential Held Elsewhere",
+            "type": "boolean"
+          },
           "credential_installed": {
             "title": "Credential Installed",
             "type": "boolean"
@@ -23512,8 +23517,15 @@
             "type": "string"
           },
           "reference_inr_per_1k_chars": {
-            "title": "Reference Inr Per 1K Chars",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Inr Per 1K Chars"
           },
           "source_note": {
             "anyOf": [
