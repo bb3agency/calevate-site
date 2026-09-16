@@ -1834,14 +1834,45 @@ are load-bearing rather than convenience:
 Secrets it collects are never echoed, never written inside the checkout, and are shredded
 on every exit path including a signal.
 
-1. **Create the Pipecat Cloud account and authenticate.** *Pass condition*:
-   `pipecat cloud auth login` completes and `pipecat cloud deploy --help` runs.
-2. **Establish how `ap-south` is selected.** The vendor's `pcc-deploy.toml` template has
-   NO region key; all this tree knows is that the region exists and is self-serve
-   (`docs/evidence/engine-replacement-comet-2026-09-06.md:81`). *Pass condition*: the
-   deployed agent reports `ap-south`, and whatever selects it (a key, a flag, an account
-   setting) is written into `pcc-deploy.toml` or beside it.
-3. **Pin the base image by digest.** ✅ **CLOSED (16 Sep 2026).** `apps/voice-worker/
+1. **Create the Pipecat Cloud account and authenticate.** ✅ **CLOSED (16 Sep 2026)** —
+   and ⚠ **NOT WITH `auth login`, WHICH DOES NOT WORK ON A HEADLESS HOST.** That verb binds
+   a listener on the LOCAL loopback (`127.0.0.1:8400`) and waits for an OAuth callback, so a
+   laptop browser sends the callback to the LAPTOP and the deploy host waits for ever. Use
+   **`pipecat cloud auth use-pat`** — a Personal Access Token, prompted and not echoed,
+   stored to `~/.config/pipecatcloud/pipecatcloud.toml`. (An
+   `ssh -L 8400:127.0.0.1:8400` tunnel also works; the PAT needs neither tunnel nor
+   browser.) *Pass condition*: `pipecat cloud auth whoami` names the organization.
+2. **Establish how `ap-south` is selected.** ✅ **ANSWERED (16 Sep 2026): IT IS A
+   DEPLOY-TIME FLAG, NOT A MANIFEST KEY.** `pipecat cloud deploy` takes `--region` / `-r`,
+   and a `regions` command lists them. The manifest genuinely cannot carry one — the
+   vendor's own scaffold inside the pinned wheel
+   (`pipecat/cli/templates/server/pcc-deploy.toml.jinja2`) emits only `agent_name`,
+   `secret_set`, `agent_profile`, optional `[krisp_viva]` and `[scaling] min_agents`, and
+   ours matches it.
+
+   ⚠ **AND `--architecture` (amd64/arm64) MUST MATCH HOW THE IMAGE WAS BUILT**, with the
+   region's default applying when omitted: *"Regions support specific architectures — see
+   'regions list'."* Our image is built on the VPS (amd64); a region defaulting to arm64
+   yields a container that does not start, with no error naming the cause.
+
+   *Pass condition*: `pipecat cloud regions list` is run, the region id and its architecture
+   are recorded in `docs/evidence/pipecat-cloud-bringup-2026-09-16.md`, and the deploy
+   passes `--region` (and `--architecture` if it differs from that region's default).
+3. **Pin the base image by digest.** ⚠ **RE-OPENED THE SAME DAY IT CLOSED, AND THE REASON
+   IS THE ARCHITECTURE.** `pipecat cloud regions list` (read on the deploy host, 16 Sep
+   2026) shows **every** region — `ap-south` (Mumbai), `eu-central`, `us-east`, `us-west` —
+   supporting `arm64` and nothing else. There is no amd64 region. The digest below was
+   resolved with a plain `docker pull` on an **amd64** VPS, and a multi-arch tag resolves to
+   the HOST's architecture, so it names the amd64 manifest: an image built on it cannot
+   start on Pipecat Cloud, and that failure does not announce its cause.
+
+   `pipecat-worker-setup.sh digest` now pulls with `--platform linux/arm64` and REFUSES a
+   digest whose architecture is not the target; `build` uses `buildx --platform`; and
+   `doctor` reports the host/platform mismatch before any of it. *Re-run `digest` and record
+   the arm64 value below.* The amd64 one is kept only so the next reader sees what was
+   wrong with it.
+
+   **(The original closure follows, superseded.)** `apps/voice-worker/
    Dockerfile` takes `--build-arg PIPECAT_BASE=dailyco/pipecat-base@sha256:…`; the default
    is the mutable tag the vendor's own scaffold names, which hard rule 9 does not accept
    for a build input. The digest, resolved on the deploy host (which has registry access

@@ -108,15 +108,98 @@ uv did the install. That is correct — the pinned digest governs what goes INSI
 not what installs a local tool — but it means the extraction path is still unproven on a real
 host. It will run on the next clean VPS, which is exactly the case the script exists for.
 
+## The CLI's real surface, read first-hand (VERIFIED)
+
+Everything this repository knew about this tool before today was REPORTED from material
+nobody here could open. These came from the tool itself, on the deploy host.
+
+`pipecat cloud` commands: `deploy`, `docker`, `auth`, `build`, `github`, `organizations`,
+`regions`, `secrets`, `spend-limit`, `agent`. Global `--output rich|plain|json` (place it
+BEFORE the subcommand), and `--show-cli-config`.
+
+### Gate 2 — the region. CLOSED as a QUESTION; one fact still to fetch.
+
+**The manifest cannot select a region and never could.** The vendor's own scaffold, read
+from inside the pinned wheel (`pipecat/cli/templates/server/pcc-deploy.toml.jinja2`), emits
+exactly `agent_name`, `secret_set`, `agent_profile`, an optional `[krisp_viva]` and
+`[scaling] min_agents`. Ours matches it. So §12.5's "the template has NO region key" was
+right, and the reason is that **region is a DEPLOY-TIME flag**: `pipecat cloud deploy`
+takes `--region` / `-r`, and there is a whole `regions` command.
+
+⚠ **AND THE ARCHITECTURE TRAP, WHICH NOBODY HAD SPOTTED.** `deploy` also takes
+`--architecture` (amd64 or arm64), documented as *"Omitted, the region's default applies.
+Regions support specific architectures — see 'regions list'. Must match how the image was
+built."* Our image is built on the VPS, which is amd64. If the chosen region defaults to
+arm64 the container does not start, and that failure does not announce its cause. Run
+`pipecat cloud regions list` BEFORE the first deploy and record the region id and its
+architecture here.
+
+Other `deploy` flags worth knowing: `--min-agents`/`--max-agents` (default cap 50),
+`--secrets`, `--organization`, `--profile` vs `--resources` (mutually exclusive; the second
+is for self-hosted regions), `--max-session-duration` (60–14400s, default 7200) and a
+GitHub-source path (`--repo`, `--branch`, `--dockerfile-path`).
+
+### ⚠ EVERY REGION IS arm64. THE BIGGEST FINDING OF THE DAY.
+
+`pipecat cloud regions list`, read on the deploy host 16 Sep 2026 (REPORTED-BY-OPERATOR):
+
+| Code | Name | Architectures | Default |
+| --- | --- | --- | --- |
+| `ap-south` | Asia Pacific (Mumbai) | arm64 | arm64 |
+| `eu-central` | Europe (Frankfurt) | arm64 | arm64 |
+| `us-east` | US East (Virginia) | arm64 | arm64 |
+| `us-west` | US West (Oregon) | arm64 | arm64 |
+
+**There is no amd64 region.** The deploy host is amd64, so:
+
+* the base image digest closed as gate 3 earlier the same day is the **amd64** manifest — a
+  plain `docker pull` resolves a multi-arch tag to the host's architecture — and an image
+  built on it cannot start on this platform. **Gate 3 is re-opened** and the digest must be
+  re-resolved with `--platform linux/arm64`;
+* `docker build` on the VPS must cross-build (`buildx --platform linux/arm64`, which needs
+  QEMU binfmt handlers), or the build must be handed to Pipecat's own cloud build
+  (`deploy --build-dir/--dockerfile/--build-id`);
+* `deploy --architecture` only DESCRIBES the image. It does not convert one.
+
+`pipecat-worker-setup.sh` now pins the platform on every pull and build, REFUSES a digest
+whose architecture is not the target, and `doctor` reports the host/platform mismatch with
+its remedy before a build is attempted. `ap-south` being Mumbai also confirms the region
+this product wants is real and self-serve.
+
+### The organization slug carries a typo
+
+`auth whoami`: *User `calevate.voice@gmail.com`, Active Organization `Calevate Voice
+(calevate-coice)`*. The display name is right; the SLUG reads `calevate-coice`. It is what
+`deploy --organization` selects, so it is worth correcting in the vendor's dashboard before
+an agent and a secret set exist under it. Cosmetic today, awkward later.
+
+### Gate 4 — headless login. CLOSED, and the answer is NOT the browser flow.
+
+**`pipecat cloud auth login` does NOT complete on a headless host.** It prints a URL and
+binds a listener on the LOCAL loopback (`127.0.0.1:8400`), so the OAuth callback must reach
+*that machine*. Authorising in a laptop browser sends the callback to the LAPTOP's
+127.0.0.1:8400, where nothing is listening, and the VPS waits for ever. Observed on the
+deploy host, 16 Sep 2026.
+
+**The supported way past it is `pipecat cloud auth use-pat`** — a Personal Access Token,
+prompted for and not echoed, which stores credentials to
+`~/.config/pipecatcloud/pipecatcloud.toml`. This is the ONE to use on any deploy host.
+(An `ssh -L 8400:127.0.0.1:8400` tunnel also works and was the first remedy proposed here;
+the PAT is better because it needs no tunnel and no browser at all.)
+
+⚠ **A URL CARRYING AN OAUTH CODE IS A CREDENTIAL.** One was pasted into a shell prompt
+during this, where bash tried to EXECUTE it and split it on `&` into background jobs. The
+code was single-use and is spent; the habit is the thing to avoid.
+
 ## What is still UNKNOWN, by name
 
 None of these is guessed at anywhere in the tree.
 
-1. **How `ap-south` is selected.** The vendor's `pcc-deploy.toml` template has no region key.
-   *Closes when*: the deployed agent reports its region and whatever selects it — a key, a
-   flag, an account setting — is written into `pcc-deploy.toml` or beside it. **This one has
-   teeth**: the whole product is India-latency-bound, and an agent that silently lands
-   elsewhere is a latency defect nothing in CI can see. §12.5 gate 2.
+1. ✅ **How the region is selected — ANSWERED** (a `--region` flag, see above). What is
+   still unfetched is the region's IDENTIFIER and its ARCHITECTURE, from
+   `pipecat cloud regions list`. **This one has teeth**: the product is India-latency-bound,
+   an agent that silently lands elsewhere is a latency defect nothing in CI can see, and a
+   region whose architecture differs from the image is a container that will not start.
 2. **Whether Pipecat Cloud injects the secret set as process ENVIRONMENT.** `boot.py` reads
    `os.environ`. The vendor's scaffold wording implies environment; nobody has confirmed it.
    *Closes when*: `--preflight` prints OK inside the deployed container. If it prints FAIL
@@ -125,7 +208,7 @@ None of these is guessed at anywhere in the tree.
 3. **The real syntax of `pipecat cloud secrets set`.** §12.1 records
    `<set> --file <file>` as REPORTED. `pipecat-worker-setup.sh secrets` checks the CLI's own
    `--help` before sending anything and refuses, printing that help, on a mismatch.
-4. **Whether `pipecat cloud auth login` completes on a headless host.** Unread.
+4. ✅ **Headless login — ANSWERED.** It does not; `auth use-pat` is the way. See above.
 5. **The SIGTERM-to-SIGKILL window.** `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` defaults to 20.0,
    reasoned from OUR bounds and nothing the platform has stated. §12.5 gate 7.
 6. **`min_agents`.** One warm instance is a pilot choice; zero means a documented ~10 s cold

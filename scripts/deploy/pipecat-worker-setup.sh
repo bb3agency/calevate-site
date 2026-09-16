@@ -76,6 +76,15 @@ PCC_MANIFEST="$REPO_ROOT/apps/voice-worker/pcc-deploy.toml"
 #: rather than at 80% of a layer, which is how a full disk usually presents.
 BUILD_FLOOR_GB=${BUILD_FLOOR_GB:-6}
 
+#: THE ONLY ARCHITECTURE PIPECAT CLOUD RUNS. `pipecat cloud regions list`, read on the deploy
+#: host on 16 Sep 2026: ap-south (Mumbai), eu-central, us-east and us-west each list
+#: `arm64` as their only supported architecture AND their default. There is no amd64 region.
+#:
+#: A VARIABLE rather than a literal because it is a VENDOR fact that can change and this is
+#: the one place that would have to move; it is not a preference of ours.
+PIPECAT_TARGET_ARCH=${PIPECAT_TARGET_ARCH:-arm64}
+TARGET_PLATFORM="linux/${PIPECAT_TARGET_ARCH}"
+
 C_OK=$'\033[32m'; C_BAD=$'\033[31m'; C_WARN=$'\033[33m'; C_OFF=$'\033[0m'
 [[ -t 1 ]] || { C_OK=""; C_BAD=""; C_WARN=""; C_OFF=""; }
 
@@ -280,6 +289,26 @@ doctor_cmd() {
     bad "missing $PCC_MANIFEST"; failures=$((failures + 1))
   fi
 
+  rule; say "ARCHITECTURE"; rule
+  local host_arch
+  host_arch=$(uname -m)
+  case "$host_arch" in
+    aarch64|arm64) host_arch=arm64 ;;
+    x86_64|amd64)  host_arch=amd64 ;;
+  esac
+  say "  this host        $host_arch"
+  say "  Pipecat Cloud    $PIPECAT_TARGET_ARCH (every region; there is no amd64 one)"
+  if [[ "$host_arch" == "$PIPECAT_TARGET_ARCH" ]]; then
+    ok "native build — no emulation needed"
+  elif docker buildx version >/dev/null 2>&1; then
+    ok "cross-build available (buildx present); 'build' passes --platform $TARGET_PLATFORM"
+  else
+    bad "this host is $host_arch, Pipecat Cloud runs $PIPECAT_TARGET_ARCH, and docker buildx
+     is MISSING — so a build here produces an image the platform cannot start. Install the
+     buildx plugin and QEMU binfmt handlers, or use Pipecat's own cloud build."
+    failures=$((failures + 1))
+  fi
+
   rule; say "BASE IMAGE"; rule
   if [[ -n "${PIPECAT_BASE:-}" ]]; then
     ok "PIPECAT_BASE is set: $PIPECAT_BASE"
@@ -383,11 +412,22 @@ login_cmd() {
 digest_cmd() {
   have docker || die "docker is required"
   local repo=${1:-dailyco/pipecat-base} tag=${2:-latest}
-  say "resolving $repo:$tag ..."
-  docker pull "$repo:$tag" >/dev/null
+  say "resolving $repo:$tag for $TARGET_PLATFORM ..."
+  # `--platform` IS NOT OPTIONAL HERE, and getting this wrong is silent. `docker pull` on a
+  # multi-arch tag resolves to the HOST's architecture and `RepoDigests` then names that
+  # platform's manifest — so a digest resolved on an amd64 VPS pins the amd64 base image,
+  # and the agent built on it cannot run on a platform that is arm64 everywhere
+  # (PIPECAT_TARGET_ARCH). The resulting failure is a container that does not start, with
+  # nothing naming the cause.
+  docker pull --platform "$TARGET_PLATFORM" "$repo:$tag" >/dev/null
   local digest
   digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$tag")
   [[ -n "$digest" ]] || die "could not resolve a digest for $repo:$tag"
+  local got
+  got=$(docker inspect --format='{{.Architecture}}' "$repo:$tag" 2>/dev/null || printf '?')
+  [[ "$got" == "$PIPECAT_TARGET_ARCH" ]] || die "pulled a $got image while Pipecat Cloud runs
+     $PIPECAT_TARGET_ARCH. The digest below would pin an image that cannot start there.
+     This host may lack binfmt/qemu for cross-platform pulls; see 'build'."
   rule
   ok "base image digest resolved"
   say "    $digest"
@@ -566,7 +606,17 @@ build_cmd() {
   (( free >= BUILD_FLOOR_GB )) || die "${free}GB free, below the ${BUILD_FLOOR_GB}GB floor.
      Reclaim first: $SCRIPT_DIR/docker-reclaim.sh"
 
-  local -a args=(build -f apps/voice-worker/Dockerfile -t calevate/voice-worker:local)
+  # EVERY Pipecat Cloud region is arm64 (`pipecat cloud regions list`, read on the deploy
+  # host 16 Sep 2026: ap-south, eu-central, us-east and us-west all list arm64 and nothing
+  # else). A deploy host is routinely amd64, so the platform is stated on every build rather
+  # than inherited — an image built for the host's own architecture is one the platform
+  # cannot run, and `deploy --architecture` only DESCRIBES the image, it does not convert it.
+  local -a args=(buildx build --platform "$TARGET_PLATFORM" --load
+                 -f apps/voice-worker/Dockerfile -t calevate/voice-worker:local)
+  docker buildx version >/dev/null 2>&1 || die "docker buildx is required to build for
+     $TARGET_PLATFORM from this host. Install the buildx plugin and QEMU binfmt handlers
+     (docker run --privileged --rm tonistiigi/binfmt --install arm64), or build with
+     Pipecat's own cloud build (deploy --build-dir/--dockerfile)."
   if [[ -n "${PIPECAT_BASE:-}" ]]; then
     args+=(--build-arg "PIPECAT_BASE=$PIPECAT_BASE")
     ok "building on pinned base: $PIPECAT_BASE"
