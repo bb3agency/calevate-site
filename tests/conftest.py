@@ -658,6 +658,30 @@ def s3(monkeypatch: pytest.MonkeyPatch) -> FakeS3:
     return fake
 
 
+@pytest.fixture
+def worker_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """`Settings.voice_worker_api_token` — the credential this deployment issued its own
+    voice worker (D-621), configured for the duration of one test.
+
+    **IT IS HERE AND NOT IN A HELPER MODULE FOR A MECHANICAL REASON.** Six test files need
+    it, and a fixture that is IMPORTED is also a name the importing module binds — which
+    ruff reads as `F811` the moment a test takes it as a parameter. `s3` above is the
+    established shape for a fixture with many consumers.
+
+    Supplied explicitly rather than by default because `_no_ambient_credentials` strips the
+    real ones, which is the correct default — and because "no token configured" is itself one
+    of the behaviours under test (`worker_api_test.
+    test_an_unconfigured_deployment_authenticates_nobody`), so the cache is cleared on BOTH
+    sides of the yield.
+    """
+    from tests.worker_api_harness import TOKEN
+
+    monkeypatch.setenv("VOICE_WORKER_API_TOKEN", TOKEN)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 # --- reserved test domains resolve, so the egress guard can judge them ---------------
 #
 # `egress_guard.assert_public_http_url` RESOLVES a webhook host and judges the address,

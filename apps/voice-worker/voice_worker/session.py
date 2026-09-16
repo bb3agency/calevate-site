@@ -27,7 +27,7 @@ nobody is waiting on it yet.
 
 **WHO CALLS THIS, AND WHAT IS STILL MISSING — WHICH IS NOW ONE THING AND NOT TWO.**
 `runtime.WorkerRuntime.run_call` is the production caller: it owns the container's database
-engine, builds the `sink.DatabaseEventSink` from the same four ids it passes here, and runs
+client, builds the `sink.HttpEventSink` from the same four ids it passes here, and runs
 what comes back. This paragraph used to say the sink *"is the next wave"* and that nothing
 called `start_session` at all; the sink now exists, so what remains outside this repository
 is exactly one thing — **the carrier transport, which needs a Plivo account in the India
@@ -48,8 +48,8 @@ from calevate_shared.events import CallDirection
 from loguru import logger
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.transports.base_transport import BaseTransport
-from sqlalchemy.ext.asyncio import AsyncConnection
 
+from voice_worker.api_client import WorkerApiClient
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import (
     PackCache,
@@ -251,12 +251,13 @@ async def open_session(
 
 
 async def start_session(
-    connection: AsyncConnection,
+    api: WorkerApiClient,
     *,
     call_id: str,
     tenant_id: UUID,
     agent_id: UUID,
     direction: CallDirection,
+    engine_agent_ref: str,
     credentials: VendorCredentials,
     transport: BaseTransport,
     sink: NormalizedEventSink,
@@ -276,18 +277,19 @@ async def start_session(
     by `config.py` and is the thing whose digests are attested, and a phone number has no
     business in either. It travels as an argument and dies with the call.
 
-    Split from `open_session` rather than folded into it because the database and the
+    Split from `open_session` rather than folded into it because the platform API and the
     object store fail differently and are reached differently: a caller that already holds
-    a `SessionConfig` (a warm session, a replay, a local run with no database at all) needs
+    a `SessionConfig` (a warm session, a replay, a local run against no API at all) needs
     the second half and not the first, and `AgentNotRunnableError` is a refusal to start a
     call while every knowledge outcome is a call that starts anyway.
     """
     config = await load_session_config(
-        connection,
+        api,
         call_id=call_id,
         tenant_id=tenant_id,
         agent_id=agent_id,
         direction=direction,
+        engine_agent_ref=engine_agent_ref,
     )
     return await open_session(
         config=config,

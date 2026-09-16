@@ -31,7 +31,8 @@ from voice_worker.pipeline import AssembledCall, NormalizedEventBoundary, Sessio
 PROMPT = "You are Calevate's receptionist. You are an AI. This call is recorded."
 
 COMPLETE_ENV: dict[str, str] = {
-    "DATABASE_URL": "postgresql+psycopg://calevate_app:pw@db/calevate",
+    "VOICE_WORKER_API_BASE_URL": "https://api.calevate.tech",
+    "VOICE_WORKER_API_TOKEN": "a-token-this-deployment-issued-its-worker",
     "OBJECT_STORE_BUCKET": "calevate-prod",
     "OBJECT_STORE_ENDPOINT": "https://account.r2.cloudflarestorage.com",
     "AWS_ACCESS_KEY_ID": "key",
@@ -131,7 +132,8 @@ def test_an_empty_environment_names_every_missing_variable_at_once() -> None:
         boot.load_worker_config({})
     message = str(raised.value)
     for name in (
-        boot.DATABASE_URL_ENV,
+        boot.API_BASE_URL_ENV,
+        boot.API_TOKEN_ENV,
         boot.AWS_KEY_ENV,
         boot.AWS_SECRET_ENV,
         boot.SARVAM_KEY_ENV,
@@ -190,25 +192,37 @@ def test_an_unknown_provider_is_refused_with_the_legs_this_product_has() -> None
     assert "azure_openai" in str(raised.value)
 
 
-def test_the_event_sink_refuses_at_boot_rather_than_discarding_a_transcript() -> None:
-    """The dead end is deliberate (docs/PIPECAT-MIGRATION.md §6 step 11). When the writer
-    lands this test is what says so — it will fail, and its replacement asserts the writer."""
-    with pytest.raises(boot.EventSinkNotBuiltError):
-        boot.build_event_sink(cast(Any, type("E", (), {"url": type("U", (), {"drivername": "x"})})))
+def test_the_event_sink_is_built_for_one_call_and_carries_that_call_s_four_ids() -> None:
+    """⚠ **THIS CLAUSE USED TO ASSERT A REFUSAL** — `build_event_sink` raised
+    `EventSinkNotBuiltError` because the normalized event writer did not exist, and its own
+    docstring said "when the writer lands this test is what says so". It landed (D-621), so
+    this is that replacement.
+
+    What is asserted is the shape rather than the writing (`voice_worker_sink_test` owns
+    that): the sink is built PER CALL, from the four ids of one session, because those four
+    ids are what make the identity refusal possible at all. A process-wide sink would have to
+    infer a turn's tenant from its call id — i.e. read it back out of the row it is about to
+    write.
+    """
+    from voice_worker.sink import HttpEventSink
+
+    client = cast(Any, object())
+    sink = boot.build_event_sink(
+        client,
+        call_id="call-1",
+        tenant_id=uuid4(),
+        agent_id=uuid4(),
+        direction="inbound",
+    )
+    assert isinstance(sink, HttpEventSink)
 
 
-def test_the_database_connect_bounds_match_the_module_they_were_copied_from() -> None:
-    """The copy is deliberate (`boot._CONNECT_ARGS` says why: the module that owns these
-    pulls the monolith). This is what stops it rotting: if the doctrine moves in
-    `apps/api/db/session.py` and not here, one deployable is left on the old bounds."""
-    from apps.api.db import session as api_session
-
-    assert boot._CONNECT_ARGS == api_session._CONNECT_ARGS
-
-
-# --------------------------------------------------------------------------------------
-# 2. Readiness is admission control
-# --------------------------------------------------------------------------------------
+# ⚠ **`test_the_database_connect_bounds_match_the_module_they_were_copied_from` WAS HERE AND
+# IS DELETED (D-621).** It pinned `boot._CONNECT_ARGS` to `apps/api/db/session._CONNECT_ARGS`
+# so a copy could not rot. There is no copy any more and no database connection to bound:
+# this container cannot reach our Postgres (`docs/DEPLOYMENT.md` §12.5 gate 6) and speaks HTTP
+# to `apps/api` instead. The bounds that replaced them are `api_client.SESSION_FETCH_BUDGET_S`
+# and `WRITE_BUDGET_S`, which are this worker's own and have nothing to be pinned to.
 
 
 def test_a_container_is_not_ready_before_boot_finishes() -> None:

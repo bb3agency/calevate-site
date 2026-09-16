@@ -1717,7 +1717,8 @@ container. Nothing fetches one from the other.
 
 | Variable | Required | Where it comes from | What it is for |
 |---|---|---|---|
-| `DATABASE_URL` | yes | ⚠ **NOT the VPS `.env` value — see gate 8** | the published config version, the knowledge-pack pointer, and the call's events. APP role, never the owner. **THIS CELL SAID "same value as the VPS `.env`" AND THAT IS WRONG (16 Sep 2026).** This deployment runs Postgres ON THE HOST, reached by containers over the Docker bridge as `host.docker.internal` (`compose.prod.yml:36`); the worker is box 1 on Pipecat Cloud, a different network, where that name resolves to nothing. `voice-worker-setup.sh secrets` REFUSES a host-local DSN for this reason. See §12.5 gate 6. |
+| `VOICE_WORKER_API_BASE_URL` | yes | the public base URL of `apps/api` (e.g. `https://api.calevate.tech`) | where the worker reads its published agent from and posts its calls' events to (D-621). ⚠ **`DATABASE_URL` WAS THIS ROW AND IS GONE.** The worker cannot reach our Postgres at all — it is on the VPS host behind the Docker bridge (`compose.prod.yml:36`) and this container is box 1 on Pipecat Cloud, a different network — so a DSN here was a value that could never have connected. See §12.5 gate 6, now closed. It is a `Settings` field classified `ENV_ONLY`, because nothing on the VPS reads it. |
+| `VOICE_WORKER_API_TOKEN` | yes | ops console (`voice_worker_api_token`) | the Bearer token the worker presents to `/v1/worker/*`. CONSOLE-MANAGED, unlike the base URL beside it and unlike `GNANI_API_KEY`: `apps/api/worker/service.authorized` reads it to verify the header, so it has a reader on this host and belongs in the credential store. The SAME value goes in this secret set — a human puts it in both places and nothing fetches one from the other. ⚠ It is NOT `bolna_caller_data_token` reused: that one opens a READ of caller memory for a rented engine, this one opens the WRITE surface for our ledger. Absent on the API side ⇒ every `/v1/worker/*` route answers 401 to everybody. |
 | `OBJECT_STORE_ENDPOINT` / `OBJECT_STORE_BUCKET` | yes | secrets manager | the R2 bucket the knowledge pack is fetched from at session start |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | yes | secrets manager | botocore resolves these itself; the boot gate only checks that they are PRESENT, because a field of ours would be a second value the SDK ignores |
 | `AWS_REGION` | no | defaults to `auto` | R2's documented signature scope (D-450), not a placement |
@@ -1740,7 +1741,10 @@ caller meets it with
 python bot.py --preflight     # prints VOICE WORKER PREFLIGHT: OK|FAIL and exits 0|1
 ```
 
-which loads the configuration, opens the pool and runs one `SELECT 1`. The two variables
+which loads the configuration, opens the HTTP client and asks `/v1/worker/session/` for a
+ref that names no agent — a 404 proves the API is reachable AND that this container's token
+is the one the deployment installed, which is strictly more than the `SELECT 1` it replaced
+proved (a DSN carries its own credential; a base URL does not). The two variables
 that are not `Settings` fields (`VOICE_WORKER_DRAIN_GRACE_SECONDS`,
 `VOICE_WORKER_READY_FILE` — neither is a credential) are registered in
 `scripts/check_env_parity.py` (`CONTAINER_ENV_KEYS`) with the argument for each;
@@ -1861,32 +1865,41 @@ on every exit path including a signal.
    image's WORKDIR) are the thing this proves.
 5. **Create the secret set** with the §12.2 table. *Pass condition*: `--preflight` prints
    OK inside the deployed container.
-6. ⚠ **HOW THE WORKER REACHES THIS DATABASE AT ALL — OPEN, AND IT BLOCKS THE FIRST CALL
-   (gate 6, opened 16 Sep 2026).** Found by running `voice-worker-setup.sh sources` on the
-   deploy host: `psql` could not translate `host.docker.internal`, because Postgres runs ON
-   THE HOST and only the Docker bridge reaches it. The worker is **box 1** (Pipecat Cloud,
-   `docs/PIPECAT-MIGRATION.md` §8) and `:181` has the adapter speaking to it THROUGH THE
-   DATABASE — so a design that was settled with a box diagram has a network edge nobody
-   drew. Nothing else in the contract has this problem: the object store is R2 and is
-   internet-reachable already.
+6. ✅ **HOW THE WORKER REACHES THIS DATABASE AT ALL — CLOSED BY D-621 (opened and closed
+   16 Sep 2026).** It does not reach it, and it no longer tries.
 
-   **It is not a credential question and must not be closed by pasting a DSN.** The options
-   are an infrastructure decision with real weight, and none is chosen here:
+   **What the gate was.** Found by running `voice-worker-setup.sh sources` on the deploy
+   host: `psql` could not translate `host.docker.internal`, because Postgres runs ON THE
+   HOST and only the Docker bridge reaches it. The worker is **box 1** (Pipecat Cloud,
+   `docs/PIPECAT-MIGRATION.md` §8) and `:181` had the adapter speaking to it THROUGH THE
+   DATABASE — a design settled with a box diagram had a network edge nobody drew. Nothing
+   else in the contract had this problem: the object store is R2 and is internet-reachable
+   already.
 
-   * expose Postgres over TLS, restricted by `pg_hba.conf` and the firewall to Pipecat
-     Cloud's egress addresses — which are themselves UNKNOWN and would have to come from
-     the vendor, and which puts the database holding every client's caller data on the
-     public internet;
-   * move Postgres to a managed service both boxes can reach;
-   * **stop the worker touching Postgres directly** and have it read its config and
-     knowledge-pack pointer, and post its events, over HTTPS to `apps/api` — which keeps
-     the database private and is the only option that does not widen the attack surface,
-     at the cost of real work and a change to §8's picture;
-   * a private link between the two, if the platform offers one — UNKNOWN.
+   **Which of the four options was taken, and why.** The third: *stop the worker touching
+   Postgres directly.* It reads its published agent, and posts its calls' events and its
+   settlement, over HTTPS to `apps/api` — three Bearer-authenticated routes under
+   `/v1/worker`, with the wire models in `calevate_shared.worker_api` so neither end can
+   drift. It is the only option that does not put the database holding every client's caller
+   data on the public internet, and the only one whose fix is entirely ours: the other three
+   wait on Pipecat Cloud's egress ranges (UNKNOWN, and would have to come from the vendor), a
+   database migration to a managed service, or a private-link feature nobody has confirmed
+   exists. The design and the seven facts it rests on are
+   `docs/evidence/worker-http-contract.md`.
 
-   *Pass condition*: the worker's `--preflight` prints OK **inside the deployed container**,
-   which is the first thing that proves the pool actually opens from box 1. Until then the
-   deploy can proceed and the container cannot serve a call.
+   **What that cost, stated rather than hidden.** `apps/voice-worker` no longer imports
+   SQLAlchemy at all; `voice_worker/db.py` and `voice_worker/outbox.py` are deleted;
+   `DatabaseEventSink` is `HttpEventSink` and there is exactly one sink, because two writers
+   of one ledger is the drift this repository keeps guards for. §8's picture has an HTTPS
+   edge from box 1 to box 2 where it had a Postgres one. Three things moved to the server
+   with the write and are stronger there: the tenant resolution (parsed from the engine-space
+   ref, then RLS), the redactor (`text_redacted` is no longer computed by a container a
+   vendor's runtime operates) and the rate card (hard rule 7 — the worker sends quantities,
+   never money).
+
+   *Pass condition*: `bot.py --preflight` prints OK **inside the deployed container**, which
+   is what proves the API answers this container's token from box 1. That is now the whole of
+   step 5's pass condition too — there is no second dependency to prove.
 
 7. **Learn the SIGTERM-to-SIGKILL window and set `VOICE_WORKER_DRAIN_GRACE_SECONDS`.** The
    20-second default is reasoned from OUR bounds (a 5 s pipeline flush, a 2 s tool

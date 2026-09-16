@@ -461,7 +461,8 @@ def test_the_container_reads_the_key_from_its_own_secret_set() -> None:
     from voice_worker.boot import GNANI_KEY_ENV, load_worker_config
 
     env = {
-        "DATABASE_URL": "postgresql+psycopg://u:p@h/db",
+        "VOICE_WORKER_API_BASE_URL": "https://api.example",
+        "VOICE_WORKER_API_TOKEN": "t",
         "OBJECT_STORE_BUCKET": "b",
         "OBJECT_STORE_ENDPOINT": "https://s3.example",
         "AWS_ACCESS_KEY_ID": "a",

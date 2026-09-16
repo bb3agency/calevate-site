@@ -37,7 +37,7 @@ from typing import Any
 import httpx
 import pytest
 from apps.api.db.session import tenant_session
-from apps.api.engine.pipecat import PipecatEngine
+from apps.api.engine.pipecat import PipecatEngine, engine_agent_ref_for
 from calevate_shared.engine import (
     CALLER_MEMORY_SLOT,
     CALLER_MEMORY_VARIABLE,
@@ -58,6 +58,7 @@ from tests.voice_worker_pipeline_test import (
     RecordingSink,
     make_config,
 )
+from tests.worker_api_harness import worker_client
 from voice_worker import memory, pipeline, session
 from voice_worker.config import load_session_config
 
@@ -534,7 +535,9 @@ async def test_every_shape_that_is_not_an_answer_is_the_same_silence(body: Any) 
 # --------------------------------------------------------------------------------------
 
 
-async def test_the_ref_the_publish_wrote_is_the_ref_the_session_config_carries() -> None:
+async def test_the_ref_the_publish_wrote_is_the_ref_the_session_config_carries(
+    worker_token: None,
+) -> None:
     """`engine_agent_ref` is READ and not rebuilt, so the read has to actually happen.
 
     The worker could compose `pipecat:<tenant>:<agent>` in one line; it does not, because
@@ -572,12 +575,14 @@ async def test_the_ref_the_publish_wrote_is_the_ref_the_session_config_carries()
                 text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
             )
         ).scalar_one()
+    async with worker_client() as api:
         config = await load_session_config(
-            await db.connection(),
+            api,
             call_id="call-memory-1",
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction="inbound",
+            engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
         )
 
     assert stored, "the control failed: the fixture published no ref"

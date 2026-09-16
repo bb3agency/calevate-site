@@ -32,7 +32,6 @@ import asyncio
 import base64
 import json
 import uuid
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, cast
@@ -50,6 +49,7 @@ from sqlalchemy import text
 from tests.conftest import FakeS3
 from tests.voice_worker_pipeline_test import CREDENTIALS, FakeTransport, RecordingSink
 from tests.voice_worker_session_test import CountingFetcher, _publish_a_fact, _runtime_agent
+from tests.worker_api_harness import worker_client
 from voice_worker import carrier
 from voice_worker.config import AgentNotRunnableError, refuse_unless_disclosed
 from voice_worker.knowledge import PackCache
@@ -293,28 +293,31 @@ class ConnectableFakeTransport(FakeTransport):
         await self._call_event_handler(carrier.CLIENT_CONNECTED_EVENT, self)
 
 
-class RefusingConnections:
-    """A connection factory that fails if it is ever opened.
+class RefusingApi:
+    """A platform-API client that fails if it is ever called.
 
-    The instrument for "the call was refused before any database work", which is otherwise
-    only assertable by timing or by not asserting it at all.
+    The instrument for "the call was refused before any remote work", which is otherwise only
+    assertable by timing or by not asserting it at all.
+
+    ⚠ It used to be `RefusingConnections`, a database connection factory. Same property, one
+    deployable's worth of network further out (D-621): the worker cannot reach our Postgres
+    from Pipecat Cloud, so what must not happen for an unroutable token is a REQUEST rather
+    than a checkout.
     """
 
     def __init__(self) -> None:
-        self.opened: list[uuid.UUID] = []
+        self.asked: list[str] = []
 
-    @asynccontextmanager
-    async def __call__(self, tenant_id: uuid.UUID) -> Any:
-        self.opened.append(tenant_id)
-        raise AssertionError("a database connection was opened for an unroutable call")
-        yield  # pragma: no cover - unreachable, present for the generator protocol
+    async def session(self, engine_agent_ref: str) -> Any:
+        self.asked.append(engine_agent_ref)
+        raise AssertionError("the platform API was called for an unroutable call")
 
 
-@asynccontextmanager
-async def tenant_connection(tenant_id: uuid.UUID) -> Any:
-    """`carrier.TenantConnection` over the suite's real, RLS-scoped session."""
-    async with tenant_session(tenant_id) as db:
-        yield await db.connection()
+#: ⚠ **`tenant_connection` WAS HERE AND IS GONE (D-621).** `start_carrier_call` took a
+#: `TenantConnection` because the worker read its configuration out of our Postgres; it
+#: cannot reach that database from Pipecat Cloud (`docs/DEPLOYMENT.md` §12.5 gate 6), so it
+#: takes the platform API client instead and the server resolves the tenant from the agent
+#: ref. `tests/worker_api_harness.worker_client` is that client, against the real app over ASGI.
 
 
 async def _number_for(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
@@ -354,6 +357,7 @@ FACT = "Trouser alteration is eighty rupees."
 
 async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first(
     s3: FakeS3,
+    worker_token: None,
 ) -> None:
     """The whole inbound path: token in, a running agent out.
 
@@ -371,7 +375,7 @@ async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first
     ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
 
     call = await carrier.start_carrier_call(
-        tenant_connection,
+        worker_client(),
         token=ref,
         call_id="call-carrier-1",
         direction="inbound",
@@ -401,6 +405,7 @@ async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first
 
 async def test_a_transport_that_cannot_say_when_the_caller_connected_is_refused(
     s3: FakeS3,
+    worker_token: None,
 ) -> None:
     """The failure with no symptom: `add_event_handler` only WARNS on an unknown event.
 
@@ -413,7 +418,7 @@ async def test_a_transport_that_cannot_say_when_the_caller_connected_is_refused(
 
     with pytest.raises(carrier.CarrierWiringError):
         await carrier.start_carrier_call(
-            tenant_connection,
+            worker_client(),
             token=ref,
             call_id="call-carrier-2",
             direction="inbound",
@@ -425,13 +430,13 @@ async def test_a_transport_that_cannot_say_when_the_caller_connected_is_refused(
         )
 
 
-async def test_a_call_for_an_unknown_agent_is_refused_without_opening_the_database() -> None:
-    """A token nobody minted: refused at the parse, before a connection exists."""
-    connections = RefusingConnections()
+async def test_a_call_for_an_unknown_agent_is_refused_without_asking_the_platform() -> None:
+    """A token nobody minted: refused at the parse, before any request exists."""
+    connections = RefusingApi()
 
     with pytest.raises(carrier.UnroutableCallError):
         await carrier.start_carrier_call(
-            connections,
+            connections,  # type: ignore[arg-type]
             token="pipecat:nobody:nothing",
             call_id="call-carrier-3",
             direction="inbound",
@@ -442,11 +447,12 @@ async def test_a_call_for_an_unknown_agent_is_refused_without_opening_the_databa
             cache=PackCache(),
         )
 
-    assert connections.opened == []
+    assert connections.asked == []
 
 
 async def test_a_call_for_an_agent_that_was_never_published_is_refused_cleanly(
     s3: FakeS3,
+    worker_token: None,
 ) -> None:
     """A well-formed token naming an agent with no runtime row.
 
@@ -457,7 +463,7 @@ async def test_a_call_for_an_agent_that_was_never_published_is_refused_cleanly(
 
     with pytest.raises(AgentNotRunnableError):
         await carrier.start_carrier_call(
-            tenant_connection,
+            worker_client(),
             token=owned_runtime_agent_ref(str(tenant_id), str(agent_id)),
             call_id="call-carrier-4",
             direction="inbound",
@@ -537,6 +543,7 @@ def _floor() -> str:
 
 async def test_the_carrier_path_logs_no_phone_number_and_no_transcript_text(
     s3: FakeS3,
+    worker_token: None,
 ) -> None:
     """Two new log lines stand on this path and a phone number is in the database for the
     whole of it.
@@ -559,7 +566,7 @@ async def test_the_carrier_path_logs_no_phone_number_and_no_transcript_text(
     handler = logger.add(sink_log, level="DEBUG")
     try:
         await carrier.start_carrier_call(
-            tenant_connection,
+            worker_client(),
             token=owned_runtime_agent_ref(str(tenant_id), str(agent_id)),
             call_id="call-carrier-5",
             direction="inbound",

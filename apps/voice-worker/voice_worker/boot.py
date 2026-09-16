@@ -32,6 +32,12 @@ fields now — classified `ENV_ONLY`, so the ops console SHOWS them with the rea
 only come from this container's environment and refuses to store a value nothing here
 could read. Nothing about how this module reads them changed.
 
+⚠ **AND THE COUNT MOVED AGAIN WITH D-621**: `VOICE_WORKER_API_BASE_URL` is a `Settings`
+field classified `ENV_ONLY` (nothing on the VPS reads it), while `VOICE_WORKER_API_TOKEN` is
+CONSOLE-MANAGED — `apps/api/worker/service.authorized` verifies the header against it, so it
+has a reader on that host and belongs in the credential store. Same value, two homes, one
+human putting it in both.
+
 **WHERE EACH VALUE COMES FROM.** There is no `.env` in this container and no ops console
 to read: the console's `platform_secrets` rows are sealed with `PLATFORM_KEK`, and
 **`PLATFORM_KEK` MUST NEVER BE IN THIS IMAGE** — it opens every credential the platform
@@ -52,16 +58,17 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
+from uuid import UUID
 
+from calevate_shared.events import CallDirection
 from loguru import logger
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
 
-from voice_worker.db import WorkerDatabase, tenant_connection
+from voice_worker.api_client import WorkerApiClient
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
 from voice_worker.sink import DEFAULT_TURN_BATCH_SIZE as _DEFAULT_TURN_BATCH_SIZE
 from voice_worker.sink import DEFAULT_TURN_FLUSH_SECONDS as _DEFAULT_TURN_FLUSH_SECONDS
+from voice_worker.sink import HttpEventSink
 from voice_worker.storage import BUCKET_ENV, ENDPOINT_ENV, ObjectStorePackFetcher
 from voice_worker.vendor_logging import install_vendor_log_guard
 
@@ -69,10 +76,23 @@ from voice_worker.vendor_logging import install_vendor_log_guard
 # The variable names. Spelled once, here, and cited everywhere else.
 # ---------------------------------------------------------------------------------------
 
-#: Our Postgres. The APP role (NOSUPERUSER NOBYPASSRLS), never the owner: this process
-#: reads one tenant's published configuration under RLS and writes that tenant's events,
-#: and hard rule 1 says the isolation is the GUC on a role that cannot bypass it.
-DATABASE_URL_ENV: Final[str] = "DATABASE_URL"
+#: WHERE `apps/api` IS, AND THE CREDENTIAL THIS CONTAINER PRESENTS TO IT (D-621).
+#:
+#: ⚠ **`DATABASE_URL` USED TO BE HERE AND IS GONE.** This process cannot reach our Postgres
+#: at all: the database is on the VPS host behind the Docker bridge and this container runs
+#: on Pipecat Cloud, a different network (`docs/DEPLOYMENT.md` §12.5 gate 6, found by running
+#: `voice-worker-setup.sh sources` on the real host, where `psql` could not translate
+#: `host.docker.internal`). A DSN in this secret set was a value that could never have
+#: connected — which is worse than a missing one, because it looks configured. The published
+#: configuration is now READ over HTTP and the call's events are POSTED over HTTP, so what
+#: this container needs is an address and a token.
+#:
+#: NEITHER IS OPTIONAL. A worker with no API to talk to can read no agent and record no
+#: call, which is the same class of failure `EventSinkNotBuiltError` used to refuse at boot:
+#: an image that answered the phone and lost the conversation while every health signal
+#: stayed green.
+API_BASE_URL_ENV: Final[str] = "VOICE_WORKER_API_BASE_URL"
+API_TOKEN_ENV: Final[str] = "VOICE_WORKER_API_TOKEN"
 
 #: botocore's own pair. NOT read as configuration — `ObjectStorePackFetcher` passes no
 #: credentials to boto3 and never will (`storage._client`) — but their ABSENCE is checked
@@ -160,28 +180,6 @@ DEFAULT_TURN_FLUSH_SECONDS: Final[float] = _DEFAULT_TURN_FLUSH_SECONDS
 #: carrying its one call has nothing to offer a scheduler, whatever its process health says.
 MAX_CONCURRENT_SESSIONS: Final[int] = 1
 
-#: Socket-level bounds on the database connection, COPIED from `apps/api/db/session.py`
-#: (`_CONNECT_ARGS`) rather than imported, for the reason `voice_worker/storage.py` gives
-#: about `apps/workers/storage`: that module pulls `apps.api.core.settings` and the rest
-#: of the monolith into a latency-critical voice container. The VALUES are not re-derived
-#: here — that file argues each of the six against a bound this repo already has, and a
-#: second derivation would be a second doctrine. If they move there they move here, and
-#: `tests/voice_worker_boot_test.py` pins the two to each other so the copy cannot rot.
-_CONNECT_ARGS: Final[dict[str, int]] = {
-    "connect_timeout": 2,
-    "tcp_user_timeout": 5000,
-    "keepalives": 1,
-    "keepalives_idle": 2,
-    "keepalives_interval": 1,
-    "keepalives_count": 3,
-}
-
-#: Two connections, and the number is `apps/api/db/session.MAX_NESTED_CONNECTIONS`: one
-#: session's config read plus the event write it makes while that read is still open. A
-#: container that carries ONE call wants no more, and a pool sized for comfort here is
-#: capacity taken from the VPS stack on the same Postgres.
-_POOL_SIZE: Final[int] = 2
-
 
 class WorkerConfigError(RuntimeError):
     """The container cannot start, and the message names every variable that is why.
@@ -202,7 +200,14 @@ class WorkerConfig:
     exercised with no network at all, which is what makes the refusal testable.
     """
 
-    database_url: str
+    #: SPELLED AS THEIR `Settings` FIELDS ARE SPELLED, like every other name in this
+    #: dataclass and for this module's stated reason — one value, one name, two homes. It
+    #: reads long inside a class already called `WorkerConfig`, and the alternative
+    #: (`api_base_url`) costs the property that makes the spelling worth anything:
+    #: `scripts/check_half_wired.py` finds a `Settings` field's readers by NAME, so a
+    #: shortened field here is a console key with no reader anywhere in the tree.
+    voice_worker_api_base_url: str
+    voice_worker_api_token: str
     object_store_bucket: str
     object_store_endpoint: str
     sarvam_api_key: str
@@ -349,7 +354,8 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
     failures: list[str] = []
 
     required = {
-        DATABASE_URL_ENV: _present(source, DATABASE_URL_ENV),
+        API_BASE_URL_ENV: _present(source, API_BASE_URL_ENV),
+        API_TOKEN_ENV: _present(source, API_TOKEN_ENV),
         BUCKET_ENV: _present(source, BUCKET_ENV),
         ENDPOINT_ENV: _present(source, ENDPOINT_ENV),
         AWS_KEY_ENV: _present(source, AWS_KEY_ENV),
@@ -387,7 +393,8 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         )
 
     return WorkerConfig(
-        database_url=required[DATABASE_URL_ENV] or "",
+        voice_worker_api_base_url=required[API_BASE_URL_ENV] or "",
+        voice_worker_api_token=required[API_TOKEN_ENV] or "",
         object_store_bucket=required[BUCKET_ENV] or "",
         object_store_endpoint=required[ENDPOINT_ENV] or "",
         sarvam_api_key=required[SARVAM_KEY_ENV] or "",
@@ -401,28 +408,37 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
     )
 
 
-class EventSinkNotBuiltError(RuntimeError):
-    """There is nowhere for this call's transcript to go, so the container will not start.
+def build_event_sink(
+    api: WorkerApiClient,
+    *,
+    call_id: str,
+    tenant_id: UUID,
+    agent_id: UUID,
+    direction: CallDirection,
+    turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
+    turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
+) -> NormalizedEventSink:
+    """The normalized event writer for ONE call.
 
-    **AN HONEST DEAD END, NOT AN OVERSIGHT, AND IT IS DELIBERATELY AT BOOT.**
-    `pipeline.NormalizedEventSink`'s implementation — the writer that puts our `CallEvent`
-    and `TranscriptTurn` rows in Postgres — does not exist yet
-    (`docs/PIPECAT-MIGRATION.md` §6 step 11: "what is still not called in production is
-    the CONTAINER BOOTSTRAP"). The alternative shape, a sink that accepts and discards,
-    would let this image deploy, answer a call and lose the conversation while every
-    health signal stayed green: the client's CRM would show an agent that never spoke to
-    anybody. Refusing at boot costs a deploy that could not have worked anyway.
+    ⚠ **THIS USED TO RAISE `EventSinkNotBuiltError` AND TAKE AN `AsyncEngine`**, on the
+    honest ground that the writer did not exist and a container with nowhere to write a
+    transcript must not answer a phone. Both halves of that are settled: the writer exists
+    (`sink.HttpEventSink`, posting to `apps/api/worker`), and the engine it took is gone with
+    the database connection (D-621, §12.5 gate 6).
 
-    When the writer lands, `build_event_sink` returns it and this class goes with it.
+    **PER CALL AND NOT PER CONTAINER**, which is the one shape decision here and is
+    `HttpEventSink`'s own: a sink holds the four ids of one session, and that is what makes
+    the identity refusal possible at all. A process-wide sink would have to infer a turn's
+    tenant from its call id — i.e. read it back out of the very row it is about to write.
     """
-
-
-def build_event_sink(engine: AsyncEngine) -> NormalizedEventSink:
-    """The normalized event writer. Raises until one exists — see `EventSinkNotBuiltError`."""
-    raise EventSinkNotBuiltError(
-        "the normalized event writer (pipeline.NormalizedEventSink) is not built, so a "
-        "container that answered a call now would drop every transcript turn on the "
-        f"floor. docs/PIPECAT-MIGRATION.md §6 step 11. (engine={engine.url.drivername})"
+    return HttpEventSink(
+        api,
+        call_id=call_id,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        direction=direction,
+        turn_batch_size=turn_batch_size,
+        turn_flush_seconds=turn_flush_seconds,
     )
 
 
@@ -431,27 +447,33 @@ class WorkerRuntime:
     """The process-scoped things one container opens once and shares across its sessions.
 
     **ONE OWNER FOR THE PROCESS, WHICH IS WHY THIS EXISTS AT ALL.** `config.py` argues
-    that it takes a connection rather than owning an engine so that "one process wants ONE
-    pool sized against ONE workload", and `session.py` keeps the pack cache at module scope
-    for the same reason. This is the module those two were deferring to.
+    that it takes its client rather than owning one so that "one process wants ONE pool
+    sized against ONE workload", and `session.py` keeps the pack cache at module scope for
+    the same reason. This is the module those two were deferring to.
 
-    **THERE IS NO SHARED HTTP CLIENT HERE, AND THERE WAS ONE FOR A DRAFT.** `embedding.py`
-    wants one `httpx.AsyncClient` for the life of the process — a client per turn re-does
-    the TLS handshake inside a 1.2 s budget — and it takes that client as an argument
-    precisely so it owns no global. Nothing in this container can construct the dense arm
-    today (hard rule 7's pre-flight for it is a question this deployable deliberately
-    cannot ask), so a client opened here would be a connection pool nobody uses and a
-    field nobody reads. Whoever supplies an `embedder` supplies its client with it.
+    ⚠ **THERE IS A SHARED HTTP CLIENT HERE NOW, AND THIS DOCSTRING USED TO SAY THERE WAS
+    NOT** (D-621). The reason it said so was sound and has simply expired: the only
+    candidate consumer was `embedding.py`'s dense arm, which nothing in this container can
+    construct (hard rule 7's pre-flight for it is a question this deployable deliberately
+    cannot ask), so a client opened here would have been "a connection pool nobody uses and
+    a field nobody reads". Every call now makes at least three requests to `apps/api` — the
+    session read, the observation flushes and the settlement — because this container cannot
+    reach our Postgres at all (§12.5 gate 6). The pool has a reader, and one client per
+    process is what stops each of those re-doing DNS, TCP and TLS.
+
+    **THE EMBEDDER STILL BRINGS ITS OWN**, and that is not an oversight either: it takes its
+    client as an argument so it owns no global, and its host is a model provider rather than
+    us. Sharing this one would point a 1.2 s in-call budget at a pool sized for our own API.
     """
 
     config: WorkerConfig
-    engine: AsyncEngine
+    api: WorkerApiClient
     fetcher: ObjectStorePackFetcher
     embedder: QueryEmbedder | None
 
     async def aclose(self) -> None:
-        """Release the pool. Safe to call twice."""
-        await self.engine.dispose()
+        """Release the connection pool. Safe to call twice."""
+        await self.api.aclose()
 
 
 async def open_runtime(
@@ -462,14 +484,14 @@ async def open_runtime(
 ) -> WorkerRuntime:
     """Open this container's shared resources and PROVE the database answers.
 
-    **`verify` IS WHAT MAKES READINESS MEAN ANYTHING.** A pool that has never connected is
-    indistinguishable from a working one until the first checkout, which on this deployable
-    is the first caller. One `SELECT 1` against a 2-second connect bound turns "the process
-    started" into "the dependency this call cannot proceed without is reachable from this
-    container", which is the only readiness claim worth publishing. The object store is
-    deliberately NOT probed: a pack fetch is bounded (`storage.PACK_FETCH_BUDGET_S`) and
-    its failure is a degraded call rather than no call, so paying a round trip at boot
-    would buy a signal nothing acts on.
+    **`verify` IS WHAT MAKES READINESS MEAN ANYTHING.** A client that has never connected is
+    indistinguishable from a working one until the first request, which on this deployable is
+    the first caller. `api.probe()` turns "the process started" into "the dependency this call
+    cannot proceed without is reachable from this container AND accepts our credential" —
+    which is strictly more than the `SELECT 1` it replaced proved, because a DSN carries its
+    own credential and an HTTP base URL does not. The object store is deliberately NOT probed:
+    a pack fetch is bounded (`storage.PACK_FETCH_BUDGET_S`) and its failure is a degraded call
+    rather than no call, so paying a round trip at boot would buy a signal nothing acts on.
 
     **`embedder` DEFAULTS TO `None` AND THAT IS NOT AN OMISSION.** The dense retrieval arm
     spends money per turn, and hard rule 7's pre-flight for it is a question this container
@@ -478,18 +500,17 @@ async def open_runtime(
     overwhelming majority of turns (`docs/PIPECAT-MIGRATION.md` §8.1a).
     """
     install_vendor_log_guard()
-    # ONE ENGINE PER CONTAINER, BUILT BY `db.WorkerDatabase` AND NOT HERE.
-    # This module built a second `create_async_engine` in parallel with that one and left
-    # off `hide_parameters=True` — so the container had two pools and the one `bot.py`
-    # actually used rendered bound parameters into every DBAPI error string. On this
-    # deployable those parameters are phone numbers and transcript text (hard rule 6).
-    # The engine's keyword arguments are a single fact about this workload and now have a
-    # single home; `pii_logging_sweep_test` pins one builder per deployable.
-    database = WorkerDatabase(config.database_url)
-    engine = database.engine
+    # ONE CLIENT PER CONTAINER, BUILT BY `api_client.WorkerApiClient` AND NOT HERE.
+    # This module once built a second `create_async_engine` in parallel with `db.py`'s and
+    # left off `hide_parameters=True`, so the container had two pools and the one `bot.py`
+    # actually used rendered bound parameters into every DBAPI error string — on this
+    # deployable those parameters are transcript text (hard rule 6). The database is gone;
+    # the lesson is not, which is why the client's construction has exactly one home.
+    api = WorkerApiClient.from_config(
+        base_url=config.voice_worker_api_base_url, token=config.voice_worker_api_token
+    )
     if verify:
-        async with engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
+        await api.probe()
     fetcher = ObjectStorePackFetcher.from_env()
     logger.info(
         "voice worker runtime open",
@@ -501,14 +522,15 @@ async def open_runtime(
         drain_grace_s=config.drain_grace_s,
         dense_arm=embedder is not None,
     )
-    return WorkerRuntime(config=config, engine=engine, fetcher=fetcher, embedder=embedder)
+    return WorkerRuntime(config=config, api=api, fetcher=fetcher, embedder=embedder)
 
 
 __all__ = [
+    "API_BASE_URL_ENV",
+    "API_TOKEN_ENV",
     "AWS_KEY_ENV",
     "AWS_SECRET_ENV",
     "CARTESIA_KEY_ENV",
-    "DATABASE_URL_ENV",
     "DEFAULT_DRAIN_GRACE_S",
     "DRAIN_GRACE_ENV",
     "GNANI_KEY_ENV",
@@ -518,12 +540,10 @@ __all__ = [
     "PLIVO_AUTH_TOKEN_ENV",
     "READY_FILE_ENV",
     "SARVAM_KEY_ENV",
-    "EventSinkNotBuiltError",
     "WorkerConfig",
     "WorkerConfigError",
     "WorkerRuntime",
     "build_event_sink",
     "load_worker_config",
     "open_runtime",
-    "tenant_connection",
 ]

@@ -34,7 +34,7 @@ from typing import Any, cast
 
 import pytest
 from apps.api.db.session import tenant_session
-from apps.api.engine.pipecat import PipecatEngine
+from apps.api.engine.pipecat import PipecatEngine, engine_agent_ref_for
 from apps.api.kb import service as kb_service
 from botocore.exceptions import ClientError, EndpointConnectionError
 from calevate_shared.engine import AgentConfig, ModelConfig, azure_openai_base_url
@@ -51,6 +51,7 @@ from tests.voice_worker_pipeline_test import (
     invoke_tool,
     make_config,
 )
+from tests.worker_api_harness import worker_client
 from voice_worker import pipeline, session, storage
 from voice_worker.config import AgentNotRunnableError, load_session_config
 from voice_worker.knowledge import PackCache
@@ -521,6 +522,7 @@ async def _publish_a_fact(tenant_id: uuid.UUID, agent_id: uuid.UUID, fact: str) 
 
 async def test_the_digest_the_publish_wrote_is_the_digest_the_session_config_carries(
     s3: FakeS3,
+    worker_token: None,
 ) -> None:
     """The half of the seam that crosses the database, with nothing hand-inserted.
 
@@ -540,12 +542,14 @@ async def test_the_digest_the_publish_wrote_is_the_digest_the_session_config_car
                 {"aid": agent_id},
             )
         ).scalar_one()
+    async with worker_client() as api:
         config = await load_session_config(
-            await db.connection(),
+            api,
             call_id="call-db-1",
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction="inbound",
+            engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
         )
 
     assert stored is not None, "the control failed: the publish wrote no pointer"
@@ -565,7 +569,10 @@ async def test_the_digest_the_publish_wrote_is_the_digest_the_session_config_car
     assert pipeline.recompute_prompt_sha256(config.system_prompt) == config.prompt_sha256
 
 
-async def test_an_agent_that_has_published_nothing_loads_a_none_digest(s3: FakeS3) -> None:
+async def test_an_agent_that_has_published_nothing_loads_a_none_digest(
+    s3: FakeS3,
+    worker_token: None,
+) -> None:
     """The ordinary day-one agent, from the database rather than from a fixture's default.
 
     Asserted against a REAL unpublished agent because `SessionConfig.knowledge_pack_sha256`
@@ -574,20 +581,24 @@ async def test_an_agent_that_has_published_nothing_loads_a_none_digest(s3: FakeS
     """
     tenant_id, agent_id = await _runtime_agent()
 
-    async with tenant_session(tenant_id) as db:
+    async with worker_client() as api:
         config = await load_session_config(
-            await db.connection(),
+            api,
             call_id="call-db-2",
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction="outbound",
+            engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
         )
 
     assert config.knowledge_pack_sha256 is None
     assert config.direction == "outbound", "the call's direction, not the agent's permission"
 
 
-async def test_an_agent_with_no_runtime_row_is_refused_rather_than_assembled(s3: FakeS3) -> None:
+async def test_an_agent_with_no_runtime_row_is_refused_rather_than_assembled(
+    s3: FakeS3,
+    worker_token: None,
+) -> None:
     """No version means no prompt, and no prompt means no truthful-answer floor.
 
     The one place on this path that raises. Assembling the call anyway would hand a live
@@ -595,22 +606,27 @@ async def test_an_agent_with_no_runtime_row_is_refused_rather_than_assembled(s3:
     outcome hard rule 5 cannot tolerate.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
 
-    async with tenant_session(tenant_id) as db:
+    async with worker_client() as api:
         with pytest.raises(AgentNotRunnableError) as refusal:
             await load_session_config(
-                await db.connection(),
+                api,
                 call_id="call-db-3",
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 direction="inbound",
+                engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
             )
 
     assert str(agent_id) in str(refusal.value)
 
 
 @pytest.mark.rls
-async def test_a_neighbour_cannot_load_this_agents_session_config(s3: FakeS3) -> None:
+async def test_a_neighbour_cannot_load_this_agents_session_config(
+    s3: FakeS3,
+    worker_token: None,
+) -> None:
     """Hard rule 1 at the worker's own read, which is a new reader of three tenant tables.
 
     The neighbour names A's agent explicitly — the query has A's ids in it — so what refuses
@@ -620,20 +636,28 @@ async def test_a_neighbour_cannot_load_this_agents_session_config(s3: FakeS3) ->
     """
     tenant_a, agent_a = await _runtime_agent()
     await _publish_a_fact(tenant_a, agent_a, ALTERATION_FACT)
-    tenant_b, _agent_b = await _runtime_agent()
+    tenant_b, agent_b = await _runtime_agent()
 
-    async with tenant_session(tenant_b) as db:
-        with pytest.raises(AgentNotRunnableError):
+    # B's ref, A's ids. The server resolves the TENANT from the ref and reads under its RLS,
+    # so what comes back is B's agent — and `load_session_config` refuses the disagreement
+    # rather than running A's prompt on B's call or the reverse.
+    async with worker_client() as api:
+        with pytest.raises(AgentNotRunnableError) as refusal:
             await load_session_config(
-                await db.connection(),
+                api,
                 call_id="call-db-4",
                 tenant_id=tenant_a,
                 agent_id=agent_a,
                 direction="inbound",
+                engine_agent_ref=engine_agent_ref_for(str(tenant_b), str(agent_b)),
             )
+    assert str(tenant_a) in str(refusal.value)
 
 
-async def test_start_session_loads_the_config_and_its_pack_in_one_call(s3: FakeS3) -> None:
+async def test_start_session_loads_the_config_and_its_pack_in_one_call(
+    s3: FakeS3,
+    worker_token: None,
+) -> None:
     """The entrypoint, whole: ids in, a call that can answer a question out.
 
     Everything above tests one half; this is the only assertion that the halves are joined,
@@ -645,13 +669,14 @@ async def test_start_session_loads_the_config_and_its_pack_in_one_call(s3: FakeS
     await _publish_a_fact(tenant_id, agent_id, ALTERATION_FACT)
     fetcher = CountingFetcher(dict(s3.objects))
 
-    async with tenant_session(tenant_id) as db:
+    async with worker_client() as api:
         call = await session.start_session(
-            await db.connection(),
+            api,
             call_id="call-db-5",
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction="inbound",
+            engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
             credentials=CREDENTIALS,
             transport=FakeTransport(),
             sink=RecordingSink(),

@@ -444,6 +444,41 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         # (`inbound-tab.md:38-42`) and it is the credential this row promises.
         credential="compare_digest",
     ),
+    "GET /v1/worker/session/{engine_agent_ref}": PublicRoute(
+        why=(
+            "The voice worker (apps/voice-worker, on Pipecat Cloud) reads the published "
+            "agent it is about to answer a call as. It holds no Calevate session and "
+            "cannot have one: it is a container a vendor's runtime operates, and "
+            "PLATFORM_KEK must never be in its image (DEPLOYMENT §12.2). It answers ONLY "
+            "to the Bearer token this deployment issued its own worker, compared in "
+            "constant time by `worker/service.authorized`, and a deployment with no "
+            "token configured answers nobody. A "
+            "ref naming no published agent is 404, so a stranger who guesses learns "
+            "nothing."
+        ),
+        credential="authorized",
+    ),
+    "POST /v1/worker/calls/{engine_call_id}/observations": PublicRoute(
+        why=(
+            "The same worker posting what it witnessed on one call: statuses and spoken "
+            "turns. MUTATING, and the credential below is the whole of what stands in for "
+            "a session — plus a second property that is not a credential and matters: the "
+            "tenant is PARSED out of the engine-space call ref (`tenant_of_pipecat_ref`) "
+            "and every statement then runs under that tenant's RLS, so a token holder "
+            "cannot name a row id or reach a tenant the ref does not say."
+        ),
+        credential="authorized",
+    ),
+    "POST /v1/worker/calls/{engine_call_id}/settlement": PublicRoute(
+        why=(
+            "The same worker's terminal write: the call row, the ledger-or-refusal and "
+            "the post-call trigger in one transaction (D-607). MUTATING, same credential "
+            "and same RLS-from-the-ref property as the observations route above. A "
+            "re-delivery is answered `already_settled` rather than re-applied, because "
+            "`usage_events` is append-only and has no UPDATE to undo a double write."
+        ),
+        credential="authorized",
+    ),
     "GET /v1/public/rate-card": PublicRoute(
         why=(
             "The self-serve rate card for the public site (D-545): the live list rate, "

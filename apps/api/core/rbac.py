@@ -666,6 +666,16 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # a credential rather than pretending otherwise. The trailing slash keeps the
     # exemption to the reporting surface; there is exactly one route under it.
     "/reports/v1/",
+    # THE VOICE WORKER'S OWN SERVER HALF (D-621). Unauthenticated in the registry's sense
+    # — `apps/voice-worker` runs on Pipecat Cloud, holds no Calevate session and has no
+    # membership to check a permission against — and gated by a Bearer token THIS
+    # deployment issues it (`voice_worker_api_token`), compared in constant time, with an
+    # unconfigured deployment answering nobody. It is the widest of the tokens on this
+    # list, because it opens a WRITE surface rather than a read, which is why it is its own
+    # credential and not a reuse of `bolna_caller_data_token`. The trailing slash keeps the
+    # exemption to this surface; all three routes under it are declared in
+    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`.
+    "/v1/worker/",
     # The engine-called INBOUND caller-details fetch (D-513). Same class as the invoke
     # path one line up and unauthenticated for the same reason — Bolna holds no Calevate
     # session — but its credential is a Bearer token WE choose and paste into their agent

@@ -168,19 +168,32 @@ apps/api  (control plane)            apps/voice-worker  (the engine)
 │     speaks VoiceEngine             ├── config.py      ─ loads a config VERSION
 │     owns no vendor shape           ├── attest.py      ─ reports what it loaded  (§1.1)
 │     outward                        ├── meter.py       ─ emits our normalized usage (§1.3)
-├── agents/  crm/  billing/          └── services/gnani_tts.py  ─ staged, D-593
-└── compliance/                              │
-        │                                    │ OUR normalized events only
-        └────────────  Postgres  ────────────┘
+├── agents/  crm/  billing/          ├── api_client.py  ─ the ONE door onto apps/api
+├── worker/  ─ the worker's own      └── services/gnani_tts.py  ─ staged, D-593
+│     server half (D-621)                   │
+└── compliance/                             │ OUR normalized events only, over HTTPS
+        │                                   │
+        └──── /v1/worker  (Bearer) ─────────┘
+        │
+     Postgres  (box 2 only — the worker cannot reach it)
 ```
+
+⚠ **THAT LAST EDGE USED TO BE POSTGRES AND IT COULD NOT EXIST (D-621, `docs/DEPLOYMENT.md`
+§12.5 gate 6).** The worker is box 1 (Pipecat Cloud) and the database is on box 2's host
+behind the Docker bridge, so this picture had a network edge nobody drew. The worker now
+reads its published agent and posts its calls' events over HTTPS to three Bearer-
+authenticated routes under `/v1/worker`, with the wire models in
+`calevate_shared.worker_api` so neither end can drift. Nothing under `apps/voice-worker`
+imports SQLAlchemy.
 
 **The worker emits `CallEvent` and `TranscriptTurn`, never a Pipecat frame.** That single
 sentence is what keeps hard rule 2 true after D-592 moved its boundary, and it is the first
 thing to check in any review of this code.
 
-**The adapter imports no Pipecat.** It speaks to the worker through the database and, where a
-call must be started or ended now, through the carrier's API. `apps.api.engine.pipecat` joins
-`forbidden_modules` in `pyproject.toml` beside `bolna`, `cartesia` and `fake`.
+**The adapter imports no Pipecat.** It speaks to the worker through the database — the rows
+the worker's own server half writes — and, where a call must be started or ended now,
+through the carrier's API. `apps.api.engine.pipecat` joins `forbidden_modules` in
+`pyproject.toml` beside `bolna`, `cartesia` and `fake`.
 
 ## 3. THE ADAPTER, BY CATEGORY
 

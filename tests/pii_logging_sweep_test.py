@@ -519,11 +519,18 @@ def test_only_one_database_engine_exists_and_it_hides_its_parameters() -> None:
 
     So the count is pinned per DEPLOYABLE rather than globally, and the property — no bound
     parameter reaches a log line — is asserted on EVERY engine found, which is the half that
-    was always doing the work. A third builder inside either deployable still fails here:
-    that is exactly what it caught when `voice_worker/boot.py` and `voice_worker/db.py` were
-    written in parallel and only one of them passed `hide_parameters=True`, leaving the
-    container's actual engine rendering phone numbers and transcript text into every DBAPI
-    error string.
+    was always doing the work. A second builder inside a deployable still fails here: that is
+    exactly what it caught when `voice_worker/boot.py` and `voice_worker/db.py` were written
+    in parallel and only one of them passed `hide_parameters=True`, leaving the container's
+    actual engine rendering phone numbers and transcript text into every DBAPI error string.
+
+    ⚠ **THE VOICE WORKER NO LONGER BUILDS ONE AT ALL (D-621), AND THE SET SHRANK RATHER THAN
+    THE RULE WEAKENING.** It cannot reach our Postgres from Pipecat Cloud (`docs/DEPLOYMENT.md`
+    §12.5 gate 6), so `voice_worker/db.py` is deleted and that container speaks HTTP to
+    `apps/api` instead. The hard-rule-6 control it carried moved with the write: the client
+    that replaced it (`voice_worker/api_client.py`) puts no response body and no URL into any
+    exception, for the same reason `hide_parameters=True` exists — a message about a failed
+    request would quote the conversation.
 
     Scoped to `apps/` on purpose. `alembic/env.py` builds its own engine deliberately
     (migration review keeps its parameter echo) and `scripts/check_*.py` read catalogs
@@ -554,7 +561,7 @@ def test_only_one_database_engine_exists_and_it_hides_its_parameters() -> None:
 
     #: One engine per deployable, named rather than counted, so a new one is a deliberate
     #: entry here and not a silent third pool inside a container that already has one.
-    expected_builders = {"apps/api/db/session.py", "apps/voice-worker/voice_worker/db.py"}
+    expected_builders = {"apps/api/db/session.py"}
     builders_found = {where.rsplit(":", 1)[0] for (where, _) in found}
     assert builders_found == expected_builders, (
         f"engine builders changed: {sorted(builders_found)} != {sorted(expected_builders)}. "
