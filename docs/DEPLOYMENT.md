@@ -1808,6 +1808,26 @@ makes that reconciliation possible.
 `dailyco/pipecat-base` cannot be pulled through its proxy, so the following are UNKNOWN
 rather than decided. None of them is guessed at in code.
 
+**RUN THEM WITH `scripts/deploy/voice-worker-setup.sh`, WHICH IS WHERE THIS LIST NOW
+LIVES AS SOMETHING EXECUTABLE.** Each numbered step below is a subcommand (`doctor`,
+`install-cli`, `login`, `digest`, `secrets`, `build`, `preflight`, `deploy`), every one is
+idempotent, and `doctor` changes nothing and reports what a host is still missing — which
+is what makes moving to another VPS a re-run rather than a re-read. Two properties of it
+are load-bearing rather than convenience:
+
+* **It installs uv from the digest this repository already pins** (`Dockerfile:54`) by
+  copying it out of a container that is never started, rather than piping a remote
+  installer into a shell — hard rule 9, and it keeps ONE uv provenance in the tree.
+* **It discovers the Pipecat CLI's interface instead of trusting this document.** Every
+  `pipecat cloud ...` flag here is REPORTED and was never read from the vendor; the script
+  reads the CLI's own `--help` and REFUSES, printing that help, when the shape disagrees.
+  A guess that sent a credential to a flag that does not exist would look like success and
+  leave the key unset. If it refuses, the help it prints is the primary source and this
+  section is what gets corrected.
+
+Secrets it collects are never echoed, never written inside the checkout, and are shredded
+on every exit path including a signal.
+
 1. **Create the Pipecat Cloud account and authenticate.** *Pass condition*:
    `pipecat cloud auth login` completes and `pipecat cloud deploy --help` runs.
 2. **Establish how `ap-south` is selected.** The vendor's `pcc-deploy.toml` template has
