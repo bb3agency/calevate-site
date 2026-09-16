@@ -1835,11 +1835,24 @@ on every exit path including a signal.
    (`docs/evidence/engine-replacement-comet-2026-09-06.md:81`). *Pass condition*: the
    deployed agent reports `ap-south`, and whatever selects it (a key, a flag, an account
    setting) is written into `pcc-deploy.toml` or beside it.
-3. **Pin the base image by digest.** `apps/voice-worker/Dockerfile` takes
-   `--build-arg PIPECAT_BASE=dailyco/pipecat-base@sha256:…`; the default is the mutable
-   tag the vendor's own scaffold names, which hard rule 9 does not accept for a build
-   input. *Pass condition*: the digest is resolved on a machine with registry access and
-   recorded here.
+3. **Pin the base image by digest.** ✅ **CLOSED (16 Sep 2026).** `apps/voice-worker/
+   Dockerfile` takes `--build-arg PIPECAT_BASE=dailyco/pipecat-base@sha256:…`; the default
+   is the mutable tag the vendor's own scaffold names, which hard rule 9 does not accept
+   for a build input. The digest, resolved on the deploy host (which has registry access
+   this repository's container does not) with
+   `scripts/deploy/voice-worker-setup.sh digest` and relayed by the founder:
+
+   ```
+   dailyco/pipecat-base@sha256:c34a7c605b0f42d790a7593c9870417a098b0d6258b87119ebd6142d27c11e82
+   ```
+
+   **EVIDENCE CLASS: REPORTED** — read from `docker inspect` on the deploy host, not from a
+   registry this container can reach (Docker Hub's blob CDN answers 403 through its proxy,
+   re-measured 16 Sep 2026). It is recorded HERE rather than defaulted in the Dockerfile
+   deliberately: a digest is a statement about what one registry held on one day, and
+   baking it into the build file would make a stale pin look like a verified one the next
+   time somebody moves hosts. `voice-worker-setup.sh build` and `deploy` both REFUSE
+   without `PIPECAT_BASE` set, so the pin cannot be skipped by forgetting it.
 4. **Build the image once, by hand.** *Pass condition*: the build completes and the
    container's `python bot.py --preflight` prints FAIL for a reason from §12.2 and not an
    `ImportError` — the layout assumptions (`bot.py` and `voice_worker/` at the base

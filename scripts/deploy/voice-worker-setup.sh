@@ -88,6 +88,43 @@ rule() { printf -- '------------------------------------------------------------
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+#: How long any probe of the docker daemon may take before it counts as "not answering".
+DOCKER_PROBE_TIMEOUT=${DOCKER_PROBE_TIMEOUT:-10}
+
+# A DAEMON THAT NEVER REPLIES IS NOT ONE THAT REFUSES, and only a clock tells them apart.
+# `docker info` against a wedged daemon BLOCKS rather than erroring — measured here, where
+# this script's own DISK section hung on it after the daemon was left mid-pull. A diagnostic
+# that can hang is worthless on the only kind of host it matters for, so every probe of the
+# daemon in this file goes through a timeout.
+daemon_answers() {
+  timeout "$DOCKER_PROBE_TIMEOUT" docker info >/dev/null 2>&1
+}
+
+# `pipecat` ON PATH IS NOT `pipecat cloud` AVAILABLE, and this script learned that on the
+# first real host: `install-cli` reported success and `login` then answered *"The `pipecat
+# cloud` command requires the optional `pipecatcloud` plugin, which isn't installed."* The
+# base `pipecat-ai[cli]` extra does NOT carry it, and every verb this script exists to run
+# is a `cloud` verb.
+#
+# EVIDENCE: the CLI's own message, read on a deploy host on 16 Sep 2026 — which is the first
+# VERIFIED thing this repository knows about that CLI's interface. Its second remedy,
+# `uv pip install pipecatcloud` alone, is what establishes that `pipecatcloud` is the single
+# distribution the `cloud` verb needs. Their first remedy also lists
+# `pipecat-ai-context-hub`, which is NOT passed here: hard rule 9 says not to ask for what
+# nothing needs. ⚠ It arrives anyway as a transitive dependency (observed in the install on
+# the deploy host, `pipecat-ai-context-hub==0.8.0`), so omitting it from `--with` is
+# redundant rather than exclusionary — stated because the earlier wording implied the
+# package would be absent, and it is not.
+#
+# Checked by RUNNING the verb rather than by reading the tool's package list: the plugin is
+# the vendor's mechanism and what matters is whether the verb answers.
+have_pipecat_cloud() {
+  have pipecat || return 1
+  local out
+  out=$(pipecat cloud --help 2>&1) || return 1
+  ! grep -qi "requires the optional" <<<"$out"
+}
+
 # uv and the CLI land in a directory that is not on a non-login shell's PATH by default, and
 # a script that installs a tool the next line cannot find is worse than one that installs
 # nothing. Prepended rather than appended so this run uses what this run installed.
@@ -138,11 +175,14 @@ doctor_cmd() {
   say "  tool dir        $UV_BIN_DIR"
 
   rule; say "PREREQUISITES"; rule
+  local daemon_ok=0
   if have docker; then
-    if docker info >/dev/null 2>&1; then
+    if daemon_answers; then
+      daemon_ok=1
       ok "docker  $(docker --version 2>/dev/null | head -1)"
     else
-      bad "docker is installed but this account cannot talk to the daemon (group 'docker'?)"
+      bad "docker is installed but the daemon did not answer within ${DOCKER_PROBE_TIMEOUT}s:
+     not running, not permitted for this account (group 'docker'?), or wedged."
       failures=$((failures + 1))
     fi
   else
@@ -152,10 +192,25 @@ doctor_cmd() {
   if have uv; then ok "uv      $(uv --version 2>/dev/null)"
   else bad "uv is not on PATH — run: $0 install-cli"; failures=$((failures + 1)); fi
 
-  if have pipecat; then ok "pipecat $(pipecat --version 2>/dev/null | head -1)"
-  else bad "pipecat CLI is not on PATH — run: $0 install-cli"; failures=$((failures + 1)); fi
+  if ! have pipecat; then
+    bad "pipecat CLI is not on PATH — run: $0 install-cli"; failures=$((failures + 1))
+  elif have_pipecat_cloud; then
+    ok "pipecat $(pipecat --version 2>/dev/null | head -1) (cloud plugin present)"
+  else
+    bad "pipecat is installed but the 'cloud' plugin is MISSING — run: $0 install-cli"
+    failures=$((failures + 1))
+  fi
 
   rule; say "DISK"; rule
+  # SKIPPED, NOT ATTEMPTED, when the daemon is silent: the measurement asks the daemon where
+  # it writes (`docker_root`), so on a wedged host this is where a doctor would hang forever
+  # — which is exactly the host somebody is running a doctor ON.
+  if (( daemon_ok == 0 )); then
+    warn "skipped: needs the docker daemon, which did not answer above"
+    rule
+    bad "$failures check(s) failed — each line above says its remedy"
+    return 1
+  fi
   local free; free=$(reclaim_free_gb "$REPO_ROOT")
   if (( free >= BUILD_FLOOR_GB )); then
     ok "${free}GB free (floor ${BUILD_FLOOR_GB}GB)"
@@ -194,7 +249,7 @@ doctor_cmd() {
 
 install_cli_cmd() {
   have docker || die "docker is required to extract the pinned uv image"
-  docker info >/dev/null 2>&1 || die "this account cannot talk to the docker daemon"
+  daemon_answers || die "the docker daemon did not answer within ${DOCKER_PROBE_TIMEOUT}s"
 
   mkdir -p "$UV_BIN_DIR"
 
@@ -216,12 +271,20 @@ install_cli_cmd() {
     ok "uv installed to $UV_BIN_DIR: $("$UV_BIN_DIR/uv" --version)"
   fi
 
-  if have pipecat; then
-    ok "pipecat CLI already present: $(pipecat --version 2>/dev/null | head -1)"
+  if have pipecat && have_pipecat_cloud; then
+    ok "pipecat CLI with the cloud plugin already present: $(pipecat --version 2>/dev/null | head -1)"
   else
-    say "installing the Pipecat CLI as a uv tool ..."
-    uv tool install "pipecat-ai[cli]"
+    if have pipecat; then
+      say "pipecat is installed WITHOUT the cloud plugin; reinstalling with it ..."
+    else
+      say "installing the Pipecat CLI as a uv tool ..."
+    fi
+    # `--force` because the case this repairs is an EXISTING tool install that lacks the
+    # plugin, and `uv tool install` is a no-op on an already-installed tool without it.
+    uv tool install "pipecat-ai[cli]" --with pipecatcloud --force
     have pipecat || die "installed, but 'pipecat' is still not on PATH — add $UV_BIN_DIR to PATH"
+    have_pipecat_cloud || die "installed, but 'pipecat cloud' still reports a missing plugin.
+     Their message names what it wants; send it back rather than guessing another --with."
     ok "pipecat CLI installed: $(pipecat --version 2>/dev/null | head -1)"
   fi
 
