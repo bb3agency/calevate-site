@@ -28,6 +28,12 @@
 # what fixes the class.
 .claude
 mergewt
+# Written by scripts/vps-deploy.sh on a host that has deployed: `deployed-sha` and
+# `history`. Harmless content, but it is git-ignored state and therefore not source — and
+# it is the first thing the build-context guard could NOT catch, because this directory
+# only exists on a machine that has run a deploy and CI always builds from a fresh clone.
+# Found in the field, in the first real cloud build's file count (1,271 against 1,268).
+.deploy-state
 .venv
 .uv-python
 node_modules
