@@ -586,8 +586,24 @@ golden rule 2 at `:13` names the failure mode outright: *"Confidently-wrong old 
 was shipped believing it drains (it calls `cancel()`, `runner.py:347`; the draining method is
 `stop_when_done()`, `:322`), and `_publication_date` was built on a remembered claim that
 `date.fromisoformat` accepts a datetime (it does not on 3.12), which refused every FBIL
-record in production. The `cli` extra IS installed, so `check_deprecation` / `search_api` are
-available — use them rather than recalling an API.
+record in production.
+
+⚠ **THIS PARAGRAPH USED TO END "the `cli` extra IS installed, so `check_deprecation` /
+`search_api` are available — use them rather than recalling an API", AND THAT WAS ITSELF A
+CLAIM MADE FROM MEMORY AND NEVER CHECKED (corrected 16 Sep 2026).** It is FALSE. The pin is
+`pipecat-ai[sarvam,websocket]==1.10.0` (`apps/voice-worker/pyproject.toml`), the `cli` extra
+is not among those extras, and `.venv/bin/pipecat --help` answers *"The Pipecat CLI needs
+its optional dependencies (the `cli` extra), which aren't installed"* — `typer` and
+`questionary` are absent from the tree. So those two tools are NOT available here, and a
+session that goes looking for them loses the time instead of checking the API.
+
+What IS readable, and is the substitute: the vendor's guide itself at
+`.venv/lib/python3.12/site-packages/pipecat/cli/agent_templates/AGENTS.md` (package DATA,
+which ships with the wheel whether or not the CLI's dependencies do — that is why the file
+being present proved nothing about the extra), and the installed source under
+`.venv/lib/python3.12/site-packages/pipecat/`. Read the class you are about to name, in the
+tree that is actually pinned. That is what the last three corrections in this section were
+each recovered by, and it needs no extra.
 
 **Terminology is current-or-wrong** (`AGENTS.md:143-147`). `PipelineWorker` is the runnable
 unit; **`PipelineTask` is a DEPRECATED ALIAS**. "Task" means an asyncio task and nothing
