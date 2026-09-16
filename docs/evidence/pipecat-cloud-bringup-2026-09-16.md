@@ -127,14 +127,42 @@ None of these is guessed at anywhere in the tree.
    `--help` before sending anything and refuses, printing that help, on a mismatch.
 4. **Whether `pipecat cloud auth login` completes on a headless host.** Unread.
 5. **The SIGTERM-to-SIGKILL window.** `VOICE_WORKER_DRAIN_GRACE_SECONDS` defaults to 20.0,
-   reasoned from OUR bounds and nothing the platform has stated. §12.5 gate 6.
+   reasoned from OUR bounds and nothing the platform has stated. §12.5 gate 7.
 6. **`min_agents`.** One warm instance is a pilot choice; zero means a documented ~10 s cold
-   start on an inbound call. §12.5 gate 7.
+   start on an inbound call. §12.5 gate 8.
 7. **What a barge-in costs in milliseconds on Gnani.** Their protocol documents no cancel
    message, so closing the socket IS the interruption, and Pipecat awaits `_disconnect()` then
    `_connect()` INLINE when the bot was speaking (`pipecat/services/tts_service.py:2011-2013`,
    VERIFIED). A full WSS reconnect therefore sits between the caller interrupting and the
    agent's next word, inside the 500 ms budget. *Closes when*: measured on a live call.
+
+## The blocker this found, which is the real result of the bring-up
+
+**THE WORKER HAS NO ROUTE TO OUR DATABASE, AND THE DESIGN ASSUMED IT DID.**
+
+Found by running `sources` on the deploy host: `psql` answered *"could not translate host
+name `host.docker.internal`"*. REPORTED-BY-OPERATOR, and the cause is VERIFIED from this
+tree — this deployment runs Postgres ON THE HOST and containers reach it over the Docker
+bridge (`compose.prod.yml:36`, `docs/DEPLOYMENT.md:102`). The voice worker is **box 1**,
+Pipecat Cloud, a different network, where that name resolves to nothing and the host's
+Postgres is not reachable at all.
+
+`docs/PIPECAT-MIGRATION.md:181` says the adapter *"speaks to the worker through the
+database"*. That sentence and the box diagram at §8 were both settled, and between them
+sits a network edge nobody drew. Nothing else in the contract has the problem: the object
+store is R2 and is internet-reachable already; every other value is a credential.
+
+It is now `docs/DEPLOYMENT.md` §12.5 **gate 6**, with four options and none chosen, because
+this is an infrastructure decision and not a credential. `voice-worker-setup.sh secrets`
+REFUSES a host-local DSN rather than accepting one that cannot work
+(`ALLOW_HOST_LOCAL_DSN=1` overrides, for the deployment where somebody has genuinely made
+the database reachable).
+
+**Why this matters more than it looks:** it would have been caught anyway, by `--preflight`
+inside the deployed container, which opens the pool and runs `SELECT 1`. But it would have
+been caught as a confusing boot failure in a container whose logs are on somebody else's
+platform, after the secret set was populated and the image pushed — rather than as a
+sentence at the prompt. The gates are ordered the way they are for exactly this reason.
 
 ## Two defects this found in OUR tooling, not the vendor's
 

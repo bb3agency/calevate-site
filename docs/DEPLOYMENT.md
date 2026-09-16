@@ -1717,7 +1717,7 @@ container. Nothing fetches one from the other.
 
 | Variable | Required | Where it comes from | What it is for |
 |---|---|---|---|
-| `DATABASE_URL` | yes | secrets manager (same value as the VPS `.env`) | the published config version, the knowledge-pack pointer, and the call's events. APP role, never the owner. |
+| `DATABASE_URL` | yes | ⚠ **NOT the VPS `.env` value — see gate 8** | the published config version, the knowledge-pack pointer, and the call's events. APP role, never the owner. **THIS CELL SAID "same value as the VPS `.env`" AND THAT IS WRONG (16 Sep 2026).** This deployment runs Postgres ON THE HOST, reached by containers over the Docker bridge as `host.docker.internal` (`compose.prod.yml:36`); the worker is box 1 on Pipecat Cloud, a different network, where that name resolves to nothing. `voice-worker-setup.sh secrets` REFUSES a host-local DSN for this reason. See §12.5 gate 6. |
 | `OBJECT_STORE_ENDPOINT` / `OBJECT_STORE_BUCKET` | yes | secrets manager | the R2 bucket the knowledge pack is fetched from at session start |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | yes | secrets manager | botocore resolves these itself; the boot gate only checks that they are PRESENT, because a field of ours would be a second value the SDK ignores |
 | `AWS_REGION` | no | defaults to `auto` | R2's documented signature scope (D-450), not a placement |
@@ -1859,12 +1859,39 @@ on every exit path including a signal.
    image's WORKDIR) are the thing this proves.
 5. **Create the secret set** with the §12.2 table. *Pass condition*: `--preflight` prints
    OK inside the deployed container.
-6. **Learn the SIGTERM-to-SIGKILL window and set `VOICE_WORKER_DRAIN_GRACE_SECONDS`.** The
+6. ⚠ **HOW THE WORKER REACHES THIS DATABASE AT ALL — OPEN, AND IT BLOCKS THE FIRST CALL
+   (gate 6, opened 16 Sep 2026).** Found by running `voice-worker-setup.sh sources` on the
+   deploy host: `psql` could not translate `host.docker.internal`, because Postgres runs ON
+   THE HOST and only the Docker bridge reaches it. The worker is **box 1** (Pipecat Cloud,
+   `docs/PIPECAT-MIGRATION.md` §8) and `:181` has the adapter speaking to it THROUGH THE
+   DATABASE — so a design that was settled with a box diagram has a network edge nobody
+   drew. Nothing else in the contract has this problem: the object store is R2 and is
+   internet-reachable already.
+
+   **It is not a credential question and must not be closed by pasting a DSN.** The options
+   are an infrastructure decision with real weight, and none is chosen here:
+
+   * expose Postgres over TLS, restricted by `pg_hba.conf` and the firewall to Pipecat
+     Cloud's egress addresses — which are themselves UNKNOWN and would have to come from
+     the vendor, and which puts the database holding every client's caller data on the
+     public internet;
+   * move Postgres to a managed service both boxes can reach;
+   * **stop the worker touching Postgres directly** and have it read its config and
+     knowledge-pack pointer, and post its events, over HTTPS to `apps/api` — which keeps
+     the database private and is the only option that does not widen the attack surface,
+     at the cost of real work and a change to §8's picture;
+   * a private link between the two, if the platform offers one — UNKNOWN.
+
+   *Pass condition*: the worker's `--preflight` prints OK **inside the deployed container**,
+   which is the first thing that proves the pool actually opens from box 1. Until then the
+   deploy can proceed and the container cannot serve a call.
+
+7. **Learn the SIGTERM-to-SIGKILL window and set `VOICE_WORKER_DRAIN_GRACE_SECONDS`.** The
    20-second default is reasoned from OUR bounds (a 5 s pipeline flush, a 2 s tool
    ceiling, one INSERT) and from nothing the platform has told us. *Pass condition*: a
    measured number replaces the default, or the default is confirmed against a documented
    window.
-7. **Decide `min_agents` with the first client.** One warm instance is a pilot choice:
+8. **Decide `min_agents` with the first client.** One warm instance is a pilot choice:
    zero means a documented ~10 s cold start on an inbound call (`…comet-2026-09-06.md:93`),
    and the honest ten-line clinic figure is ten reserved instances at roughly ₹19,008 a
    month before a single active minute (`:93`, `:104`) against a product with no monthly

@@ -166,6 +166,26 @@ env_file_value() {
     | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
 }
 
+# A VALUE THAT WORKS ON THIS HOST CAN BE MEANINGLESS IN THE CONTAINER THAT WILL READ IT,
+# and `DATABASE_URL` is the case that bites: this deployment runs Postgres ON THE HOST and
+# containers reach it over the Docker bridge as `host.docker.internal`
+# (`compose.prod.yml:36`, DEPLOYMENT §"Postgres on the host"). The voice worker is box 1
+# — Pipecat Cloud, a DIFFERENT NETWORK — where that name resolves to nothing and the host's
+# Postgres is not reachable at all.
+#
+# Found the first time `sources` was run on the real host: `psql` could not translate
+# `host.docker.internal`. Refused rather than warned, because the failure it prevents is
+# silent at this step and only surfaces as a worker that cannot boot in a container whose
+# logs are somewhere else. The override exists for the deployment where somebody HAS made
+# the database reachable and knows they have.
+host_local_dsn() {
+  local v=$1
+  [[ "$v" == *host.docker.internal* ]] && return 0
+  [[ "$v" == *@localhost* || "$v" == *@127.0.0.1* ]] && return 0
+  [[ "$v" =~ @10\. || "$v" =~ @192\.168\. || "$v" =~ @172\.(1[6-9]|2[0-9]|3[01])\. ]] && return 0
+  return 1
+}
+
 # NEVER the value — only enough to recognise it. Four characters is what the ops console
 # itself shows (`SecretRecord.last_four`), so the two surfaces agree on how much is safe.
 tail4() {
@@ -439,6 +459,20 @@ secrets_cmd() {
      It is not in $ENV_FILE either — run '$0 sources' to see where each value comes from."
       fi
       continue
+    fi
+    if [[ "$name" == DATABASE_URL ]] && host_local_dsn "$value" && [[ -z "${ALLOW_HOST_LOCAL_DSN:-}" ]]; then
+      die "that DATABASE_URL names a host-local address, and the voice worker does not run on
+     this host. It runs on Pipecat Cloud (box 1, docs/PIPECAT-MIGRATION.md §8), where
+     'host.docker.internal', 'localhost' and any RFC1918 address reach nothing — this
+     deployment keeps Postgres ON THE HOST behind the Docker bridge, which is why the VPS
+     value looks like this and why it CANNOT be reused here.
+
+     Nothing is saved. DEPLOYMENT §12.5 gate 6 is the open question this belongs to: how a
+     container outside this host reaches this database at all. Do not paste a guess — a DSN
+     that resolves to the wrong database is worse than one that resolves to none.
+
+     If this host really has made the database reachable from outside and you know the DSN
+     is the external one, re-run with ALLOW_HOST_LOCAL_DSN=1."
     fi
     printf '%s=%s\n' "$name" "$value" >>"$envfile"
     [[ "$required" == llm ]] && llm_given=1
