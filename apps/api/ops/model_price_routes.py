@@ -2,8 +2,11 @@
 
     GET  /v1/ops/model-prices               every catalogue model: provider, reference
                                              price, attested price (or "needs a price"),
-                                             offerability — AND the two VOICE tiers, the
+                                             offerability — AND every VOICE PROVIDER, the
                                              same three questions one vendor further down
+                                             (PROVIDERS, not tiers: D-618 gave this panel a
+                                             row whose whole point is that it has no tier
+                                             until somebody attests its price)
     POST /v1/ops/model-prices/{model}       attest a model price; step-up
                                              `attest_model_price:<model>`
     POST /v1/ops/model-prices/tts/{provider} attest a VOICE provider's price; step-up
