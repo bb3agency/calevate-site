@@ -375,3 +375,129 @@ The first four are gating. If any is unanswered, the rest do not matter yet.
 16. AgentStream activation time from signed order, support tier, uptime SLA and service
     credits.
 17. Is AgentStream available during trial, with unrestricted outbound Indian calling?
+
+---
+
+# Addendum, 17 Sep 2026: the rest of the second pass, and a margin problem
+
+**RELAYED-VENDOR-PUBLISHED / RELAYED-REGULATOR / THIRD-PARTY**, same route and caveat as
+§4a: a research agent read these pages on 17 Sep 2026 and the founder relayed them. Sections
+5-7 of that brief, which the first delivery truncated.
+
+## §5 Does any one vendor do both? — YES, and it is the two we already had
+
+The question §4 opened, answered: **Plivo and Exotel each publicly document 140-series
+provisioning AND bidirectional streaming.** A third vendor is not needed merely to get 140
+numbers, which is what `FLOWS.md:524` had assumed since the Bolna era.
+
+What is NOT established for either is **route compatibility** — whether the vendor will
+enable its streaming product on a specific 140-series number. Both document the two
+capabilities on separate pages; neither states they compose. That is now the single most
+important question in Appendix A and B, and it is phrased as one: *one 140 number for a
+non-BFSI SMB, with bidirectional streaming enabled on that exact number.*
+
+Two candidates appear that this repository had never considered:
+
+| | 140-series | Bidirectional streaming | Weight |
+| --- | --- | --- | --- |
+| **FreJun Teler** | claims TRAI-compliant 140 provisioning **[VENDOR MARKETING]** | claims **full-duplex L16/8000 WebSocket** **[VENDOR]** | ⚠ see below — the only vendor publishing a streaming PRICE |
+| **Ozonetel** | says a business may obtain 140 through a registered telemarketer such as itself **[VENDOR BLOG]** | customer-controlled bidirectional WebSocket **NOT FOUND** | fails the both-capabilities test on public evidence |
+
+**FreJun Teler deserves a look and did not get one.** `L16/8000` is exactly the format
+Pipecat's own Exotel serializer speaks (`exotel.py:49`), and they publish per-minute figures
+where nobody else does: **₹0.15/min outbound, ₹0.10/min inbound, ₹0.15/min media streaming,
+₹600/channel/month on a ten-channel minimum** — vendor marketing, not a quote, and a
+**₹6,000/month standing floor** before a single minute. Against Exotel's third-party PSTN
+range below, the difference is not marginal, and a number nobody else will publish is worth
+testing rather than dismissing.
+
+## §6 The DLT chain, and who actually scrubs
+
+The regulator's sequence, relayed from TRAI's own text: each **SMB registers as Principal
+Entity** on an Access Provider's DLT platform; **Calevate establishes the Telemarketer
+role** (and *which* TM classification — RTM, delivery TM, aggregator, technology provider —
+is decided by the contracted traffic chain, **not** by holding a CPaaS account); PE and TM
+are linked with headers, templates and calling purpose; the **licensed Access Provider**
+allocates the 140 number under the DLT voice solution TRAI directed on 4 May 2024; campaigns
+are submitted with PE/TM/consent metadata; and the **Access Provider's DLT voice system**
+checks the destination's preferences before delivery — a subscriber who has blocked a sector
+does not receive 140 calls from it.
+
+**THE AUTHORITATIVE SCRUB IS THE ACCESS PROVIDER'S, NOT THE CPaaS'S**, and that distinction
+is the one to hold onto: a CPaaS may collect the list, the PE id and the consent data and
+still be passing all of it to the licensed operator that performs the check. For all three
+vendors the exact pre-dial API sequence and its failure response are **NOT FOUND**.
+
+**Every published SLA in this chain is NOT FOUND** — PE registration, TM registration,
+PE-TM linking, header/template approval, and 140 allocation at all three vendors. Plivo
+acknowledges 140 has a separate SLA without saying what it is. Plan the onboarding runbook
+around an unknown, not around a guess.
+
+## §7 Pricing — partial, and it exposes something in our own cost model
+
+**Plivo: nothing.** No current INR PSTN rate, no rental, no 140 price, no AudioStream rate.
+A May 2026 third-party article carries ~₹0.60/min and ₹250/month for "India SIP" but does
+not establish those as Plivo's tariff, so it is recorded and not used.
+
+**Exotel: partial, and the useful part is third-party.** Outbound ₹0.85–1.50/min and inbound
+₹0.30–0.50/min are **THIRD-PARTY** "typical mid-volume contract rates" with GST treatment and
+billing pulse unstated. What IS vendor-published: the plan ladder (Dabbler ₹9,999/5mo with a
+₹4,999 rental component; Believer ₹19,999/11mo; Influencer ₹49,499/11mo), **18% GST added on
+Indian invoices**, per-second billing after a minimum or a plan pulse, and a billing trigger
+that may start **at ringing** for connect-to-number calls rather than at answer. **AgentStream
+is excluded from every published plan and its rate is NOT FOUND.**
+
+**Vobiz: essentially nothing.** No PSTN rate, no increment, no streaming price, no SIP
+channel price. Their Terms say fees are **in USD** unless otherwise specified, with no India
+tariff or GST statement. A reseller advertises a Vobiz Indian number at ₹349/month, which is
+the reseller's price and not Vobiz's.
+
+**No vendor publishes a streaming rate. FreJun's ₹0.15/min is the only figure of that kind
+anywhere in this research, and it is marketing.**
+
+### ⚠ The finding that matters more than which carrier wins
+
+`docs/TRD.md` §10 prices telephony at **0.40–0.90 inbound / 0.60–1.80 outbound** per
+call-minute, inside a blended all-in of **≈3.3–3.8 at launch** against a **₹5.00/min** client
+price (`self_serve_inr_per_min`).
+
+The Exotel third-party PSTN range (₹0.85–1.50 outbound) sits comfortably **inside** our
+assumption. **Two things in the same research do not:**
+
+1. **Number rental is not in that line at all.** At 1,000 billed minutes a month, Exotel's
+   Dabbler rental component amortises to **₹1.00 per minute** — roughly the entire headroom
+   between our blended cost and our price. It is a RAMP problem rather than a permanent one
+   (at 10,000 minutes it is ₹0.10), but the first months are exactly when it bites, and TRD
+   §10 does not model it.
+2. **The streaming surcharge is not in that line either**, and both vendors meter it
+   separately. Its value is unknown for both.
+
+So the honest statement is: **at launch volumes, telephony rental plus an unknown streaming
+rate can consume the whole margin on a ₹5.00 minute, and TRD §10 does not currently show
+that.** This is NOT a claim that the product is unprofitable — it is a claim that the cost
+model omits two real line items and that nobody has the numbers to fill them. Under hard
+rule 7 the figures that reach `unit_cost_paid` are attested ones, and none of these is.
+
+⚠ **NO REPRICING AND NO TRD EDIT IS MADE HERE.** Every input above is THIRD-PARTY or
+marketing; re-striking a rate card on relayed figures is precisely what hard rule 11
+forbids. What is recorded is the SHAPE of the gap, so the quotes in Appendix A and B are
+read against it when they arrive. **Both appendices already ask for rental and streaming as
+separate line items** — that was written before this was known, and it turns out to be the
+thing that matters.
+
+## What this addendum changes about the recommendation
+
+Nothing in the technical or structural ranking: **Plivo first**, on the documented hangup
+and the documented reseller compliance model; **Exotel in parallel**, now with 140 confirmed.
+Vobiz advances only if it produces a licence chain, a full-duplex protocol specification and
+a materially better quote — and its resale prohibition (§4a) still gates all of that.
+
+Two things are added:
+
+* **FreJun Teler joins the question list** as a fourth POC candidate, on `L16/8000` full
+  duplex plus the only published streaming price. Same four gating questions as Exotel.
+* **The commercial question is now sharper than "which is cheaper".** It is: *what is the
+  all-in cost of a billed minute including number rental and streaming, at the volume we
+  will actually run in month one?* Ask for it at 1,000 and at 10,000 minutes a month — the
+  two answers differ by about ₹0.90 a minute on Exotel's own published rental, and only one
+  of them is the month we start in.
