@@ -501,3 +501,55 @@ Two things are added:
   will actually run in month one?* Ask for it at 1,000 and at 10,000 minutes a month — the
   two answers differ by about ₹0.90 a minute on Exotel's own published rental, and only one
   of them is the month we start in.
+
+## Appendix C — questions to put to VOBIZ
+
+**WHY THIS EXISTS AT ALL, GIVEN §4a.** Two research passes returned NOT FOUND on nearly
+every decision-relevant field. That is the finding rather than a failure of searching: a
+young company with a thin public surface does not get thicker by looking harder. Everything
+below is a question only they can answer, and their size cuts both ways — less is verifiable
+in public, and they are far more likely than Plivo or Exotel to answer properly, quote
+sharply, and take a design-partner arrangement.
+
+**THE ORDER IS LOAD-BEARING. Question 1 decides whether the rest is worth asking.**
+
+1. **Written consent to resell.** Your Terms prohibit resale or sublicensing without prior
+   written consent. Calevate is a multi-tenant SaaS: each client is a separate Principal
+   Entity under TCCCPR and Calevate is the Telemarketer. Will you grant written consent,
+   naming Calevate, permitting multi-tenant SaaS traffic? **If no, nothing below matters.**
+2. **Licence chain.** Are you a DoT-licensed operator in your own right, or an aggregator?
+   If an aggregator: which licensed Access Provider issues and carries your Indian DIDs,
+   your 140 numbers and your SIP trunks? We need to know whose licence our clients' calls
+   ride on, and who receives a TRAI UCC complaint.
+3. **The bidirectional protocol, specified.** Your published example shows `<Stream>`
+   forking audio TO a `wss://` endpoint. We need the return path: message format for audio
+   we send back, codec, sample rate, channel count, framing duration, base64 or binary, and
+   **how playback is interrupted when the caller starts speaking** (the equivalent of
+   Plivo's playback clear or Exotel's `clear`). Plus one working INBOUND example, on an
+   Indian DID.
+   *(Your `<Stream>` carries `streamTimeout` and `keepCallAlive`, which is Plivo-XML-shaped,
+   and Plivo's is bidirectional — so this may be a documentation gap rather than a
+   capability one. That is exactly what we are asking you to settle.)*
+4. **A rate card, in INR ex-GST.** PSTN per minute in and out to Indian mobile and landline;
+   streaming per minute; number rental by series; billing increment and billing trigger;
+   minimum commitment; setup and KYC charges. **Quote at 1,000 AND at 10,000 minutes per
+   month** — on one competitor's published rental those two differ by about ₹0.90 a minute,
+   and the first is the month we start in. Your Terms say fees are in USD unless otherwise
+   specified; we need an India tariff with GST treatment stated.
+5. **140-series.** Do you provision it? What does a **SOLE PROPRIETORSHIP** need (our entity
+   is one, and every document list we have found is company-shaped: COI, MOA, company PAN)?
+   What does it cost, how long does it take, what is your role in the DLT chain — PE
+   registrar, TM, delivery TM, or forwarding agent — and **who performs the NCPR scrub, at
+   what point relative to dialling?**
+6. **Media location.** Where is streaming media terminated and processed, physically? Will
+   you commit to India-only media routing in writing? Our conversation engine is in Mumbai
+   and our budget is 500 ms voice-to-voice; marketing latency figures are not an SLA.
+7. **Hanging up.** The exact API to terminate a live call leg — URL, method, body, auth —
+   and confirmation that it works while a stream is open and that billing stops immediately.
+8. **Concurrency** included at low volume, and how it is raised.
+
+**WHAT WOULD MAKE VOBIZ THE STRONGEST CANDIDATE RATHER THAN THE WEAKEST**: written resale
+consent, a real full-duplex specification, and a rate card that beats the Exotel third-party
+range with streaming included. All three are a week of correspondence, not a research
+project — and if all three land, their size stops being a risk and starts being the reason
+they will work with us at all.
