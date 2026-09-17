@@ -126,11 +126,84 @@ through a THIRD vendor, and which:
 
 * **Plivo publicly lists**, available to any business making promotional calls, with
   additional setup. Cost and activation SLA NOT PUBLISHED.
-* **Exotel does not publish** a procurement page, price, eligibility process or SLA for.
+  (plivo.com/docs/voice/concepts/india-calling and /docs/numbers/rent-india-numbers)
+* **Exotel publicly lists it too** — 140-series for promotional calls to registered,
+  non-DND numbers, with DLT registration mandatory
+  (docs.exotel.com/business-phone-system/onboarding). Cost and SLA NOT PUBLISHED, and the
+  route is described as sales-assisted.
 
-So "Plivo vs Exotel" is not the whole outbound question. The real one is which carrier can
-**stream AND serve 140-series for a reseller** — and whether Vobiz, which our blueprint names
-for 140, can stream at all. That last is unasked and unanswered.
+⚠ **THE EXOTEL LINE ABOVE IS A CORRECTION MADE ON 17 SEP 2026, AND THE ORIGINAL WAS WRONG.**
+It read *"Exotel does not publish a procurement page, price, eligibility process or SLA"* —
+written from a first research pass that searched Exotel's product and pricing pages. A second
+pass found it in their ONBOARDING documentation, which the first had not read. The claim was
+never "Exotel cannot do this"; it was "I did not find it", and those were allowed to read as
+the same thing for a day. **A NOT-FOUND is a statement about the search, and this file's own
+evidence key says so — the correction is what that key is for.**
+
+So both vendors document 140-series provisioning AND bidirectional streaming — **separately.
+Neither publicly states that its 140 route can carry its streaming product on the same call**,
+and that is now the question, not which of them has 140 at all.
+
+What remains open is the third vendor our blueprint names for 140 — see §4a.
+
+## §4a Vobiz — the third vendor, researched for the first time (17 Sep 2026)
+
+**RELAYED-VENDOR-PUBLISHED / THIRD-PARTY.** A second research pass, on the question §4 left
+open. It is truncated — sections 5 to 7 of that brief, including ALL pricing, have not
+arrived — so this records what landed and marks the rest open.
+
+⚠ **EVERYTHING THIS REPOSITORY KNEW ABOUT VOBIZ CAME THROUGH BOLNA, AND THAT MATTERS MORE
+THAN ANY FACT BELOW.** `docs/FLOWS.md:524` sources "140-series → Vobiz" from the Bolna
+mirror; `docs/OPERATIONS.md` gate 25c is about `vobiz` appearing in Bolna's number-BUY
+request enum and not its response enum. **We never had a Vobiz relationship — Bolna did, and
+we rented Bolna.** D-592 removed Bolna, so the 140-series path currently has no carrier
+behind it at all. This was not a gap anybody had noticed.
+
+| | Finding |
+| --- | --- |
+| Who | **Vobiz, operated by Ilaimitado Private Limited**, `vobiz.ai`. A young CPaaS marketing SIP trunks, programmable Voice APIs, Indian numbers, WebRTC, and named integrations with Pipecat, LiveKit, Vapi, Retell and OpenAI Realtime |
+| DoT licence | **NOT FOUND.** No licence category, number, service area or DoT authorisation on their legal or product pages |
+| Underlying Access Provider | **NOT FOUND.** They do not say which licensed operator issues or carries their Indian DIDs, 140 numbers or trunks |
+| ⚠ **Resale** | their Terms **prohibit resale or sublicensing without prior written consent** |
+| Bidirectional streaming | **NOT PROVEN.** A vendor BLOG shows a `<Stream>` element pointing at a customer `wss://` endpoint with `streamTimeout` and `keepCallAlive` — audio FORKED one way. No return path, no playback command, no bidirectional flag, no codec, no sample rate, no barge-in/clear mechanism |
+| SIP trunking | advertised, but every specific is NOT FOUND: signalling transport, codecs, DTMF, TLS/SRTP, customer-controlled endpoint, India media POP |
+| 140-series | claimed **at blog level only**. No order workflow, price, document list, SLA or DLT linkage published |
+| Media region | markets "sub-80 ms latency"; no India media location or routing commitment |
+
+**THE RESALE CLAUSE IS THE DISQUALIFIER, NOT THE STREAMING GAP.** §4 above already
+established that a carrier which cannot express one-reseller-many-Principal-Entities cannot
+onboard our second client. Exotel's position on that is *unpublished*; Vobiz's is *an
+explicit prohibition absent written consent*. Everything else about them is secondary until
+that consent exists in writing.
+
+**AND THEIR OWN BLOG CONTRADICTS TRAI ON WHAT 140 IS FOR** — it describes 140 as suited to
+transactional/service traffic, where TRAI's 10 July 2026 clarification makes 140xx the
+PROMOTIONAL series. A vendor page that is wrong about the regulation governing the product it
+is selling is a reason to weight its other claims down, not a detail.
+
+### The ₹5,900 figure, traced
+
+`docs/LEGAL-SURFACE.md:1284` records "140-series via Vobiz (TATA DLT portal, PE registration
+₹5,900, LOA)". **That figure came from BOLNA's documentation** — Bolna says it uses Vobiz for
+140 numbers and that Tata's DLT portal produces a ₹5,900 payment link after KYC. So its
+evidence class is **REPORTED, at two removes**: neither Vobiz nor Tata published it, and
+nobody has re-read it since. Under hard rule 11 it may not reach a client-facing price or a
+decision without re-verification.
+
+Two additions from the same pass, both needing confirmation before they reach a budget:
+a Tata Code of Practice records a **₹50,000 TM security deposit** — but it is **DATED
+25 June 2021**; and Bolna's document list (COI, GST, company PAN, MOA, director-signed LOA)
+is COMPANY-shaped and does not say how a **sole proprietorship** — which is what this
+business is — satisfies it.
+
+### If Vobiz or any carrier turns out to be SIP-only
+
+The research names the standard bridges: **LiveKit SIP** (terminate the trunk into a LiveKit
+room and connect the Pipecat agent), **Asterisk** (AudioSocket or ARI External Media), or
+**FreeSWITCH**. ⚠ **ANY OF THEM IS A NEW DEPLOYABLE AND NEEDS A DECISION-LOG ENTRY**
+(`docs/ROADMAP.md` §6) — "boring solutions" does not cover standing up a media gateway
+because a carrier could not stream. It would also put a hop inside the 500 ms budget that
+nothing has measured.
 
 ### PE / TM and DLT
 
