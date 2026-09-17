@@ -62,10 +62,14 @@ def batch(
     status: str = "in_progress",
     turns: tuple[tuple[int, str], ...] = (),
     text_redacted: str | None = None,
+    from_e164: str | None = None,
+    to_e164: str | None = None,
 ) -> ObservationBatch:
     return ObservationBatch(
         agent_id=agent_id,
         direction="inbound",
+        from_e164=from_e164,
+        to_e164=to_e164,
         events=[
             CallEvent(
                 call_id=call_id,
@@ -713,3 +717,117 @@ async def test_a_batch_larger_than_the_ceiling_is_refused_at_the_edge() -> None:
                 for _ in range(MAX_QUANTITIES + 1)
             ],
         )
+
+
+async def _parties(tenant_id: uuid.UUID, ref: str) -> tuple[str | None, str | None]:
+    async with tenant_session(tenant_id) as db:
+        row = (
+            await db.execute(
+                text("SELECT from_e164, to_e164 FROM calls WHERE engine_call_id = :c"),
+                {"c": ref},
+            )
+        ).one()
+    return row[0], row[1]
+
+
+async def test_a_batch_that_names_the_parties_writes_them_to_the_call(
+    worker_token: None,
+) -> None:
+    """The seam D-623 exists to finish, end to end: wire model -> route -> column.
+
+    ⚠ **NO CARRIER LEG CAN SEND THIS TODAY** (DEPLOYMENT §12.5 gate 9) — Pipecat's Plivo
+    handshake parses neither party and the outbound dial is unbuilt. The test supplies them
+    by hand, which is the point: the SERVER's half is provable now, so the day a producer
+    exists nothing between the socket and the column has to be designed under pressure.
+    """
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+
+    async with worker_client() as api:
+        await api.post_observations(
+            ref,
+            batch(call_id, tenant_id, agent_id, from_e164="+919000000001", to_e164="+918000000002"),
+        )
+
+    assert await _parties(tenant_id, ref) == ("+919000000001", "+918000000002")
+
+
+async def test_a_batch_without_parties_leaves_the_column_null_rather_than_inventing_one(
+    worker_token: None,
+) -> None:
+    """**THE CASE EVERY PRODUCTION CALL ACTUALLY TAKES**, so it is asserted rather than
+    assumed. A NULL here is honest: `leads.phone_e164` is NOT NULL and simply files no lead,
+    caller memory skips the call on `from_e164 IS NOT NULL`, and the erasure subject is
+    absent. Those are known consequences of an unbuilt producer — what must never happen is
+    a placeholder that reads like a real number."""
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+
+    async with worker_client() as api:
+        await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
+
+    assert await _parties(tenant_id, ref) == (None, None)
+
+
+async def test_a_later_batch_neither_blanks_nor_overwrites_a_party_the_first_one_knew(
+    worker_token: None,
+) -> None:
+    """**BOTH HALVES, BECAUSE ONLY THE SECOND ONE DISTINGUISHES THE UPSERT'S ARGUMENT
+    ORDER** — and the first version of this test asserted only the first half and therefore
+    passed against the wrong SQL. A `COALESCE` preserves a stored value under EITHER
+    ordering when the incoming value is NULL, so the blanking case proves nothing about the
+    order; only a DISAGREEMENT does.
+
+    Half one: a later flush carrying no parties (every flush, in practice) must not blank
+    them. Half two: a later flush carrying DIFFERENT parties must not adopt them — a second
+    value is a disagreement, not an update, and silently taking the newer one would move a
+    lead, a caller memory and a DPDP erasure subject to a different person with nothing
+    logged anywhere.
+    """
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+
+    async with worker_client() as api:
+        await api.post_observations(
+            ref,
+            batch(call_id, tenant_id, agent_id, from_e164="+919000000003", to_e164="+918000000004"),
+        )
+        await api.post_observations(ref, batch(call_id, tenant_id, agent_id, turns=((0, "hi"),)))
+        assert await _parties(tenant_id, ref) == ("+919000000003", "+918000000004")
+
+        await api.post_observations(
+            ref,
+            batch(call_id, tenant_id, agent_id, from_e164="+917777777777", to_e164="+916666666666"),
+        )
+
+    assert await _parties(tenant_id, ref) == ("+919000000003", "+918000000004")
+
+
+async def test_a_settlement_can_mint_the_row_with_its_parties(
+    worker_token: None,
+) -> None:
+    """A call that failed before its first flush is minted BY THE SETTLEMENT, which is why
+    `SettlementRequest` carries the pair too. If it did not, the one moment nothing else will
+    supply them is exactly the moment they are lost."""
+    tenant_id, agent_id, _ = await published_agent()
+    _, ref = call_ref(tenant_id)
+
+    async with worker_client() as api:
+        await api.post_settlement(
+            ref,
+            SettlementRequest(
+                final_status="failed",
+                direction="inbound",
+                agent_id=agent_id,
+                from_e164="+919000000005",
+                to_e164="+918000000006",
+                refusal=SettlementRefusal(
+                    leg="carrier",
+                    code="carrier_facts_missing",
+                    detail="no CDR",
+                    remediation=None,
+                ),
+            ),
+        )
+
+    assert await _parties(tenant_id, ref) == ("+919000000005", "+918000000006")

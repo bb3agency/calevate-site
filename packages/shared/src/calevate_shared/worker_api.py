@@ -131,6 +131,31 @@ class ObservationBatch(BaseModel):
     #: different one (`worker/service._refuse_identity`).
     agent_id: UUID
     direction: CallDirection
+    #: THE TWO PARTIES, AND TODAY NOTHING CAN FILL THEM ON PLIVO — WHICH IS THE POINT.
+    #:
+    #: `calls.from_e164` is not decoration: `leads.phone_e164` is NOT NULL and the post-call
+    #: pipeline derives it from this field on inbound (`workers/pipeline.py:1903,1968`);
+    #: caller memory filters on `c.from_e164 IS NOT NULL` as a hard condition
+    #: (`workers/caller_memory_distil.py:206`); and a DPDP erasure takes its SUBJECT from the
+    #: same field (`pipeline.py:1600`). A call with no number files no lead, grows no memory,
+    #: and has nothing to erase against.
+    #:
+    #: On the Bolna leg these rode `ExecutionSnapshot`, the POLLER's record (TRD §5:
+    #: "payloads as hints, poller as truth"), which is why `CallEvent` never carried them.
+    #: Pipecat has no poller — this contract IS the snapshot — so they belong here, as
+    #: session facts, beside `agent_id` and `direction` and for the same reason.
+    #:
+    #: ⚠ **THE PRODUCER IS UNBUILT AND IS A NAMED GATE, NOT AN OVERSIGHT** (DEPLOYMENT
+    #: §12.5 gate 9). Pipecat's Plivo handshake parses neither party (`runner/utils.py:
+    #: 250-262`, and `voice_worker/carrier.PlivoHandshake` refuses to model what is always
+    #: `None`); the outbound dial is `OUTBOUND_DIAL_UNKNOWN`; and the CDR read that would
+    #: supply them waits on a carrier decision. They are declared here because the SERVER's
+    #: half must exist before any producer can be wired to it — and because the next carrier
+    #: may simply hand them over: Pipecat's Exotel handshake populates both (`ExotelCallData`,
+    #: `runner/utils.py:283`). Absent, they leave the column NULL, which every reader above
+    #: already tolerates.
+    from_e164: str | None = None
+    to_e164: str | None = None
     events: list[CallEvent] = Field(default_factory=list, max_length=MAX_EVENTS_PER_BATCH)
     turns: list[TranscriptTurn] = Field(default_factory=list, max_length=MAX_TURNS_PER_BATCH)
 
@@ -207,6 +232,12 @@ class SettlementRequest(BaseModel):
     final_status: Literal["completed", "failed", "no_answer", "busy", "cancelled"]
     direction: CallDirection
     agent_id: UUID
+    #: Carried here TOO, and not only on `ObservationBatch`, because settlement upserts the
+    #: call row itself: a call that failed before its first flush is minted HERE, and a row
+    #: minted without the parties is a lead and an erasure subject lost at the one moment
+    #: nothing else will supply them. Same nullability and same gate as the batch's pair.
+    from_e164: str | None = None
+    to_e164: str | None = None
     refusal: SettlementRefusal | None = None
     quantities: list[MeteredQuantity] = Field(default_factory=list, max_length=MAX_QUANTITIES)
 

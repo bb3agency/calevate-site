@@ -127,13 +127,30 @@ WHERE p.agent_id = :aid AND p.tenant_id = :tid
 #: added to `calevate_shared.events` must be terminal to every statement that asks.
 _UPSERT_CALL_SQL: Final = """
 INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status,
-                   started_at, ended_at, duration_s, created_at, updated_at)
-VALUES (:id, :tid, :aid, :ecid, :dir, :status, :started, :ended, :dur, now(), now())
+                   started_at, ended_at, duration_s, from_e164, to_e164, created_at, updated_at)
+VALUES (:id, :tid, :aid, :ecid, :dir, :status, :started, :ended, :dur, :from_e, :to_e,
+        now(), now())
 ON CONFLICT (engine_call_id) DO UPDATE SET
   status = EXCLUDED.status,
   started_at = COALESCE(calls.started_at, EXCLUDED.started_at),
   ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at),
   duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s),
+  -- ⚠ THE STORED VALUE WINS ON A DISAGREEMENT, WHICH IS THE OPPOSITE OF `ended_at` ABOVE.
+  -- Argument order is the whole of the decision and it is easy to get backwards, so state
+  -- it exactly: BOTH orderings preserve a stored number when the incoming one is NULL
+  -- (`COALESCE` returns the first non-null either way), and most batches of a call do
+  -- carry NULL because nothing can supply a party on Plivo. What the order decides is the
+  -- case where BOTH are present and DIFFER — and there the first value learned wins.
+  --
+  -- A party is a fact about who was on the call, not a running total: a second value is a
+  -- disagreement, not an update, and silently adopting the newer one would let a late or
+  -- replayed batch rewrite whose call it was — under which a lead, a caller memory and a
+  -- DPDP erasure subject all move to a different person with nothing logged. Keeping the
+  -- first makes that impossible; a genuine correction is a deliberate write elsewhere.
+  -- (What WOULD blank a known party is a bare `= EXCLUDED.from_e164`, which is why this
+  -- line is a COALESCE at all.)
+  from_e164 = COALESCE(calls.from_e164, EXCLUDED.from_e164),
+  to_e164 = COALESCE(calls.to_e164, EXCLUDED.to_e164),
   updated_at = now()
 WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed'
 RETURNING id
@@ -383,6 +400,8 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
             status=status,
             started_at=_first(batch, "started_at"),
             ended_at=_first(batch, "ended_at"),
+            from_e164=batch.from_e164,
+            to_e164=batch.to_e164,
         )
         for turn in batch.turns:
             # THE ONE REDACTION CALL, ON OUR SIDE OF THE WALL. `RedactionResult.kinds` says
@@ -521,6 +540,8 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
             status=request.final_status,
             started_at=None,
             ended_at=None,
+            from_e164=request.from_e164,
+            to_e164=request.to_e164,
         )
         message_id = await enqueue_outbox_once(
             session,
@@ -794,6 +815,8 @@ async def _upsert_call(
     status: str,
     started_at: datetime | None,
     ended_at: datetime | None,
+    from_e164: str | None,
+    to_e164: str | None,
 ) -> UUID:
     """Write the call row and answer its id. Status only ever moves forward.
 
@@ -804,6 +827,13 @@ async def _upsert_call(
     `agent_id` is REQUIRED and not derived. A `calls` row cannot be minted without one, and
     the only two callers both hold it as a session fact — which is why `ObservationBatch`
     carries it rather than leaving it to be picked out of whichever event arrived first.
+
+    `from_e164`/`to_e164` are OPTIONAL and are learned once: see the SQL's own comment for
+    why the stored value wins on conflict. Today no carrier leg supplies them (DEPLOYMENT
+    §12.5 gate 9), so in practice they arrive `None` and the column stays NULL — which is
+    what `leads`, caller memory and the erasure subject all already handle, badly but
+    knowingly. This function's job is to make sure that when a producer DOES exist, nothing
+    between the wire and the column has to change.
     """
     row = (
         await session.execute(
@@ -818,6 +848,8 @@ async def _upsert_call(
                 "started": started_at,
                 "ended": ended_at,
                 "dur": _duration_s(started_at, ended_at),
+                "from_e": from_e164,
+                "to_e": to_e164,
                 "terminal": sorted(TERMINAL_STATUSES),
             },
         )

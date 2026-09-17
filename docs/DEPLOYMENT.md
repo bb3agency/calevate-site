@@ -1999,6 +1999,39 @@ on every exit path including a signal.
    ceiling, one INSERT) and from nothing the platform has told us. *Pass condition*: a
    measured number replaces the default, or the default is confirmed against a documented
    window.
+9. **NOBODY KNOWS WHO CALLED. The two parties never reach `calls`.** ⚠ **OPENED 17 Sep
+   2026, and it is wider than it looks.** `calls.from_e164` is not a display field:
+   `leads.phone_e164` is NOT NULL and the post-call pipeline derives it from this column on
+   inbound (`workers/pipeline.py:1903,1968`); caller memory filters on
+   `c.from_e164 IS NOT NULL` as a hard condition (`workers/caller_memory_distil.py:206`);
+   and a DPDP erasure takes its SUBJECT from the same field (`pipeline.py:1600`). A call
+   with no number **files no lead, grows no caller memory, and has nothing to erase
+   against** — the third being a compliance surface rather than a feature.
+
+   **THE SERVER'S HALF IS BUILT (D-623) AND THE PRODUCER IS NOT.** The wire models carry
+   `from_e164`/`to_e164` on both `ObservationBatch` and `SettlementRequest`, the upsert
+   writes them, a party is learned once and never overwritten, and four clauses in
+   `tests/worker_api_test.py` pin it — so the day a producer exists, nothing between the
+   socket and the column has to be designed under pressure. What does not exist is anything
+   to send them:
+
+   * **Plivo's handshake parses neither party.** `parse_telephony_websocket` populates
+     `from`/`to` for Telnyx and Exotel and leaves both `None` for Plivo
+     (`runner/utils.py:250-262`), which is why `voice_worker/carrier.PlivoHandshake` models
+     two fields and not four.
+   * **The outbound dial is unbuilt** — `carrier.OUTBOUND_DIAL_UNKNOWN`.
+   * **The CDR read that would supply them is not written**, and is deliberately paused
+     until the carrier is chosen (17 Sep 2026): writing a REST client against a vendor API
+     nobody in this repository can read is the D-417 defect, and the carrier may change.
+
+   **THE NEXT CARRIER MAY SIMPLY HAND THEM OVER.** Pipecat's Exotel handshake populates
+   both (`ExotelCallData`, `runner/utils.py:283`). That is one of the things the carrier
+   decision now turns on, and it is in Appendix A/B/C of
+   `docs/evidence/carrier-plivo-vs-exotel-2026-09-16.md` as a question to each vendor.
+
+   *Pass condition*: a real call leaves a `calls` row whose `from_e164` is the caller's
+   number, and the post-call pipeline files a lead from it. Until then the column is NULL
+   and the consequences above are KNOWN rather than discovered.
 8. **Decide `min_agents` with the first client.** One warm instance is a pilot choice:
    zero means a documented ~10 s cold start on an inbound call (`…comet-2026-09-06.md:93`),
    and the honest ten-line clinic figure is ten reserved instances at roughly ₹19,008 a
