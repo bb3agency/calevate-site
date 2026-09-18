@@ -221,6 +221,11 @@ def _carrier_not_written(what: str) -> ProblemError:
 #: because nothing external calls us (`PIPECAT-MIGRATION.md` §3D) — see `verify_webhook`,
 #: which records what that costs.
 PIPECAT_CAPABILITIES = EngineCapabilities(
+    # ⚠ **FALSE, AND THIS IS THE FIELD THAT STOPS AN AGENT LYING TO A CALLER.** Nothing in
+    # `apps/voice-worker` captures audio — no recorder, no buffer, no upload — so
+    # `calls.recording_url` is permanently NULL on this leg. Until that changes, clause 2 of
+    # the truthful-answer floor must not say the call is recorded, because it is not.
+    records_audio=False,
     stt="ours",
     tts="ours",
     llm="ours",

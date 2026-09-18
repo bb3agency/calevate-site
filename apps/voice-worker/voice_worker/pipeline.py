@@ -59,7 +59,7 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import CancelFrame, LLMRunFrame
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -443,8 +443,19 @@ class NormalizedEventBoundary:
         async def _on_started(_worker: Any, _frame: Any) -> None:
             await self.call_started()
 
-        async def _on_finished(_worker: Any, _frame: Any) -> None:
-            await self.call_ended()
+        async def _on_finished(_worker: Any, frame: Any) -> None:
+            # THE FRAME DECIDES THE STATUS, AND THIS USED TO DISCARD IT. Pipecat fires
+            # `on_pipeline_finished` for `StopFrame`, `EndFrame` AND `CancelFrame`
+            # (`pipecat/pipeline/worker.py:223-231`, which is why the handler is handed the
+            # frame at all) — so every cancelled call was written to `calls.status` as a
+            # clean `completed`: a pipeline cut by an unusable processor, by `runner.cancel()`
+            # or by any non-drain path was indistinguishable from a conversation that ended
+            # of its own accord. The drain path escaped it only because `lifecycle.drain`
+            # writes `failed` first.
+            if isinstance(frame, CancelFrame):
+                await self.call_ended(status="failed")
+            else:
+                await self.call_ended(status="completed")
 
         aggregators.user().add_event_handler("on_user_turn_stopped", _on_user)
         aggregators.assistant().add_event_handler("on_assistant_turn_stopped", _on_assistant)

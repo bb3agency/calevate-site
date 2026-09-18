@@ -63,6 +63,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
+from calevate_shared.worker_api import METERED_LEGS
 from pipecat.observers.service_metrics_observer import (
     ServiceMetricsObserver,
     ServiceUsageKind,
@@ -103,6 +104,13 @@ class MeteredLeg(StrEnum):
 
     This is not `ServiceUsageKind` with two extra members: that enum has exactly the three
     kinds Pipecat can report, which is the distinction this module exists to make.
+
+    ⚠ **THE MEMBERS ARE PINNED TO THE WIRE CONTRACT'S `METERED_LEGS` BELOW.** Between two
+    deployables a leg name is a deployment contract: this enum is what a refusal says, and
+    `calevate_shared.worker_api.MeteredLegName` is what the server will accept. They agreed
+    the day they were written and would have diverged the day one was edited — with the
+    failure landing as a 422 on a real call's settlement, which on this engine is the only
+    producer of the post-call pipeline.
     """
 
     CARRIER = "carrier"
@@ -110,6 +118,13 @@ class MeteredLeg(StrEnum):
     STT = "stt"
     TTS = "tts"
     LLM = "llm"
+
+
+# Cheap, at import, and it is the assertion the wire module's docstring promised for a year
+# and did not have. A mismatch fails the container's boot rather than one caller's call.
+assert {leg.value for leg in MeteredLeg} == METERED_LEGS, (
+    "MeteredLeg and calevate_shared.worker_api.METERED_LEGS disagree about the legs"
+)
 
 
 # --- the ledger's unit tokens ---------------------------------------------------------

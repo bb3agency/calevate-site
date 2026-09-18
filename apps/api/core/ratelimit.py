@@ -166,6 +166,24 @@ PROFILES: dict[str, LimitProfile] = {
         per_tenant=120,
         tenant_from_last_path_segment=True,
     ),
+    # The voice worker's own door (`/v1/worker/**`), for `engine_action`'s reason and with
+    # the same relationship inverted: the caller is a container on Pipecat Cloud serving
+    # EVERY tenant from whatever egress address the platform gives it, so a per-caller
+    # ceiling is a near-global one. Under `client_api` this sat at 240/min for the whole
+    # platform, and one live call costs roughly seven requests a minute (an 8-turn batch
+    # every 10s, plus the session read and the settlement) — so about 34 concurrent calls
+    # saturated it. The 429 is not a retry-and-carry-on: a dropped SETTLEMENT is the only
+    # producer of the post-call outbox row on this engine, and there is no poller behind it,
+    # so it loses that call's extraction, CRM columns and lead permanently.
+    #
+    # The tenant dimension is deliberately absent: the tenant is inside the call ref in the
+    # path, not a segment we can key on, and the bound that matters here is the platform's.
+    #
+    # 600 is the platform's declared per-caller ceiling and the same number `engine_action`
+    # and `webhook_ingest` take for the same reason — about 85 concurrent calls of headroom
+    # at seven requests each. Going past it is a decision-log entry, not a number typed here
+    # (`tests/rate_limit_census_test.py` enforces exactly that).
+    "worker_api": LimitProfile("worker_api", per_client=600, per_tenant=None),
     # Anything the table does not name: 404 probes, a path that has not been routed yet.
     # NOT reachable from a mounted API route — the census test fails the build first —
     # so this exists purely so that scanning for unrouted paths is not free.
@@ -274,12 +292,20 @@ RULES: tuple[Rule, ...] = (
     # surface, and anything mounted under it later inherits this ceiling rather than
     # `client_api`'s — which was sized for one signed-in person, not for a site.
     Rule("/v1/public/**", "public_read"),
+    Rule("/v1/worker/**", "worker_api"),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),
     Rule("/v1/ops/**", "admin_api"),
     # --- cost-weighted: bulk data out ---------------------------------------------
-    Rule("/v1/leads/export.csv", "bulk_read", _m("GET")),
+    # ⚠ **NO METHOD FILTER, AND IT USED TO BE `GET`-ONLY (18 Sep 2026).** There are two
+    # shapes of this route — `GET` and the `POST` that carries the lens in its body (D-181) —
+    # and the POST is the one the console actually uses, so the tightest non-auth profile in
+    # this table was bound to the shape nobody sends. The POST fell through to `client_api`:
+    # 240/min instead of 6, on the full contact list, i.e. 40x the ceiling on exactly "the
+    # shape data exfiltration takes", which is this profile's own words. Both shapes share
+    # the permission and the `leads.export` audit row; only the limiter diverged.
+    Rule("/v1/leads/export.csv", "bulk_read"),
     Rule("/v1/compliance/subject-export", "bulk_read", _m("POST")),
     Rule("/v1/billing/invoice", "bulk_read", _m("GET")),
     Rule("/v1/admin/tenants/*/invoice", "bulk_read", _m("GET")),

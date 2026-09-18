@@ -240,10 +240,15 @@ def test_one_call_makes_a_healthy_container_unavailable() -> None:
     registry.mark_started()
     assert registry.status().state == "ready"
 
-    registry.admit("call-1", make_call(sink, call_id="call-1"))
+    registry.reserve("call-1")
+
+
+    registry.attach("call-1", make_call(sink, call_id="call-1"))
     assert registry.status().state == "busy"
     with pytest.raises(lifecycle.AtCapacityError):
-        registry.admit("call-2", make_call(sink, call_id="call-2"))
+        registry.reserve("call-2")
+
+        registry.attach("call-2", make_call(sink, call_id="call-2"))
 
     registry.release("call-1")
     assert registry.status().state == "ready"
@@ -260,7 +265,10 @@ def test_the_readiness_marker_appears_and_disappears_with_the_state(tmp_path: Pa
     registry.mark_started()
     assert marker.exists()
 
-    registry.admit("call-1", make_call(RecordingSink(), call_id="call-1"))
+    registry.reserve("call-1")
+
+
+    registry.attach("call-1", make_call(RecordingSink(), call_id="call-1"))
     assert not marker.exists(), "a busy container must not advertise itself as ready"
 
     registry.release("call-1")
@@ -296,7 +304,9 @@ async def test_a_drain_ends_a_live_call_the_graceful_way() -> None:
     registry = lifecycle.SessionRegistry()
     registry.mark_started()
     call = make_call(sink, call_id="call-1")
-    registry.admit("call-1", call)
+    registry.reserve("call-1")
+
+    registry.attach("call-1", call)
 
     report = await registry.drain(grace_s=1.0)
 
@@ -317,7 +327,9 @@ async def test_a_call_that_will_not_drain_is_recorded_before_it_is_cut() -> None
     registry.mark_started()
     call = make_call(sink, call_id="call-1", finishes_on_end=False)
     await call.boundary.call_started()
-    registry.admit("call-1", call)
+    registry.reserve("call-1")
+
+    registry.attach("call-1", call)
 
     report = await registry.drain(grace_s=0.3)
 
@@ -345,7 +357,9 @@ async def test_a_draining_container_refuses_a_new_call() -> None:
     await registry.drain(grace_s=0.1)
     assert registry.status().state == "draining"
     with pytest.raises(lifecycle.AtCapacityError):
-        registry.admit("call-9", make_call(RecordingSink(), call_id="call-9"))
+        registry.reserve("call-9")
+
+        registry.attach("call-9", make_call(RecordingSink(), call_id="call-9"))
 
 
 # --------------------------------------------------------------------------------------

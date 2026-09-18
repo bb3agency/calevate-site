@@ -36,7 +36,7 @@ Two consequences that look like omissions and are the design:
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Final, Literal
+from typing import Final, Literal, get_args
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -175,19 +175,63 @@ class ObservationsOut(BaseModel):
     status: str | None = None
 
 
+#: The widest quantity any leg of one call can honestly report, and the narrowest bound that
+#: cannot refuse a real call. A call is capped at `CALL_CAP_MAX_S`; the largest unit any leg
+#: counts in is seconds of audio, so six figures is already several orders of magnitude of
+#: headroom. The point is not the exact number — it is that SOME number exists.
+MAX_METERED_QTY: Final = Decimal("1000000")
+
+#: Prose the server stores verbatim. `call_metering_refusals.detail`/`.remediation` are
+#: `TEXT`, and the table is append-only, so an unbounded string is a permanent one.
+MAX_REFUSAL_TEXT: Final = 500
+
+#: An identifier the server matches or stores: a leg name, a unit type, a machine code.
+MAX_IDENTIFIER: Final = 64
+
+#: The five legs a call can be metered or refused on.
+#:
+#: ⚠ **THIS LIVES IN THE WIRE MODULE AND THE WORKER'S `MeteredLeg` IS DERIVED FROM IT
+#: (18 Sep 2026).** The docstring above used to say the vocabulary was "enforced where the
+#: legs are actually known — `worker/service`, against `MeteredLeg` itself", and no such
+#: check existed: the enum lived in `apps/voice-worker`, which `apps/api` cannot import, so
+#: any string the client sent was echoed into `call_metering_refusals.leg`. A shared
+#: contract belongs in the shared contract; a claim that two deployables agree has to be
+#: something one of them can actually check.
+MeteredLegName = Literal["carrier", "runtime", "stt", "tts", "llm"]
+
+#: The same five as a set, for a caller that needs membership rather than a type.
+METERED_LEGS: Final[frozenset[str]] = frozenset(get_args(MeteredLegName))
+
+
 class MeteredQuantity(BaseModel):
     """One leg's measured quantity, with NO price attached.
 
     `unit_cost_inr` and `total_inr` are deliberately absent: see this module's docstring.
     The server multiplies, because the server is what holds an attested rate.
+
+    ⚠ **`qty` IS BOUNDED AND SIGNED, AND IT USED TO BE NEITHER (18 Sep 2026).** The server
+    refuses to take a PRICE from a worker — that was the whole point of the split — and then
+    multiplied whatever magnitude it was handed by an attested rate and INSERTed the product
+    into `usage_events`, which hard rule 4 makes INSERT-only. `qty: Decimal` with no `ge`
+    accepted `-99999999`, so one holder of the worker token could mint a permanent
+    self-issued credit that nothing but a compensating entry could answer; `1e50` was an
+    unpayable charge by the same door. `allow_inf_nan=False` because a NaN in a NUMERIC
+    column poisons every SUM taken over that tenant's usage for ever.
+
+    A refund is a compensating entry an operator makes. It is not a quantity a container on
+    somebody else's infrastructure reports.
     """
 
     model_config = _STRICT
 
-    leg: str
-    unit_type: str
-    qty: Decimal
-    meta: dict[str, str] = Field(default_factory=dict)
+    leg: MeteredLegName
+    unit_type: str = Field(max_length=MAX_IDENTIFIER)
+    qty: Decimal = Field(ge=0, le=MAX_METERED_QTY, allow_inf_nan=False)
+    #: ⚠ **BOUNDED, AND THE SERVER DECIDES WHICH KEYS SURVIVE.** `worker/service._write_usage`
+    #: is the one reader; what it persists is an allow-list, because `meta->>'tts_tier'` is
+    #: the rung every client-facing split reads and `meta->>'model'` chooses an LLM rate —
+    #: neither is a thing a vendor-hosted container gets to assert about our money.
+    meta: dict[str, str] = Field(default_factory=dict, max_length=16)
 
 
 class SettlementRefusal(BaseModel):
@@ -200,10 +244,14 @@ class SettlementRefusal(BaseModel):
 
     model_config = _STRICT
 
-    leg: str
-    code: str
-    detail: str
-    remediation: str | None = None
+    #: ⚠ **BOUNDED SINCE 18 Sep 2026.** `worker/service` carried a comment calling these
+    #: "OUR OWN PROSE. Every refusal string is authored in this repository" — true of the
+    #: client we ship and not enforced of any client, while the strings arrive over HTTP and
+    #: land in an append-only table as `TEXT`.
+    leg: MeteredLegName
+    code: str = Field(max_length=MAX_IDENTIFIER)
+    detail: str = Field(max_length=MAX_REFUSAL_TEXT)
+    remediation: str | None = Field(default=None, max_length=MAX_REFUSAL_TEXT)
 
 
 class SettlementRequest(BaseModel):
@@ -261,8 +309,13 @@ class SettlementOut(BaseModel):
 
 __all__ = [
     "MAX_EVENTS_PER_BATCH",
+    "MAX_IDENTIFIER",
+    "MAX_METERED_QTY",
     "MAX_QUANTITIES",
+    "MAX_REFUSAL_TEXT",
     "MAX_TURNS_PER_BATCH",
+    "METERED_LEGS",
+    "MeteredLegName",
     "MeteredQuantity",
     "ObservationBatch",
     "ObservationsOut",

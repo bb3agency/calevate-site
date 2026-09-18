@@ -28,7 +28,7 @@ say "no longer" is `status: "withdrawn"`, which is a new row that supersedes.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance import consent
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.consent_policy import read_policy, write_policy
+from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -76,6 +77,11 @@ ConsentSource = Literal[
     "staff_recorded_request",
 ]
 ConsentStatus = Literal["granted", "declined", "withdrawn"]
+
+#: The two statuses that mean "do not telephone this person", as opposed to `granted`.
+#: `declined` is here as well as `withdrawn` because a contact who refuses on the phone while
+#: a campaign is mid-tick is in exactly the position a withdrawal describes.
+_CONSENT_LOST: Final[frozenset[str]] = frozenset({"declined", "withdrawn"})
 
 
 class Strict(BaseModel):
@@ -259,6 +265,20 @@ async def record_call(
         evidence=payload.evidence,
         expires_at=payload.expires_at,
     )
+    if payload.status in _CONSENT_LOST:
+        # ⚠ **A WITHDRAWAL REACHES DIALS ALREADY QUEUED, AND IT USED NOT TO (18 Sep 2026).**
+        # `check_dispatch` reads consent live per contact, so the NEXT tick was always safe —
+        # but a dial the dispatcher had already handed to the engine in the current tick rang
+        # anyway, sometimes minutes after the person said stop. A DNC addition has never had
+        # that hole: all three `dnc_list` writers enqueue this recall in their own
+        # transaction (`dnc_recall.py`). `PERSON_LEVEL_REFUSALS` already treats `no_consent`
+        # and `dnc` as the same class of fact; this makes the two instructions behave the
+        # same way, which is what a person who withdrew consent would assume they do.
+        #
+        # In the SAME transaction as the ledger row, so the recall cannot outlive a rolled
+        # back withdrawal and a committed withdrawal cannot lose its recall.
+        assert state.phone_e164 is not None  # the writer normalised or refused
+        await enqueue_dnc_recall(session, tenant_id=principal.tenant_id, phones=[state.phone_e164])
     await write_audit(
         session,
         action="call_consent.recorded",

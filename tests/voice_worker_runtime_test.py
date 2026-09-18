@@ -294,7 +294,10 @@ async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
             agent_id=agent_id,
             direction="inbound",
             engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
-            credentials=CREDENTIALS,
+            credentials_for=lambda _provider: CREDENTIALS,
+            # A fake transport fires no client-connected event, so `arm_first_turn` would
+            # refuse it. Production takes the default, which is `"required"`.
+            greeting="skip",
             transport=FakeTransport(),
         )
     finally:

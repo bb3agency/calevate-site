@@ -107,9 +107,19 @@ forbidden_modules = ["apps"]
 [[tool.importlinter.contracts]]
 name = "engine isolation: only engine/ may see vendor payload shapes"
 type = "forbidden"
+# ⚠ **SIX SUBPACKAGES WERE MISSING AND ONE OF THEM HAD A COMMENT CLAIMING IT WAS HERE**
+# (added 18 Sep 2026). `apps/api/worker/service.py` states that importing the adapter from
+# there "would be an `apps.api.worker` -> `apps.api.engine.pipecat` edge that
+# `pyproject.toml`'s import-linter contract forbids by name" — it did not, and that module
+# is the one that takes HTTP from a container running on a vendor's infrastructure. It was
+# complying voluntarily; a guard nobody is holding is not a guard. `actions`, `callbacks`,
+# `flags`, `insights`, `quality` and `security` were in the same position for the same
+# reason: the list was written once and each new subpackage had to remember to join it.
 source_modules = [
+    "apps.api.actions",
     "apps.api.admin",
     "apps.api.agents",
+    "apps.api.callbacks",
     "apps.api.authn",
     "apps.api.billing",
     "apps.api.campaigns",
@@ -117,14 +127,19 @@ source_modules = [
     "apps.api.copilot",
     "apps.api.crm",
     "apps.api.db",
+    "apps.api.flags",
     "apps.api.ingest",
+    "apps.api.insights",
     "apps.api.integrations",
     "apps.api.kb",
     "apps.api.legal",
     "apps.api.ops",
+    "apps.api.quality",
     "apps.api.reliability",
     "apps.api.retrieval",
+    "apps.api.security",
     "apps.api.tenancy",
+    "apps.api.worker",
     "apps.api.core",
     "apps.workers",
 ]

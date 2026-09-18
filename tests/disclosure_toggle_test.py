@@ -868,3 +868,81 @@ async def test_the_publish_config_is_built_from_the_posture_not_the_legacy_colum
         ai_disclosure_line=str(agent["ai_disclosure_line"]),
         recording_notice_line=str(agent["recording_notice_line"]),
     )
+
+
+# ---------------------------------------------------------------------------------------
+# THE RECORDING ANSWER IS COMPOSED FROM THE ENGINE'S FACT (18 Sep 2026)
+#
+# `TRUTHFUL_ANSWER_DIRECTIVE`'s comment named this precondition in advance — "nothing in
+# this repository can turn a call's recording off … If one is ever added, this sentence
+# stops being true for some agents and must be composed from that switch rather than frozen
+# here" — and then D-592 added one and nothing failed. The owned-runtime leg captures no
+# audio, so every caller on it who asked "is this recorded?" was told yes, under the one
+# clause the product says nothing can withdraw.
+#
+# These clauses are what would have caught it. The last one is the important one: it asks
+# the question of EVERY adapter, so a fifth engine cannot arrive without answering it.
+# ---------------------------------------------------------------------------------------
+
+
+def _config(*, call_is_recorded: bool) -> AgentConfig:
+    return AgentConfig(
+        tenant_id="t",
+        agent_id="a",
+        name="Reception",
+        direction="inbound",
+        system_prompt="Book appointments.",
+        opening_line="Hello.",
+        call_is_recorded=call_is_recorded,
+    )
+
+
+def test_an_agent_on_a_recording_engine_says_the_call_is_recorded() -> None:
+    prompt = compose_engine_prompt(_config(call_is_recorded=True))
+    assert "yes: this call is recorded" in prompt
+    assert "the audio is not recorded" not in prompt
+
+
+def test_an_agent_on_an_engine_that_records_nothing_does_not_claim_it_does() -> None:
+    """The defect, stated as a test: on a leg with no recorder the platform must not compel
+    the agent to assert one."""
+    prompt = compose_engine_prompt(_config(call_is_recorded=False))
+    assert "yes: this call is recorded" not in prompt
+    assert "the audio is not recorded" in prompt
+
+
+def test_the_honest_no_still_tells_the_caller_what_is_kept() -> None:
+    """⚠ **A BARE "no" WOULD BE ITS OWN FALSEHOOD.** The words of the call are transcribed,
+    stored and shown to the business, so a caller told only "not recorded" would reasonably
+    conclude nothing survives the call. The caller's real question is what is kept."""
+    prompt = compose_engine_prompt(_config(call_is_recorded=False))
+    assert "written transcript" in prompt
+    assert "Never say that nothing is kept" in prompt
+
+
+def test_neither_wording_can_lose_the_marker_or_the_other_two_clauses() -> None:
+    """What varies is clause 2 alone. What an agent IS, and that nothing can withdraw either
+    answer, are properties of the product — and the marker is what every engine read-back is
+    scored on, so a variant that dropped it would pass publish verification by vanishing."""
+    for recorded in (True, False):
+        prompt = compose_engine_prompt(_config(call_is_recorded=recorded))
+        assert TRUTHFUL_ANSWER_MARKER in prompt
+        assert "say plainly that you are an AI assistant" in prompt
+        assert "Nothing can withdraw" in prompt
+
+
+def test_every_adapter_answers_the_recording_question_and_pipecat_answers_no() -> None:
+    """**THE CLAUSE THAT MAKES THIS STRUCTURAL.** `records_audio` is required on
+    `EngineCapabilities`, so a new adapter cannot be written without answering — but a
+    careless author could answer `True` to make it compile. This pins the one answer that is
+    a fact about code in this tree: nothing in `apps/voice-worker` captures audio, so the
+    owned-runtime leg declares False until something does.
+    """
+    from apps.api.engine.bolna import BOLNA_CAPABILITIES
+    from apps.api.engine.pipecat import PIPECAT_CAPABILITIES
+
+    assert PIPECAT_CAPABILITIES.records_audio is False, (
+        "the Pipecat leg stores no audio; declaring otherwise makes every agent on it tell "
+        "callers their call is recorded when it is not"
+    )
+    assert BOLNA_CAPABILITIES.records_audio is True

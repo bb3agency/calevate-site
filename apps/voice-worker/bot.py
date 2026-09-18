@@ -58,19 +58,15 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
-from pipecat.workers.runner import WorkerRunner
 from uuid_utils.compat import uuid7
 from voice_worker.boot import (
     WorkerConfig,
     WorkerRuntime,
-    build_event_sink,
     load_worker_config,
     open_runtime,
 )
-from voice_worker.carrier import UnroutableCallError, arm_first_turn, route_of
-from voice_worker.config import load_session_config
+from voice_worker.carrier import UnroutableCallError, route_of
 from voice_worker.lifecycle import ReadinessFile, SessionRegistry, ShutdownSignal
-from voice_worker.session import open_session
 
 #: The transport parameter factories `create_transport` selects from by provider. Only the
 #: legs this product has: Plivo is the carrier (D-592, §6 step 6) and `websocket` is what a
@@ -220,59 +216,45 @@ async def bot(runner_args: RunnerArguments) -> None:
     another; `load_session_config` refuses the mismatch anyway, because a check that costs a
     comparison should not rest on two call sites staying in step.
 
-    **THE CONFIGURATION IS READ BEFORE THE CREDENTIAL IS CHOSEN, AND THAT IS WHY THIS USES
-    `load_session_config` + `open_session` RATHER THAN `start_session`.** Which LLM key
-    this call spends is decided by the agent's own `ModelConfig.llm_provider`, which is in
-    the config version and nowhere else — so `credentials_for` has to run after the read.
-    `session.start_session` exists for callers that already know; this one does not, and
-    guessing would mean sending a client's caller's words to a vendor their agent does not
-    name.
+    ⚠ **THIS FUNCTION USED TO ASSEMBLE THE CALL ITSELF, AND THAT SECOND COPY OF
+    `runtime.WorkerRuntime.run_call` IS WHY THE FIRST REAL CALL WOULD HAVE BEEN LOST
+    (found 18 Sep 2026).** The copy built the sink and the session but built no `CallMeter`,
+    passed no `observers=`, never called `sink.settle(...)` and never called
+    `sink.aclose()`. On this engine the settlement is the ONLY producer of the post-call
+    outbox row — there is no poller behind it (`worker/service.py:540-560`) — so every call
+    would have ended with no extraction, no CRM columns and no lead, silently and for ever,
+    plus one leaked flush task per call. It survived review because the tested path
+    (`tests/voice_worker_runtime_test.py`) was not the shipped one.
+
+    So the assembly lives in ONE place now and this is a thin entrypoint over it: ids, the
+    transport the platform handed us, and the slot. `credentials_for` is passed as a
+    FUNCTION because which vendor key this call spends is decided by the agent's own
+    `ModelConfig.llm_provider`, which is read inside `run_call`; resolving it out here is
+    what forced the duplicate in the first place.
     """
     runtime, registry = await container()
     engine_agent_ref = _route_token(runner_args)
     call_id, tenant_id, agent_id, direction = await resolve_call_identity(runner_args)
 
-    transport = await create_transport(runner_args, _TRANSPORT_PARAMS)
-    config = await load_session_config(
-        runtime.api,
-        call_id=call_id,
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        direction=direction,
-        engine_agent_ref=engine_agent_ref,
-    )
-    call = await open_session(
-        config=config,
-        credentials=runtime.config.credentials_for(config.models.llm_provider),
-        transport=transport,
-        sink=build_event_sink(
-            runtime.api,
+    # THE SLOT IS TAKEN BEFORE ANY IO, and that ordering is the fix rather than a tidy-up.
+    # This used to admit only after the transport, the session read and the whole pipeline
+    # existed — two network round trips during which the readiness marker still said
+    # `ready`, so a one-session container could be handed a second call whose caller then
+    # met `AtCapacityError` with a transport and a sink already built and nothing to close
+    # them. Refusing costs that caller nothing now.
+    registry.reserve(call_id)
+    try:
+        transport = await create_transport(runner_args, _TRANSPORT_PARAMS)
+        await runtime.calls.run_call(
             call_id=call_id,
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction=direction,
-            turn_batch_size=runtime.config.turn_batch_size,
-            turn_flush_seconds=runtime.config.turn_flush_seconds,
-        ),
-        fetcher=runtime.fetcher,
-        embedder=runtime.embedder,
-    )
-
-    # THE AGENT SPEAKS FIRST, OR WE REFUSE TO PRETEND IT WILL (D-163, and
-    # `carrier.CarrierWiringError` for why this raises). `assemble_call` deliberately does
-    # not register the greeting — a fake transport has no connect event — so the
-    # ENTRYPOINT does it, and this is the entrypoint. Without it a caller hears a click
-    # and then nothing, on every call, with a green deploy.
-    arm_first_turn(transport, call, call_id=call_id)
-
-    registry.admit(call_id, call)
-    try:
-        # `handle_sigterm=False` IS THE POINT AND IS ARGUED IN `lifecycle.ShutdownSignal`:
-        # the runner's own SIGTERM handler cancels rather than drains, which cuts the
-        # caller off mid-sentence and leaves the carrier leg running.
-        runner = WorkerRunner(handle_sigint=False, handle_sigterm=False)
-        await runner.add_workers(call.worker)
-        await runner.run()
+            engine_agent_ref=engine_agent_ref,
+            credentials_for=runtime.config.credentials_for,
+            transport=transport,
+            on_assembled=lambda call: registry.attach(call_id, call),
+        )
     finally:
         registry.release(call_id)
 

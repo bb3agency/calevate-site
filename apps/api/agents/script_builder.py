@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompts import write_prompt_version
 from apps.api.core.errors import ProblemError
+from apps.api.engine import get_engine
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +226,11 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
         language_primary=str(row.language_primary),
         system_prompt=compile_call_script(script),
         opening_line=compose_opening_line(_posture(row)),
+        # THE PREVIEW SHOWS WHAT THIS DEPLOYMENT'S ENGINE WILL ACTUALLY HOLD, including
+        # clause 2 of the truthful-answer floor — a preview that showed the recorded wording
+        # on a leg that records nothing would be the one screen a reviewer trusts, lying in
+        # the same direction as the bug it is now guarding against.
+        call_is_recorded=get_engine().capabilities.records_audio,
     )
     return compose_engine_prompt(config)
 

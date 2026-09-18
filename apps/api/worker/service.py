@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import hmac
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -116,8 +117,32 @@ SELECT p.agent_config_version_id,
 FROM pipecat_agents AS p
 JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
 JOIN agents AS a ON a.id = p.agent_id
-WHERE p.agent_id = :aid AND p.tenant_id = :tid
+WHERE p.agent_id = :aid AND p.tenant_id = :tid AND a.status = 'live'
 """
+
+#: ⚠ **`a.status = 'live'` IS A COMPLIANCE PREDICATE, NOT A TIDINESS ONE (18 Sep 2026).**
+#: Pausing or archiving an agent is supposed to stop it answering, and on the rented engine
+#: it does — `_release_inbound_numbers` unbinds the number. This engine declares
+#: `inbound_binding=False`, so that release takes the capability arm, logs `unsupported`,
+#: reports `numbers_released=0` and the console shows the pause as done. Nothing else stood
+#: in the way: the carrier answer route reads no row, and this query used to serve any agent
+#: that had a `pipecat_agents` row — which `archive_agent` deliberately leaves in place. So a
+#: paused agent went on answering its number, greeting callers and collecting their details,
+#: with an owner who had been told it stopped. This is the one door every owned-runtime call
+#: comes through, which is exactly where `voice_worker/config.refuse_unless_disclosed` argues
+#: such a check belongs.
+
+#: Does this agent belong to the tenant the call ref names, and is it real?
+#:
+#: RLS CANNOT ANSWER THIS AND THAT IS THE WHOLE REASON THE STATEMENT EXISTS. PostgreSQL runs
+#: foreign-key checks as system-imposed triggers that BYPASS row security, and
+#: `calls.agent_id -> agents.id` is a plain single-column FK with no `(tenant_id, agent_id)`
+#: composite — so an INSERT naming another tenant's agent succeeds under this tenant's
+#: policy. The read path already binds the pair (`_SESSION_SQL`); the write path did not, so
+#: one token could file tenant B's agent onto tenant A's call and drive A's post-call
+#: pipeline — extraction schema, CRM columns, lead, hot-lead alert — off B's agent, while
+#: writing an APPEND-ONLY `usage_events` row that can only ever be compensated.
+_AGENT_VISIBLE_SQL: Final = "SELECT 1 FROM agents WHERE id = :aid"
 
 #: The call row, minted or converged on. `from_e164`/`to_e164` are ABSENT rather than
 #: NULL-ed, which is the difference between "we do not know" and "there is nobody" — the
@@ -749,6 +774,29 @@ def _llm_rate(quantity: MeteredQuantity) -> Decimal:
     return rate
 
 
+#: The only `meta` keys a worker may contribute to an append-only ledger row.
+#:
+#: ⚠ **AN ALLOW-LIST, AND THE TWO KEYS IT DELIBERATELY OMITS ARE THE POINT (18 Sep 2026).**
+#: `meta->>'tts_tier'` is the rung every client-facing usage split reads and `meta->>'model'`
+#: is what chooses the LLM rate — so both are money, decided by us from the agent's published
+#: config, never asserted by a container running on a vendor's infrastructure. They were
+#: copied through verbatim, and `**row.meta` sat AFTER `total_inr` in the JSON, so a body
+#: carrying `{"total_inr": "0.0001"}` overwrote the server's own computed total in a row
+#: hard rule 4 makes uncorrectable.
+#:
+#: What remains is measurement: what the worker counted and how. Anything not named here is
+#: DROPPED rather than refused — an unknown key is a client of a newer version describing its
+#: own measurement, which is not a reason to lose a call's whole settlement.
+_WORKER_META_KEYS: Final[frozenset[str]] = frozenset(
+    {"processors", "reports", "characters", "total_tokens", "audio_seconds"}
+)
+
+
+def _worker_meta(meta: Mapping[str, str]) -> dict[str, str]:
+    """The worker's measurement notes, less anything that decides money."""
+    return {key: value for key, value in meta.items() if key in _WORKER_META_KEYS}
+
+
 async def _write_usage(
     session: AsyncSession,
     tenant_id: UUID,
@@ -771,7 +819,12 @@ async def _write_usage(
                 "qty": row.qty,
                 "cost": row.unit_cost_inr,
                 "at": at,
-                "meta": json.dumps({"total_inr": str(row.unit_cost_inr * row.qty), **row.meta}),
+                # THE SERVER'S OWN FIELDS GO LAST so nothing on the wire can displace
+                # them. `total_inr` is the product this function just computed from an
+                # attested rate; it is not a value anyone else gets a say in.
+                "meta": json.dumps(
+                    {**_worker_meta(row.meta), "total_inr": str(row.unit_cost_inr * row.qty)}
+                ),
             },
         )
 

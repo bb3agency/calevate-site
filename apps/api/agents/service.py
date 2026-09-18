@@ -970,6 +970,11 @@ def _to_config(
         # and the answer to a caller who ASKS is `TRUTHFUL_ANSWER_DIRECTIVE`, which no
         # column on this row can reach.
         opening_line=compose_opening_line(posture_of(agent)),
+        # FROM THE ENGINE THAT WILL RUN THIS AGENT, not from any column — no column decides
+        # whether audio is captured. It composes clause 2 of the truthful-answer floor, so
+        # an agent on a leg that records nothing stops telling callers otherwise
+        # (`calevate_shared.engine.truthful_answer_directive`).
+        call_is_recorded=engine.capabilities.records_audio,
         # DOES THIS AGENT REMEMBER ITS CALLERS (D-507/D-513)? It reaches the engine as a
         # PROMPT SECTION and nothing else — the facts are per-call and ride the dial or the
         # inbound caller-data endpoint, because a fact about ONE person may not be written

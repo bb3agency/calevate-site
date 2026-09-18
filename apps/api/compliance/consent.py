@@ -165,6 +165,12 @@ class MessagingConsent:
     source: str | None = None
     captured_at: datetime | None = None
     expires_at: datetime | None = None
+    #: The number AS STORED, E.164, for a caller that has to act on this record rather than
+    #: display it — the withdrawal recall in `consent_routes` is the one caller today.
+    #: Returned rather than re-derived at the call site, because normalisation has exactly
+    #: one home (`_normalized_or_refused`) and a second spelling of it is how a recall comes
+    #: to scan for a number that is not the one the ledger holds.
+    phone_e164: str | None = None
 
     @property
     def messageable(self) -> bool:
@@ -200,6 +206,12 @@ class CallConsent:
     source: str | None = None
     captured_at: datetime | None = None
     expires_at: datetime | None = None
+    #: The number AS STORED, E.164, for a caller that has to act on this record rather than
+    #: display it — the withdrawal recall in `consent_routes` is the one caller today.
+    #: Returned rather than re-derived at the call site, because normalisation has exactly
+    #: one home (`_normalized_or_refused`) and a second spelling of it is how a recall comes
+    #: to scan for a number that is not the one the ledger holds.
+    phone_e164: str | None = None
 
 
 async def read_messaging_consent(
@@ -370,7 +382,13 @@ async def record_call_consent(
         expires_at=expires_at,
     )
     assert captured_at is not None  # unguarded write; see `_append_consent_row`
-    return CallConsent(status=status, source=source, captured_at=captured_at, expires_at=expires_at)
+    return CallConsent(
+        status=status,
+        source=source,
+        captured_at=captured_at,
+        expires_at=expires_at,
+        phone_e164=phone_e164,
+    )
 
 
 def _normalized_or_refused(raw_phone: str) -> str:

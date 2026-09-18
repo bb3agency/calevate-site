@@ -210,6 +210,8 @@ _COST_PER_MIN = {
 # other direction. The three RESTRICTED profiles below stay empty on purpose: they are
 # what keeps the refusal path executable offline.
 DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
+    # the ordinary engine this suite stands in for records.
+    records_audio=True,
     stt="ours",
     tts="ours",
     llm="ours",
@@ -258,6 +260,8 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
 # company would invite someone to treat it as a description of that company's API, which
 # is the mistake the whole arrangement exists to avoid.
 DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
+    # speech control is what this variant varies; recording is not.
+    records_audio=True,
     # The LLM stays ours: an engine can dictate its speech stack and still take
     # `model=` + `api_key=` for the model, and the one on the table does exactly that.
     # Making every leg `engine` here would have been the easier fixture and a worse test,
@@ -330,6 +334,8 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
 # than chosen — see `EXTERNAL_DEPLOYMENT_SPEECH_IS_NOT_OURS` in the conformance suite for
 # why an engine with no agent record can have no BYOK leg either.
 EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
+    # hosting is what this variant varies; recording is not.
+    records_audio=True,
     stt="engine",
     tts="engine",
     llm="engine",
@@ -393,6 +399,8 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
 # engine with no agent record can have no BYOK leg. Here there is an agent record and every
 # leg really is ours, which is the whole point of running the pipeline.
 OWNED_RUNTIME_CAPABILITIES = EngineCapabilities(
+    # the owned runtime is the variant that does NOT record — it stands in for Pipecat, and a fake that recorded would let the truthful-answer clause regress with a green suite.
+    records_audio=False,
     stt="ours",
     tts="ours",
     llm="ours",

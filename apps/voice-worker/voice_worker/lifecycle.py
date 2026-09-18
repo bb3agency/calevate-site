@@ -148,7 +148,16 @@ class SessionRegistry:
         marker: ReadinessFile | None = None,
     ) -> None:
         self._capacity = capacity
-        self._sessions: dict[str, AssembledCall] = {}
+        # `None` IS A RESERVED SLOT, NOT AN ABSENT ONE (18 Sep 2026). The entrypoint used
+        # to `admit` only after building the transport, reading the session config and
+        # assembling the pipeline — two network round trips during which this registry still
+        # reported `ready`, so the platform could route a second call into a one-session
+        # container and that caller met `AtCapacityError` AFTER their transport, sink and
+        # session already existed: silence on the line, a transport nobody closed, and no
+        # `calls` row at all. The slot is taken before any IO and filled once the call
+        # exists, so capacity is answered from what this container has PROMISED rather than
+        # from what it has finished building.
+        self._sessions: dict[str, AssembledCall | None] = {}
         self._draining = False
         self._started = False
         self._marker = marker or ReadinessFile(None)
@@ -188,14 +197,31 @@ class SessionRegistry:
 
     # -- admission -----------------------------------------------------------------------
 
-    def admit(self, call_id: str, call: AssembledCall) -> None:
-        """Take responsibility for one call, or refuse with the state that refused it."""
+    def reserve(self, call_id: str) -> None:
+        """Take the slot BEFORE building anything, or refuse with the state that refused it.
+
+        This is the admission decision. It happens as early as the entrypoint knows a call
+        id — before the transport, before the session read — so that a refusal costs a
+        caller nothing and a container that has said yes stops saying `ready`.
+        """
         status = self.status()
         if not status.ready:
             raise AtCapacityError(
                 f"this container is {status.state} ({status.in_flight}/{status.capacity} "
                 f"sessions) and cannot take call {call_id}"
             )
+        self._sessions[call_id] = None
+        self._publish()
+
+    def attach(self, call_id: str, call: AssembledCall) -> None:
+        """Fill a reserved slot with the assembled call, so a drain can end it gracefully.
+
+        Refuses an unreserved id rather than creating the slot: a call that reached here
+        without passing `reserve` would be one this container never counted, which is the
+        capacity bug in the other direction.
+        """
+        if call_id not in self._sessions:
+            raise AtCapacityError(f"call {call_id} was never reserved on this container")
         self._sessions[call_id] = call
         self._publish()
 
@@ -244,8 +270,15 @@ class SessionRegistry:
         """
         self._draining = True
         self._publish()
-        live = dict(self._sessions)
+        # RESERVED-BUT-UNASSEMBLED SLOTS ARE DROPPED, NOT DRAINED. There is no pipeline to
+        # end and no boundary to write a terminal event on — the call never got that far —
+        # but the slot is still cleared below, so the count an operator reads is the number
+        # of real conversations.
+        live = {cid: call for cid, call in self._sessions.items() if call is not None}
+        held = len(self._sessions)
         if not live:
+            self._sessions.clear()
+            self._publish()
             return DrainReport(settled=0, cut=())
 
         logger.info("voice worker draining", sessions=len(live), grace_s=grace_s)
@@ -266,19 +299,40 @@ class SessionRegistry:
                 break
             await asyncio.sleep(_DRAIN_POLL_S)
 
-        settled = len(self._sessions) - len(live)
+        # SNAPSHOTTED BEFORE THE LOOP, NOT READ FROM `_sessions` AFTER IT. The entrypoint
+        # releases each call in its own `finally`, so by the time we get here `_sessions`
+        # has already shrunk by exactly the calls that drained — which made this figure
+        # near-zero on every clean shutdown, i.e. the number the operator is told to watch
+        # reported the opposite of what happened.
+        settled = held - len(live)
         for call_id, call in live.items():
             # The record first, the cancel second. See this method's docstring.
-            await call.boundary.call_ended(status="failed")
-            logger.error(
-                "call cut by container shutdown",
-                call_id=call_id,
-                grace_s=grace_s,
-            )
+            #
+            # EACH HALF IS GUARDED SEPARATELY, AND THE CANCEL IS IN A `finally`. The
+            # terminal write is an HTTP call to `apps/api` with a 5s budget, so a deploy
+            # that restarts the API at the same moment makes it raise — and it used to
+            # raise out of this loop entirely, skipping `cancel` for THIS call and
+            # abandoning every remaining one. The carrier leg then stays up and keeps
+            # metering a call nobody is on, which is the exact failure this method's
+            # docstring says it exists to prevent.
             try:
-                await call.worker.cancel(reason="container shutdown")
+                await call.boundary.call_ended(status="failed")
+                logger.error(
+                    "call cut by container shutdown",
+                    call_id=call_id,
+                    grace_s=grace_s,
+                )
             except Exception as exc:
-                logger.warning("cancel refused", call_id=call_id, reason=type(exc).__name__)
+                logger.error(
+                    "terminal event refused on shutdown",
+                    call_id=call_id,
+                    reason=type(exc).__name__,
+                )
+            finally:
+                try:
+                    await call.worker.cancel(reason="container shutdown")
+                except Exception as exc:
+                    logger.warning("cancel refused", call_id=call_id, reason=type(exc).__name__)
 
         for call_id in list(self._sessions):
             self._sessions.pop(call_id, None)

@@ -30,6 +30,7 @@ from apps.api.actions.schema import (
 from apps.api.core.errors import ProblemError, validation_fields
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.integrations.egress_guard import assert_public_http_url
 
@@ -311,6 +312,15 @@ async def create_tool(
     params: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> LoadedTool:
+    # THE CREDENTIAL IS PROVED TO BE THIS TENANT'S BEFORE ANYTHING IS WRITTEN (18 Sep 2026).
+    # RLS cannot do it: the `action_tools.credential_id -> integration_credentials.id` FK is
+    # checked by a system-imposed trigger that BYPASSES row security, so a caller-supplied id
+    # belonging to another tenant was stored as a live cross-tenant reference, and a random
+    # UUID raised an IntegrityError with no handler — a 500 that distinguished "this is a
+    # credential somewhere on the platform" from "it is not", and whose repetition held the
+    # `unhandled_exception` alert suppressed. `assert_visible` answers 404, which is the
+    # doctrine every other caller-supplied ref in this tree already follows.
+    await assert_visible(session, "credential", credential_id)
     parsed_params, parsed_config = _validate(
         kind=kind,
         provider=provider,
@@ -383,6 +393,15 @@ async def update_tool(
     existing = await get_tool(session, tool_id=tool_id)
     if existing is None:
         raise ProblemError.not_found("Action")
+    # THE CREDENTIAL IS PROVED TO BE THIS TENANT'S BEFORE ANYTHING IS WRITTEN (18 Sep 2026).
+    # RLS cannot do it: the `action_tools.credential_id -> integration_credentials.id` FK is
+    # checked by a system-imposed trigger that BYPASSES row security, so a caller-supplied id
+    # belonging to another tenant was stored as a live cross-tenant reference, and a random
+    # UUID raised an IntegrityError with no handler — a 500 that distinguished "this is a
+    # credential somewhere on the platform" from "it is not", and whose repetition held the
+    # `unhandled_exception` alert suppressed. `assert_visible` answers 404, which is the
+    # doctrine every other caller-supplied ref in this tree already follows.
+    await assert_visible(session, "credential", credential_id)
     parsed_params, parsed_config = _validate(
         kind=kind,
         provider=provider,

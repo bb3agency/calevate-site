@@ -69,7 +69,7 @@ from apps.api.core.errors import ProblemError
 #: line in each mapping below — deliberately not a table-name parameter, which would put
 #: a caller-chosen identifier into SQL and is the thing `scripts/check_raw_sql.py` exists
 #: to refuse.
-OwnedRef = Literal["agent", "call", "dlt_template", "phone_number"]
+OwnedRef = Literal["agent", "call", "credential", "dlt_template", "phone_number"]
 
 #: Literal SQL per kind. No `deleted_at` predicate on `agents`: both guards this replaces
 #: asked plain visibility, the callers that care about liveness ask their own richer
@@ -78,6 +78,13 @@ OwnedRef = Literal["agent", "call", "dlt_template", "phone_number"]
 _VISIBLE_SQL: dict[OwnedRef, str] = {
     "agent": "SELECT 1 FROM agents WHERE id = :rid",
     "call": "SELECT 1 FROM calls WHERE id = :rid",
+    # ADDED 18 Sep 2026. `action_tools.credential_id` is caller-supplied and its FK is
+    # validated with row security BYPASSED (PostgreSQL runs FK checks as system-imposed
+    # triggers), so naming another tenant's credential id stored a live cross-tenant
+    # reference, and naming a random UUID raised an unhandled IntegrityError — a 500 whose
+    # presence or absence told a prober whether that UUID is a credential somewhere on the
+    # platform, and whose repetition kept the `unhandled_exception` alert suppressed.
+    "credential": "SELECT 1 FROM integration_credentials WHERE id = :rid",
     "dlt_template": "SELECT 1 FROM dlt_templates WHERE id = :rid",
     "phone_number": "SELECT 1 FROM phone_numbers WHERE id = :rid",
 }
@@ -86,6 +93,7 @@ _VISIBLE_SQL: dict[OwnedRef, str] = {
 _LABEL: dict[OwnedRef, str] = {
     "agent": "Agent",
     "call": "Call",
+    "credential": "Credential",
     "dlt_template": "DLT template",
     "phone_number": "Phone number",
 }

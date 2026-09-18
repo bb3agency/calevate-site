@@ -3628,6 +3628,9 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   caller and alarmed — which is the safe direction to be wrong in, and strictly better
 #   than the state D-420 found, where the step was not attempted at all.
 BOLNA_CAPABILITIES = EngineCapabilities(
+    # The engine records every call and hands us the file — `calls.recording_url` has been
+    # written from it since the first call this product made.
+    records_audio=True,
     stt="ours",
     tts="ours",
     llm="ours",

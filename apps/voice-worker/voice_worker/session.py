@@ -306,6 +306,7 @@ async def start_session(
 
 
 __all__ = [
+    "AssembledCall",
     "load_caller_memory",
     "load_knowledge",
     "open_session",

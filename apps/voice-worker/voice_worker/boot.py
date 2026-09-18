@@ -58,6 +58,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
+from urllib.parse import urlparse
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
@@ -66,6 +67,12 @@ from loguru import logger
 from voice_worker.api_client import WorkerApiClient
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
+
+# ALIASED, because `runtime.py` names its call runner `WorkerRuntime` too and this module
+# already owns that name for the process's shared resources. Two classes with one name in
+# two modules is how the second call path went unnoticed; the alias makes which one a
+# reader is looking at unambiguous at every use site here.
+from voice_worker.runtime import WorkerRuntime as CallRunner
 from voice_worker.sink import DEFAULT_TURN_BATCH_SIZE as _DEFAULT_TURN_BATCH_SIZE
 from voice_worker.sink import DEFAULT_TURN_FLUSH_SECONDS as _DEFAULT_TURN_FLUSH_SECONDS
 from voice_worker.sink import HttpEventSink
@@ -322,6 +329,37 @@ def turn_buffer_bounds(env: Mapping[str, str] | None = None) -> tuple[int, float
     return bounds
 
 
+#: Hosts whose loopback address makes cleartext a local-development fact rather than a
+#: network one. Nothing routes off the machine, so there is no wire to read.
+_LOCAL_HOSTS: Final = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+
+
+def _refuse_cleartext_api(base_url: str | None, failures: list[str]) -> None:
+    """Refuse an `http://` platform API URL, because of WHAT that connection carries.
+
+    It is not a general "https is good" rule. This one socket carries two things: the
+    container's bearer token on every request, and — on every flush — the caller's words
+    BEFORE redaction, because D-621 deliberately moved the redactor to the server so its
+    value is not computed inside a container a vendor operates (`sink.py:22-24`). A
+    mistyped or copy-pasted scheme therefore puts a live credential and a client's
+    customer's transcript in cleartext across the public internet, with nothing anywhere
+    raising an error. Only the length of this string was ever checked.
+
+    Loopback is allowed so a developer can run the pair locally; anything else must be TLS.
+    """
+    if base_url is None:
+        return  # its absence is already a failure, and one message per fault is enough.
+    parsed = urlparse(base_url)
+    if parsed.scheme == "https":
+        return
+    if parsed.scheme == "http" and (parsed.hostname or "") in _LOCAL_HOSTS:
+        return
+    failures.append(
+        f"{API_BASE_URL_ENV} must be an https:// URL (loopback may be http://): this "
+        "connection carries this container's API token and unredacted transcript text"
+    )
+
+
 def _drain_grace(env: Mapping[str, str], failures: list[str]) -> float:
     raw = _present(env, DRAIN_GRACE_ENV)
     if raw is None:
@@ -379,6 +417,8 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
             + ", ".join(sorted(LLM_KEY_ENV_BY_PROVIDER.values()))
             + " — which one a call needs is decided per agent by ModelConfig.llm_provider"
         )
+
+    _refuse_cleartext_api(required.get(API_BASE_URL_ENV), failures)
 
     grace = _drain_grace(source, failures)
     turn_batch = _turn_batch_size(source, failures)
@@ -470,6 +510,14 @@ class WorkerRuntime:
     api: WorkerApiClient
     fetcher: ObjectStorePackFetcher
     embedder: QueryEmbedder | None
+    #: The ONE thing that runs a call: `runtime.WorkerRuntime.run_call`. Held here so the
+    #: entrypoint has nothing to assemble of its own — `bot.py` once carried a second,
+    #: partial copy of that method and the copy was the one the container ran, shipping
+    #: without a meter, without a settlement and without `aclose` (18 Sep 2026).
+    #:
+    #: A field rather than an import in `bot.py` because the runner holds this process's
+    #: pack cache and buffer bounds: built once, beside the client it shares.
+    calls: CallRunner
 
     async def aclose(self) -> None:
         """Release the connection pool. Safe to call twice."""
@@ -522,7 +570,19 @@ async def open_runtime(
         drain_grace_s=config.drain_grace_s,
         dense_arm=embedder is not None,
     )
-    return WorkerRuntime(config=config, api=api, fetcher=fetcher, embedder=embedder)
+    return WorkerRuntime(
+        config=config,
+        api=api,
+        fetcher=fetcher,
+        embedder=embedder,
+        calls=CallRunner(
+            api,
+            fetcher=fetcher,
+            embedder=embedder,
+            turn_batch_size=config.turn_batch_size,
+            turn_flush_seconds=config.turn_flush_seconds,
+        ),
+    )
 
 
 __all__ = [

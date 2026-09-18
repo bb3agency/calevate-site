@@ -75,7 +75,9 @@ Pipecat Cloud image is part of step 6 rather than of this seam.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
@@ -85,12 +87,12 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
 from voice_worker.api_client import WorkerApiClient
-from voice_worker.boot import load_worker_config, turn_buffer_bounds
+from voice_worker.carrier import arm_first_turn
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.meter import CallMeter, CarrierCdr, RateCard, RuntimeUsage
 from voice_worker.pipeline import VendorCredentials
-from voice_worker.session import open_session, pack_cache
+from voice_worker.session import AssembledCall, open_session, pack_cache
 from voice_worker.sink import (
     DEFAULT_TURN_BATCH_SIZE,
     DEFAULT_TURN_FLUSH_SECONDS,
@@ -174,6 +176,13 @@ class WorkerRuntime:
         # container's environment (DEPLOYMENT §12.2) and it is what REFUSES a nonsensical
         # value; a `os.environ.get` in this method would be a second, weaker parse that
         # could disagree with the one `--preflight` proved.
+        # IMPORTED HERE, NOT AT MODULE SCOPE, AND THE CYCLE IS THE REASON RATHER THAN A
+        # STYLE CHOICE: `boot` holds this class as the process's one call runner, so a
+        # top-level import back into `boot` makes the two modules uninitialisable. This is
+        # the only direction the dependency actually runs at runtime — a bootstrap needs
+        # the environment parser, nothing in the call path does.
+        from voice_worker.boot import load_worker_config, turn_buffer_bounds
+
         batch, flush = turn_buffer_bounds()
         config = load_worker_config()
         return cls(
@@ -195,10 +204,12 @@ class WorkerRuntime:
         agent_id: UUID,
         direction: CallDirection,
         engine_agent_ref: str,
-        credentials: VendorCredentials,
+        credentials_for: Callable[[str | None], VendorCredentials],
         transport: BaseTransport,
         carrier: CarrierCdr | None = None,
         runtime_usage: RuntimeUsage | None = None,
+        greeting: Literal["required", "skip"] = "required",
+        on_assembled: Callable[[AssembledCall], None] | None = None,
     ) -> CallOutcome:
         """One call, from ids to a settled (or refused) ledger. The whole process path.
 
@@ -206,6 +217,15 @@ class WorkerRuntime:
         requires: it takes the sink as an argument and loads the config itself. The four ids
         the sink needs are the four ids this method was called with, so nothing has to be
         read from the database to construct it.
+
+        **`credentials_for` IS A FUNCTION AND NOT A VALUE, AND THAT IS WHAT LET THE SECOND
+        CALL PATH EXIST.** Which vendor key this call spends is decided by the agent's own
+        `ModelConfig.llm_provider`, which lives in the config version and nowhere else — so
+        the choice cannot be made before the read that happens inside this method. Taking a
+        finished `VendorCredentials` forced a caller that wanted the right key to do its own
+        read, its own `open_session`, and eventually its own everything; that caller was
+        `bot.py`, and it drifted until it no longer settled a call. A resolver keeps the
+        decision here, where the provider is known.
 
         **THE METER IS ATTACHED BEFORE THE PIPELINE EXISTS AND READ AFTER IT HAS DRAINED.**
         `CallMeter.attach` is explicit that usage reports arrive as their own asyncio tasks
@@ -220,6 +240,14 @@ class WorkerRuntime:
         ⚠ Today both are `None` on every production call, so every call settles as a
         RECORDED REFUSAL rather than as rupees. That is not a defect to code around — it is
         what an unwitnessed billable fact looks like when nothing is allowed to invent one.
+
+        **`greeting` DEFAULTS TO `"required"` AND THAT DEFAULT IS THE POINT.** Arming the
+        first turn used to live in `bot.py`, beside a second, partial copy of this method —
+        and the copy was the one the container ran, which is how it came to ship with no
+        meter, no settlement and no `aclose` (audited 18 Sep 2026). With one path, a caller
+        that forgets to arm the greeting would get a connected call and silence, so the
+        SAFE thing is what you get for saying nothing; `"skip"` is for a fake transport,
+        which fires no connect event and would otherwise be refused by `arm_first_turn`.
         """
         sink = HttpEventSink(
             self._api,
@@ -244,7 +272,7 @@ class WorkerRuntime:
         )
         call = await open_session(
             config=config,
-            credentials=credentials,
+            credentials=credentials_for(config.models.llm_provider),
             transport=transport,
             sink=sink,
             fetcher=self._fetcher,
@@ -252,6 +280,22 @@ class WorkerRuntime:
             embedder=self._embedder,
             observers=[observer],
         )
+
+        if on_assembled is not None:
+            # THE CONTAINER LEARNS ABOUT THE CALL THE MOMENT IT EXISTS, so a SIGTERM
+            # arriving one instant later drains it gracefully instead of cutting a caller
+            # off. The registry reserved this call's slot before any IO (`bot.py`); this is
+            # the second half of that two-step, and it is a callback rather than a registry
+            # argument so that this module keeps knowing nothing about readiness files.
+            on_assembled(call)
+
+        if greeting == "required":
+            # AFTER `open_session`, because it needs the assembled call, and BEFORE the
+            # runner, because the connect event can fire as soon as the pipeline runs.
+            # `arm_first_turn` REFUSES a transport that fires no connect event rather than
+            # registering into the void — on this path that refusal is the difference
+            # between a loud boot failure and every caller hearing a click and nothing.
+            arm_first_turn(transport, call, call_id=call_id)
 
         runner = WorkerRunner(
             # SIGINT is a developer at a terminal. SIGTERM is the orchestrator stopping this

@@ -365,6 +365,10 @@ _TERMINAL_RAW: Final = frozenset(
 #   wired, discovered by the first caller who asks for a person. False makes the publish
 #   refuse by name instead.
 CARTESIA_CAPABILITIES = EngineCapabilities(
+    # Unmeasured rather than known-false: this adapter hosts no agent and has never carried
+    # a call, so the honest declaration is the one that composes the sentence we have always
+    # composed. It becomes a real answer the day the leg does.
+    records_audio=True,
     stt="engine",
     tts="engine",
     llm="engine",
