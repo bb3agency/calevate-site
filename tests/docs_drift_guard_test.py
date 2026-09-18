@@ -928,7 +928,19 @@ class TestLegalContentHash:
             "the mirror and the raw file disagree about how many revisions carry a hash"
         )
         assert expected, "no hash to delete — this test would prove nothing"
-        start = versions.index(target)
+        # ⚠ **THE CURRENT REVISION'S HASH, NOT THE FIRST ONE IN THE FILE (18 Sep 2026).**
+        # This deleted `versions.index(target)` — the first hash anywhere in the bundle —
+        # and passed only because that happened to belong to a document's CURRENT revision.
+        # Appending privacy revision 7 made privacy's first hash a HISTORICAL one, which the
+        # guard correctly does not flag, so a detection test started reporting that
+        # detection had stopped working. The test's own name says `current`; it now picks a
+        # hash that is one, from the mirror rather than from file order.
+        current_hash = next(
+            entry["content_hashes"][-1]  # type: ignore[index,union-attr]
+            for entry in guard.web_legal_versions().values()
+            if entry["content_hashes"][-1] is not None  # type: ignore[index,union-attr]
+        )
+        start = versions.index(f'contentHash: "{current_hash}"')
         end = versions.index("\n", start)
         mutated = versions[:start] + versions[end + 1 :]
         self._bundle(tmp_path, monkeypatch, mutated)

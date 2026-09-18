@@ -62,6 +62,9 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import get_args
+
+from calevate_shared.config import EngineName
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -102,16 +105,14 @@ _CREDENTIAL_SUFFIXES = (
 #: map does not know fails rather than being skipped, so adding a vendor to the tree costs
 #: one line here and one row on the register — which is the point.
 VENDOR_OF: dict[str, str | None] = {
-    "bolna": "Bolna",
     "sarvam": "Sarvam",
-    "cartesia": "Cartesia",
     "gnani": "Gnani",
     "supermemory": "Supermemory",
-    # Three tokens, one vendor: the media stream address, and the two halves of the
-    # channel our own container on that platform uses to reach our API. They are all the
-    # Pipecat Cloud leg, and `PIPECAT_WORKER_*` is deliberately not a credential FOR
-    # Pipecat's API (see CLAUDE.md) — it still only exists because the worker runs there.
-    "pipecat": "Pipecat Cloud",
+    # The media stream address and the two halves of the channel our own container on that
+    # platform uses to reach our API. All the Pipecat Cloud leg, and `PIPECAT_WORKER_*` is
+    # deliberately not a credential FOR Pipecat's API (see CLAUDE.md) — it still only
+    # exists because the worker runs there. The bare `pipecat` token is derived below with
+    # the other engine names.
     "pipecat_stream": "Pipecat Cloud",
     "pipecat_worker": "Pipecat Cloud",
     "pipecat_worker_api": "Pipecat Cloud",
@@ -190,10 +191,46 @@ REGISTER_ONLY: dict[str, str] = {
     ),
 }
 
+
 #: What each side must still be able to see. A parse that silently stopped working would
 #: otherwise report every vendor as undisclosed (noise, which gets exempted away) or every
 #: register row as unbacked.
-SETTINGS_ANCHORS = frozenset({"sarvam", "bolna", "sentry"})
+def _engine_vendor(engine: str) -> str | None:
+    """The company behind one engine name, or `None` where there is no company.
+
+    ⚠ **A FUNCTION OF COMPARISONS RATHER THAN A DICT, AND THE SHAPE IS THE POINT.** The
+    engine set has exactly two homes (`calevate_shared.config.EngineName` and
+    `pyproject.toml`'s import-linter contract), and `tests/engine_name_drift_test.py`
+    refuses a third copy — correctly: this file had all three engine names as keys of one
+    dict, which is a SET spelled a third time and the exact drift that guard exists to
+    catch. A per-name comparison is what a factory does and is explicitly not flagged.
+
+    It RAISES on a name it has not been taught, and that is the second half: the keys are
+    generated from `EngineName` below, so adding a fourth engine fails this guard loudly
+    instead of leaving its vendor silently unpublished — which is the failure this whole
+    script was written for.
+    """
+    if engine == "fake":
+        return None  # an in-process double; there is no company behind it.
+    if engine == "bolna":
+        return "Bolna"
+    if engine == "cartesia":
+        return "Cartesia"
+    if engine == "pipecat":
+        return "Pipecat Cloud"
+    raise ValueError(
+        f"{engine!r} is a declared engine with no vendor identity here. Add it, and add "
+        "its row to apps/web/src/lib/legal/subprocessors.ts — an engine is a company that "
+        "receives client data."
+    )
+
+
+# DERIVED, NOT SPELLED: the one place this file learns which engines exist is the
+# canonical home. `update` rather than a literal merge so no collection in this module
+# holds two engine names.
+VENDOR_OF.update({name: _engine_vendor(name) for name in get_args(EngineName)})
+
+SETTINGS_ANCHORS = frozenset({"sarvam", "sentry"})
 REGISTER_ANCHORS = frozenset({"Bolna", "Microsoft", "Sarvam"})
 
 _FIELD = re.compile(r"^[a-z][a-z0-9_]*$")

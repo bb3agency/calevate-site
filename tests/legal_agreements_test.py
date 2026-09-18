@@ -385,13 +385,21 @@ def test_the_second_voice_vendor_re_asks_the_two_documents_that_disclose_it() ->
     """
     for slug in ("privacy", "dpa"):
         spec = _spec(slug)
-        assert spec.current.revision == "6", (
-            f"{slug} must be at the revision that discloses the second voice vendor"
-        )
-        assert spec.current.material is True, (
+        # ⚠ **PINNED BY REVISION NUMBER, NOT BY "IS THE HEAD" (corrected 18 Sep 2026).**
+        # This asserted `spec.current.revision == "6"`, which made every LATER revision of
+        # either document fail a test about the second voice vendor — and privacy 7 (the
+        # retention periods §9 had never published) duly did. The property is about one
+        # revision's flag, and the head is not that revision for ever; asserting it was the
+        # head measured "has anything happened since", which is not a thing this suite has
+        # an opinion on.
+        disclosing = next(r for r in spec.revisions if r.revision == "6")
+        assert disclosing.material is True, (
             f"{slug} revision 6 discloses a new recipient of caller-derived text; a "
             f"client who accepted revision 5 has not been told about it"
         )
+        # The half that actually protects the client, and it holds under any later head:
+        # somebody still sitting on revision 5 is re-asked, because a material revision
+        # anywhere in the chain re-asks (the clause above this one pins that rule itself).
         assert catalogue.reacceptance_required(spec, catalogue.version_of("5")) is True
 
 

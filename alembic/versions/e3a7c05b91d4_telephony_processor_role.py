@@ -48,7 +48,18 @@ def upgrade() -> None:
 def downgrade() -> None:
     # The rows this revision made insertable have to go before the narrower constraint can
     # hold. Scoped to exactly those rows: nothing that predates this revision is touched.
+    #
+    # ⚠ **BRACKETED, AND WITHOUT THE BRACKET THIS DOWNGRADE WAS SILENTLY BROKEN.**
+    # `processor_erasure_tasks` is FORCE RLS and `tenant_isolation` is fail-closed on an
+    # unset `app.tenant_id`, so a migration's DELETE matches ZERO rows and reports success —
+    # after which `create_check_constraint` fails on the rows it believed gone, naming a
+    # constraint violation rather than the real cause. `tests/migration_rls_bracket_test.py`
+    # caught exactly this. The bracket lifts RLS for the OWNER only: `calevate_app` is
+    # NOSUPERUSER NOBYPASSRLS and keeps every policy, and DDL is transactional so FORCE is
+    # restored before commit (`d3b71c9a5e08` is the precedent and carries the full argument).
+    op.execute("ALTER TABLE processor_erasure_tasks NO FORCE ROW LEVEL SECURITY")
     op.execute("DELETE FROM processor_erasure_tasks WHERE processor = 'telephony'")
+    op.execute("ALTER TABLE processor_erasure_tasks FORCE ROW LEVEL SECURITY")
     op.drop_constraint("processor_is_known", "processor_erasure_tasks", type_="check")
     op.create_check_constraint(
         "processor_is_known", "processor_erasure_tasks", _OLD
