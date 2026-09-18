@@ -153,6 +153,39 @@ class Organization(PKMixin, TimestampMixin, Base):
     staff_may_curate_knowledge: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    #: THE ACCOUNT'S OUTBOUND IS SERVICE/TRANSACTIONAL, AND THE GATE ENFORCES IT (D-624).
+    #:
+    #: ⚠ **THIS COLUMN EXISTS BECAUSE A BACKSTOP WAS REMOVED, AND IT IS THE ONLY THING THAT
+    #: REPLACES IT.** `compliance/service.py`'s consent check is deliberately permissive —
+    #: *"ABSENCE IS NOT A REFUSAL, and that asymmetry is the whole design"* — because most
+    #: dialable leads legitimately have no `consent_ledger` row (a number typed in by staff,
+    #: a CSV import, a caller who rang US), and refusing all of them would be met as an
+    #: outage rather than a rule. That was the right default while a client's DLT PE/TM
+    #: registration stood behind it: the registration, not the ledger, was what separated a
+    #: relationship call from a cold list.
+    #:
+    #: An account whose outbound is sold and classified as SERVICE/TRANSACTIONAL has no such
+    #: registration behind it. Its whole position is that it calls the client's own existing,
+    #: consenting customers about those customers' own bookings and orders — a classification
+    #: TRAI's promotional/transactional distinction turns on. Under the permissive default
+    #: that position is an INTENTION: nothing stops a client with a quiet month uploading a
+    #: prospect list, and the first anyone would know is a complaint, under a rule
+    #: (TCCCPR Reg 25(6)) that disconnects "all telecom resources of the sender" and
+    #: blacklists for up to two years.
+    #:
+    #: So on this account absence of an affirmative, unexpired `granted` consent row REFUSES
+    #: the dial. It does not merely warn: a warning on a campaign nobody reads is the
+    #: intention again with extra steps.
+    #:
+    #: **DEFAULT FALSE, AND THAT IS NOT TIMIDITY.** Flipping the global default would change
+    #: the answer for every existing account at once — the exact "outage rather than a rule"
+    #: the permissive comment warns about — and the accounts that need this are the ones
+    #: SOLD on the service/transactional footing, which is a commercial fact about an
+    #: account and not a property of the software. `docs/evidence/
+    #: dlt-roles-and-operating-model-2026-09-18.md` addendum 2 carries the reasoning.
+    outbound_requires_consent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
     #: THE GRACE WINDOW BETWEEN "CLOSED" AND "ERASED" (D-538, migration e6c1a49d2f70).

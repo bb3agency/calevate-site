@@ -241,6 +241,40 @@ cite the same string:
   and re-derived by `POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute` or by the
   client's own cap write.
 
+### 3a. The per-dial consent posture (D-624) — one switch, off by default
+
+`check_dispatch` is deliberately permissive about consent, and its own comment says why:
+*"ABSENCE IS NOT A REFUSAL, and that asymmetry is the whole design"*. Most dialable numbers
+have no `consent_ledger` row — typed in by staff, imported from a spreadsheet, or belonging
+to somebody who rang US — and refusing all of them would be met as an outage rather than as
+a rule. A row that says `declined` or `withdrawn` refuses (`no_consent`); a row that has
+lapsed refuses (`consent_expired`); no row at all dials.
+
+`organizations.outbound_requires_consent` is how one account asks for the other answer. With
+it ON, a number with no consent record is refused **`no_consent_record`** — a rule of its
+own, not folded into `no_consent`, because "their permission lapsed" and "you never had one"
+are different instructions to whoever reads the refusal. It is in `PERSON_LEVEL_REFUSALS`:
+only the person granting lifts it, so a dispatcher that treated it as transient would
+re-claim, re-gate and refund the same contact every tick for the life of the campaign.
+
+**What it is FOR.** The service/transactional footing this product is sold on rests entirely
+on who is called: the client's own existing customers, about those customers' own bookings.
+Nothing in the system held that position, so it was an intention. The failure that leaves
+open is ordinary — a client who signed up for appointment reminders has a quiet month and
+uploads a prospect list — and the first anyone hears of it is a complaint, under TCCCPR
+Reg 25(6), which disconnects *"all telecom resources of the sender"*.
+
+**What it is NOT.** Leaving it off is not permission to call strangers; it means this system
+stops being the thing that checks, and the obligation stays where the Regulations put it, on
+the sender. Every client-facing sentence about the switch says that in both positions.
+
+Read on `org:read` and written on `org:manage` through
+`GET`/`PUT /v1/compliance/call-consent/policy`, audited as
+`organization.outbound_consent_policy_set` with the value and whether it moved. `org:manage`
+is in `MUTATING_PERMISSIONS`, so an impersonating operator (D-22) cannot widen an account's
+calling posture under the owner's name. Nothing turns it on for a new account and no plan
+implies it: it is one switch an owner finds.
+
 ## 4. Data Protection (DPDP) — Feature Map
 
 | Obligation | Feature |

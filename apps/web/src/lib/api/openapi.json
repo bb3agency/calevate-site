@@ -15373,6 +15373,36 @@
         "title": "OtpRequestIn",
         "type": "object"
       },
+      "OutboundConsentPolicyIn": {
+        "additionalProperties": false,
+        "description": "The whole of the resource, which is what makes this a PUT rather than a PATCH.",
+        "properties": {
+          "outbound_requires_consent": {
+            "title": "Outbound Requires Consent",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "outbound_requires_consent"
+        ],
+        "title": "OutboundConsentPolicyIn",
+        "type": "object"
+      },
+      "OutboundConsentPolicyOut": {
+        "additionalProperties": false,
+        "description": "Whether a missing opt-in refuses a dial on this account.\n\nA DECLARED model rather than a bare mapping, for the reason `kb/routes.StaffCurationOut`\ngives: `scripts/check_redaction_exposure.py` walks response models and is structurally\nblind to a route that declares none, and the generated TS client renders a mapping as an\nindex signature the frontend then hand-types.",
+        "properties": {
+          "outbound_requires_consent": {
+            "title": "Outbound Requires Consent",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "outbound_requires_consent"
+        ],
+        "title": "OutboundConsentPolicyOut",
+        "type": "object"
+      },
       "OverridePackOut": {
         "additionalProperties": false,
         "description": "One pack an operator may sell a purchase at the rates of (Q6).\n\nPublished by the wallet read rather than kept in the console, for the reason every\nother list here is: a pack ladder spelled twice is a ladder that drifts, and the rates\nshown beside each option have to be the ones the write will actually freeze.",
@@ -35090,6 +35120,71 @@
           "compliance"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/compliance/call-consent/policy": {
+      "get": {
+        "operationId": "get_outbound_consent_policy_v1_compliance_call_consent_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundConsentPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this account refuses to dial a number with no opt-in on file",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "Off for every account until its owner turns it on. Switching it ON means a number with no consent record is refused rather than dialled \u2014 the account calls only people who have agreed to be contacted. Turn it on when the account's outbound is service or transactional: reminders, confirmations and follow-ups to the business's own existing customers. Leaving it off does not grant permission to call strangers; it means this system stops being the thing that checks.",
+        "operationId": "set_outbound_consent_policy_v1_compliance_call_consent_policy_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboundConsentPolicyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundConsentPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Require an opt-in before this account dials a number, or stop requiring it",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/caller-notice": {

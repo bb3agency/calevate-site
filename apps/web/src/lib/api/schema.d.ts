@@ -4082,6 +4082,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/call-consent/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether this account refuses to dial a number with no opt-in on file */
+        get: operations["get_outbound_consent_policy_v1_compliance_call_consent_policy_get"];
+        /**
+         * Require an opt-in before this account dials a number, or stop requiring it
+         * @description Off for every account until its owner turns it on. Switching it ON means a number with no consent record is refused rather than dialled — the account calls only people who have agreed to be contacted. Turn it on when the account's outbound is service or transactional: reminders, confirmations and follow-ups to the business's own existing customers. Leaving it off does not grant permission to call strangers; it means this system stops being the thing that checks.
+         */
+        put: operations["set_outbound_consent_policy_v1_compliance_call_consent_policy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/caller-notice": {
         parameters: {
             query?: never;
@@ -13402,6 +13423,27 @@ export interface components {
              * @constant
              */
             purpose: "email_verify";
+        };
+        /**
+         * OutboundConsentPolicyIn
+         * @description The whole of the resource, which is what makes this a PUT rather than a PATCH.
+         */
+        OutboundConsentPolicyIn: {
+            /** Outbound Requires Consent */
+            outbound_requires_consent: boolean;
+        };
+        /**
+         * OutboundConsentPolicyOut
+         * @description Whether a missing opt-in refuses a dial on this account.
+         *
+         *     A DECLARED model rather than a bare mapping, for the reason `kb/routes.StaffCurationOut`
+         *     gives: `scripts/check_redaction_exposure.py` walks response models and is structurally
+         *     blind to a route that declares none, and the generated TS client renders a mapping as an
+         *     index signature the frontend then hand-types.
+         */
+        OutboundConsentPolicyOut: {
+            /** Outbound Requires Consent */
+            outbound_requires_consent: boolean;
         };
         /**
          * OverridePackOut
@@ -24479,6 +24521,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallConsentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_outbound_consent_policy_v1_compliance_call_consent_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboundConsentPolicyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_outbound_consent_policy_v1_compliance_call_consent_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutboundConsentPolicyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboundConsentPolicyOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

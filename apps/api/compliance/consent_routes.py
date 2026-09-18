@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import consent
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.consent_policy import read_policy, write_policy
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -58,6 +59,11 @@ Session = Annotated[AsyncSession, Depends(db)]
 # resolution, as `dnc_routes.py` and `registration_routes.py`.
 Recorder = Annotated[Principal, Depends(requires("leads:dispatch"))]
 Reader = Annotated[Principal, Depends(requires("leads:read"))]
+#: The outbound-consent posture is an ORGANIZATION setting, not a leads one (D-624): reading
+#: it is `org:read` and moving it is `org:manage`, the same pair the rest of the account's
+#: settings use.
+OrgReader = Annotated[Principal, Depends(requires("org:read"))]
+OrgManager = Annotated[Principal, Depends(requires("org:manage"))]
 
 # Spelled as a Literal rather than derived from the tuple so the generated TypeScript
 # client gets a union it can switch on. The tuple in `compliance/models.py` is still the
@@ -278,3 +284,94 @@ async def record_call(
 
 
 __all__ = ["call_router", "router"]
+
+
+# ---------------------------------------------------------------------------------------
+# THE ACCOUNT'S OUTBOUND CONSENT POSTURE (D-624)
+#
+# On the SAME router as the call-consent rows it governs, because it is the same question
+# one level up: those endpoints record whether ONE person agreed, this one records whether
+# this account will dial someone who has not. A separate `/v1/compliance/outbound-policy`
+# would put the switch and the rows it decides on two screens that never mention each other.
+# ---------------------------------------------------------------------------------------
+
+
+class OutboundConsentPolicyOut(Strict):
+    """Whether a missing opt-in refuses a dial on this account.
+
+    A DECLARED model rather than a bare mapping, for the reason `kb/routes.StaffCurationOut`
+    gives: `scripts/check_redaction_exposure.py` walks response models and is structurally
+    blind to a route that declares none, and the generated TS client renders a mapping as an
+    index signature the frontend then hand-types.
+    """
+
+    outbound_requires_consent: bool
+
+
+class OutboundConsentPolicyIn(Strict):
+    """The whole of the resource, which is what makes this a PUT rather than a PATCH."""
+
+    outbound_requires_consent: bool
+
+
+@call_router.get(
+    "/policy",
+    response_model=OutboundConsentPolicyOut,
+    # `org:read`, not `org:manage`: SEEING why a dial was refused is not the authority to
+    # change the answer, and every role in both realms holds `org:read` — so a staff member
+    # reading `no_consent_record` on a campaign can find out what it means, and an
+    # impersonating operator sees the same screen the client does (D-22).
+    openapi_extra=permission_meta("org:read"),
+    summary="Whether this account refuses to dial a number with no opt-in on file",
+)
+async def get_outbound_consent_policy(session: Session, _: OrgReader) -> OutboundConsentPolicyOut:
+    return OutboundConsentPolicyOut(outbound_requires_consent=await read_policy(session))
+
+
+@call_router.put(
+    "/policy",
+    response_model=OutboundConsentPolicyOut,
+    # `org:manage` — the owner's permission, and the only one that is right here. Turning
+    # this OFF widens who the account may lawfully call, which is not a decision a `staff`
+    # role makes about itself. It is in `MUTATING_PERMISSIONS`, so D-22 refuses an
+    # impersonating admin: an operator who believes an account should be able to dial
+    # strangers says so to the owner rather than doing it under the owner's name.
+    openapi_extra=permission_meta("org:manage"),
+    summary="Require an opt-in before this account dials a number, or stop requiring it",
+    description=(
+        "Off for every account until its owner turns it on. Switching it ON means a number "
+        "with no consent record is refused rather than dialled — the account calls only "
+        "people who have agreed to be contacted. Turn it on when the account's outbound is "
+        "service or transactional: reminders, confirmations and follow-ups to the "
+        "business's own existing customers. Leaving it off does not grant permission to "
+        "call strangers; it means this system stops being the thing that checks."
+    ),
+)
+async def set_outbound_consent_policy(
+    payload: OutboundConsentPolicyIn,
+    session: Session,
+    request: Request,
+    principal: OrgManager,
+) -> OutboundConsentPolicyOut:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolved it
+    changed = await write_policy(session, enabled=payload.outbound_requires_consent)
+    await write_audit(
+        session,
+        action="organization.outbound_consent_policy_set",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="organization",
+        object_id=str(principal.tenant_id),
+        ip=client_request_ip(request),
+        # THE VALUE AND THE DIRECTION, for `kb/routes`' reason: a boolean about who may be
+        # called is neither client business copy nor anyone's personal data (hard rule 6),
+        # and WHICH WAY it moved is the entire fact an investigator asking "when did this
+        # account start dialling people with no opt-in" needs. `changed` sits beside it
+        # because a PUT is idempotent — a run of identical entries is a run of requests
+        # somebody made, and only one of them moved the account.
+        summary={
+            "outbound_requires_consent": payload.outbound_requires_consent,
+            "changed": changed,
+        },
+    )
+    return OutboundConsentPolicyOut(outbound_requires_consent=payload.outbound_requires_consent)

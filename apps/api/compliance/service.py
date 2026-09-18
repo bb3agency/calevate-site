@@ -226,9 +226,44 @@ MAINTENANCE_DRAIN_REASON = (
 #: — rather than on the surface word "clock": `calling_hours` is about the clock and
 #: becomes FALSE by waiting; a lapsed permission becomes more true. Only an affirmative
 #: act by the PERSON lifts it, which is the definition of a person-level fact.
+#: An account on the SERVICE/TRANSACTIONAL footing refused this dial because there is no
+#: opt-in on file at all (D-624). Distinct from `no_consent`, which means an opt-in EXISTS
+#: and says no — and the distinction is the operator's, not a nicety: one is fixed by
+#: capturing consent, the other by never calling this person again.
+NO_CONSENT_RECORD_RULE = "no_consent_record"
+
+#: ⚠ `no_consent_record` IS PERSON-LEVEL, and getting this wrong is the livelock
+#: `PERSON_LEVEL_REFUSALS` exists for. A missing opt-in does not become present by waiting
+#: thirty minutes, so a batch dialler must SETTLE the contact rather than re-claim it every
+#: tick for ever. Only an affirmative act by the person — a form, a booking, a reply, an
+#: inbound call — lifts it, which is the membership test this set applies.
 PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset(
-    {"dnc", "no_consent", "destination_not_india", "consent_expired"}
+    {"dnc", "no_consent", "destination_not_india", "consent_expired", NO_CONSENT_RECORD_RULE}
 )
+
+
+async def _outbound_requires_consent(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Is this account on the service/transactional footing (D-624)?
+
+    Read from `organizations` rather than carried in the caller's arguments, because every
+    caller of `check_dispatch` would otherwise have to fetch and pass it, and one that
+    forgot would silently get the permissive answer — a fail-OPEN default on the one check
+    standing in for a removed backstop. Asked only when the consent row is ABSENT, so the
+    common path (a number with a ledger row, either way) costs nothing.
+
+    A missing organization row answers FALSE rather than raising: `check_dispatch` is a
+    gate whose other clauses have already resolved the tenant, so a row that vanished
+    mid-request is a concurrent deletion, and refusing every dial on an account being
+    deleted would be a worse failure than the permissive default it falls back to.
+    """
+    row = (
+        await session.execute(
+            text("SELECT outbound_requires_consent FROM organizations WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    return bool(row[0]) if row is not None else False
+
 
 #: The India-only freeze, as a dial predicate. LEGAL-OPS-PLAYBOOK's scope is frozen to
 #: Andhra Pradesh + Telangana / India-only B2B: no foreign clients, and its stop-list is
@@ -955,6 +990,34 @@ async def check_dispatch(
             {"phone": phone_e164, "tid": tenant_id},
         )
     ).first()
+    # ⚠ **AND ON A SERVICE/TRANSACTIONAL ACCOUNT, ABSENCE *IS* A REFUSAL — D-624.** The
+    # asymmetry above is not weakened; it is made per-account, because what stood behind it
+    # was removed for some accounts and not others.
+    #
+    # The permissive default was right while the client's DLT Principal-Entity registration
+    # was the backstop: the REGISTRATION separated a relationship call from a cold list, and
+    # the ledger did not have to. An account sold on a SERVICE/TRANSACTIONAL footing has no
+    # such registration, and its entire position is that it calls the client's own existing
+    # consenting customers about those customers' own bookings — which is the classification
+    # TRAI's promotional-versus-transactional line turns on. Leave the permissive default on
+    # such an account and that position is an INTENTION: a client with a quiet month uploads
+    # a prospect list, nothing refuses, and the first anyone knows is a complaint under a
+    # rule that disconnects "all telecom resources of the sender" (TCCCPR Reg 25(6)).
+    #
+    # Checked HERE rather than beside the DLT block below, and the placement is the point: on
+    # these accounts consent REPLACES the registration, so it must be asked in the same
+    # breath as the rest of the person-level questions and not inside a `dlt_governed` branch
+    # they may never enter.
+    if consent is None and await _outbound_requires_consent(session, tenant_id=tenant_id):
+        return DispatchDecision(
+            allowed=False,
+            rule=NO_CONSENT_RECORD_RULE,
+            reason=(
+                "This account only calls people who have agreed to be contacted, and there "
+                "is no opt-in on file for this number. Capture consent — a form, a booking, "
+                "a reply, an inbound call — before dialling."
+            ),
+        )
     if consent is not None:
         status, expires_at = str(consent[0]), consent[1]
         if status in DIAL_REFUSING_CONSENT_STATUSES:

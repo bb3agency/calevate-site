@@ -11,12 +11,14 @@ import {
   type DncSource,
 } from "@/lib/api/dnc";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useOutboundConsentPolicy } from "@/lib/api/outboundConsent";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { AddNumbers } from "./AddNumbers";
 import { CheckNumber } from "./CheckNumber";
+import { ConsentPosture } from "./ConsentPosture";
 import { SuppressedList } from "./SuppressedList";
 import { SOURCE_OPTIONS } from "./sources";
 
@@ -53,6 +55,12 @@ export default function DoNotCallPage() {
   const session = useClientSession();
   const entries = useDncList(session);
   const write = useWriteAccess(session, "leads:dispatch", "add or remove numbers on this list");
+  // Read HERE as well as in the card, and it is one request: `ConsentPosture` uses the same
+  // query key, so TanStack serves the second caller from cache. Declared to the assistant
+  // from the page rather than the card for the reason the docstring below gives — a
+  // declaration made inside a card that a read-only session cannot see would vanish for
+  // exactly the reader most likely to ask why a call was refused.
+  const policy = useOutboundConsentPolicy(session);
 
   const [paste, setPaste] = useState("");
   const [source, setSource] = useState<DncSource>("manual");
@@ -157,6 +165,16 @@ export default function DoNotCallPage() {
         value: tooMany ? `yes — the ceiling is ${MAX_NUMBERS_PER_ADD} per add` : "no",
       },
       {
+        key: "requires_opt_in",
+        label: "Does this account refuse to dial a number with no opt-in on file?",
+        value:
+          policy.data === undefined
+            ? "not known"
+            : policy.data.outbound_requires_consent
+              ? "yes — a number with no consent record is refused as no_consent_record"
+              : "no — a number with no consent record is dialled, which is the default",
+      },
+      {
         key: "may_change",
         label: "May this session add or remove numbers?",
         value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
@@ -180,6 +198,11 @@ export default function DoNotCallPage() {
       </p>
 
       <RestrictionNote reason={write.reason} />
+
+      {/* ABOVE the list, because it is the wider fact. The list names individual people we
+          must not ring; this says whether anyone with no record at all may be rung, which
+          is the question a reader who arrived here after a refused campaign is asking. */}
+      <ConsentPosture session={session} />
 
       {/* Checking comes first: it is the question someone actually arrives with
           ("did we stop calling this person?"), and it is the one thing everyone with
