@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import {
+  LINK_TOKEN_REFERRER_POLICY,
+  REFERRER_POLICY_HEADER_NAME,
+  carriesLinkToken,
+} from "@/lib/authn/linkTokenRoutes";
+import {
   CSP_HEADER_NAME,
   REPORTING_ENDPOINTS_HEADER_NAME,
   apiConnectOrigin,
@@ -50,6 +55,18 @@ export function middleware(request: NextRequest): NextResponse {
   response.headers.set(CSP_HEADER_NAME, csp);
   const reportingEndpoints = reportingEndpointsHeader(apiOrigin);
   if (reportingEndpoints) response.headers.set(REPORTING_ENDPOINTS_HEADER_NAME, reportingEndpoints);
+
+  // NARROWER THAN THE EDGE'S `Referrer-Policy`, ON THE ROUTES THAT ARRIVE CARRYING A
+  // SINGLE-USE CREDENTIAL. The edge serves `strict-origin-when-cross-origin`
+  // (`infra/nginx/snippets/calevate-headers.conf`), whose SAME-ORIGIN arm is the full URL
+  // — so every chunk and font this document preloads left with
+  // `Referer: …/auth/reset-password?token=<secret>` BEFORE `useLinkToken`'s effect could
+  // strip the query string, and nginx logs `$http_referer` verbatim. `set` replaces the
+  // inherited value for this response only; every other route keeps the edge default.
+  // `lib/authn/linkTokenRoutes.ts` holds the list, the value and the full argument.
+  if (carriesLinkToken(request.nextUrl.pathname)) {
+    response.headers.set(REFERRER_POLICY_HEADER_NAME, LINK_TOKEN_REFERRER_POLICY);
+  }
   return response;
 }
 

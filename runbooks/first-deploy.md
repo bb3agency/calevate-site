@@ -43,6 +43,35 @@ Nothing below can be improvised, and each is somebody else's to provide:
       you happened to be on. In the dashboard it is "Create bucket" → **Location** →
       choose a region instead of leaving *None*. The full argument, both buckets, and why
       a hint is placement and NOT residency: `infra/README.md` §5 item 2.
+- [ ] **A THIRD R2 token — read-only, for the voice worker alone** (DEPLOYMENT §12.5
+      gate 10). The Pipecat Cloud container does exactly one thing to object storage:
+      `get_object` on `knowledge-packs/<tenant>/<agent>/<sha>.json`
+      (`apps/voice-worker/voice_worker/storage.py`). It must NOT get the token above:
+      that one reads and WRITES the same bucket's `recordings/`, `kb-uploads/` and
+      `engine-payloads/` for every tenant, and the container is operated by a third
+      party. Create it read-only, scoped as narrowly as R2 lets you (R2 → API tokens),
+      and hold it as `KB_PACK_READONLY_ACCESS_KEY_ID` /
+      `KB_PACK_READONLY_SECRET_ACCESS_KEY`; `pipecat-worker-setup.sh secrets` asks for it
+      under those names, never offers the VPS value for it, and refuses that value if you
+      paste it. It goes into the Pipecat secret set ONLY — never into `/var/www/calevate/
+      .env`. ⚠ Whether an R2 token can be scoped to the `knowledge-packs/` PREFIX rather
+      than only to the bucket is **UNKNOWN — `developers.cloudflare.com` is not readable
+      from the development container** (403 on CONNECT, measured 18 Sep 2026); check it in
+      the dashboard and use the prefix if it is offered. Read-only bucket scope is the
+      floor.
+- [ ] **A Plivo credential for the voice worker that is NOT your account-level one**
+      (DEPLOYMENT §12.5 gate 11). The worker uses it only to hang a leg up; the
+      account-level auth token can also originate calls, buy numbers and read every CDR,
+      in that same third-party container. Hold it as `PLIVO_WORKER_AUTH_ID` /
+      `PLIVO_WORKER_AUTH_TOKEN`. ⚠ **What Plivo actually offers as the narrowest such
+      credential is UNKNOWN — `www.plivo.com` is not readable from the development
+      container** (403 on CONNECT, measured 18 Sep 2026), so nothing here claims
+      subaccounts or scoped keys exist. In the Plivo console, check in this order:
+      (a) a credential that can terminate a call but not originate one, buy a number or
+      list CDRs; (b) failing that, a subaccount limited to this worker's numbers;
+      (c) failing both, keep the account-level value knowingly, with rotation plus spend
+      and concurrency limits as the compensating control — and write which of the three
+      you found into gate 11, with the screen it came from.
 - [ ] A **non-Cloudflare** offsite target for the nightly dump — B2, S3 or a Hetzner
       Storage Box. The edge and the WAL archive are already the same vendor; this copy is
       the one that survives a Cloudflare account event.

@@ -24,6 +24,19 @@
  *
  * The token is never logged and never rendered. It goes from the URL into state into one
  * request body, and nowhere else.
+ *
+ * ## ⚠ WHAT THIS HOOK CANNOT DO, AND WHERE THAT HALF LIVES
+ *
+ * It runs in a `useEffect`, so it runs AFTER the first paint. Every same-origin
+ * subresource the document already asked for — `/_next/static/chunks/*`, the
+ * `next/font/local` files — was requested while the URL still held the token, and each
+ * one carried it in `Referer`. No amount of care here reaches those: the preloads are in
+ * the head and the effect has not run yet.
+ *
+ * That leak is closed OUTSIDE this file, in two places, and this note exists so neither
+ * reads as redundant: `src/middleware.ts` serves `Referrer-Policy: strict-origin` on the
+ * routes listed in `linkTokenRoutes.ts`, and `infra/nginx/00-log-format.conf.template`
+ * redacts `token=` out of the logged `$http_referer` whatever the browser sent.
  */
 
 import { useEffect, useState } from "react";

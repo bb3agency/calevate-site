@@ -1720,13 +1720,13 @@ container. Nothing fetches one from the other.
 | `PIPECAT_WORKER_API_BASE_URL` | yes | the public base URL of `apps/api` (e.g. `https://api.calevate.tech`) | where the worker reads its published agent from and posts its calls' events to (D-621). ⚠ **`DATABASE_URL` WAS THIS ROW AND IS GONE.** The worker cannot reach our Postgres at all — it is on the VPS host behind the Docker bridge (`compose.prod.yml:36`) and this container is box 1 on Pipecat Cloud, a different network — so a DSN here was a value that could never have connected. See §12.5 gate 6, now closed. It is a `Settings` field classified `ENV_ONLY`, because nothing on the VPS reads it. |
 | `PIPECAT_WORKER_API_TOKEN` | yes | ops console (`pipecat_worker_api_token`) | the Bearer token the worker presents to `/v1/worker/*`. CONSOLE-MANAGED, unlike the base URL beside it and unlike `GNANI_API_KEY`: `apps/api/worker/service.authorized` reads it to verify the header, so it has a reader on this host and belongs in the credential store. The SAME value goes in this secret set — a human puts it in both places and nothing fetches one from the other. ⚠ It is NOT `bolna_caller_data_token` reused: that one opens a READ of caller memory for a rented engine, this one opens the WRITE surface for our ledger. Absent on the API side ⇒ every `/v1/worker/*` route answers 401 to everybody. |
 | `OBJECT_STORE_ENDPOINT` / `OBJECT_STORE_BUCKET` | yes | secrets manager | the R2 bucket the knowledge pack is fetched from at session start |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | yes | secrets manager | botocore resolves these itself; the boot gate only checks that they are PRESENT, because a field of ours would be a second value the SDK ignores |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | yes | **a knowledge-pack-only R2 token, into THIS secret set only** (`KB_PACK_READONLY_ACCESS_KEY_ID` / `KB_PACK_READONLY_SECRET_ACCESS_KEY` — §12.5 gate 10) | botocore resolves these itself; the boot gate only checks that they are PRESENT, because a field of ours would be a second value the SDK ignores. ⚠ **NOT THE VPS'S R2 CREDENTIAL, AND THE SETUP SCRIPT REFUSES IT.** This container does exactly one `get_object` under `knowledge-packs/` (`voice_worker/storage.py`); the platform credential reads and WRITES the same bucket's `recordings/`, `kb-uploads/` and `engine-payloads/` for every tenant, and a vendor's runtime operates this container. The NAME stays the vendor's because botocore reads no other (`boot.py:108`); the credential behind it is a separate, read-only one. |
 | `AWS_REGION` | no | defaults to `auto` | R2's documented signature scope (D-450), not a placement |
 | `SARVAM_API_KEY` | yes | ops console (`sarvam_api_key`) | STT on every call, and today's TTS |
 | `CARTESIA_API_KEY` | no | ops console (`cartesia_api_key`) | the Studio voice tier only |
 | `GNANI_API_KEY` | no | **Gnani account, into THIS secret set only** | the Gnani TTS leg (D-618), used by an agent whose `ModelConfig.tts_provider` names it; a container without it refuses that call by name and serves every other one. It is a `Settings` field so the ops console can LIST it under *Set outside this console* with `held_by` naming this secret set — and it REFUSES to store it, because `PLATFORM_KEK` is not in this image and, unlike `CARTESIA_API_KEY`, nothing in `apps/api` holds a Gnani client to give a stored value to. ⚠ No Gnani voice is offerable until somebody also attests what a Gnani minute costs (hard rule 7, OPERATIONS §2 gate 56), so installing this key alone changes nothing a client can see. |
 | `AZURE_OPENAI_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | **at least one** | ops console | the in-call LLM. WHICH one a call needs is decided per agent by `ModelConfig.llm_provider`, so the gate demands one and a call for a provider this container has no key for is refused by name rather than run on another vendor's credential. |
-| `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | yes | Plivo account (BLOCKER-1), into THIS secret set only | read by PIPECAT, not by us. Without them the serializer cannot hang the call up at `EndFrame`, and a leg nobody hung up is a leg the carrier goes on billing. Since D-614 both are `Settings` fields, so the ops console LISTS them under *Set outside this console* with the reason and with `held_by` naming this secret set — and refuses to store them, because `PLATFORM_KEK` is not in this image and a stored value would be one nothing here could ever read. |
+| `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | yes | **a credential issued for THIS WORKER** (`PLIVO_WORKER_AUTH_ID` / `PLIVO_WORKER_AUTH_TOKEN` — §12.5 gate 11), Plivo account (BLOCKER-1), into THIS secret set only | read by PIPECAT, not by us. ⚠ **NOT THE ACCOUNT-LEVEL CREDENTIAL THE VPS USES, AND THE SETUP SCRIPT REFUSES IT**: the worker needs to hang a leg up, while that one can also originate calls, buy numbers and read every CDR. What Plivo offers as the narrowest such credential is UNKNOWN from here and is gate 11's question. Without them the serializer cannot hang the call up at `EndFrame`, and a leg nobody hung up is a leg the carrier goes on billing. Since D-614 both are `Settings` fields, so the ops console LISTS them under *Set outside this console* with the reason and with `held_by` naming this secret set — and refuses to store them, because `PLATFORM_KEK` is not in this image and a stored value would be one nothing here could ever read. |
 | `PIPECAT_WORKER_TURN_BATCH_SIZE` | no | default 8 | how many spoken turns wait in memory before one batched write (D-620). `1` restores a write per turn. |
 | `PIPECAT_WORKER_TURN_FLUSH_SECONDS` | no | default 10.0 | how long the oldest buffered turn may wait. **This is the bound on what a crash costs** — a size-only rule never flushes a conversation that has gone quiet, which is exactly when a container is replaced. Refuses zero; set the BATCH to 1 instead. |
 | `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` | no | default 20.0 | §12.4 |
@@ -2038,6 +2038,76 @@ on every exit path including a signal.
    month before a single active minute (`:93`, `:104`) against a product with no monthly
    fee (`:149`). *Pass condition*: the number is chosen against a real concurrency
    requirement and the floor is in the cost model.
+10. **Mint a KNOWLEDGE-PACK-ONLY R2 credential, and stop handing this container the
+    platform's.** ⚠ **OPENED 18 Sep 2026. IT IS A CONSOLE ACTION ONLY THE FOUNDER CAN
+    TAKE, AND UNTIL IT IS TAKEN THE WORKER RUNS WITH MORE AUTHORITY THAN IT USES.**
+
+    **What the worker actually needs.** ONE operation: `get_object` on
+    `knowledge-packs/<tenant>/<agent>/<sha>.json`
+    (`apps/voice-worker/voice_worker/storage.py::ObjectStorePackFetcher.fetch`; the key
+    builder is `calevate_shared.knowledge_pack.pack_object_key`, prefix
+    `knowledge-packs/`). No put, no list, no delete, no presign — that whole module is one
+    client builder and one `get_object`.
+
+    **What it was being given.** `scripts/deploy/pipecat-worker-setup.sh` offered this
+    host's `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` straight out of the deploy `.env`
+    — the credential `apps/workers/storage.py` uses to read AND write the SAME bucket,
+    which also holds `recordings/` (every tenant's call audio), `kb-uploads/` (their source
+    documents) and `engine-payloads/`. The container it goes into is operated by Pipecat
+    Cloud. The script now asks for `KB_PACK_READONLY_ACCESS_KEY_ID` /
+    `KB_PACK_READONLY_SECRET_ACCESS_KEY`, offers nothing from the VPS for them, and
+    REFUSES the platform-wide value if it is pasted in. **The variable name sent to the
+    container is still `AWS_ACCESS_KEY_ID`**, because botocore resolves the credential from
+    that spelling and nothing else (`voice_worker/boot.py:108`) — the name is the vendor's,
+    the credential is new.
+
+    **What the founder does, in the Cloudflare dashboard (R2 → API tokens):** create a
+    token whose permission is READ-ONLY and whose scope is the pack bucket, then put its
+    id/secret into the worker's secret set (`pipecat-worker-setup.sh secrets`) and nowhere
+    else. Rotate it there alone; it must never appear in the VPS `.env`.
+
+    ⚠ **UNKNOWN — `developers.cloudflare.com` is not readable from this container (403 on
+    CONNECT through the egress proxy, measured 18 Sep 2026), so whether an R2 API token can
+    be scoped to a PREFIX (`knowledge-packs/`) rather than only to a bucket has NOT been
+    verified and is not asserted here.** The founder checks that in the console. If prefix
+    scoping exists, scope it to `knowledge-packs/`. If it does not, a read-only
+    BUCKET-scoped token is the floor this gate accepts — and the residual exposure is then
+    read access to every recording and KB upload in that bucket, which is strictly less
+    than today's read-write but is not nothing, and is the reason this gate stays open
+    rather than closing on "read-only is fine".
+
+    *Pass condition*: `pipecat cloud secrets` holds a credential that is NOT the one in the
+    VPS `.env` (compare `last_four`), a `get_object` on a `knowledge-packs/` key succeeds
+    from the deployed container (`bot.py --preflight` plus one real session with a
+    published pack), and a `put_object` with the same credential is REFUSED.
+11. **Issue the voice worker its own Plivo credential, not the account's.** ⚠ **OPENED
+    18 Sep 2026, SAME SHAPE AS GATE 10 AND ALSO A CONSOLE ACTION.**
+
+    The worker needs the carrier credential for one thing: hanging a leg up at `EndFrame`
+    (§12.2, read by Pipecat's `PlivoFrameSerializer`, `voice_worker/boot.py:133,143`). The
+    account-level `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` can also originate calls, buy
+    numbers and read every CDR on the account — in a container a third party operates, on
+    a product whose outbound path is governed by TRAI/DLT.
+
+    The script now asks for it as `PLIVO_WORKER_AUTH_ID` / `PLIVO_WORKER_AUTH_TOKEN` and
+    refuses the account-level value if it is pasted in.
+
+    ⚠ **UNKNOWN — WHAT PLIVO ACTUALLY OFFERS AS THE NARROWEST CREDENTIAL IS NOT VERIFIED
+    AND IS DELIBERATELY NOT GUESSED.** `www.plivo.com` is not readable from this container
+    (403 on CONNECT through the egress proxy, measured 18 Sep 2026), so no claim is made
+    here about subaccounts, scoped API keys, per-application credentials or IP allowlists.
+    **What the founder must check in the Plivo console**, in this order: (a) does Plivo
+    issue a credential that can terminate an in-progress call but NOT originate one, buy a
+    number, or list CDRs — under any name; (b) if not, does it issue a SUBACCOUNT
+    credential whose blast radius is limited to the numbers this worker answers on; (c) if
+    neither exists, record that here, and the compensating control is rotation plus the
+    account-level spend and concurrency limits, chosen knowingly rather than by default.
+    Whatever the answer, it is written into this gate with the console screen it came from
+    — that is a VENDOR-PUBLISHED reading, and it is the only thing that closes this gate.
+
+    *Pass condition*: the secret set holds a carrier credential distinct from the VPS's
+    (compare `last_four`), a call still hangs up cleanly at `EndFrame`, and this gate
+    records what Plivo offers, read from Plivo.
 
 **Still UNKNOWN after all of that, and listed so nobody mistakes silence for agreement:**
 whether the base image requires the entrypoint to be named exactly `bot.py`; what its

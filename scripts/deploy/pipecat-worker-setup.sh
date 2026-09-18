@@ -198,6 +198,28 @@ tail4() {
   (( ${#v} > 4 )) && printf '…%s' "${v: -4}" || printf '…'
 }
 
+# THE NAME A VALUE IS LOOKED UP UNDER, WHICH IS NOT ALWAYS THE NAME IT IS SENT UNDER.
+#
+# For eleven of the fifteen variables the two are the same and this is the identity. For
+# the four that are NOT — the R2 pair and the Plivo pair — the container must receive the
+# vendor's spelling (botocore and Pipecat's serializer each read one fixed name) while the
+# operator must supply a DIFFERENT, narrower credential. Mapping the lookup is what makes
+# the difference visible at the prompt instead of being a paragraph somebody skipped: the
+# platform-wide value sitting in this host's `.env` under `AWS_ACCESS_KEY_ID` is simply not
+# found, so it is never offered, and `secrets_cmd` refuses it if it is pasted anyway.
+#
+# The four names below are also the names these credentials carry in the ops console and
+# in `docs/DEPLOYMENT.md` §12.5 gates 10 and 11, so one string is searchable everywhere.
+prefill_key() {
+  case "$1" in
+    AWS_ACCESS_KEY_ID)     printf 'KB_PACK_READONLY_ACCESS_KEY_ID' ;;
+    AWS_SECRET_ACCESS_KEY) printf 'KB_PACK_READONLY_SECRET_ACCESS_KEY' ;;
+    PLIVO_AUTH_ID)         printf 'PLIVO_WORKER_AUTH_ID' ;;
+    PLIVO_AUTH_TOKEN)      printf 'PLIVO_WORKER_AUTH_TOKEN' ;;
+    *)                     printf '%s' "$1" ;;
+  esac
+}
+
 # --- the environment contract, in ONE list -----------------------------------------------
 #
 # Derived from DEPLOYMENT §12.2, whose own authority is `voice_worker/boot.py`. Each row is
@@ -207,16 +229,53 @@ tail4() {
 # ⚠ `boot.py` demands AT LEAST ONE of the three LLM keys rather than any particular one,
 # which no per-row flag can express — `secrets_cmd` enforces that separately, and the three
 # rows are marked `llm`.
+#
+# ══════════════════════════════════════════════════════════════════════════════════════
+# ⚠ WHAT GOES IN THIS SECRET SET LEAVES OUR CONTROL. IT IS A THIRD PARTY'S CONTAINER.
+# ══════════════════════════════════════════════════════════════════════════════════════
+#
+# Every value below is injected into a container Pipecat Cloud operates, on hardware we do
+# not own, with an image build we hand to them (D-622) and a runtime whose SIGTERM window
+# we have not even measured. That is an accepted architecture — it is not an argument for
+# giving it the keys to everything else.
+#
+# TWO OF THESE WERE THE PLATFORM-WIDE VALUES OFF THE VPS, and this list is what a human
+# copies from, so the list is where it gets fixed:
+#
+#  * **R2.** `voice_worker/storage.py` performs exactly ONE operation against the store:
+#    `self._client.get_object(Bucket=…, Key=…)` on `knowledge-packs/<tenant>/<agent>/
+#    <sha>.json` (`ObjectStorePackFetcher.fetch`; the key builder is
+#    `calevate_shared.knowledge_pack.pack_object_key`, prefix `knowledge-packs/`). No
+#    `put_object`, no `list_objects_v2`, no `delete_object`, no presign — grep it. The
+#    deploy host's `AWS_ACCESS_KEY_ID` is the credential `apps/workers/storage.py` uses
+#    for the SAME bucket, which also holds `recordings/` (every tenant's call audio),
+#    `kb-uploads/` (their source documents) and `engine-payloads/`. Handing that key to
+#    this container gives a vendor's runtime read AND write AND delete over every client's
+#    caller data, to fetch one JSON file.
+#  * **Plivo.** The worker uses the carrier credential to hang a leg up. The account-level
+#    auth token can also place calls, buy numbers and read every CDR on the account.
+#
+# SO THE PROMPTS BELOW ASK FOR A DIFFERENT CREDENTIAL, UNDER A DIFFERENT NAME
+# (`prefill_key`), and the value from the VPS `.env` is NOT offered for these four and is
+# REFUSED if it is pasted in anyway. The narrowing itself is a console action in
+# Cloudflare and in Plivo that only the founder can take — DEPLOYMENT §12.5 gates 10 and 11,
+# and `runbooks/first-deploy.md`.
+#
+# ⚠ THE VARIABLE NAME IN THE CONTAINER CANNOT CHANGE, AND THAT IS NOT DRIFT. `boot.py:108`
+# declares `AWS_ACCESS_KEY_ID` because botocore resolves the credential from that exact
+# spelling and nothing else, and `PLIVO_AUTH_ID`/`_TOKEN` are what Pipecat's own
+# `PlivoFrameSerializer` reads (`boot.py:133,143`). What changes is WHICH credential the
+# operator is asked for and where they get it; the wire name is the vendor's, not ours.
 readonly ENV_CONTRACT=(
   "PIPECAT_WORKER_API_BASE_URL|yes|where apps/api is, e.g. https://api.calevate.tech — the worker reads its config and posts its calls' events here (D-621). NOT a database DSN: this container cannot reach Postgres at all"
   "PIPECAT_WORKER_API_TOKEN|yes|the Bearer token this deployment issued its worker. The SAME value goes in the ops console under pipecat_worker_api_token; nothing copies one to the other"
   "OBJECT_STORE_ENDPOINT|yes|the R2 endpoint the knowledge pack is fetched from"
   "OBJECT_STORE_BUCKET|yes|the R2 bucket holding knowledge packs"
-  "AWS_ACCESS_KEY_ID|yes|R2 credential; botocore resolves it itself"
-  "AWS_SECRET_ACCESS_KEY|yes|R2 credential; botocore resolves it itself"
+  "AWS_ACCESS_KEY_ID|yes|the KNOWLEDGE-PACK-ONLY R2 access key id (ops console name: KB_PACK_READONLY_ACCESS_KEY_ID). NOT this host's R2 key: that one reads and writes recordings/, kb-uploads/ and engine-payloads/ for every tenant, and this container only ever does get_object on knowledge-packs/. botocore resolves it from this spelling, which is why the NAME here is the vendor's and the CREDENTIAL is a new one"
+  "AWS_SECRET_ACCESS_KEY|yes|its secret half (ops console name: KB_PACK_READONLY_SECRET_ACCESS_KEY). Same Cloudflare token as the id above — read-only, scoped as narrowly as R2 allows (DEPLOYMENT §12.5 gate 10)"
   "SARVAM_API_KEY|yes|STT on every call"
-  "PLIVO_AUTH_ID|yes|read by Pipecat to hang the call up; a leg nobody hung up goes on billing"
-  "PLIVO_AUTH_TOKEN|yes|read by Pipecat to hang the call up; a leg nobody hung up goes on billing"
+  "PLIVO_AUTH_ID|yes|the auth id of a carrier credential ISSUED FOR THIS WORKER (ops console name: PLIVO_WORKER_AUTH_ID), used to hang a leg up — a leg nobody hung up goes on billing. NOT the account-level credential the VPS uses: that one can also originate calls, buy numbers and read every CDR (DEPLOYMENT §12.5 gate 11)"
+  "PLIVO_AUTH_TOKEN|yes|its token half (ops console name: PLIVO_WORKER_AUTH_TOKEN). Same credential as the id above"
   "AZURE_OPENAI_API_KEY|llm|in-call LLM, Azure leg"
   "OPENAI_API_KEY|llm|in-call LLM, OpenAI direct leg"
   "GEMINI_API_KEY|llm|in-call LLM, Google leg"
@@ -531,10 +590,13 @@ secrets_cmd() {
     say ""
     say "$label"
     say "    $what"
-    local prefill=""
-    prefill=$(env_file_value "$name" 2>/dev/null || true)
+    local source_name prefill=""
+    source_name=$(prefill_key "$name")
+    prefill=$(env_file_value "$source_name" 2>/dev/null || true)
     if [[ -n "$prefill" ]]; then
-      say "    found in $ENV_FILE ($(tail4 "$prefill")) — press ENTER to use it"
+      say "    found in $ENV_FILE as $source_name ($(tail4 "$prefill")) — press ENTER to use it"
+    elif [[ "$source_name" != "$name" ]]; then
+      say "    ask for it as $source_name — a SEPARATE credential from this host's $name"
     fi
     printf '    > '
     IFS= read -rs value || true
@@ -549,6 +611,23 @@ secrets_cmd() {
      It is not in $ENV_FILE either — run '$0 sources' to see where each value comes from."
       fi
       continue
+    fi
+    # THE ONE REFUSAL IN THIS LOOP, AND IT IS THE WHOLE POINT OF `prefill_key`. A narrowed
+    # credential that is narrowed only in the prose is the platform-wide one with a new
+    # label on it — and the value is right there in this host's `.env` for anyone reaching
+    # for the thing that works. Compared against the deploy env file, which is where the
+    # platform-wide value lives; a host without one simply has nothing to compare and the
+    # check is silently satisfied, which is correct rather than lenient.
+    if [[ "$source_name" != "$name" ]]; then
+      local platform_value
+      platform_value=$(env_file_value "$name" 2>/dev/null || true)
+      if [[ -n "$platform_value" && "$value" == "$platform_value" ]]; then
+        die "that is this host's PLATFORM-WIDE $name, and it must not go into a container
+     Pipecat Cloud operates. What the worker needs is the narrow credential named
+     $source_name — see DEPLOYMENT §12.5 gate $( [[ $name == AWS_* ]] && printf 10 || printf 11 ).
+     If it does not exist yet, the founder creates it in the vendor's console; nothing on
+     this host can mint it and nothing here may substitute the wide one."
+      fi
     fi
     printf '%s=%s\n' "$name" "$value" >>"$envfile"
     [[ "$required" == llm ]] && llm_given=1
@@ -590,12 +669,21 @@ sources_cmd() {
 
   for row in "${ENV_CONTRACT[@]}"; do
     IFS='|' read -r name required what <<<"$row"
-    local v; v=$(env_file_value "$name" 2>/dev/null || true)
+    local source_name; source_name=$(prefill_key "$name")
+    local v; v=$(env_file_value "$source_name" 2>/dev/null || true)
     if [[ -n "$v" ]]; then
-      ok "$name  — in $ENV_FILE ($(tail4 "$v")); 'secrets' will offer it"
+      ok "$name  — in $ENV_FILE as $source_name ($(tail4 "$v")); 'secrets' will offer it"
       found=$((found + 1))
     else
       case "$name" in
+        AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY)
+          warn "$name  — A SEPARATE, KNOWLEDGE-PACK-ONLY R2 CREDENTIAL, held here as
+     $source_name. THIS HOST'S $name IS THE WRONG VALUE and 'secrets' refuses it: it reads
+     and WRITES the same bucket's recordings/, kb-uploads/ and engine-payloads/ for every
+     tenant, while this container only ever calls get_object on knowledge-packs/
+     (voice_worker/storage.py). The founder mints the narrow token in the Cloudflare R2
+     console — DEPLOYMENT §12.5 gate 10, which also records what is and is not verified
+     about how narrowly R2 can scope one." ;;
         PIPECAT_WORKER_API_TOKEN)
           warn "$name  — A NEW CREDENTIAL YOU CREATE (D-621). It exists nowhere yet.
      Generate a long random string, install it in the ops console as
@@ -608,7 +696,11 @@ sources_cmd() {
      the worker calls instead of opening a database connection (D-621). The origin your
      own console is served from, with no trailing path." ;;
         PLIVO_*)
-          warn "$name  — NOT on this host. Plivo dashboard; this secret set is its only home." ;;
+          warn "$name  — NOT on this host, and NOT the account-level credential the VPS
+     uses. A carrier credential issued for this worker, held here as $source_name; the
+     worker needs it only to hang a leg up, while the account-level token can also
+     originate calls, buy numbers and read every CDR. Plivo dashboard; this secret set is
+     its only home. DEPLOYMENT §12.5 gate 11 says what the founder must check there." ;;
         GNANI_API_KEY)
           warn "$name  — NOT on this host. Gnani account; this secret set is its only home." ;;
         SARVAM_API_KEY|CARTESIA_API_KEY|AZURE_OPENAI_API_KEY|OPENAI_API_KEY|GEMINI_API_KEY)

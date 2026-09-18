@@ -18,7 +18,9 @@
 #
 # `useLinkToken` (`apps/web/src/lib/authn/useLinkToken.ts`) strips the parameter from the
 # address bar — but only AFTER the request that logged it. That is a defence against
-# shoulder-surfing and `Referer`, not against the log.
+# shoulder-surfing and against the history entry, and it is NOT a defence against the log
+# — nor, as the second map below records, against `Referer`: it runs in a `useEffect`,
+# after first paint, and the document's own preloads have already gone out by then.
 #
 # What it bought an attacker who could read one line: a live `password_reset` token (1h),
 # an `accept-invitation` token (72h), or an `admin_bootstrap` token (60m). The last one is
@@ -76,6 +78,40 @@ map $request_uri $calevate_logged_uri {
     "~^(?<calevate_log_path>[^?]*)\?(?:.*&)?token="    "$calevate_log_path?token=[redacted]";
 }
 
+# THE SAME SECRET ARRIVES THROUGH THE FIELD BESIDE IT, AND THIS FILE USED TO LOG THAT ONE
+# VERBATIM.
+#
+# `combined` logs `"$http_referer"` one field after `$request`, and the redaction above
+# never touched it. On the token-bearing pages the browser sends the CREDENTIAL in that
+# header, for a reason no amount of care in the app can fully remove:
+# `useLinkToken` strips `?token=` in a `useEffect`, i.e. AFTER first paint, while every
+# same-origin subresource the document has already requested (`/_next/static/chunks/*`,
+# the `next/font/local` files) was issued with `Referer:` still carrying the full URL —
+# and `Referrer-Policy: strict-origin-when-cross-origin`, the edge default, sends the FULL
+# URL on same-origin requests. So `GET /_next/static/chunks/… 200` logged with
+# `"https://app.calevate.tech/auth/reset-password?token=<43 chars>"` beside it: the exact
+# value this file exists to keep out of `/var/log/nginx/access.log`, with the path field
+# dutifully redacted one column to the left.
+#
+# THE APP HALF IS FIXED TOO and this is deliberately not the only defence.
+# `apps/web/src/middleware.ts` now serves `Referrer-Policy: strict-origin` on those
+# routes, so a conforming browser sends only the origin. This map is what makes the log
+# safe REGARDLESS of what the app sent — a route added without the header, a browser that
+# ignores it, a hand-crafted request — and the log is the artefact that persists, ships to
+# a backup and is readable by everyone in `adm`. Neither half alone is enough: the header
+# does not govern what an attacker's client sends, and this map does not stop the token
+# reaching Cloudflare's own request log at the edge.
+#
+# Same shape as the URI map above, for the same reasons: keep everything up to the `?`
+# (the referring page is what an operator debugging a 404 needs), name the parameter that
+# was removed, and redact only the query string that has a `token=` in it. A distinct
+# capture name because two maps in one http block may not both declare
+# `calevate_log_path`.
+map $http_referer $calevate_logged_referer {
+    default                                           $http_referer;
+    "~^(?<calevate_log_ref>[^?]*)\?(?:.*&)?token="    "$calevate_log_ref?token=[redacted]";
+}
+
 # `combined`, with `$request` decomposed so the URI can be the redacted one.
 #
 # nginx's built-in is:
@@ -83,8 +119,9 @@ map $request_uri $calevate_logged_uri {
 #   '$status $body_bytes_sent "$http_referer" "$http_user_agent"'
 #
 # Reproduced field for field below — anything that parses `combined` today keeps parsing
-# this — with `"$request"` expanded to its three components and the middle one swapped.
+# this — with `"$request"` expanded to its three components and the middle one swapped,
+# and the referer field swapped for its redacted twin.
 log_format calevate_redacted
     '$remote_addr - $remote_user [$time_local] '
     '"$request_method $calevate_logged_uri $server_protocol" '
-    '$status $body_bytes_sent "$http_referer" "$http_user_agent"';
+    '$status $body_bytes_sent "$calevate_logged_referer" "$http_user_agent"';

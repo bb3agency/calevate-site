@@ -37,6 +37,43 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# --- Referrer-Policy: the edge default, WITHOUT overriding the app's narrower one -------
+#
+# `snippets/calevate-headers.conf` sets `Referrer-Policy` for every vhost, and
+# `apps/web/src/middleware.ts` sets `strict-origin` on the five routes a mailed
+# single-use token lands on (`lib/authn/linkTokenRoutes.ts`), because
+# `strict-origin-when-cross-origin` sends the FULL URL — token and all — as the `Referer`
+# of every chunk and font those pages preload.
+#
+# THE TWO WOULD OTHERWISE COLLIDE, AND THE EDGE WOULD HAVE WON. `add_header` APPENDS;
+# nginx does not replace a header the upstream already sent. The browser would then see
+#
+#     Referrer-Policy: strict-origin, strict-origin-when-cross-origin
+#
+# and the Referrer Policy algorithm takes the LAST valid token in the list — i.e. the
+# permissive one — so the app-tier fix would have been silently inert in production while
+# passing every test in `apps/web`.
+#
+# So the value is a variable: empty when the upstream has already answered the question,
+# the default otherwise. An `add_header` whose value is empty adds NOTHING — verified in
+# nginx's own source, not assumed: `ngx_http_add_header()` is wrapped in `if (value->len)`
+# (VERIFIED-VENDOR-SOURCE, nginx OSS master,
+# https://raw.githubusercontent.com/nginx/nginx/master/src/http/modules/ngx_http_headers_filter_module.c:573,
+# read 18 Sep 2026). `$upstream_http_<name>` is nginx's prefix variable for a response
+# header received from the upstream (same source tree, `src/http/ngx_http_upstream.c:462`);
+# it is empty for anything nginx served itself, which is the right default for a static
+# file or an error page.
+#
+# WHY HERE AND NOT IN THE SNIPPET: `map` is an `http`-scope directive and the snippet is
+# included at `server` scope — the identical constraint that put `geo` in
+# `origin-trust.conf.template` instead of `snippets/calevate-origin.conf`, and the
+# `log_format` maps in `00-log-format.conf.template`. It sits in THIS file because the
+# snippet is included from nowhere else, so the two cannot drift apart across hosts.
+map $upstream_http_referrer_policy $calevate_referrer_policy {
+    default  "strict-origin-when-cross-origin";
+    "~."     "";
+}
+
 # --- port 80: ACME, then away ---------------------------------------------------
 server {
     listen 80;
