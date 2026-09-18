@@ -96,7 +96,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
@@ -3178,6 +3178,15 @@ async def _erase_tenant_leads(session: AsyncSession, *, tenant_id: UUID) -> tupl
         leads_erased += len(lead_ids)
 
 
+#: Does this account hold anything under the knowledge-upload prefix? Scoped by RLS like
+#: every other read here — the question is about THIS tenant, and `LIMIT 1` because the
+#: answer is only ever "is it worth a list call".
+_HAS_KB_UPLOAD_SQL: Final = "SELECT 1 FROM kb_uploads LIMIT 1"
+
+#: The same question for the carrier compliance paperwork.
+_HAS_CARRIER_DOCUMENT_SQL: Final = "SELECT 1 FROM carrier_compliance_applications LIMIT 1"
+
+
 async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Erase every caller record this tenant holds, then mark the organisation deleted.
 
@@ -3296,20 +3305,24 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # anywhere — and catching it would mean listing the object store for every account
         # that never uploaded anything. An account with any real upload has its whole folder
         # emptied, orphan included.
-        for table, prefix in (
-            ("kb_uploads", storage.kb_tenant_prefix(tenant_id=tenant_id)),
-            (
-                "carrier_compliance_applications",
-                storage.carrier_tenant_prefix(tenant_id=tenant_id),
-            ),
-        ):
-            has_rows = (await session.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))).first()
-            if has_rows is None:
-                continue
-            uploaded = await storage.keys_under(prefix)
+        # WRITTEN OUT TWICE RATHER THAN LOOPED, and both attempts at being clever were
+        # refused by `scripts/check_raw_sql.py` — correctly, twice. The first interpolated
+        # the table name into an f-string, which is the shape that guard exists to keep out
+        # of this repo whether or not the value is a constant today, because the next edit
+        # is the one that makes it a variable. The second kept literal statements but passed
+        # them through a loop variable, which the guard also cannot trace to a literal — and
+        # a guard that cannot trace the text is a guard that has stopped working. Two
+        # spelled-out pairs are duller and are the only version either of us can verify.
+        if (await session.execute(text(_HAS_KB_UPLOAD_SQL))).first() is not None:
+            uploaded = await storage.keys_under(storage.kb_tenant_prefix(tenant_id=tenant_id))
             if uploaded:
                 await storage.delete_objects(uploaded)
                 counts["uploaded_files_destroyed"] += len(uploaded)
+        if (await session.execute(text(_HAS_CARRIER_DOCUMENT_SQL))).first() is not None:
+            filed = await storage.keys_under(storage.carrier_tenant_prefix(tenant_id=tenant_id))
+            if filed:
+                await storage.delete_objects(filed)
+                counts["uploaded_files_destroyed"] += len(filed)
         # A §12 REQUEST STILL QUEUED WHEN THE ACCOUNT CLOSES. `assert_erasable` refuses an
         # account that is not already `churned`, which is a PRECONDITION and not a proof
         # that no request is open — so that row's `phone_e164` outlived the account whose

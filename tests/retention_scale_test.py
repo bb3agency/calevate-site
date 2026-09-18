@@ -448,6 +448,13 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         # redaction removes identifiers from a sentence, not the sentence. Filed under
         # `transcript` because it paraphrases the turns, for this test's own reason.
         "handoff_attempts.reason+summary",
+        # THE PROMISED CALL-BACK (18 Sep 2026), which had no clock of any kind and aged out
+        # NEVER: a number plus a model-written note about what one caller asked for, kept
+        # for a person who may never be rung. Filed under `transcript` rather than `lead`
+        # for precisely this tuple's reason — the note paraphrases one conversation, and on
+        # the `lead` clock it would outlive the conversation it came from by three times,
+        # which is the failure `DERIVED_COPIES` exists to prevent.
+        "scheduled_callbacks.phone_e164+note",
     )
     assert retention.DERIVED_COPIES["caller_memory"] == (
         "caller_chunks.tsv+embedding (caller memory scope)",
@@ -463,6 +470,12 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         # own `retention_category` — which the projection registry sets from
         # `models.SUBJECT_RETENTION`, so a scope cannot choose its own.
         "caller_chunks.tsv+embedding (lead scope)",
+        # THE UPLOADED CONTACT LIST (18 Sep 2026), the other store that aged out never: a
+        # name, a number and the client's own pasted columns for people who MAY NEVER HAVE
+        # BEEN DIALLED. The same class of data as `leads.data`, so the same clock — and a
+        # clause in `retention_uploaded_and_promised_test` fails the day somebody merges
+        # this with the call-back above under one category.
+        "campaign_contacts.phone_e164+name+custom",
     )
 
 

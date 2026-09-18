@@ -144,8 +144,30 @@ class TestWiring:
         engine-space call ref (`tenant_of_pipecat_ref`) and every statement then runs under
         that tenant's RLS, so a leaked token reaches exactly the calls whose refs it holds.
         A fourth route here, or any route on this surface that took a tenant id as an
-        argument, is the conversation this tripwire is for."""
-        assert len(exempt) <= 43, sorted(exempt)
+        argument, is the conversation this tripwire is for.
+
+        RAISED 43 -> 44 by D-626, and the sentence above is why this paragraph exists: it IS
+        the fourth `/v1/worker/*` route, so the tripwire fired as designed and the argument
+        is owed rather than assumed.
+
+        `POST /v1/worker/agents/{engine_agent_ref}/attestation` is what finally gives
+        `agent_config_attestations` a production writer. Until it landed, `get_agent`
+        answered `system_prompt_readable=False` for every agent on this engine for ever,
+        `verification.judge` scored every publish `unreadable`, and hard rule 5's engine-side
+        check — the one that reads the truthful-answer marker back off what is RUNNING — had
+        never once executed on the owned leg. A guarantee nobody can verify is the thing this
+        route exists to end.
+
+        **WHY IT DOES NOT WIDEN THE SURFACE THE PARAGRAPH ABOVE IS WORRIED ABOUT.** It takes
+        no tenant id: the tenant is parsed out of the engine-space ref exactly as the other
+        three do, and the handler REFUSES a body naming a different agent. It is not a ledger
+        write — the row is a witness, carrying a digest and a timestamp, and it cannot move
+        money, a call or a caller's record. And it is deliberately not authoritative about
+        its own verdict: the worker sends the digest and never `matches`, because an
+        attestation whose verdict came from the attesting process agrees with itself by
+        construction. A leaked token can therefore write a WRONG witness row, which the
+        server scores `matches=False` — visible, and the opposite of silence."""
+        assert len(exempt) <= 44, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------
