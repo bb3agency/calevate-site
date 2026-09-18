@@ -219,15 +219,14 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "knowledge for the agents to answer from, and the identity and registration paperwork "
     "uploaded for the telecom carrier registration — a GST certificate, the signed "
     "carrier application and whatever was attached to it. Both are stored under this "
-    "account's own folder in our object storage, and no part of this erasure and no "
-    "retention period reaches either: the only thing that eventually removes them is a "
-    "bucket-wide 7-year ceiling measured from the day each file was stored, which is a "
-    "growth limit rather than a retention rule. They are the business's own documents "
-    "rather than a caller's record, which is why they were not in the erasure's scope, "
-    "but they are personal data of the people named in them and holding them after the "
-    "engagement ends is not something a certificate should be silent about. Ask for "
-    "these uploaded files to be deleted and that is a manual removal on our side, done "
-    "on request.",
+    "account's own folder in our object storage, and this erasure destroys those "
+    "uploaded files: every object under both folders, including one left behind by an "
+    "upload that failed halfway. It "
+    "is named here rather than left to the counts because these are the business's own "
+    "documents rather than a caller's record, so a reader could reasonably have expected "
+    "them to survive; and because a GST certificate and a signed application name people. "
+    "If the file store cannot be reached this erasure FAILS, rather than reporting a "
+    "destruction it did not perform.",
     "The people at this client — their user accounts, their memberships and who did "
     "what in the console — are retained. Their access ends the moment this erasure "
     "completes, because every membership resolution and every dial gate refuses an "
@@ -375,24 +374,28 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         ),
     ),
     ErasureLimitation(
-        what="Files this client uploaded: knowledge documents and carrier paperwork.",
+        what="Files this client uploaded, and the date they started being destroyed.",
         keyword="uploaded files",
-        outcome="retained_not_swept",
+        outcome="destroyed",
         why=(
-            "Two sets of uploaded files survive this erasure. The documents uploaded as "
+            "Two sets of uploaded files are destroyed by this erasure. The documents "
+            "uploaded as "
             "knowledge for the agents — a price list, a menu, a brochure — and the "
             "identity and registration paperwork uploaded for the telecom carrier "
             "registration, which is a GST certificate, the signed carrier application and "
             "whatever was attached to it. Both sit under this account's own folder in our "
-            "object storage. No arm of this erasure lists either folder and no retention "
-            "period reaches them; the only thing that eventually removes a file is a "
-            "bucket-wide seven-year ceiling measured from the day it was stored, which "
-            "limits how much the bucket grows rather than how long a document is kept. "
+            "object storage, and both folders are listed and emptied. ⚠ UNTIL 18 SEPTEMBER "
+            "2026 NEITHER WAS REACHED BY ANYTHING: two comments in our own code asserted "
+            "that closing an account swept them and no such sweep existed, so the only "
+            "thing that would eventually have removed a file was a bucket-wide seven-year "
+            "ceiling measured from the day it was stored — a limit on how much the bucket "
+            "grows rather than on how long a document is kept. That is stated rather than "
+            "quietly corrected, because any account closed before that date was told "
+            "something this certificate only now makes true. "
             "These are the business's own documents rather than a caller's record, which "
-            "is why the erasure's scope never included them — but a registration document "
-            "names people, and keeping it after the engagement ends is not a thing a "
-            "certificate may pass over in silence. Removing them is a manual act on our "
-            "side and it is done on request."
+            "is why the erasure's scope did not originally include them — but a "
+            "registration document names people, and keeping it after the engagement ends "
+            "is not a thing a certificate may pass over in silence."
         ),
         # `workers/storage.py` carries the correction this entry pairs with: both prefix
         # comments claimed an offboarding swept them and neither sweep exists. The arm
@@ -407,7 +410,7 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "decision rather than a legal position, and it is stated here so it can be "
             "disagreed with: under DPDP §8(7) personal data is to be erased once the "
             "purpose it was collected for is served, and the purpose these files were "
-            "collected for ends with the engagement. Ask and they are removed."
+            "collected for ends with the engagement."
         ),
     ),
     ErasureLimitation(

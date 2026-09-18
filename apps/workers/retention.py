@@ -3035,6 +3035,15 @@ async def _erase_tenant_calls(
         "recordings_destroyed": 0,
         "recordings_within_trai_floor": 0,
         "webhook_bodies_erased": 0,
+        # The account's uploaded files — knowledge documents AND carrier compliance
+        # paperwork — which nothing swept until 18 Sep 2026 (see the arm for the two
+        # comments that said otherwise). One counter for both because the certificate
+        # sentence names them together: what a client wants to know is whether the files
+        # they gave us are gone, not which bucket prefix each sat under.
+        "uploaded_files_destroyed": 0,
+        # A §12 request still queued when the account closed, whose subject number
+        # outlived the closure that was supposed to erase it.
+        "deletion_requests_scrubbed": 0,
         # Recorded in the proof, reported in `actions`, and deliberately NOT in
         # `tenant_erasure._SCOPE_COUNTS`: that tuple is the API's whitelist, and widening
         # it is a wire-shape change rather than a fact about this erasure. The stored
@@ -3262,6 +3271,55 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # typed, so it destroys every row rather than matching any.
         turns = await session.execute(text("DELETE FROM copilot_conversation_turns"))
         counts["copilot_turns_erased"] = int(rowcount_of(turns) or 0)
+        # THE UPLOADED FILES, WHICH TWO COMMENTS ASSERTED THIS ARM ALREADY SWEPT AND WHICH
+        # IT DID NOT (18 Sep 2026). `kb/uploads.py` said an orphaned object sat in the
+        # tenant's own prefix "so an offboarding still sweeps it up" and `storage.py` said
+        # `carrier_application_prefix` existed so "an ACCOUNT offboarding does" reach those
+        # files. Neither was true: this function enumerated `webhook-bodies/` and
+        # `engine-payloads/` and no other prefix. So a closed account's knowledge uploads —
+        # and its carrier compliance paperwork, which is the business's IDENTITY AND
+        # REGISTRATION DOCUMENTS filed for the DoT KYC gate — stayed in the bucket, bounded
+        # only by the object-lifecycle ceiling that `infra/README.md` records as never
+        # having been applied to a real bucket.
+        #
+        # ONE LIST PER PREFIX, NOT ONE PER ROW, and the account's OWN ROWS decide whether we
+        # list at all. `keys_under` on the account prefix reaches every object beneath it,
+        # so it needs no per-upload iteration — but a list is an object-store round trip,
+        # and every other arm here reaches storage only when this tenant's rows say there is
+        # something to reach (the webhook-body arm's `has_endpoint` check makes exactly this
+        # argument: a storage outage must not break erasures that have nothing in storage).
+        #
+        # ⚠ **THE RESIDUE THIS LEAVES, STATED RATHER THAN GLOSSED.** An object written by an
+        # upload whose transaction then rolled back has no row, so an account that has NEVER
+        # completed an upload and holds only such an orphan is not listed and keeps it. That
+        # is the harmless case `kb/uploads.py` documents — unreachable, no row, no reference
+        # anywhere — and catching it would mean listing the object store for every account
+        # that never uploaded anything. An account with any real upload has its whole folder
+        # emptied, orphan included.
+        for table, prefix in (
+            ("kb_uploads", storage.kb_tenant_prefix(tenant_id=tenant_id)),
+            (
+                "carrier_compliance_applications",
+                storage.carrier_tenant_prefix(tenant_id=tenant_id),
+            ),
+        ):
+            has_rows = (await session.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))).first()
+            if has_rows is None:
+                continue
+            uploaded = await storage.keys_under(prefix)
+            if uploaded:
+                await storage.delete_objects(uploaded)
+                counts["uploaded_files_destroyed"] += len(uploaded)
+        # A §12 REQUEST STILL QUEUED WHEN THE ACCOUNT CLOSES. `assert_erasable` refuses an
+        # account that is not already `churned`, which is a PRECONDITION and not a proof
+        # that no request is open — so that row's `phone_e164` outlived the account whose
+        # closure was supposed to erase it. Blanked rather than deleted: the request itself
+        # is the record that somebody asked, and destroying it would erase the evidence of
+        # the obligation along with the subject of it.
+        pending = await session.execute(
+            text("UPDATE deletion_requests SET phone_e164 = '' WHERE phone_e164 <> ''")
+        )
+        counts["deletion_requests_scrubbed"] = int(rowcount_of(pending) or 0)
         # EVERY CALLER'S VECTORS AND EVERY REMEMBERED FACT (D-503). UNCONDITIONAL, for
         # `copilot_memories`' reason one line up: when the subject is "all of them" there is
         # nothing to match on, and a predicate would leave behind exactly the rows whose

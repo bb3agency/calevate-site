@@ -344,7 +344,15 @@ async def create_upload(
     The object is written to storage BEFORE the row is committed, because the row has to
     carry the key and the key has to name an object that exists. A transaction that then
     rolls back leaves an object with no row: unreachable, harmless, inside the tenant's own
-    `kb-uploads/{tenant}/{upload}/` prefix so an offboarding still sweeps it up. The
+    `kb-uploads/{tenant}/{upload}/` prefix. ⚠ **THIS SENTENCE USED TO END "so an offboarding
+    still sweeps it up" AND NOTHING SWEEPS IT** (corrected 18 Sep 2026): `execute_tenant_
+    erasure` enumerates `webhook-bodies/` and `engine-payloads/` and no other prefix, so an
+    orphaned upload — and every uploaded document of a closed account — stays in the bucket
+    until the object-lifecycle ceiling, which `infra/README.md` records as never having been
+    applied to a real bucket. The prefix layout is what MAKES such a sweep possible; it is
+    not the sweep. The gap is disclosed on the tenant certificate rather than implied away
+    (`compliance/tenant_erasure.py`, keyword `uploaded files`), and the arm belongs in
+    `workers/retention.execute_tenant_erasure`. The
     alternative — commit the row, then store — leaves the strictly worse residue: a row a
     client can see, a status that says received, and no bytes behind it.
 

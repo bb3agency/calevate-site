@@ -573,6 +573,19 @@ def kb_upload_prefix(*, tenant_id: UUID, upload_id: UUID) -> str:
     return f"{KB_UPLOAD_PREFIX}/{tenant_id}/{upload_id}/"
 
 
+def kb_tenant_prefix(*, tenant_id: UUID) -> str:
+    """Every uploaded document of ONE ACCOUNT, across every upload of it.
+
+    The account-level prefix, which is what an offboarding needs and what nothing had.
+    Deliberately ONE list rather than one per `kb_uploads` row: iterating rows reaches only
+    objects a row points at, and the residue `kb/uploads.py` documents — an object stored
+    before a transaction that then rolled back — is by definition the one with no row. The
+    key layout is what makes a single list correct here, and `tenant_id` is a uuid so it
+    cannot widen the prefix past the segment.
+    """
+    return f"{KB_UPLOAD_PREFIX}/{tenant_id}/"
+
+
 async def store_kb_object(*, key: str, data: bytes, content_type: str) -> str:
     """Put one uploaded document. RAISES when the store refuses, and that is the
     difference from `store_delivery_body`.
@@ -711,6 +724,17 @@ def carrier_document_key(
     hostile one is a string rather than a path.
     """
     return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/{application_id}/{submission_id}/{slot}.{suffix}"
+
+
+def carrier_tenant_prefix(*, tenant_id: UUID) -> str:
+    """Every carrier compliance document of ONE ACCOUNT, across every application.
+
+    These are the business's identity and registration documents, filed for the DoT KYC
+    gate. `carrier_application_prefix` below is the per-application view an operator
+    enumerates by hand; this is the one an account closure needs, and its absence is why
+    that function's docstring claimed a sweep that did not exist.
+    """
+    return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/"
 
 
 def carrier_application_prefix(*, tenant_id: UUID, application_id: UUID) -> str:

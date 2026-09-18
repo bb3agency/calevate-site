@@ -447,23 +447,6 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
         ),
     },
     "execute_tenant_erasure": {
-        "deletion_requests": (
-            "The per-subject §12 requests this account filed. An OPEN row still carries "
-            "`phone_e164` — the worker has to be able to find the subject — and the "
-            "number is cleared in the same write that records the proof, so a COMPLETED "
-            "row holds only the one-way `subject_ref`. A tenant erasure cannot run with "
-            "an open one behind it in the ordinary case: `tenant_erasure.assert_erasable` "
-            "refuses any account that is not already `churned`, so dialing has stopped "
-            "and no new request can be filed through the client surface. That is a "
-            "precondition rather than a proof, and the honest form of this entry says so: "
-            "an account closed while one §12 request was still queued would leave that "
-            "row's number behind. Registered rather than erased because the row is the "
-            "evidence that the erasure was ASKED FOR — deleting it in an offboarding "
-            "would destroy an account's record of the rights its callers exercised, which "
-            "is the opposite of what `processor_erasure_tasks` is exempted for one entry "
-            "up. The arm that would close the residue is a clear of `phone_e164` on any "
-            "still-open row, in `workers/retention.execute_tenant_erasure`."
-        ),
         "kb_documents": (
             "The client's own knowledge content — the price lists, FAQs and staff details "
             "they uploaded for their agents to quote. The per-subject erasure SEARCHES it "

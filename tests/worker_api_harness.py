@@ -45,12 +45,19 @@ def declare_pipecat_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     because everything they write is reconciled by the process-wide engine and
     `workers/pipeline._post_call_target` never reads the engine the settlement names in its
     own payload. Folding this into `worker_token` would set `ENGINE=pipecat` for every file
-    that fixture reaches — including the ones whose agents are minted by the FAKE engine and
-    then published through `kb/service.publish_source`, which on the Pipecat adapter re-enters
-    `tenant_session` from inside the caller's transaction and blocks on its own `agents` lock.
-    That is a real defect in `engine/pipecat._PipecatStore.publish` and it is not this seam's
-    to fix; what it means here is that only the files that actually WRITE through these routes
-    may declare the engine.
+    that fixture reaches, and the blast radius of that is wider than this seam's business.
+
+    ⚠ **THE DEADLOCK THIS PARAGRAPH USED TO CITE AS THE REASON IS FIXED (18 Sep 2026), AND
+    THE NAME IT USED WAS WRONG TOO.** It said publishing through `kb/service.publish_source`
+    re-entered `tenant_session` from inside the caller's transaction and blocked on its own
+    `agents` lock — true, and the class is `SqlControlPlane` rather than `_PipecatStore`. The
+    mechanism was the foreign key: `agent_config_versions.agent_id` referencing `agents`
+    makes the INSERT take `FOR KEY SHARE` on the very row `publish_agent` is holding
+    `FOR UPDATE`, on a second connection that can never win, so it died on the statement
+    timeout. `db/session.joined_tenant_session` closes it. The narrow scoping here is KEPT
+    on its remaining merit — declaring the engine per file keeps a test's engine visible
+    where the test is read — but it is no longer a workaround, and whether `worker_token`
+    could now set it globally is a live question rather than a closed one.
 
     A generator so the caller's own autouse fixture can `yield from` it and the settings cache
     is cleared on both sides — `conftest.worker_token`'s shape, for its reason.

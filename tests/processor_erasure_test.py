@@ -244,15 +244,16 @@ async def test_opening_tasks_is_idempotent_across_a_retry() -> None:
     vendor request twice — two tasks would be two emails and two clocks for one copy."""
     tenant_id = await _tenant()
     request_ref = uuid.uuid4()
-    # NAMED RATHER THAN DEFAULTED, and the reason is a live schema lag rather than a
-    # preference. `PROCESSORS` gained `telephony` on 18 Sep 2026 — the carrier holds the
-    # caller's number and the sound of the call and was missing from the whole machinery —
-    # while the CHECK `processor_is_known` on `processor_erasure_tasks` still admits the
-    # original three (migration `c9f4a2e17b83`); widening it is the schema lane's
-    # migration. Using the default here would make this control fail on the database
-    # rather than on the property it tests, so it names what the database accepts today
-    # and `test_the_vocabulary_names_the_carrier` below holds the constant's half.
-    accepted = ("voice_engine", "speech", "llm")
+    # THE DEFAULT, which is `PROCESSORS` itself — and it is the default again because the
+    # schema lag that forced a hand-written triple is closed. `PROCESSORS` gained
+    # `telephony` on 18 Sep 2026 (the carrier holds the caller's number and the sound of
+    # the call and was missing from the whole machinery) while the CHECK
+    # `processor_is_known` still admitted the original three, so naming them here was the
+    # only way to fail on the property this test measures rather than on the database.
+    # Migration `e3a7c05b91d4` widened it, so the constant and the column agree again and
+    # this control is back to exercising every processor the code believes in — which is
+    # what makes it notice the NEXT one that is added to one side only.
+    accepted = PROCESSORS
     async with tenant_session(tenant_id) as session:
         first = await open_tasks_for_request(
             session,

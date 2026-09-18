@@ -214,6 +214,17 @@ jobs:
         # for the same reason: the migration that CLAIMS to erase is not the erasure.
         run: uv run python -m scripts.check_erasure_coverage
 
+      - name: "Guardrail: every vendor that can receive client data is published"
+        if: ${{ !cancelled() }}
+        # Derives vendor identity from the CODE — credential-shaped `Settings` fields and
+        # the adapter modules — and compares it against the published `/legal/subprocessors`
+        # register, in both directions. It needs no database, which is why it sits here
+        # rather than in a job that has one. Added 18 Sep 2026 because the register had gone
+        # THREE vendors stale (Supermemory, Gnani, an operator-set tracing endpoint) while
+        # `apps/web/tests/legal.test.tsx` passed — that test compares the register with
+        # itself, so nothing was watching the side that drifts.
+        run: uv run python -m scripts.check_subprocessor_coverage
+
       - name: "Guardrail: ledger immutability (hard rule 4)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_ledger_immutability
