@@ -3,7 +3,12 @@
 BOTH RUN IN BOTH DIRECTIONS, and that is the part a reader is most likely to trim.
 
 **Invisible characters** (OWASP GenAI LLM Top 10 2026, LLM01 #5 — "Multimodal and
-Invisible Character Injection"). On the way IN they are a prompt-injection carrier: a
+Invisible Character Injection"). ⚠ **THE PRIMITIVE ITSELF NOW LIVES IN
+`calevate_shared.invisible_text` AND THIS MODULE RE-EXPORTS IT** — the in-call knowledge
+path needed the same families and had its own partial set, which is two guards over one
+attack disagreeing about its membership. Read that module for which family is refused
+where and why; the names below keep working so every call site in `apps/api/copilot/`
+stays as it was. On the way IN they are a prompt-injection carrier: a
 Unicode tag-block sequence is invisible to the human composing a field label and is
 ordinary text to a tokenizer, so an attacker-authored knowledge-base title or lead name
 rendered into a screen description can carry instructions nobody can see in review. On the
@@ -30,61 +35,16 @@ the fix, which is the browser's placeholder substitution.
 
 from __future__ import annotations
 
-from typing import Final
+from calevate_shared.invisible_text import has_invisible, strip_invisible
 
 from apps.api.core.errors import ProblemError
 from apps.workers.redaction import redact
 
-#: Codepoints that render as nothing and survive a copy-paste. Three families, each named
-#: because each arrived by a different route:
-#:
-#: * **U+E0000 to U+E007F, the Tags block.** The ASCII-shadow range: every printable ASCII
-#:   character has a tag twin, so an entire English sentence can be written invisibly and
-#:   read normally by a tokenizer. This is the carrier the OWASP entry is about.
-#: * **U+FE00 to U+FE0F, variation selectors.** Sixteen codepoints that modify the glyph of
-#:   the character before them; a run of them encodes arbitrary bytes and renders as
-#:   nothing at all when the base character is absent.
-#: * **U+200B/200C/200D and U+2060.** Zero-width space, non-joiner, joiner and word
-#:   joiner. Legitimate in Indic and Arabic shaping — and this platform is Telugu-first,
-#:   which is why they are stripped only from the two places the OWASP entry is about (a
-#:   prompt we compose, and a value we ask a browser to write) and NOT from anything this
-#:   repository stores or displays.
-#:
-#: NOT `unicodedata.category(ch) == "Cf"`, which was the tempting one-liner: `Cf` also
-#: contains U+00AD SOFT HYPHEN and the bidi controls, and — the reason it is actually
-#: wrong here — it does NOT contain the variation selectors, which are `Mn`. A category
-#: test would therefore strip things this product needs and miss one of the three families
-#: it exists to strip.
-_INVISIBLE: Final[frozenset[str]] = frozenset(
-    [chr(code) for code in range(0xE0000, 0xE0080)]
-    + [chr(code) for code in range(0xFE00, 0xFE10)]
-    # SPELLED AS ESCAPES, never as the characters themselves. A literal zero-width space
-    # in this list would be invisible in the diff that added it, invisible in review, and
-    # indistinguishable from a typo — in the one file whose subject is that exact problem.
-    + ["\u200b", "\u200c", "\u200d", "\u2060"]
-)
-
-#: The same set as a translation table, built once. `str.translate` is one pass in C; the
-#: alternative — a comprehension per string — runs over every field label, every option,
-#: every history turn and every streamed fragment of every answer.
-_STRIP_TABLE: Final[dict[int, None]] = {ord(character): None for character in _INVISIBLE}
-
-
-def strip_invisible(text: str) -> str:
-    """`text` with every codepoint in `_INVISIBLE` removed.
-
-    Idempotent and total: there is no failure mode and no configuration. A function that
-    could be switched off is one that will be, on the request where it mattered.
-    """
-    return text.translate(_STRIP_TABLE)
-
-
-def has_invisible(text: str) -> bool:
-    """Does this string carry one? Used only by tests and by the egress assertion — the
-    ingest path strips rather than refuses, because a stray zero-width joiner in a Telugu
-    label is a formatting artefact and not an attack, and refusing the request would take
-    a working screen away from the person who is on it."""
-    return any(character in _INVISIBLE for character in text)
+# `_INVISIBLE`, `_STRIP_TABLE`, `strip_invisible` and `has_invisible` MOVED to
+# `calevate_shared.invisible_text` (see this module's docstring). Imported rather than
+# re-implemented, and re-exported rather than made private, because the callers in this
+# package name them by this path and a second spelling of a security primitive is the
+# defect that made the move necessary in the first place.
 
 
 def clean_value(value: str | int | float | bool | None) -> str | int | float | bool | None:

@@ -88,6 +88,7 @@ from datetime import UTC, datetime
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.invisible_text import find_shadow_text, strip_shadow_text
 from calevate_shared.knowledge_pack import KnowledgePack, PackEntry, pack_object_key
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -143,6 +144,46 @@ SELECT c.id, c.document_id, s.version, d.content, d.gloss
 """
 
 
+def _screened(value: str, *, chunk_id: UUID, field: str) -> str:
+    """`value` with the tag block removed — the LAST point before the in-call model.
+
+    **WHY A SECOND PLACE, WHEN `kb/service._reject_invisible_characters` ALREADY REFUSES
+    THIS AT THE DOOR.** Because a pack is not built from a submission, it is built from
+    STORED ROWS, and the two are not the same set:
+
+    * A pack is rebuilt long after ingest — `refresh_published_pack` runs on every publish
+      and withdraw, and `agents_with_stale_packs` re-drives it from a sweep. Every row
+      written before that gate covered the tag block rebuilds through here untouched.
+    * `d.gloss` NEVER PASSED THE GATE AT ALL. It is written by `apps/workers/kb_gloss.py`
+      from a MODEL's output, onto a row that was approved before the gloss existed, by an
+      UPDATE the ingest path never sees. A model asked to paraphrase attacker-supplied text
+      is exactly the component that can repeat an instruction it was shown.
+
+    **AND WHY IT STRIPS WHERE THE DOOR REFUSES.** A refusal is worth having where somebody
+    can act on it: the client is at the upload screen, the message names the codepoints, and
+    they can fix their source. Nobody is standing here. Refusing would abort the publish —
+    or the sweep — over one stored row, which turns a hidden instruction into a whole
+    agent's knowledge going dark, and would do it on the path a client uses to REMOVE the
+    offending source. So the words that cannot be seen are removed, everything that can be
+    seen is kept byte-for-byte, and an operator gets a line naming the codepoints and the
+    chunk (never the prose — hard rule 6). `warning` and not `alert()` deliberately: the
+    pack that results is correct, so this is a repair to be counted, not an alarm to be
+    woken for, and the door's own refusal is where the loud half lives.
+    """
+    found = find_shadow_text(value)
+    if not found:
+        return value
+    log.warning(
+        "kb_pack_shadow_text_stripped",
+        extra={
+            "chunk_id": str(chunk_id),
+            "field": field,
+            "codepoints": ", ".join(f"U+{code:04X}" for code in found[:8]),
+        },
+    )
+    return strip_shadow_text(value)
+
+
 async def read_entries(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
 ) -> tuple[PackEntry, ...]:
@@ -155,6 +196,10 @@ async def read_entries(
 
     Run on the CALLER's tenant-scoped session (hard rule 1). This function opens nothing of
     its own and so can never widen the tenancy of the code that called it.
+
+    **THE TEXT IS SCREENED ON THE WAY THROUGH (`_screened`)** and that is the only
+    transformation this function performs. Read that helper for why the ingest gate is not
+    enough on its own and why this one strips rather than refuses.
 
     No text length guard: `kb/service.MAX_CHUNK_CHARS` is 700 and both writers of
     `kb_documents.content` chunk through `chunk_text` (`kb/service.py:403,471`), which is
@@ -169,8 +214,11 @@ async def read_entries(
             chunk_id=row[0],
             document_id=row[1],
             document_version=row[2],
-            text=row[3],
-            gloss=row[4],
+            # NOT `text=row[3]` — see `_screened`. This is the last code that touches these
+            # words before they are frozen into a pack, fetched by the voice worker and
+            # handed to the in-call LLM as a tool result it is told to answer from.
+            text=_screened(row[3], chunk_id=row[0], field="content"),
+            gloss=None if row[4] is None else _screened(row[4], chunk_id=row[0], field="gloss"),
         )
         for row in rows
     ]
