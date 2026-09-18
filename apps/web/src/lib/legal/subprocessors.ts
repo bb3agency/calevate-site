@@ -68,7 +68,20 @@ interface RegisterRow {
  * country in the cell a buyer's counsel reads is the most expensive place in this tree to
  * be imprecise.
  *
- * ## The voice-synthesis vendor was added on 7 September 2026, and its evidence class
+ * ## The voice-synthesis vendors, and their evidence classes
+ *
+ * ⚠ **THERE ARE TWO OF THEM AND NEITHER IS THE SPEECH VENDOR ANY MORE (D-629,
+ * 18 Sep 2026).** This heading said "the voice-synthesis vendor was added on
+ * 7 September 2026" and the section below described one. Sarvam was removed from the
+ * SYNTHESIS leg on 18 Sep 2026 and Gnani took the cheaper quality; Sarvam's row, its
+ * Location cell, section 3.4 and everything either says about what it may do with the
+ * AUDIO and the TRANSCRIPT it receives are untouched, because it still hears every call.
+ * What changed is one clause of its `does` cell and the disappearance of the refuge
+ * sentence that used to tell a client they could keep a caller away from an unplaceable
+ * synthesiser by choosing the other voice quality — there is no such quality now.
+ * Gnani's evidence class is the weakest on this page: NOTHING. All three of its sites are
+ * egress-blocked (measured 15 Sep 2026), so its row and section 3.6 say what we have not
+ * established rather than borrowing Cartesia's answers for it.
  *
  * D-547 gives the product a SECOND voice quality, spoken by Cartesia, chosen per agent
  * and priced per credit lot. That makes Cartesia a sub-processor in a role it did not
@@ -197,7 +210,8 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     names: ["Sarvam"],
     vendor: "Sarvam AI",
     does:
-      "Speech recognition and voice synthesis during the call, the first pass " +
+      "Speech recognition during the call \u2014 turning what your caller says " +
+      "into text \u2014 the first pass " +
       "that extracts fields from the transcript, and the standby for the " +
       "in-app assistant if no other provider can answer. On that standby leg " +
       "it answers in prose only: it is not given the assistant's look-up tools, " +
@@ -220,9 +234,12 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "transcript may be processed outside India on this leg too.",
     status:
       "Core. It no longer supplies the language model that holds the " +
-      "conversation — that is the next row. Section 3.4 sets out what this " +
-      "vendor's own terms permit it to do with what it receives, including " +
-      "model training.",
+      "conversation — that is the next row — and since 18 September 2026 it no " +
+      "longer produces the voice your caller hears either: it hears the call and " +
+      "reads the transcript, and the two rows further down are the companies that " +
+      "speak. Nothing else about this row narrowed with it. Section 3.4 sets out " +
+      "what this vendor's own terms permit it to do with what it receives, " +
+      "including model training.",
   },
   {
     names: ["Microsoft"],
@@ -566,9 +583,11 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     vendor: "Cartesia — voice synthesis",
     does:
       "Turns what an agent says into speech during the call, for agents set to the " +
-      "second of the two voice qualities the product offers. Agents on the other " +
-      "quality are spoken by the speech vendor named earlier in this table, and this " +
-      "vendor hears nothing of their calls.",
+      "dearer of the two voice qualities the product offers. Agents on the other " +
+      "quality are spoken by the vendor in the row below, and this vendor hears " +
+      "nothing of their calls. Until 18 September 2026 that other quality was spoken " +
+      "by the speech vendor named earlier in this table; it no longer synthesises " +
+      "anything.",
     receives:
       "The words the agent is about to speak, sent as text a turn at a time — which " +
       "can include a detail the caller has just given, where the agent repeats it back " +
@@ -596,9 +615,10 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     names: ["Gnani"],
     vendor: "Gnani — voice synthesis",
     does:
-      "Turns what an agent says into speech during the call, for agents set to the third " +
-      "of the voice qualities the product can offer. Agents on either of the other two " +
-      "are spoken by the vendors named earlier in this table, and this vendor hears " +
+      "Turns what an agent says into speech during the call, for agents set to the " +
+      "cheaper of the two voice qualities the product offers \u2014 a role the speech " +
+      "vendor named earlier in this table held until 18 September 2026. Agents on the " +
+      "other quality are spoken by the vendor in the row above, and this vendor hears " +
       "nothing of their calls.",
     receives:
       "The words the agent is about to speak, sent as text a turn at a time over a " +
@@ -787,8 +807,8 @@ export const SUBPROCESSORS: LegalDocument = {
             "you where data goes, and inventing a plausible country for one would be " +
             "worse than the gap. Every one of them is an integration that is switched " +
             "off or that you would have to switch on yourself, so nothing reaches it " +
-            "unless somebody decides it does — and for the voice-synthesis vendor, " +
-            "section 3.6 says what we do know about it and what we still do not.",
+            "unless somebody decides it does — and for the two voice-synthesis vendors, " +
+            "section 3.6 says what we do know about them and what we still do not.",
         },
       ],
     },
@@ -1131,17 +1151,25 @@ export const SUBPROCESSORS: LegalDocument = {
         },
         {
           id: "voice-vendor-terms",
-          heading: "3.6 What the voice-synthesis vendor's own terms allow, and what we have not established",
+          heading: "3.6 What the voice-synthesis vendors' own terms allow, and what we have not established",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
-              title: "Its published policy permits training on what it receives, and its no-retention option is not one we can buy",
+              title: "One of them permits training on what it receives and sells its no-retention option only on a plan we cannot buy; of the other we have read nothing",
               text:
                 "Section 3 was headed \u201cfive things\u201d until 7 September 2026, and " +
                 "this is the sixth: the product gained a second voice quality, spoken by " +
                 "a second vendor, and a client choosing it should read what that " +
-                "vendor's own published documents say before they do. Three things, all " +
+                "vendor's own published documents say before they do. Since " +
+                "18 September 2026 it covers BOTH voice qualities rather than one. The " +
+                "cheaper quality used to be spoken by the same Indian company that hears " +
+                "the call, whose terms section 3.4 sets out; it is now spoken by a third " +
+                "company, and that company's own sites cannot be reached from the " +
+                "environment we build in, so nobody here has read its position on " +
+                "training, on retention, on residency or on anything else. We state that " +
+                "as the gap it is rather than assuming its answers match the vendor " +
+                "described next. The three things below are that other vendor's, all " +
                 "quoted from those documents rather than inferred from them. Its privacy " +
                 "policy says it may use information it receives to generate output and " +
                 "to train and enhance the models behind its services, and offers an " +
@@ -1172,22 +1200,36 @@ export const SUBPROCESSORS: LegalDocument = {
                 "can be entered on a self-serve plan without a sales conversation, so we " +
                 "do not tell you that one is in place. Each of those is a question with " +
                 "an answer somebody can get, and none of them is a gap we would fill " +
-                "with a plausible sentence.",
+                "with a plausible sentence. For the company that speaks the cheaper " +
+                "quality the list is shorter and worse: we have established none of " +
+                "those things, because we have not been able to read one page it " +
+                "publishes. There is one more, and it is the reason no agent can be set " +
+                "to that quality at all today — nobody has established what one minute " +
+                "of it costs, that company publishes no price, and we will not put an " +
+                "agent on a leg we cannot price.",
             },
             {
               kind: "para",
               text:
                 "Two limits on all of the above, both of which cut in your favour. " +
-                "First, nothing has been sent to this vendor from this system: no " +
-                "credential is installed, no voice in its quality can be selected yet, " +
-                "and the product refuses rather than silently working. Second, when it " +
-                "does become selectable it receives only the words your agent speaks " +
+                "First, nothing has been sent to either of these vendors from this " +
+                "system: no credential for either is installed, no voice in either " +
+                "quality can be selected yet, and the product refuses rather than " +
+                "silently working. Second, when one of them does become selectable it " +
+                "receives only the words your agent speaks " +
                 "— never the caller's audio, the transcript, the recording, or " +
                 "anything from your dashboard — so the material above bears on what " +
                 "your agent says, which can include a detail it repeats back to a " +
-                "caller, and not on the call as a whole. A client who would rather it " +
-                "did not apply to them at all can keep every agent on the other voice " +
-                "quality, and this vendor then receives nothing of theirs.",
+                "caller, and not on the call as a whole. ⚠ This paragraph used to end " +
+                "by telling a client who would rather it did not apply to them at all " +
+                "that they could keep every agent on the other voice quality. That is " +
+                "withdrawn, not reworded: since 18 September 2026 the other quality is " +
+                "spoken by the third company named above rather than by the vendor whose " +
+                "terms section 3.4 sets out, so choosing between the two voice qualities " +
+                "is no longer a way of keeping synthesis with a company whose position " +
+                "anybody has read. What is true of both, and is the limit that matters " +
+                "today, is the sentence this paragraph opens with: nothing has been sent " +
+                "to either of them.",
             },
           ],
         },
@@ -1241,7 +1283,7 @@ export const SUBPROCESSORS: LegalDocument = {
                 "own site both refuse a connection from the environment this software " +
                 "is built in \u2014 measured again on 15 September 2026, with the same " +
                 "result as every earlier attempt. That is the same reason the messaging " +
-                "providers' and the voice-synthesis vendor's Location cells say NOT " +
+                "providers' and both voice-synthesis vendors' Location cells say NOT " +
                 "VERIFIED rather than naming a country. The answers are not secret; " +
                 "they are simply not ours to assert until a person has read them, and " +
                 "this page would rather be short of a fact than confident about one.",

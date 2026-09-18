@@ -472,16 +472,22 @@ describe("the pricing page", () => {
         `${figure} is quoted ${times} times outside the table`,
       ).toBe(1);
     }
-    // And the band is BOTH ends of the everyday voice's ladder, in one sentence: the entry
-    // rung a first purchase is actually at, and the floor the largest pack reaches.
-    const dearestSarvam = formatRateForTest(
+    // And the band is BOTH ends of ONE voice's ladder, in one sentence: the entry rung a
+    // first purchase is actually at, and the floor the largest pack reaches.
+    //
+    // ⚠ **IT IS THE STUDIO LADDER AND IT WAS THE CLEAR ONE UNTIL D-629 (18 Sep 2026).** The
+    // headline has to be a price somebody can be put on, and no agent can be set to a Clear
+    // voice until a Gnani price is attested — a headline quoting it would be a rate no
+    // client of ours can run at, which is an under-quote on a public page. The Clear band is
+    // still on the page, in the lede, with the sentence saying why it cannot be chosen.
+    const dearestStudio = formatRateForTest(
       RATE_CARD.packs
-        .map((pack) => packRate(pack, "sarvam"))
+        .map((pack) => packRate(pack, "cartesia"))
         .reduce((a, b) => (Number(a) >= Number(b) ? a : b)),
     );
     const h1 = container.querySelector("h1")?.textContent ?? "";
-    expect(h1).toContain(dearestSarvam);
-    expect(h1).toContain(formatRateForTest(RATE_CARD.from_sarvam_inr_per_min));
+    expect(h1).toContain(dearestStudio);
+    expect(h1).toContain(formatRateForTest(RATE_CARD.from_cartesia_inr_per_min));
     // The heading that used to re-quote one end of it says no figure at all now.
     expect(prose).not.toMatch(/start today/i);
   });

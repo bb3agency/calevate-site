@@ -104,6 +104,8 @@ import {
   packRate,
   ratePaisePerMin,
   tierLabel,
+  UNPRICED_TIER,
+  UNPRICED_TIER_NOTICE,
   VOICE_TIERS,
   type PublicRateCard,
   type RateCardPack,
@@ -377,8 +379,15 @@ function voiceOptions(
       id: voice,
       label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption:
-        voice === "sarvam"
-          ? `The everyday voice, and where every agent starts.${pack}`
+        // ⚠ THIS ARM SAID "The everyday voice, and where every agent starts." AND BOTH
+        // HALVES STOPPED BEING TRUE ON 18 SEP 2026 (D-629). Sarvam was removed from the
+        // synthesis leg; the rung is Gnani's, Gnani publish no price, and hard rule 7
+        // therefore keeps every voice in it out of what anyone can be put on. No agent
+        // starts here and none can be moved here. The rate is REAL and stays on the label,
+        // because it is frozen on any credit bought today — what changed is that it is not
+        // a voice on offer, and the notice is the one place that sentence is written.
+        voice === UNPRICED_TIER
+          ? UNPRICED_TIER_NOTICE
           // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
           // the voice picker is mounted in the admin realm only and changing a voice is
           // ours (D-21). Per-agent is the true and load-bearing half — it is why this
@@ -448,10 +457,15 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // DEFAULTS TO THE LIST RATE. See the header: pre-selecting the cheapest pack would be
   // the one thing this tool promises not to do.
   const [rateChoice, setRateChoice] = useState<string>(LIST_RATE);
-  // DEFAULTS TO THE CHEAPER VOICE, for the same reason the rate defaults to the list rung:
-  // it is what a new agent gets (plan Q9 — the dearer voice is chosen, never inherited), so
-  // it is the honest starting point rather than a flattering one.
-  const [voice, setVoice] = useState<VoiceTier>("sarvam");
+  // ⚠ **IT DEFAULTED TO THE CHEAPER VOICE UNTIL 18 SEP 2026, ON A REASON D-629 REVERSED.**
+  // That default was "it is what a new agent gets" — and since D-629 no agent can get it:
+  // the cheaper rung is Gnani's, Gnani publish no price, and no voice in it is offerable
+  // (hard rule 7). Opening on it would price the whole comparison at a rate no agent this
+  // buyer signs up for can actually run at, which is an UNDER-quote on a public page — the
+  // same direction `rateFor`'s own warning above is about. So it opens on the voice an
+  // agent can be put on, and the cheaper one keeps its rate, its radio and the notice
+  // saying why it cannot be chosen. Flip this back the day the Gnani price is attested.
+  const [voice, setVoice] = useState<VoiceTier>("cartesia");
   const { rate: selectedRate, pack: selectedPack } = rateFor(card, voice, rateChoice);
   const calevatePaisePerMin = ratePaisePerMin(selectedRate);
   const cheapest = cheapestPack(card, voice);
@@ -680,7 +694,11 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 a pack first and a voice second would silently reprice the pack the buyer
                 had just chosen. Both labels come from the card. */}
             <RadioCards
-              legend={`Which voice your agents use — priced from ${formatRateINR(cardFromRate(card, "sarvam"))}/min`}
+              /* THE "FROM" FIGURE IS THE CHEAPEST MINUTE A BUYER CAN ACTUALLY BE PUT ON,
+                 and until D-629 it was the cheapest on the card — which is now a rung
+                 nobody can choose. A legend leading with it would advertise a price no
+                 agent can be run at. */
+              legend={`Which voice your agents use — priced from ${formatRateINR(cardFromRate(card, "cartesia"))}/min`}
               options={voiceOptions(card)}
               value={voice}
               onChange={setVoice}
@@ -1105,31 +1123,31 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               <li>
                 <span className="font-medium text-ink">Calevate</span> = calls a day ×
                 average length × {formatRateINR(selectedRate)}/min × working days.{" "}
-                {formatRateINR(card.list_rate_inr_per_min)}/min is our published self-serve
-                list rate on the {tierLabel(card, "sarvam")} voice, read from our own rate
+                {/* ⚠ THIS BULLET LED WITH THE CHEAPER VOICE'S LIST RATE — `card
+                    .list_rate_inr_per_min`, which is the Clear column — while the
+                    arithmetic above it ran at whatever voice was selected. That was
+                    survivable while the two agreed on the default; since D-629 the default
+                    is Studio and the Clear voice cannot be chosen at all, so leading with
+                    its figure would have explained a sum with a rate the sum did not use.
+                    The order is now: the voice this opened on, then the other one with why
+                    it is not selectable. */}
+                {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min is our
+                published self-serve list rate on the {tierLabel(card, "cartesia")} voice,
+                read from our own rate card when this page loaded
                 {/* The pack clause is CONDITIONAL for the same reason the voice captions'
                     is: on a flat column "a prepaid pack brings it down to ₹4.00/min"
-                    quotes the list rate straight back as a discount. The dearer voice is
-                    stated as a RANGE, which has the same failure — a range whose ends are
-                    equal is not a range. */}
-                card when this page loaded
-                {ladderFalls(card, "sarvam") && (
+                    quotes the list rate straight back as a discount. */}
+                {ladderFalls(card, "cartesia") && (
                   <>
                     ; a prepaid pack brings it down to{" "}
-                    {formatRateINR(cardFromRate(card, "sarvam"))}/min
+                    {formatRateINR(cardFromRate(card, "cartesia"))}/min
                   </>
                 )}
-                , and the {tierLabel(card, "cartesia")} voice{" "}
-                {ladderFalls(card, "cartesia") ? (
-                  <>
-                    runs from {formatRateINR(cardFromRate(card, "cartesia"))}/min to{" "}
-                    {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min
-                  </>
-                ) : (
-                  <>is {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min</>
-                )}
-                . The comparison starts on the everyday voice at the list rate rather than
-                at the cheapest pack, on purpose.
+                . The {tierLabel(card, "sarvam")} voice is{" "}
+                {formatRateINR(card.list_rate_inr_per_min)}/min on the same card and cannot
+                be chosen at the moment, for the reason printed beside it above — which is
+                why the comparison opens on the {tierLabel(card, "cartesia")} voice, and at
+                the list rate rather than at the cheapest pack, on purpose.
               </li>
               <li>
                 <span className="font-medium text-ink">Telecallers needed</span> = calls a

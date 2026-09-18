@@ -1212,7 +1212,13 @@ describe("what the balance is made of", () => {
     await screen.findByText("Credit lots — what the balance is made of");
     expect(container.textContent).toContain("₹1,200.00 left of ₹2,000.00");
     // VENDOR and tier label together — the admin console's deliberate exception.
-    expect(container.textContent).toContain("Sarvam (Clear) ₹5.0000/min");
+    // ⚠ **THE CHEAPER RUNG'S VENDOR IS GNANI AND WAS SARVAM UNTIL D-629 (18 Sep 2026).**
+    // The wire field and the DB column are still `sarvam_inr_per_min` — renaming a money
+    // column is a migration nobody has run, and an append-only ledger has to keep
+    // resolving the months a Sarvam voice spoke — so what moved is the NAME PRINTED, which
+    // is there so an operator can connect a lot's rate to the invoice that will arrive.
+    // The rate is the RUNG's and is frozen on the lot whoever speaks it.
+    expect(container.textContent).toContain("Gnani (Clear) ₹5.0000/min");
     expect(container.textContent).toContain("Cartesia (Studio) ₹8.0000/min");
     // The promise, stated where the lots are listed.
     expect(container.textContent).toContain("never its rates");
@@ -1265,7 +1271,7 @@ describe("what the balance is made of", () => {
     expect(container.textContent).toContain(
       "a restatement moves totals, never rates",
     );
-    expect(container.textContent).toContain("Sarvam (Clear) ₹5.0000/min");
+    expect(container.textContent).toContain("Gnani (Clear) ₹5.0000/min");
   });
 
   it("states the overdraft a downward restatement could not absorb", async () => {

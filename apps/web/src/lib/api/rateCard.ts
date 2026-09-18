@@ -151,6 +151,41 @@ export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
   return voice === "sarvam" ? card.sarvam_tier_label : card.cartesia_tier_label;
 }
 
+/**
+ * **THE TIER NO AGENT CAN BE PUT ON RIGHT NOW, AND THE ONE SENTENCE THAT SAYS SO (D-629).**
+ *
+ * D-629 removed Sarvam from the TEXT-TO-SPEECH leg entirely — it still transcribes every
+ * call, it no longer speaks on any — and gave the cheaper rung to Gnani. Gnani publish no
+ * price of any kind, and the single figure in the wild is a RESELLER's for their own
+ * platform (`docs/PIPECAT-MIGRATION.md` §7), so hard rule 7 keeps every Gnani voice out of
+ * what anyone can select until an operator attests a real invoice figure. The rung
+ * therefore EXISTS, has a vendor, prices minutes on every credit lot — and cannot be
+ * chosen.
+ *
+ * A public page that goes on leading with its rate, and a client screen that goes on saying
+ * a new agent starts on it, would both be advertising a voice nobody can be put on. This is
+ * what they say instead, in ONE place: three surfaces render it (`/pricing`'s rate table,
+ * the ROI calculator's voice options, the client's "What calls cost"), and three typed
+ * copies is how a client meets three versions of one fact.
+ *
+ * **IT IS A PRODUCT FACT, NOT A DEPLOYMENT ONE, WHICH IS WHY IT MAY BE TYPED HERE AT ALL.**
+ * Whether a particular deployment has a credential installed is the SERVER's answer, per
+ * voice and per audience (`agents/voice_offer.unofferable_reason`, rendered verbatim by
+ * `components/voicePicker.tsx`) and is never composed in the browser. "Nobody has priced
+ * this vendor" is true of the product everywhere, and the public rate-card route carries no
+ * availability field to ask. When the price is attested, this constant and its three call
+ * sites are deleted together — that is the whole change, and it is why the notice is one
+ * export rather than three sentences.
+ */
+export const UNPRICED_TIER: VoiceTier = "sarvam";
+
+/** The sentence itself. Rendered verbatim; never reworded at a call site. */
+export const UNPRICED_TIER_NOTICE =
+  "Not available to choose yet: the vendor that speaks this voice changed and we have not " +
+  "established what one minute of it costs, so we will not put an agent on it. Its rate is " +
+  "still fixed on credit you buy today, and it costs you nothing to move an agent onto it " +
+  "once it opens.";
+
 export const PUBLIC_RATE_CARD_PATH = "/v1/public/rate-card";
 
 /**

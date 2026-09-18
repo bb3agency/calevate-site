@@ -33,8 +33,12 @@
  *
  * Grouping is by `tier_label` ("Clear", "Studio"), which is the API's word for the tier
  * (`apps/api/billing/rates.py::VOICE_TIER_LABELS`, one definition, in Python). It is NOT by
- * `provider`: `sarvam`/`cartesia` name the VENDOR, they key the money and the metering, and
- * no human-facing surface says them (founder, 7 Sep 2026). A voice arriving with no label —
+ * `provider`: `gnani`/`cartesia` name the VENDOR, they key the money and the metering, and
+ * no human-facing surface says them (founder, 7 Sep 2026). ⚠ **THE CHEAPER TIER'S VENDOR
+ * CHANGED UNDER IT ON 18 SEP 2026 (D-629) AND THIS LINE STILL SAID `sarvam`** — Sarvam no
+ * longer synthesises anything (it is still the TRANSCRIPTION vendor on every call, which is
+ * a different leg), and the Clear tier is Gnani's. Nothing in this component moved with it,
+ * which is the property the server-sent label was for. A voice arriving with no label —
  * an API build that does not send the field yet — renders UNGROUPED rather than under a
  * vendor name, because a tier is either named by the server or not named at all.
  *

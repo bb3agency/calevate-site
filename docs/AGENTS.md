@@ -7,16 +7,31 @@ authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments
 ## Project
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bolna —
-D-31) + BYOK models. **Speech is TWO VENDORS, and the TTS half is chosen PER AGENT
-(D-547)** — STT is Sarvam Saaras throughout, TTS is `apps/api/agents/voices.py::TtsModel`,
-which is `Literal["bulbul:v3", "sonic-3.5"]`: Sarvam Bulbul v3 or Cartesia Sonic 3.5. The
-provider IS the voice tier (`voices.voice_tier()`, plan §2.3 invariant 7) and it prices the
-minute — ₹1.08–1.62 against ₹2.06–3.09 per call-minute (TRD §10.1). ⚠ **THIS LINE READ
-"Speech is Sarvam … v2 = value tier — D-36, unchanged" AND BOTH HALVES WERE WRONG (10 Sep
-2026)**: it hid a shipped second vendor, and Bulbul **v2 is WITHDRAWN, not a value tier** —
-it prices nothing, `TTS_INR_PER_10K_CHARS` is one scalar for the Sarvam rung
-(`apps/api/billing/rates.py`), and the premium/value `Mapping[TtsTier, Decimal]` it names
-was deleted with the rung (TRD §10.1). Language is **Azure OpenAI in East US 2** —
+D-31) + BYOK models. **Speech is TWO VENDORS ON TWO DIFFERENT LEGS, and the TTS half is
+chosen PER AGENT (D-547)** — STT is Sarvam Saaras throughout, TTS is
+`apps/api/agents/voices.py::TtsModel`, which is `Literal["sonic-3.5", "timbre-v2.5"]`:
+Cartesia Sonic 3.5 (**Studio**, ₹2.06–3.09 per call-minute, TRD §10.1) or Gnani Timbre v2.5
+(**Clear**, no price at all). ⚠ **THIS LINE SAID `Literal["bulbul:v3", "sonic-3.5"]` AND IS
+TWO CORRECTIONS DEEP.** D-618 made the Literal three by adding Gnani; **D-629 (18 Sep 2026)
+made it two again with a DIFFERENT PAIR** — Sarvam left the TEXT-TO-SPEECH leg and Gnani
+took the Clear rung. **Sarvam STT is untouched**: Saaras still transcribes every call, still
+receives the caller's AUDIO and the raw transcript, still runs the first extraction pass,
+and its sub-processor standing, cross-border transfers and ToS s.17.5 training permission
+are disclosed exactly as before (`/legal/subprocessors` §3.4, `/legal/privacy` §6). **The
+provider and the tier are different vocabularies** (D-618): `voices.VOICE_TIER_OF_PROVIDER`
+maps `gnani` to `billing/rates.VALUE_VOICE_TIER`, which is still spelled `"sarvam"` because
+that is the LEDGER's name for the Clear rung and renaming a money column is a migration
+nobody has run — the key is history, the vendor is Gnani. What keeps a Gnani minute off a
+client's agent is `agents/voice_offer.py`'s attested-price ground, not the tier map. ⚠ **So the Clear rung exists, has
+a vendor and CANNOT BE SOLD**: Gnani publish no price of any kind, the only figure in this
+tree is a RESELLER's (₹27/10,000 chars, `docs/PIPECAT-MIGRATION.md` §7 — not Gnani's, and
+never to reach a client-facing surface), and hard rule 7 keeps every Gnani voice out of
+`agents/voice_offer` until one operator attests a real invoice. `TTS_INR_PER_10K_CHARS`
+stayed in the code but is no longer a rate anybody is charged: FROZEN and labelled as the
+last figure anybody read for a value-rung voice, divided into the Clear rung's cost FLOOR
+only, and retired the day a Gnani figure is attested. Bulbul **v2** remains withdrawn and
+prices nothing, and the premium/value `Mapping[TtsTier, Decimal]` it once named was deleted
+with the old ladder (TRD §10.1, whose Clear row states no rate a client pays). Language is **Azure OpenAI in East US 2** —
 `AZURE_LOCATION`
 (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with `gpt-4.1-mini`
 a live config switch through `azure_openai_model`. **D-410 supersedes D-400/D-404 on the

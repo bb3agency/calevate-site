@@ -253,6 +253,24 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "their callers were remembered for six months, and what is kept about "
                 "you is exactly what a person agrees to.",
             ),
+            Revision(
+                "8",
+                True,
+                "The speech vendor no longer synthesises the agent's voice. It still "
+                "hears every call and still reads the first pass over the transcript, so "
+                "nothing this notice says about what it receives or what its own terms "
+                "permit changed; the cheaper voice quality passed to a third company, and "
+                "BOTH voice qualities are now spoken by companies whose processing "
+                "location has not been established. Two things a reader of revision 7 was "
+                "told are WITHDRAWN rather than reworded: that voice synthesis ran on the "
+                "Indian provider for agents on the first quality, and that a client could "
+                "keep an unplaceable synthesiser away from their callers by keeping every "
+                "agent on the other quality. MATERIAL — where an agent's voice is made, "
+                "and whether there is a choice that keeps it with a company whose "
+                "published position somebody has read, are both things a reader agreed "
+                "to; and nobody here has been able to open a page the new company "
+                "publishes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -383,6 +401,22 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "a narrowed warranty and a new recipient both change what somebody "
                 "agreed to.",
             ),
+            Revision(
+                "7",
+                True,
+                "Clause 2's voice-synthesis bullet no longer names the company that hears "
+                "the call: it was removed from the synthesis leg, and the cheaper voice "
+                "quality passed to a third company of whose published position we have "
+                "read nothing — every one of its own sites refuses a connection from the "
+                "environment this software is built in. Clause 5 gains a SECOND exception "
+                "to its warranty for that company, on the stronger ground that we cannot "
+                "say whether it offers a data-processing agreement at all. Clause 9 stops "
+                "saying voice synthesis runs on the Indian provider for the first voice "
+                "quality and WITHDRAWS the sentence that keeping your agents on that "
+                "quality kept your callers' data away from an unplaceable vendor — there "
+                "is no longer a quality that does. MATERIAL — a narrowed warranty and a "
+                "withdrawn assurance both change what somebody agreed to.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -452,6 +486,24 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "undisclosed: a register that omits a recipient one setting away from "
                 "being live is the failure the notification clause exists for. MATERIAL "
                 "— new sub-processors are what a client may object to.",
+            ),
+            Revision(
+                "7",
+                True,
+                "No row is added and none is removed; what moved is which vendor does "
+                "what. The speech vendor's entry loses voice synthesis — it still hears "
+                "every call and still reads the transcript first, and nothing in its "
+                "location, what it receives, or the section on what its terms permit "
+                "narrowed by a word. The third voice-synthesis vendor, disclosed one "
+                "revision ago as a quality nobody could choose, becomes the vendor of the "
+                "cheaper of the two qualities. The section written for one synthesis "
+                "vendor now covers both, and its closing assurance — that a client could "
+                "keep every agent on the other voice quality and that vendor would then "
+                "receive nothing of theirs — is WITHDRAWN, because both qualities are now "
+                "spoken by companies whose published position nobody here has read. "
+                "MATERIAL — re-assigning the most sensitive leg in the product from a "
+                "vendor whose terms are set out on this page to one whose pages cannot be "
+                "opened at all tells a client something new about who processes what.",
             ),
         ),
         effective_date="2026-09-02",

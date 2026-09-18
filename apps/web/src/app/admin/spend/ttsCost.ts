@@ -57,9 +57,17 @@ export type TtsPlanSpend = components["schemas"]["TtsPlanSpendOut"];
  */
 export type SpeakingRateByProvider = components["schemas"]["SpeakingRateByProviderOut"];
 
-/** The vendor, named — this is the admin console, and the invoice has a vendor on it. */
+/**
+ * The vendor, named — this is the admin console, and the invoice has a vendor on it.
+ *
+ * `sarvam` is kept although Sarvam stopped synthesising on 18 Sep 2026 (D-629): this reads
+ * `usage_events`, which is append-only, so months that a Sarvam voice spoke still answer
+ * with that provider for ever and must name it. `gnani` is the Clear rung's vendor from
+ * that date.
+ */
 export function vendorName(provider: string): string {
   if (provider === "sarvam") return "Sarvam";
   if (provider === "cartesia") return "Cartesia";
+  if (provider === "gnani") return "Gnani";
   return provider;
 }

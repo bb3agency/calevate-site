@@ -795,49 +795,66 @@ export const PRIVACY_POLICY: LegalDocument = {
             "Processing Addendum is the operative text.",
         },
         {
-          // The SECOND vendor whose training position we have to pass on rather than
-          // promise away. Everything attributed here is what that vendor's own published
-          // privacy policy says, read for us and relayed on 6-7 September 2026 —
-          // `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, evidence class
-          // VENDOR-PUBLISHED, RELAYED. Its pages are egress-blocked from our build
-          // environment, so nobody here has opened them; that is why every clause below
-          // is framed as what the vendor's documents SAY, and why the sentences that are
-          // OURS (nothing has been sent to it; what it receives) are the only ones stated
-          // flatly — those two are read off this repository's own code.
+          // THE VOICE-SYNTHESIS VENDORS, WHICH ARE NO LONGER THE COMPANY ABOVE.
+          // ⚠ Until 18 September 2026 the cheaper voice quality was synthesised by the
+          // same Indian company that hears the call, and this paragraph and the one after
+          // it were written around that. D-629 removed that company from the synthesis
+          // leg entirely — it still transcribes every call and still reads the first pass
+          // over the transcript, so everything above about what it receives and what its
+          // terms permit is unchanged — and left BOTH voice qualities with companies we
+          // cannot place.
           //
-          // It names no company, because a voice quality is a product choice and a
-          // company name is a disclosure: the sub-processor register is where the name
-          // belongs, and section 3.6 there is what this points at.
+          // What is said about the dearer quality's vendor is what its own published
+          // privacy policy says, read for us and relayed on 6-7 September 2026
+          // (`docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, evidence class
+          // VENDOR-PUBLISHED, RELAYED; its pages are egress-blocked from our build
+          // environment, so nobody here has opened them). For the cheaper quality's
+          // vendor we have read NOTHING — all three of its sites are egress-blocked
+          // (measured 15 September 2026) — and hard rule 11 makes the honest answer a
+          // stated gap rather than a borrowed one.
+          //
+          // Neither is named here, because a voice quality is a product choice and a
+          // company name is a disclosure: the sub-processor register is where the names
+          // belong, and section 3.6 there is what this points at.
           kind: "para",
           text:
-            "Since 7 September 2026 there are two such vendors, which is why the " +
-            "paragraph above says two. An agent can speak in either of two voice " +
-            "qualities, and the second of them is synthesised by a different company " +
-            "from the one that hears the call. Its own published privacy policy says it " +
-            "may use the information it receives to generate output and to train and " +
-            "enhance the models behind its services, and offers an opt-out form whose " +
-            "effect is forward-only — it stops future use for training and does not " +
-            "reach anything used before the day it is submitted. Its no-retention " +
-            "option, under which submitted text and generated audio are not kept at " +
-            "all, is sold only on its enterprise plan; on the plans we could buy, what " +
-            "it keeps is governed by its published data-processing agreement instead, " +
-            "and we have not established what those periods are.",
+            "The two voice qualities an agent can speak in are synthesised by two other " +
+            "companies again — not by the one that hears the call, and until " +
+            "18 September 2026 the cheaper of them was. What that company does with what " +
+            "it receives is unchanged and is set out above; it no longer produces the " +
+            "voice you hear. Of the two that now do, one has a published privacy policy " +
+            "saying it may use the information it receives to generate output and to " +
+            "train and enhance the models behind its services, with an opt-out form " +
+            "whose effect is forward-only — it stops future use for training and does " +
+            "not reach anything used before the day it is submitted; its no-retention " +
+            "option, under which submitted text and generated audio are not kept at all, " +
+            "is sold only on its enterprise plan, and on the plans we could buy what it " +
+            "keeps is governed by its published data-processing agreement instead, and " +
+            "we have not established what those periods are. For the other we have " +
+            "established " +
+            "nothing at all: its own sites cannot be reached from the environment we " +
+            "build in, so nobody here has read its position on training, on retention or " +
+            "on anything else, and we will not repeat a position we have not read.",
         },
         {
           kind: "para",
           text:
-            "What reaches that company is narrower than the word voice suggests, and it " +
-            "is worth being exact: the words the agent is about to speak, sent as text a " +
-            "turn at a time, which can include a detail you have just given where the " +
-            "agent repeats it back to confirm it. Not your own audio, not the transcript " +
-            "of what you said, not the recording, and nothing from a client's " +
-            "dashboard. Nothing has been sent to it yet: no credential for it is " +
-            "installed on this system, no voice in that quality can be chosen, and the " +
-            "product refuses rather than quietly working without one. A client who " +
-            "would rather none of this applied to their callers can keep every agent on " +
-            "the other voice quality, and that company then receives nothing of theirs. " +
-            "Section 3.6 of the sub-processor page names it and carries the rest, " +
-            "including the three things about it nobody has established.",
+            "What reaches either of those companies is narrower than the word voice " +
+            "suggests, and it is worth being exact: the words the agent is about to " +
+            "speak, sent as text a turn at a time, which can include a detail you have " +
+            "just given where the agent repeats it back to confirm it. Not your own " +
+            "audio, not the transcript of what you said, not the recording, and nothing " +
+            "from a client's dashboard. Nothing has been sent to either of them: no " +
+            "credential for either is installed on this system, no voice in either " +
+            "quality can be chosen today, and the product refuses rather than quietly " +
+            "working without one. This paragraph used to end by telling a client who " +
+            "would rather none of it applied to their callers that they could keep every " +
+            "agent on the other voice quality. That is withdrawn rather than reworded: " +
+            "since 18 September 2026 there is no voice quality that is spoken by a " +
+            "company we can place, so there is no longer a choice of voice that keeps " +
+            "synthesis away from one. Section 3.6 of the sub-processor page names both " +
+            "companies and carries the rest, including what nobody has established " +
+            "about each.",
         },
       ],
     },
@@ -916,18 +933,22 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "definitions",
           items: [
             {
-              term: "Speech recognition runs on an Indian COMPANY, which is not the same as staying in India; one of the two voice qualities is spoken by another company we cannot place at all; the language model runs outside India, and where depends on the model you choose",
+              term: "Speech recognition runs on an Indian COMPANY, which is not the same as staying in India; BOTH voice qualities are spoken by other companies we cannot place at all; the language model runs outside India, and where depends on the model you choose",
               detail:
                 "Speech recognition — turning what you say into text — runs on an " +
                 "Indian provider on both call legs, and so does the first pass that " +
                 "reads your transcript " +
-                "and pulls the fields out of it. So does voice synthesis, the step that " +
-                "turns the agent's words into the voice you hear, for agents set to the " +
-                "first of the two voice qualities the product offers; the second quality " +
-                "is spoken by a different company, and it has an entry of its own below " +
-                "because we cannot tell you where that one processes. This entry used to " +
-                "say voice synthesis ran on the Indian provider for every agent, and " +
-                "since 7 September 2026 that is true only of the first quality. " +
+                "and pulls the fields out of it. Voice synthesis — the step that turns " +
+                "the agent's words into the voice you hear — no longer does, for any " +
+                "agent. This entry said it ran on that provider for every agent until " +
+                "7 September 2026 and for the first of the two voice qualities until " +
+                "18 September 2026; on that date the provider was removed from the " +
+                "synthesis step altogether, and BOTH voice qualities are now spoken by " +
+                "other companies, each of which has an entry of its own below because we " +
+                "cannot tell you where either of them processes. Nothing else about the " +
+                "Indian provider changed: it still hears every call and still reads your " +
+                "transcript first, and everything this entry says next about it is " +
+                "unchanged. " +
                 "Calling the provider Indian names the COMPANY, not the country " +
                 "the processing happens in, and until 27 August 2026 this notice let you " +
                 "read it as both. That provider's published privacy policy says personal " +
@@ -991,11 +1012,13 @@ export const PRIVACY_POLICY: LegalDocument = {
               // United-States sentence quoted here is about who the service is FOR, and
               // is quoted rather than paraphrased so it cannot be read as a location.
               term:
-                "The second voice quality is spoken by a company we cannot place, and we " +
+                "Both voice qualities are spoken by companies we cannot place, and we " +
                 "would rather say so than name a country",
               detail:
-                "An agent speaks in one of two voice qualities. The second is " +
-                "synthesised by a different company from the one described above, and " +
+                "An agent speaks in one of two voice qualities, and since " +
+                "18 September 2026 neither of them is synthesised by the company " +
+                "described above. The dearer one is " +
+                "synthesised by a different company, and " +
                 "we have not established where it processes: its published documents, " +
                 "as read to us, name no region and make no data-residency commitment, " +
                 "and our build environment cannot reach its pages for us to check. So " +
@@ -1009,8 +1032,19 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "summarised into a location. What reaches it is the words the agent " +
                 "speaks, as text, a turn at a time, and section 6 sets out both that " +
                 "and what its terms permit it to do with them. Nothing has been sent to " +
-                "it yet. Section 3.6 of the sub-processor page names the company and " +
-                "lists what nobody here has established about it.",
+                "it yet. The cheaper quality is spoken by a third company again, added " +
+                "on 15 September 2026 and given that quality on 18 September 2026, and " +
+                "about that one we have established even less: all three of its own " +
+                "sites refuse a connection from the environment we build in, so nobody " +
+                "here has read where it processes, what it keeps, or what its terms " +
+                "permit — and we will not borrow the answers above for it. Nothing has " +
+                "been sent to it either; no agent can be set to that quality at all " +
+                "today, because nobody has established what a minute of it costs. " +
+                "⚠ Until 18 September 2026 this entry told you that keeping your agents " +
+                "on the other voice quality kept an unplaceable company out of your " +
+                "calls. There is no such quality now, and that is withdrawn rather than " +
+                "reworded. Section 3.6 of the sub-processor page names both companies " +
+                "and lists what nobody here has established about each.",
             },
             {
               term:

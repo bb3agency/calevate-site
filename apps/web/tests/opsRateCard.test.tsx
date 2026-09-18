@@ -37,7 +37,7 @@ import { problem, stubApi, type Routes } from "./harness";
  *
  * What these pin, worst consequence first:
  *
- * 1. **A THIN MARGIN IS A WARNING AND MUST NEVER BECOME A REFUSAL.** The whole Sarvam
+ * 1. **A THIN MARGIN IS A WARNING AND MUST NEVER BECOME A REFUSAL.** The whole Clear
  *    column sits under the 20% target and above cost, by the founder's decision, and the
  *    server's own guard refuses BELOW COST and only REPORTS below target
  *    (`billing/rates.card_margins` / `card_refusals`). A console that rendered "thin" as a
@@ -117,7 +117,7 @@ function cell(over: Partial<RateCardCell> = {}): RateCardCell {
     // around this row being sellable.
     below_target: true,
     below_floor: false,
-    // THE AT-VOLUME HALF (9 Sep 2026). On a Sarvam cell it is the same number twice —
+    // THE AT-VOLUME HALF (9 Sep 2026). On a Clear cell it is the same number twice —
     // that voice is priced per character in rupees and its cost does not move with volume
     // or with the dollar — which is the honest answer and not a fixture shortcut.
     breakeven_call_minutes: null,
@@ -448,7 +448,7 @@ describe("the rate card an operator is about to date", () => {
     // The VENDOR and the client-facing label, together — the deliberate exception this
     // screen is. A cell naming only one of the two leaves an operator unable to connect a
     // rate to the key they installed, or to the word the client is quoting at them.
-    expect(container.textContent).toContain("Sarvam · Clear");
+    expect(container.textContent).toContain("Gnani · Clear");
     expect(container.textContent).toContain("Cartesia · Studio");
     // The server's percentage, printed — never a division done in the browser from two
     // rounded figures.
@@ -648,7 +648,7 @@ describe("the voice price that decides whether a tier can be sold", () => {
     const { container } = renderOps(routes());
 
     await screen.findByText(/Voice prices/);
-    expect(container.textContent).toContain("Sarvam · Clear");
+    expect(container.textContent).toContain("Gnani · Clear");
     expect(container.textContent).toContain("There is nothing to confirm.");
     expect(container.textContent).toContain("On sale to customers");
   });
@@ -1086,7 +1086,7 @@ describe("recording the next rate card", () => {
       await screen.findByRole("button", { name: /Record a new card/ }),
     );
     fireEvent.change(
-      screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"),
+      screen.getByLabelText("Rupees per minute, starter pack on Gnani Clear"),
       {
         target: { value: "5.5000" },
       },
@@ -1124,7 +1124,7 @@ describe("recording the next rate card", () => {
       await screen.findByRole("button", { name: /Record a new card/ }),
     );
     fireEvent.change(
-      screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"),
+      screen.getByLabelText("Rupees per minute, starter pack on Gnani Clear"),
       {
         target: { value: "5.5000" },
       },

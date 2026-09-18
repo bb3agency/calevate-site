@@ -10,6 +10,7 @@ import {
   packRate,
   rateToTenThousandths,
   tierLabel,
+  UNPRICED_TIER_NOTICE,
   VOICE_TIERS,
   type PublicRateCard,
   type VoiceTier,
@@ -226,12 +227,19 @@ export default async function PricingPage() {
         title={
           rateCard === null
             ? "You are billed for the minutes your agents actually talk"
-            : `Talk time on the ${tierLabel(rateCard, "sarvam")} voice: ${bandSentence(rateCard, "sarvam")}`
+            : /* ⚠ THE HEADLINE LED WITH THE CHEAPER VOICE UNTIL 18 SEP 2026 (D-629), AND
+                  THAT VOICE CAN NO LONGER BE CHOSEN — its vendor changed to one nobody has
+                  priced, so hard rule 7 keeps every voice in it off the picker. A price is
+                  the headline (6 Sep 2026) and it has to be a price somebody can be put on,
+                  so the headline is the voice that can be and the other is in the lede with
+                  the notice saying why. It moves the number UP, which is the only direction
+                  a correction to a public price may take on its own. */
+              `Talk time on the ${tierLabel(rateCard, "cartesia")} voice: ${bandSentence(rateCard, "cartesia")}`
         }
         lede={
           rateCard === null
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `The ${tierLabel(rateCard, "cartesia")} voice, which costs us more to run, is ${bandSentence(rateCard, "cartesia")}. No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, and credit does not expire.`
+            : `The ${tierLabel(rateCard, "sarvam")} voice is ${bandSentence(rateCard, "sarvam")} on the same card. ${UNPRICED_TIER_NOTICE} No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, and credit does not expire.`
         }
       />
 

@@ -120,9 +120,22 @@ export type CartesiaVolume = Schemas["CartesiaVolumeOut"];
  */
 export type SpeakingRate = Schemas["SpeakingRateOut"];
 
-/** The vendor, named — this is the one surface where that is required rather than avoided. */
+/**
+ * The vendor, named — this is the one surface where that is required rather than avoided.
+ *
+ * ⚠ **THE `sarvam` KEY NO LONGER NAMES THE VENDOR IT IS SPELLED AFTER (D-629, 18 Sep
+ * 2026).** Sarvam stopped synthesising anything on that date; the Clear rung is Gnani's.
+ * The KEY is unchanged on purpose — it is the ledger's and the wire's spelling of the
+ * cheaper rung (`credit_lots.sarvam_inr_per_min`, `CreditPackOut.sarvam_inr_per_min`), and
+ * renaming a money column is a migration nobody has run. So the key is history and the
+ * VALUE is the vendor: an operator reconciling an invoice needs the company that will send
+ * one, and from D-629 that company is Gnani.
+ *
+ * Sarvam is still a vendor of ours — it transcribes every call and reads the first pass over
+ * the transcript — but it bills no rung on this card.
+ */
 export const TIER_VENDOR: Record<VoiceTier, string> = {
-  sarvam: "Sarvam",
+  sarvam: "Gnani",
   cartesia: "Cartesia",
 };
 

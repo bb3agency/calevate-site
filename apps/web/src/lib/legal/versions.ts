@@ -145,6 +145,26 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash: "sha256:9cf7f8394aa1e973e0f83ffcff3f796b4d321df30fc9fd56fca77a637f459e87",
       },
+      // D-629. SARVAM NO LONGER SYNTHESISES THE AGENT'S VOICE. It still hears every call
+      // and still reads the first pass over the transcript, so nothing this notice says
+      // about what it receives or what its terms permit changed; what changed is that the
+      // cheaper voice quality passed to a third company (Gnani) and BOTH qualities are now
+      // spoken by companies we cannot place. Two sentences a reader of revision 7 relied on
+      // are WITHDRAWN rather than reworded: that voice synthesis ran on the Indian provider
+      // for agents on the first quality (§6, §8), and that a client who would rather an
+      // unplaceable synthesiser did not touch their callers could keep every agent on the
+      // other quality (§6, §8). There is no such quality now.
+      //
+      // MATERIAL. A reader of revision 7 was told where their agent's voice was made and
+      // was given a way to keep it with a company whose position we had read; both are
+      // gone, and the company that takes over is one whose own pages nobody here has been
+      // able to open. That is a change in who receives caller-derived text and in what we
+      // promise about it — the same class of change revision 6 was material for.
+      {
+        revision: "8",
+        material: true,
+        contentHash: "sha256:fd0560de83acd3a964437e33c4bf23ab6fe5ef6a7f8ee026a566edb87e47ceca",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -202,6 +222,24 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash: "sha256:a342c58ebf25971b113f7c5c2f0d22b5dd856c1a157cab7ab15d9d2a32222f9e",
       },
+      // D-629. Clause 2's voice-synthesis bullet no longer names the company that hears
+      // the call: it was removed from the synthesis leg and the cheaper voice quality
+      // passed to a third company, of whose published position we have read NOTHING —
+      // every one of its sites refuses a connection from the environment this is built in.
+      // Clause 5's warranty gains a SECOND exception for that company, on the stronger
+      // ground that we cannot even say whether it offers a data-processing agreement.
+      // Clause 9 stops saying voice synthesis runs on the Indian provider for the first
+      // voice quality, and WITHDRAWS the sentence that keeping your agents on that quality
+      // kept your callers' data away from an unplaceable vendor — there is no longer a
+      // quality that does.
+      //
+      // MATERIAL. A narrowed warranty and a withdrawn assurance both change what somebody
+      // agreed to, which is exactly what revision 6 was material for.
+      {
+        revision: "7",
+        material: true,
+        contentHash: "sha256:ecc9cb2a327bc7d77345551267d67d7f87704e51afbbbb8ec20a2cb068d3f4cb",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -257,6 +295,27 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         revision: "6",
         material: true,
         contentHash: "sha256:1affe0b1386b062917def21846a17309e31a3b98fa18f09d7feccf96c2290ea3",
+      },
+      // D-629. No row is added and none is removed — what MOVED is which vendor does
+      // what. The speech vendor's `does` cell loses "voice synthesis": it still hears
+      // every call and still reads the transcript first, and nothing in its Location
+      // cell, its Receives cell or section 3.4 narrowed by a word. The Gnani row, added
+      // one revision ago as a third quality nobody could choose, becomes the vendor of
+      // the CHEAPER of two qualities. And section 3.6 — written for one vendor — now
+      // covers both, which is where the change bites: its closing assurance that a client
+      // could keep every agent on the other voice quality and that this vendor would then
+      // receive nothing of theirs is WITHDRAWN, because both qualities are now spoken by
+      // companies whose position nobody here has read.
+      //
+      // MATERIAL. A register that re-assigns the most sensitive leg in the product from a
+      // vendor whose terms are set out in section 3.4 to one whose pages cannot be opened
+      // at all is telling a client something new about who processes what — the same
+      // question they are entitled to object to under the notification clause, even
+      // though the company itself was disclosed a revision earlier.
+      {
+        revision: "7",
+        material: true,
+        contentHash: "sha256:2c900be7085a14c8fea4aee922afa81775ecbb9064e3d33c3425f3d1a8394cbd",
       },
     ],
     effectiveDate: "2026-09-02",

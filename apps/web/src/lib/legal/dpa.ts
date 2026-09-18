@@ -144,10 +144,12 @@ export const DPA: LegalDocument = {
             // (nothing has been sent, what it receives) come from this repository's own
             // code. No company is named: a voice quality is a product choice, and the
             // sub-processor register is where a name belongs.
-            "The same is true on the voice-synthesis leg, and since 7 September 2026 " +
-              "there are two vendors in this bullet rather than one. An agent speaks in " +
-              "one of two voice qualities, and the second is synthesised by a different " +
-              "company from the one that hears the call. Its published privacy policy " +
+            "The same is true on the voice-synthesis leg, which since " +
+              "18 September 2026 is no longer the company that hears the call at all. " +
+              "An agent speaks in one of two voice qualities, and BOTH voice qualities are " +
+              "synthesised by other companies; the cheaper one was the speech vendor's " +
+              "until that date. " +
+              "Of the two, one has a published privacy policy that " +
               "says it may use the information it receives to generate output and to " +
               "train and enhance the models behind its services, with an opt-out form " +
               "whose effect is forward-only — it does not reach anything used before the " +
@@ -158,11 +160,17 @@ export const DPA: LegalDocument = {
               "to speak, as text, a turn at a time — which can include a detail a caller " +
               "has just given where the agent repeats it back — and never the caller's " +
               "audio, the transcript, the recording or anything from your dashboard. " +
-              "Nothing has been sent to it: no credential for it is installed and no " +
-              "voice in that quality can be selected. Keeping every agent of yours on " +
-              "the other voice quality keeps your callers' data away from it entirely. " +
-              "Section 3.6 of the sub-processor page names the company and carries the " +
-              "rest.",
+              "Nothing has been sent to either of them: no credential for either is " +
+              "installed and no voice in either quality can be selected. Of the second " +
+              "we have read nothing whatever — its own sites refuse a connection from " +
+              "the environment we build in — so its position on training and retention " +
+              "is not stated here rather than assumed to match the first. ⚠ This bullet " +
+              "used to tell you that keeping every agent of yours on the other voice " +
+              "quality kept your callers' data away from this leg entirely; that is " +
+              "WITHDRAWN rather than reworded, because since 18 September 2026 there is " +
+              "no voice quality spoken by a company whose position anybody has read. " +
+              "Section 3.6 of the sub-processor page names both companies and carries " +
+              "the rest.",
             "We do not pool it across clients, sell it, or share it for anyone's marketing.",
             "The in-app assistant we provide inside your dashboard reads your account to " +
               "answer your own people's questions about it, and it can PROPOSE a small " +
@@ -273,18 +281,22 @@ export const DPA: LegalDocument = {
           // note, and it names the condition that closes it.
           kind: "para",
           text:
-            "One exception to the paragraph above, stated rather than left for you to " +
-            "discover. The vendor that synthesises the second voice quality was added to " +
-            "the register on 7 September 2026 and nothing has been sent to it: no " +
-            "credential for it is installed and no voice in that quality can be " +
-            "selected. Its data-processing agreement is published, and whether it can be " +
+            "Two exceptions to the paragraph above, stated rather than left for you to " +
+            "discover, and both are voice-synthesis vendors nothing has been sent to: no " +
+            "credential for either is installed and no voice in either quality can be " +
+            "selected. The first was added to the register on 7 September 2026. Its " +
+            "data-processing agreement is published, and whether it can be " +
             "entered on a plan we could actually buy — without an enterprise contract — " +
             "is a question we have not settled, so we do not represent to you that one " +
             "is in place. It will not be in place because this clause implies it: it " +
             "will be in place when somebody has established that it can be, and that is " +
             "part of what has to happen before that row stops reading as switched off. " +
-            "Section 3.6 of the sub-processor page states this gap and the two others " +
-            "beside it.",
+            "The second was added on 15 September 2026 and took the cheaper voice " +
+            "quality from the speech vendor on 18 September 2026; we have not been able " +
+            "to read a single page it publishes, so we do not know whether it offers a " +
+            "data-processing agreement at all, and we represent nothing about one. " +
+            "Section 3.6 of the sub-processor page states these gaps and the others " +
+            "beside them.",
         },
         {
           kind: "para",
@@ -535,9 +547,10 @@ export const DPA: LegalDocument = {
           text:
             "The sub-processor page states, for each vendor, where it processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
-            "notice: speech recognition, the first pass that reads " +
-            "the transcript, and voice synthesis for agents set to the first of the two " +
-            "voice qualities the product offers, run on an Indian provider — a " +
+            "notice: speech recognition and the first pass that reads " +
+            "the transcript run on an Indian provider — voice synthesis did too, for " +
+            "agents on the cheaper of the two voice qualities, until 18 September 2026, " +
+            "and that provider no longer synthesises anything — a " +
             "statement about the COMPANY " +
             "and not about the country, which this clause used to let you read as the " +
             "same thing. That provider's published privacy policy permits it to transfer " +
@@ -545,13 +558,16 @@ export const DPA: LegalDocument = {
             "United States cloud infrastructure and with European Union model and " +
             "security vendors, under standard contractual clauses, adequacy decisions " +
             "and data-processing agreements, so the call audio and its transcript may be " +
-            "processed outside India on that leg as well; the second voice quality is " +
-            "synthesised by a different company, and where that company processes is a " +
-            "thing we have not established — its published documents, as read to us, " +
-            "name no region and make no residency commitment, our build environment " +
-            "cannot reach its pages, and rather than name a plausible country the " +
-            "register's location cell for it says so; nothing has been sent to it and " +
-            "keeping your agents on the first voice quality keeps it that way; " +
+            "processed outside India on that leg as well; BOTH voice qualities are " +
+            "synthesised by other companies, and where either of them processes is a " +
+            "thing we have not established — for one, its published documents as read to " +
+            "us name no region and make no residency commitment; for the other, its own " +
+            "sites cannot be reached from the environment we build in at all, so nobody " +
+            "here has read a page of them — and rather than name a plausible country the " +
+            "register's location cells for both say so; nothing has been sent to either " +
+            "of them, and the sentence this clause used to carry, that keeping your " +
+            "agents on the first voice quality kept it that way, is WITHDRAWN because " +
+            "there is no longer a voice quality that does; " +
             "the language model on " +
             "both AI legs runs on one of several providers a client can choose between, " +
             "each named on the sub-processor page with where it processes — the one we " +

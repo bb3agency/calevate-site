@@ -108,7 +108,8 @@ used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-h
   rates, so their tiering is a packaging choice, not a moat; whether Cartesia genuinely beats
   Bulbul v3 on Telugu is an ear test we should run. The product is mature and self-serve.
   **OUR ANSWER TO THE TIER LADDER IS NOW DECIDED AND IS A DIFFERENT SHAPE (D-547).** We
-  ship **TWO** voice tiers, not three — Sarvam Bulbul v3 and **Cartesia Sonic 3.5**, the
+  ship **TWO** voice tiers, not three — Gnani Timbre v2.5 (Sarvam Bulbul v3 until D-629,
+  18 Sep 2026) and **Cartesia Sonic 3.5**, the
   same vendor their ₹7 "exclusive native Telugu" tier uses — and the tier is chosen **per
   agent**, not per account. The discount for buying more is NOT bonus credits and is NOT an
   "effective" rate the buyer has to compute: it is the per-minute rate itself, falling with
@@ -264,7 +265,14 @@ their marketing, and the effective-₹/min rule in TRD §10.2 applies to our own
 
 **WHAT A CLIENT CALLS THE TWO VOICES: "Clear" AND "Studio" — NO CLIENT-FACING SURFACE
 NAMES A VENDOR AS A PRODUCT TIER (founder, 7 Sep 2026).** A client buys **Clear** (spoken
-by Sarvam Bulbul v3) or **Studio** (spoken by Cartesia Sonic 3.5). The names are defined
+by Gnani Timbre v2.5) or **Studio** (spoken by Cartesia Sonic 3.5). ⚠ **CLEAR WAS SPOKEN BY
+SARVAM BULBUL V3 UNTIL D-629 (18 Sep 2026)**, which took Sarvam off the synthesis leg
+entirely and gave Clear to Gnani — Sarvam still transcribes every call and still reads the
+first extraction pass, and nothing about that changed. **CLEAR CANNOT BE SOLD TODAY**: Gnani
+publish no price of any kind, so hard rule 7 keeps every Gnani voice off the picker until an
+operator attests a real invoice figure, and every client-facing surface says that rather
+than advertising it (`apps/web/src/lib/api/rateCard.ts::UNPRICED_TIER_NOTICE`, one wording,
+three renderers). The names are defined
 once, in code, at `apps/api/billing/rates.py::VOICE_TIER_LABELS`, and travel to every
 screen over the wire rather than being retyped in the web bundle — the same provenance
 discipline the marketing pages already hold every ₹ figure to. **The wire fields, the

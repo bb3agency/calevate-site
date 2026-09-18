@@ -75,7 +75,7 @@ import {
  *
  * ## Thin is shown, and it is shown as a WARNING
  *
- * The whole Sarvam column is under the 20% target and above cost, by the founder's own
+ * The whole Clear column is under the 20% target and above cost, by the founder's own
  * decision. So this panel prints the margin of every cell, marks the thin ones amber, and
  * never disables anything because of one — `cellVerdict` has no refusal tone to give. The
  * refusals an operator CAN hit are below-cost, too-soon, already-scheduled and malformed,
@@ -293,7 +293,8 @@ function RateCardTable({ card }: { card: RateCard }) {
                       )}
                   </td>
                   {/* HOW MANY PLATFORM MINUTES A MONTH THIS RUNG NEEDS BEFORE IT STOPS
-                      LOSING MONEY. Blank on Sarvam, whose cost does not move with volume;
+                      LOSING MONEY. Blank on the Clear rung, whose cost does not move with
+                      volume;
                       "never" where no volume rescues the rate, which is a different fact
                       from a big number and is said as itself. */}
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-faint">

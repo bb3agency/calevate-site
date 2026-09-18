@@ -1020,17 +1020,20 @@ describe("what each document must contain", () => {
       ).toMatch(/(?:Not|never) (?:your own|the caller's) audio/);
       // Nothing has been sent yet — ours, read off the code, and the one claim here that
       // is stated flatly.
+      // ⚠ "to it" became "to either of them" in the Addendum on 18 Sep 2026 (D-629):
+      // there are two synthesis vendors and nothing has reached EITHER. Both spellings
+      // are accepted so the claim is pinned rather than its grammar.
       expect(
         prose,
         `/legal/${slug} omits that nothing has been sent to it`,
-      ).toMatch(/[Nn]othing has been sent to it/);
+      ).toMatch(/[Nn]othing has been sent to (?:it|either of them)/);
     }
 
     // WHERE it processes is unknown in both, and neither resolves it to a country.
     expect(privacy).toMatch(/we have not established where it processes/);
     expect(privacy).toMatch(/will not fill that in with a plausible country/);
     expect(dpa).toMatch(
-      /where that company processes is a thing we have not established/,
+      /where either of them processes is a thing we have not established/,
     );
 
     // The DPA's sub-processor warranty is narrowed for the row whose agreement nobody has
@@ -1038,28 +1041,39 @@ describe("what each document must contain", () => {
     // shown exists.
     expect(dpa).toMatch(/we do not represent to you that one is in place/);
 
-    // THE WITHDRAWN SENTENCE. Both documents once put voice synthesis wholly on the
-    // Indian provider; softening the new text back towards that is the regression.
+    // ⚠ **THE WITHDRAWN SENTENCE, AND IT IS WITHDRAWN TWICE OVER NOW.** Until
+    // 7 September 2026 both documents put voice synthesis wholly on the Indian provider;
+    // D-547 narrowed that to the first of two voice qualities, and this test USED TO
+    // REQUIRE the narrowed sentence ("first of the two voice qualities") in both
+    // documents. **D-629 (18 Sep 2026) removed the Indian provider from the synthesis leg
+    // altogether** — it still hears every call and still reads the transcript first — so
+    // the narrowed sentence is itself withdrawn, and requiring it here would hold the
+    // published set to a claim that is no longer true. What is pinned instead is the
+    // property that matters and cannot be softened back: NEITHER quality is synthesised by
+    // that provider, and neither document offers a client a voice quality that keeps an
+    // unplaceable synthesiser away from their callers.
     for (const [slug, prose] of [
       ["privacy", privacy],
       ["dpa", dpa],
     ] as const) {
       expect(
         prose,
-        `/legal/${slug} puts voice synthesis wholly on the speech provider again — it ` +
-          `runs there for the first voice quality only`,
+        `/legal/${slug} puts voice synthesis back on the speech provider`,
       ).not.toMatch(
         /[Ss]peech recognition,? (?:and )?voice synthesis and the first/,
       );
+      expect(
+        prose,
+        `/legal/${slug} still offers the withdrawn refuge — there is no voice quality ` +
+          `spoken by a company anybody has read`,
+      ).not.toMatch(
+        /keep(?:ing)? (?:every agent|your agents) (?:of yours )?on the (?:other|first) voice quality keeps/,
+      );
+      expect(
+        prose,
+        `/legal/${slug} does not say BOTH qualities left the speech provider`,
+      ).toMatch(/both voice qualities/i);
     }
-    expect(
-      privacy,
-      "the privacy notice must say which voice quality stays with the Indian provider",
-    ).toMatch(/first of the two voice qualities/);
-    expect(
-      dpa,
-      "the Addendum must say which voice quality stays with the Indian provider",
-    ).toMatch(/first of the two voice qualities/);
 
     // The company's NAME stays on the register. A voice quality is a product choice, and
     // a vendor name in a product sentence is what `VOICE_TIER_LABELS` exists to prevent;

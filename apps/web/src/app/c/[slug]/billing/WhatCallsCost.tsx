@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 
 import { Card, Disclosure, formatRupeeRate } from "@/components/ui";
 import type { CreditPacks } from "@/lib/api/billing";
-import { ladderFalls } from "@/lib/api/rateCard";
+import { UNPRICED_TIER_NOTICE, ladderFalls } from "@/lib/api/rateCard";
 
 import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots";
 
@@ -36,9 +36,17 @@ import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots"
  *    of the AGENT (plan §2.1, §3.3: the tier is derived from the chosen voice's provider,
  *    so an agent cannot hold one and be billed the other) — though the CHOICE is not the
  *    client's to make in this realm: the picker is admin-only and changing a voice is ours
- *    (D-21), so what this panel promises is that they tell us, not that they set it. A new
- *    agent defaults to the cheaper one (§0 Q9) — a default that costs more per minute has to be a choice somebody
- *    made. The rationale that survives is the one that made "one voice" a selling point:
+ *    (D-21), so what this panel promises is that they tell us, not that they set it.
+ *    ⚠ **"A NEW AGENT DEFAULTS TO THE CHEAPER ONE (§0 Q9)" WAS TRUE UNTIL 18 SEP 2026 AND
+ *    THIS PANEL PRINTED IT TO PAYING CLIENTS.** D-629 removed Sarvam from the synthesis leg
+ *    — it still transcribes every call and still reads the first pass over the transcript;
+ *    it no longer speaks — and gave the cheaper rung to Gnani, who publish no price at all
+ *    (`docs/PIPECAT-MIGRATION.md` §7). Hard rule 7 therefore keeps every voice in that rung
+ *    off the picker, so no agent starts there and none can be moved there. The RUNG is
+ *    untouched: it still prices minutes, its rate is still frozen on every purchase, and
+ *    nothing a client already bought moved. What this panel says instead is
+ *    `lib/api/rateCard.UNPRICED_TIER_NOTICE`, the one wording the public pages use.
+ *    The rationale that survives is the one that made "one voice" a selling point:
  *    neither quality is a degraded tier, and what you hear in a demo is what a customer
  *    hears at three in the morning.
  *
@@ -173,8 +181,7 @@ export function WhatCallsCost({
           charged at its own agent&rsquo;s rate. Tell your account manager which voice you
           want an agent to speak with and we set it. Neither is a cut-down version of the
           other — what you hear in a demo is what your customers hear at three in the
-          morning. A new agent starts on the cheaper voice, so nothing costs you more per
-          minute unless you asked for it.
+          morning. {UNPRICED_TIER_NOTICE}
         </Fact>
 
         <Fact

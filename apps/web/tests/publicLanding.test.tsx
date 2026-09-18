@@ -1342,15 +1342,20 @@ describe("the ROI calculator", () => {
 
   it("recomputes the Calevate monthly figure as inputs change", async () => {
     const { container } = render(await Home());
-    // Default 200 × 26 × 2 min × ₹4.00 = ₹41,600.00. (₹5 and ₹52,000.00 until the
-    // founder's card of 14 Sep 2026; the arithmetic is the property, the rate is the
-    // founder's, and `LIST_RATE` above is asserted against the fixture.)
-    expect(calc(container).textContent).toContain("₹41,600.00");
+    // Default 200 × 26 × 2 min × ₹7.00 = ₹72,800.00 — the STUDIO list rate, because that
+    // is the voice this opens on since D-629 (18 Sep 2026). ⚠ It was ₹4.00 → ₹41,600.00
+    // while the calculator opened on the Clear voice, and ₹5.00 → ₹52,000.00 before the
+    // founder's card of 14 Sep 2026. The rate is the founder's and `LIST_RATE` above is
+    // asserted against the fixture; what is asserted here is the arithmetic, and the move
+    // UP is the honest direction — no agent can be put on a Clear voice until somebody
+    // attests a Gnani price, so opening the comparison on Clear quoted a rate this buyer
+    // could not actually run at.
+    expect(calc(container).textContent).toContain("₹72,800.00");
     fireEvent.change(screen.getByRole("spinbutton", { name: "Calls a day" }), {
       target: { value: "100" },
     });
-    // 100 × 26 × 2 × ₹4.00 = ₹20,800.00.
-    expect(calc(container).textContent).toContain("₹20,800.00");
+    // 100 × 26 × 2 × ₹7.00 = ₹36,400.00.
+    expect(calc(container).textContent).toContain("₹36,400.00");
   });
 
   it("exposes an assumptions disclosure, closed by default and labelled illustrative", async () => {
@@ -1471,20 +1476,23 @@ describe("the ROI calculator", () => {
     // Four salespeople on the whole list at ₹1,28,000 …
     expect(text).toMatch(/hire\s*4\s*salespeople/);
     expect(text).toContain("₹1,28,000.00");
-    // … versus ₹41,600 of first calls (5,200 × 2 min × ₹4.00) plus two salespeople at
-    // ₹64,000 = ₹1,05,600.
+    // … versus ₹72,800 of first calls (5,200 × 2 min × ₹7.00, the STUDIO list rate) plus
+    // two salespeople at ₹64,000 = ₹1,36,800.
     //
-    // THE GAP IS THE FIGURE TO WATCH, AND IT HAS MOVED TWICE IN OPPOSITE DIRECTIONS. It
-    // fell ₹22,000 → ₹12,000 when turnover and replacement cost left the model (5 Sep
-    // 2026) — what was removed sat on the people side, and a change that SHRINKS our own
-    // advantage is the safe direction. It then rose to ₹22,400 when the founder cut the
-    // Clear rate from ₹5.00 to ₹4.00 (14 Sep 2026), which widens our advantage by lowering
-    // our own side rather than by inflating theirs. Both are recorded here because the
-    // direction is the thing a reader has to be able to check.
-    expect(text).toContain("₹41,600.00");
+    // ⚠ **THE GAP NOW RUNS THE OTHER WAY, AND THAT IS THE POINT OF ASSERTING IT.** It has
+    // moved three times. It fell ₹22,000 → ₹12,000 when turnover and replacement cost left
+    // the model (5 Sep 2026) — what was removed sat on the people side, and a change that
+    // SHRINKS our own advantage is the safe direction. It rose to ₹22,400 when the founder
+    // cut the Clear rate from ₹5.00 to ₹4.00 (14 Sep 2026). And on 18 Sep 2026 (D-629) the
+    // calculator stopped opening on the Clear voice at all, because no agent can be put on
+    // one until somebody attests a Gnani price — so the default comparison runs at the
+    // Studio rate and the two-stage funnel costs ₹8,800 MORE than the team on the whole
+    // list. The page says so in those words rather than hiding it, which is the property
+    // the next assertion pins; a calculator that cannot lose is a brochure.
+    expect(text).toContain("₹72,800.00");
     expect(text).toContain("₹64,000.00");
-    expect(text).toContain("₹1,05,600.00");
-    expect(text).toContain("₹22,400.00");
+    expect(text).toContain("₹1,36,800.00");
+    expect(text).toMatch(/₹8,800\.00\s*more a month, not less/);
     // The capacity line — the actual argument, and pure arithmetic off the buyer's inputs.
     expect(text).toMatch(/3,640[^]*never reach a person/);
     expect(text).toMatch(/364[^]*hours a month/);

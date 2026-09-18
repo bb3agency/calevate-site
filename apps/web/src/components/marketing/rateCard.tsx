@@ -6,6 +6,8 @@ import {
   packMinutes,
   packRate,
   tierLabel,
+  UNPRICED_TIER,
+  UNPRICED_TIER_NOTICE,
   VOICE_TIERS,
   type PublicRateCard,
   type RateCardPack,
@@ -169,6 +171,21 @@ const SWITCH =
 function VoicePanel({ card, voice }: { card: PublicRateCard; voice: VoiceTier }) {
   return (
     <>
+      {/* A RATE A BUYER CANNOT BE PUT ON HAS TO SAY SO BEFORE ITS TABLE, NOT AFTER IT
+          (D-629). The figures below are real and are frozen on any credit bought today, so
+          the table is not hidden and no rung is struck through — what would be dishonest is
+          six rungs of a voice we will not set an agent to, printed with nothing saying it.
+          The sentence is `lib/api/rateCard.UNPRICED_TIER_NOTICE`, whole, for the reason
+          that constant gives: three surfaces, one wording. `role="status"` because it is
+          the state of the panel a reader just switched to. */}
+      {voice === UNPRICED_TIER && (
+        <p
+          role="status"
+          className="mb-4 rounded-card border border-dashed border-line bg-surface p-3 text-sm text-ink-muted"
+        >
+          {UNPRICED_TIER_NOTICE}
+        </p>
+      )}
       {/* `ScrollRegion`, not a bare `overflow-x-auto`: a scroll container no keyboard can
           reach is unusable without a mouse (UX-DOCTRINE §8.2, `tests/responsive.test.ts`).
           It is a safety net rather than the plan — the table fits from `md` up. */}

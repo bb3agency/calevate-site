@@ -125,8 +125,14 @@ specific things, and neither has been run:
 
 ## One-line summary of the locked stack
 
-Bolna (engine, adapter-isolated — D-31) + **Sarvam for SPEECH** (D-36's Saaras STT ·
-Bulbul v3 TTS default, v2 as the value tier — unchanged) + **Azure OpenAI in East US 2
+Bolna (engine, adapter-isolated — D-31) + **Sarvam for SPEECH-TO-TEXT ONLY** (D-36's
+Saaras STT, unchanged — it still hears every call and still reads the first extraction
+pass) + **TWO TTS VENDORS AND NEITHER IS SARVAM** (D-629, 18 Sep 2026: Gnani Timbre v2.5 on
+the Clear rung, Cartesia Sonic 3.5 on Studio; Clear cannot be sold until somebody attests a
+Gnani price). ⚠ This line read "Bulbul v3 TTS default, v2 as the value tier — unchanged" and
+BOTH halves were wrong before D-629 even touched it: v2 has been WITHDRAWN since 10 Sep
+2026 and prices nothing, and the second TTS vendor (Cartesia, D-547) was already shipped.
+Plus **Azure OpenAI in East US 2
 for LANGUAGE, on BOTH LLM surfaces** — **D-410 supersedes D-400/D-404 on the in-call leg
 and D-127 on the dashboard leg; Gemini and Vertex are out of this product. D-449 moved the
 REGION off South India: the declared posture is `us-azure-openai`, and the client-facing

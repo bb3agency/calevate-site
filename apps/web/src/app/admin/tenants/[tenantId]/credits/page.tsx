@@ -1766,6 +1766,14 @@ function CorrectionCard() {
  * Studio minute ₹8.00 when the card says ₹6.50" is reading a lot that was opened before the
  * card moved, and they cannot connect that to the Cartesia invoice they attested unless the
  * vendor is on the row.
+ *
+ * ⚠ **THE CHEAPER RUNG IS NAMED GNANI AND WAS NAMED SARVAM UNTIL 18 SEP 2026 (D-629).**
+ * Sarvam stopped synthesising on that date and no longer bills a rung on any card; it is
+ * still the vendor that TRANSCRIBES every call, which is a different leg and a different
+ * invoice. The rung's wire and column spelling (`sarvam_inr_per_min`) is unchanged, because
+ * renaming a money column is a migration nobody has run — the KEY is history and the name
+ * printed here is the vendor who will send the invoice. A lot opened before that date
+ * carries the same frozen rate either way: the rate is the RUNG's, never the vendor's.
  */
 function LotLine({ lot }: { lot: CreditLot }) {
   return (
@@ -1780,7 +1788,7 @@ function LotLine({ lot }: { lot: CreditLot }) {
         </p>
       </div>
       <p className="mt-1 text-xs text-ink-muted">
-        Sarvam ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min · Cartesia (
+        Gnani ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min · Cartesia (
         {lot.cartesia_label}) {formatRupeeRate(lot.cartesia_inr_per_min)}/min
       </p>
       {lot.override_of_pack_id && (
@@ -1998,15 +2006,15 @@ function OverridePanel({
           <option value="">Choose a pack…</option>
           {packs.map((row) => (
             <option key={row.pack_id} value={row.pack_id}>
-              {row.pack_id} ({formatINR(row.amount_inr)}) · Sarvam {formatRupeeRate(row.sarvam_inr_per_min)} ·
+              {row.pack_id} ({formatINR(row.amount_inr)}) · Gnani {formatRupeeRate(row.sarvam_inr_per_min)} ·
               Cartesia {formatRupeeRate(row.cartesia_inr_per_min)}
             </option>
           ))}
         </select>
         {pack && chosen && (
           <span className={FIELD_HINT}>
-            This lot goes from Sarvam {formatRupeeRate(chosen.sarvam_inr_per_min)} / Cartesia{" "}
-            {formatRupeeRate(chosen.cartesia_inr_per_min)} to Sarvam{" "}
+            This lot goes from Gnani {formatRupeeRate(chosen.sarvam_inr_per_min)} / Cartesia{" "}
+            {formatRupeeRate(chosen.cartesia_inr_per_min)} to Gnani{" "}
             {formatRupeeRate(pack.sarvam_inr_per_min)} / Cartesia{" "}
             {formatRupeeRate(pack.cartesia_inr_per_min)} per minute.
           </span>
@@ -2078,7 +2086,7 @@ function LotReceipt({ lot, lead }: { lot: CreditLot | null; lead: string }) {
   return (
     <p className="mt-2 text-xs">
       {lead} <span className="font-mono">{lot.lot_id}</span> — {formatINR(lot.credits_total)} at
-      Sarvam ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min and Cartesia ({lot.cartesia_label})
+      Gnani ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min and Cartesia ({lot.cartesia_label})
       {formatRupeeRate(lot.cartesia_inr_per_min)}/min. Those rates are frozen on it: a later change to the rate
       card does not move them.
     </p>
@@ -2102,7 +2110,7 @@ function LotRestatementReceipt({ result }: { result: RestatementResult }) {
       <p className="mt-2 text-xs">
         Lot <span className="font-mono">{lot.lot_id}</span> now holds{" "}
         {formatINR(lot.credits_remaining)} of {formatINR(lot.credits_total)}. Its rates are
-        unchanged at Sarvam ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min and Cartesia (
+        unchanged at Gnani ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min and Cartesia (
         {lot.cartesia_label}) {formatRupeeRate(lot.cartesia_inr_per_min)}/min —{" "}
         <span className="font-semibold">a restatement moves totals, never rates.</span>
       </p>
