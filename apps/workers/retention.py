@@ -50,6 +50,16 @@ every version ever published survived, including the ones no screen shows. The `
 category (D-179) expires those, and only those: the LIVE version is what the agent
 answers from and a retention clock that deleted it would be an outage we caused.
 
+THE UPLOADED CONTACT LIST AND THE PROMISED CALL-BACK are the two stores that had no
+clock of any kind: `campaign_contacts` (a name, a number, every column the client pasted
+from their CSV, and an unsalted hash of the number — for people who may never have been
+dialled at all) and `scheduled_callbacks` (`phone_e164 NOT NULL` and a model-written note
+about what the caller wanted). Both were reachable ONLY by a §12 erasure, which means only
+for the data principals who knew to ask; the rest were kept for ever. Neither gets a
+category of its own — see `DERIVED_COPIES`, which records why and what each one rides
+instead: the uploaded list on the client's own CRM clock, the call-back on the clock of
+the conversation it was promised in.
+
 Engine-side copies are the open edge, honestly marked: Bolna's deletion API is
 undocumented (pilot gate), so `engine_deletion` is recorded as `unconfirmed` in the
 proof rather than asserted. A proof that overclaims is worse than one that says what it
@@ -272,6 +282,19 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
         # problem. A table no category names never expires, so before this these two
         # columns outlived the transcript they paraphrase.
         "handoff_attempts.reason+summary",
+        # THE PROMISED CALL-BACK, which was in no clock at all until this entry and is the
+        # nearest twin of the brief one line up: `scheduled_callbacks.note` is a model's
+        # written account of what a caller asked for, and `phone_e164` is how we would ring
+        # them about it. Both are derived from one conversation, so they expire with the
+        # words of that conversation.
+        #
+        # THE REJECTED ALTERNATIVE WAS THE `lead` CLOCK (1095 days), which is where the
+        # other table this change reaches — `campaign_contacts` — landed. A call-back is
+        # not a thing the client bought and keeps using: it is one sentence about one call,
+        # and putting it on the CRM clock would keep a model's paraphrase of a phone call
+        # three times longer than the transcript it paraphrases. That is the exact shape
+        # `DERIVED_COPIES` exists to refuse.
+        "scheduled_callbacks.phone_e164+note",
     ),
     # D-507. `caller_memories.fact` AND the caller-memory chunks used to sit in the
     # `transcript` tuple above, on the argument that a memory is distilled from what the
@@ -296,6 +319,30 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
         # decided by the row's own `retention_category`, which the projection registry sets
         # from `models.SUBJECT_RETENTION` so a scope cannot choose its own.
         "caller_chunks.tsv+embedding (lead scope)",
+        # THE UPLOADED CONTACT LIST, which had no clock at all and is the purest
+        # "data principal who never chose us" store in the schema: a name, a number, every
+        # column the client pasted beside them, and a dedupe hash — for people who may
+        # never have been dialled. DPDP §8(7) gives no dispensation for a row that was
+        # never used.
+        #
+        # ON THE CRM CLOCK AND NOT ON A CATEGORY OF ITS OWN, which is a decision and not a
+        # shortcut. A new `campaign_contact` category would need a NUMBER, and this
+        # repository has already recorded that the number is the founder's to give because
+        # it is a term of the client DPA rather than an engineering default. Hard rule 11
+        # forbids inventing it here. What an uploaded contact list IS, meanwhile, is
+        # already decided: a name, a number and the client's own pasted fields — the same
+        # class of thing as `leads.data`, which the client uploaded or captured, bought,
+        # and keeps using. So it rides the period they already agreed to and we already
+        # publish (1095 days, `/legal/privacy` §9), which is a period that ENDS. The
+        # founder shortening it later is one seed row and one migration; leaving the rows
+        # immortal until that conversation happens was the defect.
+        #
+        # Two consequences of riding an existing category rather than minting one, both
+        # load-bearing: the caller-facing notice (`compliance/caller_notice`) renders only
+        # categories it has a label for, so a new one would have been silently omitted from
+        # the document callers read; and SECURITY-COMPLIANCE §1's retention table would
+        # have needed a row this change cannot write.
+        "campaign_contacts.phone_e164+name+custom",
     ),
 }
 
@@ -376,11 +423,22 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # they get their own number.
     "caller_vectors": 0,
     "caller_memories": 0,
-    # Promised call-backs stopped and forgotten (D-514). Counted apart from
-    # `campaign_contacts` even though the statement is its twin, because the two answer
-    # different questions on a certificate: one is "you were taken off a list somebody
-    # uploaded", the other is "the call we promised you will not happen".
+    # Promised call-backs stopped and forgotten, on the TRANSCRIPT clock
+    # (`DERIVED_COPIES`). Counted apart from `campaign_contacts` below even though the two
+    # statements are twins, because they answer different questions on a certificate: one
+    # is "you were taken off a list somebody uploaded", the other is "the call we promised
+    # you will not happen".
+    #
+    # ⚠ THIS KEY USED TO BE UNSETTABLE BY A SWEEP. It sat here with that comment while
+    # only the tenant-erasure path ever wrote a number into a key of this name — in a
+    # sweep it was permanently 0, which reads as "nothing expired" and is not the same
+    # sentence as "no arm exists". The arm exists now (see `_CALLBACK_EXPIRE_SQL`), so the
+    # zero means what the rest of this map's zeros mean.
     "scheduled_callbacks": 0,
+    # Uploaded campaign contacts anonymized on the CRM clock (`DERIVED_COPIES`). Counted in
+    # ROWS, which is one person each: the number a client recognises about their own
+    # upload, and the number a data principal's question is about.
+    "campaign_contacts": 0,
     # Handover briefs cleared on the TRANSCRIPT clock (`DERIVED_COPIES`). Counted in ROWS
     # rather than in columns, unlike `knowledge_gap_quotes`: both columns of one attempt
     # are one model's account of one conversation, and clearing them is one act.
@@ -634,6 +692,21 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM handoff_attempts h LEFT JOIN calls c ON c.id = h.source_call_id
       WHERE (h.reason IS NOT NULL OR h.summary IS NOT NULL)
         AND COALESCE({_CLOCK}, h.started_at) < now() - make_interval(days => r.ttl_days))
+      -- THE PROMISED CALL-BACK on the same clock (`DERIVED_COPIES`), asked here for the
+      -- reason every OR above it is: a category the probe reports as having no work is a
+      -- category whose arms never run, so a tenant whose transcripts had all already
+      -- expired would keep a model's note of what a caller wanted for ever.
+      --
+      -- `requested_at` is the clock and not `created_at` or `updated_at`: it is when the
+      -- caller asked, which is the moment the notice they were given is about, and
+      -- `updated_at` moves every time the dispatcher touches the row — a retention period
+      -- our own retrying can restart is not a retention period (`copilot_memory` names the
+      -- same trap). The anonymized prefix is the already-done guard, exactly as in the
+      -- lead arm below.
+      OR EXISTS (
+      SELECT 1 FROM scheduled_callbacks sc
+      WHERE sc.requested_at < now() - make_interval(days => r.ttl_days)
+        AND left(sc.phone_e164, length(:anon)) <> :anon)
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -656,6 +729,15 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM caller_chunks cc
       WHERE cc.retention_category = 'lead' AND cc.scrubbed_at IS NULL
         AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
+      OR EXISTS (
+      -- THE UPLOADED CONTACT LIST on the CRM clock (`DERIVED_COPIES`). `created_at` is the
+      -- clock: it is when the client handed us these people's numbers, which is what the
+      -- period is measured from. NOT `updated_at`, which every dial attempt and every
+      -- settlement moves — a campaign that keeps retrying a number would otherwise keep
+      -- restarting that person's retention period.
+      SELECT 1 FROM campaign_contacts k
+      WHERE k.created_at < now() - make_interval(days => r.ttl_days)
+        AND left(k.phone_e164, length(:anon)) <> :anon)
     WHEN 'engine_payload' THEN EXISTS (
       SELECT 1 FROM calls c
       WHERE c.engine_payload_ref IS NOT NULL
@@ -1138,6 +1220,106 @@ WHERE id IN (
 """
 
 
+# THE TWO TABLES THAT HAD NO RETENTION CLOCK AT ALL, and the reason they are two
+# statements next to each other rather than one.
+#
+# `campaign_contacts` and `scheduled_callbacks` were reachable ONLY by an erasure: a data
+# principal had to ask. Everything else in this file ages out on its own, so an uploaded
+# contact list and a promised call-back were the only two stores of somebody else's
+# personal data this product kept for ever — and they are the two whose subjects are least
+# likely to ask, because a person on a list that was never dialled does not know we hold
+# them. DPDP §8(7) is a duty on us, not a service we perform on request.
+#
+# NEITHER GETS A NEW CATEGORY. See `DERIVED_COPIES` for the argument in full: the number a
+# new category needs is a DPA term the founder owns (hard rule 11 forbids inventing one),
+# the caller-facing notice renders only categories it has a label for, and the periods
+# these two ride are already agreed with the client and already published. What each one
+# IS decides which clock it rides — the client's own uploaded CRM list on the CRM clock,
+# one model-written sentence about one call on the clock of that call's words.
+#
+# WHY THESE ARE NOT `_CAMPAIGN_CONTACT_ERASE_SQL` AND `_CALLBACK_ERASE_SQL` WITH A
+# DIFFERENT PREDICATE, which was tried first and is wrong in one specific way: those
+# statements answer a §12 request and force a TERMINAL row's status as well as a live
+# one's, because an erasure's job is to leave nothing claimable and it may rewrite a
+# campaign's own history to do it. An expiry may not. A contact that was dialled and
+# completed three years ago is the client's record of their own campaign, and a retention
+# period elapsing must not silently turn it into "blocked" — the same rule the gap tables
+# and the handover brief are swept under (mark the words, keep the fact that it happened).
+# So: identical column lists, identical anonymization, and one deliberate difference each,
+# stated on the line it is on.
+
+#: THE UPLOADED CONTACT LIST, expired in place on the CRM clock.
+#:
+#: Never a DELETE, for `_LEAD_SQL`'s reason as `_erase_campaign_contacts` states it: a
+#: running campaign counts its own rows to decide when it is finished.
+#:
+#: `status` MOVES ONLY FROM `pending`. That is the expiry/erasure difference: a `pending`
+#: row is the one the dispatcher claims (`campaign_dispatch` selects `status = 'pending'`),
+#: so leaving it pending after blanking the number would queue a dial against a string that
+#: is not a phone number. Every other status is settled history and is left exactly as the
+#: client's own campaign report shows it.
+#:
+#: THE SUFFIX IS THE UUID'S TAIL AND NOT ITS HEAD, which is the one thing about these
+#: two statements a reader must not copy from the version that shipped: a UUIDv7's leading
+#: hex characters are a timestamp bucket and collide for every row written in the same
+#: minute, and `uq_campaign_contacts_campaign_id_phone_e164` then refuses the write. See
+#: `_erase_campaign_contacts`, where that cost a whole erasure transaction.
+#:
+#: `dedupe_hash` goes with the number for the reason the erasure gives: it holds
+#: `sha256(phone)[:16]`, unsalted, over a ~10^9 space, so leaving it is leaving the number
+#: in a form that reverses. `custom` is emptied rather than inspected — it is whatever the
+#: client pasted beside the number, and we do not know what is in it.
+_CAMPAIGN_CONTACT_EXPIRE_SQL = """
+UPDATE campaign_contacts
+SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
+    name = NULL,
+    custom = NULL,
+    dedupe_hash = NULL,
+    status = CASE WHEN status = 'pending' THEN 'dnc_blocked' ELSE status END,
+    next_attempt_at = NULL,
+    updated_at = now()
+WHERE id IN (
+  SELECT id FROM campaign_contacts
+  WHERE created_at < :cutoff AND left(phone_e164, length(:anon)) <> :anon
+  ORDER BY created_at LIMIT :batch)
+"""
+
+#: What a client reads on a call-back this sweep stopped. A DIFFERENT SENTENCE from
+#: `CALLBACK_ERASED_REASON` and that is the whole point of the parameter: this person did
+#: not ask us for anything, and telling a client they did would be a false statement about
+#: a data principal written into the client's own console.
+CALLBACK_EXPIRED_REASON = (
+    "This call-back was older than the retention period for call records, so the details "
+    "were deleted and we did not ring them back."
+)
+
+#: THE PROMISED CALL-BACK, expired in place on the TRANSCRIPT clock.
+#:
+#: `status`/`settled_at` move only on a row that has not settled — the CHECK on this table
+#: is `(status IN ('scheduled','dialing')) = (settled_at IS NULL)`, so the two columns move
+#: together or not at all, and a `completed` call-back is a record of a call that happened
+#: which an expiry must not rewrite (`_erase_scheduled_callbacks` makes the same choice for
+#: the same reason).
+#:
+#: `note` is emptied rather than inspected: it is a model's summary of what a person said
+#: on a phone call, which is the class of text this sweep exists to forget.
+_CALLBACK_EXPIRE_SQL = """
+UPDATE scheduled_callbacks
+SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
+    note = NULL,
+    status = CASE WHEN settled_at IS NULL THEN 'cancelled' ELSE status END,
+    last_refusal_reason = CASE WHEN settled_at IS NULL
+      THEN coalesce(last_refusal_reason, :reason) ELSE last_refusal_reason END,
+    settled_at = coalesce(settled_at, now()),
+    next_attempt_at = NULL,
+    updated_at = now()
+WHERE id IN (
+  SELECT id FROM scheduled_callbacks
+  WHERE requested_at < :cutoff AND left(phone_e164, length(:anon)) <> :anon
+  ORDER BY requested_at LIMIT :batch)
+"""
+
+
 # DELIVERED WEBHOOK BODIES (D-23) — the one arm of this sweep whose data lives outside
 # Postgres, and therefore the one that cannot be a single UPDATE.
 #
@@ -1465,6 +1647,17 @@ async def _apply_one(
             session, _HANDOFF_BRIEF_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
+        # THE PROMISED CALL-BACK (`DERIVED_COPIES`). ALWAYS anonymized and never deleted,
+        # whatever the category's action is, for the gap tables' reason: the row is the
+        # client's record that a call-back was promised and how it ended, and destroying it
+        # would silently move their own operational history when a period elapsed. The
+        # number and the note go either way.
+        counts["scheduled_callbacks"], deferred = await _sweep_in_batches(
+            session,
+            _CALLBACK_EXPIRE_SQL,
+            {"cutoff": cutoff, "anon": ANONYMIZED_PHONE[:9], "reason": CALLBACK_EXPIRED_REASON},
+        )
+        counts["deferred"] += int(deferred)
         return counts
 
     if category == MEMORY_RETENTION_CATEGORY:
@@ -1510,6 +1703,13 @@ async def _apply_one(
         # with both erasure paths — `caller_erasure.py` owns it.
         counts["caller_vectors"], deferred = await _sweep_in_batches(
             session, EXPIRE_CHUNKS_SQL, {"cutoff": cutoff, "category": category}
+        )
+        counts["deferred"] += int(deferred)
+        # THE UPLOADED CONTACT LIST on the same clock (`DERIVED_COPIES`), and the last
+        # store in this schema that ageing could not reach. Anonymized and never deleted,
+        # for `_LEAD_SQL`'s reason: a running campaign counts its own rows.
+        counts["campaign_contacts"], deferred = await _sweep_in_batches(
+            session, _CAMPAIGN_CONTACT_EXPIRE_SQL, {"cutoff": cutoff, "anon": ANONYMIZED_PHONE[:9]}
         )
         counts["deferred"] += int(deferred)
         return counts
@@ -1801,7 +2001,7 @@ async def _erase_recordings(
 #: inspected. We do not know what is in it, which is precisely why it cannot stay.
 _CAMPAIGN_CONTACT_ERASE_SQL = """
 UPDATE campaign_contacts
-SET phone_e164 = :anon || substr(id::text, 1, 8),
+SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
     name = NULL,
     custom = NULL,
     dedupe_hash = NULL,
@@ -1831,9 +2031,18 @@ async def _erase_campaign_contacts(session: AsyncSession, *, phone: str | None =
     the same reason: keying on `name IS NOT NULL` would skip every row whose upload
     carried no name, which are the rows that consist of nothing but a phone number.
 
-    The per-row `substr(id::text, 1, 8)` keeps `uq_campaign_contacts_campaign_id_phone_e164`
-    satisfiable — two erased contacts in one campaign would otherwise collide on a
-    constant and abort the whole erasure.
+    THE PER-ROW SUFFIX KEEPS `uq_campaign_contacts_campaign_id_phone_e164` SATISFIABLE —
+    two erased contacts in one campaign would otherwise collide on a constant and abort the
+    whole erasure.
+
+    ⚠ IT WAS `substr(id::text, 1, 8)` AND THAT DID NOT WORK, which a UNIQUE VIOLATION from
+    `tests/retention_uploaded_and_promised_test.py` found: these ids are UUIDv7
+    (`db/base.uuid7`), whose first 32 bits are the top of a 48-bit millisecond timestamp —
+    so the leading eight hex characters are a ~65-SECOND BUCKET, identical for every row
+    created in the same minute. Two contacts uploaded in one CSV therefore anonymized to
+    the same string, the unique index refused it, and the erasure aborted with nothing
+    written and no certificate. The TAIL is the random half of a v7 (48 bits taken here),
+    which is what the sibling statement below and this one now share.
     """
     predicate = "TRUE" if phone is None else "phone_e164 = :phone"
     params: dict[str, Any] = {"anon": ANONYMIZED_PHONE[:9]}
@@ -1873,7 +2082,7 @@ async def _erase_campaign_contacts(session: AsyncSession, *, phone: str | None =
 #: on a phone call, which is precisely the class of text an erasure exists to remove.
 _CALLBACK_ERASE_SQL = """
 UPDATE scheduled_callbacks
-SET phone_e164 = :anon || substr(id::text, 1, 8),
+SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
     note = NULL,
     status = CASE WHEN settled_at IS NULL THEN 'cancelled' ELSE status END,
     settled_at = coalesce(settled_at, now()),
@@ -1903,10 +2112,13 @@ async def _erase_scheduled_callbacks(session: AsyncSession, *, phone: str | None
     provenance — that is the whole shape of the table, and it is why this arm exists rather
     than falling out of the `calls` scrub.
 
-    THE ANONYMIZED PREFIX IS THE ALREADY-DONE GUARD, and the per-row `substr(id::text, 1, 8)`
-    is what keeps two erased promises in one tenant from colliding — there is no unique
-    index on the number here, but the two statements are read side by side and a constant in
-    one of them would invite a constant in the other.
+    THE ANONYMIZED PREFIX IS THE ALREADY-DONE GUARD, and the per-row suffix is what keeps
+    two erased promises in one tenant distinguishable — there is no unique index on the
+    number here, but the two statements are read side by side and a constant in one of them
+    would invite a constant in the other. It is the UUID's RANDOM TAIL rather than its head
+    for the reason `_erase_campaign_contacts` records: a v7's leading hex characters are a
+    ~65-second timestamp bucket, which over there was a unique violation that aborted the
+    erasure and here would silently give two people the same anonymized number.
     """
     predicate = "TRUE" if phone is None else "phone_e164 = :phone"
     params: dict[str, Any] = {

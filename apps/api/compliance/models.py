@@ -189,10 +189,19 @@ DNC_REMOVABLE_SOURCES: tuple[str, ...] = ("manual",)
 # knowledge-base versions (F-3). Both are swept by `apps/workers/retention.py`, which is
 # where the arms and their reasoning live.
 #
-# `campaign_contact` is deliberately still absent. A client's uploaded contact list also
-# has no clock, and the reason it is not here is not oversight: how long we keep it is a
-# commitment in the client's DPA and the number is the founder's to give
-# (`tests/dpdp_known_gaps_test.py` holds that gap open by probing this constraint).
+# `campaign_contact` is deliberately still absent, and it no longer means what it used to
+# mean. It used to record a GAP — a client's uploaded contact list had no clock at all, and
+# the number for one was the founder's to give. The gap is closed without widening this
+# tuple: `campaign_contacts` now expires on the `lead` clock and `scheduled_callbacks` on
+# the `transcript` clock (`workers/retention.DERIVED_COPIES` carries the argument for each).
+# Riding a period the client has already agreed to and we already publish beats minting a
+# category around a number nobody has given (hard rule 11), and a new value here would also
+# need a label in `compliance/caller_notice._CATEGORY_LABELS` — which renders only the
+# categories it knows — or it would be missing from the document callers read.
+#
+# A founder who later wants a SHORTER, dedicated period for an uploaded list is one value
+# here, one seed row, one migration and one arm; what is gone is the state where those rows
+# aged out never.
 DATA_CATEGORIES = (
     "recording",
     "transcript",

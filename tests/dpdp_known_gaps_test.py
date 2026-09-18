@@ -5,9 +5,13 @@ end to end, is real, and could not be closed from inside that slice — each one
 specific reason and the specific act that closes it. Both are waiting on a person outside
 this repository (a founder's commitment, counsel's reading of a regulation), which is the
 only kind of entry that legitimately survives here: an engineering gap is closed in the
-session that finds it or in the next one. The third entry — the archived vendor payloads
-that no erasure could enumerate — was closed by code in D-126 and deleted, which is what
-the equality below exists to force.
+session that finds it or in the next one. Two entries have been closed by code and deleted,
+which is what the equality below exists to force: the archived vendor payloads that no
+erasure could enumerate (D-126), and the uploaded campaign contact list that reached no
+retention clock at all — the latter without the founder's number it was recorded as waiting
+for, because `campaign_contacts` rides the `lead` period the client has already agreed to
+and `scheduled_callbacks` the `transcript` one (`workers/retention.DERIVED_COPIES`). An
+entry saying a store is kept for ever cannot survive the day it stops being.
 
 **THE ASSERTION IS AN EQUALITY**, in the shape `tests/reliability_known_gaps_test.py`
 established. Each key has a probe that answers "is this still true?" and the test asserts
@@ -86,28 +90,6 @@ KNOWN_OPEN_DPDP_GAPS: dict[str, str] = {
         "column on `deletion_requests`, one predicate per free-text arm, and a narrowed "
         "sentence in the two registers this entry names."
     ),
-    "uploaded_campaign_contacts_have_no_retention_clock": (
-        "The ERASURE half of P3.1 is closed in code: `_erase_campaign_contacts` reaches "
-        "`campaign_contacts` from both the per-subject and the tenant-wide path, "
-        "anonymizes the number, clears the name, the pasted CSV columns and the "
-        "(unsalted, trivially reversible) dedupe hash, sets the row to `dnc_blocked` so "
-        "no campaign can dial someone whose certificate says they were removed, and puts "
-        "the count on both certificates.\n"
-        "What is NOT closed is the CLOCK. `retention_policies.data_category` is "
-        "CHECK-constrained to ('recording','transcript','lead','consent_log') in "
-        "migration 05bba2f3c19c, so there is no category an uploaded contact list can be "
-        "swept under — a client who pastes 5,000 numbers into a campaign has those "
-        "numbers held indefinitely, in full, unless a data principal happens to ask. That "
-        "is a DPDP §8(7) storage-limitation exposure and it is currently undisclosed. It "
-        "errs in the dangerous direction (retaining, not destroying), unlike the recording "
-        "floor above. CLOSED BY: the founder deciding the period a client's own uploaded "
-        "contact list is kept for — it is a DPA commitment to the client, not an "
-        "engineering default we may pick — after which it is one migration widening the "
-        "CHECK, one `data_category` in the seed's retention defaults, one arm in "
-        "`sweep_tenant`, and a row in SECURITY-COMPLIANCE §1's retention table. The shape "
-        "is the KB reservation's exactly: the mechanism is cheap and the NUMBER is "
-        "somebody else's to give."
-    ),
 }
 
 
@@ -115,31 +97,6 @@ async def _floor_is_attributed_to_trai() -> bool:
     """SECURITY-COMPLIANCE still names TRAI as the source of the recording floor."""
     text = SEC_COMP.read_text(encoding="utf-8")
     return "TRAI recording rule" in text and "90-day minimum retention" in text
-
-
-async def _no_retention_category_reaches_campaign_contacts() -> bool:
-    """The CHECK constraint still admits no category an uploaded contact list fits.
-
-    Read off the live database rather than off the migration file, because the migration
-    is the history and the constraint is the fact — and because widening it is exactly
-    what closes this gap, so the probe has to watch the thing that changes.
-    """
-    from apps.api.db.session import untenanted_session
-    from sqlalchemy import text as sql
-
-    async with untenanted_session() as session:
-        definition = (
-            await session.execute(
-                sql(
-                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
-                    "WHERE conname = 'ck_retention_policies_category_enum'"
-                )
-            )
-        ).scalar()
-    # No constraint at all would ALSO mean the gap is closed differently — and would be a
-    # bigger change than this probe should quietly pass, so it reads as still-open and
-    # whoever removed it has to come here and say what they did.
-    return definition is None or "campaign_contact" not in str(definition)
 
 
 async def _subject_erasure_is_keyed_on_digits() -> bool:
@@ -186,9 +143,6 @@ PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
         _subject_erasure_is_keyed_on_digits
     ),
     "recording_floor_cites_an_authority_that_may_not_impose_it": _floor_is_attributed_to_trai,
-    "uploaded_campaign_contacts_have_no_retention_clock": (
-        _no_retention_category_reaches_campaign_contacts
-    ),
 }
 
 

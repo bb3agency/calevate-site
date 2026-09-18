@@ -133,6 +133,25 @@ class Call(PKMixin, TimestampMixin, Base):
         ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     engine_call_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    #: THE CARRIER'S OWN ID FOR THIS CALL (migration c7f1a9d4e620), which is a DIFFERENT
+    #: vendor's identifier from the one above: `engine_call_id` is ours-or-the-engine's,
+    #: this is the telephony provider's, taken from the websocket handshake
+    #: (`voice_worker/carrier.py`, whose own docstring says the two are not the same id).
+    #:
+    #: IT EXISTS FOR THE ERASURE WE CANNOT PERFORM OURSELVES. A DPDP §12 certificate is
+    #: honest that a sub-processor holds its own records and that they are asked for in
+    #: writing; a written request has to name the calls, and the carrier's CDR is keyed on
+    #: THEIR id. Without this the request names a number and a date range — wider than the
+    #: request should be and slower for the vendor to answer.
+    #:
+    #: NOTHING WRITES IT YET, and that is said here rather than left to be discovered: the
+    #: producer is the voice-worker seam. Nullable for that reason and because every call
+    #: already in this table has no such id and never will — a backfill would be inventing
+    #: identifiers. It is deliberately NOT cleared by any erasure arm: it names a row in
+    #: somebody else's system rather than describing a person, and destroying the only
+    #: handle on a copy we are obliged to have erased is the failure
+    #: `recording_erasure_holds` exists to prevent.
+    carrier_call_id: Mapped[str | None] = mapped_column(Text)
     direction: Mapped[str] = mapped_column(String, nullable=False)
     from_e164: Mapped[str | None] = mapped_column(Text)
     to_e164: Mapped[str | None] = mapped_column(Text)

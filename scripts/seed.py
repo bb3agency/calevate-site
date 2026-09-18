@@ -79,7 +79,20 @@ RESERVED_SLUGS: tuple[str, ...] = (
 # (CheckConstraint recording_ttl_floor) — do not lower it here, it will fail.
 DEFAULT_RETENTION_POLICIES: tuple[dict[str, Any], ...] = (
     {"data_category": "recording", "ttl_days": 90, "action": "delete"},
+    # This clock also carries `scheduled_callbacks` — a promised call-back's number and
+    # the model's note of what the caller wanted — because that note is one sentence about
+    # one conversation and belongs with the words it paraphrases, exactly like the
+    # handover brief and the summary (`workers/retention.DERIVED_COPIES`).
     {"data_category": "transcript", "ttl_days": 365, "action": "anonymize"},
+    # 1095 days covers MORE THAN `leads` AND `call_extractions`, and the extra is the
+    # point rather than a footnote: `campaign_contacts` — the contact list a client pastes
+    # into a campaign, holding a name, a number and every other column of their CSV for
+    # people who may never have been dialled — rides this same clock
+    # (`workers/retention.DERIVED_COPIES`). It had no clock at all until then, which made
+    # it the one store of a data principal's details that only a §12 request could ever
+    # empty. It rides an agreed, published period rather than getting a category of its
+    # own because the number a new category needs is a DPA term the founder gives; this
+    # one is already given, already published (`/legal/privacy` §9) and already ENDS.
     {"data_category": "lead", "ttl_days": 1095, "action": "anonymize"},
     # consent_log is an append-only ledger (hard rule 4) — retained, never purged
     # on a timer; kept here so the category is explicit rather than forgotten.

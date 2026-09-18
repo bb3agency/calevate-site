@@ -76,6 +76,124 @@ import type { LegalDocument } from "./types";
  *    overridden by a client's script. The obligation to disclose sits with the client as
  *    Data Fiduciary and Principal Entity, and the notice says so in those words.
  */
+/**
+ * THE PUBLISHED RETENTION TABLE, as data rather than as prose rows, because a period we
+ * enforce and do not publish is not a disclosure — and nothing was checking.
+ *
+ * `category` is the `retention_policies.data_category` the row describes, and it is the
+ * whole reason this is a typed array: `tests/published_retention_test.py` asserts that the
+ * set of categories here EQUALS the set `scripts/seed.DEFAULT_RETENTION_POLICIES` installs,
+ * and that each `period` states that category's seeded number. So a category that gains a
+ * clock in code and never reaches this page fails the suite, which is exactly how the
+ * caller-memory row below came to be missing for as long as it was: it was seeded, it was
+ * swept nightly, and the only thing that never happened was telling the person it is about.
+ *
+ * `consent_log` carries `days: null` — it is an append-only ledger that nothing expires on
+ * a timer, which is a published period of "retained" rather than an absent one.
+ */
+export const PUBLISHED_RETENTION: readonly {
+  readonly category: string;
+  readonly days: number | null;
+  readonly label: string;
+  readonly period: string;
+  readonly what: string;
+}[] = [
+  {
+    category: "recording",
+    days: 90,
+    label: "Call recordings (the audio)",
+    period: "90 days",
+    what:
+      "The audio file is deleted from storage and then the link to it is " +
+      "cleared, in that order.",
+  },
+  {
+    category: "transcript",
+    days: 365,
+    label:
+      "Transcripts, the summary derived from them, and a call-back an assistant " +
+      "promised you",
+    period: "365 days",
+    what:
+      "Every word is replaced with a marker; the shape of the conversation (turn " +
+      "count, speakers, timings) is kept so call statistics stay countable. The " +
+      "summary is deleted outright. A call-back that was promised and not yet made is " +
+      "cancelled, and the number and the note of what you asked for are removed with it.",
+  },
+  {
+    category: "lead",
+    days: 1095,
+    label:
+      "Leads, extracted fields, key moments, the bodies delivered to a client's own " +
+      "CRM, and contact lists a client uploads for a campaign",
+    period: "1095 days (three years)",
+    what:
+      "The number is replaced, the name is removed, the extracted fields and key " +
+      "moments are emptied, and the stored delivery bodies are deleted from " +
+      "object storage. An uploaded contact list is emptied the same way — the number, " +
+      "the name and every other column the client pasted beside them — and the entry " +
+      "stops being callable, whether or not it was ever dialled.",
+  },
+  {
+    category: "engine_payload",
+    days: 90,
+    label: "The raw document the voice platform returns for each call",
+    period: "90 days",
+    what:
+      "The archived object is deleted from storage and the link to it is " +
+      "cleared. It carries the caller's number and the transcript, which is " +
+      "why it has a clock of its own rather than riding on the transcript's.",
+  },
+  {
+    category: "kb",
+    days: 365,
+    label: "Superseded versions of knowledge content a client uploads",
+    period: "365 days",
+    what:
+      "Deleted. The version currently in use is never expired by this — a " +
+      "client's live answer material is theirs and stays until they change " +
+      "it — so the clock runs only on versions no screen shows.",
+  },
+  {
+    category: "copilot_memory",
+    days: 180,
+    label:
+      "What the in-app assistant remembers — a client user's questions and " +
+      "answers, and the business facts distilled from them",
+    period: "180 days",
+    what:
+      "Deleted. Shorter than the transcript clock on purpose: nothing depends on " +
+      "these records, they are rebuilt by ordinary use, and no client bought " +
+      "them. Closing an account deletes every one of them at once, without " +
+      "waiting for this clock.",
+  },
+  {
+    category: "caller_memory",
+    days: 180,
+    label:
+      "What an assistant remembers about YOU between calls — a short note of what " +
+      "you asked about and any preference you stated",
+    period: "180 days",
+    what:
+      "Deleted, along with the search index built from it. This is the one period on " +
+      "this page whose subject is the caller rather than the client's staff, and it is " +
+      "shorter than the transcript clock on purpose: it is a note kept so you do not " +
+      "have to repeat yourself, not a record anybody bought. An assistant that " +
+      "remembers says so at the start of the call, and asking for it to be erased " +
+      "removes it sooner.",
+  },
+  {
+    category: "consent_log",
+    days: null,
+    label: "Consent, opt-out and audit records",
+    period: "Retained",
+    what:
+      "These are append-only ledgers. Nothing expires them on a timer, because " +
+      "they are the evidence that the calls were lawful and that the system was " +
+      "used properly.",
+  },
+];
+
 export const PRIVACY_POLICY: LegalDocument = {
   slug: "privacy",
   title: "Privacy Policy",
@@ -96,8 +214,8 @@ export const PRIVACY_POLICY: LegalDocument = {
           text:
             "Calevate is a product operated by {{LEGAL_ENTITY_NAME}} (Udyam " +
             "registration number {{ENTITY_REGISTRATION_NUMBER}}), whose principal " +
-            "place of business is {{REGISTERED_ADDRESS}}. In this notice \"we\", \"us\" and " +
-            "\"Calevate\" mean that business; \"you\" means whichever of the three groups " +
+            'place of business is {{REGISTERED_ADDRESS}}. In this notice "we", "us" and ' +
+            '"Calevate" mean that business; "you" means whichever of the three groups ' +
             "below you fall into.",
         },
         {
@@ -357,8 +475,7 @@ export const PRIVACY_POLICY: LegalDocument = {
                 },
                 {
                   term: "The audio recording",
-                  detail:
-                    "If recording was on for that call. See section 4.",
+                  detail: "If recording was on for that call. See section 4.",
                 },
                 {
                   term: "The transcript",
@@ -458,7 +575,8 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "callout",
               tone: "warning",
-              title: "What a caller cannot do today: stop the recording during the call",
+              title:
+                "What a caller cannot do today: stop the recording during the call",
               text:
                 "This notice used to say that a caller who declines recording has the " +
                 "recording stopped, the call continued, and the refusal written to our " +
@@ -534,7 +652,8 @@ export const PRIVACY_POLICY: LegalDocument = {
     },
     {
       id: "ai-disclosure",
-      heading: "5. The agent is an AI, and what gets said about that on the call",
+      heading:
+        "5. The agent is an AI, and what gets said about that on the call",
       blocks: [
         {
           kind: "para",
@@ -768,7 +887,8 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "Is the recording of your call biometric information? Nobody has decided, and it matters",
+          title:
+            "Is the recording of your call biometric information? Nobody has decided, and it matters",
           text:
             "This is the largest unanswered question about this product and we would " +
             "rather you met it here than found it in a clause. The 2011 rules define " +
@@ -991,61 +1111,14 @@ export const PRIVACY_POLICY: LegalDocument = {
         },
         {
           kind: "table",
-          caption: "Default retention periods and what happens at the end of them",
+          caption:
+            "Default retention periods and what happens at the end of them",
           columns: ["Category", "Default period", "What happens"],
-          rows: [
-            [
-              "Call recordings (the audio)",
-              "90 days",
-              "The audio file is deleted from storage and then the link to it is " +
-                "cleared, in that order.",
-            ],
-            [
-              "Transcripts, and the summary derived from them",
-              "365 days",
-              "Every word is replaced with a marker; the shape of the conversation (turn " +
-                "count, speakers, timings) is kept so call statistics stay countable. The " +
-                "summary is deleted outright.",
-            ],
-            [
-              "Leads, extracted fields, key moments, and the bodies delivered to a " +
-                "client's own CRM",
-              "1095 days (three years)",
-              "The number is replaced, the name is removed, the extracted fields and key " +
-                "moments are emptied, and the stored delivery bodies are deleted from " +
-                "object storage.",
-            ],
-            [
-              "The raw document the voice platform returns for each call",
-              "90 days",
-              "The archived object is deleted from storage and the link to it is " +
-                "cleared. It carries the caller's number and the transcript, which is " +
-                "why it has a clock of its own rather than riding on the transcript's.",
-            ],
-            [
-              "Superseded versions of knowledge content a client uploads",
-              "365 days",
-              "Deleted. The version currently in use is never expired by this — a " +
-                "client's live answer material is theirs and stays until they change " +
-                "it — so the clock runs only on versions no screen shows.",
-            ],
-            [
-              "What the in-app assistant remembers — a client user's questions and " +
-                "answers, and the business facts distilled from them",
-              "180 days",
-              "Deleted. Shorter than the transcript clock on purpose: nothing depends on " +
-                "these records, they are rebuilt by ordinary use, and no client bought " +
-                "them. Closing an account deletes every one of them at once, without " +
-                "waiting for this clock.",
-            ],
-            [
-              "Consent, opt-out and audit records",
-              "Retained",
-              "These are append-only ledgers. Nothing expires them on a timer, because " +
-                "they are the evidence that the calls were lawful and that the system was " +
-                "used properly.",
-            ],
-          ],
+          rows: PUBLISHED_RETENTION.map((row) => [
+            row.label,
+            row.period,
+            row.what,
+          ]),
         },
         {
           kind: "para",
@@ -1060,7 +1133,8 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "What an erasure does to knowledge content, and what it deliberately does not",
+          title:
+            "What an erasure does to knowledge content, and what it deliberately does not",
           text:
             "This callout used to say that the two stores above reached no retention " +
             "period at all and that an erasure never looked at knowledge content. Both " +
@@ -1234,7 +1308,8 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "callout",
               tone: "note",
-              title: "The phased commencement, and why we give it as a period rather than a date",
+              title:
+                "The phased commencement, and why we give it as a period rather than a date",
               text:
                 "The rights above come from an Act that is passed but mostly not yet " +
                 "operative. The DPDP Rules 2025 phase it in, and rule 1 of those Rules " +

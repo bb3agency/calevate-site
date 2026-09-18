@@ -551,6 +551,14 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
             # redaction removes identifiers from a sentence, not the sentence. Filed under
             # `transcript` because it paraphrases the turns, for this test's own reason.
             "handoff_attempts.reason+summary",
+            # THE PROMISED CALL-BACK, which was in no category at all and is the nearest
+            # twin of the brief above it: `scheduled_callbacks.note` is a model's account
+            # of what one caller wanted on one call and `phone_e164` is how we would ring
+            # them about it. Filed under `transcript` and NOT under `lead`, where its own
+            # sibling `campaign_contacts` went — putting a paraphrase of a conversation on
+            # the CRM's 1095-day clock would keep it three times longer than the words it
+            # paraphrases, which is the failure this map exists to make visible.
+            "scheduled_callbacks.phone_e164+note",
         ),
         # `caller_memories.fact` AND the caller-memory scope's chunks USED TO SIT IN THE
         # TUPLE ABOVE, on the argument that a memory is distilled from what the caller said
@@ -577,6 +585,16 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
             # own `retention_category` — which the projection registry sets from
             # `models.SUBJECT_RETENTION`, so a scope cannot choose its own.
             "caller_chunks.tsv+embedding (lead scope)",
+            # THE UPLOADED CONTACT LIST, and the last store in this schema that no clock
+            # reached: a name, a number, the client's own pasted columns and an unsalted
+            # hash of the number, for people who may never have been dialled. Filed under
+            # `lead` because that is what it IS — the client's own uploaded CRM data, on
+            # the period they already agreed to and we already publish — rather than under
+            # a new category, whose NUMBER is a DPA term the founder gives and which hard
+            # rule 11 forbids inventing here. A category minted in this constant would also
+            # be invisible to `compliance/caller_notice`, which renders only the categories
+            # it holds a label for.
+            "campaign_contacts.phone_e164+name+custom",
         ),
     }
     assert set(retention.DERIVED_COPIES) <= set(SHIPPED_TTLS)
