@@ -190,3 +190,157 @@ The brief's PART 4 holds eight. These are the three that gate spending, plus one
 4. **If we incorporate, does ticking a CPaaS's "Reseller" compliance option give us standing
    under their UL-VNO, or do we need our own authorisation regardless?** (brief Q1/Q7.)
    This decides whether Model A is ever available.
+
+---
+
+# Addendum, 18 Sep 2026: the mechanism, found — and §3a's reading reversed
+
+**EVIDENCE CLASS: RELAYED, WITH A PROVENANCE PROBLEM STATED UP FRONT.** A research agent
+with browser control answered the question §3a opened, and the founder relayed the summary.
+It cites TCCCPR 2018 and its 2025 amendment, TRAI's 4 May 2024 direction, DoT's 1600-series
+allocation page, VILPOWER's `Telemarketer_140_series.pdf`, Plivo's 140-series provisioning
+docs, Vobiz's DID-provisioning best practices and Exotel's operator-registration page.
+
+⚠ **SEVERAL CITATIONS IN THE SUMMARY DO NOT MATCH THEIR CLAIMS** — the Plivo quotation is
+footnoted to a VILPOWER PDF, the Exotel RTM ID to a Plivo docs page, and the Vobiz claim to
+a dot.gov page. The findings may be sound and the links merely transposed, but under hard
+rule 11 a claim whose citation does not support it may not be re-stated as fact. **Every
+finding below is REPORTED until the underlying report is opened and the quotation is matched
+to its source.** The one that most needs it is finding 2, because it decides who the
+Telemarketer is.
+
+## 1. The RTM ID is never asserted on a call
+
+**NOT DOCUMENTED as a per-call attachment**, in TCCCPR 2018, the 2025 amendment, the 4 May
+2024 direction, the 2026 draft amendment, or any public operator material: the 19-digit
+Registered Telemarketer ID is **not** carried in SIP or SS7 signalling, **not** displayed as
+caller ID, **not** written to a prescribed voice CDR field, and **not** supplied per call.
+
+What it is, is a **control-plane identifier**: it authenticates the telemarketer on DLT,
+supports PE–TM mapping, and is used **when registering or allocating the Voice Header**. The
+thing asserted on the live call is the **Header CLI — the 140/160 DID itself**. Vobiz states
+it directly: *"the header is the DID number itself — the identity presented on outbound
+calls."*
+
+**So §3a's question has a concrete answer: a client never uses our TM ID.** The TM ID is what
+allows a 140 number to be allocated and mapped to their PE. No 140 number, no role for it.
+
+## 2. ⚠ §3a's READING WAS WRONG: the CPaaS is NOT the Telemarketer
+
+§3a recorded, marked as a reading rather than a finding, that the CPaaS — holding the direct
+TSP connectivity that defines TM-DF — was probably the Telemarketer, and that a software
+platform might not appear in the DLT chain at all. **Plivo's own documentation says the
+opposite**: *"Plivo is neither the PE nor the TM."* It identifies the TM as **"the entity
+placing the call"** — which holds the DLT TM ID, signs Plivo's declaration, and registers the
+Voice Header. And explicitly: *"a technology provider placing promotional calls for a PE is
+treated as the TM."*
+
+**That is us, on the promotional leg.** The reading is withdrawn. It was marked as a reading
+and it was still wrong, which is the argument for marking them.
+
+Where the other two stand: **Exotel publishes RTM ID `1002641844184516305`**, so Exotel holds
+a telemarketer registration — but its page is SMS-oriented and does not establish that Exotel
+is TM-DF or TM-VCF for every voice customer or call. **Vobiz** says provisioning proceeds
+through *"your Telemarketer (TM) ID"* without identifying whose legal entity owns it.
+
+⚠ **AND THIS CANNOT BE EXTENDED PAST 140.** The conclusion rests on Plivo's documented
+140-series workflow. **No equivalent published workflow was found for ordinary-DID service
+calls**, which is where this product actually sits.
+
+## 3. The transactional/service exemption does NOT exempt registration
+
+Brief Q6, answered, and answered against us. This file's §5 named it the question that could
+remove most of the compliance surface. It does not.
+
+**Amended Regulation 3(2) prohibits an unregistered Sender from making "any commercial
+communication."** The transactional/service exclusion protects properly-classified
+communications from the ordinary UCC *definition*; it does not carve them out of the
+registration mandate. **Regulation 2(bw) closes the loop: commercial communication from an
+unregistered Sender is TREATED AS UCC.**
+
+**Consequence: a client calling their own consenting customers for service purposes still
+needs PE registration.** The ₹5,900 is theirs to pay, per client, and it is not avoidable by
+classifying the calls as service.
+
+## 4. Purely inbound has no identified registration mandate
+
+TCCCPR's operative language concerns a Sender who **makes, sends, causes or authorises** an
+outbound commercial communication. Nothing was found requiring registration because a
+business ANSWERS a consumer-originated call.
+
+⚠ **A TEXTUAL CONCLUSION, NOT AN EXPRESS EXEMPTION** — no provision says "inbound is exempt",
+and any callback, follow-up or other outbound communication is assessed separately. But for
+an inbound-only AI receptionist this is a real answer, and it is the cleanest product shape
+in this whole file.
+
+## 5. A voice header process EXISTS — for 140, and only for 140
+
+Seven steps, from VILPOWER's and Tata's implementations:
+
+1. PE and TM establish an approved mapping (VIL: **mandatory before a TM can allocate 140
+   Voice Headers**)
+2. A 140 number is allocated to the TM
+3. The TM registers that number as a **Voice Header / Header CLI** for the PE
+4. The PE accepts or approves it
+5. The operator approves it
+6. On Tata's implementation the PE also registers a **Voice Template, including the sample
+   spoken transcript**
+7. The approved 140 CLI is presented on calls
+
+⚠ **STEP 6 IS NEW TO THIS REPOSITORY AND HAS A PRODUCT CONSEQUENCE.** A Voice Template
+carrying a sample spoken transcript is a registered, approved script. An AI agent that
+composes its words at runtime does not obviously produce one. Nothing here says how a
+generative agent satisfies a template requirement — and nothing here says it does not.
+
+**BSNL's chain manual** says the selected TM-DF is treated as the final entity submitting
+traffic to the telecom DLT network, and mentions a hash in a TLV parameter whose technical
+process is *"shared separately with TM-DFs"* — not public, not stated to be voice-specific,
+and not stated to contain the RTM ID.
+
+## 6. The undocumented middle, which is where we live
+
+Putting §3 and §5 together:
+
+* **Registration is required** for commercial communication, including service calls (§3).
+* **A documented header/template mechanism exists only for 140** (§5).
+* **No equivalent workflow was found for ordinary DIDs.**
+
+So a client calling their own consenting customers from an ordinary business number is
+**required to register and has no published mechanism for the header half**. That is not a
+permission and not a prohibition — it is a gap, and it sits exactly under this product.
+
+TRAI's own 4 May 2024 direction is consistent with a regime still being built: it
+acknowledged that **voice DLT had not been implemented**, that **140 operations were
+occurring outside DLT**, and that real-time consent recording and scrubbing were therefore
+not happening. It ordered Access Providers to implement DLT-based 140 voice and migrate
+telemarketers — **without publishing SIP fields, CDR fields, API schemas or any RTM-ID
+carriage mechanism**. As of 18 Sep 2026 the **Third Amendment remains a CLOSED CONSULTATION,
+not a notified regulation.**
+
+## 7. What this does to the ₹5,900 and the ₹50,000
+
+**A TM registration is needed only if we place promotional calls on 140-series for client
+PEs** (§1, §2). For an inbound receptionist plus service calls on ordinary DIDs, nothing
+found puts a TM ID in the path.
+
+The category question (TM-AF vs TM-DF, and the ₹50,000 deposit) stays open and is now
+sharper rather than closer: Plivo says it is not the TM, while BSNL describes TM-DF as the
+final entity submitting traffic to the DLT network — and the entity actually submitting is
+the CPaaS. Those two do not obviously sit together.
+
+## 8. Revised question list
+
+**ANSWERED:** brief Q6 — transactional/service does NOT exempt registration (§3). §3a's "is
+the CPaaS the TM" — no, per Plivo (§2), on the 140 leg only.
+
+**STILL OPEN, in the order that spends money:**
+
+1. **Does an ordinary-DID service call have a header/template obligation at all, and if so
+   what is the mechanism?** §6's gap. This is now the highest-value open question: it governs
+   the product's main path and no public source describes it.
+2. **How does a generative AI agent satisfy a Voice Template requirement** that expects a
+   sample spoken transcript (§5 step 6)?
+3. **If we are the TM on the promotional leg, are we TM-AF or TM-DF** — and does the
+   ₹50,000 deposit apply when the entity physically submitting traffic is the CPaaS?
+4. **Confirm the Plivo sentence from a Plivo page.** The summary's citation points elsewhere
+   (see this addendum's header). It is the sentence that makes us the Telemarketer.
