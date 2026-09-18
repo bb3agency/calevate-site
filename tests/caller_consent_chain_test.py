@@ -34,6 +34,7 @@ from apps.api.agents import service as agents_service
 from apps.api.agents.models import series_for_e164
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import consent
+from apps.api.compliance.dnc_recall import DNC_RECALL_JOB
 from apps.api.compliance.export import build_subject_export
 from apps.api.compliance.registration import (
     outbound_entity_blockers,
@@ -674,3 +675,87 @@ async def test_a_stale_pe_verification_blocks_outbound_through_the_shared_reader
     rules = [rule for rule, _ in blockers]
     assert "pe_verification_stale" in rules
     assert rules[-1] == "pe_verification_stale", "the weakest refusal is masking a stronger one"
+
+
+async def test_a_withdrawal_recalls_the_dials_already_queued_for_that_person() -> None:
+    """⚠ **THE HALF-SECOND THAT MATTERS TO THE PERSON WHO SAID STOP (18 Sep 2026).**
+
+    `check_dispatch` reads consent live per contact, so the NEXT dispatch tick was always
+    safe — and a dial the dispatcher had ALREADY handed to the engine in the current tick
+    rang anyway, sometimes minutes after they asked us not to. A DNC addition never had
+    that hole: all three `dnc_list` writers enqueue `recall_dials_for_dnc` in their own
+    transaction. Two instructions that mean the same thing to the person giving them
+    behaved differently, and `PERSON_LEVEL_REFUSALS` already treats `no_consent` and `dnc`
+    as one class of fact.
+
+    The recall is asserted through the OUTBOX rather than by patching the enqueuer: what
+    makes this correct is that the row lands in the SAME transaction as the ledger row, so
+    a rolled-back withdrawal cannot leave a recall behind and a committed one cannot lose
+    it. A monkeypatched call would pass for a version that enqueued outside the
+    transaction, which is the version that breaks.
+    """
+    tenant_id = await _tenant("recall")
+    _user_id, token = await _member_with_dispatch(tenant_id)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as client:
+        response = await client.post(
+            "/v1/compliance/call-consent",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"phone": " 90000 00123 ", "status": "withdrawn", "source": "web_form_optin"},
+        )
+
+    assert response.status_code == 201, response.text
+
+    async with tenant_session(tenant_id) as session:
+        queued = (
+            await session.execute(
+                # KEYED ON THE PAYLOAD, because `outbox_messages` has no `tenant_id`
+                # column — the recall carries the tenant inside it so a GLOBAL suppression
+                # can pass `None` and still reach every tenant's queue (`dnc_recall.py`).
+                text(
+                    "SELECT payload FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'tenant_id' = :t"
+                ),
+                {"job": DNC_RECALL_JOB, "t": str(tenant_id)},
+            )
+        ).all()
+    assert len(queued) == 1, (
+        "a withdrawal left no recall behind: a dial already handed to the engine will ring "
+        "this person after they asked us to stop"
+    )
+    # THE NORMALISED NUMBER, not what the caller typed. The recall scans queued dials by
+    # E.164, so a recall carrying ` 90000 00123 ` would find nothing and report success —
+    # which is the silent shape of this failure rather than the loud one.
+    assert queued[0][0]["phones"] == [SUBJECT]
+
+
+async def test_a_grant_recalls_nothing() -> None:
+    """The other side of the branch, and the one that would make this feature a bug: an
+    opt-in must not enqueue a recall of the dials it just authorised."""
+    tenant_id = await _tenant("norecall")
+    _user_id, token = await _member_with_dispatch(tenant_id)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as client:
+        response = await client.post(
+            "/v1/compliance/call-consent",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "phone": " 90000 00123 ",
+                "status": "granted",
+                "source": "web_form_optin",
+                "evidence": EVIDENCE,
+            },
+        )
+
+    assert response.status_code == 201, response.text
+    async with tenant_session(tenant_id) as session:
+        queued = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'tenant_id' = :t"
+                ),
+                {"job": DNC_RECALL_JOB, "t": str(tenant_id)},
+            )
+        ).scalar_one()
+    assert queued == 0
