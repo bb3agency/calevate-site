@@ -242,7 +242,6 @@ def test_one_call_makes_a_healthy_container_unavailable() -> None:
 
     registry.reserve("call-1")
 
-
     registry.attach("call-1", make_call(sink, call_id="call-1"))
     assert registry.status().state == "busy"
     with pytest.raises(lifecycle.AtCapacityError):
@@ -266,7 +265,6 @@ def test_the_readiness_marker_appears_and_disappears_with_the_state(tmp_path: Pa
     assert marker.exists()
 
     registry.reserve("call-1")
-
 
     registry.attach("call-1", make_call(RecordingSink(), call_id="call-1"))
     assert not marker.exists(), "a busy container must not advertise itself as ready"

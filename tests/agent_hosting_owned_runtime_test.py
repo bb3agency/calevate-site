@@ -24,6 +24,10 @@ def _caps(hosting: AgentHosting) -> EngineCapabilities:
         tts="ours",
         llm="ours",
         agent_hosting=hosting,
+        # Required since 18 Sep 2026 and given the value that keeps this fixture about the
+        # axis it says it is about: `records_audio` is what composes clause 2 of the
+        # truthful-answer floor, and it is exercised by `tests/disclosure_toggle_test.py`.
+        records_audio=True,
         campaigns=False,
         knowledge_base=False,
         number_series=frozenset(),

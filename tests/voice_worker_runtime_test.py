@@ -230,7 +230,16 @@ async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accep
     # The call itself is on the record whatever happened to the pipeline — a call that
     # happened happened, and `admin/health.py::calls_unmetered` is what notices it has no
     # money against it.
-    assert row[1] in {"in_progress", "completed"}
+    #
+    # ⚠ **`failed` IS NOW A CORRECT ANSWER HERE AND IT USED NOT TO BE ADMITTED** (18 Sep
+    # 2026). `on_pipeline_finished` fires for `CancelFrame` as well as `EndFrame`
+    # (`pipecat/pipeline/worker.py:223-231`), and the handler used to discard the frame and
+    # write `completed` for all three — so a call cut by a cancel was indistinguishable on
+    # the row from one that ended of its own accord. This test CANCELS the pipeline, so
+    # `failed` is precisely what it should now see; admitting it is the assertion catching
+    # up with the defect, not a relaxation. `in_progress` remains legal because a cancel can
+    # land before the terminal event is written at all.
+    assert row[1] in {"in_progress", "completed", "failed"}
     # NOTHING PARTIAL: every row present has both columns, because a write that did not
     # finish wrote nothing at all rather than a row missing its redaction.
     for speaker, raw, redacted in rows:
