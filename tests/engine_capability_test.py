@@ -718,11 +718,21 @@ async def test_bolna_sends_the_reply_ceiling_and_the_sampling_it_chose() -> None
         _agent_config().model_copy(
             update={
                 "models": ModelConfig(
+                    # STT IS STILL SARVAM AND ALWAYS WAS — D-629 withdrew Sarvam from the
+                    # TTS leg only, and Saaras transcribes every call as before.
                     stt_provider="sarvam",
                     stt_model="saaras:v3",
                     llm_model="sarvam-105b",
-                    tts_provider="sarvam",
-                    tts_voice="bulbul:v3",
+                    # `tts_model` IS REQUIRED HERE AND WAS NOT UNDER SARVAM. The adapter
+                    # refuses a Cartesia voice that reaches the wire with no model rather
+                    # than carrying its own `sonic-3.5` fallback, because a fallback here
+                    # would be a second definition of which Cartesia model this product
+                    # runs, outside the catalogue that owns it (`_refuse_cartesia_voice_
+                    # incomplete`). This clause is about the LLM's reply ceiling, so it
+                    # supplies a complete voice rather than arguing with that refusal.
+                    tts_provider="cartesia",
+                    tts_model="sonic-3.5",
+                    tts_voice="ashutosh",
                 )
             }
         )

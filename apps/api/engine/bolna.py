@@ -612,11 +612,10 @@ def _refuse_cartesia_voice_incomplete() -> ProblemError:
             "the voice platform to speak with."
         ),
         remediation=(
-            "Nothing is live from this version and the agent is unchanged. Switch the agent "
-            "to a Sarvam voice to publish today. To unblock the Cartesia tier, an operator "
-            "installs the Cartesia key, presses Refresh on the admin console's Voices page "
-            "to re-read the voice platform's catalogue, and enables the Cartesia voices it "
-            "returns."
+            "Nothing is live from this version and the agent is unchanged. To unblock the "
+            "Cartesia tier, an operator installs the Cartesia key, presses Refresh on the "
+            "admin console's Voices page to re-read the voice platform's catalogue, and "
+            "enables the Cartesia voices it returns."
         ),
         failure_stage="CORE_LOGIC",
     )
@@ -688,15 +687,63 @@ def _cartesia_synthesizer_config(models: ModelConfig, language: str) -> dict[str
     }
 
 
+def _refuse_provider_not_on_this_engine(provider: str) -> ProblemError:
+    """A VOICE THIS ENGINE DOES NOT SYNTHESISE (18 Sep 2026).
+
+    **THIS ENGINE'S VOICE PROVIDERS ARE NINE AND GNANI IS NOT ONE OF THEM.**
+    VERIFIED-VENDOR-DOCS, hash-pinned mirror, enumerated 18 Sep 2026:
+    `bolna-findings/mirror/pages/providers/voice/` holds exactly `aws-polly`, `azure`,
+    `cartesia`, `deepgram`, `elevenlabs`, `maya`, `rime`, `sarvam` and `smallest`, and no
+    page anywhere in the mirror mentions Gnani. The Gnani leg is ours and runs in our own
+    Pipecat container (`apps/voice-worker/voice_worker/gnani_tts.py`, D-592/D-618); it has
+    never been reachable through this engine.
+
+    ⚠ **THIS BECAME REACHABLE WHEN THE SARVAM TTS LEG WAS WITHDRAWN (18 Sep 2026).** Until
+    then the non-Cartesia arm below was the Sarvam arm and every voice that reached it was
+    one this engine offers. Gnani is now the only provider that can arrive there, so the
+    fall-through would have posted `"provider": "gnani"` and waited for an opaque vendor
+    400 — or, worse, an accepted agent speaking with whatever the engine chose. Refusing by
+    name, here, is the same argument `_refuse_cartesia_voice_incomplete` makes one field
+    over: a request we know the vendor cannot serve is not a request to send.
+
+    `kind="dependency"`: nothing the client typed is wrong — this deployment is on an
+    engine that does not carry the vendor their voice is on.
+    """
+    return ProblemError(
+        kind="dependency",
+        code="tts_provider_not_on_this_engine",
+        title="This voice cannot be published on this voice platform",
+        detail=(
+            f"This agent's voice is synthesised by {provider!r}, which the configured voice "
+            "platform does not offer, so there is nothing to tell it to speak with."
+        ),
+        remediation=(
+            "Nothing is live from this version and the agent is unchanged. Choose a voice "
+            "the configured voice platform carries, or run this agent on the deployment "
+            "whose own worker holds that vendor's leg."
+        ),
+        failure_stage="CORE_LOGIC",
+    )
+
+
 def _synthesizer_config(models: ModelConfig, language: str) -> dict[str, Any]:
-    """`provider_config` for the voice provider — TWO ARMS, one per voice vendor (D-547).
+    """`provider_config` for the voice provider — ONE ARM AND A REFUSAL (D-547, amended
+    18 Sep 2026).
 
     The CARTESIA arm is `_cartesia_synthesizer_config` above; read it for the config class it
-    is built from and for the three OSS landmines it works around. Everything below describes
-    the SARVAM arm, which is unchanged.
+    is built from and for the three OSS landmines it works around.
 
-    `provider_config` for the Sarvam voice provider: the model and the speaker, in the
-    three keys the vendor's own example carries.
+    ⚠ **EVERYTHING BELOW DESCRIBED THE SARVAM ARM, WHICH IS WITHDRAWN.** The founder removed
+    the Sarvam TEXT-TO-SPEECH leg on 18 Sep 2026 (Sarvam remains this product's STT vendor
+    and this adapter's transcriber block is untouched). The shape it built is KEPT, and the
+    reason is not sentiment: it is this engine's generic `StandardVoiceConfig` block —
+    `{language, model, voice, voice_id}` — which is what seven of its nine voice providers
+    take, so the day an operator points this deployment at one of them the shape and the
+    three readings that settled it are here rather than re-derived. What changed is that it
+    is no longer REACHED: the only provider that can arrive on it today is Gnani, which this
+    engine does not carry, and that is refused by name above.
+
+    The keys, as the vendor's own example carries them:
 
     VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`, `create-agent/SKILL.md`:
     `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh", "voice_id":
@@ -721,6 +768,12 @@ def _synthesizer_config(models: ModelConfig, language: str) -> dict[str, Any]:
     """
     if models.tts_provider == _CARTESIA_PROVIDER:
         return _cartesia_synthesizer_config(models, language)
+    if models.tts_provider is not None:
+        raise _refuse_provider_not_on_this_engine(models.tts_provider)
+    # NO PROVIDER AT ALL — an agent that has never been given a voice. It keeps the generic
+    # block (below) with every key absent, which is byte for byte what such an agent sent
+    # before this refusal existed: the engine picks its own speaker, which is the same
+    # outcome, and asserting a provider we do not have would be worse than naming none.
     config: dict[str, Any] = {"language": language}
     if models.tts_model is not None:
         config["model"] = models.tts_model
@@ -2117,8 +2170,10 @@ def _offered_tts_models(config: dict[str, Any]) -> list[tuple[str, str, str]]:
 
     The filter is `TTS_MODEL_LIFECYCLE`, whose keys are exactly `agents/voices.TtsModel`
     (`scripts/check_model_lifecycle` holds the two together), so this is provider-generic
-    by construction: Sarvam's `bulbul:v3` and Cartesia's `sonic-3.5` are matched by the
-    same line, and a provider we do not price is skipped without naming it here.
+    by construction: every model in that table is matched by the same line, and a provider we
+    do not offer is skipped without naming it here. ⚠ Since the Sarvam TTS leg was withdrawn
+    (18 Sep 2026) this is also what keeps a `bulbul:v3` row the engine still lists out of
+    our catalogue, with no edit here.
 
     `is_supported` is honoured on BOTH levels — it is "Whether this provider is available
     for your account" — because a model the account cannot use is a voice the publish would

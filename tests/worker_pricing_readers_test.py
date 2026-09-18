@@ -77,14 +77,15 @@ def test_without_the_readers_an_attested_cartesia_price_is_invisible(_uninstalle
     """The consequence, stated exactly: a WRONG answer, not an error.
 
     Uninstalled, `voice_offer.tts_price_is_billable` falls back to
-    `default_tts_price_is_billable`, i.e. `provider == "sarvam"` — the honest answer for a
-    process that has read nothing, and the wrong one for a process that simply forgot to
-    read. Installed, the same call reports what the store says.
+    `default_tts_price_is_billable`, which since 18 Sep 2026 is `False` for EVERY provider —
+    the honest answer for a process that has read nothing, now that no TTS leg carries a
+    cost this tree can compute without an attestation. Installed, the same call reports what
+    the store says.
     """
     pricing_snapshot.uninstall_pricing_readers()
     assert voice_offer.tts_price_is_billable("cartesia") is False
 
-    voice_offer.install_tts_price_reader(lambda provider: provider in {"sarvam", "cartesia"})
+    voice_offer.install_tts_price_reader(lambda provider: provider == "cartesia")
     assert voice_offer.tts_price_is_billable("cartesia") is True
 
 

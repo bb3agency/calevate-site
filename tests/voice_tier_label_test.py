@@ -17,7 +17,9 @@ Run: uv run pytest tests/voice_tier_label_test.py -q
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import get_args
 
+from apps.api.agents.voices import VoiceProvider
 from apps.api.billing.rates import (
     VOICE_TIER_LABELS,
     VOICE_TIERS,
@@ -85,13 +87,14 @@ def test_no_catalogue_note_names_a_vendor_as_the_tier() -> None:
     """
     from apps.api.agents.voices import catalogue, catalogue_note
 
-    for note in (*(voice.note for voice in catalogue()), catalogue_note("cartesia")):
+    notes = [catalogue_note(p) for p in get_args(VoiceProvider)]
+    for note in (*(voice.note for voice in catalogue()), *notes):
         lowered = note.lower()
         for vendor in VOICE_TIERS:
             assert f"{vendor} voice tier" not in lowered, (
                 f"a catalogue note calls the tier {vendor!r}. A client reads this string."
             )
-    for provider in ("sarvam", "cartesia"):
+    for provider in get_args(VoiceProvider):
         assert voice_tier_label(provider) in catalogue_note(provider), (
             "the note names the tier, and it must name it the way the client is told it — "
             "composed from `voice_tier_label`, never typed in a second time"
@@ -109,7 +112,8 @@ def test_no_catalogue_note_tells_a_client_to_fix_our_configuration() -> None:
     above gives: since D-588 the entries are whatever the engine listed."""
     from apps.api.agents.voices import catalogue, catalogue_note
 
-    for voice in (*catalogue(), *(_Note(catalogue_note(p), p) for p in ("sarvam", "cartesia"))):
+    typed = [_Note(catalogue_note(p), p) for p in get_args(VoiceProvider)]
+    for voice in (*catalogue(), *typed):
         lowered = voice.note.lower()
         for ours in ("cartesia_api_key", "cartesia_agent_cap", "ops console", "attest"):
             assert ours not in lowered, (

@@ -512,11 +512,37 @@ async def platform_offers_voices() -> None:
     transactions to assert the empty-catalogue behaviour directly.
     """
     from apps.api.agents.voice_sync import load_voice_catalogue
-    from tests.voice_fixture import seed_platform_voices
+    from tests.voice_fixture import platform_can_speak, seed_platform_voices
 
     await seed_platform_voices()
+    # ⚠ **THE SECOND CALL IS NEW (18 Sep 2026) AND IT SOFTENS NOTHING.** The fixture's
+    # voices are Cartesia's since the Sarvam TTS leg was withdrawn, and a BYOK voice needs
+    # a key and an attested price before anybody may be offered it (hard rule 7) — work a
+    # real operator does, not a gate. `platform_can_speak` does exactly that work and
+    # NOTHING else: Gnani stays unattested, so the value rung is as unofferable in this
+    # suite as it is in production.
+    platform_can_speak()
     async with untenanted_session() as session:
         await load_voice_catalogue(session)
+
+
+@pytest.fixture(autouse=True)
+def _tts_price_reader_is_restored() -> Iterator[None]:
+    """Every test starts from the price reader `platform_offers_voices` installed.
+
+    `voice_offer.install_tts_price_reader` rebinds PROCESS state, exactly as the catalogue
+    snapshot below does, and several suites install their own predicate (or uninstall it, to
+    exercise the cold default) to drive an offerability arm. Without this the next test in
+    the same worker inherits a platform that has attested nothing — which, since the Sarvam
+    TTS leg was withdrawn (18 Sep 2026), means a platform on which NO voice is offerable at
+    all. That failure lands in the test that runs next, never in the one that caused it.
+    """
+    from apps.api.agents import voice_offer
+    from tests.voice_fixture import FIXTURE_TTS_PRICE_READER
+
+    yield
+    if voice_offer._price_reader is not FIXTURE_TTS_PRICE_READER:
+        voice_offer.install_tts_price_reader(FIXTURE_TTS_PRICE_READER)
 
 
 @pytest.fixture(autouse=True)

@@ -1063,6 +1063,16 @@ class Settings(BaseSettings):
     # `agents/voice_offer.py` refuses a Cartesia voice by name when the count of live
     # Cartesia agents across every tenant has reached this; an operator raises it here, on
     # a screen, after choosing to. Default 2, the founder's rule; 0 switches the tier off.
+    #
+    # ⚠ **THIS CEILING GOT MUCH SHARPER ON 18 Sep 2026 AND THE NUMBER WAS DELIBERATELY NOT
+    # TOUCHED.** It was struck while Sarvam served the value rung, so it capped the DEARER
+    # tier and every other agent went on Sarvam. The founder withdrew the Sarvam TTS leg,
+    # and the value rung's new occupant (Gnani) cannot be sold until somebody attests its
+    # price — so until that attestation lands, **this is the platform-wide ceiling on LIVE
+    # AGENTS, full stop**, and the third client cannot be onboarded without an operator
+    # raising it. That is a plan-cost decision and a founder's to make on a screen, which is
+    # exactly what this setting is; a number changed here by an engineer to make an
+    # onboarding work would be the vendor bill nobody decided to take on.
     cartesia_agent_cap: int = Field(default=2, ge=0, le=10_000)
     # WHICH SARVAM TRANSCRIBER EVERY AGENT IS PUBLISHED WITH (D-583).
     #

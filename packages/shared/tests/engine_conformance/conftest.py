@@ -374,15 +374,51 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             # THE TWO-STEP LOOKUP'S FIRST STEP, shaped from their own example
             # (VERIFIED-VENDOR-DOCS, `api-reference/voice/get_providers.md`, read 11 Sep
             # 2026): providers[] each with models[], the ids being the PLATFORM's UUIDs
-            # while the strings we know (`sarvam`, `bulbul:v3`) are `name`/`model_id`. The
-            # UNSUPPORTED provider is in the stub deliberately — `is_supported: false` is
-            # "available for your account", so a voice under it would 400 at publish, and
-            # an adapter that ignored the flag passes every other fixture.
+            # while the strings we know (`cartesia`, `sonic-3.5`) are `name`/`model_id`.
+            #
+            # FOUR PROVIDERS, AND EACH IS A DIFFERENT REASON A ROW MUST OR MUST NOT REACH
+            # OUR CATALOGUE. An adapter that ignored any one of them passes every other
+            # fixture in this file:
+            #
+            #   Cartesia    — supported, `sonic-3.5`: THE offerable one. Its second model
+            #                 carries `is_supported: false` at the MODEL level, which is a
+            #                 different flag from the provider's and is honoured separately
+            #                 (`engine/bolna.py`).
+            #   Sarvam      — supported by the ACCOUNT, and `bulbul:v3` is a model this
+            #                 product no longer runs. ⚠ **THIS ROW IS NEW IN SPIRIT
+            #                 (18 Sep 2026)**: the founder withdrew the Sarvam TEXT-TO-SPEECH
+            #                 leg, so the engine still lists it and we must not enumerate it.
+            #                 It is the regression guard for exactly that removal — and it is
+            #                 a true statement about the vendor, whose own page for this
+            #                 provider is in the pinned mirror. (Sarvam STT is untouched and
+            #                 is not a voice-config provider at all.)
+            #   ElevenLabs  — supported, and no `TtsModel` names it: a provider we do not run.
+            #   Rime        — `is_supported: false` at the PROVIDER level, i.e. not available
+            #                 for this account, so a voice under it would 400 at publish.
             return httpx.Response(
                 200,
                 json={
                     "language": request.url.params.get("language"),
                     "providers": [
+                        {
+                            "id": "1c0de0de-0000-0000-0000-000000000000",
+                            "name": "Cartesia",
+                            "is_supported": True,
+                            "models": [
+                                {
+                                    "id": "2c0de0de-0000-0000-0000-000000000000",
+                                    "model_id": "sonic-3.5",
+                                    "display_name": "Sonic 3.5",
+                                    "is_supported": True,
+                                    "default": False,
+                                },
+                                {
+                                    "id": "3c0de0de-0000-0000-0000-000000000000",
+                                    "model_id": "sonic-preview",
+                                    "is_supported": False,
+                                },
+                            ],
+                        },
                         {
                             "id": "9e675bdf-00e5-5bd5-b858-f1b088a48dbd",
                             "name": "Sarvam",
@@ -401,8 +437,6 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                             "id": "7a3f4573-7548-5b34-80f9-5edf23bed79b",
                             "name": "ElevenLabs",
                             "is_supported": True,
-                            # A provider we do not offer: no `TtsModel` names it, so every
-                            # voice under it must be absent from the listing.
                             "models": [
                                 {
                                     "id": "f1b5c9cc-72e1-56a4-be8c-f3ee37d38309",
@@ -412,13 +446,13 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                             ],
                         },
                         {
-                            "id": "1c0de0de-0000-0000-0000-000000000000",
-                            "name": "Cartesia",
+                            "id": "4d0de0de-0000-0000-0000-000000000000",
+                            "name": "Rime",
                             "is_supported": False,
                             "models": [
                                 {
-                                    "id": "2c0de0de-0000-0000-0000-000000000000",
-                                    "model_id": "sonic-3.5",
+                                    "id": "5d0de0de-0000-0000-0000-000000000000",
+                                    "model_id": "mistv2",
                                     "is_supported": True,
                                 }
                             ],
@@ -430,7 +464,7 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             )
         if path == "/api/v1/voice-config/tts/voices" and request.method == "GET":
             params = request.url.params
-            if params.get("model_id") != "5d82c5f4-458f-5ff6-ae2b-a5e692b77a2c":
+            if params.get("model_id") != "2c0de0de-0000-0000-0000-000000000000":
                 # Any other (provider, model) pair is not one we offer; answering rows here
                 # would let an adapter that ignores the filter pass.
                 return httpx.Response(200, json={"items": []})
@@ -442,7 +476,7 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                     "items": [
                         {
                             "id": "21d4333d-39f9-5894-8987-f957a664b456",
-                            "provider_id": "9e675bdf-00e5-5bd5-b858-f1b088a48dbd",
+                            "provider_id": "1c0de0de-0000-0000-0000-000000000000",
                             # THE PUBLISHABLE ID IS `voice_id`, NOT `id` — an adapter that
                             # read `id` would send the internal UUID and 400 at CREATE.
                             "voice_id": "ashutosh",
@@ -453,7 +487,7 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                         },
                         {
                             "id": "fc092b1c-0f6e-4900-8468-e11133fd95b2",
-                            "provider_id": "9e675bdf-00e5-5bd5-b858-f1b088a48dbd",
+                            "provider_id": "1c0de0de-0000-0000-0000-000000000000",
                             # THEIR OWN documented custom row (`get_all.md:102-112`): the
                             # name is unrecoverable from the id, which is the whole reason
                             # the label crosses the boundary as data.
@@ -1040,7 +1074,7 @@ PIPECAT_FIXTURE_VOICES: tuple[EngineVoice, ...] = (
     EngineVoice(
         voice_id="anushka",
         label="Anushka",
-        tts_model="bulbul:v3",
+        tts_model="sonic-3.5",
         languages=("te-IN", "hi-IN", "en-IN"),
     ),
     EngineVoice(

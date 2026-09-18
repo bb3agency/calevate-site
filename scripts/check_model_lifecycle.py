@@ -54,12 +54,12 @@ would have been a second place for the doctrine to drift.
 
 ⚠ **THAT LAST CLAUSE USED TO READ "since every TTS model is selectable by construction —
 no `unread` at all", AND D-618 MADE THE PREMISE FALSE.** `timbre-v2.5` is in the catalogue
-and is on a provider with NO PRICED TIER (`voices.VOICE_TIER_OF_PROVIDER` maps `gnani` to
-`None`, because Gnani publish no price and nobody has attested one), so hard rule 7 refuses
-it before offerability is even asked: there is no path by which a client is put on it
-today. `tts_refusals` now derives "choosable" from that mapping rather than assuming it,
+and is on a provider that publishes NO PRICE (Gnani publish none and nobody has attested
+one), so hard rule 7 refuses it before offerability is even asked: there is no path by
+which a client is put on it today. ⚠ The PREDICATE that says so moved on 18 Sep 2026 —
+`tts_choosable` carries why. `tts_refusals` derives "choosable" rather than assuming it,
 which is the SAME distinction the LLM half has always made with `selectable` — and it arms
-itself rather than forgiving anything: the moment an operator attests a Gnani price, the
+itself rather than forgiving anything: the moment a Gnani figure is recorded, the
 model becomes choosable and this gate goes red until somebody reads a Gnani lifecycle page.
 
 Run: `uv run python -m scripts.check_model_lifecycle`   (also in `make guardrails`)
@@ -72,11 +72,8 @@ from datetime import date
 from pathlib import Path
 from typing import get_args
 
-from apps.api.agents.voices import (
-    VOICE_TIER_OF_PROVIDER,
-    TtsModel,
-    provider_of_tts_model,
-)
+from apps.api.agents.voices import TtsModel, provider_of_tts_model
+from apps.api.ops.model_pricing import reference_tts_price
 from calevate_shared.engine import (
     AZURE_LOCATION,
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -443,19 +440,36 @@ def tts_choosable(models: frozenset[str]) -> frozenset[str]:
     There is still no `selectable` flag on a voice model, and per-voice offerability is
     still `agents/voice_offer.py`'s business on grounds that have nothing to do with a
     date. What a MODEL can be excluded by is the one ground that precedes all of them:
-    hard rule 7. A model whose provider has no priced tier cannot be offered to anybody,
-    because nobody could be charged for the minute — `VOICE_TIER_OF_PROVIDER` is where that
-    is decided, and reading it here is what keeps this gate and the offer seam from having
+    hard rule 7. A model whose minutes nobody could be charged for cannot be offered to
+    anybody, and reading that here is what keeps this gate and the offer seam from having
     two opinions about who can be put on what.
 
-    Derived, never listed: attesting a price moves a model INTO this set with no edit here,
-    which is the direction that must not need somebody to remember this file exists.
+    ⚠ **IT ASKED `VOICE_TIER_OF_PROVIDER[provider] is not None` UNTIL 18 Sep 2026, AND
+    WITHDRAWING THE SARVAM TTS LEG MADE THAT THE WRONG QUESTION.** Gnani then took the value
+    rung, so "has a rung" answers True for the one provider whose price nobody has — and the
+    gate would have started demanding a Gnani lifecycle reading that does not exist while
+    still permitting a client to be put on it. **And the RIGHT question at runtime —
+    `voice_offer.tts_price_is_billable` — cannot be asked here**: this is a static checker
+    with no database, so it would read the cold snapshot, get `False` for everything and
+    pass trivially. A gate that answers "nothing is choosable" is not a gate.
+
+    So it asks the STATIC half of hard rule 7 instead: **does this provider publish a
+    per-character figure at all** (`ops/model_pricing.reference_tts_price`, the same
+    function that decides whether the attestation form has a pre-fill to render). Cartesia
+    does; Gnani publish nothing, and the only number in the wild is a reseller's. That is a
+    fact about a VENDOR rather than about a deployment, which is what a static checker can
+    hold — and it stays DERIVED and self-arming: the day somebody records a Gnani vendor
+    figure, `timbre-v2.5` enters this set and this gate demands its lifecycle reading, with
+    no edit here.
+
+    It is deliberately WEAKER than the runtime gate and never stronger: every model it calls
+    choosable must still clear `tts_price_is_billable` before a client sees it.
     """
     return frozenset(
         model
         for model in models
         if (provider := provider_of_tts_model(model)) is not None
-        and VOICE_TIER_OF_PROVIDER[provider] is not None
+        and reference_tts_price(provider) is not None
     )
 
 

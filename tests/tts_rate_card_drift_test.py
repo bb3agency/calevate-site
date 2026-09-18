@@ -25,11 +25,16 @@ Three kinds of test, following `tests/docs_drift_guard_test.py`:
 - **calibration** — the shapes that must report NOTHING, because a check that cries wolf
   is ignored first and deleted second.
 
-EVIDENCE FOR THE RATE ITSELF (billing/payments.py's three-rung ladder). **REPORTED,
-NOT READ**: `sarvam.ai` and `docs.sarvam.ai` are refused by this environment's egress
-proxy and no request has ever been made to them from this repository. ₹30 per 10,000 chars
-(Bulbul v3) is TRD §10.1's record of a live read on 11 Aug 2026, corroborated Aug 2026 by
-independent search summaries of that same pricing page. **The second rung is Cartesia Sonic 3.5
+⚠ **THERE IS ONE BILLED RUNG SINCE 18 Sep 2026, AND THAT IS WHAT MOST OF THIS FILE NOW
+EXERCISES.** The founder withdrew the Sarvam TEXT-TO-SPEECH leg (Saaras STT is untouched and
+is guarded by §4d / `tests/stt_rate_card_test.py`). `TTS_INR_PER_10K_CHARS` did NOT leave the
+code — it survives as the value rung's FROZEN cost-model scalar — but it left
+`code_tts_rates()`, whose subject is narrow and is in its own name: the rates the BILLER
+holds, one row per rung of the published card. A frozen floor input is not a rate a client
+pays, so demanding a rate-card row for it would be manufacturing the drift this file exists
+to catch. The clauses below moved onto the Cartesia rung, which is the one still billed.
+
+EVIDENCE FOR THE RATE ITSELF. **The billed rung is Cartesia Sonic 3.5
 (D-547), and since D-556 (9 Sep 2026) it is VENDOR-PUBLISHED**: ₹57.20 / 10,000 chars,
 DERIVED in code from the vendor's own **Pro overage rate** of $65 per 1,000,000 credits
 (direct correspondence — Ege Tinmaz, Product Support Engineer, Cartesia — relayed by the
@@ -72,21 +77,25 @@ def test_the_check_reads_the_real_rate_card_and_the_real_biller() -> None:
     declared = guard.doc_tts_rates()
     billed = guard.code_tts_rates()
     assert declared, "TRD §10.1's TTS rate card did not parse — section 4b is reading nothing"
-    # TWO voice tiers since D-547, one rate each, and the Cartesia one is DERIVED in code
-    # from the plan fee and the allotment — so this is also what pins the doc row to the
+    # ONE billed rung since 18 Sep 2026 (see the module docstring), and it is DERIVED in
+    # code from the vendor's overage rate — so this is also what pins the doc row to the
     # arithmetic rather than to a figure somebody rounded.
-    assert set(declared) == set(billed) == {"bulbul-v3", "sonic-3.5"}
+    assert set(declared) == set(billed) == {"sonic-3.5"}
     assert declared == billed, f"the doc and the biller already disagree: {declared} vs {billed}"
-    assert billed["bulbul-v3"] == Decimal("30.0000"), "the one voice quality's rate"
+    assert "bulbul-v3" not in billed, (
+        "`TTS_INR_PER_10K_CHARS` is the value rung's FROZEN cost-model scalar and not a "
+        "rate anybody is billed at; listing it here would demand a rate-card row for a "
+        "vendor card that no longer exists"
+    )
     assert not guard.tts_rate_card_drift()
 
 
 def test_the_doc_states_each_rate_twice_and_both_spellings_are_read() -> None:
-    """§10.1's Sarvam card quotes ₹/10,000 chars and its per-call-minute table quotes
+    """§10.1's Cartesia card quotes ₹/10,000 chars and its per-call-minute table quotes
     ₹/1,000. Reading only one would let the other rot unwatched — and the per-1,000 table
     is the one a reader doing per-minute arithmetic actually uses."""
-    assert "₹30 / 10,000 chars" in TRD_TEXT
-    assert "₹3.00 / 1,000 chars" in TRD_TEXT
+    assert "₹57.20 / 10,000 chars" in TRD_TEXT
+    assert "₹5.7200 / 1,000 chars" in TRD_TEXT
     assert not guard.doc_tts_rate_disagreements(), "§10.1 already disagrees with itself"
 
 
@@ -95,32 +104,24 @@ def test_the_doc_states_each_rate_twice_and_both_spellings_are_read() -> None:
 
 def test_a_vendor_price_move_recorded_only_in_the_doc_is_named() -> None:
     """The likeliest direction: someone re-reads the vendor's page, updates the cost
-    model, and never touches the biller. The client keeps paying the old rate."""
-    offenders = guard.tts_rate_card_drift(_mutated("₹30 / 10,000 chars", "₹36 / 10,000 chars"))
+    model, and never touches the biller. The client keeps paying the old rate.
+
+    ⚠ Mutated on the CARTESIA row since 18 Sep 2026 — the Sarvam rung this used to move is
+    withdrawn, and the module docstring carries why its scalar left `code_tts_rates`."""
+    offenders = guard.tts_rate_card_drift(
+        _mutated("₹57.20 / 10,000 chars", "₹36.00 / 10,000 chars")
+    )
     assert offenders, "a doc-side price move was not detected"
-    assert any("bulbul-v3" in line and "36" in line for line in offenders), offenders
+    assert any("sonic-3.5" in line and "36" in line for line in offenders), offenders
 
 
 def test_the_doc_disagreeing_with_its_own_second_table_is_named() -> None:
     """Both tables state the same rate. Changing one is the cheapest version of this
     failure and the likeliest to pass review, because each table reads fine alone."""
-    offenders = guard.tts_rate_card_drift(_mutated("₹3.00 / 1,000 chars", "₹3.60 / 1,000 chars"))
-    assert any("stated twice, disagreeing" in line for line in offenders), offenders
-
-
-def test_the_rung_deleted_from_the_rate_card_is_named() -> None:
-    """The doc dropping the one rung the biller still charges. Not hypothetical: D-20
-    recorded Bulbul v2 as discontinued and D-35 had to take that back — a row's absence
-    from a table is exactly how that claim got made the first time.
-
-    BOTH spellings have to go, which is the union rule doing its job: while either table
-    still prices the rung, the doc has not dropped it (see the calibration test below).
-    """
-    dropped = TRD_TEXT.replace("| Text-to-Speech **Bulbul v3** |", "| ~~withdrawn~~ |", 1).replace(
-        "| TTS — Bulbul **v3** |", "| ~~withdrawn~~ |", 1
+    offenders = guard.tts_rate_card_drift(
+        _mutated("| ₹5.7200 / 1,000 chars |", "| ₹5.9900 / 1,000 chars |")
     )
-    offenders = guard.tts_rate_card_drift(dropped)
-    assert any("does not state it" in line and "bulbul-v3" in line for line in offenders), offenders
+    assert any("stated twice, disagreeing" in line for line in offenders), offenders
 
 
 def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
@@ -158,9 +159,12 @@ def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
 
 
 def test_the_cartesia_rung_deleted_from_both_tables_is_named() -> None:
-    """A rung the cost model prices and the doc does not state is unguarded money — the
-    same direction `test_the_rung_deleted_from_the_rate_card_is_named` protects for Sarvam,
-    asserted for the rung that was ADDED, because a new rung is where a doc gets forgotten.
+    """A rung the cost model prices and the doc does not state is unguarded money.
+
+    ⚠ **THIS IS THE ONLY RUNG LEFT TO PROTECT (18 Sep 2026)**, so it carries the argument
+    its withdrawn Sarvam twin used to: a row's absence from a table is exactly how a false
+    "discontinued" claim gets made (D-20 recorded Bulbul v2 as discontinued and D-35 had to
+    take it back). BOTH spellings have to go, which is the union rule doing its job.
     """
     dropped = TRD_TEXT.replace(
         "| Text-to-Speech **Sonic 3.5**, Pro plan (the plan we are on) |", "| ~~x~~ |", 1
@@ -175,7 +179,7 @@ def test_dropping_only_one_of_the_two_tables_is_not_drift() -> None:
     legitimately be edited down to one table; what may not happen is the rung disappearing
     from BOTH while the biller still charges it. A check satisfied by deleting the table
     it happens to read would be a check anyone could silence with an edit."""
-    one_table_only = TRD_TEXT.replace("| TTS — Bulbul **v3** |", "| ~~moved~~ |", 1)
+    one_table_only = TRD_TEXT.replace("| TTS — Cartesia **Sonic 3.5**", "| ~~moved~~", 1)
     assert guard.doc_tts_rates(one_table_only) == guard.code_tts_rates()
     assert not guard.tts_rate_card_drift(one_table_only)
 
@@ -199,16 +203,15 @@ def test_prose_about_a_rate_is_not_read_as_a_rate() -> None:
     only a table row states one unambiguously."""
     prose = (
         "### 10.1 Stack cost, computed from published rates (Aug 2026)\n\n"
-        "Bulbul v3 was once quoted at ₹60 / 10,000 chars by a secondary source, which "
+        "Sonic 3.5 was once quoted at ₹99.00 / 10,000 chars by a secondary source, which "
         "was wrong. The card below is the first-party read.\n\n"
-        "| Sarvam API | Published rate |\n|---|---|\n"
-        "| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |\n"
+        "| Cartesia API | Published rate |\n|---|---|\n"
+        "| Text-to-Speech **Sonic 3.5** | ₹57.20 / 10,000 chars |\n"
     )
-    assert guard.doc_tts_rates(prose) == {"bulbul-v3": Decimal(30)}
-    # The Cartesia rung is absent from this fixture, so 4b names it — correctly, and that
-    # is not what this test is calibrating. What it asserts is that the SENTENCE quoting
-    # ₹60 produced no bulbul-v3 claim at all.
-    assert not [line for line in guard.tts_rate_card_drift(prose) if "bulbul" in line]
+    assert guard.doc_tts_rates(prose) == {"sonic-3.5": Decimal("57.20")}
+    # What this asserts is that the SENTENCE quoting ₹99.00 produced no rate claim at all:
+    # the only sonic-3.5 figure the parse found is the table row's, which agrees with code.
+    assert not guard.tts_rate_card_drift(prose)
 
 
 def test_a_thousands_separator_is_not_a_different_price() -> None:
@@ -216,11 +219,11 @@ def test_a_thousands_separator_is_not_a_different_price() -> None:
     wrong on a doc an editor merely reformatted, which is how a guardrail earns the
     reputation that gets it deleted."""
     heading = "### 10.1 Stack cost, computed from published rates\n\n"
-    assert guard.doc_tts_rates(heading + "| TTS **Bulbul v3** | ₹30 / 10,000 chars |\n") == {
-        "bulbul-v3": Decimal(30)
+    assert guard.doc_tts_rates(heading + "| TTS **Sonic 3.5** | ₹57.20 / 10,000 chars |\n") == {
+        "sonic-3.5": Decimal("57.20")
     }
-    assert guard.doc_tts_rates(heading + "| TTS **Bulbul v3** | ₹30 / 10000 chars |\n") == {
-        "bulbul-v3": Decimal(30)
+    assert guard.doc_tts_rates(heading + "| TTS **Sonic 3.5** | ₹57.20 / 10000 chars |\n") == {
+        "sonic-3.5": Decimal("57.20")
     }
 
 
@@ -228,7 +231,7 @@ def test_a_rate_outside_section_10_1_is_not_read() -> None:
     """§10's headline paragraph and §10.3's Outpero reconstruction both quote TTS money,
     and neither is the rate card. Bounding the parse to §10.1 is what keeps a discussion
     of somebody else's pricing from being read as a claim about ours."""
-    assert not guard.doc_tts_rates("Bulbul v3 costs ₹30 / 10,000 chars, they say.\n")
+    assert not guard.doc_tts_rates("Sonic 3.5 costs ₹57.20 / 10,000 chars, they say.\n")
 
 
 # --- 4c: the in-call LLM cost curves (D-400, two of them since D-410) ----------

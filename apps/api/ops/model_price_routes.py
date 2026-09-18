@@ -53,16 +53,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.voice_offer import cartesia_credential_installed, default_tts_price_is_billable
-from apps.api.agents.voices import tts_models_for_provider
+from apps.api.agents.voices import VoiceProvider, tts_models_for_provider
 from apps.api.billing.plans import parse_billing_month
-from apps.api.billing.rates import VoiceTier, voice_tier_label
+from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.core.settings import ENV_ONLY_FOREIGN_ENV, get_settings
+from apps.api.core.settings import ENV_ONLY_FOREIGN_ENV
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
     TTS_PROVIDERS,
@@ -668,7 +668,7 @@ class TtsPlanFeeWriteOut(BaseModel):
 def _plan_fee_row(attested: TtsPlanFeeAttestation) -> TtsPlanFeeOut:
     return TtsPlanFeeOut(
         provider=attested.provider,
-        tier_label=voice_tier_label(cast("VoiceTier", attested.provider)),
+        tier_label=voice_tier_label(cast("VoiceProvider", attested.provider)),
         month=attested.month,
         plan_inr=str(attested.plan_inr),
         effective_from=attested.effective_from.isoformat(),
@@ -777,19 +777,24 @@ def _tts_credential_installed(provider: str) -> bool:
     """Is a key for this voice vendor installed HERE?
 
     Cartesia goes through `agents/voice_offer.cartesia_credential_installed` — the picker's
-    own ground 1, so the panel and the picker cannot disagree about a key. Sarvam has no
-    such function because no ground of the picker depends on it (the engine holds that leg),
-    so it is read the same way, off the settings the ops console overlays its encrypted
-    store onto, rather than inventing a second notion of installed.
+    own ground 1, so the panel and the picker cannot disagree about a key. ⚠ The fall-through
+    that read `sarvam_api_key` is gone with the Sarvam TTS leg (18 Sep 2026); that key is
+    still set and still used, by the STT leg, which this panel has never had a row for.
 
     **FALSE, PERMANENTLY AND CORRECTLY, FOR A KEY HELD IN ANOTHER ENVIRONMENT** — see
     `_tts_credential_held_elsewhere`, which is what stops that False being read as a fault.
     """
-    if provider == "cartesia":
-        return cartesia_credential_installed()
-    if provider in ENV_ONLY_FOREIGN_ENV:
+    # ⚠ **KEYED ON THE `Settings` FIELD, NOT ON THE BARE PROVIDER, AND IT WAS NOT BEFORE.**
+    # `ENV_ONLY_FOREIGN_ENV` is keyed `"<provider>_api_key"`, so `provider in ...` never
+    # matched and Gnani fell through to the arm below. That arm read `sarvam_api_key`, which
+    # is empty on most deployments, so the wrong branch returned the right answer by
+    # accident — until the Sarvam TTS leg was withdrawn (18 Sep 2026) and the fall-through
+    # became Cartesia's key, at which point Gnani started reporting a credential it does not
+    # have. `_tts_credential_held_elsewhere` below always used the correct key; the two now
+    # agree, which is the point of deriving both from that one mapping.
+    if f"{provider}_api_key" in ENV_ONLY_FOREIGN_ENV:
         return False
-    return bool((get_settings().sarvam_api_key or "").strip())
+    return cartesia_credential_installed()
 
 
 def _tts_credential_held_elsewhere(provider: str) -> bool:
@@ -812,15 +817,20 @@ def _tts_row(
     credential_installed: bool,
     credential_held_elsewhere: bool,
 ) -> TtsPriceOut:
-    # "Would this tier be unbillable with nothing attested?" — asked of the one function
+    # "Would this leg be unbillable with nothing attested?" — asked of the one function
     # that states which legs carry a cost of their own (`default_tts_price_is_billable`,
-    # the picker's own pre-store answer), never spelled `provider != "sarvam"` here. A
-    # third provider then arrives in one place rather than two.
-    tier = cast("VoiceTier", provider)
-    needs = not default_tts_price_is_billable(tier)
+    # the picker's own pre-store answer), never spelled `provider != "<vendor>"` here.
+    #
+    # ⚠ **NO LEG SATISFIES IT TODAY AND THE SEAM STAYS (18 Sep 2026).** The engine-metered
+    # Sarvam synthesizer leg was the only one that ever did, and it was withdrawn; both
+    # survivors are BYOK and the engine reports ₹0 for them. So the sentence below is
+    # currently never rendered. Asking the one function rather than hard-coding `None` is
+    # what makes this screen correct again by itself the day a metered leg returns.
+    leg = cast("VoiceProvider", provider)
+    needs = not default_tts_price_is_billable(leg)
     return TtsPriceOut(
         provider=provider,
-        tier_label=voice_tier_label(tier),
+        tier_label=voice_tier_label(leg),
         tts_model=_tts_model_of(provider),
         credential_installed=credential_installed,
         price_attested=attested is not None,

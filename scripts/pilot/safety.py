@@ -73,7 +73,9 @@ LOW_INR_PER_MIN = Decimal("3.00")
 #     LLM leg has not been Sarvam since D-410 in any case. A ₹0.00 leg citing the page
 #     that withdrew it is hard rule 12's last bullet: the citation was never opened.
 #   * **The TTS leg imputed a speaking rate the cost model refuses to impute.** ₹1.40 at
-#     `rates.TTS_INR_PER_10K_CHARS` (₹30/10k) is 466.67 chars per call-minute — a POINT
+#     `rates.TTS_INR_PER_10K_CHARS` (₹30/10k, since 18 Sep 2026 the value rung's FROZEN
+#     cost-model scalar rather than a live vendor rate) is 466.67 chars per call-minute — a
+#     POINT
 #     inside `rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE`'s unmeasured 360-540 band, and not
 #     its top. §10.1 publishes the band's ENDS as the per-call-minute row precisely so a
 #     reader does not have to pick a point; picking one, low, inside a ceiling advertised

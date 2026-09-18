@@ -1185,6 +1185,11 @@ def _speaking_rate_out(
         pooled=None if rate.pooled is None else _point_out(rate.pooled),
         assumed_low=_point_out(rate.assumed_low),
         assumed_high=_point_out(rate.assumed_high),
+        # ⚠ THE VALUE RUNG'S FROZEN COST-MODEL SCALAR, not a live vendor card — see
+        # `rates.TTS_INR_PER_10K_CHARS`, which the Sarvam TTS leg's withdrawal (18 Sep 2026)
+        # left as exactly that. It is what every rupee on this board was divided by, so the
+        # board must keep publishing it; what it must not be read as is a price anybody
+        # bills at (`rates.tts_rate_inr_per_char` refuses).
         tts_inr_per_10k_chars=str(rates.TTS_INR_PER_10K_CHARS),
         by_provider=_by_provider_out(rate, attested=attested),
         fleet=_fleet_speaking_rate_out(fleet),

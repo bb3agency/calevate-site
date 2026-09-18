@@ -2,7 +2,7 @@
 three parts, arriving on the leg that had none of them.
 
 THE DEFECT THIS PINS. TTS is billed per CHARACTER and has had `TTS_INR_PER_10K_CHARS`,
-`tts_cost_inr` and `scripts/check_docs_drift.py` §4b since the rate card was written. STT
+`tts_inr_per_call_minute` and `scripts/check_docs_drift.py` §4b since the rate card was written. STT
 is billed per unit of AUDIO TIME and had NONE of them: ₹30/hour lived in TRD §10.1 prose
 and, blended with four other legs, inside `SELF_SERVE_COST_FLOOR_INR_PER_MIN`. A money
 figure with one home and no check is D-103/D-105 exactly — Sarvam moves the price, the doc
@@ -59,7 +59,7 @@ def test_stt_cost_takes_seconds_and_prices_round_inputs_exactly() -> None:
 
 def test_a_negative_duration_is_refused_rather_than_priced() -> None:
     """A negative duration would price to a NEGATIVE cost, which on a usage event is a
-    credit issued by an arithmetic accident — the argument `tts_cost_inr` makes, and the
+    credit issued by an arithmetic accident — the argument `tts_inr_per_call_minute` makes, and the
     one `workers/pipeline.py::_billable_seconds` had to make on the live money path."""
     with pytest.raises(ValueError, match="negative"):
         rates.stt_cost_inr(-1)

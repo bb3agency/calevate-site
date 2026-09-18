@@ -83,10 +83,18 @@ if TYPE_CHECKING:  # `LotRates` is a type here and never a runtime import.
     # annotations` is what makes the annotation a string and this legal.
     from apps.api.billing.service import LotRates
 
-#: WHICH VOICE A CALL SPOKE IN, and therefore which of a lot's two rates prices it.
+#: WHICH RUNG A CALL BILLS ON, and therefore which of a lot's two rates prices it.
 #: Spelled here rather than imported from `agents/voices.py` because Phase C owns that
 #: file and this module must not depend on the catalogue to price a minute;
 #: `tests/credit_lots_vocabulary_test.py` holds the two spellings equal once C lands.
+#:
+#: ⚠ **`"sarvam"` IS A HISTORICAL NAME FOR THE VALUE RUNG AND NOT A VENDOR (18 Sep 2026).**
+#: The Sarvam TEXT-TO-SPEECH leg was withdrawn and Gnani serves that rung; Sarvam remains
+#: the STT vendor, which has never been in this vocabulary. The token is unchanged because
+#: it is spelled identically in `credit_lots.sarvam_inr_per_min`, in the rate cells frozen
+#: onto every lot at purchase, on the client's own wire and in the web client —
+#: `billing/rates.VoiceTier` carries the argument in full, including the one constraint
+#: that did NOT apply to the decision and will apply to the next one.
 VoiceTier = Literal["sarvam", "cartesia"]
 
 #: Where a lot's credits came from. The DB twin is `models.LOT_SOURCES` and the CHECK

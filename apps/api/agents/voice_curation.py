@@ -97,7 +97,9 @@ from apps.api.agents.voices import (
     CurationState,
     Voice,
     VoiceOrigin,
+    voice_tier,
 )
+from apps.api.billing.rates import VOICE_TIERS
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, tenant_session
 
@@ -345,7 +347,15 @@ async def list_curated_voices(
     return tuple(
         sorted(
             curated,
-            key=lambda c: (c.withdrawn, c.voice.provider != "sarvam", c.voice.label),
+            # Picker order, through the same two derivations `voice_sync._picker_key`
+            # uses — a vendor name spelled here would be a second answer to "which column
+            # is cheaper" (it was `provider != "sarvam"` until 18 Sep 2026, when the
+            # Sarvam TTS leg was withdrawn and that name stopped naming the value rung).
+            key=lambda c: (
+                c.withdrawn,
+                VOICE_TIERS.index(voice_tier(c.voice.id)),
+                c.voice.label,
+            ),
         )
     )
 

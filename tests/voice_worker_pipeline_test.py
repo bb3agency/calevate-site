@@ -169,8 +169,8 @@ PROMPT = "You are Calevate's receptionist. You are an AI. This call is recorded.
 def make_config(**overrides: Any) -> pipeline.SessionConfig:
     models = ModelConfig(
         stt_model="saaras:v4",
-        tts_provider="sarvam",
-        tts_model="bulbul:v3",
+        tts_provider="cartesia",
+        tts_model="sonic-3.5",
         tts_voice="shubh",
         llm_provider="azure_openai",
         llm_model="calevate-gpt-4o-mini",
@@ -191,7 +191,15 @@ def make_config(**overrides: Any) -> pipeline.SessionConfig:
     return pipeline.SessionConfig(**base)
 
 
-CREDENTIALS = pipeline.VendorCredentials(sarvam_api_key="sarvam-test", llm_api_key="llm-test")
+#: ⚠ **THE CARTESIA KEY IS NOT OPTIONAL FOR THIS FIXTURE ANY MORE (18 Sep 2026).** Sarvam's
+#: key alone used to be enough because the TTS leg fell back to Sarvam; the founder
+#: withdrew that leg, so a session whose agent speaks at all needs its vendor's key.
+#: **`sarvam_api_key` STAYS AND IS STILL REQUIRED** — Saaras transcribes every call.
+CREDENTIALS = pipeline.VendorCredentials(
+    sarvam_api_key="sarvam-test",
+    llm_api_key="llm-test",
+    cartesia_api_key="cartesia-test",
+)
 
 
 def assemble(sink: RecordingSink) -> tuple[pipeline.AssembledCall, FakeTransport, FakeLLM]:
@@ -288,12 +296,55 @@ def test_sarvam_keeps_local_smart_turn_because_vad_signals_is_left_unset() -> No
 
 
 def test_sarvam_tts_speakers_are_a_closed_enum_which_is_the_ground_for_d593() -> None:
-    """Recorded, not acted on: a closed speaker set has nowhere to put a cloned voice."""
+    """A closed speaker set has nowhere to put a cloned voice — the structural fact behind
+    D-593, and the one that outlived it.
+
+    ⚠ **IT WAS "RECORDED, NOT ACTED ON" UNTIL 18 Sep 2026, AND IT HAS NOW BEEN ACTED ON.**
+    The founder withdrew the Sarvam TEXT-TO-SPEECH leg; there is no `SarvamTTSService` in
+    this pipeline any more and no default model to fall back to. The enum reading stays
+    because the reason it was recorded stays: whoever proposes putting a cloned voice on a
+    vendor should check whether that vendor's speaker set is open first.
+
+    **SARVAM STT IS UNTOUCHED** — `legs.stt` below is the assertion that says so, and it is
+    the half of this file that must never be deleted along with the other.
+    """
     assert len(list(SarvamTTSSpeakerV3)) > 0
     assert "shubh" in {speaker.value for speaker in SarvamTTSSpeakerV3}
+
     legs = pipeline.build_vendor_legs(make_config(), CREDENTIALS)
-    assert isinstance(legs.tts, SarvamTTSService)
-    assert legs.tts._settings.model == "bulbul:v3"
+
+    assert not isinstance(legs.tts, SarvamTTSService), (
+        "the Sarvam TTS leg is back; it was withdrawn on 18 Sep 2026 and the Clear rung is "
+        "Gnani's"
+    )
+    assert isinstance(legs.stt, SarvamSTTService), (
+        "SARVAM STILL TRANSCRIBES EVERY CALL. Only the synthesis half was withdrawn, and a "
+        "change that takes the STT leg with it has gone too far."
+    )
+
+
+def test_an_agent_that_names_no_tts_provider_is_refused_rather_than_given_a_default() -> None:
+    """THE CHANGE WITH TEETH IN THE 18 Sep 2026 REMOVAL, asserted where it lands.
+
+    `_build_tts` used to fall through to Sarvam for a config that named no provider, which
+    was a real default with a real price on our own rate card. There is none now: Cartesia
+    would silently bill the dearer rung and Gnani has no attested price at all (hard rule
+    7), so the leg refuses rather than choosing a vendor on the caller's behalf.
+
+    A refusal here is a backstop — `agents/publishing.py` is what stops such a config
+    reaching a call — and the point of a backstop is that it is loud.
+    """
+    config = make_config(
+        models=ModelConfig(
+            stt_model="saaras:v4",
+            llm_provider="azure_openai",
+            llm_model="calevate-gpt-4o-mini",
+            llm_base_url=azure_openai_base_url("calevate-eastus2"),
+        )
+    )
+
+    with pytest.raises(ValueError, match="no tts_provider"):
+        pipeline.build_vendor_legs(config, CREDENTIALS)
 
 
 def test_the_google_leg_is_the_openai_compat_wire_this_repo_already_speaks() -> None:
@@ -308,8 +359,18 @@ def test_the_google_leg_is_the_openai_compat_wire_this_repo_already_speaks() -> 
     argument turns on, and a hand-typed host that drifted from the builder would pass any
     test that spelled the URL itself.
     """
+    # ⚠ THE TTS FIELDS ARE CARRIED EXPLICITLY SINCE 18 Sep 2026: `_build_tts` no longer has
+    # a default provider to fall back to (the Sarvam leg was withdrawn), so a `ModelConfig`
+    # that names only the LLM leg cannot build a pipeline at all. That refusal is the point
+    # of the change and is asserted in its own clause; here it is noise.
     config = make_config(
-        models=ModelConfig(llm_provider="google", llm_model="gemini-2.5-flash-lite")
+        models=ModelConfig(
+            llm_provider="google",
+            llm_model="gemini-2.5-flash-lite",
+            tts_provider="cartesia",
+            tts_model="sonic-3.5",
+            tts_voice="shubh",
+        )
     )
     legs = pipeline.build_vendor_legs(config, CREDENTIALS)
     assert isinstance(legs.llm, OpenAILLMService)

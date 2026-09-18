@@ -438,26 +438,35 @@ FAKE_WEBHOOK_SECRET = "fake-engine-webhook-secret"
 #: get_all.md:102-112`: `voice_id: sXlZ9Juk5Ji8sZiFjRUV`, `name: my-custom-voice`,
 #: `source: custom`) and it is the row the conformance suite leans on: a cloned voice's
 #: label has no derivable relationship to its id, so a consumer that capitalises the id to
-#: get a label passes on `ashutosh` and fails here.
+#: get a label passes on an id that happens to be a word and fails here.
 #:
-#: `sonic-3.5` appears so the two-provider path is exercised end to end — the engine, not
-#: our source, is what says a Cartesia voice exists, and the fixture has to be able to say
-#: it. The id is the vendor's example again rather than a Cartesia id somebody invented:
-#: nobody in this tree has read one (hard rule 11), and the fake is not the place to start.
+#: ⚠ **EVERY ROW WAS `bulbul:v3` UNTIL 18 Sep 2026** and moved to `sonic-3.5` when the
+#: Sarvam TTS leg was withdrawn. The SPEAKER NAMES are deliberately unchanged: they are
+#: fixture identity — dozens of assertions across the suite name `ashutosh` — and a fake
+#: engine's voice ids are not a claim about any vendor's catalogue. What matters is that
+#: the model string is one `TtsModel` still carries, because `voice_sync` drops a row whose
+#: model this build does not offer and the fixture would otherwise enumerate nothing.
+#:
+#: Both providers we run appear so the two-provider path is exercised end to end — the
+#: engine, not our source, is what says a voice exists, and the fixture has to be able to
+#: say it. ⚠ **GNANI IS DELIBERATELY ABSENT**: this fake stands in for the RENTED engine,
+#: and that engine does not carry Gnani at all (`engine/bolna.py::
+#: _refuse_provider_not_on_this_engine`, VERIFIED-VENDOR-DOCS). A Gnani row here would be a
+#: fixture asserting a vendor relationship nobody has.
 FAKE_ENGINE_VOICES: Final[tuple[EngineVoice, ...]] = (
     EngineVoice(
         voice_id="ashutosh",
         label="Ashutosh",
-        tts_model="bulbul:v3",
+        tts_model="sonic-3.5",
         languages=("te-IN", "hi-IN", "en-IN"),
     ),
     EngineVoice(
-        voice_id="priya", label="Priya", tts_model="bulbul:v3", languages=("te-IN", "hi-IN")
+        voice_id="priya", label="Priya", tts_model="sonic-3.5", languages=("te-IN", "hi-IN")
     ),
     EngineVoice(
         voice_id="sXlZ9Juk5Ji8sZiFjRUV",
         label="my-custom-voice",
-        tts_model="bulbul:v3",
+        tts_model="sonic-3.5",
         languages=("en-IN",),
         is_custom=True,
     ),

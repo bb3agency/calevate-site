@@ -105,8 +105,8 @@ def _agent_config(*, remembers: bool) -> AgentConfig:
             llm_provider="azure_openai",
             llm_model="calevate-gpt-4o-mini",
             llm_base_url=azure_openai_base_url("calevate-eastus2"),
-            tts_provider="sarvam",
-            tts_model="bulbul:v3",
+            tts_provider="cartesia",
+            tts_model="sonic-3.5",
             tts_voice="anushka",
         ),
     )
@@ -562,8 +562,8 @@ async def test_the_ref_the_publish_wrote_is_the_ref_the_session_config_carries(
                 llm_provider="azure_openai",
                 llm_model="calevate-gpt-4o-mini",
                 llm_base_url=azure_openai_base_url("calevate-eastus2"),
-                tts_provider="sarvam",
-                tts_model="bulbul:v3",
+                tts_provider="cartesia",
+                tts_model="sonic-3.5",
                 tts_voice="anushka",
             ),
         )

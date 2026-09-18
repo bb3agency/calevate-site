@@ -591,7 +591,7 @@ def test_the_shipped_voice_table_covers_the_shipped_voice_catalogue() -> None:
 
 
 def test_a_voice_model_with_no_lifecycle_row_refuses_to_score() -> None:
-    problems = guard.tts_refusals(frozenset({"bulbul:v3", "sonic-9"}), dict(TTS_MODEL_LIFECYCLE))
+    problems = guard.tts_refusals(frozenset({"sonic-3.5", "sonic-9"}), dict(TTS_MODEL_LIFECYCLE))
 
     assert problems and "sonic-9" in problems[0]
     assert "TtsModel" in problems[0], "the reader is told which catalogue to look in"
@@ -649,17 +649,25 @@ def test_a_retired_voice_model_still_in_the_catalogue_is_a_build_failure() -> No
     assert problems and "2026-10-20" in problems[0]
 
 
-def test_the_shipped_voice_rows_announce_no_retirement_and_say_where_they_read_it() -> None:
-    """Both shipped rows are `none-announced`, and each carries the source it was read
-    from — the hash-pinned engine mirror for Bulbul, Cartesia's own API-changes page
-    (relayed) for Sonic 3.5. The `sonic-3` sunset and the Sonic 3.6 disagreement are
-    recorded in the note rather than resolved."""
-    bulbul = TTS_MODEL_LIFECYCLE["bulbul:v3"]
-    sonic = TTS_MODEL_LIFECYCLE["sonic-3.5"]
+def test_the_shipped_voice_rows_say_where_they_read_it_or_that_nobody_did() -> None:
+    """⚠ **THE `bulbul:v3` ROW LEFT THIS TABLE ON 18 Sep 2026** with the Sarvam TTS leg it
+    described; this checker holds the table to exactly `TtsModel`, so the row had to go with
+    the model. Sarvam STT has never had a row here — this is the TTS catalogue's lifecycle
+    table and `saaras` is not in that catalogue.
 
-    assert bulbul.retires_on is None and bulbul.retirement_stance == "none-announced"
+    What is left is the distinction hard rule 11 exists for: `sonic-3.5` is
+    `none-announced` on Cartesia's own API-changes page (relayed), and `timbre-v2.5` is
+    `unread` because nobody has opened a Gnani lifecycle page at all. The `sonic-3` sunset
+    and the Sonic 3.6 disagreement are recorded in the note rather than resolved."""
+    sonic = TTS_MODEL_LIFECYCLE["sonic-3.5"]
+    timbre = TTS_MODEL_LIFECYCLE["timbre-v2.5"]
+
+    assert "bulbul:v3" not in TTS_MODEL_LIFECYCLE
     assert sonic.retires_on is None and sonic.retirement_stance == "none-announced"
-    assert "bolna-findings/mirror" in bulbul.retirement.source
+    assert timbre.retires_on is None and timbre.retirement_stance == "unread"
+    assert timbre.retirement.verified is False, (
+        "'nobody looked' may not be filed as evidence somebody did"
+    )
     assert "docs.cartesia.ai" in sonic.retirement.source
     assert "20 Oct 2026" in sonic.retirement.note, "sonic-3's dated sunset travels with it"
     assert "3.6" in sonic.retirement.note and "CONTRADICTION" in sonic.retirement.note

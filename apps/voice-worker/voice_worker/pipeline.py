@@ -75,7 +75,6 @@ from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.sarvam.stt import SarvamSTTService
-from pipecat.services.sarvam.tts import SarvamTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
@@ -155,9 +154,14 @@ TELEPHONY_SAMPLE_RATE_HZ: Final[int] = 8000
 #: which of Pipecat's two Sarvam STT classes we can use at all.
 STT_MODEL: Final[str] = "saaras:v4"
 
-#: Today's Sarvam TTS model. `bulbul:v2` is withdrawn — Pipecat's own docstring says
-#: "Sarvam's API rejects it" (`pipecat/services/sarvam/tts.py:648`).
-TTS_MODEL: Final[str] = "bulbul:v3"
+#: ⚠ **THERE IS NO DEFAULT TTS MODEL CONSTANT ANY MORE (18 Sep 2026).** `TTS_MODEL` held
+#: `bulbul:v3` and was the model an agent that named none fell back to. The founder
+#: withdrew the Sarvam TEXT-TO-SPEECH leg, and neither survivor may be defaulted to: a
+#: Cartesia fallback is a silent upgrade to the dearer rung, and a Gnani one is a minute
+#: nobody has priced (hard rule 7). `_build_tts` below therefore refuses an agent whose
+#: config names no provider rather than picking one.
+#:
+#: `STT_MODEL` above is UNTOUCHED: Sarvam Saaras still transcribes every call.
 
 
 # ---------------------------------------------------------------------------------------
@@ -535,46 +539,50 @@ def _build_stt(config: SessionConfig, credentials: VendorCredentials) -> FramePr
 
 
 def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
-    """Sarvam TTS today; Cartesia on the Studio tier; Gnani where an agent names it.
+    """Cartesia on the Studio tier; Gnani on the Clear tier. No default, and no Sarvam.
 
-    ⚠ **`SarvamTTSSpeakerV3` (`pipecat/services/sarvam/tts.py:101`) IS A CLOSED `StrEnum`
-    OF 25 SPEAKER NAMES.** That is the structural fact behind D-593 and it is recorded here
-    rather than acted on: a vendor whose speaker set is an enum has no place to put a voice
-    cloned from a client's own recording, so Sarvam cannot serve the Clear tier's cloned
-    voices however good its Telugu is. Gnani replaces Sarvam on that tier and Cartesia
-    stays on Studio. Nothing in this function implements that — `GnaniTTSService` is §5,
-    staged behind Gnani's unanswered rate-limit question, and building it now would be
-    building for nothing.
+    ⚠ **THE SARVAM TTS LEG IS WITHDRAWN (founder, 18 Sep 2026) AND SARVAM STILL HEARS
+    EVERY CALL.** `_build_stt` above is untouched: `saaras:v4`, `SARVAM_API_KEY`,
+    `SarvamSTTService`. What went is the SYNTHESIS half, and this function no longer has a
+    Sarvam arm, a default provider or a default model.
 
-    ⚠ **THE GNANI HALF OF THAT PARAGRAPH IS SUPERSEDED BY D-618 AND THE LEG IS BUILT**
-    (`voice_worker/gnani_tts.py`). Two things changed. The rate limit is not an "unanswered
-    question" with a known number — the current vendor documentation does not state a
-    60 req/min cap at all, so what §5 gated on could not be answered as asked; it is
-    re-stated as UNKNOWN. And Gnani ship an official Pipecat plugin, so the work was a
-    subclass filling three measured gaps rather than a protocol implementation.
+    The structural fact that made the withdrawal easy to accept is recorded here because it
+    outlives the decision: **`SarvamTTSSpeakerV3` (`pipecat/services/sarvam/tts.py:101`) IS
+    A CLOSED `StrEnum` OF 25 SPEAKER NAMES** (read in the pinned wheel, 18 Sep 2026). A
+    vendor whose speaker set is an enum has no place to put a voice cloned from a client's
+    own recording, so Sarvam could not have served a tier with cloned voices however good
+    its Telugu is. Gnani takes the value rung and Cartesia stays on Studio.
 
-    **WHAT DID NOT CHANGE IS WHO SPEAKS THE CLEAR TIER.** `bulbul:v3` is still what an
-    agent that chose nothing runs on, and nothing here flips a tier: §6 step 9 gates that
-    on an ATTESTED PRICE, and Gnani publish none. A Gnani call happens only where an
-    agent's own `ModelConfig.tts_provider` says so, and a Gnani voice is not offerable
-    until its price is attested (`agents/gnani_voices.py`).
+    **NOTHING HERE MAKES A GNANI MINUTE SELLABLE.** A Gnani call happens only where an
+    agent's own `ModelConfig.tts_provider` says so, and a Gnani voice is not OFFERABLE
+    until an operator attests its price (`agents/voice_offer.py`, hard rule 7); Gnani
+    publish none. This function is the leg, not the gate.
 
-    `bulbul:v2` is not offered: Pipecat's own docstring says "Sarvam's API rejects it"
-    (`tts.py:648`), which agrees with CLAUDE.md's correction that v2 is WITHDRAWN rather
-    than a value tier.
+    **AN AGENT THAT NAMES NO PROVIDER IS REFUSED, and that is the change with teeth.** It
+    used to fall through to Sarvam, which was a real default with a real price. There is no
+    such default now — Cartesia would silently bill the dearer rung, Gnani would bill a rate
+    nobody struck — so a config with no provider raises here rather than choosing a vendor
+    on the caller's behalf. `agents/publishing.py` is what stops such a config reaching a
+    call; this is the backstop that makes it loud if one ever does.
     """
-    provider = (config.models.tts_provider or "sarvam").lower()
+    if config.models.tts_provider is None:
+        raise ValueError(
+            "this agent names no tts_provider, and there is no default to fall back to "
+            "since the Sarvam TTS leg was withdrawn (18 Sep 2026): Cartesia would bill the "
+            "dearer rung by accident and Gnani has no attested price at all"
+        )
+    provider = config.models.tts_provider.lower()
     # A settings field left ABSENT keeps the vendor class's own default; a field set to
     # `None` overwrites it (these are delta dataclasses whose unset marker is `NOT_GIVEN`,
     # `pipecat/services/settings.py`). `tts_voice` is nullable on `ModelConfig`, so it is
-    # only passed when we actually have one — sending `voice=None` would blank Sarvam's
-    # "shubh" default and leave the agent with no speaker at all.
+    # only passed when we actually have one — sending `voice=None` would overwrite the
+    # vendor class's own default with nothing and leave the agent with no speaker at all.
     voice = config.models.tts_voice
     if provider == "cartesia":
         if credentials.cartesia_api_key is None:
             raise ValueError("tts_provider is 'cartesia' but no Cartesia key was supplied")
-        # Imported here, not at module scope: the Studio tier is a minority of calls and
-        # this keeps a websocket client out of the import graph of every Sarvam call.
+        # Imported here, not at module scope: this keeps a vendor websocket client out of
+        # the import graph of every call that does not use it.
         from pipecat.services.cartesia.tts import CartesiaTTSService
 
         cartesia_settings = CartesiaTTSService.Settings(language=_language(config))
@@ -604,8 +612,9 @@ def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FramePr
             # are entitled to invent.
             raise ValueError("tts_provider is 'gnani' but the agent names no language")
         # Imported here, not at module scope, for the reason the Cartesia branch gives:
-        # this keeps a second vendor websocket client out of the import graph of every
-        # Sarvam call. The model is the module's constant, never `config.models.tts_model`
+        # it keeps a second vendor websocket client out of the import graph of every call
+        # that does not use it. The model is the module's constant, never
+        # `config.models.tts_model`
         # blindly — see `gnani_tts.GNANI_TTS_MODEL` for why the vendor default is wrong.
         from voice_worker.gnani_tts import build_gnani_tts
 
@@ -615,19 +624,7 @@ def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FramePr
             language=config.language,
             sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
         )
-    if provider != "sarvam":
-        raise ValueError(f"unsupported tts_provider {provider!r}")
-    sarvam_settings = SarvamTTSService.Settings(
-        model=config.models.tts_model or TTS_MODEL,
-        language=_language(config),
-    )
-    if voice is not None:
-        sarvam_settings.voice = voice
-    return SarvamTTSService(
-        api_key=credentials.sarvam_api_key,
-        settings=sarvam_settings,
-        sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
-    )
+    raise ValueError(f"unsupported tts_provider {provider!r}")
 
 
 def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
@@ -1225,7 +1222,6 @@ __all__ = [
     "SMART_TURN_STOP_SECS",
     "STT_MODEL",
     "TELEPHONY_SAMPLE_RATE_HZ",
-    "TTS_MODEL",
     "AssembledCall",
     "NormalizedEventBoundary",
     "NormalizedEventSink",

@@ -36,12 +36,21 @@ bug; the poll bought nothing here.
 unofferable because its price is unattested, and the reason a client reads is the one that
 is actually deciding. `_deciding_ground` below is the single ordering.
 
-THE THREE GROUNDS FOR THE CARTESIA TIER, AND THEIR THREE OWNERS (D-547 §4.C.2)
+THE THREE PRICED GROUNDS, AND THEIR THREE OWNERS (D-547 §4.C.2)
 --------------------------------------------------------------------------------
-1. **No Cartesia key installed** — the founder pastes one into the ops console
-   (`Settings.cartesia_api_key`, probed live by `ops/secret_probes.py`).
-2. **No attested Cartesia TTS price** — hard rule 7, the rule `offerable_models()` applies
-   to an LLM (`NO_ATTESTED_PRICE_REASON`): an unpriced minute is unmetered spend, not a free
+⚠ **THEY USED TO BE "THE THREE GROUNDS FOR THE CARTESIA TIER", BECAUSE EVERY OTHER VOICE
+WAS EXEMPT FROM THEM (18 Sep 2026).** A Sarvam voice short-circuited to offerable after
+ground zero: the engine held that leg, so the key was its own and the price was on our
+card. The founder withdrew the Sarvam TTS leg, the short-circuit went with it, and these
+grounds now apply to EVERY voice this product can speak. The sentences are per-provider
+(`no_credential_reason`, `no_attested_price_reason`) rather than Cartesia-worded.
+
+1. **No key installed** — the founder pastes one into the ops console
+   (`Settings.cartesia_api_key`, probed live by `ops/secret_probes.py`). ⚠ A provider whose
+   key lives in ANOTHER deployment's environment abstains rather than refusing here, because
+   this process cannot see that box at all — `tts_credential_installed` argues it.
+2. **No attested TTS price** — hard rule 7, the rule `offerable_models()` applies
+   to an LLM: an unpriced minute is unmetered spend, not a free
    one, and the only place the refusal is free is the selection. The predicate is INJECTED,
    and **Phase D wired it to the real attestation** (`ops/model_pricing.TtsPriceAttestation`,
    plan §3.5, D-547): `ops/pricing_snapshot.py` installs a reader over the
@@ -50,17 +59,21 @@ THE THREE GROUNDS FOR THE CARTESIA TIER, AND THEIR THREE OWNERS (D-547 §4.C.2)
    Cartesia price in the ops console makes the tier offerable within one poll — and
    immediately, because the attestation route refreshes the snapshot itself.
    `default_tts_price_is_billable` is what answers before any of that has happened.
-3. **The platform-wide cap is reached** — `Settings.cartesia_agent_cap` (Q10): Cartesia's
+3. **The platform-wide cap is reached** — `Settings.cartesia_agent_cap` (Q10), and this one
+   is CARTESIA'S ALONE and is deliberately not generalised, because the fact behind it is:
+   Cartesia's
    TTS is a monthly plan with a concurrency ceiling, so the third clinic on it forces the
    next plan rather than costing a third more, and nothing in a ledger would say so. The
    cap is a count of LIVE agents on the Cartesia tier across EVERY tenant; an operator
    raises it in the console after deciding to.
 
-A Sarvam voice fails none of these: the key is the engine's own leg today, the price is on
-the card, and there is no cap. What it does NOT escape is ground zero: a Sarvam voice
-nobody has enabled is not offered either, which is the whole point of the founder's
-requirement and the reason the curation check sits above the `provider == "sarvam"`
-short-circuit rather than inside the Cartesia arm.
+**NO VOICE IS EXEMPT FROM ANY OF THESE ANY MORE, AND THAT IS WHY THE VALUE RUNG IS
+CURRENTLY UNSELLABLE.** Gnani `timbre-v2.5` holds it, nobody has attested what a Gnani
+minute costs, and ground 2 therefore refuses every Gnani voice. That is the founder's
+intended state, not an outage: *"we are still in building phase"* (18 Sep 2026). Attesting
+a price in the ops console opens the rung within one poll, and nothing here may substitute
+a guess for that attestation (hard rule 7 — and there IS no Gnani figure to guess from; the
+only number in the wild is a reseller's, `docs/PIPECAT-MIGRATION.md` §7).
 
 THE THREE SENTENCES ARE FOR AN OPERATOR, AND THE ROUTE IS CLIENT-READABLE
 -------------------------------------------------------------------------
@@ -107,7 +120,7 @@ from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.voice_curation import VoiceCuration, read_curation
 from apps.api.agents.voices import CurationState, Voice, VoiceProvider, catalogue
 from apps.api.billing.rates import voice_tier_label
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import ENV_ONLY_FOREIGN_ENV, get_settings
 from apps.api.db.session import admin_session, tenant_session
 
 #: WHO a refusal sentence is written for. IMPORTED, never re-declared: "operator or client"
@@ -124,23 +137,32 @@ TtsPriceReader = Callable[[VoiceProvider], bool]
 
 
 def default_tts_price_is_billable(provider: VoiceProvider) -> bool:
-    """The answer BEFORE anything has been read from the price store.
+    """The answer BEFORE anything has been read from the price store: **never**.
 
-    Sarvam's TTS cost is metered off the engine's own reported synthesizer leg, so that
-    tier is billable with nothing attested; Cartesia's is attested by nobody until an
-    operator reads an invoice. Not a placeholder that says yes — the honest reading of
-    what this tree can price with no store behind it, and the SAME statement
+    ⚠ **IT USED TO BE `provider == "sarvam"`, AND THAT WAS NOT AN EXEMPTION — IT WAS A
+    MEASUREMENT (18 Sep 2026).** The ENGINE billed us for the Sarvam synthesizer leg and
+    reported what it charged, so that leg carried a measured cost on every row
+    (`CostBreakdown.tts_inr`) and had no attestation to make. The founder withdrew the
+    Sarvam TTS leg; both surviving providers are BYOK, both are billed by the vendor on a
+    plan this process cannot read, and `CostBreakdown.tts_inr` reports ₹0 for such a leg
+    (plan ADDENDUM 3 §3.5). So with no store behind it NOTHING is billable, and the
+    constant `False` is the honest reading rather than a placeholder — the SAME statement
     `ops/model_pricing.tts_price_is_billable` makes with an empty table.
+
+    **IT KEEPS ITS ARGUMENT AND ITS NAME**, because it is the `TtsPriceReader` contract's
+    cold answer and the day a leg carries a measured cost again this is where that is said.
+    A bare `False` inlined at its two call sites would be the same fact in two places.
 
     PUBLIC because `ops/pricing_snapshot.py` builds its cold snapshot from it (D-547).
     That module installs the real reader at startup and refreshes it off the request path,
     so between `install_pricing_readers()` and the first successful read there is a window
-    in which the snapshot has measured nothing — and a snapshot that answered "no" there
-    would refuse EVERY voice, Sarvam included, on a picker whose Sarvam tier needs no
-    attestation at all. One definition, used in both places, is what stops that window
-    from having its own rule (`tests/voice_tier_test.py` pins the two together).
+    in which the snapshot has measured nothing. Refusing every voice in that window is now
+    the CORRECT answer rather than the over-broad one it used to be, and one definition used
+    in both places is what stops the window from having its own rule
+    (`tests/voice_tier_test.py` pins the two together).
     """
-    return provider == "sarvam"
+    del provider
+    return False
 
 
 _price_reader: TtsPriceReader | None = None
@@ -170,6 +192,28 @@ def tts_price_is_billable(provider: VoiceProvider) -> bool:
 # --- ground 1: the installed key ---------------------------------------------------
 
 
+def tts_credential_installed(provider: VoiceProvider) -> bool:
+    """Ground 1, per provider: can a call on this voice reach a synthesiser at all?
+
+    ⚠ **A PROVIDER WHOSE KEY LIVES IN ANOTHER DEPLOYMENT'S ENVIRONMENT ANSWERS `True`, AND
+    THAT IS NOT A LIE — IT IS THE ONLY HONEST ANSWER THIS PROCESS CAN GIVE.** `gnani_api_key`
+    is ENV-ONLY (`core/settings.ENV_ONLY_FOREIGN_ENV`): it is read by the Pipecat Cloud
+    worker's own synthesis leg, from the `calevate-pipecat-worker` secret set, and
+    `apps/api` holds no Gnani client to give one to and cannot see whether the box is
+    filled. Answering `False` would mean refusing the voice forever with a sentence
+    pointing an operator at a field that can never fill on this host — the exact failure
+    `ops/model_price_routes._tts_credential_held_elsewhere` was added to stop the ops panel
+    making. So this ground abstains for such a provider and the PRICE ground carries the
+    refusal, which is the one an operator can actually act on.
+
+    Derived from `ENV_ONLY_FOREIGN_ENV` rather than from `provider == "gnani"`, so the
+    picker and the ops panel cannot come to disagree about where a credential lives.
+    """
+    if f"{provider}_api_key" in ENV_ONLY_FOREIGN_ENV:
+        return True
+    return cartesia_credential_installed()
+
+
 def cartesia_credential_installed() -> bool:
     """Is a Cartesia API key installed on this deployment?
 
@@ -186,15 +230,40 @@ def cartesia_credential_installed() -> bool:
 
 # --- the reasons: one sentence per ground, keyed by the ground --------------------
 
-NO_CARTESIA_CREDENTIAL_REASON: Final = (
-    "this platform holds no Cartesia API key, so a call on this voice would synthesise "
-    "against nothing — install `cartesia_api_key` in the ops console"
-)
-NO_ATTESTED_TTS_PRICE_REASON: Final = (
-    "nobody has recorded what the Cartesia voice tier costs on this account, and an "
-    "unpriced minute is unmetered spend rather than a free one — attest the Cartesia TTS "
-    "price in the ops console"
-)
+
+#: What a provider is called in an operator's sentence. Title-cased from the wire token
+#: rather than kept in a second mapping — the tokens are single vendor words and a table
+#: here would be one more thing to forget to extend.
+def _vendor_name(provider: VoiceProvider) -> str:
+    return provider.capitalize()
+
+
+def no_credential_reason(provider: VoiceProvider) -> str:
+    """Ground 1's OPERATOR sentence, per provider.
+
+    ⚠ **IT WAS A CONSTANT NAMING CARTESIA (`NO_CARTESIA_CREDENTIAL_REASON`) UNTIL
+    18 Sep 2026.** `agents/gnani_voices.py` predicted exactly this defect in as many words —
+    a Cartesia-worded refusal rendered beside a Gnani voice — and withdrawing the Sarvam TTS
+    leg is what made it reachable. Fixed rather than re-warned about.
+    """
+    return (
+        f"this platform holds no {_vendor_name(provider)} API key, so a call on this voice "
+        f"would synthesise against nothing — install `{provider}_api_key` in the ops console"
+    )
+
+
+def no_attested_price_reason(provider: VoiceProvider) -> str:
+    """Ground 2's OPERATOR sentence, per provider — `no_credential_reason`'s sibling.
+
+    It names the VENDOR and not the tier, deliberately: an operator is being sent to a
+    specific row of the ops console's TTS price panel, which is keyed on the provider. The
+    CLIENT never reads this (`client_unofferable_reason` names the tier instead).
+    """
+    return (
+        f"nobody has recorded what a {_vendor_name(provider)} minute costs on this account, "
+        "and an unpriced minute is unmetered spend rather than a free one — attest the "
+        f"{_vendor_name(provider)} TTS price in the ops console"
+    )
 
 
 DISABLED_REASON: Final = (
@@ -324,11 +393,11 @@ def _operator_unofferable_reason(
     be fixed by attesting a price, so the key is reported first and the reader is sent to
     one action at a time. A voice failing two grounds gets the earlier sentence.
 
-    **CURATION IS FIRST AND IS ABOVE THE `sarvam` SHORT-CIRCUIT (D-588).** It is the only
-    ground that applies to both providers, and it outranks the rest by ownership: whether a
-    Cartesia key is installed is not worth telling anybody about a voice this platform has
-    not decided to sell. Putting it below the short-circuit would have exempted every Sarvam
-    voice from the founder's one requirement.
+    **CURATION IS FIRST, AND IT USED TO SIT ABOVE A `sarvam` SHORT-CIRCUIT (D-588).** It
+    outranks the rest by ownership: whether a key is installed is not worth telling anybody
+    about a voice this platform has not decided to sell. The short-circuit it was placed
+    above is gone with the Sarvam TTS leg (18 Sep 2026); the ordering is unchanged, because
+    the ownership argument never depended on it.
 
     Both facts are PASSED IN rather than read here — `cartesia_live_agents` from
     `count_live_cartesia_agents`, `curation` from `read_curation` — so this stays a pure
@@ -338,15 +407,19 @@ def _operator_unofferable_reason(
     curated = curation_unofferable_reason(curation.get(voice.id))
     if curated is not None:
         return curated
-    if voice.provider == "sarvam":
-        return None
-    if not cartesia_credential_installed():
-        return NO_CARTESIA_CREDENTIAL_REASON
+    if not tts_credential_installed(voice.provider):
+        return no_credential_reason(voice.provider)
     if not tts_price_is_billable(voice.provider):
-        return NO_ATTESTED_TTS_PRICE_REASON
-    cap = get_settings().cartesia_agent_cap
-    if cartesia_live_agents >= cap:
-        return cartesia_cap_reached_reason(cap=cap, live=cartesia_live_agents)
+        return no_attested_price_reason(voice.provider)
+    # GROUND 3 IS CARTESIA'S ALONE AND IS NOT GENERALISED, because the fact behind it is:
+    # Cartesia's TTS is a monthly plan with a CONCURRENCY ceiling, so the Nth live agent on
+    # that tier forces the next plan rather than costing a marginal minute more. No such
+    # ceiling has been read for any other provider, and inventing one would be a vendor
+    # claim nobody made (hard rule 11).
+    if voice.provider == "cartesia":
+        cap = get_settings().cartesia_agent_cap
+        if cartesia_live_agents >= cap:
+            return cartesia_cap_reached_reason(cap=cap, live=cartesia_live_agents)
     return None
 
 
@@ -546,8 +619,6 @@ __all__ = [
     "CLIENT_NOT_OFFERED_REASON",
     "DISABLED_REASON",
     "NOT_CURATED_REASON",
-    "NO_ATTESTED_TTS_PRICE_REASON",
-    "NO_CARTESIA_CREDENTIAL_REASON",
     "OfferedVoice",
     "TtsPriceReader",
     "VoiceCuration",
@@ -560,10 +631,13 @@ __all__ = [
     "curation_unofferable_reason",
     "default_tts_price_is_billable",
     "install_tts_price_reader",
+    "no_attested_price_reason",
+    "no_credential_reason",
     "offerability_of",
     "offerable_voices",
     "offered_catalogue",
     "read_curation",
+    "tts_credential_installed",
     "tts_price_is_billable",
     "unofferable_reason",
 ]

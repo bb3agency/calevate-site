@@ -56,19 +56,28 @@ def test_the_provider_vocabulary_is_the_voice_catalogues_and_the_ledgers() -> No
 
     ⚠ **THIS WAS A THREE-WAY EQUALITY WITH `VoiceTier` UNTIL D-618, AND THE THIRD MEMBER
     HAD TO GO — NOT BE WIDENED.** A TIER is a price: a label, a cost floor, and two rates
-    frozen on every credit lot. Gnani publish none, so `gnani` is a provider with no tier
-    and `VOICE_TIER_OF_PROVIDER` maps it to `None`. It IS in `TTS_PROVIDERS`, and that is
-    the point rather than an exception: attesting a Gnani price is the act that would give
-    it a tier, so an attestable set that excluded unpriced providers would lock the only
-    door out of being unpriced. The relationship the tier now has to the others is a
-    SUBSET, asserted below.
+    frozen on every credit lot. A PROVIDER is who synthesises. They were one Literal only
+    while the two happened to spell the same.
+
+    ⚠ **AND THEY NO LONGER SPELL THE SAME AT ALL (18 Sep 2026).** The founder withdrew the
+    Sarvam TEXT-TO-SPEECH leg, so `sarvam` is a TIER token and NOT a provider — a
+    historical name for the value rung, argued at `billing/rates.VoiceTier`, now served by
+    Gnani. (Sarvam is still the STT vendor; that leg has never been in either of these
+    vocabularies.) So the two sets are no longer nested in either direction, and what this
+    clause pins is the relation that still has to hold: every provider is attestable, and
+    every provider bills on a rung that is a real tier.
     """
     assert set(TTS_PROVIDERS) == set(get_args(VoiceProvider))
-    assert set(get_args(VoiceTier)) < set(TTS_PROVIDERS)
-    # Every priced tier is a provider somebody can attest a price for; the reverse is what
-    # D-618 made false.
+    assert "sarvam" not in TTS_PROVIDERS, (
+        "the Sarvam TTS leg is withdrawn; a price attested under that name would be "
+        "attached to a provider the pipeline can no longer stamp"
+    )
     assert set(VOICE_TIER_OF_PROVIDER) == set(get_args(VoiceProvider))
-    assert {t for t in VOICE_TIER_OF_PROVIDER.values() if t is not None} == set(get_args(VoiceTier))
+    assert {t for t in VOICE_TIER_OF_PROVIDER.values() if t is not None} <= set(get_args(VoiceTier))
+    assert set(get_args(VoiceTier)) == {"sarvam", "cartesia"}, (
+        "the tier tokens are money vocabulary frozen onto credit lots and their columns; "
+        "renaming one restates sold terms (`billing/rates.VoiceTier`)"
+    )
 
 
 async def test_an_attested_price_reads_back_at_its_own_instant() -> None:
@@ -169,12 +178,27 @@ async def test_a_provider_outside_the_catalogue_cannot_be_priced() -> None:
     assert raised.value.code == "tts_price_unknown_provider"
 
 
-async def test_sarvam_is_billable_without_an_attestation_and_that_is_not_an_exemption() -> None:
-    """The ENGINE bills us for the Sarvam synthesizer leg and reports what it charged, so
-    that leg has a measured cost on every row and no attestation to make. It is BYOK legs
-    — engine charges nothing, vendor bills a plan — that have no cost at all without one."""
+async def test_no_leg_is_billable_without_an_attestation_any_more() -> None:
+    """⚠ **SARVAM USED TO BE, AND IT WAS A MEASUREMENT RATHER THAN AN EXEMPTION.** The
+    ENGINE billed us for the Sarvam synthesizer leg and reported what it charged, so that
+    leg carried a measured cost on every row and had no attestation to make. The founder
+    withdrew that leg on 18 Sep 2026; both survivors are BYOK — the engine charges nothing
+    and reports ₹0 — so neither has any cost at all without an operator's figure, and
+    `sarvam` is not even a provider this store accepts a price under.
+
+    That is the whole of hard rule 7 on this leg, with the exemption gone rather than
+    widened."""
     async with untenanted_session() as session:
-        assert await tts_price_is_billable(session, provider="sarvam", at=datetime.now(UTC))
+        for provider in TTS_PROVIDERS:
+            assert not await tts_price_is_billable(
+                session,
+                provider=provider,
+                # An instant before this repository existed: whatever a live deployment has
+                # attested since, nobody had read an invoice then.
+                at=datetime(2024, 1, 1, tzinfo=UTC),
+            ), provider
+        with pytest.raises(ProblemError, match="tts_price_unknown_provider"):
+            await tts_price_is_billable(session, provider="sarvam", at=datetime.now(UTC))
 
 
 async def test_cartesia_is_not_billable_before_anyone_has_read_an_invoice() -> None:

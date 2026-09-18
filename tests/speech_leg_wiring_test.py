@@ -40,12 +40,13 @@ from unittest import mock
 
 import httpx
 from apps.api.agents.service import in_call_speech
-from apps.api.agents.voices import DEFAULT_TTS_MODEL
+from apps.api.agents.voices import CARTESIA_TTS_MODEL
 from apps.api.core.settings import get_settings
 from apps.api.engine.bolna import (
     BASE_URL,
     BolnaEngine,
     _agent_models,
+    _cartesia_language,
     _synthesizer_config,
     _transcriber_language,
 )
@@ -190,7 +191,11 @@ def test_the_transcriber_can_be_told_to_detect_the_language_instead_of_being_tol
     )
     assert _transcriber_language(detecting) == "unknown"
     speaks = _synthesizer_config(detecting.models, detecting.language_primary)
-    assert speaks["language"] == "te-IN", (
+    # THE VENDOR'S OWN SPELLING OF THE SAME LANGUAGE — Cartesia's config takes a bare code
+    # (`_cartesia_language`), and since the Sarvam TTS leg was withdrawn (18 Sep 2026) that
+    # is the only synthesizer arm left. What this guards is unchanged: the voice leg must
+    # not inherit the transcriber's `unknown` sentinel.
+    assert speaks["language"] == _cartesia_language("te-IN"), (
         "the voice leg inherited the transcriber's sentinel; `unknown` is not a language a "
         "TTS provider can speak in, and the agent still speaks Telugu"
     )
@@ -203,7 +208,7 @@ def test_the_catalogue_id_is_split_into_the_model_and_the_speaker() -> None:
     """`agents.tts_voice` holds OUR id; `ModelConfig` holds the vendor's two facts."""
     speech = in_call_speech(_row(), engine=FakeEngine())
 
-    assert speech["tts_model"] == DEFAULT_TTS_MODEL
+    assert speech["tts_model"] == CARTESIA_TTS_MODEL
     assert speech["tts_voice"] == TEST_SPEAKER
     assert speech["tts_voice"] != speech["tts_model"], "the whole of defect 3 in one line"
 
@@ -239,7 +244,7 @@ def _config() -> AgentConfig:
         # definition of it; this calls it.
         models=ModelConfig(
             llm_model="sarvam-105b",
-            tts_provider="sarvam",
+            tts_provider="cartesia",
             **in_call_speech(_row(), engine=FakeEngine()),
         ),
     )
@@ -268,18 +273,23 @@ async def test_the_synthesizer_names_the_model_and_the_speaker_in_the_vendors_ow
     is the guess this change exists to stop making."""
     synthesizer = (await _created_tools())["synthesizer"]
 
+    # ⚠ **THE CARTESIA BLOCK, AND IT USED TO BE THE SARVAM ONE (18 Sep 2026).** Five keys
+    # rather than four: `speed` is `CartesiaConfig`'s and is sent explicitly rather than
+    # inherited (`engine/bolna._CARTESIA_SPEED` argues why), and the language is the
+    # vendor's own bare code.
     assert synthesizer["provider_config"] == {
-        "model": "bulbul:v3",
+        "model": "sonic-3.5",
         # The catalogue's LABEL, looked up by the resolver — never `voice_id.capitalize()`.
-        # The two are indistinguishable on every Sarvam persona and unrelated on a cloned
-        # voice (`api-reference/voice/get_all.md:102-112`), which is why the resolver owns
-        # it (D-582).
+        # The two are indistinguishable on a name-shaped id and unrelated on a cloned voice
+        # (`api-reference/voice/get_all.md:102-112`), which is why the resolver owns it
+        # (D-582).
         "voice": "Ashutosh",
         "voice_id": "ashutosh",
-        # The voice block carries its own language, in `provider_config` where the Cartesia
-        # arm already put it — their validator demands it ("Voice > Language: This field is
-        # required") and the Sarvam arm was dropping the parameter it was handed (D-580).
-        "language": "te-IN",
+        # The voice block carries its own language, in `provider_config` — their validator
+        # demands it ("Voice > Language: This field is required") and the arm that preceded
+        # this one was dropping the parameter it was handed (D-580).
+        "language": _cartesia_language("te-IN"),
+        "speed": 1.0,
     }
     assert synthesizer["stream"] is True
 

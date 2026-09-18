@@ -15,9 +15,12 @@ ones that make that difference trustworthy rather than merely present:
 
 1. **A month nobody attested has NO ROW, never a ₹0 one.** ₹0 reads as "the vendor billed
    us nothing", which is the one misreading of a missing invoice that flatters us.
-2. **Sarvam never appears and cannot be attested.** The engine buys that synthesis and
-   reports what it charged on every call, so there is no invoice of ours and no
-   `tts_kchars` character count of ours to compare one against.
+2. **Exactly one voice vendor is plan-billed, and the other cannot be attested.** ⚠ This
+   used to name SARVAM and its reason — the engine bought that synthesis and reported what
+   it charged per call, so there was no invoice of ours to compare anything against. D-629
+   (18 Sep 2026) took Sarvam off the TTS leg entirely and gave the Clear rung to GNANI, whose
+   ground is different and stronger: Gnani publish no price at all, so there is not even a
+   figure to pre-fill, let alone a monthly plan of ours to attest against (hard rule 7).
 3. **A correction is a later attestation, never an edit.** The trigger proves it at the
    database; the reader proves the newest belief wins and the older one survives.
 4. **Every figure is the SERVER's** — the subtraction included (D-458).
@@ -99,12 +102,24 @@ def test_the_plan_billed_set_is_inside_the_voice_vocabulary() -> None:
     assert set(VOICE_TIERS) >= PLAN_BILLED_TTS_PROVIDERS
 
 
-def test_sarvam_is_not_plan_billed() -> None:
-    """THE SARVAM DECISION, pinned rather than described. The engine buys that synthesizer
-    leg and reports what it charged on every call, so there is no monthly invoice of ours
-    to attest — and its cost lands on `tts_chars` at `qty = 1` (a whole-leg charge with no
-    character count), never on the `tts_kchars` rows this board sums."""
-    assert "sarvam" not in PLAN_BILLED_TTS_PROVIDERS
+def test_the_second_voice_vendor_is_not_plan_billed() -> None:
+    """⚠ **THIS CLAUSE WAS `test_sarvam_is_not_plan_billed` AND ITS SUBJECT LEFT THE PRODUCT
+    (D-629, 18 Sep 2026).** It pinned the SARVAM decision — the engine bought that
+    synthesizer leg and reported what it charged per call, so there was no monthly invoice
+    of ours to attest. Sarvam is off the TTS leg entirely now, so asserting its absence
+    from a set it could not join proves nothing.
+
+    The property survives its example, which is why this is a rename and not a deletion:
+    exactly one voice vendor is plan-billed, and the OTHER one must not be. Gnani is the
+    other one now, and its ground is different and stronger — Gnani publish no price at
+    all, so there is not even a figure to pre-fill, let alone a monthly plan of ours to
+    attest against (hard rule 7, and `agents/voice_offer` refuses the voice for the same
+    reason)."""
+    assert "gnani" not in PLAN_BILLED_TTS_PROVIDERS
+    assert "gnani" in set(TTS_PROVIDERS), (
+        "this clause is only meaningful while gnani is a KNOWN provider: an unknown one "
+        "is refused by a different code and would make the test pass for the wrong reason"
+    )
 
 
 def test_only_one_vendor_is_plan_billed_because_the_ledger_cannot_tell_two_apart() -> None:
@@ -144,7 +159,10 @@ def test_the_reference_fee_is_the_form_prefill_and_nothing_else() -> None:
 
 def test_a_reference_fee_is_refused_for_a_vendor_with_no_plan() -> None:
     with pytest.raises(ProblemError) as raised:
-        reference_tts_plan_fee("sarvam")
+        # A KNOWN provider that is not plan-billed. It has to be known: an UNKNOWN one is
+        # refused as `tts_price_unknown_provider`, which is a different failure and would
+        # let this clause pass without ever reaching the rule it names.
+        reference_tts_plan_fee("gnani")
     assert raised.value.code == "tts_plan_fee_provider_not_plan_billed"
 
 
@@ -392,7 +410,7 @@ async def test_a_vendor_with_no_monthly_plan_cannot_be_attested() -> None:
     arrived at from a true attestation."""
     actor = await _operator()
     with pytest.raises(ProblemError) as raised:
-        await _attest(actor, month=MONTH, plan_inr="4312.00", effective_from=NOW, provider="sarvam")
+        await _attest(actor, month=MONTH, plan_inr="4312.00", effective_from=NOW, provider="gnani")
     assert raised.value.code == "tts_plan_fee_provider_not_plan_billed"
     assert "cartesia" in (raised.value.remediation or "")
 
@@ -564,10 +582,10 @@ async def test_the_route_refuses_a_vendor_with_no_monthly_plan() -> None:
     month = _unique_month()
     async with _client() as http:
         response = await http.post(
-            "/v1/ops/tts-prices/sarvam/plan-fee",
+            "/v1/ops/tts-prices/gnani/plan-fee",
             headers={
                 "Authorization": f"Bearer {token}",
-                "X-Confirm-Action": tts_plan_fee_confirmation("sarvam", month),
+                "X-Confirm-Action": tts_plan_fee_confirmation("gnani", month),
             },
             json={"month": month, "plan_inr": "4312.00", "source_note": "an invoice"},
         )

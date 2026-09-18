@@ -82,9 +82,13 @@ def upgrade() -> None:
         sa.Column("is_custom", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("synced_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("voice_id", name=op.f(f"pk_{TABLE}")),
-        # The tier a minute bills at is a two-value vocabulary (`model_lifecycle
-        # .TtsProvider`), and it reaches money. A typo in the sync would otherwise become a
-        # provider nothing prices.
+        # The rung a minute bills at is derived from this vocabulary
+        # (`model_lifecycle.TtsProvider`), and it reaches money. A typo in the sync would
+        # otherwise become a provider nothing prices. ⚠ **THIS SET IS HISTORICAL: `sarvam`
+        # left it and `gnani` joined it in `d8b3f5127ac4` (18 Sep 2026), when the Sarvam TTS
+        # leg was withdrawn. Do not edit it here** — a migration states the schema at ITS
+        # revision, and rewriting an applied one makes the chain describe a database nobody
+        # has.
         sa.CheckConstraint(
             "provider IN ('sarvam', 'cartesia')", name=op.f(f"ck_{TABLE}_provider")
         ),

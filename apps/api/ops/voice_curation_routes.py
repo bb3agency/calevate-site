@@ -99,10 +99,9 @@ from apps.api.agents.voice_curation import (
     list_curated_voices,
     set_curation_state,
 )
-from apps.api.agents.voice_offer import offerability_of
+from apps.api.agents.voice_offer import offerability_of, tts_price_is_billable
 from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import (
-    VOICE_TIER_OF_PROVIDER,
     CurationState,
     TtsModel,
     Voice,
@@ -286,7 +285,7 @@ class AddVoiceFormOut(Strict):
 #: Why a provider this product RUNS still cannot have a voice added against it (D-618).
 #:
 #: Written for an OPERATOR, so it names the console act that closes it — the same audience
-#: and the same shape as `voice_offer.NO_ATTESTED_TTS_PRICE_REASON`, which is the sentence
+#: and the same shape as `voice_offer.no_attested_price_reason`, which is the sentence
 #: a client-facing surface never sees. It names no figure, because there is none: the only
 #: Gnani number in the wild belongs to a reseller's platform and is not a Gnani rate.
 UNPRICED_PROVIDER_REASON: Final = (
@@ -303,14 +302,22 @@ def _form() -> AddVoiceFormOut:
     the ORDER, which is ours: what you can pick first, what you cannot pick last.
 
     ⚠ **THE FIRST GROUP USED TO BE `selectable=True` UNCONDITIONALLY, AND D-618 MADE THAT
-    FALSE FOR ONE OF ITS MEMBERS.** `OUR_PROVIDERS` is derived from `TtsModel`, so `gnani`
-    joined it the moment the Gnani leg shipped — but a provider with no PRICED TIER cannot
-    have a voice admitted against it, because an admitted voice arrives ENABLED
-    (`ADDED_CURATION_STATE`) and hard rule 7 has nothing to charge its minutes against.
+    FALSE FOR ONE OF ITS MEMBERS.** `OUR_PROVIDERS` is derived from `TtsModel`, so a
+    provider joins it the moment its leg ships — but a provider whose minutes cannot be
+    BILLED must not have a voice admitted against it, because an admitted voice arrives
+    ENABLED (`ADDED_CURATION_STATE`) and hard rule 7 has nothing to charge it against.
     Offering it as selectable would put an operator one form away from a voice the offer
-    seam then refuses for a reason the form never mentioned. Derived from
-    `VOICE_TIER_OF_PROVIDER` rather than listed, so attesting a price makes the provider
-    selectable with no edit here.
+    seam then refuses for a reason the form never mentioned.
+
+    ⚠ **THE PREDICATE MOVED ON 18 Sep 2026 AND THE RULE DID NOT.** It asked
+    `VOICE_TIER_OF_PROVIDER[provider] is not None` — "does this provider bill on a rung at
+    all" — which was the same question as "may it be billed" only while an unpriced provider
+    had no rung. Withdrawing the Sarvam TTS leg put Gnani ON the value rung with its price
+    still unattested, so that predicate would now answer True for exactly the provider it
+    was added to exclude. It asks `tts_price_is_billable` instead: the SAME function the
+    picker's ground 2 asks, over the same attested-price snapshot, so attesting a price in
+    the console makes the provider selectable within one poll with no edit here — and
+    nothing but an attestation can.
     """
     return AddVoiceFormOut(
         providers=[
@@ -318,11 +325,9 @@ def _form() -> AddVoiceFormOut:
                 provider=provider,
                 tier_label=voice_tier_label(provider),
                 models=list(tts_models_for_provider(provider)),
-                selectable=VOICE_TIER_OF_PROVIDER[provider] is not None,
+                selectable=tts_price_is_billable(provider),
                 unavailable_reason=(
-                    None
-                    if VOICE_TIER_OF_PROVIDER[provider] is not None
-                    else UNPRICED_PROVIDER_REASON
+                    None if tts_price_is_billable(provider) else UNPRICED_PROVIDER_REASON
                 ),
             )
             for provider in OUR_PROVIDERS

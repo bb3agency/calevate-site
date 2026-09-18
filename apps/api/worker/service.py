@@ -896,9 +896,31 @@ def _price_one(quantity: MeteredQuantity) -> _Priced:
         # Per THOUSAND characters, because `unit_cost_paid` is NUMERIC(12,4) and a per-
         # character rate of ₹0.0034496 stores as 0.0034 — 1.4% light on every call.
         # `billing/models.py` argues the quantum in full at the column.
-        return _Priced(
-            unit, quantity.qty, tts_rate_inr_per_char() * Decimal(1000), dict(quantity.meta)
-        )
+        #
+        # ⚠ **THIS RATE CALL NOW REFUSES, AND IT RETURNED A NUMBER UNTIL 18 Sep 2026.** It
+        # was Sarvam's published Bulbul v3 list rate, applied to EVERY synthesised
+        # character whatever spoke it. The founder withdrew the Sarvam TTS leg; neither
+        # survivor publishes a per-character rate we may bill from, so the door refuses
+        # (`rates.UnattestedTtsRateError`) and the leg settles as a recorded refusal — the
+        # same outcome the LLM leg already has for an unattested model, through the same
+        # two exception types. Stamping the old constant on a Gnani minute would have been
+        # exactly the invented vendor figure hard rule 7 exists to stop.
+        try:
+            per_char = tts_rate_inr_per_char()
+        except (ValueError, LookupError) as exc:
+            raise _LegNotPriceableError(
+                SettlementRefusal(
+                    leg=quantity.leg,
+                    code="meter_rate_refused",
+                    detail=f"the rate card refused to price the tts leg: {exc}",
+                    remediation=(
+                        "Enter the price from the vendor invoice in the ops console. Until "
+                        "it is attested this leg is unmetered, which is not the same as "
+                        "free."
+                    ),
+                )
+            ) from exc
+        return _Priced(unit, quantity.qty, per_char * Decimal(1000), dict(quantity.meta))
     if unit in ("llm_ktok_in", "llm_ktok_out"):
         return _Priced(unit, quantity.qty, _llm_rate(quantity), dict(quantity.meta))
     raise _LegNotPriceableError(

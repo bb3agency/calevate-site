@@ -23,22 +23,40 @@ their own transactions and assert the empty-catalogue behaviour directly.
 WHERE THESE NINE IDS COME FROM, AND WHAT THEY ARE NOT
 ------------------------------------------------------
 They are the speakers a live `GET /api/v1/voice-config/tts/voices` against the founder's own
-engine account returned for provider `sarvam` / model `bulbul:v3` — VENDOR-PUBLISHED (live
-API read by the founder, 11 Sep 2026, relayed; `api.bolna.ai` is egress-blocked from this
-container and was not read here). They were `voices.SEED_SPEAKERS` until D-588 deleted the
-seed.
+engine account returned, VENDOR-PUBLISHED (live API read by the founder, 11 Sep 2026,
+relayed; `api.bolna.ai` is egress-blocked from this container and was not read here). They
+were `voices.SEED_SPEAKERS` until D-588 deleted the seed.
 
 They are kept HERE, in the test tree, precisely because they are a REPORTED sample of one
 account's list at one moment and must never again be a claim this product makes about what
 it offers. A fixture may hold such a sample; `apps/` may not.
+
+⚠ **THEY WERE SARVAM `bulbul:v3` VOICES UNTIL 18 Sep 2026 AND ARE NOW CARTESIA
+`sonic-3.5`.** The founder withdrew the Sarvam TEXT-TO-SPEECH leg (Sarvam still transcribes
+every call). The NAMES are deliberately unchanged — they are fixture identity, named in
+assertions across dozens of modules, and a fake platform's voice ids were never a claim
+about any vendor's catalogue. What had to change is the MODEL, because `voice_sync` drops a
+row whose model this build does not offer and the fixture would otherwise enumerate nothing.
+
+**AND THE DEPLOYMENT NOW HAS TO BE UNLOCKED, WHICH IS THE REAL CHANGE.** A Sarvam voice was
+offerable with nothing installed: the engine held the leg and the price was on our own rate
+card, so `voice_offer` short-circuited it. Both surviving providers are BYOK and priced by
+an operator's attestation (hard rule 7), so a test database is now a deployment on which
+NOTHING is offerable until somebody does what a real operator must do — install the key and
+attest the price. `platform_can_speak()` below is that act, and it is deliberately a
+separate, named call rather than something `seed_platform_voices` does quietly: a suite
+asserting the LOCKED behaviour must be able to have the voices without the unlock.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from typing import Final
 
-from apps.api.agents.voices import DEFAULT_TTS_MODEL, Voice, catalogue_note, voice_id_for
+from apps.api.agents.voice_offer import install_tts_price_reader
+from apps.api.agents.voices import CARTESIA_TTS_MODEL, Voice, catalogue_note, voice_id_for
+from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from sqlalchemy import text
 
@@ -51,7 +69,7 @@ TEST_SPEAKER: Final = "ashutosh"
 
 #: THE voice id the suite writes onto agents. Named once so a test asserting what reached
 #: the engine and a test asserting what was stored cannot disagree.
-TEST_VOICE_ID: Final = voice_id_for(DEFAULT_TTS_MODEL, TEST_SPEAKER)
+TEST_VOICE_ID: Final = voice_id_for(CARTESIA_TTS_MODEL, TEST_SPEAKER)
 
 #: The nine — see the module docstring for their provenance and their standing.
 TEST_SPEAKERS: Final[tuple[str, ...]] = (
@@ -77,15 +95,15 @@ def make_voice(speaker: str) -> Voice:
     fixture of that name.
     """
     return Voice(
-        id=voice_id_for(DEFAULT_TTS_MODEL, speaker),
+        id=voice_id_for(CARTESIA_TTS_MODEL, speaker),
         label=speaker.capitalize(),
-        provider="sarvam",
-        tts_model=DEFAULT_TTS_MODEL,
+        provider="cartesia",
+        tts_model=CARTESIA_TTS_MODEL,
         speaker=speaker,
         languages=("te-IN", "hi-IN", "en-IN"),
         gender=None,
         verified=True,
-        note=catalogue_note("sarvam"),
+        note=catalogue_note("cartesia"),
     )
 
 
@@ -98,7 +116,7 @@ _ROW_SQL: Final = (
     "INSERT INTO platform_voice_catalog "
     "(voice_id, engine_voice_id, label, tts_model, provider, languages, is_custom, "
     " synced_at, curation_state, curated_at) "
-    "VALUES (:voice_id, :speaker, :label, :model, 'sarvam', :languages, false, :now, "
+    "VALUES (:voice_id, :speaker, :label, :model, 'cartesia', :languages, false, :now, "
     " 'enabled', :now) "
     "ON CONFLICT (voice_id) DO UPDATE SET curation_state = 'enabled', withdrawn_at = NULL"
 )
@@ -136,3 +154,51 @@ __all__ = [
     "make_voice",
     "seed_platform_voices",
 ]
+
+
+def platform_can_speak(monkeypatch: object | None = None) -> None:
+    """Make this process a deployment on which the fixture's voices may actually be OFFERED
+    — key installed, price attested. Idempotent; process-scoped.
+
+    ⚠ **NOTHING LIKE THIS WAS NEEDED WHILE THE VOICES WERE SARVAM'S (before 18 Sep 2026).**
+    `voice_offer._operator_unofferable_reason` short-circuited a Sarvam voice to offerable
+    after curation, because the engine held that leg and its cost was on our own rate card.
+    Both surviving providers are BYOK with an operator-attested price (hard rule 7), so the
+    two grounds below are real work a real operator does — and a suite that wants agents to
+    be publishable has to do it too, rather than have a gate softened for it.
+
+    It installs a TTS price reader rather than writing `platform_tts_prices` rows because
+    the picker reads a PROCESS SNAPSHOT (`ops/pricing_snapshot.install_pricing_readers`
+    fills it from the table in production, off the request path). A test that wants the
+    table itself drives `ops/model_pricing.attest_tts_price` directly.
+    """
+    del monkeypatch  # accepted so a caller can pass one; nothing here needs it
+    os.environ.setdefault("CARTESIA_API_KEY", "fixture-cartesia-key")
+    # AND THE CAP RAISED, which is the third thing a real operator does and the one that
+    # bites hardest now that every offerable voice is Cartesia's: `cartesia_agent_cap`
+    # defaults to 2 LIVE AGENTS PLATFORM-WIDE (the founder's rule, struck while Sarvam
+    # served the value rung and this capped only the dearer tier). A suite that left it at 2
+    # would start refusing voices on the third agent any test happened to publish — a
+    # failure that lands in whichever test ran third and names the cap, not the cause.
+    # Raised rather than removed: the cap is still exercised, by the clauses that pass
+    # `cartesia_live_agents` explicitly, which is the only way to drive it deterministically.
+    os.environ.setdefault("CARTESIA_AGENT_CAP", "10000")
+    get_settings.cache_clear()
+    install_tts_price_reader(FIXTURE_TTS_PRICE_READER)
+
+
+def _fixture_tts_price_is_billable(provider: str) -> bool:
+    """The fixture deployment has attested Cartesia and NOT Gnani, which is the real
+    platform's state on 18 Sep 2026 and the one the offer seam must be exercised against.
+
+    Gnani deliberately answers False: the value rung is unsellable until somebody attests a
+    Gnani price, the founder's decision is that it stays that way for now, and a fixture
+    that quietly attested one would make every suite pass against a platform this product
+    does not have.
+    """
+    return provider == "cartesia"
+
+
+#: THE suite's price predicate, as one object, so `conftest` can tell "the fixture's
+#: reader" from "whatever this test installed" by identity rather than by calling it.
+FIXTURE_TTS_PRICE_READER: Final = _fixture_tts_price_is_billable

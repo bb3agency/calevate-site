@@ -8,9 +8,13 @@ A client's agent speaks with one of two voices, and the tier is a property of th
 DERIVED from the chosen voice's `provider` and stored nowhere (plan §3.3: a second column
 could disagree with the voice, so there is not one; invariant 7 is Phase C's test):
 
-* **`sarvam`** — Bulbul v3, a PER-CHARACTER list price (`TTS_INR_PER_10K_CHARS`). Its
-  worst-case per-call-minute cost is the top of TRD §10.1's assumed speaking band, and
-  it is one of the four legs summed into `SELF_SERVE_COST_FLOOR_INR_PER_MIN`.
+* **`sarvam`** — the VALUE rung, and ⚠ **the token is a historical name, not a vendor**
+  (18 Sep 2026: the Sarvam TTS leg was withdrawn, Gnani `timbre-v2.5` serves this rung, and
+  Sarvam remains this product's STT vendor — the argument for not renaming the token is at
+  `VoiceTier` below). Its floor is still struck at a PER-CHARACTER scalar
+  (`TTS_INR_PER_10K_CHARS`, now frozen and explicitly not billable), whose worst-case
+  per-call-minute cost is the top of TRD §10.1's assumed speaking band, and it is one of
+  the four legs summed into `SELF_SERVE_COST_FLOOR_INR_PER_MIN`.
 * **`cartesia`** — Sonic 3.5, a MONTHLY SUBSCRIPTION with an included allotment and an
   OVERAGE past it, with no pay-as-you-go option (Tinmaz correspondence, 9 Sep 2026, in
   `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3). A subscription has
@@ -90,10 +94,45 @@ from calevate_shared.model_lifecycle import TtsProvider
 
 from apps.api.billing.models import MONEY
 
-# Sarvam's published Bulbul v3 rate, TRD §10.1. Per 10,000 characters, INR. NUMERIC,
-# never a float.
+# THE VALUE RUNG'S COST-MODEL SCALAR. Per 10,000 characters, INR. NUMERIC, never a float.
 #
-# **THE SARVAM RUNG, and deliberately a scalar and not a mapping.** The second voice tier
+# ⚠ **WHAT THIS NUMBER IS CHANGED ON 18 SEP 2026 WITHOUT THE NUMBER CHANGING, AND A READER
+# WHO MISSES THAT WILL BILL SOMEBODY WITH IT.** It was Sarvam's PUBLISHED Bulbul v3 list
+# rate — a live vendor card for a leg this product ran. The founder withdrew the Sarvam
+# TEXT-TO-SPEECH leg, and no surviving provider publishes a per-character rate we may bill
+# from: Cartesia sells a monthly subscription (see `CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`
+# below for its marginal overage rate) and Gnani publish no figure of any kind.
+#
+# So what is left of this constant is exactly one job, and it is not a price:
+#
+#   **It is the frozen per-character scalar the VALUE RUNG's cost floor is struck at** —
+#   `tts_inr_per_call_minute`, `sarvam_cost_floor_inr_per_min_at`,
+#   `SELF_SERVE_COST_FLOOR_INR_PER_MIN`, the pack guard's refusal, TRD §10.1's
+#   per-call-minute cell and `scripts/check_docs_drift.py` §4b. All margin model, all
+#   compared against a RETAIL rate, none of it `unit_cost_paid`. Hard rule 7's subject is
+#   the bill, and this is not it — `tts_rate_inr_per_char()` is the billable door and it now
+#   RAISES (`UnattestedTtsRateError`).
+#
+# **WHY IT WAS FROZEN AND NOT DELETED, AND NOT REPLACED WITH A GNANI FIGURE.** Deleting it
+# would delete the floor, and with it the only thing that refuses a credit pack sold below
+# cost. Replacing it with a Gnani number is the one move explicitly ruled out: Gnani publish
+# nothing, and the single figure in the wild is a RESELLER's (₹27/10,000 characters, a
+# third-party platform's own price — `docs/PIPECAT-MIGRATION.md` §7), which hard rule 7 and
+# hard rule 11 both keep out. So the scalar stays at the last figure anybody actually READ
+# for a value-rung voice, and it is labelled for what it is.
+#
+# **EVIDENCE CLASS: VENDOR-PUBLISHED, HISTORICAL.** Sarvam's dashboard Model Catalogue,
+# `indus.sarvam.ai/model-catalogue`, read by the founder 27 Aug 2026 and relayed (the host
+# is egress-blocked from this container). It was a true reading of a vendor's card on that
+# date; it is no longer a reading of anything we run. **The day a Gnani price is attested,
+# the floor must be re-struck from it and this constant retired** — that is the one change
+# that closes this block, and `docs/PIPECAT-MIGRATION.md` §6 step 9 is where it is tracked.
+#
+# **THE VALUE RUNG CANNOT BE SOLD UNTIL THEN, AND THAT IS ACCEPTED** (founder, 18 Sep 2026:
+# "we are still in building phase"). A floor struck at a withdrawn vendor's rate is honest
+# as a floor precisely because nothing may be sold against it yet.
+#
+# **A scalar and deliberately not a mapping.** The second voice tier
 # (Cartesia Sonic 3.5, D-547) is NOT a second entry here, because it is not a
 # per-character list price: it is a monthly SUBSCRIPTION whose marginal per-character
 # figure (`CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, below the LLM section) is the vendor's
@@ -111,7 +150,7 @@ from apps.api.billing.models import MONEY
 # each rate (₹/10,000 in the vendor card, ₹/1,000 in the per-call-minute table) against
 # each other. Before that check existed, a vendor price move could land in the doc and not
 # here — the shape D-102/D-103/D-105 each paid for, on the axis where it moves money.
-TTS_INR_PER_10K_CHARS: Final[Decimal] = Decimal("30.0000")  # Bulbul v3
+TTS_INR_PER_10K_CHARS: Final[Decimal] = Decimal("30.0000")  # frozen: Bulbul v3, withdrawn
 
 # TRD §10.1's ASSUMED speaking rate — the band the whole TTS line is priced from, and the
 # one figure in the cost model that no vendor rate card can supply. §10.1 says it in its
@@ -873,29 +912,69 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     return (total / Decimal(minutes)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-def tts_rate_inr_per_char() -> Decimal:
-    """Exact, unquantized: ₹30/10,000 is ₹0.003 and dividing is where precision is lost
-    if it is done twice. Callers multiply by a character count and quantize once.
+class UnattestedTtsRateError(LookupError):
+    """A caller asked what a synthesised character COSTS, and nobody has attested it.
 
-    No tier argument, on purpose: this is the SARVAM per-character rate. The Cartesia
-    tier has no per-character list price to return — its leg is a subscription, priced per
-    minute only at a named volume by `cartesia_cost_inr_per_call_minute` — and a `voice`
-    argument here would
-    invite a caller to meter a Cartesia character as if Sarvam's card applied to it."""
-    return TTS_INR_PER_10K_CHARS / _CHARS_UNIT
+    Hard rule 7's structural form on the TTS leg, and the exact shape
+    `llm_inr_per_ktok` already has one leg over: a CATALOGUE figure has no path to
+    `unit_cost_paid`, and the only figure that does is one a human read off an invoice.
 
+    ⚠ **THIS REPLACED A RETURNED NUMBER ON 18 SEP 2026 AND THE NUMBER WAS THE DEFECT.**
+    `tts_rate_inr_per_char()` returned `TTS_INR_PER_10K_CHARS / 10_000` unconditionally —
+    Sarvam's published Bulbul v3 list rate — and the biller multiplied EVERY synthesised
+    character by it. That was already wrong for a Cartesia character (a subscription leg
+    with no per-character list price at all), and withdrawing the Sarvam TTS leg made it
+    wrong for every character this product can now speak: it would have stamped a withdrawn
+    vendor's rate on a Gnani minute, which is precisely the invented Gnani figure the
+    founder ruled out. A refusal carrying the reason is worth more than a plausible rupee.
 
-def tts_cost_inr(chars: int) -> Decimal:
-    """What `chars` characters of Bulbul v3 speech cost us.
-
-    A CHARACTER COUNT IS REQUIRED — there is no default and no estimate. TRD §10.1's
-    "360-540 chars per call-minute" is explicitly an unmeasured assumption (pilot gate
-    12), so imputing a count here would put a made-up number on a ledger row and let it
-    be read back later as a fact. Callers that do not have a count do not get a price.
+    `LookupError` and not a bare `ValueError` because that is what the metering port
+    already catches and converts to a recorded refusal
+    (`voice_worker.meter.MeterSnapshot._tts_rows` → `RateRefusedError`).
     """
-    if chars < 0:
-        raise ValueError("character count cannot be negative")
-    return (tts_rate_inr_per_char() * Decimal(chars)).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+TTS_RATE_REFUSAL: Final = (
+    "no attested per-character TTS price on this deployment: the Sarvam list rate this "
+    "used to return was withdrawn with the Sarvam TTS leg (18 Sep 2026), and neither "
+    "surviving provider publishes a per-character rate we may bill from — Cartesia sells a "
+    "monthly subscription and Gnani publish no figure at all. Attest the provider's TTS "
+    "price in the ops console (`ops/model_pricing.attest_tts_price`); until then a "
+    "synthesised character settles as a refusal rather than at somebody else's rate."
+)
+
+
+def tts_rate_inr_per_char() -> Decimal:
+    """THE door to a BILLABLE per-character TTS rate — and it is shut. Always raises.
+
+    See `UnattestedTtsRateError` for why it stopped returning a number, and
+    `value_rung_tts_inr_per_char()` below for the figure that survives it: the COST MODEL's
+    scalar, which reaches a margin and never a bill.
+
+    It is kept as a function rather than deleted because it is the `RateCard` port's own
+    method name (`voice_worker/meter.py`), and because the day an operator attests a price
+    this is where the attested figure arrives — one door, still.
+    """
+    raise UnattestedTtsRateError(TTS_RATE_REFUSAL)
+
+
+def value_rung_tts_inr_per_char() -> Decimal:
+    """The VALUE RUNG's cost-model rate per character. Exact, unquantized: ₹30/10,000 is
+    ₹0.003 and dividing is where precision is lost if it is done twice. Callers multiply by
+    a character count and quantize once.
+
+    **IT MODELS MARGIN AND REACHES NO BILL**, which is the whole reason it may exist at all
+    while `tts_rate_inr_per_char` refuses — see `TTS_INR_PER_10K_CHARS` for what the scalar
+    now means and why it was frozen rather than deleted. Its two callers are
+    `tts_inr_per_call_minute` (the floor, TRD §10.1's per-call-minute cell, the measured
+    speaking-rate board) and nothing else. **Do not wire it to `unit_cost_paid`.**
+
+    No provider argument, on purpose: this is ONE rung's frozen scalar, not a per-vendor
+    card. The premium rung has its own arithmetic (`cartesia_cost_inr_per_call_minute`,
+    a subscription priced per minute only at a named volume), and a `provider` argument here
+    would invite a caller to meter a Cartesia character as if this scalar applied to it.
+    """
+    return TTS_INR_PER_10K_CHARS / _CHARS_UNIT
 
 
 def tts_inr_per_call_minute(chars_per_call_minute: Decimal) -> Decimal:
@@ -905,7 +984,9 @@ def tts_inr_per_call_minute(chars_per_call_minute: Decimal) -> Decimal:
     `TTS_ASSUMED_CHARS_PER_CALL_MINUTE`, and the measured board
     (`billing/tts_speaking_rate.py`) is the same function over what the transcripts say.
     One function for both so the assumed and the measured figures can never be priced by
-    two arithmetics; multiply once, quantize once (`tts_rate_inr_per_char`'s contract).
+    two arithmetics; multiply once, quantize once (`value_rung_tts_inr_per_char`'s
+    contract). **THIS IS THE COST MODEL, NOT A BILL** — `tts_rate_inr_per_char` is the
+    billable door and it refuses.
 
     A speaking rate is a Decimal and never a float: it is chars x 60 / seconds computed
     exactly upstream, and a float here would put the one rounding this module exists to
@@ -913,13 +994,15 @@ def tts_inr_per_call_minute(chars_per_call_minute: Decimal) -> Decimal:
     """
     if chars_per_call_minute < 0:
         raise ValueError("a speaking rate cannot be negative")
-    return (tts_rate_inr_per_char() * chars_per_call_minute).quantize(MONEY_Q, rounding=ROUNDING)
+    return (value_rung_tts_inr_per_char() * chars_per_call_minute).quantize(
+        MONEY_Q, rounding=ROUNDING
+    )
 
 
 def stt_rate_inr_per_second() -> Decimal:
     """Exact, unquantized: ₹30/hour is ₹0.008333… per second and no 4-decimal rupee holds
     it. Callers multiply by a duration and quantize ONCE — the same contract
-    `tts_rate_inr_per_char` above has with its callers, for the same reason.
+    `value_rung_tts_inr_per_char` above has with its callers, for the same reason.
 
     **PER SECOND, because that is the unit a call's duration exists in everywhere in this
     codebase**: `ExecutionSnapshot.duration_s`, `workers/pipeline.py::_billable_seconds`,
@@ -960,7 +1043,7 @@ def stt_cost_inr(duration_s: int) -> Decimal:
     prices "per hour of audio"; whether a request is billed on exact audio duration, on
     whole seconds, or rounded up to some minimum billable unit is stated nowhere the
     founder could find and nowhere this container can reach. So this prices the seconds it
-    is given and invents no minimum — the refusal `tts_cost_inr` makes about character
+    is given and invents no minimum — the refusal `tts_inr_per_call_minute` makes about
     counts, on the axis where this leg could be guessed. The consequence is stated rather
     than hidden: if Sarvam rounds a request up, this is a **FLOOR** on our real cost, so
     the margin model errs toward reporting a thinner margin than we have and can never
@@ -969,7 +1052,7 @@ def stt_cost_inr(duration_s: int) -> Decimal:
 
     Zero is zero (a call that transcribed nothing costs nothing); a negative duration is
     refused rather than priced, because a negative cost on a usage event is a credit issued
-    by an arithmetic accident — the same argument `tts_cost_inr` makes, and the one
+    by an arithmetic accident — the same argument `tts_inr_per_call_minute` makes, and the one
     `_billable_seconds` had to make on the live money path.
     """
     if duration_s < 0:
@@ -1247,7 +1330,15 @@ def sarvam_cost_floor_inr_per_min_at(basis: SpeakingRateBasis) -> Decimal:
 
 
 def sarvam_cost_floor_at(basis: SpeakingRateBasis) -> SarvamCostFloor:
-    """The Clear floor at `basis`, carrying the basis and the frozen refusal beside it."""
+    """The Clear floor at `basis`, carrying the basis and the frozen refusal beside it.
+
+    ⚠ **THE NAME IS THE TIER TOKEN'S, NOT A VENDOR'S, AND IT IS DELIBERATELY UNRENAMED**
+    (18 Sep 2026) — `SarvamCostFloor`, `sarvam_cost_floor_inr_per_min_at` and the
+    `sarvam_inr_per_min` columns and wire fields all spell the same historical name for the
+    VALUE rung, and `VoiceTier` above argues in full why renaming one of them means renaming
+    all of them. Sarvam is still this product's STT vendor and has nothing to do with this
+    figure either way.
+    """
     return SarvamCostFloor(
         inr_per_min=sarvam_cost_floor_inr_per_min_at(basis),
         basis=basis,
@@ -1522,7 +1613,7 @@ class CartesiaPlan:
         """This plan's TTS cost for ONE call-minute at that monthly volume, EXACT.
 
         `monthly_inr(v) / v`, UNQUANTIZED — the door for anything that SUMS this leg with
-        another before a human reads it, which is `tts_rate_inr_per_char`'s contract one
+        another before a human reads it, which is `value_rung_tts_inr_per_char`'s contract one
         level up: multiply (or divide) exactly, quantize once at the end.
 
         ⚠ **IT EXISTS BECAUSE THE ALL-IN CURVE WAS ROUNDING TWICE.**
@@ -1955,14 +2046,52 @@ CARTESIA_VOLUME_LADDER_CALL_MINUTES: Final[tuple[Decimal, ...]] = (
 
 #: A voice tier — the property of an AGENT that decides which of a lot's two rates prices
 #: its minutes (plan §2.1). Spelled here, in the lowest money module, because the two cost
-#: floors are keyed by it and `credit_packs.py` / `list_rates.py` key their rates by it;
-#: `agents/voices.py`'s `Voice.provider` must carry the same two members (plan §3.3 —
-#: derived, never stored twice).
+#: floors are keyed by it and `credit_packs.py` / `list_rates.py` key their rates by it.
+#:
+#: ⚠ **`"sarvam"` IS THE HISTORICAL NAME OF THE VALUE RUNG AND NO LONGER NAMES ITS VENDOR
+#: (18 Sep 2026). IT IS NOT A PROVIDER AND MUST NOT BE READ AS ONE.** The founder withdrew
+#: the Sarvam TEXT-TO-SPEECH leg; the rung it occupied survives it, and Gnani `timbre-v2.5`
+#: serves it now (`agents/voices.VOICE_TIER_OF_PROVIDER`). Sarvam remains the STT vendor on
+#: every call — this token has nothing to do with that leg either.
+#:
+#: **WHY IT WAS NOT RENAMED, ARGUED RATHER THAN ASSUMED.** This token is a MONEY VOCABULARY,
+#: not a label. It is spelled identically in five places that are not this file: the
+#: `credit_lots.sarvam_inr_per_min` and `credit_packs.sarvam_inr_per_min` COLUMNS, the rate
+#: cells `billing/lots.py` freezes onto a lot at purchase, the wire (`sarvam_inr_per_min`,
+#: `sarvam_label`, `sarvam_minutes` on the client's own wallet and rate-card responses),
+#: `usage_events.meta.voice_tier` on an append-only ledger, and the web client that renders
+#: all of it. Renaming the Literal alone would leave two vocabularies for one rung, which is
+#: the drift this repo treats as a defect even when both halves work; renaming ALL of them
+#: is a migration plus a wire break plus a frontend change — and the frontend is another
+#: lane's this session, while the coordinator's instruction was that no migration be
+#: written. So it stays, named for what it is.
+#:
+#: ⚠ **THE USUAL CONSTRAINT DID NOT APPLY TO THIS DECISION AND WILL APPLY TO THE NEXT ONE.**
+#: A lot's two rates are FROZEN at purchase by a trigger that refuses any UPDATE, so
+#: renaming the rung would normally mean restating terms somebody had already bought. It did
+#: not here: the founder verified on the production host on **18 Sep 2026** that
+#: `credit_lots`, `organizations`, `agents WHERE tts_provider='sarvam'` and `usage_events`
+#: were ALL EMPTY — nothing has ever been sold. The decision above therefore rests ONLY on
+#: the reader/one-vocabulary ground, not on protecting rows. **From the first sale onward the
+#: freeze is back in force and this token cannot be renamed without restating sold terms.**
+#: If it is ever renamed, the right name is vendor-neutral (the client already reads
+#: `VOICE_TIER_LABELS` — "Clear"), never the next vendor's, or this paragraph gets written
+#: again.
 VoiceTier = Literal["sarvam", "cartesia"]
 
-#: Every voice tier, in card order (Sarvam is the cheaper column). Iterated by the pack
-#: guard, the card writer and the ops preview, so a third tier is added once, here.
-VOICE_TIERS: Final[tuple[VoiceTier, ...]] = ("sarvam", "cartesia")
+#: THE VALUE RUNG, by name, so the ~dozen readers that mean "the cheaper of the two" stop
+#: typing a vendor's name to say it. Added 18 Sep 2026 with the note above: a caller that
+#: means the rung should say so, and `agents/voices.py` — which no longer has a provider
+#: called `sarvam` at all — imports this rather than spelling a token it cannot justify.
+VALUE_VOICE_TIER: Final[VoiceTier] = "sarvam"
+
+#: THE PREMIUM RUNG, by name, for `VALUE_VOICE_TIER`'s reason. Here this one IS still its
+#: provider's name; it is spelled through a constant so the pair reads as a ladder.
+PREMIUM_VOICE_TIER: Final[VoiceTier] = "cartesia"
+
+#: Every voice tier, in card order (the value rung is the cheaper column). Iterated by the
+#: pack guard, the card writer and the ops preview, so a third tier is added once, here.
+VOICE_TIERS: Final[tuple[VoiceTier, ...]] = (VALUE_VOICE_TIER, PREMIUM_VOICE_TIER)
 
 #: WHAT A CLIENT SEES A TIER CALLED. The wire, the ledger, the lot rows and every column
 #: name keep the VENDOR spelling above, because that is what they mean and renaming a
@@ -1986,50 +2115,64 @@ VOICE_TIER_LABELS: Final[Mapping[VoiceTier, str]] = {
     "cartesia": "Studio",
 }
 
-#: What a voice on a provider with NO PRICED TIER is called (D-618).
+#: WHICH RUNG EACH TTS PROVIDER BILLS ON, in the money module rather than beside the
+#: catalogue — because a tier is a PRICE, and this file is where a price lives.
 #:
-#: Gnani is the first such provider: a third TTS vendor whose leg is built
-#: (`voice_worker/gnani_tts.py`) and whose minute nobody has priced — no published rate,
-#: no attestation, so no rate to freeze on a credit lot and no floor to clear. The two
-#: entries above are tiers because they are PRICES; this is deliberately not one of them
-#: and is not a third column on any lot.
+#: ⚠ **IT USED TO BE A SECOND MAPPING IN `agents/voices.py` WITH `gnani -> None`, AND
+#: `UNPRICED_TIER_LABEL` ("Unreleased") EXISTED TO NAME THAT HOLE.** Both are gone
+#: (18 Sep 2026): the Sarvam TTS leg was withdrawn, Gnani took the value rung, and every
+#: provider now bills on one. `voices.VOICE_TIER_OF_PROVIDER` is THIS mapping, imported, so
+#: there is still exactly one place a provider's rung is written down — `voices.py` is the
+#: one that widened the type to `VoiceTier | None` for the provider that arrives without a
+#: rung decided, and it raises there rather than guessing.
 #:
-#: It says what is true and nothing more. Not "Gnani", because no client-facing surface
-#: names a vendor as a product tier (founder, 7 Sep 2026); not a ladder word like "Basic"
-#: or "Preview", because both are claims about the voice that nobody here has measured.
-UNPRICED_TIER_LABEL: Final = "Unreleased"
+#: **A RUNG IS NOT A LICENCE TO SELL.** Gnani is on the value rung and no Gnani minute may
+#: be metered, because nobody has attested what one costs (hard rule 7). The gate is
+#: `agents/voice_offer.tts_price_is_billable`, one seam over, and it is not weakened by
+#: anything on this line.
+_TIER_OF_TTS_PROVIDER: Final[Mapping[TtsProvider, VoiceTier]] = {
+    "cartesia": PREMIUM_VOICE_TIER,
+    "gnani": VALUE_VOICE_TIER,
+}
 
 
-def voice_tier_label(voice: TtsProvider) -> str:
-    """The client-facing name of the tier a voice PROVIDER bills on.
+def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
+    """The client-facing name of the rung a voice PROVIDER — or a TIER — bills on.
 
-    ⚠ **IT TAKES A PROVIDER AND USED TO TAKE A `VoiceTier`, AND THE WIDENING IS THE
-    HONEST DIRECTION (D-618).** Every caller in this tree passes `Voice.provider` — the
-    picker, the ops curation table, the add-voice form and the client's unofferable
-    sentence — which was the same type only while every provider had a price. `gnani` has
-    none, so the argument type is now `TtsProvider` (the ONE provider vocabulary, shared
-    with `TTS_MODEL_LIFECYCLE`) and the function stays TOTAL over it by naming the
-    unpriced case rather than by raising into a route that is rendering a table.
+    ⚠ **IT TAKES EITHER VOCABULARY, AND IT DID NOT HAVE TO WHILE THEY SPELLED THE SAME.**
+    Half this tree's callers pass `Voice.provider` (the picker, the ops curation table, the
+    add-voice form, the client's unofferable sentence) and half pass a `VoiceTier` (the
+    wallet, the pack card, the rate-card notice). The two Literals used to share their
+    members, so one annotation covered both by accident; withdrawing the Sarvam TTS leg
+    separated them for real, and widening the parameter is the honest repair — the
+    alternative was a `cast` at a dozen call sites, which is the same widening with the
+    type checker switched off.
 
-    A minute is a different question and has a different answer: `voices.voice_tier()`
-    REFUSES an unpriced provider, because a label is something to render and a tier is
-    something to charge against.
+    TOTAL over both, with no fallback label: every provider bills on a rung
+    (`_TIER_OF_TTS_PROVIDER`) and every tier is its own. A minute is a different question
+    with a different answer — `voices.voice_tier()` refuses a provider with no rung, because
+    a label is something to render and a tier is something to charge against.
     """
-    priced = VOICE_TIER_LABELS.get(cast("VoiceTier", voice))
-    return priced if priced is not None else UNPRICED_TIER_LABEL
+    if voice in VOICE_TIER_LABELS:
+        return VOICE_TIER_LABELS[cast("VoiceTier", voice)]
+    return VOICE_TIER_LABELS[_TIER_OF_TTS_PROVIDER[cast("TtsProvider", voice)]]
 
 
 def cost_floor_inr_per_min(voice: VoiceTier) -> Decimal:
-    """THE ONE DOOR to a per-minute cost floor, by the voice's name.
+    """THE ONE DOOR to a per-minute cost floor, by the TIER's name.
 
-    Two floors, two constants, one selector — so a caller judging a rate names the voice
-    it is a rate for and cannot compare a Cartesia rate against the Sarvam floor (which
-    is lower, so the mistake would always pass). Total over the Literal; an unknown tier
-    is a programming error and raises rather than defaulting to the cheaper floor.
+    Two floors, two constants, one selector — so a caller judging a rate names the rung it
+    is a rate for and cannot compare a premium rate against the value floor (which is
+    lower, so the mistake would always pass). Total over the Literal; an unknown tier is a
+    programming error and raises rather than defaulting to the cheaper floor.
+
+    ⚠ **THE VALUE FLOOR IS STRUCK AT A WITHDRAWN VENDOR'S RATE (18 Sep 2026)** — see
+    `TTS_INR_PER_10K_CHARS`. It is a real floor for judging a rate card and it is not a
+    licence to sell: no value-rung minute may be metered until a Gnani price is attested.
     """
-    if voice == "sarvam":
+    if voice == VALUE_VOICE_TIER:
         return SELF_SERVE_COST_FLOOR_INR_PER_MIN
-    if voice == "cartesia":
+    if voice == PREMIUM_VOICE_TIER:
         return CARTESIA_COST_FLOOR_INR_PER_MIN
     raise ValueError(f"no cost floor for voice tier {voice!r}")
 
@@ -2445,6 +2588,7 @@ __all__ = [
     "LIST_PRICE_USD_INR",
     "MIN_GROSS_MARGIN",
     "MONEY_Q",
+    "PREMIUM_VOICE_TIER",
     "PREPAID_TIERS",
     "PRICED_LLM_MODELS",
     "REFERENCE_CALL",
@@ -2455,6 +2599,8 @@ __all__ = [
     "STT_INR_PER_HOUR",
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
+    "TTS_RATE_REFUSAL",
+    "VALUE_VOICE_TIER",
     "VOICE_TIERS",
     "VOICE_TIER_LABELS",
     "CartesiaPlan",
@@ -2464,6 +2610,7 @@ __all__ = [
     "RateMargin",
     "SarvamCostFloor",
     "SpeakingRateBasis",
+    "UnattestedTtsRateError",
     "VoiceTier",
     "assumed_speaking_rate",
     "attested_llm_prices",
@@ -2499,8 +2646,8 @@ __all__ = [
     "stt_rate_inr_per_minute",
     "stt_rate_inr_per_second",
     "surchargeable_models_are_dearer",
-    "tts_cost_inr",
     "tts_inr_per_call_minute",
     "tts_rate_inr_per_char",
+    "value_rung_tts_inr_per_char",
     "voice_tier_label",
 ]

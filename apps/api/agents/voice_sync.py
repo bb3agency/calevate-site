@@ -98,7 +98,9 @@ from apps.api.agents.voices import (
     install_voice_catalogue,
     provider_of_tts_model,
     voice_id_for,
+    voice_tier,
 )
+from apps.api.billing.rates import VOICE_TIERS
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 
@@ -229,16 +231,28 @@ def catalogue_from_listing(listing: EngineVoiceListing) -> tuple[Voice, ...]:
     """Every offerable voice in one engine listing, in picker order.
 
     Sorted by provider then label so the picker's order is a property of the DATA rather
-    than of the order three language passes happened to merge in. Sarvam first because it
-    is the default tier and the cheaper one (plan §0 Q9): a client scrolling a list should
-    reach the tier they are already on before the one that costs more per minute.
+    than of the order three language passes happened to merge in. The VALUE rung first
+    (plan §0 Q9): a client scrolling a list should reach the cheaper tier before the one
+    that costs more per minute.
     """
     return _ordered([voice for _, voice in offerable_pairs(listing)])
 
 
 def _ordered(voices: list[Voice]) -> tuple[Voice, ...]:
-    """Picker order, in one place: cheaper tier first, then label."""
-    return tuple(sorted(voices, key=lambda voice: (voice.provider != "sarvam", voice.label)))
+    """Picker order, in one place: cheaper tier first, then label.
+
+    ⚠ **THE KEY WAS `provider != "sarvam"` UNTIL 18 Sep 2026 AND IS NOW DERIVED.** It was a
+    vendor name doing a tier's job, which stopped being true the moment the Sarvam TTS leg
+    was withdrawn and Gnani took the value rung. `voice_tier()` is the one derivation of a
+    voice's rung, and `VOICE_TIERS` is card order (value first), so the sort now asks the
+    same two functions the money lane does and cannot disagree with them about which
+    column is cheaper.
+    """
+    return tuple(sorted(voices, key=_picker_key))
+
+
+def _picker_key(voice: Voice) -> tuple[int, str]:
+    return (VOICE_TIERS.index(voice_tier(voice.id)), voice.label)
 
 
 async def sync_voice_catalogue(

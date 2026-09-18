@@ -41,8 +41,8 @@ def _config(script: str, *, opening: str = "Idi AI assistant.") -> AgentConfig:
             stt_provider="sarvam",
             stt_model="saaras:v3",
             llm_model="sarvam-105b",
-            tts_provider="sarvam",
-            tts_voice="bulbul:v3",
+            tts_provider="cartesia",
+            tts_voice="ashutosh",
         ),
     )
 

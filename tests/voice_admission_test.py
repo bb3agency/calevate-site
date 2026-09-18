@@ -42,7 +42,7 @@ from apps.api.agents.voice_offer import offered_catalogue
 from apps.api.agents.voice_sync import load_voice_catalogue, sync_voice_catalogue
 from apps.api.agents.voices import (
     CARTESIA_TTS_MODEL,
-    DEFAULT_TTS_MODEL,
+    GNANI_TTS_MODEL,
     catalogue,
     install_voice_catalogue,
     speech_for_voice_id,
@@ -64,30 +64,52 @@ CLONE_ID: Final = "sXlZ9Juk5Ji8sZiFjRUV"
 CLONE_NAME: Final = "my-custom-voice"
 CLONE_VOICE_ID: Final = voice_id_for(CARTESIA_TTS_MODEL, CLONE_ID)
 
-#: A SARVAM clone, for the clauses about OFFERING. The Cartesia tier has three further
-#: offerability grounds (a key, an attested price, the agent cap) that a test database clears
-#: none of, so proving "an added voice is selectable" on a Cartesia voice would be proving
-#: the opposite. The grounds composing is a separate, deliberate clause below.
-SARVAM_CLONE_ID: Final = "raghava-clone"
-SARVAM_CLONE_NAME: Final = "Raghava — warm"
-SARVAM_VOICE_ID: Final = voice_id_for(DEFAULT_TTS_MODEL, SARVAM_CLONE_ID)
+#: A SECOND CLONE, for the clauses about OFFERING.
+#:
+#: ⚠ **IT WAS A SARVAM CLONE UNTIL 18 Sep 2026, ON A PREMISE THAT IS NOW FALSE.** The
+#: comment here read: "the Cartesia tier has three further offerability grounds that a test
+#: database clears none of, so proving 'an added voice is selectable' on a Cartesia voice
+#: would be proving the opposite". Sarvam's TTS leg is withdrawn, and the suite's platform
+#: now clears the two grounds a real operator clears — key installed, price attested
+#: (`tests/voice_fixture.platform_can_speak`) — so a Cartesia voice is the right subject for
+#: "an added voice is selectable". The remaining-ground clause below moved to GNANI, which
+#: is the provider that genuinely has one.
+SECOND_CLONE_ID: Final = "raghava-clone"
+SECOND_CLONE_NAME: Final = "Raghava — warm"
+SECOND_VOICE_ID: Final = voice_id_for(CARTESIA_TTS_MODEL, SECOND_CLONE_ID)
+
+#: A GNANI clone, for the clause that proves the PRICE ground still refuses. The suite's
+#: platform attests Cartesia and deliberately NOT Gnani, exactly as the real platform does.
+GNANI_CLONE_ID: Final = "Suhana"
+GNANI_CLONE_NAME: Final = "Suhana"
+GNANI_VOICE_ID: Final = voice_id_for(GNANI_TTS_MODEL, GNANI_CLONE_ID)
 
 
-def _sarvam_facts(**overrides: object) -> VoiceFacts:
+def _second_facts(**overrides: object) -> VoiceFacts:
     return _facts(
-        provider="sarvam",
-        tts_model=DEFAULT_TTS_MODEL,
-        engine_voice_id=SARVAM_CLONE_ID,
-        label=SARVAM_CLONE_NAME,
+        engine_voice_id=SECOND_CLONE_ID,
+        label=SECOND_CLONE_NAME,
         **overrides,
     )
 
 
-def _sarvam_listing() -> EngineVoiceListing:
+def _second_listing() -> EngineVoiceListing:
+    return _listing(_engine_voice(voice_id=SECOND_CLONE_ID, label=SECOND_CLONE_NAME))
+
+
+def _gnani_facts(**overrides: object) -> VoiceFacts:
+    return _facts(
+        provider="gnani",
+        tts_model=GNANI_TTS_MODEL,
+        engine_voice_id=GNANI_CLONE_ID,
+        label=GNANI_CLONE_NAME,
+        **overrides,
+    )
+
+
+def _gnani_listing() -> EngineVoiceListing:
     return _listing(
-        _engine_voice(
-            voice_id=SARVAM_CLONE_ID, label=SARVAM_CLONE_NAME, tts_model=DEFAULT_TTS_MODEL
-        )
+        _engine_voice(voice_id=GNANI_CLONE_ID, label=GNANI_CLONE_NAME, tts_model=GNANI_TTS_MODEL)
     )
 
 
@@ -173,9 +195,8 @@ async def _restore_the_platforms_voices() -> object:
         await session.execute(
             text(
                 "DELETE FROM platform_voice_catalog "
-                "WHERE voice_id LIKE 'sonic-3.5:%' OR voice_id = :sarvam"
+                "WHERE voice_id LIKE 'sonic-3.5:%' OR voice_id LIKE 'timbre-v2.5:%'"
             ),
-            {"sarvam": SARVAM_VOICE_ID},
         )
         await session.commit()
     await seed_platform_voices()
@@ -193,31 +214,36 @@ async def test_an_added_voice_is_selectable_in_both_realms_from_one_source_of_tr
     because a second answer for the admin realm is how a client and an operator come to see
     different products. Only the refusal wording forks there; offerability does not.
     """
-    await _add(_sarvam_facts(), _sarvam_listing())
+    await _add(_second_facts(), _second_listing())
 
     for audience in ("operator", "client"):
         rows = {row.voice.id: row for row in await offered_catalogue(audience=audience)}
-        assert SARVAM_VOICE_ID in rows, f"the added voice never reached the {audience} picker"
-        assert rows[SARVAM_VOICE_ID].offerable is True, (
-            f"the added voice was refused to the {audience} realm: {rows[SARVAM_VOICE_ID].reason}"
+        assert SECOND_VOICE_ID in rows, f"the added voice never reached the {audience} picker"
+        assert rows[SECOND_VOICE_ID].offerable is True, (
+            f"the added voice was refused to the {audience} realm: {rows[SECOND_VOICE_ID].reason}"
         )
 
 
-async def test_an_added_cartesia_voice_is_added_and_still_names_its_remaining_ground() -> None:
+async def test_an_added_gnani_voice_is_added_and_still_names_its_remaining_ground() -> None:
     """THE FOUR GROUNDS STILL COMPOSE, AND ADDING CLEARS ONLY GROUND ZERO.
 
-    This is the clause that matters if every agent ends up on a cloned — therefore Cartesia
-    — voice: the voice is really added, and the reason nobody can be put on it yet is named
-    (a missing key here; on a keyed, priced deployment it becomes
-    `cartesia_cap_reached_reason`, which prints the cap and the live count). A screen that
-    reported "added" and stopped would send the operator hunting for a bug.
+    ⚠ **THIS CLAUSE WAS ABOUT CARTESIA UNTIL 18 Sep 2026** and moved to Gnani for the
+    reason `SECOND_CLONE_ID` records: the suite's platform now clears Cartesia's key and
+    price, as a real operator does, so Gnani is the provider that actually has a ground
+    left. It is also the rung the founder has said stays unsellable for now, which makes
+    this the clause that would catch a future change quietly selling it.
+
+    The voice is really added, and the reason nobody can be put on it yet is NAMED — a
+    screen that reported "added" and stopped would send the operator hunting for a bug.
     """
-    await _add(_facts())
+    await _add(_gnani_facts(), _gnani_listing())
 
     rows = {row.voice.id: row for row in await offered_catalogue()}
-    assert CLONE_VOICE_ID in rows, "the voice was not added at all"
-    assert rows[CLONE_VOICE_ID].offerable is False
-    assert "cartesia" in (rows[CLONE_VOICE_ID].reason or "").lower()
+    assert GNANI_VOICE_ID in rows, "the voice was not added at all"
+    assert rows[GNANI_VOICE_ID].offerable is False
+    reason = (rows[GNANI_VOICE_ID].reason or "").lower()
+    assert "gnani" in reason, "the refusal named the wrong vendor"
+    assert "attest" in reason, "the operator was not told what would unblock it"
 
 
 async def test_adding_a_voice_needs_no_sync_to_have_happened_first() -> None:
@@ -359,9 +385,9 @@ async def test_a_model_that_does_not_belong_to_the_named_provider_is_refused() -
     the voice they think they are. Caught before the vendor call, because it is theirs to
     fix."""
     with pytest.raises(ProblemError) as refusal:
-        await _add(_facts(provider="sarvam", tts_model=CARTESIA_TTS_MODEL))
+        await _add(_facts(provider="gnani", tts_model=CARTESIA_TTS_MODEL))
     assert refusal.value.code == "voice_model_not_on_provider"
-    assert DEFAULT_TTS_MODEL in refusal.value.detail
+    assert GNANI_TTS_MODEL in refusal.value.detail
 
 
 # --- hard rule 7: the tier is still the id's -------------------------------------

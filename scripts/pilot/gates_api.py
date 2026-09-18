@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from apps.api.agents.voices import DEFAULT_TTS_MODEL, catalogue
+from apps.api.agents.voices import CARTESIA_TTS_MODEL, catalogue
 from apps.api.core.errors import ProblemError
 from calevate_shared.config import Settings
 from calevate_shared.engine import (
@@ -219,12 +219,18 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
             # without the evidence.
             stt_model=SARVAM_DEFAULT_STT,
             llm_model=SARVAM_DEFAULT_LLM,
-            tts_provider="sarvam",
+            # ⚠ **THIS SAID `"sarvam"` AND `DEFAULT_TTS_MODEL` UNTIL 18 Sep 2026**, when the
+            # founder withdrew the Sarvam TTS leg and the default constant went with it
+            # (`agents/voices.py` carries why nothing was promoted into the empty slot).
+            # Cartesia is the one provider the RENTED engine this gate publishes to still
+            # carries for us — it does not carry Gnani at all
+            # (`engine/bolna.py::_refuse_provider_not_on_this_engine`).
+            tts_provider="cartesia",
             # THE MODEL AND THE SPEAKER, in the two fields the vendor reads them from
             # (D-358). This said `tts_voice="bulbul:v3"` — a model in the speaker slot,
             # which is the defect the split exists to fix; a pilot sending the broken body
             # would have certified it.
-            tts_model=DEFAULT_TTS_MODEL,
+            tts_model=CARTESIA_TTS_MODEL,
             # THE FIRST VOICE THIS DEPLOYMENT ACTUALLY OFFERS, not a compiled name
             # (D-588 deleted the last one). A pilot gate that publishes a speaker the
             # engine account does not carry proves nothing but its own staleness — which

@@ -28,13 +28,13 @@ from apps.api.agents import voices as voices_module
 from apps.api.agents.voice_offer import (
     ARCHIVED_REASON,
     DISABLED_REASON,
-    NO_ATTESTED_TTS_PRICE_REASON,
-    NO_CARTESIA_CREDENTIAL_REASON,
     NOT_CURATED_REASON,
     OfferedVoice,
     cartesia_cap_reached_reason,
     client_unofferable_reason,
     install_tts_price_reader,
+    no_attested_price_reason,
+    no_credential_reason,
     offerable_voices,
     unofferable_reason,
 )
@@ -43,19 +43,30 @@ from apps.api.agents.voices import (
     CurationState,
     TtsModel,
     Voice,
+    VoiceProvider,
     catalogue,
     catalogue_note,
     voice_id_for,
     voice_tier,
 )
-from apps.api.billing.rates import voice_tier_label
+from apps.api.billing.rates import VALUE_VOICE_TIER, voice_tier_label
 from apps.api.core.settings import get_settings
 from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE
 
 
 @pytest.fixture(autouse=True)
 def _clean_price_reader() -> object:
-    """Every case installs its own price predicate; none leaks into the next."""
+    """This module drives a COLD platform: nothing attested, nothing installed, and every
+    case that wants otherwise says so.
+
+    ⚠ **IT NOW UNINSTALLS ON THE WAY IN AS WELL AS OUT (18 Sep 2026).** The suite's session
+    fixture installs a reader that attests Cartesia, because since the Sarvam TTS leg was
+    withdrawn nothing is offerable without one and most suites need a publishable agent.
+    This file is the one that asserts the REFUSALS, so it starts from the cold default that
+    a fresh deployment really has. `conftest._tts_price_reader_is_restored` puts the suite's
+    reader back afterwards.
+    """
+    install_tts_price_reader(None)
     yield None
     install_tts_price_reader(None)
 
@@ -108,13 +119,17 @@ def test_the_catalogue_names_one_model_per_provider() -> None:
     """`TtsModel` is the set the lifecycle guard is held to, so it is the set that decides
     which voice models this product can ship at all.
 
-    ⚠ **THIS WAS `..._names_two_models_...` UNTIL D-618.** `timbre-v2.5` is the third, and
-    it is in the catalogue while being on offer to NOBODY: Gnani publish no price, so
-    `VOICE_TIER_OF_PROVIDER["gnani"]` is `None` and every offer path refuses it before a
-    client sees it (`tests/gnani_voices_test.py` holds that half). Catalogue membership and
-    offerability were the same question only while every provider had a rate.
+    ⚠ **`bulbul:v3` LEFT THIS SET ON 18 Sep 2026** when the founder withdrew the Sarvam
+    TEXT-TO-SPEECH leg. Sarvam still transcribes every call and has never been in this set:
+    it is the TTS catalogue, and `saaras` is not in it.
+
+    `timbre-v2.5` is in the catalogue while being on offer to NOBODY: Gnani publish no
+    price, so no Gnani price is attested and every offer path refuses it before a client
+    sees it (`tests/gnani_voices_test.py` holds that half). Catalogue membership and
+    offerability are different questions.
     """
-    assert set(get_args(TtsModel)) == {"bulbul:v3", "sonic-3.5", "timbre-v2.5"}
+    assert set(get_args(TtsModel)) == {"sonic-3.5", "timbre-v2.5"}
+    assert "bulbul:v3" not in get_args(TtsModel)
     assert CARTESIA_TTS_MODEL == "sonic-3.5"
     assert "sonic-3" not in get_args(TtsModel), (
         "sonic-3 is deprecated with a 20 Oct 2026 sunset and the engine recommends 3.5 for "
@@ -129,8 +144,8 @@ def test_no_cartesia_voice_is_typed_into_this_product_anywhere() -> None:
     read is an id somebody invented, and it publishes an agent that fails on a real client's
     phone. `voices.py` used to ship the SHAPE of a hand-loaded list waiting to be filled —
     `CartesiaVoiceRecord`, an empty `CARTESIA_CATALOG_SOURCE`, a loader. All of it is gone:
-    the ENGINE enumerates its own providers, so a Cartesia voice arrives through the same
-    sync as a Sarvam one, with an id somebody read.
+    the ENGINE enumerates its own providers, so every voice arrives through one sync, with
+    an id somebody read.
     """
     import apps.api.agents.voices as voices_source
 
@@ -202,38 +217,44 @@ def test_the_tier_is_the_provider_and_nothing_else() -> None:
 
 
 def test_an_unknown_or_missing_voice_is_the_cheaper_tier() -> None:
-    """A decision, not a fallback: an agent with no voice speaks the engine's default
-    Sarvam persona, and a row naming NO model we offer is a Sarvam row. Defaulting the
-    other way would bill an unmigrated agent at the dearer rate for a call it never made
-    there.
+    """A decision, not a fallback: an agent with no voice speaks whatever the leg running
+    the call defaults to, and a row naming NO model we offer is a value-rung row.
+    Defaulting the other way would bill an unmigrated agent at the dearer rate for a call it
+    never made there.
 
     ⚠ **`sonic-3.5` MOVED OUT OF THIS LIST ON 11 SEP 2026 (D-585) AND THAT IS A FIX, NOT A
     REGRESSION.** A bare model string is the pre-split legacy spelling, and the legacy
-    spelling of a CARTESIA row names the Cartesia model — so pricing it as Sarvam was the
-    exact under-billing this change exists to remove. `bulbul:v3` stays here and still
-    answers `sarvam`, for the same reason and in the same direction: it names the Sarvam
-    model."""
+    spelling of a CARTESIA row names the Cartesia model — so pricing it on the value rung
+    was the exact under-billing this change exists to remove.
+
+    ⚠ **`bulbul:v3` IS NOW ONE OF THE UNKNOWNS** (18 Sep 2026), and it answers the same
+    value rung it always did — by the fallback arm rather than by naming a model we offer.
+    The tier a legacy Sarvam row prices at does not move; only the reason does."""
     for unknown in (None, "", "bulbul:v3", "whatever-this-is", "Anushka", "bulbul"):
-        assert voice_tier(unknown) == "sarvam"
+        assert voice_tier(unknown) == VALUE_VOICE_TIER
     assert voice_tier("sonic-3.5") == "cartesia", (
-        "a legacy row naming the Cartesia model is a Cartesia row; billing it at the "
-        "Sarvam rate is unmetered spend on the dearer tier (hard rule 7)"
+        "a legacy row naming the Cartesia model is a Cartesia row; billing it on the value "
+        "rung is unmetered spend on the dearer tier (hard rule 7)"
     )
 
 
 # --- C.2: offerability ----------------------------------------------------------
 
 
-def test_a_sarvam_voice_is_offerable_with_no_cartesia_anything(
+def test_no_voice_is_exempt_from_the_priced_grounds_any_more(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The Cartesia grounds must not reach the tier that has none of them: its key is the
-    engine account's own, its cost is on the rate card, and no cap applies."""
+    """⚠ **THIS CLAUSE ASSERTED THE OPPOSITE UNTIL 18 Sep 2026, AND THE REVERSAL IS THE
+    CHANGE.** It read "a Sarvam voice is offerable with no Cartesia anything": the engine
+    held that leg, its cost was on our own rate card, and `_operator_unofferable_reason`
+    short-circuited it. The founder withdrew the Sarvam TTS leg, both survivors are BYOK
+    with an operator-attested price, and there is no exempt provider left. A voice with no
+    key refuses, whatever it is."""
     monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda: False)
     for voice in catalogue():
-        assert (
-            unofferable_reason(voice, curation=_curation(voice), cartesia_live_agents=10_000)
-            is None
+        reason = unofferable_reason(voice, curation=_curation(voice), cartesia_live_agents=0)
+        assert reason == no_credential_reason(voice.provider), (
+            "a voice was offered on a deployment holding no key for its vendor"
         )
 
 
@@ -245,7 +266,7 @@ def test_a_cartesia_voice_with_no_key_names_the_key(monkeypatch: pytest.MonkeyPa
         _cartesia_voice(), curation=_curation(_cartesia_voice()), cartesia_live_agents=0
     )
 
-    assert reason == NO_CARTESIA_CREDENTIAL_REASON
+    assert reason == no_credential_reason("cartesia")
     assert "cartesia_api_key" in reason, "the reader is told which field to fill"
 
 
@@ -260,15 +281,20 @@ def test_a_cartesia_voice_with_no_attested_price_names_the_price(
         _cartesia_voice(), curation=_curation(_cartesia_voice()), cartesia_live_agents=0
     )
 
-    assert reason == NO_ATTESTED_TTS_PRICE_REASON
+    assert reason == no_attested_price_reason("cartesia")
 
 
-def test_the_default_price_predicate_answers_for_the_two_tiers_honestly() -> None:
-    """Phase D installs the real attestation. Until it does, the shipped default is not a
-    placeholder that says yes: Sarvam's TTS cost is on the rate card, Cartesia's is
-    recorded by nobody, and answering otherwise would let a client onto an unpriced tier."""
-    assert voice_offer.tts_price_is_billable("sarvam") is True
-    assert voice_offer.tts_price_is_billable("cartesia") is False
+def test_the_default_price_predicate_answers_for_every_provider_honestly() -> None:
+    """⚠ **IT USED TO ANSWER `True` FOR SARVAM, AND THAT WAS A MEASUREMENT RATHER THAN AN
+    EXEMPTION (18 Sep 2026).** The engine billed us for the Sarvam synthesizer leg and
+    reported what it charged, so that leg carried a measured cost with nothing attested. The
+    leg is withdrawn; both survivors are BYOK, the engine reports ₹0 for them, and NOTHING
+    is billable with an empty store. Answering otherwise would let a client onto a tier
+    whose minutes meter as free."""
+    install_tts_price_reader(None)
+    for provider in get_args(VoiceProvider):
+        assert voice_offer.tts_price_is_billable(provider) is False, provider
+        assert voice_offer.default_tts_price_is_billable(provider) is False, provider
 
 
 def test_the_cap_refuses_by_name_and_carries_both_numbers(_cartesia_ready: None) -> None:
@@ -286,8 +312,21 @@ def test_the_cap_refuses_by_name_and_carries_both_numbers(_cartesia_ready: None)
 
 
 def test_the_cap_defaults_to_the_founders_two() -> None:
-    """Q10's number, and `0` is the switch that turns the tier off entirely."""
-    assert get_settings().cartesia_agent_cap == 2
+    """Q10's number, and `0` is the switch that turns the tier off entirely.
+
+    ⚠ **READ OFF THE FIELD RATHER THAN OFF `get_settings()` SINCE 18 Sep 2026.** The suite
+    raises the live cap in `tests/voice_fixture.platform_can_speak`, because with the Sarvam
+    TTS leg withdrawn every offerable voice is Cartesia's and a cap of 2 would refuse the
+    third agent any test happened to publish. What must not drift is the DEFAULT the founder
+    struck, which is the field's, and that is what this now pins.
+
+    The cap's new sharpness is recorded where it belongs — beside the field in
+    `calevate_shared/config.py`: until a Gnani price is attested this is the platform-wide
+    ceiling on live agents, not merely on the dearer tier.
+    """
+    from calevate_shared.config import Settings
+
+    assert Settings.model_fields["cartesia_agent_cap"].default == 2
 
 
 def test_every_voice_comes_back_with_its_verdict_never_a_shorter_list(
@@ -304,10 +343,11 @@ def test_every_voice_comes_back_with_its_verdict_never_a_shorter_list(
 
     assert len(offered) == len(entries), "the list never shrinks"
     assert [row.voice for row in offered] == list(entries)
-    verdicts = {row.voice.provider: row for row in offered}
-    assert verdicts["sarvam"].offerable is True and verdicts["sarvam"].reason is None
-    assert verdicts["cartesia"].offerable is False
-    assert verdicts["cartesia"].reason == NO_ATTESTED_TTS_PRICE_REASON
+    verdicts = {row.voice.id: row for row in offered}
+    assert all(row.offerable is False for row in offered), (
+        "no price is attested here, so every voice must carry a reason"
+    )
+    assert verdicts[_cartesia_voice().id].reason == no_attested_price_reason("cartesia")
 
 
 def test_the_three_reasons_are_three_different_sentences() -> None:
@@ -315,8 +355,8 @@ def test_the_three_reasons_are_three_different_sentences() -> None:
     invoice, a cap an operator raises after deciding to. One collapsed sentence sends all
     three to support."""
     reasons = {
-        NO_CARTESIA_CREDENTIAL_REASON,
-        NO_ATTESTED_TTS_PRICE_REASON,
+        no_credential_reason("cartesia"),
+        no_attested_price_reason("cartesia"),
         cartesia_cap_reached_reason(cap=2, live=2),
     }
     assert len(reasons) == 3
@@ -332,11 +372,8 @@ def test_every_shipped_voice_model_has_a_lifecycle_row() -> None:
     """The equality `scripts/check_model_lifecycle` enforces, asserted here too so a
     catalogue edit fails in the unit suite rather than only in `make guardrails`."""
     assert set(TTS_MODEL_LIFECYCLE) == set(get_args(TtsModel))
-    assert {row.provider for row in TTS_MODEL_LIFECYCLE.values()} == {
-        "sarvam",
-        "cartesia",
-        "gnani",
-    }
+    assert {row.provider for row in TTS_MODEL_LIFECYCLE.values()} == set(get_args(VoiceProvider))
+    assert "sarvam" not in {row.provider for row in TTS_MODEL_LIFECYCLE.values()}
 
 
 # --- what a client is told the tier is CALLED ---------------------------------
@@ -438,21 +475,19 @@ def test_the_default_audience_is_the_operator(monkeypatch: pytest.MonkeyPatch) -
     in, at the route."""
     monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda: False)
     voice = _cartesia_voice()
-    assert (
-        unofferable_reason(voice, curation=_curation(voice), cartesia_live_agents=0)
-        == NO_CARTESIA_CREDENTIAL_REASON
-    )
-    assert (
-        unofferable_reason(
-            voice, curation=_curation(voice), cartesia_live_agents=0, audience="operator"
-        )
-        == NO_CARTESIA_CREDENTIAL_REASON
-    )
+    assert unofferable_reason(
+        voice, curation=_curation(voice), cartesia_live_agents=0
+    ) == no_credential_reason("cartesia")
+    assert unofferable_reason(
+        voice, curation=_curation(voice), cartesia_live_agents=0, audience="operator"
+    ) == no_credential_reason("cartesia")
 
 
-def test_an_offerable_voice_carries_no_sentence_for_either_reader() -> None:
+def test_an_offerable_voice_carries_no_sentence_for_either_reader(_cartesia_ready: None) -> None:
     """A refusal a client cannot act on is bad; a refusal on a voice they CAN choose would
-    be worse. Sarvam fails no ground, so both audiences get `None`."""
+    be worse. ⚠ The subject used to be a Sarvam voice, which failed no ground by
+    construction; since 18 Sep 2026 the deployment has to CLEAR the grounds, which
+    `_cartesia_ready` does — key installed, price attested."""
     for voice in catalogue():
         for audience in ("operator", "client"):
             assert (
@@ -471,11 +506,13 @@ def test_an_offerable_voice_carries_no_sentence_for_either_reader() -> None:
 # by them.
 
 
-def test_a_sarvam_voice_nobody_enabled_is_not_offered() -> None:
-    """THE REQUIREMENT ITSELF. A Sarvam voice clears every priced ground — its key is the
-    engine account's own, its cost is on the rate card, no cap applies — so if curation sat
-    below the `provider == "sarvam"` short-circuit it would exempt the entire default tier
-    from the one rule the founder actually asked for."""
+def test_a_voice_nobody_enabled_is_not_offered(_cartesia_ready: None) -> None:
+    """THE REQUIREMENT ITSELF, on a deployment that clears every PRICED ground — key
+    installed, price attested, no cap reached — so curation is provably the thing deciding.
+
+    ⚠ It used to be stated of a Sarvam voice, which cleared those grounds by construction;
+    the leg is withdrawn (18 Sep 2026), so the exemption is granted explicitly here instead
+    of being a property of one vendor."""
     for state in ("disabled", "archived"):
         for voice in catalogue():
             assert (
@@ -506,8 +543,12 @@ def test_the_three_curation_refusals_send_an_operator_to_three_places() -> None:
 def test_a_voice_the_platform_no_longer_lists_fails_closed() -> None:
     """A catalogue snapshot can be newer than the curation rows, or a live agent can be on a
     voice the vendor removed. Either way the honest answer is "not offerable": the live 400
-    proving it — *"Provided voice: Anushka is not available for the provider: sarvam"* — is
-    what happens when we offer a voice the platform does not have."""
+    proving it — *"Provided voice: Anushka is not available for the provider: sarvam"*, a
+    real 11 Sep 2026 incident on the leg that has since been withdrawn — is what happens
+    when we offer a voice the platform does not have.
+
+    CURATION IS FIRST, so this holds even on a deployment whose priced grounds are unmet:
+    "we never decided to sell this" outranks "and also the price is unattested"."""
     voice = next(iter(catalogue()))
     assert unofferable_reason(voice, cartesia_live_agents=0, curation={}) == NOT_CURATED_REASON
 
@@ -525,10 +566,9 @@ def test_curation_and_the_priced_grounds_compose_without_masking_each_other(
     monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda: True)
     voice = _cartesia_voice()
 
-    assert (
-        unofferable_reason(voice, cartesia_live_agents=0, curation={voice.id: "enabled"})
-        == NO_ATTESTED_TTS_PRICE_REASON
-    )
+    assert unofferable_reason(
+        voice, cartesia_live_agents=0, curation={voice.id: "enabled"}
+    ) == no_attested_price_reason("cartesia")
     assert (
         unofferable_reason(voice, cartesia_live_agents=0, curation={voice.id: "disabled"})
         == DISABLED_REASON

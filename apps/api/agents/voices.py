@@ -7,16 +7,25 @@ types `bulbul-v3` or `Anushka` gets a row that looks saved, publishes cleanly, a
 discovered to be wrong at CALL TIME, on a real client's phone. This module is the
 allowlist that turns that runtime failure into a 422.
 
-TWO VOICE TIERS, ONE CATALOGUE (D-547 — supersedes the single-tier decision)
+TWO PROVIDERS, TWO TIERS, ONE CATALOGUE (D-547, as amended 18 Sep 2026)
 ------------------------------------------------------------------------------
-The single-tier decision collapsed the old premium/value ladder (D-36/D-35/D-34) into ONE
-Sarvam quality. D-547 (`docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md`) re-opens the dimension
-in a different shape: a **second PROVIDER**, Cartesia `sonic-3.5`, chosen **per agent**,
-priced **per credit lot** at that lot's rate for the agent's tier. So a `Voice` now carries
-`provider: sarvam | cartesia`, and `voice_tier()` below is the ONE derivation of an
-agent's tier — a pure function of its chosen voice's provider (plan §2.3 invariant 7:
-there is no way to hold a Cartesia voice and a Sarvam tier, because the tier is not
-stored anywhere it could disagree).
+A `Voice` carries a `provider`, and `voice_tier()` below is the ONE derivation of an
+agent's tier — a pure function of that provider (plan §2.3 invariant 7: there is no way to
+hold a voice of one tier and a tier of another, because the tier is not stored anywhere it
+could disagree).
+
+⚠ **THE SARVAM TEXT-TO-SPEECH LEG IS WITHDRAWN (founder, 18 Sep 2026), AND SARVAM HAS NOT
+LEFT THIS PRODUCT.** Bulbul was the value rung and the default; `Cartesia sonic-3.5` and
+`Gnani timbre-v2.5` are what remain, with Gnani taking the value rung. **Saaras STT is
+untouched** — Sarvam still transcribes every call, still holds `SARVAM_API_KEY` and is
+still a sub-processor. This module is the TTS catalogue and has never named the STT leg;
+anyone reading the removals here as "Sarvam is gone" will delete the transcription vendor.
+
+**THE VALUE RUNG EXISTS AND CANNOT BE SOLD YET, AND THAT IS THE INTENDED STATE.** Gnani
+publish no price (`VOICE_TIER_OF_PROVIDER`, `_GNANI_NOTE`), and hard rule 7 keeps an
+unattested figure out of `unit_cost_paid` — so a Gnani voice is in the vocabulary, bills on
+the value rung by construction, and is refused by the offer seam until an operator attests
+what a minute costs. The founder's words, 18 Sep 2026: *"we are still in building phase"*.
 
 **NO PRICE IS WRITTEN IN THIS MODULE.** It used to say "₹5.00/min, ₹30 per 10k chars"
 in this docstring and in every entry's note. A rate card belongs to `billing/` — under
@@ -25,8 +34,8 @@ are two of them per lot — so a figure here would be a second, stale definition
 number that reaches money (hard rule 7). What this module says about cost is the TIER,
 which is the only pricing fact a voice has.
 
-**"Two providers" is still not "two qualities of Sarvam".** Bulbul v2 stays withdrawn;
-clients choose a PERSONA within a provider. The `Voice` model keeps its persona fields.
+**"Two providers" is still not "two qualities of one vendor".** Clients choose a PERSONA
+within a provider. The `Voice` model keeps its persona fields.
 
 ⚠ THE CATALOGUE IS NO LONGER COMPILED. IT IS READ FROM THE ENGINE (D-585, 11 Sep 2026)
 --------------------------------------------------------------------------------------
@@ -105,25 +114,25 @@ and we admit the voice to this catalogue once the platform's own list confirms b
 
 WHAT IS GROUNDED, AND WHERE
 ---------------------------
-- **The model string is `bulbul:v3`.** VERIFIED-VENDOR-SDK: same wheel,
-  `types/text_to_speech_model.py` (`Literal["bulbul:v2", "bulbul:v3"]`), and Bolna's own
-  example posts it (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`,
-  `create-agent/SKILL.md`: `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh",
-  "voice_id": "ashutosh"}`). Sarvam's dashboard Model Catalogue lists ONLY `bulbul:v3` —
-  no v2 row, no v4 — even though the SDK enum still carries `bulbul:v2`
-  (VENDOR-PUBLISHED (Sarvam dashboard Model Catalogue, indus.sarvam.ai/model-catalogue,
-  read by the founder 27 Aug 2026)). `TtsModel` carries no second Sarvam member on that
-  basis; its second member is Cartesia's.
-- **Telugu on the TTS leg** is the SDK's `types/text_to_speech_language.py`, which lists 11
-  codes INCLUDING `te-IN`, `hi-IN` and `en-IN` (same wheel, same date). That enum is the
-  citation, not the marketing count: the founder could not find a dashboard-rendered list
-  naming `te-IN` against Bulbul v3 specifically, so the claim stays scoped to the enum.
-  `languages` below carries the three the PRODUCT sells (`CreateOrgIn.language`), Telugu
-  first, which is a subset of the enum rather than a re-statement of a count.
+⚠ **THE TWO BULLETS THAT STOOD HERE GROUNDED `bulbul:v3` AND ITS 11-CODE TTS LANGUAGE
+ENUM, AND THEY WENT WITH THE LEG (18 Sep 2026).** They were both good readings and they now
+ground nothing this product runs. The Sarvam SDK reading they cited survives where it is
+still true: `calevate_shared.languages.VERIFIED_VENDOR_LEGS` carries BOTH Sarvam legs,
+because that registry records what a vendor's own list says rather than which legs we run,
+and the **STT half of it is live**.
+
+- **The model string is `sonic-3.5`.** See the Cartesia section below for the vendor line
+  and the deprecation reading that put it there rather than `sonic-3`.
+- **The model string is `timbre-v2.5`.** VERIFIED-VENDOR-SDK, `gnani-vachana` 0.7.9 pinned
+  in `uv.lock` — grounded in full at `agents/gnani_voices.py`, which also carries why the
+  vendor's `timbre-v2.0` is refused rather than defaulted to.
+- **Which languages a voice serves** is per-entry (`Voice.languages`), a subset of the
+  three the PRODUCT sells (`agents/languages.Language`), Telugu first. It is never a
+  re-statement of a vendor's own count.
 
 THE ID SPELLING, WHICH IS A DATA-SHAPE CONTRACT
 ------------------------------------------------
-An id is `<tts_model>:<speaker>` — `bulbul:v3:ashutosh` — composed by `voice_id_for()`,
+An id is `<tts_model>:<speaker>` — `sonic-3.5:a0e99841` — composed by `voice_id_for()`,
 which is the ONE place the spelling exists. This is the shape this file predicted before
 it could be built ("an id becomes `bulbul:v3:<speaker>` while `tts_model` stays
 `bulbul:v3`"), and it is why `id`, `tts_model` and `speaker` are three fields: several
@@ -214,7 +223,7 @@ WHETHER THIS CATALOGUE IS OFFERABLE AT ALL IS A SEPARATE QUESTION (D-93)
 ------------------------------------------------------------------------
 Everything above assumes the engine lets us choose a voice. That is Bolna's answer, not
 every engine's: an orchestrator whose TTS is its own product takes its voice id and its
-own model, with no provider field to put `sarvam` in, and our `tts_voice` addresses
+own model, with no provider field to put a vendor name in, and our `tts_voice` addresses
 nothing on it. Against such an engine this catalogue is not a shortened list — it is a
 list of voices the caller will never hear, and rendering it is a screen that lies.
 
@@ -247,8 +256,8 @@ from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE, TtsProvider
 from pydantic import BaseModel, ConfigDict
 
 from apps.api.agents.languages import Language
+from apps.api.billing.rates import VALUE_VOICE_TIER, voice_tier_label
 from apps.api.billing.rates import VoiceTier as BillingVoiceTier
-from apps.api.billing.rates import voice_tier_label
 
 # `Language` MOVED TO `agents/languages.py` AND IS IMPORTED, NOT DECLARED (see that
 # module's docstring). It was declared here while "which languages do we sell" had nowhere
@@ -269,7 +278,12 @@ from apps.api.billing.rates import voice_tier_label
 #
 # `sonic-3.5` and not `sonic-3`: the module docstring carries the vendor's line and the
 # REPORTED sunset, in that order of standing.
-TtsModel = Literal["bulbul:v3", "sonic-3.5", "timbre-v2.5"]
+#
+# ⚠ **`bulbul:v3` IS GONE AND SARVAM IS STILL THE TRANSCRIPTION VENDOR (18 Sep 2026).**
+# The founder withdrew the Sarvam TEXT-TO-SPEECH leg; Saaras STT, `SARVAM_API_KEY` and
+# Sarvam's standing as a sub-processor are untouched. Nothing about that removal is a
+# statement about Sarvam as a company or about the STT half of this product.
+TtsModel = Literal["sonic-3.5", "timbre-v2.5"]
 
 #: Who synthesises a voice — and, by plan §2.3 invariant 7, the agent's VOICE TIER. ONE
 #: definition, shared with the lifecycle registry so the two cannot spell a provider
@@ -354,18 +368,31 @@ VoiceOrigin = Literal["synced", "operator"]
 DEFAULT_VOICE_ORIGIN: Final[VoiceOrigin] = "synced"
 
 
-#: The model every SARVAM persona runs on, and the default voice's model. Named so
-#: `voice_id_for` and the migration's backfill cannot disagree about which model the
-#: default id carries. The default is Sarvam by decision (plan §0 Q9): Cartesia is chosen,
-#: never inherited, because a default that costs the client more per minute must be a
-#: choice they made.
-DEFAULT_TTS_MODEL: Final[TtsModel] = "bulbul:v3"
+#: ⚠ **THERE IS NO `DEFAULT_TTS_MODEL` ANY MORE, AND ITS ABSENCE IS THE DECISION
+#: (18 Sep 2026).** It named `bulbul:v3` and carried plan §0 Q9's argument: Sarvam was the
+#: model an agent INHERITED, and Cartesia was the one it had to be chosen onto, because a
+#: default that costs the client more per minute must be a choice they made. Withdrawing
+#: the Sarvam leg removes the model that argument named, and it does not promote either
+#: survivor into the empty slot — Cartesia is the dearer rung (the same Q9 reason), and
+#: Gnani cannot be defaulted to because nobody has attested what a Gnani minute costs
+#: (hard rule 7, `VOICE_TIER_OF_PROVIDER` below).
+#:
+#: So an agent with no voice id has no model of ours at all, and that is the honest state
+#: rather than a gap: it speaks whatever the leg that runs the call defaults to, and
+#: `voice_tier()` prices it on the value rung. Naming a replacement constant here would be
+#: a platform default nobody decided, chosen by whichever vendor happened to survive.
 
 #: The one Cartesia model this product offers — see `TtsModel` for why not `sonic-3`.
 CARTESIA_TTS_MODEL: Final[TtsModel] = "sonic-3.5"
 
+#: The one Gnani model this product offers. Spelled here, beside its sibling, because
+#: `TtsModel` is this module's vocabulary; `agents/gnani_voices.GNANI_TTS_MODEL` imports it
+#: and `voice_worker.gnani_tts.GNANI_TTS_MODEL` holds a separate copy because
+#: `apps/voice-worker` may not import `apps/api` (D-592) — `tests/gnani_voices_test.py`
+#: pins the two together.
+GNANI_TTS_MODEL: Final[TtsModel] = "timbre-v2.5"
 
-#: The id the migration backfills a bare `bulbul:v3` row to, and the one the picker
+
 def voice_id_for(tts_model: str, speaker: str) -> str:
     """THE id spelling, in one place: `<tts_model>:<speaker>`.
 
@@ -477,33 +504,6 @@ class Voice(BaseModel):
     note: str
 
 
-#: The shared half of every Sarvam entry's `note`. One sentence, composed once: 44
-#: hand-written notes would be 44 chances to drift. It carries NO price — it used to say
-#: "₹30 per 10k characters", which was a rate card in a dropdown string (see the module
-#: docstring); the tier is the cost fact, and it is the `provider` field.
-#:
-#: **THE TIER IS NAMED BY `billing/rates.voice_tier_label`, NOT SPELLED HERE.** This string
-#: reaches a CLIENT — it rides `OfferedVoiceOut.note` on `GET /v1/agents/voices`, which is
-#: `agents:read` in either realm — and it used to read "the Sarvam voice tier", which names
-#: the vendor as the product tier the founder's 7 Sep 2026 decision says a client never
-#: reads. Composed from the one definition rather than corrected in place, because a typed
-#: name here would be the second copy that drifts the day the labels change.
-#: ⚠ **THIS SENTENCE WAS STALE ON BOTH OF ITS FACTS AND A CLIENT WAS READING IT.** It said
-#: "the speaker list is Sarvam's own; Bolna's acceptance of it is confirmed by
-#: GET /me/voices", which described the compiled catalogue that D-585 deleted: the list is
-#: now the ENGINE ACCOUNT's, either synced from it or typed by an operator and verified
-#: against it at that moment (D-590) — and `GET /me/voices` is not an endpoint the vendor
-#: has. It also carried the pilot-gate-3 ear test into a CLIENT-facing dropdown, which is
-#: our internal verification schedule and not something a clinic can act on.
-#:
-#: What is left is what a client can use: which vendor synthesises it, which tier it is,
-#: and the three languages. The tier name comes through `voice_tier_label` rather than
-#: being spelled here, so it cannot drift from the rate card.
-_NOTE: Final = (
-    f"Sarvam Bulbul v3 — the {voice_tier_label('sarvam')} voice tier. Speaks Telugu, Hindi "
-    "and Indian English."
-)
-
 #: The shared half of every Cartesia entry's `note`, for the same reason and through the
 #: same label. The Telugu sentence is not decoration: Cartesia documents Hinglish
 #: code-switching and says NOTHING about Telugu-English, so a screen that let a client infer
@@ -525,17 +525,31 @@ _CARTESIA_NOTE: Final = (
 )
 
 
-#: The shared half of every GNANI entry's `note` (D-618). It names NO tier, because Gnani
-#: is not one: `VOICE_TIER_OF_PROVIDER` maps it to nothing until a price is attested, and a
-#: sentence inventing a tier name here would be the one place a client could read that an
-#: unpriced minute is on sale. It names no vendor-published price either, because there is
-#: none — the only Gnani figure anywhere in this tree is a RESELLER's (₹27/10 000
-#: characters, a third-party platform's own price, recorded as not-Gnani's in
-#: `docs/PIPECAT-MIGRATION.md` §7) and hard rule 7 keeps it out of every surface.
+#: The shared half of every GNANI entry's `note` (D-618, amended 18 Sep 2026).
+#:
+#: ⚠ **IT NOW NAMES A TIER, AND THE REASON IT USED NOT TO HAS BEEN ANSWERED RATHER THAN
+#: DROPPED.** It said nothing because `VOICE_TIER_OF_PROVIDER` mapped Gnani to nothing, and
+#: a tier name would have been the one place a client could read that an unpriced minute was
+#: on sale. Gnani now HOLDS the value rung — it is the only provider on it — so the tier is
+#: a fact about the voice rather than an invention. What stops the unpriced minute being
+#: sold is unchanged and is not this sentence: no Gnani price is attested, so
+#: `agents/voice_offer.py` refuses the voice before any client can choose it, and the
+#: second sentence here says so in the same words the picker will.
+#:
+#: It still names NO vendor-published price, because there is none — the only Gnani figure
+#: anywhere in this tree is a RESELLER's (₹27/10 000 characters, a third-party platform's
+#: own price, recorded as not-Gnani's in `docs/PIPECAT-MIGRATION.md` §7) and hard rule 7
+#: keeps it out of every surface.
+#: ⚠ **AND IT NAMES NONE OF OUR OWN MACHINERY.** It read "…until the platform's Gnani
+#: credential is installed and somebody has attested what a Gnani minute costs", which is
+#: two operator instructions in a string a CLIENT reads on `GET /v1/agents/voices`. That is
+#: the leak `_CARTESIA_NOTE` already had removed, and `tests/voice_tier_label_test.py`
+#: enforces it; the operator's version of the sentence is
+#: `voice_offer.no_attested_price_reason`, served per audience.
 _GNANI_NOTE: Final = (
-    "Gnani Timbre v2.5 — Telugu, Hindi and Indian English, each voice tuned for one of "
-    "them. Not yet on sale: this voice cannot be offered until the platform's Gnani "
-    "credential is installed and somebody has attested what a Gnani minute costs."
+    f"Gnani Timbre v2.5 — the {voice_tier_label('gnani')} voice tier. Telugu, Hindi and "
+    "Indian English, each voice tuned for one of them. Not yet on sale: this voice cannot "
+    "be chosen on any account yet."
 )
 
 
@@ -544,11 +558,9 @@ def catalogue_note(provider: VoiceProvider) -> str:
 
     Public because `agents/voice_sync.py` builds every catalogue entry from the ENGINE's
     rows and needs one sentence per provider — a second string composed there would be the
-    copy that drifts the day the tier labels change, which is the whole reason `_NOTE` is
+    copy that drifts the day the tier labels change, which is the whole reason each note is
     composed from `voice_tier_label` rather than typed.
     """
-    if provider == "sarvam":
-        return _NOTE
     if provider == "cartesia":
         return _CARTESIA_NOTE
     return _GNANI_NOTE
@@ -691,7 +703,7 @@ def tts_models_for_provider(provider: str) -> tuple[TtsModel, ...]:
     the pair, so it needs to be able to say "this provider runs `sonic-3.5` here" without a
     second mapping beside `TTS_MODEL_LIFECYCLE`. Today each provider has exactly one model,
     which is a fact about our catalogue and not a fact this function is allowed to assume:
-    it answers with a tuple so a second Sarvam model reaches the form by existing.
+    it answers with a tuple so a second model on one provider reaches the form by existing.
 
     Returns `()` for a provider this product does not have — which is a real answer and is
     what `voice_admission.py` turns into the ElevenLabs refusal.
@@ -722,22 +734,31 @@ def tts_model_of_voice_id(voice_id: str | None) -> TtsModel | None:
     return None
 
 
-#: WHICH PRICED TIER EACH PROVIDER BILLS ON, and the `None` is the load-bearing entry.
+#: WHICH PRICED TIER EACH PROVIDER BILLS ON. Total over `VoiceProvider`, so adding a fourth
+#: provider fails `voice_tier` at the type level rather than silently inheriting a rate
+#: nobody struck for it.
 #:
-#: A provider mapped to `None` has no rate on a credit lot, no cost floor and no
-#: client-facing label — because nobody has published or attested what a minute on it
-#: costs. It is not "the cheap one" and it is not "free": it is a provider no minute may be
-#: billed against yet. Total over `VoiceProvider`, so adding a fourth provider fails
-#: `voice_tier` at the type level rather than silently inheriting Sarvam's rate.
+#: ⚠ **`gnani` MAPPED TO `None` UNTIL 18 SEP 2026, AND NOW HOLDS THE VALUE RUNG.** The
+#: `None` existed because a provider with no published price had no rate to freeze on a
+#: credit lot and no floor to clear, and minting a tier for it would have put an unpriced
+#: minute into the money lane's vocabulary. What changed is the OTHER occupant of that rung:
+#: the founder withdrew the Sarvam TTS leg, and Gnani is what serves the value tier now.
+#:
+#: **THAT DOES NOT MAKE A GNANI MINUTE SELLABLE, AND NOTHING HERE SHOULD BE READ AS SAYING
+#: SO.** This mapping answers "which rung does this provider bill on", which is a fact about
+#: the catalogue. Whether a minute may be METERED is hard rule 7's question and it is
+#: answered one seam over, by an operator's attestation
+#: (`agents/voice_offer.tts_price_is_billable`, `ops/model_pricing.attest_tts_price`) — and
+#: nobody has attested a Gnani figure, so the offer seam refuses every Gnani voice and the
+#: value rung is currently UNSELLABLE. That is the founder's intended end state
+#: ("we are still in building phase", 18 Sep 2026), not a gap to be closed with a number.
+#: The `None` arm below is kept for the provider that arrives with no rung at all.
+#:
+#: **THE TIER TOKEN `"sarvam"` IS A HISTORICAL NAME AND IS DELIBERATELY NOT RENAMED — see
+#: `billing/rates.VoiceTier`, which is where that decision is argued.**
 VOICE_TIER_OF_PROVIDER: Final[Mapping[VoiceProvider, VoiceTier | None]] = {
-    "sarvam": "sarvam",
     "cartesia": "cartesia",
-    # D-618. Gnani publish NO price — no per-character rate, no per-second rate, no
-    # currency, no free tier. The only figure in this tree is a reseller's price for their
-    # own platform and is not Gnani's (`docs/PIPECAT-MIGRATION.md` §7). `docs/
-    # PIPECAT-MIGRATION.md` §6 step 9 is where this becomes a tier: it gates the Clear
-    # flip on an ATTESTED price, and this entry is what has to change when one exists.
-    "gnani": None,
+    "gnani": VALUE_VOICE_TIER,
 }
 
 
@@ -746,14 +767,17 @@ class UnpricedVoiceProviderError(ValueError):
 
     Raised rather than defaulted, for `billing/rates.llm_inr_per_ktok`'s reason and
     `docs/PIPECAT-MIGRATION.md` §1.3's instruction in as many words: *"a leg we cannot
-    price raises"*. Defaulting to the Sarvam tier would be the same defect D-585's
+    price raises"*. Defaulting to the value tier would be the same defect D-585's
     catalogue-membership lookup had — a minute billed at a rate nobody struck for it, on an
     append-only ledger, silently.
 
-    **UNREACHABLE TODAY AND THAT IS NOT AN ARGUMENT FOR SOFTENING IT.** No agent row can
-    name a Gnani voice: the offer seam will not offer one with no attested price, so the
-    only way here is a row written by something that bypassed it — which is exactly when a
-    refusal is worth more than a number.
+    ⚠ **NO PROVIDER IN `VOICE_TIER_OF_PROVIDER` MAPS TO `None` TODAY, AND THE ARM STAYS.**
+    Gnani was the entry that reached it and it took the value rung on 18 Sep 2026. The arm
+    is what makes the mapping's `VoiceTier | None` type mean something: the next provider is
+    added as a row, and until somebody decides which rung it bills on it raises here rather
+    than inheriting the cheaper one. Deleting it would make the honest answer for a new
+    provider "the value rate", chosen by nobody. `tests/voice_tier_test.py` drives it
+    through a patched mapping, which is the only way it is reachable.
     """
 
 
@@ -761,39 +785,40 @@ def voice_tier(tts_voice: str | None) -> VoiceTier:
     """THE agent's voice tier: the provider of the voice on its row, and nothing else.
 
     Plan §2.3 invariant 7 and §3.3: the tier is DERIVED, never stored, so an agent cannot
-    hold a Cartesia voice and a Sarvam tier. This is the one function that derives it —
-    the pipeline's `meta.voice_tier`, the credit-lot debit and the runway all ask here.
+    hold a Studio voice and a Clear tier. This is the one function that derives it — the
+    pipeline's `meta.voice_tier`, the credit-lot debit and the runway all ask here.
     NOT `meta.tts_tier`, which this line used to name: that key carries the plan's OVERAGE
     RUNG and is stamped separately on purpose (see `VoiceTier` above).
 
     ⚠ **IT IS DERIVED FROM THE ID, NOT FROM CATALOGUE MEMBERSHIP, AND THAT CHANGED ON
     11 SEP 2026 (D-585) — THE CHANGE REACHES MONEY.** This used to look the id up in
-    `CATALOG` and return `"sarvam"` when it was absent. That was safe only while the
+    `CATALOG` and return the cheaper tier when it was absent. That was safe only while the
     catalogue was a frozen compiled constant: every id that could exist was in it. The
     catalogue is now CACHED FROM THE ENGINE (`agents/voice_sync.py`), so "absent" became a
     state a live Cartesia agent can be in — a cache not yet synced, a sync that pruned a
     voice the vendor withdrew, a clone renamed. In every one of those, a Cartesia agent
-    would have billed at the SARVAM rate, silently, on an append-only ledger (hard rule 7).
+    would have billed at the cheaper rate, silently, on an append-only ledger (hard rule 7).
 
     So the tier comes from the id's own model prefix and the one model→provider registry.
-    `bulbul:v3:…` is Sarvam and `sonic-3.5:…` is Cartesia whether or not a row for that
-    voice exists anywhere, which is the property the money lane needs.
+    `sonic-3.5:…` is Studio and `timbre-v2.5:…` is Clear whether or not a row for that voice
+    exists anywhere, which is the property the money lane needs.
 
-    ⚠ **IT NO LONGER RETURNS THE PROVIDER, BECAUSE A PROVIDER IS NO LONGER A TIER
-    (D-618).** It returns the PRICED tier the provider bills on, through
-    `VOICE_TIER_OF_PROVIDER`, and RAISES `UnpricedVoiceProviderError` for a provider that
-    has none. Gnani is the first such provider and the reason the distinction had to exist.
+    It returns the PRICED tier the provider bills on, through `VOICE_TIER_OF_PROVIDER`, and
+    RAISES `UnpricedVoiceProviderError` for a provider that has none.
 
-    `sarvam` for an empty id or one naming none of our models, and that is a decision
-    rather than a fallback: an agent with no voice speaks the engine's default Sarvam
-    persona, and a legacy free-text row (`bulbul:v3`, the pre-split spelling) is a Sarvam
-    row. Cartesia is chosen, never inherited (Q9) — the only way onto the dearer tier is an
-    id that names the Cartesia model.
+    **THE VALUE TIER FOR AN EMPTY ID OR ONE NAMING NONE OF OUR MODELS, and that is a
+    decision rather than a fallback.** An agent with no voice speaks whatever the leg
+    running the call defaults to, and a free-text row this product no longer recognises is
+    not evidence of the dearer rung. Cartesia is chosen, never inherited (plan §0 Q9) — the
+    only way onto the dearer tier is an id that names the Cartesia model. ⚠ Before
+    18 Sep 2026 the same line read "an agent with no voice speaks the engine's default
+    Sarvam persona"; the tier it returns is unchanged, the reason it gave is withdrawn with
+    the Sarvam TTS leg.
     """
     model = tts_model_of_voice_id(tts_voice)
     provider = provider_of_tts_model(model) if model is not None else None
     if provider is None:
-        return "sarvam"
+        return VALUE_VOICE_TIER
     tier = VOICE_TIER_OF_PROVIDER[provider]
     if tier is None:
         raise UnpricedVoiceProviderError(
@@ -863,9 +888,9 @@ __all__ = [
     "ADDED_CURATION_STATE",
     "ARRIVAL_CURATION_STATE",
     "CARTESIA_TTS_MODEL",
-    "DEFAULT_TTS_MODEL",
     "DEFAULT_VOICE_ORIGIN",
     "ENGINE_DICTATES_TTS_REASON",
+    "GNANI_TTS_MODEL",
     "VOICE_TIER_OF_PROVIDER",
     "CatalogueSource",
     "CurationState",

@@ -489,8 +489,8 @@ def _agent_config(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> AgentConfig:
             # of this provider so an endpoint is never implied.
             llm_model="calevate-gpt-4o-mini",
             llm_base_url=azure_openai_base_url("calevate-eastus2"),
-            tts_provider="sarvam",
-            tts_model="bulbul:v3",
+            tts_provider="cartesia",
+            tts_model="sonic-3.5",
             tts_voice="anushka",
         ),
     )
@@ -562,7 +562,7 @@ async def test_the_digest_the_publish_wrote_is_the_digest_the_session_config_car
     assert config.tenant_id == tenant_id and config.agent_id == agent_id
     assert config.direction == "inbound"
     assert config.language == "te-IN"
-    assert config.models.tts_model == "bulbul:v3"
+    assert config.models.tts_model == "sonic-3.5"
     # §1.1: the worker's own recomputation agrees with the version it loaded. This is the
     # comparison the attestation is judged by, and it is meaningful only because the two
     # sides are computed independently.

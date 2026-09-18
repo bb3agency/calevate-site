@@ -49,7 +49,7 @@ from sqlalchemy import text
 from tests.conftest import accept_agreements
 from tests.voice_fixture import TEST_VOICE_ID, seed_platform_voices
 
-SECOND_VOICE_ID = "bulbul:v3:priya"
+SECOND_VOICE_ID = "sonic-3.5:priya"
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +86,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
         await session.execute(
             text(
                 "UPDATE agents SET status = 'live', tts_voice = :voice, "
-                "tts_provider = 'sarvam' WHERE id = :id"
+                "tts_provider = 'cartesia' WHERE id = :id"
             ),
             {"id": agent_id, "voice": TEST_VOICE_ID},
         )
@@ -175,7 +175,7 @@ async def test_archiving_a_voice_a_live_agent_is_on_does_not_break_that_agent() 
     2. **The id still RESOLVES.** `voices.catalogue()` is the LOOKUP layer and deliberately
        keeps a disabled voice, so `speech_for_voice_id` still splits it into the model and
        speaker the engine wants. If curation filtered the catalogue, the next publish or
-       drift sweep would send `bulbul:v3:ashutosh` in the vendor's SPEAKER slot — a string no
+       drift sweep would send `sonic-3.5:ashutosh` in the vendor's SPEAKER slot — a string no
        vendor has ever heard of.
     3. **The archive write itself succeeds**, rather than refusing because an agent is on
        the voice. Refusing would make a vendor's own withdrawal unfileable: the voice is gone
@@ -196,7 +196,7 @@ async def test_archiving_a_voice_a_live_agent_is_on_does_not_break_that_agent() 
     assert stored == TEST_VOICE_ID, "archiving rewrote a live agent's voice"
 
     model, speaker = speech_for_voice_id(TEST_VOICE_ID)
-    assert (model, speaker) == ("bulbul:v3", "ashutosh"), (
+    assert (model, speaker) == ("sonic-3.5", "ashutosh"), (
         "an archived voice stopped resolving, so the next publish would send our composed "
         "id in the vendor's speaker slot"
     )
@@ -244,7 +244,7 @@ async def test_curating_a_voice_that_is_not_cached_is_a_404() -> None:
     async with untenanted_session() as session:
         with pytest.raises(ProblemError) as raised:
             await set_curation_state(
-                session, voice_id="bulbul:v3:not-a-voice-on-this-account", state="enabled"
+                session, voice_id="sonic-3.5:not-a-voice-on-this-account", state="enabled"
             )
     assert raised.value.status == 404
 
@@ -371,7 +371,7 @@ async def test_the_offered_count_is_the_same_number_the_table_shows() -> None:
     async with untenanted_session() as session:
         await session.execute(
             text("UPDATE platform_voice_catalog SET withdrawn_at = now() WHERE voice_id = :id"),
-            {"id": "bulbul:v3:pooja"},
+            {"id": "sonic-3.5:pooja"},
         )
         await session.commit()
 
@@ -398,14 +398,14 @@ async def test_a_newly_synced_voice_arrives_in_the_state_the_founder_asked_for()
     does, naming every column the sync names and no others, and reads back what the database
     chose.
     """
-    probe = "bulbul:v3:arrival-probe-not-a-real-voice"
+    probe = "sonic-3.5:arrival-probe-not-a-real-voice"
     async with untenanted_session() as session:
         await session.execute(
             text(
                 "INSERT INTO platform_voice_catalog "
                 "(voice_id, engine_voice_id, label, tts_model, provider, languages, "
                 " is_custom, synced_at) "
-                "VALUES (:id, 'arrival-probe', 'Arrival Probe', 'bulbul:v3', 'sarvam', "
+                "VALUES (:id, 'arrival-probe', 'Arrival Probe', 'sonic-3.5', 'cartesia', "
                 " ARRAY['te-IN']::text[], false, now())"
             ),
             {"id": probe},
@@ -452,14 +452,14 @@ async def test_not_on_offer_is_the_operator_ground_in_both_audiences() -> None:
     branches on must not be recoverable from a human sentence, because the sentence is
     allowed to vary for reasons the verdict is not.
     """
-    disabled_id = "bulbul:v3:not-on-offer-probe"
+    disabled_id = "sonic-3.5:not-on-offer-probe"
     async with untenanted_session() as session:
         await session.execute(
             text(
                 "INSERT INTO platform_voice_catalog "
                 "(voice_id, engine_voice_id, label, tts_model, provider, languages, "
                 " is_custom, synced_at, curation_state) "
-                "VALUES (:id, 'not-on-offer-probe', 'Probe', 'bulbul:v3', 'sarvam', "
+                "VALUES (:id, 'not-on-offer-probe', 'Probe', 'sonic-3.5', 'cartesia', "
                 " ARRAY['te-IN']::text[], false, now(), 'disabled')"
             ),
             {"id": disabled_id},

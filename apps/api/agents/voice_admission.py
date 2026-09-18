@@ -91,8 +91,8 @@ consequences worth stating:
 
 ELEVENLABS IS REFUSED BY NAME, AND THAT REFUSAL IS THE POINT
 --------------------------------------------------------------
-Bolna clones on **ElevenLabs or Cartesia**. This product's `TtsModel` is `bulbul:v3`
-(Sarvam) and `sonic-3.5` (Cartesia) — there is no ElevenLabs model, therefore no
+Bolna clones on **ElevenLabs or Cartesia**. This product's `TtsModel` is `sonic-3.5`
+(Cartesia) and `timbre-v2.5` (Gnani) — there is no ElevenLabs model, therefore no
 `TTS_MODEL_LIFECYCLE` row, therefore no provider, therefore no voice tier, therefore no
 price for a minute of it (hard rule 7). A form that silently omitted ElevenLabs would let an
 operator clone a voice there, come back, find no way to add it, and conclude the console is
@@ -136,7 +136,7 @@ VOICE_LAB_URL: Final = "https://platform.bolna.ai/voices"
 #: Providers the VOICE PLATFORM will clone on but this product cannot publish. ElevenLabs is
 #: the whole of it today: Bolna's clone flow offers ElevenLabs or Cartesia
 #: (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/clone-voices.md`, "Select Provider"),
-#: and we run Sarvam `bulbul:v3` and Cartesia `sonic-3.5`.
+#: and we run Cartesia `sonic-3.5` and Gnani `timbre-v2.5`.
 #:
 #: SEPARATE FROM "a provider we have never heard of", because the two are different
 #: mistakes: one is an operator who has just spent a voice sample on the wrong vendor and
@@ -145,7 +145,7 @@ UNPUBLISHABLE_CLONING_PROVIDERS: Final[frozenset[str]] = frozenset({"elevenlabs"
 
 #: The providers this product actually runs, DERIVED from the model registry rather than
 #: typed — so a refusal message listing "what exists" cannot come to disagree with what the
-#: catalogue offers. Ordered as `TtsModel` is (Sarvam, the default and cheaper tier, first).
+#: catalogue offers. Ordered as `TtsModel` is.
 OUR_PROVIDERS: Final[tuple[VoiceProvider, ...]] = tuple(
     dict.fromkeys(
         provider

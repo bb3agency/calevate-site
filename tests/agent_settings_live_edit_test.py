@@ -149,7 +149,11 @@ async def _live_agent() -> tuple[UUID, UUID, str, str, FakeEngine]:
             created_by=None,
         )
         await session.execute(
-            text("UPDATE agents SET tts_voice = :v, tts_provider = 'sarvam' WHERE id = :a"),
+            # THE PROVIDER IS WRITTEN TO MATCH `TEST_VOICE_ID`'s OWN, not typed
+            # independently: `tests/voice_fixture` seeds a CARTESIA voice, and this row said
+            # `sarvam` — which was merely redundant while Sarvam was a provider and became a
+            # row no catalogue could resolve when D-629 withdrew it.
+            text("UPDATE agents SET tts_voice = :v, tts_provider = 'cartesia' WHERE id = :a"),
             {"v": VOICE_ID, "a": agent_id},
         )
     engine = get_engine()
@@ -240,8 +244,12 @@ async def test_an_owner_sets_the_voice_on_their_own_live_agent_and_it_reaches_th
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE agents SET tts_voice = 'bulbul:legacy', live_tts_voice = "
-                "'bulbul:legacy' WHERE id = :a"
+                # A voice id NO catalogue resolves, which is the whole requirement here —
+                # the clause needs somewhere to move FROM. It was spelled `bulbul:legacy`,
+                # which read as a retired SARVAM id and is now a fossil of a provider this
+                # product does not have; the point was always "unresolvable", never "Sarvam".
+                "UPDATE agents SET tts_voice = 'retired:not-in-any-catalogue', "
+                "live_tts_voice = 'retired:not-in-any-catalogue' WHERE id = :a"
             ),
             {"a": agent_id},
         )
@@ -264,7 +272,7 @@ async def test_an_owner_sets_the_voice_on_their_own_live_agent_and_it_reaches_th
     )
 
     row = await _row(tenant_id, agent_id)
-    assert (row[0], row[1], row[2]) == (VOICE_ID, "sarvam", VOICE_ID)
+    assert (row[0], row[1], row[2]) == (VOICE_ID, "cartesia", VOICE_ID)
     config = await _engine_config(engine, tenant_id, agent_id)
     assert config.models.tts_voice == TEST_SPEAKER
 
@@ -351,8 +359,12 @@ async def test_two_simultaneous_voice_writes_serialize_and_the_engine_ends_up_ag
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE agents SET tts_voice = 'bulbul:legacy', live_tts_voice = "
-                "'bulbul:legacy' WHERE id = :a"
+                # A voice id NO catalogue resolves, which is the whole requirement here —
+                # the clause needs somewhere to move FROM. It was spelled `bulbul:legacy`,
+                # which read as a retired SARVAM id and is now a fossil of a provider this
+                # product does not have; the point was always "unresolvable", never "Sarvam".
+                "UPDATE agents SET tts_voice = 'retired:not-in-any-catalogue', "
+                "live_tts_voice = 'retired:not-in-any-catalogue' WHERE id = :a"
             ),
             {"a": agent_id},
         )

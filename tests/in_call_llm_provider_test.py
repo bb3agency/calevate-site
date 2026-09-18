@@ -88,7 +88,7 @@ def _azure_models() -> ModelConfig:
         llm_model=DEPLOYMENT,
         llm_provider="azure_openai",
         llm_base_url=ENDPOINT,
-        tts_provider="sarvam",
+        tts_provider="cartesia",
         tts_voice="anushka",
     )
 

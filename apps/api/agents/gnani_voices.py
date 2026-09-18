@@ -18,8 +18,8 @@ ships `TIMBRE_V25_VOICES` (`gnani/tts/client.py:45-103`), which was read in the 
 wheel and agrees name-for-name and language-for-language with the founder's reading of the
 page. `tests/gnani_voices_test.py` pins this table against that wheel, so a vendor release
 that adds, removes or re-languages a voice turns CI red here rather than turning a Telugu
-call into an English one. That is exactly the `bulbul:v3` argument this catalogue already
-accepts for the Sarvam model string (`voices.py`, "WHAT IS GROUNDED, AND WHERE").
+call into an English one. That is the same argument `voices.py`'s "WHAT IS GROUNDED, AND
+WHERE" makes for every model string in this product.
 
 **THE NAMES ARE TYPED OUT AND NOT IMPORTED, AND THAT IS HARD RULE 2.** `apps/api` may not
 import a vendor SDK. The wheel is importable in `apps/voice-worker` and in this file's
@@ -34,23 +34,25 @@ WHAT THIS MODULE DELIBERATELY DOES NOT DO
   defect that deleted the old seed. These entries become catalogue rows the day an operator
   admits them, and `gnani_voice_entries()` is what such an admission is built from.
 * **It does not put a price anywhere.** Gnani publish none (module `voices.py`'s
-  `_GNANI_NOTE`, `VOICE_TIER_OF_PROVIDER["gnani"] is None`, `docs/PIPECAT-MIGRATION.md`
-  §7). The ₹27/10 000-character figure that exists in the wild is a RESELLER's price for
-  their own platform and is not Gnani's; it may not appear in this product at all.
+  `_GNANI_NOTE`, `docs/PIPECAT-MIGRATION.md` §7). The ₹27/10 000-character figure that
+  exists in the wild is a RESELLER's price for their own platform and is not Gnani's; it
+  may not appear in this product at all. ⚠ Gnani now HOLDS the value rung
+  (`VOICE_TIER_OF_PROVIDER["gnani"]`, 18 Sep 2026, when the Sarvam TTS leg was withdrawn) —
+  which says which rung a Gnani minute would bill on and NOT that one may be billed. Until
+  an operator attests a price, `agents/voice_offer.py` refuses every Gnani voice.
 * **It does not claim a voice can speak a second language.** The vendor groups each voice
   under one locale and says a mismatched `language` *"may reduce quality"*; whether a voice
   can speak OUTSIDE its group is NOT STATED, so `languages` below is a one-element tuple
   per voice rather than a guess in either direction.
 
-ONE SENTENCE IS WRONG THE DAY A GNANI ROW REACHES THE PICKER, AND IT IS NAMED HERE
------------------------------------------------------------------------------------
-`agents/voice_offer.NO_ATTESTED_TTS_PRICE_REASON` is written about Cartesia by name ("what
-the Cartesia voice tier costs"), and it is the sentence the offer seam would render for ANY
-provider whose price is not billable — including this one. It is unreachable today, because
-no Gnani row can enter `voices.catalogue()` at all (see the bullet above), so the wrong
-sentence has nothing to be rendered beside. Whoever admits the first Gnani voice must make
-that reason per-provider first; it was left alone here because that file is another lane's
-and a drive-by edit to a client-facing refusal is how two sentences end up meaning one thing.
+THE REFUSAL SENTENCE IS PER-PROVIDER NOW (18 Sep 2026)
+------------------------------------------------------
+This section used to warn that `agents/voice_offer.NO_ATTESTED_TTS_PRICE_REASON` was
+written about Cartesia by name and would be rendered, wrongly, for the first Gnani voice
+that reached the picker. Withdrawing the Sarvam TTS leg made that reachable, so it was
+fixed rather than re-warned about: `voice_offer.no_attested_price_reason(provider)` and
+`no_credential_reason(provider)` are per-provider, and `tests/gnani_voices_test.py` holds
+them to naming the right vendor.
 
 THE OTHER 18 VOICES ARE REAL AND ARE NOT HERE
 ----------------------------------------------
@@ -66,13 +68,19 @@ from __future__ import annotations
 from typing import Final
 
 from apps.api.agents.languages import Language
-from apps.api.agents.voices import Voice, catalogue_note, voice_id_for
+from apps.api.agents.voices import (
+    GNANI_TTS_MODEL,
+    Voice,
+    catalogue_note,
+    voice_id_for,
+)
 
-#: The one Gnani model this product runs. Same string as
-#: `voice_worker.gnani_tts.GNANI_TTS_MODEL` and as the `TTS_MODEL_LIFECYCLE` row; the
-#: worker's copy is separate because `apps/voice-worker` may not import `apps/api`
-#: (D-592) — `tests/gnani_voices_test.py` pins the two together.
-GNANI_TTS_MODEL: Final = "timbre-v2.5"
+#: The one Gnani model this product runs. ⚠ **IT IS IMPORTED FROM `agents/voices.py` NOW
+#: AND NOT SPELLED HERE (18 Sep 2026)**: `TtsModel` is that module's vocabulary, and a
+#: second literal here was a second place the string could be typed. Re-exported under this
+#: name because `voice_worker.gnani_tts.GNANI_TTS_MODEL` holds a separate copy —
+#: `apps/voice-worker` may not import `apps/api` (D-592) — and
+#: `tests/gnani_voices_test.py` pins the two together through this name.
 
 #: The provider name, in the one vocabulary `calevate_shared.model_lifecycle.TtsProvider`
 #: defines.

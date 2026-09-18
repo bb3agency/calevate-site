@@ -71,7 +71,7 @@ async def _plant(label: str, marker: str) -> tuple[uuid.UUID, uuid.UUID, str, st
         language_primary="te-IN",
         system_prompt=f"Receptionist. {marker}",
         opening_line="Idi AI assistant. Ee call record avutundi.",
-        models=ModelConfig(tts_provider="sarvam", tts_model="bulbul:v3", tts_voice="anushka"),
+        models=ModelConfig(tts_provider="cartesia", tts_model="sonic-3.5", tts_voice="anushka"),
     )
     ref = await engine.create_agent(cfg)
     handle = await engine.attach_kb(

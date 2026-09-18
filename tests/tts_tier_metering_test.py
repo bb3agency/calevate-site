@@ -53,31 +53,56 @@ def test_the_engine_tells_us_nothing_about_which_voice_ran() -> None:
 # --- the single rate card (TRD §10.1) ------------------------------------------
 
 
-def test_the_rate_card_is_one_numeric_scalar() -> None:
-    """One voice quality, one rate — a scalar, not a per-tier mapping."""
+def test_the_value_rungs_scalar_is_frozen_and_numeric() -> None:
+    """One scalar, not a per-tier mapping — and since 18 Sep 2026 not a vendor card either.
+
+    ⚠ **THE NUMBER IS UNCHANGED AND WHAT IT MEANS IS NOT.** It was Sarvam's published Bulbul
+    v3 list rate; the founder withdrew that leg, and it survives as the FROZEN scalar the
+    value rung's cost floor is struck at. Pinned here so a later session cannot quietly
+    re-strike a floor that TRD §10.1, the pack guard and the margin model all rest on.
+    """
     assert Decimal("30.0000") == rates.TTS_INR_PER_10K_CHARS
     assert isinstance(rates.TTS_INR_PER_10K_CHARS, Decimal)
     assert not isinstance(rates.TTS_INR_PER_10K_CHARS, float)
 
 
-def test_tts_cost_takes_only_a_character_count() -> None:
-    assert rates.tts_cost_inr(10_000) == Decimal("30.0000")
-    assert rates.tts_cost_inr(5_000) == Decimal("15.0000")
-    assert isinstance(rates.tts_cost_inr(10_000), Decimal)
-    # The old `TtsTier` argument is gone; there is nothing to select.
-    with pytest.raises(TypeError):
-        rates.tts_cost_inr("premium", 10_000)  # type: ignore[call-arg]
+def test_the_billable_per_character_door_refuses_rather_than_returning_that_scalar() -> None:
+    """HARD RULE 7, STRUCTURALLY, AND THIS IS THE CLAUSE THAT MATTERS MOST IN THIS FILE.
+
+    `tts_rate_inr_per_char()` returned `TTS_INR_PER_10K_CHARS / 10_000` and the biller
+    multiplied EVERY synthesised character by it. After 18 Sep 2026 that would stamp a
+    withdrawn vendor's list rate on a Gnani or Cartesia minute — an invented vendor price on
+    an append-only ledger. It refuses instead, and the refusal says what would unblock it.
+    """
+    with pytest.raises(rates.UnattestedTtsRateError) as refusal:
+        rates.tts_rate_inr_per_char()
+    assert "attest" in str(refusal.value).lower()
+    assert isinstance(refusal.value, LookupError), (
+        "the metering port catches LookupError and records a refusal; a bare Exception "
+        "would escape `voice_worker.meter._tts_rows` and fail the whole settlement"
+    )
 
 
-def test_a_negative_character_count_is_refused_rather_than_priced() -> None:
-    """A negative count would price to a NEGATIVE cost, and a negative cost recorded as a
+def test_the_cost_model_still_prices_a_call_minute_from_the_frozen_scalar() -> None:
+    """The half that may still compute: a MARGIN, never a bill. `tts_cost_inr(chars)` was
+    deleted with the billable door — a character count no longer has a price — and
+    `tts_inr_per_call_minute` is what the floor, TRD §10.1's per-call-minute cell and the
+    measured speaking-rate board all go through."""
+    assert rates.value_rung_tts_inr_per_char() == Decimal("30.0000") / Decimal(10_000)
+    assert rates.tts_inr_per_call_minute(Decimal(10_000)) == Decimal("30.0000")
+    assert not hasattr(rates, "tts_cost_inr"), (
+        "a per-character COST helper is a billable door by another name; the floor takes a "
+        "speaking rate, not a character count"
+    )
+
+
+def test_a_negative_speaking_rate_is_refused_rather_than_priced() -> None:
+    """A negative rate would price to a NEGATIVE cost, and a negative cost recorded as a
     usage event is a credit issued by an arithmetic accident. Zero is NOT an error — a call
     that synthesized nothing costs nothing."""
     with pytest.raises(ValueError, match="negative"):
-        rates.tts_cost_inr(-1)
-    with pytest.raises(ValueError):
-        rates.tts_cost_inr(-10_000)
-    assert rates.tts_cost_inr(0) == Decimal("0.0000")
+        rates.tts_inr_per_call_minute(Decimal(-1))
+    assert rates.tts_inr_per_call_minute(Decimal(0)) == Decimal("0.0000")
 
 
 # --- metering stamps the base rung ---------------------------------------------

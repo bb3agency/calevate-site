@@ -873,12 +873,16 @@ def reference_embedding_price(model: str) -> tuple[Decimal, bool]:
 #: a name the pipeline does not stamp.
 #:
 #: ⚠ **IT USED TO SAY "the voice TIERS … the same vocabulary as `VoiceProvider` AND
-#: `billing/lots.VoiceTier`", AND D-618 SPLIT THOSE TWO.** This set is the PROVIDERS, and
-#: `gnani` is in it precisely BECAUSE it has no tier: attesting a Gnani price is the act
-#: that gives it one, so a set that excluded unpriced providers would lock the only door
-#: out of being unpriced. A tier is what a lot's rates are frozen against
-#: (`billing/rates.VoiceTier`, two members); a provider is who synthesises.
-TTS_PROVIDERS: Final[tuple[str, ...]] = ("sarvam", "cartesia", "gnani")
+#: `billing/lots.VoiceTier`", AND D-618 SPLIT THOSE TWO.** This set is the PROVIDERS. A tier
+#: is what a lot's rates are frozen against (`billing/rates.VoiceTier`, two members, one of
+#: whose tokens is now a HISTORICAL name); a provider is who synthesises.
+#:
+#: ⚠ **`sarvam` LEFT THIS TUPLE ON 18 Sep 2026 WITH THE SARVAM TTS LEG, AND SARVAM STILL
+#: TRANSCRIBES EVERY CALL.** This is the TTS price panel's row list; the STT leg has never
+#: had a row here. Both remaining entries are BYOK legs the vendor bills on a plan this
+#: process cannot read, so BOTH now need an attestation before a minute on them may be
+#: metered — which is why nothing in this file is exempt any more.
+TTS_PROVIDERS: Final[tuple[str, ...]] = ("cartesia", "gnani")
 
 
 @dataclass(frozen=True, slots=True)
@@ -987,15 +991,15 @@ async def tts_price_is_billable(session: AsyncSession, *, provider: str, at: dat
     offering a voice whose minutes would meter as free — the same rule
     `offerable_models` applies to a language model.
 
-    Sarvam answers True without an attestation and that is not an exemption: the ENGINE
-    bills us for the Sarvam synthesizer leg and reports what it charged, so that leg has a
-    measured cost on every row (`CostBreakdown.tts_inr`) and no attestation to make. It is
-    BYOK legs — where the engine charges nothing and the vendor bills a monthly plan — that
-    have no cost at all without one. Whether the engine's own Sarvam figure is right is a
-    different question and a different gate (OPERATIONS §2 gate 7), unchanged here.
+    ⚠ **SARVAM USED TO ANSWER `True` WITH NOTHING ATTESTED, AND THAT WAS A MEASUREMENT
+    RATHER THAN AN EXEMPTION (18 Sep 2026).** The ENGINE billed us for the Sarvam
+    synthesizer leg and reported what it charged, so that leg carried a measured cost on
+    every row (`CostBreakdown.tts_inr`). The founder withdrew the Sarvam TTS leg; both
+    surviving providers are BYOK, the engine charges nothing for them and reports ₹0, and
+    neither publishes a per-character rate we could bill from anyway. So there is no
+    exemption left and this function has no special case — an attested figure or nothing.
     """
-    if _require_tts_provider(provider) == "sarvam":
-        return True
+    _require_tts_provider(provider)
     return provider in await attested_tts_prices(session, at=at)
 
 
@@ -1009,8 +1013,11 @@ def reference_tts_price(provider: str) -> Decimal | None:
     believes and is not helped by having it entered for them.
 
     NEITHER FIGURE IS A PRICE SOMEBODY READ OFF AN INVOICE, which is why there is no
-    `verified` flag to return: Sarvam's is the published list rate for Bulbul v3
-    (`rates.TTS_INR_PER_10K_CHARS`, evidence class VENDOR-PUBLISHED) and Cartesia's is the
+    `verified` flag to return. ⚠ **THE SARVAM ARM IS GONE (18 Sep 2026)**: it pre-filled
+    `rates.TTS_INR_PER_10K_CHARS`, the published Bulbul v3 list rate, and that leg is
+    withdrawn — the constant survives ONLY as the value rung's frozen cost-model scalar and
+    pre-filling it beside a Gnani form would be another vendor's number wearing Gnani's
+    name, which is the very thing the paragraph below refuses. Cartesia's is the
     vendor's OVERAGE rate on the dearest plan we can be on, ₹57.20/10,000 characters
     (`rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, VENDOR-PUBLISHED — Tinmaz
     correspondence, 9 Sep 2026). ⚠ **IT USED TO BE THE STARTUP FEE DIVIDED BY THE
@@ -1033,8 +1040,6 @@ def reference_tts_price(provider: str) -> Decimal | None:
     Raises for an unknown provider, like every other reader here.
     """
     _require_tts_provider(provider)
-    if provider == "sarvam":
-        return rates.TTS_INR_PER_10K_CHARS / Decimal("10")
     if provider == "cartesia":
         return rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS / Decimal("10")
     return None

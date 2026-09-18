@@ -1654,8 +1654,9 @@ async def _voice_refusal(
     personas is not a FURTHER agent on the tier, and counting it against itself would
     refuse a change that adds nothing to the plan.
 
-    The count is measured only when it could decide anything — a Sarvam voice fails no
-    PRICED ground, and a deployment with no Cartesia key or no attested price already has
+    The count is measured only when it could decide anything — the cap is CARTESIA'S
+    alone (their plan has a concurrency ceiling; no such ceiling has been read for any
+    other vendor), and a deployment with no Cartesia key or no attested price already has
     its answer — so the ordinary write opens no extra session for it.
 
     **CURATION IS ALWAYS MEASURED (D-588)**, because ground zero applies to both providers:
@@ -1664,7 +1665,7 @@ async def _voice_refusal(
     platform-scoped table of tens of rows, on a write a human just made.
     """
     curation = await read_curation()
-    needs_count = voice.provider != "sarvam" and cartesia_tier_could_be_offered()
+    needs_count = voice.provider == "cartesia" and cartesia_tier_could_be_offered()
     live = await count_live_cartesia_agents(exclude_agent_id=agent_id) if needs_count else 0
     return unofferable_reason(
         voice, cartesia_live_agents=live, curation=curation, audience=audience

@@ -173,13 +173,18 @@ RetirementStance = Literal["dated", "none-announced", "unread"]
 #: `voices.VoiceProvider` is this type, not a second spelling of it.
 #:
 #: ⚠ **THIS USED TO SAY "THE TWO … AND, BY D-547 §2.3 INVARIANT 7, THE TWO VOICE TIERS AN
-#: AGENT CAN BE ON", AND D-618 SPLITS THE SECOND HALF OFF.** `gnani` is a third provider
-#: and is NOT a third tier: a tier is a PRICE (`billing/rates.VoiceTier`, its label, its
-#: cost floor and the two rates frozen on every credit lot), and Gnani publish no price at
-#: all. Provider and tier were the same Literal while every provider happened to have one;
-#: `voices.voice_tier()` now maps the first to the second and REFUSES where there is
-#: nothing to map to, which is hard rule 7's shape rather than a new rule.
-TtsProvider = Literal["sarvam", "cartesia", "gnani"]
+#: AGENT CAN BE ON", AND D-618 SPLIT THE SECOND HALF OFF.** A provider is NOT a tier: a
+#: tier is a PRICE (`billing/rates.VoiceTier`, its label, its cost floor and the two rates
+#: frozen on every credit lot), and a provider is who synthesises. `voices.voice_tier()`
+#: maps the first to the second.
+#:
+#: ⚠ **`sarvam` IS GONE FROM THIS LINE AND SARVAM HAS NOT LEFT THE PRODUCT (18 Sep 2026).**
+#: This Literal names the TEXT-TO-SPEECH providers only. Sarvam is still the STT vendor on
+#: every call — `calevate_shared.engine.SARVAM_STT_PROVIDER`, `saaras`, `SARVAM_API_KEY`
+#: and the `stt` half of `languages.VERIFIED_VENDOR_LEGS` are all untouched — and it is still a
+#: sub-processor. What was withdrawn is the Bulbul TTS leg and nothing else. A reader who
+#: takes this line as "Sarvam is out" will delete the transcription vendor.
+TtsProvider = Literal["cartesia", "gnani"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -736,7 +741,7 @@ class TtsModelLifecycle:
 #: container's reading of the installed `gnani-vachana` wheel, which were the same day.
 _GNANI_READ_ON: Final = date(2026, 9, 15)
 
-#: When the pinned Bolna mirror was read for the two Bolna-cited rows below. The mirror
+#: When the pinned Bolna mirror was read for the Bolna-cited row below. The mirror
 #: is hash-pinned
 #: (`bolna-findings/mirror/MANIFEST.json`), so unlike the founder-relayed rows above this
 #: reading can be re-made by anyone with the tree.
@@ -744,11 +749,11 @@ _TTS_READ_ON: Final = date(2026, 9, 7)
 
 #: ⚠ THE TWO ROWS BELOW REST ON TWO DIFFERENT READINGS, AND THE DIFFERENCE IS THE POINT.
 #:
-#: * **`bulbul:v3` — the ENGINE's page only.** Sarvam's own docs are egress-blocked from this
-#:   container and were NOT read, so "none-announced" there means: the page this product's
-#:   engine publishes for Sarvam lists the model as current with no retirement, as of
-#:   `_TTS_READ_ON`. That is narrower than "Sarvam announced nothing anywhere", and the row
-#:   says so in its own note rather than in a comment somebody may not scroll to.
+#: ⚠ **THE `bulbul:v3` ROW IS GONE (18 Sep 2026), WITH THE SARVAM TTS LEG IT DESCRIBED.**
+#: This table is held to exactly `agents/voices.TtsModel`'s members by
+#: `scripts/check_model_lifecycle.py`, and `bulbul:v3` is no longer one of them. **Sarvam
+#: STT is untouched** — it has never had a row here, because this registry is the TTS
+#: catalogue's lifecycle table and `saaras` is not in that catalogue.
 #: * **`sonic-3.5` — the MODEL VENDOR's own page, relayed.** Cartesia's API-changes page was
 #:   read at the named URL on 7 Sep 2026 by the research run and relayed through
 #:   `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` ADDENDUM 1 (`docs.cartesia.ai` is
@@ -762,32 +767,6 @@ _TTS_READ_ON: Final = date(2026, 9, 7)
 #: in `sonic-3.5`'s note and in `apps/api/agents/voices.py`, which is where the decision not
 #: to offer it lives.
 TTS_MODEL_LIFECYCLE: Final[dict[str, TtsModelLifecycle]] = {
-    "bulbul:v3": TtsModelLifecycle(
-        model="bulbul:v3",
-        provider="sarvam",
-        retires_on=None,
-        retirement_stance="none-announced",
-        replacement=None,
-        retirement=Evidence(
-            source="bolna-findings/mirror/pages/providers/voice/sarvam.md:40-44",
-            read_on=_TTS_READ_ON,
-            verified=True,
-            note=(
-                "VERIFIED-VENDOR-DOCS, hash-checked mirror: the engine's Sarvam page lists "
-                "`bulbul:v3` (with v2 and v1) as supported, with no retirement or "
-                "deprecation note on the page. Sarvam's own docs are egress-blocked here "
-                "and unread; Sarvam's dashboard Model Catalogue listed only bulbul:v3 "
-                "(VENDOR-PUBLISHED, founder-read 27 Aug 2026 — `agents/voices.py`). "
-                "Re-read at the next rate-card review."
-            ),
-        ),
-        availability=Evidence(
-            source="bolna-findings/mirror/pages/providers/voice/sarvam.md:40-44",
-            read_on=_TTS_READ_ON,
-            verified=True,
-            note="The engine lists the identifier; whether it accepts our speakers is gate 3.",
-        ),
-    ),
     "sonic-3.5": TtsModelLifecycle(
         model="sonic-3.5",
         provider="cartesia",

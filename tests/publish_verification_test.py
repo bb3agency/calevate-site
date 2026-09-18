@@ -847,7 +847,7 @@ def _cfg(**kw: Any) -> AgentConfig:
         # born with. `opening_line`, not `disclosure_line`: the field is what the agent
         # SAYS FIRST, and it may legitimately be empty when a tenant volunteers neither.
         "opening_line": "Idi AI assistant. Ee call record avutundi.",
-        "models": ModelConfig(tts_provider="sarvam", tts_voice=VOICE),
+        "models": ModelConfig(tts_provider="cartesia", tts_voice=VOICE),
     }
     return AgentConfig(**{**base, **kw})
 

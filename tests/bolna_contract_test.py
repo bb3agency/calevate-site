@@ -48,6 +48,7 @@ from apps.api.engine.bolna import (
     BOLNA_CAPABILITIES,
     BolnaEngine,
     _agent_models,
+    _cartesia_language,
     _synthesizer_config,
     llm_provider_keys,
 )
@@ -83,11 +84,14 @@ def _config() -> AgentConfig:
         system_prompt="You are the receptionist for Sunrise Clinic.",
         opening_line="Idi AI assistant.",
         models=ModelConfig(
+            # ⚠ STT IS STILL SARVAM AND ALWAYS WILL BE — Saaras transcribes every call.
+            # Only the TTS half moved off Sarvam (18 Sep 2026).
             stt_provider="sarvam",
             stt_model="saaras:v3",
             llm_model="sarvam-105b",
-            tts_provider="sarvam",
-            tts_voice="bulbul:v3",
+            tts_provider="cartesia",
+            tts_model="sonic-3.5",
+            tts_voice="ashutosh",
         ),
     )
 
@@ -219,7 +223,15 @@ async def test_the_voice_block_carries_its_own_language_like_the_transcriber_doe
         "vendor refuses the agent at CREATE, so nothing downstream of publish runs"
     )
     assert heard, "the transcriber reached the wire with no block-level `language`"
-    assert spoken == heard, "the agent would listen in one language and speak in another"
+    # ⚠ **NOT A STRING EQUALITY ANY MORE (18 Sep 2026).** They were identical while the
+    # synthesizer was Sarvam's, which takes our own `te-IN`. The Sarvam TTS leg was
+    # withdrawn, so the only synthesizer arm left is Cartesia's — and Cartesia's own config
+    # takes a BARE language code (`_cartesia_language`, built from `CartesiaConfig.language`
+    # in their OSS). What must hold is unchanged and is what this now asserts: the two legs
+    # denote the SAME language, so the agent cannot listen in one and speak in another.
+    assert spoken == _cartesia_language(heard), (
+        "the agent would listen in one language and speak in another"
+    )
 
 
 async def test_the_toolchain_and_prompt_envelope_match_the_spec() -> None:
@@ -1579,12 +1591,21 @@ async def test_a_cartesia_voice_with_no_id_is_refused_by_name_rather_than_half_s
 
         assert raised.value.code == "cartesia_voice_incomplete"
         assert raised.value.kind == "dependency", "nothing the client typed is wrong"
-        assert "Sarvam" in (raised.value.remediation or ""), "what they can do TODAY"
+        # ⚠ It used to assert the remediation offered "switch to a Sarvam voice to publish
+        # today". That leg is withdrawn (18 Sep 2026) and there is no other tier to fall
+        # back to, so what an operator is told is the one sequence that unblocks this one.
+        remediation = raised.value.remediation or ""
+        assert "Sarvam" not in remediation, (
+            "the remediation offers a voice tier this product no longer has"
+        )
+        assert "Cartesia" in remediation and "Voices page" in remediation, (
+            "the operator is not told the one sequence that unblocks the tier"
+        )
         assert "Voices page" in (raised.value.remediation or ""), "and what closes it"
     assert requests == [], "a half-built body must never reach the vendor, not even once"
 
 
-def test_the_sarvam_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> None:
+def test_the_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> None:
     """THE SECOND AND THIRD REFUSALS A LIVE PUBLISH GAVE US (D-581/D-582), in order,
     because they point opposite ways and only both of them together pin the shape.
 
@@ -1599,8 +1620,10 @@ def test_the_sarvam_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> 
     The first error was about AVAILABILITY, not casing — `anushka` is not among the
     speakers Bolna's Sarvam provider offers at all (their
     `GET /api/v1/voice-config/tts/voices` for provider `sarvam`, model `bulbul:v3`, read
-    against the live account 11 Sep 2026). Their API reference omitting `voice` in five
-    places does not make it optional; the validator enforces the schema and demands it.
+    against the live account 11 Sep 2026 — that leg has since been withdrawn, 18 Sep 2026,
+    and the lesson is the same on every provider). Their API reference omitting `voice` in
+    five places does not make it optional; the validator enforces the schema and demands
+    it.
 
     **AND THE NAME IS NOT DERIVED FROM THE ID**, which is the half a unit test has to hold
     because no Sarvam persona can demonstrate it: their id and name differ by one letter's
@@ -1613,7 +1636,7 @@ def test_the_sarvam_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> 
     entry = _catalogue_entry()
     config = _synthesizer_config(
         ModelConfig(
-            tts_provider="sarvam",
+            tts_provider=entry.provider,
             tts_model=entry.tts_model,
             tts_voice=entry.speaker,
             tts_voice_label=entry.label,
@@ -1638,8 +1661,8 @@ def test_the_sarvam_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> 
 
     cloned = _synthesizer_config(
         ModelConfig(
-            tts_provider="sarvam",
-            tts_model="bulbul:v3",
+            tts_provider=entry.provider,
+            tts_model=entry.tts_model,
             tts_voice="sXlZ9Juk5Ji8sZiFjRUV",
             tts_voice_label="my-custom-voice",
         ),
@@ -1651,9 +1674,14 @@ def test_the_sarvam_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> 
     )
 
     unnamed = _synthesizer_config(
-        ModelConfig(tts_provider="sarvam", tts_voice="bulbul:v3"), "te-IN"
+        ModelConfig(
+            tts_provider=entry.provider,
+            tts_model=entry.tts_model,
+            tts_voice="a-voice-this-catalogue-cannot-name",
+        ),
+        "te-IN",
     )
-    assert unnamed["voice"] == "bulbul:v3", (
+    assert unnamed["voice"] == "a-voice-this-catalogue-cannot-name", (
         "a voice the catalogue cannot name dropped its required `voice` key; the id is the "
         "only non-invented string available and the validator refuses the key's absence"
     )

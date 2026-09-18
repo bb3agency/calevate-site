@@ -57,8 +57,8 @@ def _config(
             stt_provider="sarvam",
             stt_model="saaras:v3",
             llm_model="gpt-4o-mini",
-            tts_provider="sarvam",
-            tts_model="bulbul:v3",
+            tts_provider="cartesia",
+            tts_model="sonic-3.5",
             tts_voice="ashutosh",
         ),
     )

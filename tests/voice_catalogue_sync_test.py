@@ -63,7 +63,11 @@ def _engine_voice(**overrides: object) -> EngineVoice:
     fields: dict[str, object] = {
         "voice_id": "shubh",
         "label": "Shubh",
-        "tts_model": "bulbul:v3",
+        # ⚠ **WAS `bulbul:v3` UNTIL 18 Sep 2026**, when the founder withdrew the Sarvam
+        # TTS leg. `voice_from_engine` drops a row naming a model this build does not
+        # offer, so a fixture on the withdrawn model would enumerate nothing and every
+        # clause below would pass against an empty catalogue. Sarvam STT is untouched.
+        "tts_model": "sonic-3.5",
         "languages": ("te-IN", "hi-IN", "en-IN"),
     }
     fields.update(overrides)
@@ -109,7 +113,7 @@ def test_a_cloned_voice_keeps_the_engines_name() -> None:
     assert voice is not None
     assert voice.label == "my-custom-voice"
     assert voice.speaker == "sXlZ9Juk5Ji8sZiFjRUV"
-    assert voice.id == "bulbul:v3:sXlZ9Juk5Ji8sZiFjRUV", "the id spelling is `voice_id_for`'s"
+    assert voice.id == "sonic-3.5:sXlZ9Juk5Ji8sZiFjRUV", "the id spelling is `voice_id_for`'s"
 
 
 def test_a_voice_on_a_model_we_do_not_offer_is_dropped() -> None:
@@ -132,16 +136,25 @@ def test_an_engine_listed_voice_is_verified() -> None:
 
 
 def test_the_catalogue_puts_the_cheaper_tier_first() -> None:
-    """A client scrolling should reach the tier they are already on before the one that
-    costs more per minute (plan §0 Q9)."""
+    """A client scrolling should reach the cheaper tier before the one that costs more per
+    minute (plan §0 Q9).
+
+    ⚠ **THE SORT KEY WAS `provider != "sarvam"` UNTIL 18 Sep 2026** — a vendor name doing a
+    tier's job, which stopped being true when that leg was withdrawn and Gnani took the
+    value rung. It is derived through `voice_tier` and `VOICE_TIERS` now, so this clause
+    asserts the ORDER a client sees rather than a hard-coded vendor's position."""
     listing = EngineVoiceListing(
         voices=[
             _engine_voice(voice_id="sonic-a", label="Aaa", tts_model="sonic-3.5"),
-            _engine_voice(voice_id="zzz", label="Zzz"),
+            _engine_voice(voice_id="Suhana", label="Zzz", tts_model="timbre-v2.5"),
         ],
         complete=True,
     )
-    assert [voice.provider for voice in catalogue_from_listing(listing)] == ["sarvam", "cartesia"]
+    ordered = catalogue_from_listing(listing)
+    assert [voice.provider for voice in ordered] == ["gnani", "cartesia"], (
+        "the value rung must come first even though its label sorts last — the key is the "
+        "tier, not the label and not the vendor"
+    )
 
 
 # --- the snapshot and the fallback (constraint 5) --------------------------------------
@@ -170,7 +183,7 @@ def test_installing_a_synced_catalogue_replaces_the_empty_state_and_says_so() ->
         )
     )
     assert catalogue_source() == "engine"
-    assert [voice.id for voice in catalogue()] == ["bulbul:v3:ashutosh"]
+    assert [voice.id for voice in catalogue()] == ["sonic-3.5:ashutosh"]
 
 
 def test_an_empty_catalogue_installs_and_reports_itself_as_unsynced() -> None:
@@ -454,8 +467,8 @@ async def test_a_complete_listing_does_prune_a_withdrawn_voice() -> None:
                     )
                 ).all()
             )
-        assert rows["bulbul:v3:ritu"] is True, "the withdrawn voice was deleted, not stamped"
-        assert rows["bulbul:v3:shubh"] is False
+        assert rows["sonic-3.5:ritu"] is True, "the withdrawn voice was deleted, not stamped"
+        assert rows["sonic-3.5:shubh"] is False
     finally:
         await _clear()
 
@@ -529,7 +542,7 @@ async def test_a_sync_never_writes_an_operators_curation_decision() -> None:
                 )
             ).all()
         )
-    assert states == {"bulbul:v3:shubh": "disabled", "bulbul:v3:ritu": "disabled"}, (
+    assert states == {"sonic-3.5:shubh": "disabled", "sonic-3.5:ritu": "disabled"}, (
         "a synced voice arrived offerable; only an operator may enable one"
     )
 
@@ -537,7 +550,7 @@ async def test_a_sync_never_writes_an_operators_curation_decision() -> None:
         await session.execute(
             text(
                 "UPDATE platform_voice_catalog SET curation_state = 'enabled' "
-                "WHERE voice_id = 'bulbul:v3:shubh'"
+                "WHERE voice_id = 'sonic-3.5:shubh'"
             )
         )
         await session.commit()
@@ -553,7 +566,7 @@ async def test_a_sync_never_writes_an_operators_curation_decision() -> None:
                 )
             ).all()
         )
-    assert states["bulbul:v3:shubh"] == "enabled", "a re-sync un-enabled a curated voice"
+    assert states["sonic-3.5:shubh"] == "enabled", "a re-sync un-enabled a curated voice"
 
 
 async def test_a_voice_that_comes_back_keeps_the_state_it_was_put_away_with() -> None:
@@ -573,7 +586,7 @@ async def test_a_voice_that_comes_back_keeps_the_state_it_was_put_away_with() ->
         await session.execute(
             text(
                 "UPDATE platform_voice_catalog SET curation_state = 'archived' "
-                "WHERE voice_id = 'bulbul:v3:ritu'"
+                "WHERE voice_id = 'sonic-3.5:ritu'"
             )
         )
         await session.commit()
@@ -593,7 +606,7 @@ async def test_a_voice_that_comes_back_keeps_the_state_it_was_put_away_with() ->
             await session.execute(
                 text(
                     "SELECT curation_state, withdrawn_at FROM platform_voice_catalog "
-                    "WHERE voice_id = 'bulbul:v3:ritu'"
+                    "WHERE voice_id = 'sonic-3.5:ritu'"
                 )
             )
         ).one()

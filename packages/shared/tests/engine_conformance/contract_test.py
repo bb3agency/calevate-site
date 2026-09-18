@@ -73,9 +73,13 @@ UNKNOWN_SOURCE_IP = "203.0.113.9"
 #: LOOKED real would be the laundering hard rule 11 forbids, dressed as a test fixture. What
 #: these clauses measure is the LEG (does the provider survive the round trip, or is it
 #: refused by name), which no real id is needed for.
+#: ⚠ **THE SARVAM ROW LEFT ON 18 Sep 2026** with the TEXT-TO-SPEECH leg it named; `sarvam`
+#: is not a `TtsProvider` any more. **The STT leg below is untouched** and still says
+#: `stt_provider="sarvam"` — Saaras transcribes every call, and that is a different
+#: vocabulary from this one. Index 0 is the default every existing clause builds.
 _VOICE_TIERS: Final = (
-    ("sarvam", "bulbul:v3", "anushka"),
     ("cartesia", "sonic-3.5", "conformance-placeholder-not-a-real-voice-id"),
+    ("gnani", "timbre-v2.5", "Suhana"),
 )
 
 
@@ -89,8 +93,8 @@ def _byok_models(engine: VoiceEngine, *, tier: int = 0) -> ModelConfig:
     ever build agents on a BYOK engine. Every clause below would then be untestable
     against the shape this contract most needs to survive.
 
-    `tier` indexes `_VOICE_TIERS` and defaults to Sarvam, which is what every existing
-    clause built and still builds — the second tier is exercised by the clause named for it.
+    `tier` indexes `_VOICE_TIERS` and defaults to index 0, which is what every existing
+    clause builds — the second entry is exercised by the clause named for it.
     """
     caps = engine.capabilities
     tts_provider, tts_model, tts_voice = _VOICE_TIERS[tier]
@@ -100,7 +104,7 @@ def _byok_models(engine: VoiceEngine, *, tier: int = 0) -> ModelConfig:
         llm_model="sarvam-105b" if caps.is_ours("llm") else None,
         tts_provider=tts_provider if caps.is_ours("tts") else None,
         # THE MODEL AND THE SPEAKER, in the two fields the vendor reads them from (D-358).
-        # `tts_voice` used to carry `bulbul:v3` — a MODEL in the speaker's field — which is
+        # `tts_voice` used to carry the MODEL in the speaker's field — which is
         # what let an adapter pasting one string into the vendor's `voice` key pass this
         # suite. Naming the speaker separately is what makes a dropped model detectable.
         tts_model=tts_model if caps.is_ours("tts") else None,
@@ -1835,8 +1839,10 @@ async def test_every_voice_tier_round_trips_or_is_refused_by_its_own_name(
 ) -> None:
     """**TWO VOICE VENDORS, ONE CATALOGUE — AND THE THIRD OUTCOME IS THE ONE THAT BITES.**
 
-    `agents/voices.py` now offers Sarvam Bulbul and Cartesia Sonic personas from one list
-    (D-547), and for each of them an adapter has exactly three honest answers:
+    `agents/voices.py` offers Cartesia Sonic and Gnani Timbre personas from one list
+    (D-547, as amended 18 Sep 2026 when the Sarvam TEXT-TO-SPEECH leg was withdrawn — Sarvam
+    still transcribes every call and `stt_provider` is untouched), and for each of them an
+    adapter has exactly three honest answers:
 
     1. **Publish it and hold it.** The provider survives the round trip and `holds_speech`
        reports the triple that was sent.
@@ -1876,16 +1882,26 @@ async def test_every_voice_tier_round_trips_or_is_refused_by_its_own_name(
             refused = raised
         if refused is not None:
             code = getattr(refused, "code", None)
-            assert code == "cartesia_voice_incomplete", (
+            # ⚠ **THE SECOND CODE ARRIVED ON 18 Sep 2026 AND IS NOT A WEAKENING.** The
+            # Sarvam TTS leg's withdrawal left Gnani as a provider the RENTED engine does
+            # not carry at all — its nine voice providers are enumerated in the pinned
+            # mirror and Gnani is not among them — so "I cannot send this provider" became a
+            # real, permanent answer for a real tier, distinct from "I have no voice id for
+            # a provider I do carry". Both name what is missing, which is the rule; a
+            # generic `engine_rejected` still fails here.
+            known = {
+                "cartesia_voice_incomplete": "cartesia",
+                "tts_provider_not_on_this_engine": provider,
+            }
+            assert code in known, (
                 f"this adapter refused the `{provider}` voice tier with {code!r}. A tier it "
-                "cannot send must be refused by a code naming what is missing — the only "
-                "one this contract knows is `cartesia_voice_incomplete` (no voice id or "
-                "model for a Cartesia agent). A generic refusal here tells an operator "
-                "nothing they can act on."
+                "cannot send must be refused by a code naming what is missing; the codes "
+                f"this contract knows are {sorted(known)}. A generic refusal here tells an "
+                "operator nothing they can act on."
             )
-            assert provider == "cartesia", (
-                f"the `{provider}` tier was refused with the CARTESIA refusal, which names "
-                "a missing Cartesia voice id — that reason cannot be true of it"
+            assert provider == known[code], (
+                f"the `{provider}` tier was refused with {code!r}, whose reason names a "
+                "different provider — that reason cannot be true of it"
             )
             assert getattr(refused, "remediation", None), (
                 "the refusal carries no remediation, so the operator who could close the "

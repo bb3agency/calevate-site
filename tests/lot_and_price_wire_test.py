@@ -39,12 +39,11 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.ops.config_routes import rate_card_router
+from apps.api.ops.model_price_routes import router as model_price_router
 from apps.api.ops.model_price_routes import (
-    BILLABLE_WITHOUT_ATTESTATION_REASON,
     tts_attest_confirmation,
     tts_router,
 )
-from apps.api.ops.model_price_routes import router as model_price_router
 from apps.api.ops.model_pricing import TTS_PROVIDERS, attested_tts_prices
 from apps.api.ops.pricing_snapshot import (
     install_pricing_readers,
@@ -190,22 +189,22 @@ async def test_the_model_price_panel_carries_every_voice_provider_with_its_verdi
         for flag in ("credential_installed", "price_attested", "price_billable", "offerable"):
             assert isinstance(row[flag], bool), f"{provider}.{flag} must be a real boolean"
 
-    # SARVAM HAS NOTHING TO CONFIRM, and says so rather than looking unattested. A row with
-    # an empty price field and no explanation reads as an outstanding job; it is not one.
-    assert rows["sarvam"]["price_attested"] is False
-    assert rows["sarvam"]["price_billable"] is True
-    assert rows["sarvam"]["billable_without_attestation_reason"] == (
-        BILLABLE_WITHOUT_ATTESTATION_REASON
-    )
-    # Cartesia's absence is the opposite fact: it DOES need one, so there is no sentence
-    # excusing it. Whether one has been attested is not this test's business — the price
-    # store is global and another test in this session may have written one — so what is
-    # pinned is the IMPLICATION, which is the rule the panel exists to render.
+    # ⚠ **THE SARVAM ROW IS GONE AND WITH IT THE ONLY LEG THAT HAD NOTHING TO CONFIRM
+    # (18 Sep 2026).** It asserted `price_billable is True` with nothing attested and a
+    # sentence explaining why — the ENGINE billed us for that synthesizer leg and reported
+    # what it charged, so it carried a measured cost. The founder withdrew the leg; every
+    # remaining provider is BYOK, so EVERY row needs an attestation and none carries the
+    # excusing sentence. `BILLABLE_WITHOUT_ATTESTATION_REASON` survives for the day a
+    # metered leg returns and is rendered by nothing today.
+    for provider in TTS_PROVIDERS:
+        assert rows[provider]["billable_without_attestation_reason"] is None, provider
+        assert rows[provider]["price_billable"] is rows[provider]["price_attested"], (
+            f"{provider} is billable exactly when somebody has read an invoice"
+        )
+    # Whether one has been attested is not this test's business — the price store is global
+    # and another test in this session may have written one — so what is pinned above is the
+    # IMPLICATION, which is the rule the panel exists to render.
     cartesia = rows["cartesia"]
-    assert cartesia["billable_without_attestation_reason"] is None
-    assert cartesia["price_billable"] is cartesia["price_attested"], (
-        "the Cartesia tier is billable exactly when somebody has read an invoice"
-    )
     if not cartesia["price_attested"]:
         assert cartesia["inr_per_1k_chars"] is None
     else:
@@ -213,15 +212,19 @@ async def test_the_model_price_panel_carries_every_voice_provider_with_its_verdi
 
 
 async def test_attesting_a_voice_price_needs_the_step_up_bound_to_that_vendor() -> None:
-    """Shape 1. A header captured while pricing Sarvam must not reprice Cartesia — the
-    Cartesia figure is the one that turns a whole tier on."""
+    """Shape 1. A header captured while pricing one vendor must not reprice another — the
+    Cartesia figure is the one that turns a whole tier on.
+
+    ⚠ The wrong-vendor header was `"sarvam"` until 18 Sep 2026; it is `"gnani"` now, which
+    is a stronger case anyway: Gnani is a provider this console really does accept prices
+    for, so the refusal is about the BINDING rather than about an unknown name."""
     token = await _make_admin()
     body = {"inr_per_1k_chars": "3.4496", "source_note": "Cartesia Startup plan, invoice 2026-09"}
     async with _client() as http:
         bare = await http.post("/v1/ops/tts-prices/cartesia", headers=_headers(token), json=body)
         wrong = await http.post(
             "/v1/ops/tts-prices/cartesia",
-            headers=_headers(token, tts_attest_confirmation("sarvam")),
+            headers=_headers(token, tts_attest_confirmation("gnani")),
             json=body,
         )
     assert bare.status_code == 403, bare.text
@@ -263,7 +266,10 @@ async def test_an_attested_voice_price_reaches_the_wire_and_makes_the_tier_offer
     try:
         await refresh_pricing_snapshot()
         assert voice_offer.tts_price_is_billable("cartesia") is True
-        assert voice_offer.tts_price_is_billable("sarvam") is True
+        # ⚠ AND GNANI IS STILL REFUSED, on the same installed reader. Attesting one
+        # vendor's price does not open another's; the value rung stays unsellable until
+        # somebody reads a Gnani invoice (founder, 18 Sep 2026: "still in building phase").
+        assert voice_offer.tts_price_is_billable("gnani") is False
     finally:
         uninstall_pricing_readers()
     # And with the reader gone the picker is back on its own honest default, which is what
@@ -665,7 +671,7 @@ async def test_the_speaking_rate_card_prices_the_measurement_per_vendor() -> Non
     # NUMERIC(12,6) pads it to "3.449600" — the same number, compared as a Decimal and
     # never as a float.
     assert Decimal(rows["cartesia"].inr_per_1k_chars) == Decimal("3.4496")
-    assert rows["sarvam"].tier_label == rates.voice_tier_label("sarvam")
+    assert rows["gnani"].tier_label == rates.voice_tier_label("gnani")
     # NO MEASUREMENT, NO PER-MINUTE FIGURE. Two different absences — nothing attested, and
     # nothing measured — and both are reported as no number rather than as a zero.
     assert rows["cartesia"].pooled_inr_per_minute is None

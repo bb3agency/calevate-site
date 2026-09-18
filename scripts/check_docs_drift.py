@@ -1402,23 +1402,29 @@ def code_tts_rates() -> dict[str, Decimal]:
     margin model is computed from, and a source scan could be satisfied by a literal the
     module never uses.
 
-    TWO ENTRIES since D-547, and the second is DERIVED rather than typed:
+    The one entry is DERIVED rather than typed:
     `CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS` is the vendor's OVERAGE rate on the dearest
     plan we can be on, so this check is what makes TRD §10.1 restate the rate the code
     holds and not a rate somebody rounded — if the overage rate or the conversion moves in
     code, the doc row fails here. ⚠ It was the Startup fee over its allotment (₹34.496)
     until 9 Sep 2026, an AVERAGE true at one volume only; the vendor's own overage rate
     closed that UNKNOWN and `billing/rates.py`'s Cartesia block records the change.
-    """
-    from apps.api.billing.rates import (
-        CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
-        TTS_INR_PER_10K_CHARS,
-    )
 
-    return {
-        "bulbul-v3": TTS_INR_PER_10K_CHARS,
-        "sonic-3.5": CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
-    }
+    ⚠ **THE `bulbul-v3` ENTRY LEFT THIS DICT ON 18 Sep 2026 AND `TTS_INR_PER_10K_CHARS` DID
+    NOT LEAVE THE CODE.** The founder withdrew the Sarvam TTS leg. This function's subject is
+    narrow and is in its own name: **the rates the BILLER holds**, one row per rung of the
+    published card — and there is no Sarvam rung to bill. The constant survives as the value
+    rung's frozen COST-MODEL scalar (see its own block in `billing/rates.py`), which is a
+    different kind of figure: it is divided INTO a floor that a retail rate is judged
+    against, never stated as a rate a client pays. Listing it here would demand a rate-card
+    row in TRD §10.1 for a vendor card that no longer exists, which is the doc drift this
+    check is meant to catch rather than to cause. **The value rung's own arithmetic is not
+    unguarded**: §4e holds `TTS_ASSUMED_CHARS_PER_CALL_MINUTE` to §10.1's speaking band, and
+    the floor is pinned by `tests/cost_floor_test.py`.
+    """
+    from apps.api.billing.rates import CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
+
+    return {"sonic-3.5": CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS}
 
 
 def tts_rate_card_drift(text: str | None = None) -> list[str]:

@@ -75,8 +75,14 @@ def _config() -> AgentConfig:
             stt_provider="sarvam",
             stt_model="saaras:v3",
             llm_model="sarvam-105b",
-            tts_provider="sarvam",
-            tts_voice="bulbul:v3",
+            # `tts_model` IS REQUIRED ON THE CARTESIA LEG AND WAS NOT ON SARVAM'S (D-629).
+            # The adapter refuses a Cartesia voice that reaches the wire with no model
+            # rather than carrying its own `sonic-3.5` fallback, because a fallback there
+            # would be a second definition of which Cartesia model this product runs,
+            # outside the catalogue that owns it.
+            tts_provider="cartesia",
+            tts_model="sonic-3.5",
+            tts_voice="ashutosh",
         ),
     )
 
