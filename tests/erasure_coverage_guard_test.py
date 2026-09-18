@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 from scripts.check_erasure_coverage import (
     COVERAGE_ANCHORS,
+    ENTRYPOINT_EXEMPT,
+    ERASURE_ENTRYPOINTS,
     ERASURE_EXEMPT,
     ERASURE_SOURCES,
     MIN_EXEMPTION_REASON,
@@ -38,8 +40,27 @@ from scripts.check_erasure_coverage import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _reach(*tables: str) -> ErasureReach:
-    return ErasureReach(tables=frozenset(tables), visited=frozenset({"execute_deletion_request"}))
+#: The one entrypoint most of these controls use. Reach is PER ENTRYPOINT since 18 Sep
+#: 2026, so a synthetic reach has to name which erasure it is about; a helper that quietly
+#: filled in both would re-create the union the correction removed, inside the tests that
+#: are supposed to police it.
+_SUBJECT = "execute_deletion_request"
+_TENANT = "execute_tenant_erasure"
+
+
+def _reach(*tables: str, entrypoint: str = _SUBJECT) -> ErasureReach:
+    return ErasureReach(
+        by_entrypoint={entrypoint: frozenset(tables)},
+        visited=frozenset({entrypoint}),
+    )
+
+
+def _both(subject: tuple[str, ...], tenant: tuple[str, ...]) -> ErasureReach:
+    """Two entrypoints with DIFFERENT reach — the shape the union used to flatten."""
+    return ErasureReach(
+        by_entrypoint={_SUBJECT: frozenset(subject), _TENANT: frozenset(tenant)},
+        visited=frozenset({_SUBJECT, _TENANT}),
+    )
 
 
 class TestTheRuleItself:
@@ -50,10 +71,10 @@ class TestTheRuleItself:
             subject_handle_tables=frozenset({"whispered_numbers"}),
             all_tables=frozenset({"whispered_numbers"}),
         )
-        failures = evaluate(state, _reach(), exemptions={})
+        failures = evaluate(state, _reach(), exemptions={}, entrypoint_exemptions={})
         assert len(failures) == 1
         assert "whispered_numbers" in failures[0]
-        assert "NO erasure arm" in failures[0]
+        assert "NO arm of `execute_deletion_request`" in failures[0]
 
     def test_a_child_of_calls_with_no_arm_fails(self) -> None:
         """`handoff_attempts`' shape: no number of its own, a foreign key to `calls`, and
@@ -63,7 +84,7 @@ class TestTheRuleItself:
             subject_linked_tables=frozenset({"handover_notes"}),
             all_tables=frozenset({"handover_notes"}),
         )
-        failures = evaluate(state, _reach(), exemptions={})
+        failures = evaluate(state, _reach(), exemptions={}, entrypoint_exemptions={})
         assert "link to a call/lead" in failures[0]
 
     def test_a_table_holding_an_inline_payload_with_no_arm_fails(self) -> None:
@@ -72,7 +93,7 @@ class TestTheRuleItself:
         state = SchemaState(
             prose_tables=frozenset({"queued_bodies"}), all_tables=frozenset({"queued_bodies"})
         )
-        failures = evaluate(state, _reach(), exemptions={})
+        failures = evaluate(state, _reach(), exemptions={}, entrypoint_exemptions={})
         assert "free-text or jsonb payload" in failures[0]
 
     def test_an_arm_that_names_the_table_passes(self) -> None:
@@ -80,7 +101,8 @@ class TestTheRuleItself:
             subject_handle_tables=frozenset({"whispered_numbers"}),
             all_tables=frozenset({"whispered_numbers"}),
         )
-        assert evaluate(state, _reach("whispered_numbers"), exemptions={}) == []
+        reach = _reach("whispered_numbers")
+        assert evaluate(state, reach, exemptions={}, entrypoint_exemptions={}) == []
 
     def test_an_exemption_with_a_reason_passes(self) -> None:
         state = SchemaState(
@@ -89,7 +111,8 @@ class TestTheRuleItself:
         )
         reason = "The client's own staff, a different data principal on a different basis."
         assert len(reason) >= MIN_EXEMPTION_REASON
-        assert evaluate(state, _reach(), exemptions={"staff_mobiles": reason}) == []
+        exempt = {"staff_mobiles": reason}
+        assert evaluate(state, _reach(), exemptions=exempt, entrypoint_exemptions={}) == []
 
 
 class TestTheRegisterStaysHonest:
@@ -102,6 +125,7 @@ class TestTheRegisterStaysHonest:
             SchemaState(all_tables=frozenset({"calls"})),
             _reach("calls"),
             exemptions={"deleted_last_year": "A table that was dropped three migrations ago."},
+            entrypoint_exemptions={},
         )
         assert any("STALE erasure exemption" in failure for failure in failures)
 
@@ -112,6 +136,7 @@ class TestTheRegisterStaysHonest:
             exemptions={
                 "alembic_version": "Migration bookkeeping, which holds nobody's personal data."
             },
+            entrypoint_exemptions={},
         )
         assert any("carries no subject-linked column" in failure for failure in failures)
 
@@ -125,6 +150,7 @@ class TestTheRegisterStaysHonest:
             state,
             _reach("calls"),
             exemptions={"calls": "Something a maintainer believed while the arm existed."},
+            entrypoint_exemptions={},
         )
         assert any("also reached by an erasure arm" in failure for failure in failures)
 
@@ -133,7 +159,9 @@ class TestTheRegisterStaysHonest:
             subject_handle_tables=frozenset({"staff_mobiles"}),
             all_tables=frozenset({"staff_mobiles"}),
         )
-        failures = evaluate(state, _reach(), exemptions={"staff_mobiles": "n/a"})
+        failures = evaluate(
+            state, _reach(), exemptions={"staff_mobiles": "n/a"}, entrypoint_exemptions={}
+        )
         assert any("too thin to review" in failure for failure in failures)
 
 
@@ -250,3 +278,126 @@ def test_the_live_arm_sees_a_new_un_erased_table() -> None:
             assert evaluate(read_state(conn), reach) == []
     finally:
         engine.dispose()
+
+
+class TestReachIsPerEntrypointAndNotAUnion:
+    """THE CORRECTION OF 18 SEP 2026, controlled from both sides.
+
+    `execute_deletion_request` answers one data principal under DPDP §12 and
+    `execute_tenant_erasure` closes a whole account. They produce different certificates,
+    handed to different people, and the guard used to union their reach before asking its
+    question — so a table only the tenant erasure touched satisfied the per-subject rule
+    and the per-subject certificate could enumerate an erasure that never ran.
+    `copilot_memories` passed exactly that way.
+    """
+
+    def test_a_table_only_the_tenant_erasure_reaches_fails_the_subject_erasure(self) -> None:
+        """The union bug itself. Under the old rule this returned no failures."""
+        state = SchemaState(
+            prose_tables=frozenset({"assistant_notes"}),
+            all_tables=frozenset({"assistant_notes"}),
+        )
+        failures = evaluate(
+            state,
+            _both(subject=(), tenant=("assistant_notes",)),
+            exemptions={},
+            entrypoint_exemptions={},
+        )
+        assert len(failures) == 1
+        assert "NO arm of `execute_deletion_request`" in failures[0]
+        # And it says WHERE it is reached, so the reader is not left to discover that the
+        # other erasure covers it and conclude the guard is confused.
+        assert "It IS reached by execute_tenant_erasure" in failures[0]
+
+    def test_the_same_gap_passes_once_it_is_a_registered_argument(self) -> None:
+        state = SchemaState(
+            prose_tables=frozenset({"assistant_notes"}),
+            all_tables=frozenset({"assistant_notes"}),
+        )
+        reason = (
+            "Written with identifiers already redacted, so an erasure keyed on a phone "
+            "number has no predicate; the tenant erasure deletes every row."
+        )
+        assert len(reason) >= MIN_EXEMPTION_REASON
+        assert (
+            evaluate(
+                state,
+                _both(subject=(), tenant=("assistant_notes",)),
+                exemptions={},
+                entrypoint_exemptions={"execute_deletion_request": {"assistant_notes": reason}},
+            )
+            == []
+        )
+
+    def test_an_entrypoint_exemption_for_a_table_that_entrypoint_does_reach_fails(self) -> None:
+        """The other direction, `check_rls_coverage`'s rule 4 at this scope: a registered
+        argument that the arm does not reach a table it demonstrably does is a sentence a
+        reviewer would believe instead of reading the code."""
+        state = SchemaState(
+            prose_tables=frozenset({"assistant_notes"}),
+            all_tables=frozenset({"assistant_notes"}),
+        )
+        failures = evaluate(
+            state,
+            _both(subject=("assistant_notes",), tenant=("assistant_notes",)),
+            exemptions={},
+            entrypoint_exemptions={
+                "execute_deletion_request": {
+                    "assistant_notes": "A reason somebody wrote while the arm already existed."
+                }
+            },
+        )
+        assert any("and also reached by it" in failure for failure in failures)
+
+    def test_registering_a_table_in_both_registers_fails(self) -> None:
+        """They say different things — "nothing reaches it" and "this one does not, the
+        other does" — and a table cannot be both."""
+        state = SchemaState(
+            prose_tables=frozenset({"assistant_notes"}),
+            all_tables=frozenset({"assistant_notes"}),
+        )
+        reason = "A reason long enough to clear the minimum this register imposes."
+        failures = evaluate(
+            state,
+            _both(subject=(), tenant=("assistant_notes",)),
+            exemptions={"assistant_notes": reason},
+            entrypoint_exemptions={"execute_deletion_request": {"assistant_notes": reason}},
+        )
+        assert any("registered BOTH" in failure for failure in failures)
+
+    def test_an_exemption_against_an_entrypoint_nobody_walks_fails(self) -> None:
+        failures = evaluate(
+            SchemaState(all_tables=frozenset({"calls"})),
+            _reach("calls"),
+            exemptions={},
+            entrypoint_exemptions={
+                "execute_some_erasure_we_deleted": {"calls": "A reason about an arm that is gone."}
+            },
+        )
+        assert any("an entrypoint this scan does not walk" in failure for failure in failures)
+
+    def test_an_entrypoint_whose_walk_sees_no_sql_is_a_blind_spot(self) -> None:
+        """`check_wiring`'s rule 5, per entrypoint. If ONE of the two walks stops finding
+        SQL — renamed, refactored into a class, moved out of the scanned sources — the
+        union's anchors could still be satisfied by the other one, and every verdict about
+        the broken half would be about the scan."""
+        reach = erasure_reach(sources=(REPO_ROOT / "apps" / "api" / "compliance" / "deletion.py",))
+        assert any(
+            "reaches no table at all" in blind or "defined in none" in blind
+            for blind in reach.blind_spots
+        )
+
+    def test_the_live_walk_reaches_something_from_each_entrypoint(self) -> None:
+        reach = erasure_reach()
+        assert set(reach.by_entrypoint) == set(ERASURE_ENTRYPOINTS)
+        for entrypoint, tables in reach.by_entrypoint.items():
+            assert tables, f"{entrypoint} reaches no table"
+
+    def test_every_registered_entrypoint_argument_names_a_walked_entrypoint(self) -> None:
+        """The register is read by a human before it is read by `evaluate`, so a typo in a
+        key would silently exempt nothing at all."""
+        assert set(ENTRYPOINT_EXEMPT) <= set(ERASURE_ENTRYPOINTS)
+        for entrypoint, tables in ENTRYPOINT_EXEMPT.items():
+            for table, reason in tables.items():
+                assert len(reason.strip()) >= MIN_EXEMPTION_REASON, (entrypoint, table)
+                assert table not in ERASURE_EXEMPT, table

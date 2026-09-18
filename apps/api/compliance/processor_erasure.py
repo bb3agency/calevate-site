@@ -84,14 +84,34 @@ __all__ = [
 #: The processors that hold call content and publish no subject-granular deletion.
 #:
 #: A CLOSED vocabulary rather than free text, because the register in `deletion.py` names
-#: exactly these and a fourth spelling of "bolna" would silently create a task nobody's
+#: exactly these and a fifth spelling of "bolna" would silently create a task nobody's
 #: runbook covers. Adding a processor means adding it here, to the register, and to
 #: `docs/evidence/subprocessor-erasure-reach.md` §3 — three edits, on purpose.
 #:
 #: They are named by ROLE and not by vendor. The vendor is a config choice (D-31 has an
 #: engine port, D-36 a speech tier, D-410 a model leg); the obligation attaches to the
 #: role, and a row written today must still be readable after a vendor swap.
-PROCESSORS: Final = ("voice_engine", "speech", "llm")
+#:
+#: ⚠ **`telephony` IS NEW (18 Sep 2026) AND IT WAS THE MOST CONSPICUOUS ABSENCE IN THE
+#: LIST.** The published register tells a client the carrier receives *"Caller and called
+#: numbers, call detail records, and the live audio of the call in both directions"*
+#: (`apps/web/src/lib/legal/subprocessors.ts`, the Exotel · Vobiz · Plivo row), and the
+#: carrier leg is where the audio physically terminates: `voice_worker/carrier.py` reads
+#: 8 kHz mu-law media frames off the carrier socket in both directions [PIPECAT SOURCE,
+#: `.venv/.../pipecat/serializers/plivo.py:139-163`]. So a §12 certificate that enumerated
+#: three vendor copies and stayed silent about the one holding both the number and the
+#: sound of the call was misleading by the exact omission this vocabulary exists to
+#: prevent. The obligation attaches to the ROLE now, before any carrier account exists,
+#: because the alternative is discovering it on the day one does.
+#:
+#: ⚠ **THE DATABASE DOES NOT YET ACCEPT IT.** `processor_erasure_tasks`' CHECK
+#: `processor_is_known` still reads `('voice_engine', 'speech', 'llm')` (migration
+#: `c9f4a2e17b83`), so opening a `telephony` task raises an IntegrityError until the
+#: migration that widens it lands. That is why nothing opens one yet and why the truth is
+#: carried in the meantime by `deletion.ERASURE_EXCEPTIONS`' "telephone carrier" entry,
+#: which states the copy exists and that no request has been made — a statement that is
+#: true today and stays true when the task rows start being written.
+PROCESSORS: Final = ("voice_engine", "speech", "llm", "telephony")
 
 #: `open` — the erasure ran, this processor holds a copy, nobody has asked yet.
 #: `requested` — a human sent the written request; `requested_at` says when.

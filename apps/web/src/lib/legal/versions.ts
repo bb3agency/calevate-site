@@ -218,6 +218,24 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash: "sha256:79ccad03ddd6d6819fd99939cc5e35b1e575a252236ec83fac4aa8a986d14470",
       },
+      // 18 Sep 2026. THREE RECIPIENTS THAT WERE IN THE CODE AND ON NO PAGE, found by
+      // auditing from the tree outwards rather than by re-reading the rows —
+      // `scripts/check_subprocessor_coverage.py` is that audit turned into a gate, and
+      // `docs/evidence/subprocessor-register-code-audit-2026-09-18.md` is the working.
+      // Supermemory: two complete adapters whose settings the ops console can change at
+      // runtime, so an operator selects it and the next question is served from it, at
+      // which point it holds every published knowledge passage — FAQs, price lists, staff
+      // names and contact numbers. Gnani: a THIRD voice-synthesis vendor, selectable per
+      // agent, receiving the words the agent speaks. And an unnamed row for a tracing
+      // collector, which is an address an operator sets and could point at a monitoring
+      // vendor. All three are off, and "off" is not "undisclosed": a register that omits
+      // a recipient a setting away from being live is the failure clause 5 exists for.
+      // MATERIAL — new sub-processors are exactly what a client may object to.
+      {
+        revision: "6",
+        material: true,
+        contentHash: "sha256:1affe0b1386b062917def21846a17309e31a3b98fa18f09d7feccf96c2290ea3",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

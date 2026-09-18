@@ -214,6 +214,20 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "frozen into a sealed pack that the agent answered out of during calls, and nothing "
     "in this system deletes one — not this erasure, not that retention period. Removing "
     "the live content is manual work on every copy, and so is removing a pack.",
+    "The files this client uploaded are not deleted by this erasure, and that is stated "
+    "here because nothing else states it. Two sets of them: the documents uploaded as "
+    "knowledge for the agents to answer from, and the identity and registration paperwork "
+    "uploaded for the telecom carrier registration — a GST certificate, the signed "
+    "carrier application and whatever was attached to it. Both are stored under this "
+    "account's own folder in our object storage, and no part of this erasure and no "
+    "retention period reaches either: the only thing that eventually removes them is a "
+    "bucket-wide 7-year ceiling measured from the day each file was stored, which is a "
+    "growth limit rather than a retention rule. They are the business's own documents "
+    "rather than a caller's record, which is why they were not in the erasure's scope, "
+    "but they are personal data of the people named in them and holding them after the "
+    "engagement ends is not something a certificate should be silent about. Ask for "
+    "these uploaded files to be deleted and that is a manual removal on our side, done "
+    "on request.",
     "The people at this client — their user accounts, their memberships and who did "
     "what in the console — are retained. Their access ends the moment this erasure "
     "completes, because every membership resolution and every dial gate refuses an "
@@ -358,6 +372,42 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "versions; the per-subject register (`deletion.KB_OUTCOME`) states the "
             "narrower thing an erasure with a subject can do. One store, two statements "
             "that agree, pinned by `tests/kb_retention_test.py`."
+        ),
+    ),
+    ErasureLimitation(
+        what="Files this client uploaded: knowledge documents and carrier paperwork.",
+        keyword="uploaded files",
+        outcome="retained_not_swept",
+        why=(
+            "Two sets of uploaded files survive this erasure. The documents uploaded as "
+            "knowledge for the agents — a price list, a menu, a brochure — and the "
+            "identity and registration paperwork uploaded for the telecom carrier "
+            "registration, which is a GST certificate, the signed carrier application and "
+            "whatever was attached to it. Both sit under this account's own folder in our "
+            "object storage. No arm of this erasure lists either folder and no retention "
+            "period reaches them; the only thing that eventually removes a file is a "
+            "bucket-wide seven-year ceiling measured from the day it was stored, which "
+            "limits how much the bucket grows rather than how long a document is kept. "
+            "These are the business's own documents rather than a caller's record, which "
+            "is why the erasure's scope never included them — but a registration document "
+            "names people, and keeping it after the engagement ends is not a thing a "
+            "certificate may pass over in silence. Removing them is a manual act on our "
+            "side and it is done on request."
+        ),
+        # `workers/storage.py` carries the correction this entry pairs with: both prefix
+        # comments claimed an offboarding swept them and neither sweep exists. The arm
+        # belongs in `workers/retention.py::execute_tenant_erasure`; `infra/README.md`
+        # §"kb-uploads/"/"carrier-compliance/" already records that the 7-year rule is a
+        # ceiling and NOT a retention period. The sentence below says all of it without
+        # citing a document this reader does not have.
+        authority=(
+            "Calevate's erasure scope is the caller data this account collected — calls, "
+            "transcripts, extracted fields, leads and recordings — and a document the "
+            "client uploaded about their own business is not in it. That is a scope "
+            "decision rather than a legal position, and it is stated here so it can be "
+            "disagreed with: under DPDP §8(7) personal data is to be erased once the "
+            "purpose it was collected for is served, and the purpose these files were "
+            "collected for ends with the engagement. Ask and they are removed."
         ),
     ),
     ErasureLimitation(

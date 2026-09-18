@@ -140,6 +140,39 @@ interface RegisterRow {
  * still the first extraction pass (`GEMINI_EXTRACTION_DEFAULT: Final = False`,
  * `apps/workers/extraction.py:190`); Cohere appears nowhere in the code at all, which is
  * what "Contingency. Not selected." should look like.
+ *
+ * ## Re-audited against the CODE again on 18 September 2026, and one vendor was missing
+ *
+ * The August pass walked from the code outwards and found three client-switched
+ * integrations. This pass asked a narrower question — which vendor can an OPERATOR switch
+ * on, with no deploy and no client involved — and found **Supermemory**. Two complete
+ * adapters exist (`apps/api/retrieval/supermemory.py` reads, `supermemory_index.py`
+ * writes), and `apps/api/core/platform_config.py` marks `retrieval_provider`,
+ * `supermemory_base_url`, `supermemory_api_key` and `supermemory_embedding_model` all
+ * `LIVE` — so the ops console can select it and `retrieval/service.get_retriever`, which
+ * runs per request and holds no state, serves the next question out of it. At that moment
+ * it receives every published `kb_chunks` passage, which SECURITY-COMPLIANCE §4 describes
+ * as "FAQs, price lists, staff names and contact numbers". It appeared nowhere on this
+ * page.
+ *
+ * The shape of the miss is worth naming because it is new: not a client-switched
+ * integration nobody thought of as ours (August's three), but an OPERATOR-switched one,
+ * where the only thing between the register being true and being false is a dropdown.
+ * `apps/web/tests/legal.test.tsx` could not have caught it — it checks this register
+ * against itself and against the DPA, so a vendor absent from BOTH is consistent and
+ * invisible. `scripts/check_subprocessor_coverage.py` is the direction that was missing:
+ * it derives vendor identity from the code (adapter modules and `Settings` fields) and
+ * fails when a vendor that can receive client data is not on this page.
+ *
+ * ⚠ EVIDENCE CLASS for the Supermemory row: VERIFIED-IN-REPO for everything it says about
+ * OUR behaviour, and UNKNOWN for the vendor. `supermemory.ai` is egress-blocked from this
+ * container (measured 14 Sep 2026, recorded in `apps/api/retrieval/supermemory.py`), so
+ * nobody here has read its terms, its retention position or its delete surface — which is
+ * why the Location cell says NOT VERIFIED and why the Status cell says the purge rests on
+ * our own reading rather than on a documented route. `supermemory_index.py`'s own
+ * docstring records that assumption ("the tag rests on an ASSUMED reading of their delete
+ * surface; the ledger rests on what we recorded sending"), and it is repeated to the
+ * client rather than smoothed over.
  */
 export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
   {
@@ -385,6 +418,25 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     status: "Core.",
   },
   {
+    names: [],
+    vendor: "The tracing collector, if one is configured",
+    does:
+      "Receives performance traces from our own services — which request went where and " +
+      "how long each step took — when a deployment is set to send them somewhere. It is " +
+      "listed with no company name because none is chosen: the address is a setting, and " +
+      "it can be a service of ours on our own host or a monitoring vendor's.",
+    receives:
+      "Timing spans and identifiers. Personal data is stripped before a trace leaves the " +
+      "process — the same redaction that backs the log formatter is applied at the " +
+      "exporter rather than at each place a trace is written.",
+    location: "Wherever the configured collector runs. Nothing is configured.",
+    status:
+      "Configured, not enabled. With no collector address set there is no tracing at " +
+      "all — the library is not even loaded — which is the state this deployment is in. " +
+      "If a monitoring vendor is ever chosen for it, that is a named change to this page " +
+      "under clause 5 of the Data Processing Addendum.",
+  },
+  {
     names: ["Resend"],
     vendor: "Resend",
     does:
@@ -541,6 +593,37 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "client should read before this row becomes live for them.",
   },
   {
+    names: ["Gnani"],
+    vendor: "Gnani — voice synthesis",
+    does:
+      "Turns what an agent says into speech during the call, for agents set to the third " +
+      "of the voice qualities the product can offer. Agents on either of the other two " +
+      "are spoken by the vendors named earlier in this table, and this vendor hears " +
+      "nothing of their calls.",
+    receives:
+      "The words the agent is about to speak, sent as text a turn at a time over a " +
+      "connection our own program opens — which can include a detail the caller has just " +
+      "given, where the agent repeats it back to confirm it. Not the caller's own audio, " +
+      "not the transcript of what the caller said, not the recording, and nothing from " +
+      "your dashboard.",
+    location:
+      "NOT VERIFIED, for the same reason the row above gives and with the same refusal to " +
+      "fill the gap in: this vendor's own sites cannot be reached from our build " +
+      "environment (all three of them, measured 15 September 2026), so nobody here has " +
+      "read where it processes or what it commits to. What we have read is the vendor's " +
+      "own published software package, which we hold by checksum, and it names the " +
+      "address its speech service answers on and nothing about a region. Do not read a " +
+      "country into a vendor's nationality: that is the mistake this page already made " +
+      "once about a different vendor, and section 3.4 is where it was corrected.",
+    status:
+      "Configured, not enabled, and TWO separate things hold it there rather than one. " +
+      "No credential for this vendor is installed on this deployment; and no price for " +
+      "it has been established anywhere — the vendor publishes none we could find — so " +
+      "the product refuses to offer any of its voices for selection at all until " +
+      "somebody records a price read off a real invoice. Nothing has ever been sent to " +
+      "it from this system.",
+  },
+  {
     names: ["Cartesia"],
     vendor: "Cartesia — alternative voice platform",
     does:
@@ -555,6 +638,45 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     status:
       "Contingency. Nothing has been sent to it in this role and no decision to adopt " +
       "it has been taken.",
+  },
+  {
+    names: ["Supermemory"],
+    vendor: "Supermemory — knowledge store and search",
+    does:
+      "Stores and searches the knowledge content a client publishes for their agents, " +
+      "for the parts of the product that are NOT on a call: the in-app assistant and the " +
+      "search over your own records in the dashboard. Nothing on the live call path " +
+      "uses it — an agent answers a caller out of a sealed copy of the knowledge held in " +
+      "the program running the call. Which store answers is a setting an operator can " +
+      "change while the product is running, without a new release.",
+    receives:
+      "Every passage of the knowledge a client has published — the text of the FAQs, " +
+      "price lists, staff names and contact numbers they uploaded — and the questions " +
+      "asked of it: what a client's user types into the in-app assistant, and what they " +
+      "search their own records for. Never the call audio, never a transcript, and never " +
+      "a recording.",
+    location:
+      "NOT VERIFIED, and the honest answer has two parts. This is software we intend to " +
+      "run on our OWN server, in which case nothing reaches the company that writes it; " +
+      "the address it is reached at is a setting, so an operator could point it at a " +
+      "service that company runs instead, and the register has to describe the " +
+      "capability rather than only the intention. Nobody here has read that company's " +
+      "own published terms or retention position: its site cannot be reached from our " +
+      "build environment (measured 14 September 2026). One thing does leave whichever " +
+      "way it is run — the store buys the embedding for each question from a model " +
+      "vendor on our account, and that vendor's row above is where that leg is described.",
+    status:
+      "Configured, not enabled — configured and NOT SELECTED, which is this page's " +
+      "fourth state read exactly: the product ships set to a different store and no " +
+      "deployment has switched to this one, so nothing of anybody's has reached it. " +
+      "Two cautions belong with it rather than in a footnote: switching it on is an " +
+      "operator setting that takes effect on the next request with no release, so this " +
+      "row can become live without a code change; and when an account is closed, the " +
+      "removal of its knowledge from this store rests on our own reading of how that " +
+      "software deletes, which nobody has been able to check against the company's " +
+      "documentation. Our own record of exactly what was sent is what the removal is " +
+      "driven from, and the erasure is refused outright rather than reported as done if " +
+      "the store will not accept it.",
   },
   {
     names: ["Cohere"],

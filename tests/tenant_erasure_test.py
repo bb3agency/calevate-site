@@ -859,3 +859,52 @@ def test_the_knowledge_limitation_names_the_copies_that_exist_and_no_others() ->
             f"the {name} half omits the frozen knowledge pack, the copy the agent answers "
             "out of and the one no erasure arm and no retention clock reaches"
         )
+
+
+def test_the_certificate_names_the_files_the_client_uploaded() -> None:
+    """THE FALSE COMMENT AND THE UNDISCLOSED GAP, which were the same defect (18 Sep 2026).
+
+    `workers/storage.py` claimed twice that an account offboarding swept its prefixes —
+    `kb_object_key`'s docstring ("a DPDP erasure or an account offboarding must be able to
+    enumerate it") and `CARRIER_DOCUMENT_PREFIX`'s comment ("a DPDP subject erasure does
+    not reach them and an ACCOUNT offboarding does"). Neither sweep exists:
+    `execute_tenant_erasure` has no arm over `kb-uploads/` or `carrier-compliance/`, and
+    `carrier_application_prefix` — the enumeration handle such a sweep would have used —
+    had no caller outside a test. So a client's GST certificate and their signed carrier
+    application survived an account closure with no erasure arm, no retention category and
+    no mention in the certificate they are handed.
+
+    The comments are corrected and the arm belongs in `workers/retention.py`. What this
+    pins is the half that must never quietly regress: a certificate that lists what it
+    cleared while staying silent about the client's own uploaded paperwork is the overclaim
+    SEC-COMP §4 exists to prevent, and silence was the one option not available.
+    """
+    entries = [e for e in tenant_erasure.TENANT_ERASURE_EXCEPTIONS if e.keyword == "uploaded files"]
+    assert len(entries) == 1
+    entry = entries[0]
+    structured = f"{entry.what} {entry.why} {entry.authority}".lower()
+    # BOTH sets of files. Naming only the knowledge documents would leave the registration
+    # paperwork — the identity documents — undisclosed, which is the more expensive half.
+    assert "knowledge" in structured
+    assert "carrier" in structured
+    # And it must not offer a retention period as the thing that eventually removes them:
+    # the 7-year object-storage rule is a bucket-wide CEILING measured from the day a file
+    # was stored (`infra/README.md`), and calling it retention would be the same class of
+    # overclaim as the comment this entry replaces.
+    assert "ceiling" in structured or "limits how much the bucket grows" in structured
+
+    prose = " ".join(tenant_erasure.TENANT_ERASURE_LIMITATIONS).lower()
+    assert "uploaded files" in prose
+    assert "carrier" in prose
+
+    # Index alignment, the same contract `deletion.ERASURE_LIMITATIONS` carries: two lists
+    # that say the same thing drift, so adding to one without the other fails here.
+    assert len(tenant_erasure.TENANT_ERASURE_LIMITATIONS) == len(
+        tenant_erasure.TENANT_ERASURE_EXCEPTIONS
+    )
+    for exception, sentence in zip(
+        tenant_erasure.TENANT_ERASURE_EXCEPTIONS,
+        tenant_erasure.TENANT_ERASURE_LIMITATIONS,
+        strict=True,
+    ):
+        assert exception.keyword.lower() in sentence.lower(), exception.what

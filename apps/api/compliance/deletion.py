@@ -327,6 +327,26 @@ PROCESSOR_OUTCOME: Final = "not_reached_no_api"
 #: needs to tell "we hold this deliberately" from "this expires shortly".
 BACKUP_OUTCOME: Final = "expires_with_backup"
 
+#: THE TELEPHONE CARRIER, absent from this register until 18 September 2026 while the
+#: published sub-processor page told clients it receives more than any other vendor on the
+#: list: *"Caller and called numbers, call detail records, and the live audio of the call
+#: in both directions"* (`apps/web/src/lib/legal/subprocessors.ts`, the Exotel · Vobiz ·
+#: Plivo row). Since the conversation moved into a program of ours (D-592) the carrier is
+#: where the audio physically terminates — `voice_worker/carrier.py` reads 8 kHz mu-law
+#: media frames off the carrier socket in both directions [PIPECAT SOURCE,
+#: `.venv/.../pipecat/serializers/plivo.py:139-163`] — so a certificate enumerating three
+#: vendor copies and omitting this one was silent about the vendor holding both the number
+#: and the sound of the call.
+#:
+#: Its own word rather than `PROCESSOR_OUTCOME`, because the two are not the same state
+#: and a reader must be able to tell them apart. `not_reached_no_api` says we looked and
+#: there is no route. Here nobody has looked: no carrier is selected, no account is open
+#: with any of the three candidates, and none of their documentation has been read from
+#: this environment — so what a carrier retains and whether it can delete one subscriber's
+#: records are both UNKNOWN (hard rule 11), and the honest outcome word says "unestablished"
+#: rather than borrowing a finding we do not have.
+TELEPHONY_OUTCOME: Final = "not_reached_vendor_unestablished"
+
 
 @dataclass(frozen=True, slots=True)
 class ErasureLimitation:
@@ -438,6 +458,16 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "obtained in writing at all. They are named here because a list of what an erasure "
     "could not reach that omits a processor holding the conversation would be "
     "misleading by omission.",
+    "The telephone carrier that connects the call is a fourth processor this request "
+    "does not reach, and it holds more of the call than any of the three above: the "
+    "caller's number, the number dialled, the carrier's own call records, and the live "
+    "sound of the call in both directions, which passes through the carrier for the whole "
+    "conversation. No carrier is chosen yet and no account is open with any of the "
+    "candidates, so nobody here has established what a carrier keeps, for how long, or "
+    "whether it can remove one person's records at all. That is stated as the gap it is "
+    "rather than filled in with a likely answer. When a carrier is chosen, removing this "
+    "person's records there is a written request to that carrier, and the limitation is "
+    "narrowed only once that carrier's own published position has actually been read.",
     "This request record holds the number only until the erasure runs — the queued "
     "worker has to be able to find the subject — and it is cleared in the same write "
     "that records the proof. What remains afterwards is a one-way reference, which "
@@ -674,6 +704,39 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "retrieved from the environment this system runs in, and neither has yet "
             "signed a data-processing term with us. This entry states the gap rather "
             "than closing it; closing it means getting those terms signed."
+        ),
+    ),
+    ErasureLimitation(
+        what="Copies held by the telephone carrier that connected these calls.",
+        keyword="telephone carrier",
+        outcome=TELEPHONY_OUTCOME,
+        why=(
+            "A telephone call reaches Calevate over a carrier, and the carrier is not a "
+            "wire: the call's audio terminates there and is streamed to and from the "
+            "program that holds the conversation, so the carrier handles the caller's "
+            "number, the number dialled, its own record of the call, and the sound of "
+            "the call in both directions for its whole length. This request does not "
+            "reach any of that. Unlike the processors above, the reason is not that we "
+            "looked and found no route: no carrier has been chosen, no account is open "
+            "with any of the candidates, and none of their published positions has been "
+            "read — so what a carrier keeps, for how long, and whether it can remove one "
+            "person's records are all unestablished. Removing them will be a written "
+            "request to whichever carrier is chosen. Until one is chosen and its own "
+            "position has been read, the honest statement is that this copy exists and "
+            "nothing has been asked of it."
+        ),
+        # `docs/evidence/subprocessor-erasure-reach.md` §3 carries the row and its UNKNOWN
+        # cells; `voice_worker/carrier.py` is where the media leg is read off the socket;
+        # the sub-processor register's Exotel · Vobiz · Plivo row is the client-facing
+        # copy this entry had to stop contradicting. None of those is a document this
+        # reader has, so the sentence below states the position without citing them.
+        authority=(
+            "DPDP §8(7) storage limitation and §12(3) erasure, read against what has "
+            "actually been established about the carriers: nothing has, because no "
+            "carrier account exists yet and no carrier's published retention or deletion "
+            "position has been read. This entry states that gap rather than closing it; "
+            "closing it means choosing a carrier, reading what it publishes, and getting "
+            "a deletion term into the contract with it."
         ),
     ),
     ErasureLimitation(
@@ -1113,6 +1176,7 @@ __all__ = [
     "RECORDING_FLOOR_DAYS",
     "STATUS_COMPLETED",
     "STATUS_PENDING",
+    "TELEPHONY_OUTCOME",
     "DeletionRequestRecord",
     "DeletionRequestSummary",
     "ErasureLimitation",

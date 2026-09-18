@@ -422,6 +422,21 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "the event the DPA's notification clause exists for, and it is the most "
                 "sensitive category in the product.",
             ),
+            Revision(
+                "6",
+                True,
+                "Three recipients that were in the product and on no page, found by "
+                "auditing the register FROM THE CODE rather than by re-reading its rows. "
+                "The knowledge store and search service an operator can select from the "
+                "ops console at runtime, which then holds every passage of the knowledge "
+                "a client publishes; a third voice-synthesis vendor, chosen per agent, "
+                "receiving the words the agent speaks; and an unnamed row for a tracing "
+                "collector, whose address is a setting that could point at a monitoring "
+                "vendor. All three are switched off, which is not the same as "
+                "undisclosed: a register that omits a recipient one setting away from "
+                "being live is the failure the notification clause exists for. MATERIAL "
+                "— new sub-processors are what a client may object to.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

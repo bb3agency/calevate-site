@@ -87,6 +87,34 @@ def test_the_register_names_every_processor_that_holds_call_content() -> None:
     assert deletion.ENGINE_OUTCOME in outcomes
 
 
+def test_the_vocabulary_names_the_carrier_and_the_register_says_something_true() -> None:
+    """THE GAP FOUND ON 18 SEP 2026: the telephone carrier was in none of this.
+
+    `PROCESSORS` named the voice engine, the speech vendor and the language model, and the
+    published sub-processor register told clients the carrier receives *"Caller and called
+    numbers, call detail records, and the live audio of the call in both directions"* —
+    more than any other vendor on the page. Since D-592 the conversation runs in a
+    container of ours and the carrier is where the audio terminates
+    (`voice_worker/carrier.py` reads mu-law media frames off the carrier socket in both
+    directions). So a §12 certificate enumerated three vendor copies and was silent about
+    the one holding both the number and the sound of the call.
+
+    Two halves, and this pins both: the ROLE exists in the closed vocabulary, and the
+    certificate says something TRUE about it in the meantime — no task can be opened until
+    the CHECK on `processor_erasure_tasks` is widened, so the register carries the fact.
+    """
+    assert "telephony" in PROCESSORS
+    entry = next(e for e in deletion.ERASURE_EXCEPTIONS if e.outcome == deletion.TELEPHONY_OUTCOME)
+    # It must not borrow the "we looked and there is no route" finding from the speech and
+    # language entry: nobody has read a carrier's position, and hard rule 11 makes the
+    # difference between "no API" and "not established" the whole point of a separate word.
+    assert entry.outcome != deletion.PROCESSOR_OUTCOME
+    assert "unestablished" in entry.outcome
+    prose = " ".join(deletion.ERASURE_LIMITATIONS).lower()
+    assert "telephone carrier" in prose
+    assert "in both directions" in prose
+
+
 def test_the_register_no_longer_calls_the_vendor_api_undocumented() -> None:
     """SABOTAGE GUARD: the stale evidence class.
 
@@ -216,6 +244,15 @@ async def test_opening_tasks_is_idempotent_across_a_retry() -> None:
     vendor request twice — two tasks would be two emails and two clocks for one copy."""
     tenant_id = await _tenant()
     request_ref = uuid.uuid4()
+    # NAMED RATHER THAN DEFAULTED, and the reason is a live schema lag rather than a
+    # preference. `PROCESSORS` gained `telephony` on 18 Sep 2026 — the carrier holds the
+    # caller's number and the sound of the call and was missing from the whole machinery —
+    # while the CHECK `processor_is_known` on `processor_erasure_tasks` still admits the
+    # original three (migration `c9f4a2e17b83`); widening it is the schema lane's
+    # migration. Using the default here would make this control fail on the database
+    # rather than on the property it tests, so it names what the database accepts today
+    # and `test_the_vocabulary_names_the_carrier` below holds the constant's half.
+    accepted = ("voice_engine", "speech", "llm")
     async with tenant_session(tenant_id) as session:
         first = await open_tasks_for_request(
             session,
@@ -224,6 +261,7 @@ async def test_opening_tasks_is_idempotent_across_a_retry() -> None:
             request_kind="subject",
             subject_ref="abc123",
             vendor_refs=[_REAL_EXECUTION_ID],
+            processors=accepted,
         )
         second = await open_tasks_for_request(
             session,
@@ -232,8 +270,9 @@ async def test_opening_tasks_is_idempotent_across_a_retry() -> None:
             request_kind="subject",
             subject_ref="abc123",
             vendor_refs=[_REAL_EXECUTION_ID],
+            processors=accepted,
         )
-    assert first == len(PROCESSORS)
+    assert first == len(accepted)
     assert second == 0
 
 

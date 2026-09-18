@@ -21,6 +21,25 @@ of an erasure arm, or is listed in `ERASURE_EXEMPT` with a reason a reviewer can
 Both directions, on `check_rls_coverage`'s terms: a table with no arm fails, and an
 exemption naming a table that no longer exists fails too.
 
+**AND THE RULE IS ASKED ONCE PER ENTRYPOINT, WHICH IS THE CORRECTION OF 18 SEP 2026.**
+This file used to union the two erasures — `execute_deletion_request` (one data principal,
+DPDP §12) and `execute_tenant_erasure` (a whole account offboarding) — into ONE `tables`
+set and then ask "is this table in that set". Those are different obligations with
+different certificates, and a union answers the easier one: a table reached ONLY by the
+tenant erasure satisfied the guard for the per-subject one, so the per-subject certificate
+could enumerate an erasure that never happened while this file printed OK. That is not
+hypothetical — `copilot_memories` passed that way, and the per-subject erasure has no arm
+over it at all (the tenant path deletes every row; the subject path is keyed on a phone
+number and `copilot/memory.redacted_content` has already replaced the numbers, so it has
+no predicate to use). The guard could not see the difference because it had thrown the
+difference away before it asked.
+
+So reach is computed PER ENTRYPOINT and the question is asked per entrypoint, and a table
+reached by only one of them is an ENTRY IN `ENTRYPOINT_EXEMPT` — a registered argument
+about a specific certificate — rather than an accident of set union. That turns "the
+tenant erasure covers it" from a silent pass into a sentence somebody wrote and a
+reviewer can disagree with.
+
 **THE THREE SHAPES**, taken from `check_rls_coverage`'s rule 7 rather than invented beside
 it — that file already had to answer "which tables hold a person's data" and its answers
 are imported here where they are the same question:
@@ -384,6 +403,85 @@ ERASURE_EXEMPT: dict[str, str] = {
 }
 
 
+#: WHAT ONE ERASURE REACHES AND THE OTHER DELIBERATELY DOES NOT.
+#:
+#: `ERASURE_EXEMPT` above answers "no erasure touches this, and that is correct".
+#: This answers a different and, until 18 Sep 2026, unasked question: "the OTHER
+#: entrypoint erases this table — why is it right that THIS one does not?" The union that
+#: used to stand in for the answer let `copilot_memories` pass the per-subject guard on
+#: the strength of the tenant erasure's DELETE, which is an argument about a different
+#: certificate handed to a different person.
+#:
+#: Keyed by entrypoint, and an entry here is read against that entrypoint ONLY. The same
+#: both-directions discipline applies: an entry for a table the named entrypoint actually
+#: reaches fails, and so does one that duplicates `ERASURE_EXEMPT`.
+ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
+    "execute_deletion_request": {
+        "copilot_memories": (
+            "THE TABLE THAT EXPOSED THE UNION BUG, so its reason is written out. A "
+            "copilot memory is a distilled note about the client's own BUSINESS, written "
+            "through `copilot/memory.redacted_content`, which replaces phone numbers, "
+            "email addresses, Aadhaar, PAN, card, OTP and UPI identifiers before the row "
+            "is stored. This erasure is keyed on a phone number, so after that redaction "
+            "there is no predicate it can use — not a weakness of the arm, the absence of "
+            "anything to match. What can remain is a proper noun, which is the same limit "
+            "every digit-keyed arm has, and it is PUBLISHED to the data principal rather "
+            "than left here: `deletion.ERASURE_EXCEPTIONS` keyword 'assistant' ('it cannot "
+            "find a sentence that named the person instead') and keyword 'by name' state "
+            "it, and `tests/dpdp_known_gaps_test.py` holds the open gap with a probe that "
+            "turns red the day the keying stops being digits. The row does not survive "
+            "indefinitely: it expires on the `transcript` retention clock and the tenant "
+            "erasure deletes every row. The raw conversation IS reached by this erasure "
+            "(`_erase_copilot_turns` matches the digits), which is why only the distilled "
+            "note is registered here."
+        ),
+        "tenant_erasure_requests": (
+            "The OFFBOARDING request row and its proof — one row per account closure, "
+            "carrying counts, timestamps and the certificate text. It is in scope here "
+            "only because `proof` is jsonb, and `deletion_proof` builds it from numbers "
+            "and our own authored sentences: no caller's number, words or extracted "
+            "fields reach it. A per-subject §12 request has no relation to it at all, and "
+            "an arm that deleted or blanked it would destroy an account's own erasure "
+            "certificate in response to one caller's request. The tenant erasure writes "
+            "it, which is why it is registered here rather than in ERASURE_EXEMPT."
+        ),
+    },
+    "execute_tenant_erasure": {
+        "deletion_requests": (
+            "The per-subject §12 requests this account filed. An OPEN row still carries "
+            "`phone_e164` — the worker has to be able to find the subject — and the "
+            "number is cleared in the same write that records the proof, so a COMPLETED "
+            "row holds only the one-way `subject_ref`. A tenant erasure cannot run with "
+            "an open one behind it in the ordinary case: `tenant_erasure.assert_erasable` "
+            "refuses any account that is not already `churned`, so dialing has stopped "
+            "and no new request can be filed through the client surface. That is a "
+            "precondition rather than a proof, and the honest form of this entry says so: "
+            "an account closed while one §12 request was still queued would leave that "
+            "row's number behind. Registered rather than erased because the row is the "
+            "evidence that the erasure was ASKED FOR — deleting it in an offboarding "
+            "would destroy an account's record of the rights its callers exercised, which "
+            "is the opposite of what `processor_erasure_tasks` is exempted for one entry "
+            "up. The arm that would close the residue is a clear of `phone_e164` on any "
+            "still-open row, in `workers/retention.execute_tenant_erasure`."
+        ),
+        "kb_documents": (
+            "The client's own knowledge content — the price lists, FAQs and staff details "
+            "they uploaded for their agents to quote. The per-subject erasure SEARCHES it "
+            "for the number and reports a count without changing it "
+            "(`deletion.KB_OUTCOME = 'searched_not_erased'`); the tenant erasure does not "
+            "even search, because ending an engagement gives it no subject to search FOR. "
+            "Both positions are published: `tenant_erasure.TENANT_ERASURE_EXCEPTIONS` "
+            "keyword 'knowledge base' says the content is 'not searched and not changed' "
+            "and names the three copies, and what DOES reach part of it is the account's "
+            "own `kb` retention policy, which deletes superseded and rejected versions on "
+            "its own clock (D-179). Erasing a live knowledge document here would also be "
+            "the wrong act: it is the client's own authored content, not a caller's "
+            "record."
+        ),
+    },
+}
+
+
 @dataclass(frozen=True)
 class SchemaState:
     """Everything the evaluation needs, so the evaluation is pure and testable."""
@@ -412,12 +510,24 @@ class SchemaState:
 
 @dataclass
 class ErasureReach:
-    """The tables the erasure entrypoints can actually reach, and how it was worked out."""
+    """The tables the erasure entrypoints can actually reach, and how it was worked out.
 
-    tables: frozenset[str] = frozenset()
+    `by_entrypoint` is the load-bearing field and `tables` is derived from it. The union
+    still exists because the ANCHORS are a question about the scan rather than about any
+    one certificate — "can this file still see erasure SQL at all" — and because an
+    exemption that names a table SOME arm erases is wrong whichever arm that is.
+    """
+
+    by_entrypoint: dict[str, frozenset[str]] = field(default_factory=dict)
     visited: frozenset[str] = frozenset()
     statements: int = 0
     blind_spots: list[str] = field(default_factory=list)
+
+    @property
+    def tables(self) -> frozenset[str]:
+        if not self.by_entrypoint:
+            return frozenset()
+        return frozenset().union(*self.by_entrypoint.values())
 
 
 def fetch_state(engine: Engine) -> SchemaState:
@@ -552,14 +662,43 @@ def erasure_reach(sources: tuple[Path, ...] = ERASURE_SOURCES) -> ErasureReach:
         constants.update(module_constants)
         functions.update(module_functions)
 
-    tables: set[str] = set()
+    by_entrypoint: dict[str, frozenset[str]] = {}
     visited: set[str] = set()
     statements = 0
-    queue = list(ERASURE_ENTRYPOINTS)
     for name in ERASURE_ENTRYPOINTS:
         if name not in functions:
             blind.append(f"erasure entrypoint `{name}` is defined in none of the scanned sources")
+            continue
+        # ONE WALK PER ENTRYPOINT, each from a fresh `seen` set. Sharing one `visited`
+        # across both would make the second walk skip every helper the first had already
+        # entered — the union bug again, one layer down and harder to see.
+        tables, seen, found = _walk_from(name, functions, constants)
+        by_entrypoint[name] = frozenset(tables)
+        visited |= seen
+        statements += found
+        if not tables:
+            blind.append(
+                f"erasure entrypoint `{name}` reaches no table at all — the walk can no "
+                "longer see its SQL, so every verdict about it would be about the scan"
+            )
+    return ErasureReach(
+        by_entrypoint=by_entrypoint,
+        visited=frozenset(visited),
+        statements=statements,
+        blind_spots=blind,
+    )
 
+
+def _walk_from(
+    entrypoint: str,
+    functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    constants: dict[str, str],
+) -> tuple[set[str], set[str], int]:
+    """(tables, functions visited, statements) reachable from ONE entrypoint."""
+    tables: set[str] = set()
+    visited: set[str] = set()
+    statements = 0
+    queue = [entrypoint]
     while queue:
         name = queue.pop()
         if name in visited or name not in functions:
@@ -588,12 +727,7 @@ def erasure_reach(sources: tuple[Path, ...] = ERASURE_SOURCES) -> ErasureReach:
                 )
                 if callee is not None and callee in functions:
                     queue.append(callee)
-    return ErasureReach(
-        tables=frozenset(tables),
-        visited=frozenset(visited),
-        statements=statements,
-        blind_spots=blind,
-    )
+    return tables, visited, statements
 
 
 def evaluate(
@@ -601,21 +735,82 @@ def evaluate(
     reach: ErasureReach,
     *,
     exemptions: dict[str, str] | None = None,
+    entrypoint_exemptions: dict[str, dict[str, str]] | None = None,
 ) -> list[str]:
     """Every failure the live schema deserves. Pure — tests feed it synthetic states."""
     exempt = dict(ERASURE_EXEMPT if exemptions is None else exemptions)
+    per_entry = {
+        entry: dict(tables)
+        for entry, tables in (
+            ENTRYPOINT_EXEMPT if entrypoint_exemptions is None else entrypoint_exemptions
+        ).items()
+    }
     failures: list[str] = []
 
-    # 1. Every in-scope table is reached by an erasure arm, or exempt with a reason.
-    for table in sorted(state.in_scope):
-        if table in exempt or table in reach.tables:
+    # 1. PER ENTRYPOINT: every in-scope table is reached by THAT erasure, exempt from
+    #    every erasure, or registered against THAT entrypoint with a reason. Asked once
+    #    per certificate, because there is one certificate per entrypoint and a union
+    #    answers whichever question is easier (module docstring).
+    for entrypoint in sorted(reach.by_entrypoint):
+        reached = reach.by_entrypoint[entrypoint]
+        registered = per_entry.get(entrypoint, {})
+        for table in sorted(state.in_scope):
+            if table in exempt or table in reached or table in registered:
+                continue
+            others = sorted(name for name, tables in reach.by_entrypoint.items() if table in tables)
+            also = (
+                f" It IS reached by {', '.join(others)}, which is not an answer for this "
+                "one: a different erasure produces a different certificate for a "
+                "different person."
+                if others
+                else ""
+            )
+            failures.append(
+                f"{table}: holds a data principal's data ({state.shapes_of(table)}) and "
+                f"is named by NO arm of `{entrypoint}`.{also} A certificate issued while "
+                "this table still holds the record is false. Erase it, or register it in "
+                f"ENTRYPOINT_EXEMPT['{entrypoint}'] with why it is correct that this "
+                "erasure leaves it."
+            )
+
+    # 1b. The per-entrypoint register stays honest, both directions.
+    for entrypoint, registered in sorted(per_entry.items()):
+        if entrypoint not in reach.by_entrypoint:
+            failures.append(
+                f"{entrypoint}: ENTRYPOINT_EXEMPT names an entrypoint this scan does not "
+                "walk. Remove it or add it to ERASURE_ENTRYPOINTS — an exemption against "
+                "an entrypoint nobody evaluates is enforced by nothing."
+            )
             continue
-        failures.append(
-            f"{table}: holds a data principal's data ({state.shapes_of(table)}) and is "
-            "named by NO erasure arm. A §12 certificate issued while this table still "
-            "holds the subject's record is false. Erase it, or register it in "
-            "ERASURE_EXEMPT with why it is correct that the data survives."
-        )
+        for table, reason in sorted(registered.items()):
+            if table not in state.all_tables:
+                failures.append(
+                    f"{table}: STALE {entrypoint} exemption — no such table. Remove the "
+                    "entry; a dead exemption hides the next real gap."
+                )
+            elif table not in state.in_scope:
+                failures.append(
+                    f"{table}: {entrypoint} exemption for a table that carries no "
+                    "subject-linked column, so nothing here would have asked about it."
+                )
+            if table in reach.by_entrypoint[entrypoint]:
+                failures.append(
+                    f"{table}: registered as out of reach of `{entrypoint}` and also "
+                    "reached by it. One of the two is wrong, and a reviewer cannot tell "
+                    "which."
+                )
+            if table in exempt:
+                failures.append(
+                    f"{table}: registered BOTH in ERASURE_EXEMPT (no erasure reaches it) "
+                    f"and in ENTRYPOINT_EXEMPT['{entrypoint}'] (this one does not, the "
+                    "other does). Those say different things; keep the true one."
+                )
+            if len(reason.strip()) < MIN_EXEMPTION_REASON:
+                failures.append(
+                    f"{table}: {entrypoint} exemption reason is too thin to review "
+                    f"({reason.strip()!r}). State what the other erasure does with it and "
+                    "why this one correctly does not."
+                )
 
     # 2. The register stays honest, both directions — `check_rls_coverage`'s rule 4. A dead
     #    exemption is worse than no exemption: it reads as a considered decision about a
@@ -680,11 +875,15 @@ def main() -> int:
         for failure in failures:
             print(f"  - {failure}")
         return 1
+    per_entry = " · ".join(
+        f"{entrypoint} reaches {len(state.in_scope & tables)}"
+        f"/{len(ENTRYPOINT_EXEMPT.get(entrypoint, {}))} registered"
+        for entrypoint, tables in sorted(reach.by_entrypoint.items())
+    )
     print(
         f"ERASURE COVERAGE: OK ({len(state.in_scope)} subject-linked tables; "
-        f"{len(state.in_scope & reach.tables)} reached by an erasure arm "
-        f"({reach.statements} statements across {len(reach.visited)} functions); "
-        f"{len(ERASURE_EXEMPT)} registered with a reason)"
+        f"{per_entry}; {reach.statements} statements across {len(reach.visited)} "
+        f"functions; {len(ERASURE_EXEMPT)} exempt from every arm)"
     )
     return 0
 

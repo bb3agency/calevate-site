@@ -537,8 +537,22 @@ def kb_object_key(*, tenant_id: UUID, upload_id: UUID, slot: str, suffix: str) -
 
     THE TENANT AND THE UPLOAD ARE LOAD-BEARING, for `payload_key`'s reason exactly: an
     uploaded price list is the client's own business data and may carry their customers'
-    names, so a DPDP erasure or an account offboarding must be able to enumerate it, and
-    an enumeration can only work from a key that names its subject.
+    names, so an enumeration must be possible, and an enumeration can only work from a key
+    that names its subject.
+
+    ⚠ **THAT IS A PROPERTY OF THE KEY AND NOT A CLAIM THAT ANYTHING USES IT, AND THIS
+    DOCSTRING USED TO MAKE THE CLAIM** (18 Sep 2026). It said "a DPDP erasure or an account
+    offboarding must be able to enumerate it", which reads as a statement that one does.
+    Neither does. The ONLY caller of `kb_upload_prefix` is `kb/uploads.py::remove_upload` —
+    the client deleting their own upload — and `execute_tenant_erasure` has no arm over
+    this prefix at all: its own certificate says the knowledge base is "not searched and
+    not changed". So an account that offboards leaves its uploaded documents in the bucket
+    until the bucket-wide 7-year ceiling reaches them (`infra/README.md` §"kb-uploads/",
+    which already says the ceiling is not a retention mechanism). That is now DISCLOSED
+    rather than implied — `tenant_erasure.TENANT_ERASURE_LIMITATIONS` names the uploaded
+    files — and disclosure is the honest half of the gap. The other half is an erasure arm
+    over this prefix in `workers/retention.py::execute_tenant_erasure`, which is where
+    every other object-store arm of that erasure already lives.
 
     `slot` is `original` or `document` — the two artefacts of one upload (what the client
     sent, and what the engine was handed; the same object twice when the client sent a
@@ -652,7 +666,26 @@ async def read_kb_object(key: str) -> bytes | None:
 #: have a different owner (the business itself, not its knowledge base), a different
 #: reader (an operator relaying an application to the carrier) and a different erasure
 #: story — they are the tenant's own registration documents, not a data principal's data,
-#: so a DPDP subject erasure does not reach them and an ACCOUNT offboarding does.
+#: so a DPDP subject erasure does not reach them.
+#:
+#: ⚠ **THIS COMMENT ENDED "and an ACCOUNT offboarding does", AND THAT WAS FALSE FOR THE
+#: WHOLE LIFE OF THE PREFIX** (corrected 18 Sep 2026). `execute_tenant_erasure` has no arm
+#: over `carrier-compliance/`: no code in this repository lists it, deletes from it, or
+#: names it in a `retention_policies` category, and `carrier_application_prefix` below —
+#: the enumeration handle the sweep would have used — had no caller outside a test. So a
+#: client's GST certificate, their signed carrier application and whatever identity
+#: paperwork sits beside it survived an account closure with no erasure arm, no retention
+#: period and, worse than either, NO DISCLOSURE: the certificate a departing client is
+#: handed did not mention the files.
+#:
+#: **THE DISCLOSURE IS THE HALF THAT COULD BE FIXED FROM HERE, AND IT IS FIXED**
+#: (`tenant_erasure.TENANT_ERASURE_LIMITATIONS`/`_EXCEPTIONS`, keyword "uploaded files").
+#: The erasure ARM belongs in `workers/retention.py::execute_tenant_erasure`, beside the
+#: object-store arms that are already there, and it is OUTSTANDING. What was not available
+#: was the third option: leaving the comment asserting a sweep would have been the cheaper
+#: repair and is exactly the failure being corrected here, because a false comment and an
+#: undisclosed gap are one defect seen from two sides — and the side a client reads is the
+#: expensive one.
 CARRIER_DOCUMENT_PREFIX = "carrier-compliance"
 
 
@@ -682,7 +715,20 @@ def carrier_document_key(
 
 def carrier_application_prefix(*, tenant_id: UUID, application_id: UUID) -> str:
     """Every object of one application, across every submission of it. Ends in `/` so the
-    prefix stops at the path segment."""
+    prefix stops at the path segment.
+
+    **KEPT RATHER THAN DELETED, AND THE ARGUMENT IS NOT "IT MIGHT BE USEFUL LATER."** It
+    had no production caller when the comment above was corrected, and a helper whose
+    stated purpose is a sweep nobody wrote is the half-wired shape this repository treats
+    as a defect. Two things make this one earn its place anyway: it is the one definition
+    of "every object of one application", which is what an operator enumerates BY HAND
+    today when a client asks what was sent to the carrier, and
+    `tests/carrier_compliance_test.py::test_the_object_key_separates_one_submission_from_
+    the_next` pins the key-layout property it expresses — that two submissions of one
+    application are distinct objects under one enumerable prefix. Deleting it would delete
+    that pin and leave the layout asserted nowhere. What is NOT claimed any more is that
+    an erasure calls it.
+    """
     return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/{application_id}/"
 
 
