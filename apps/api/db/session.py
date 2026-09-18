@@ -13,9 +13,12 @@ Every deployable shares the engine below: `apps/api`, `apps/voice-runtime` and
 transcript.
 """
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from calevate_shared.config import Settings
@@ -465,15 +468,118 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return _sessionmaker
 
 
+@dataclass(frozen=True, slots=True)
+class _Ambient:
+    """The tenant session one task currently has open, as `joined_tenant_session` needs it.
+
+    PRIVATE, AND THE PRIVACY IS THE HARD-RULE-1 CONTROL. Nothing outside this module can
+    read the `ContextVar` or this record, so there is no expression anywhere in the tree
+    that yields "the ambient session" without first naming a tenant — see
+    `joined_tenant_session`.
+    """
+
+    tenant_id: UUID
+    session: AsyncSession
+    #: The task that opened it, or `None` off the event loop. A `ContextVar` is COPIED
+    #: into every child task (`asyncio.create_task`/`gather` snapshot the context), so
+    #: without this a task spawned inside a tenant session would inherit its parent's
+    #: session and two siblings could drive one `AsyncSession` concurrently — not a
+    #: tenancy breach, but an `InterfaceError` under load and one transaction carrying two
+    #: callers' work at worst. Verified rather than assumed:
+    #: `tests/ambient_tenant_session_test.py` runs the `gather` and asserts each child
+    #: opened its own.
+    task: asyncio.Task[Any] | None
+
+
+#: `None` means "this task has no tenant session open", which is the state every path
+#: that is not inside one is in.
+_ambient: ContextVar[_Ambient | None] = ContextVar("calevate_ambient_tenant_session", default=None)
+
+
 @asynccontextmanager
 async def tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
-    """A session whose whole transaction runs under the tenant's RLS context."""
+    """A session whose whole transaction runs under the tenant's RLS context.
+
+    It PUBLISHES itself for the duration (see `joined_tenant_session`), which costs
+    nothing and is what lets a callee that needs this tenant's rows run in the caller's
+    transaction instead of racing it from a second connection.
+
+    The `ContextVar` is set inside the generator on purpose and it does reach the caller:
+    an async generator has no context of its own, so `asend` runs in the context of
+    whoever drives it — measured 18 Sep 2026 rather than recalled, and pinned by
+    `tests/ambient_tenant_session_test.py`. The `finally` clears it on the exception path
+    too, so a rolled-back transaction can never be joined by a later caller.
+    """
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
         await session.execute(
             text(f"SELECT set_config('app.tenant_id', :tid, true), {_TIMEOUT_SQL}"),
             {"tid": str(tenant_id), **_timeout_param()},
         )
+        token = _ambient.set(
+            _Ambient(tenant_id=tenant_id, session=session, task=asyncio.current_task())
+        )
+        try:
+            yield session
+        finally:
+            _ambient.reset(token)
+
+
+@asynccontextmanager
+async def joined_tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
+    """This tenant's session, JOINING the caller's transaction when there is one.
+
+    WHY IT EXISTS: A SECOND CONNECTION IS NOT A SECOND VIEW, IT IS A SECOND WRITER.
+    `apps/api/engine/pipecat.py` is an engine adapter whose "engine" is this database, and
+    `VoiceEngine` deliberately carries no session, so it opened its own. `publishing.
+    publish_agent` calls it while holding the `agents` row `FOR UPDATE` in ITS transaction
+    — and every table the adapter writes (`agent_config_versions`, `pipecat_agents`) has a
+    foreign key to `agents`, which PostgreSQL validates by taking `FOR KEY SHARE` on the
+    referenced row. `FOR KEY SHARE` conflicts with `FOR UPDATE`, so the adapter's session
+    blocked on a lock only its own caller could release, and the caller was blocked
+    awaiting the adapter: a true deadlock, broken by `statement_timeout` and invisible in
+    CI because the default test engine is the fake and touches no database.
+
+    THE TENANT IS AN ARGUMENT, NOT A QUESTION THE CALLER CAN ASK. There is no
+    `current_tenant_session()` and there must never be one: a callee that read the ambient
+    session and then trusted it would be one wrong assumption away from writing under
+    another client's GUC, which is a hard-rule-1 breach and strictly worse than the
+    deadlock this closes. This function can only ever hand back a session already scoped
+    to the `tenant_id` the caller named, because the mismatch arm opens a new one.
+
+    JOINING MEANS THE CALLER OWNS THE COMMIT. Nothing is committed or closed here on the
+    join path — the work becomes part of the caller's transaction and rolls back with it,
+    which is the stronger guarantee anyway (a publish that fails no longer leaves a half
+    written engine record behind).
+
+    REJECTED, AND WHY:
+      * *Thread the session through `VoiceEngine`* — three adapters (`bolna`, `cartesia`,
+        `fake`) speak to a vendor over HTTP and have no database at all; a session
+        parameter would put a storage concept into the one port whose purpose is that
+        adapters are interchangeable.
+      * *Release the `FOR UPDATE` before calling the adapter* — that lock is what
+        serialises a publish against a concurrent `set_call_cap`/`set_agent_voice`
+        republish (`agents/service.publish_agent`, "THE LOCK"), and `kb/service.
+        publish_source` argues for the same serialisation in its own words. Dropping it
+        trades a deadlock for a lost update.
+      * *A `SAVEPOINT` on the second connection* — a savepoint is a point inside ONE
+        transaction. A second connection is a different transaction, which IS the problem;
+        nesting inside it changes nothing about the lock.
+    """
+    ambient = _ambient.get()
+    current = asyncio.current_task()
+    if (
+        ambient is not None
+        and ambient.tenant_id == tenant_id
+        # `is not None` as well as `is`, so that two callers who are both somehow OFF the
+        # loop cannot match each other by both being `None` — a session is joined only
+        # when this file can name the task that owns it.
+        and current is not None
+        and ambient.task is current
+    ):
+        yield ambient.session
+        return
+    async with tenant_session(tenant_id) as session:
         yield session
 
 

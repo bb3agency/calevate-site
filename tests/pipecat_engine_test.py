@@ -30,6 +30,7 @@ from apps.api.agents.config_versions import (
     record_attestation,
 )
 from apps.api.core.errors import ProblemError
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.capabilities import EngineCapabilityAbsentError
@@ -38,6 +39,7 @@ from apps.api.engine.pipecat import (
     PipecatEngine,
     engine_agent_ref_for,
 )
+from apps.api.kb import service as kb_service
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_MARKER,
     AgentConfig,
@@ -65,6 +67,47 @@ async def _org() -> tuple[uuid.UUID, uuid.UUID]:
     tenant_id = uuid.UUID(str(created["id"]))
     await accept_agreements(tenant_id)
     return tenant_id, uuid.UUID(str(created["agent_id"]))
+
+
+async def _make_the_agent_live(tenant_id: uuid.UUID, agent_id: uuid.UUID, ref: str) -> None:
+    """The state a KB publish requires: a live agent with a script and a route.
+
+    `create_organization` mints the receptionist with no `prompt_versions` row at all
+    (FLOWS §1's step-3-before-step-7), and `publish_agent` refuses an agent with no script
+    — so a fixture that only flipped `status` would report `agent_not_published` in place
+    of the answer under test. Same fixture `kb_workflow_test.give_agent_a_script` builds
+    for the fake engine; it is spelled here rather than imported because the ref and the
+    route's engine name have to be this adapter's.
+    """
+    prompt_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO prompt_versions (id, tenant_id, agent_id, version, body, "
+                "created_at, updated_at) VALUES (:p, :t, :a, 1, :body, now(), now())"
+            ),
+            {
+                "p": prompt_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "body": "You are the receptionist for Sunrise Clinic. Answer callers.",
+            },
+        )
+        await session.execute(
+            text(
+                "UPDATE agents SET engine_agent_ref = :r, status = 'live', "
+                "system_prompt_id = :p, live_prompt_id = :p WHERE id = :a"
+            ),
+            {"r": ref, "p": prompt_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                "agent_id, active, created_at, updated_at) "
+                "VALUES ('pipecat', :r, :t, :a, true, now(), now())"
+            ),
+            {"r": ref, "t": tenant_id, "a": agent_id},
+        )
 
 
 def _config(
@@ -496,3 +539,95 @@ async def test_an_empty_window_is_complete_and_a_populated_one_is_not() -> None:
     with pytest.raises(ProblemError) as raised:
         await engine.get_execution("call_nobody_placed")
     assert raised.value.code == "engine_rejected"
+
+
+# --- the caller's transaction (D-182's other half) -----------------------------
+
+
+async def test_a_kb_publish_completes_while_the_caller_holds_the_agent_row_locked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE DEADLOCK, DRIVEN DOWN THE PATH THAT REACHES IT IN PRODUCTION.
+
+    `kb/service.publish_source` → `agents.t0.recompile_t0` → `agents.service.publish_agent`
+    → `PipecatEngine.update_agent` → `SqlControlPlane.publish`. `publish_agent` loads the
+    `agents` row `FOR UPDATE` and is still holding it, in its own open transaction, when the
+    adapter is called — and the two tables the adapter writes, `agent_config_versions` and
+    `pipecat_agents`, both carry a foreign key to `agents` (migrations `d4e1c7a09b35` and
+    `e2f5a91c8d47`). PostgreSQL validates a foreign key by taking `FOR KEY SHARE` on the
+    referenced row, which conflicts with `FOR UPDATE`.
+
+    So while the store opened its OWN session this call could not finish: the second
+    transaction waited for a lock only the first could release, and the first was awaiting
+    the second. It ended at `statement_timeout` — ten seconds of a held connection and a
+    held lock, then a 500 — and no test saw it, because the default test engine is the fake
+    and touches no database at all.
+
+    WHAT THIS ASSERTS, beyond "it returned". Both halves of the fix are checked on the
+    CALLER's session, before anything commits: the version row and the runtime row are
+    visible to it, which is only possible if they were written INSIDE its transaction. A
+    store that had opened its own connection could not have made them visible here even if
+    it had somehow got the lock.
+
+    The statement budget is dropped to its floor for the duration, so a regression fails in
+    seconds rather than pinning a worker for ten. Reverting `SqlControlPlane` to its own
+    sessions makes this test fail in 2.3s with the conflict named in full:
+    `canceling statement due to statement timeout / CONTEXT: while locking tuple in
+    relation "agents" / SQL statement: SELECT 1 FROM ONLY "public"."agents" x WHERE "id"
+    = $1 FOR KEY SHARE OF x`, raised by the `agent_config_versions` INSERT (measured
+    18 Sep 2026).
+    """
+    monkeypatch.setenv("ENGINE", "pipecat")
+    monkeypatch.setenv("DB_STATEMENT_TIMEOUT_MS", "1000")
+    get_settings.cache_clear()
+    reset_engine_cache()
+    try:
+        tenant_id, agent_id = await _org()
+        cfg = _config(tenant_id, agent_id)
+        ref = await PipecatEngine().create_agent(cfg)
+        await _make_the_agent_live(tenant_id, agent_id, ref)
+
+        async with tenant_session(tenant_id) as session:
+            source = await kb_service.submit_source(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                name="Clinic hours",
+                body="We are open 9am to 8pm.\n\nSunday is closed.",
+            )
+            await kb_service.approve_source(session, source_id=source["id"], approved_by=None)
+
+        async with tenant_session(tenant_id) as session:
+            # The caller's lock, taken explicitly so this test keeps measuring the conflict
+            # even if `publish_agent` ever stops taking its own (`_load_agent(for_update=
+            # True)` takes the same one a few frames further in).
+            locked = (
+                await session.execute(
+                    text("SELECT id FROM agents WHERE id = :aid FOR UPDATE"), {"aid": agent_id}
+                )
+            ).first()
+            assert locked is not None
+
+            version = await kb_service.publish_source(
+                session, tenant_id=tenant_id, source_id=source["id"]
+            )
+            assert version == 1
+
+            # Written in THIS transaction, and therefore visible to it uncommitted.
+            versions = (
+                await session.execute(
+                    text("SELECT count(*) FROM agent_config_versions WHERE agent_id = :aid"),
+                    {"aid": agent_id},
+                )
+            ).scalar()
+            assert versions is not None and versions >= 1
+            held = (
+                await session.execute(
+                    text("SELECT engine_agent_ref FROM pipecat_agents WHERE agent_id = :aid"),
+                    {"aid": agent_id},
+                )
+            ).scalar()
+            assert held == ref
+    finally:
+        get_settings.cache_clear()
+        reset_engine_cache()

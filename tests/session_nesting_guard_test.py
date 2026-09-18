@@ -190,6 +190,28 @@ async def start():
     assert _depth(tmp_path, {"other.py": other, "worker.py": worker}, "worker.scan") == 1
 
 
+def test_the_joining_opener_is_not_a_way_around_the_ceiling(tmp_path: Path) -> None:
+    """`joined_tenant_session` reuses the caller's session when it can — a RUNTIME fact,
+    so a syntax check cannot tell a join that lands from one that misses.
+
+    It therefore costs it like any other opener, which is what stops the new door being
+    the one people reach for when this guard says no: a three-deep chain through it is
+    still three-deep, because that is the depth the pool has to survive on the day every
+    join misses (a different tenant, a child task).
+    """
+    worker = """
+from apps.api.db.session import joined_tenant_session, tenant_session
+from pkg.globals import platform_status
+
+async def publish():
+    async with tenant_session(TENANT) as outer:
+        async with joined_tenant_session(TENANT) as inner:
+            await platform_status()
+            return outer, inner
+"""
+    assert _depth(tmp_path, {"globals.py": GLOBALS, "worker.py": worker}, "worker.publish") == 3
+
+
 def test_the_real_tree_is_inside_the_ceiling() -> None:
     assert guard.main() == 0
 

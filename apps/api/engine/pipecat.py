@@ -125,7 +125,7 @@ if TYPE_CHECKING:
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import joined_tenant_session, untenanted_session
 from apps.api.engine.capabilities import (
     require_call_compliance_floor,
     require_capability,
@@ -335,26 +335,51 @@ class PipecatControlPlane(Protocol):
 class SqlControlPlane:
     """`PipecatControlPlane` over the database this monolith already runs.
 
-    **IT OPENS ITS OWN SESSIONS AND THAT IS DELIBERATE.** `VoiceEngine`'s signatures carry
-    no session, and widening them so one adapter could share the caller's transaction would
-    put a database concept into a port whose entire purpose is that adapters are
-    interchangeable. The cost is real and is worth naming: `kb/service.publish_source`
-    calls `attach_kb` and then records its own claim row in ITS transaction, so the two
-    commits are separate and a crash between them leaves an account object no claim names —
-    which is precisely the orphan `list_account_kb` exists to find, and it is why that
-    method reads this store rather than the caller's claim table.
+    **IT TAKES NO SESSION AND IT DOES NOT ALWAYS OPEN ONE.** `VoiceEngine`'s signatures
+    carry no session and must not grow one — three of the four adapters speak to a vendor
+    over HTTP and have no database at all, so a session parameter would put a storage
+    concept into the port whose entire purpose is that adapters are interchangeable. So
+    every method below asks `joined_tenant_session` for the tenant it already knows, which
+    runs in the CALLER's transaction when the caller is in one for that same tenant and
+    opens its own otherwise.
 
-    Tenancy is RLS, as everywhere: writes and per-agent reads run under `tenant_session`,
-    and the tenant comes out of the ref the adapter minted. The one exception is
-    `account_kb`, which is cross-tenant by definition and runs untenanted against the
-    `pipecat_kb_objects_global_read` policy (migration `e2f5a91c8d47`, on
+    ⚠ **IT USED TO OPEN ITS OWN UNCONDITIONALLY AND THAT WAS A DEADLOCK, NOT A DESIGN.**
+    `agents/service.publish_agent` loads the `agents` row `FOR UPDATE` and calls
+    `update_agent` while still holding it; `agent_config_versions.agent_id` and
+    `pipecat_agents.agent_id` are both foreign keys to `agents`, and PostgreSQL validates a
+    foreign key by taking `FOR KEY SHARE` on the referenced row — which conflicts with
+    `FOR UPDATE`. A second connection therefore blocked on a lock only its own caller could
+    release, while that caller was blocked awaiting this store: reachable in production
+    from `kb/service.publish_source` → `recompile_t0` → `publish_agent` → `update_agent`,
+    and invisible in CI only because the default test engine is the fake and touches no
+    database. `db/session.joined_tenant_session` carries the full argument and the rejected
+    alternatives.
+
+    WHAT THAT CHANGES FOR A CALLER: on the join path this store's writes are part of the
+    caller's transaction and roll back with it. That is the stronger guarantee and it is
+    why the READS join too — after a joined `publish`, the `pipecat_agents` row is
+    uncommitted, so a `runtime_agent` on a second connection would answer "no such agent"
+    and turn every publish read-back into a refusal. One rule for every method is also the
+    only rule that stays true when a new one is added.
+
+    The engine calls that are NOT transactional stay exactly as they were:
+    `kb/service.publish_source` attaches documents before it records its own claim row, so
+    a crash between the two still leaves an account object no claim names — precisely the
+    orphan `list_account_kb` exists to find, and why that method reads this store rather
+    than the caller's claim table.
+
+    Tenancy is RLS, as everywhere: writes and per-agent reads run under a tenant-scoped
+    session, and the tenant comes out of the ref the adapter minted — never out of the
+    ambient session, which `joined_tenant_session` makes structurally unreadable. The one
+    exception is `account_kb`, which is cross-tenant by definition and runs untenanted
+    against the `pipecat_kb_objects_global_read` policy (migration `e2f5a91c8d47`, on
     `engine_kb_routes`' pattern).
     """
 
     async def publish(self, cfg: AgentConfig, *, ref: EngineAgentRef) -> UUID:
         tenant_id = UUID(cfg.tenant_id)
         agent_id = UUID(cfg.agent_id)
-        async with tenant_session(tenant_id) as session:
+        async with joined_tenant_session(tenant_id) as session:
             version = await mint_config_version(session, tenant_id, cfg)
             await session.execute(
                 text(
@@ -391,7 +416,7 @@ class SqlControlPlane:
             # into the Protocol's "an unknown ref must RAISE" — and NOT a database round
             # trip either, because there is no tenant to scope one to.
             return None
-        async with tenant_session(tenant_id) as session:
+        async with joined_tenant_session(tenant_id) as session:
             row = (
                 await session.execute(
                     text(
@@ -420,7 +445,7 @@ class SqlControlPlane:
         tenant_id = _tenant_of(ref)
         if tenant_id is None:
             return
-        async with tenant_session(tenant_id) as session:
+        async with joined_tenant_session(tenant_id) as session:
             # The agent's record goes; its KNOWLEDGE OBJECTS do not. That asymmetry is the
             # one `FakeEngine.delete_agent` argues at length and is the harder answer on
             # purpose: an account object nothing references is exactly the residue
@@ -438,11 +463,11 @@ class SqlControlPlane:
             )
 
     async def attested(self, agent: RuntimeAgent) -> Attestation | None:
-        async with tenant_session(agent.tenant_id) as session:
+        async with joined_tenant_session(agent.tenant_id) as session:
             return await latest_attestation(session, agent.agent_id)
 
     async def attach(self, agent: RuntimeAgent, *, handle: EngineKBRef, kb_id: str) -> None:
-        async with tenant_session(agent.tenant_id) as session:
+        async with joined_tenant_session(agent.tenant_id) as session:
             await session.execute(
                 text(
                     "INSERT INTO pipecat_kb_objects "
@@ -464,7 +489,7 @@ class SqlControlPlane:
             )
 
     async def detach(self, agent: RuntimeAgent, *, handle: EngineKBRef) -> bool:
-        async with tenant_session(agent.tenant_id) as session:
+        async with joined_tenant_session(agent.tenant_id) as session:
             result = await session.execute(
                 text(
                     "DELETE FROM pipecat_kb_objects "
@@ -479,7 +504,7 @@ class SqlControlPlane:
         return bool(cast("CursorResult[Any]", result).rowcount)
 
     async def agent_kb(self, agent: RuntimeAgent) -> tuple[EngineKBRef, ...]:
-        async with tenant_session(agent.tenant_id) as session:
+        async with joined_tenant_session(agent.tenant_id) as session:
             rows = (
                 await session.execute(
                     text(
@@ -622,7 +647,7 @@ class SqlControlPlane:
             # Reported as "no record", because inventing a tenant to go looking with is the
             # one thing hard rule 1 forbids outright.
             return None
-        async with tenant_session(tenant_id) as session:
+        async with joined_tenant_session(tenant_id) as session:
             row = (
                 await session.execute(
                     text(

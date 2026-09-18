@@ -33,6 +33,11 @@ call is followed only when this file can say WHICH function it reaches — a nam
 into the calling module, a function defined in it, `module_alias.function` for an alias
 this file imported, or `self.method` inside the same class.
 
+WHAT IT DELIBERATELY OVER-REPORTS. `joined_tenant_session` checks a connection out only
+when it cannot join the caller's — a runtime fact, so this file costs it at 1 either way.
+A chain through it is therefore reported at the depth it would reach if every join missed,
+which is the depth the pool actually has to survive.
+
 WHAT IT CANNOT SEE, and what that costs: a callable held in a variable, a `getattr`, or a
 job handed to the queue (a different task, therefore a different budget — correctly out of
 scope). Nothing on a session path in this tree does the first two; if that changes, the
@@ -63,6 +68,16 @@ MAX_DEPTH: Final = 2
 SESSION_OPENERS: Final[frozenset[str]] = frozenset(
     {
         "tenant_session",
+        # COUNTED AS A CONNECTION EVEN THOUGH IT OFTEN TAKES NONE, and that is the whole
+        # reason it may exist. `joined_tenant_session` reuses the caller's tenant session
+        # when the tenant and the task match and opens its own otherwise, so its cost is 0
+        # or 1 depending on a runtime fact this file cannot decide. Costing it at 1 keeps
+        # the ceiling meaningful: a chain that would be depth 3 if the join misses is
+        # still reported as depth 3, so nobody can route around this guard by reaching for
+        # the joining opener. Over-reporting is the direction this check already errs in
+        # by design (`_Module._index` takes the same call on same-named methods), and the
+        # only one that is safe: a guard that under-reports is a guard that is off.
+        "joined_tenant_session",
         "untenanted_session",
         "user_session",
         "invite_session",
