@@ -12,7 +12,7 @@ ours.
 memory over exactly this transport, with exactly this argument, and its sentence
 generalises to everything below: *"Installing the platform's master key there to save a
 network hop on the RING, where nobody is waiting, is not a trade worth making."* This class
-is that reader's shape widened from one GET to the three calls one call needs — one client
+is that reader's shape widened from one GET to the calls one call needs — one client
 for the process, a Bearer header, and a WALL-CLOCK bound that `httpx`'s per-phase timeout
 cannot give on its own.
 
@@ -35,6 +35,8 @@ from typing import Any, Final, Self, TypeVar
 
 import httpx
 from calevate_shared.worker_api import (
+    AttestationIn,
+    AttestationOut,
     ObservationBatch,
     ObservationsOut,
     SettlementOut,
@@ -77,6 +79,7 @@ WRITE_BUDGET_S: Final[float] = 5.0
 #: product name one surface — `apps/api/worker/routes.py` mounts exactly these.
 SESSION_PATH: Final[str] = "/v1/worker/session"
 CALLS_PATH: Final[str] = "/v1/worker/calls"
+AGENTS_PATH: Final[str] = "/v1/worker/agents"
 
 #: The ref `probe()` presents. It is deliberately NOT a valid `pipecat:<uuid>:<uuid>`, so it
 #: can never name a real agent of any tenant — what the probe wants back is a REFUSAL, and
@@ -200,6 +203,24 @@ class WorkerApiClient:
         )
         return self._parse(SettlementOut, body, what="settlement")
 
+    async def post_attestation(
+        self, engine_agent_ref: str, attestation: AttestationIn
+    ) -> AttestationOut:
+        """What this container recomputed about the prompt it loaded (§1.1, D-626).
+
+        Raises like the other writes. The CALLER decides whether that is fatal, and
+        `runtime.run_call` decides it is not: see there for why a call that cannot record its
+        attestation still answers the phone.
+        """
+        body = await self._request(
+            "POST",
+            f"{AGENTS_PATH}/{engine_agent_ref}/attestation",
+            budget_s=WRITE_BUDGET_S,
+            what="attestation",
+            json=attestation.model_dump(mode="json"),
+        )
+        return self._parse(AttestationOut, body, what="attestation")
+
     async def probe(self) -> None:
         """Prove the API is reachable AND this container's token is good. Raises otherwise.
 
@@ -210,11 +231,16 @@ class WorkerApiClient:
         cannot name any agent of any tenant.
 
         **404 IS THE PASS AND 401 IS THE FAILURE**, which is the whole design of the probe:
-        the route checks the token BEFORE it parses the ref (`worker/routes._require_token`
-        is the first line of the handler), so "not found" can only be reached by a caller
-        that authenticated. Asking for a real agent would need an agent id this process does
-        not have at boot, and would make readiness depend on somebody's published
-        configuration.
+        the route checks the token BEFORE it parses the ref (`worker/routes._admit` is the
+        first line of the handler), so "not found" can only be reached by a caller that
+        authenticated. ⚠ Since D-627 the guard also answers **409** on the
+        three WRITING routes when the deployment is not running this engine, and the session
+        read is deliberately exempt — so this probe still answers 404 there, and the engine
+        mismatch surfaces on the first write rather than at boot. That is a deliberate
+        narrowing and not an oversight: see `worker/routes._admit`.
+
+        Asking for a real agent would need an agent id this process does not have at boot,
+        and would make readiness depend on somebody's published configuration.
         """
         response = await self._send("GET", f"{SESSION_PATH}/{PROBE_REF}", budget_s=WRITE_BUDGET_S)
         if response.status_code == httpx.codes.NOT_FOUND:
@@ -299,6 +325,7 @@ class WorkerApiClient:
 
 
 __all__ = [
+    "AGENTS_PATH",
     "CALLS_PATH",
     "PROBE_REF",
     "SESSION_FETCH_BUDGET_S",

@@ -58,6 +58,8 @@ from calevate_shared.engine import (
 )
 from calevate_shared.events import TERMINAL_STATUSES
 from calevate_shared.worker_api import (
+    AttestationIn,
+    AttestationOut,
     MeteredQuantity,
     ObservationBatch,
     ObservationsOut,
@@ -69,11 +71,13 @@ from calevate_shared.worker_api import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.config_versions import record_attestation
 from apps.api.billing.rates import (
     llm_inr_per_ktok,
     stt_rate_inr_per_second,
     tts_rate_inr_per_char,
 )
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -178,7 +182,7 @@ ON CONFLICT (engine_call_id) DO UPDATE SET
   to_e164 = COALESCE(calls.to_e164, EXCLUDED.to_e164),
   updated_at = now()
 WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed'
-RETURNING id
+RETURNING id, from_e164, to_e164
 """
 
 #: One turn. `ON CONFLICT (call_id, idx) DO NOTHING` — the contract's own choice for the
@@ -244,6 +248,50 @@ def authorized(header: str | None) -> bool:
     if scheme.lower() != "bearer" or not presented:
         return False
     return hmac.compare_digest(presented.strip(), expected)
+
+
+def engine_enabled() -> bool:
+    """Is THIS deployment running the engine these routes write for?
+
+    ⚠ **THE ROUTES USED TO WRITE WHATEVER ENGINE THE PROCESS WAS CONFIGURED FOR, AND THE
+    CONSUMER OF WHAT THEY WRITE DOES NOT ASK (D-627).** `settle_call` enqueues a post-call
+    job whose payload names `"engine": "pipecat"`, and `workers/pipeline._post_call_target`
+    never reads that key — it resolves the adapter from the process-wide `ENGINE` through
+    `get_engine()`. So on a deployment running `ENGINE=bolna`, a settlement accepted here
+    minted `calls` rows, `usage_events` rows and an outbox promise whose pipeline then asked
+    BOLNA for a `pipecat:` execution id, and the call's extraction, CRM columns and lead were
+    lost to a vendor lookup that could never resolve.
+
+    Two fixes were available and the SMALLER one is this: refuse the write. Teaching the
+    consumer to switch adapters per payload would put a second engine-resolution path beside
+    `get_engine()` — two ways of doing one thing, on the path that decides which vendor a
+    client's call is reconciled against — for a configuration that is a deploy fault either
+    way. A deployment not running this engine has no voice worker to serve.
+
+    **`apps/voice-runtime/engine_intake.py:235` IS THE PRECEDENT AND IT WAS READ BEFORE IT
+    WAS COPIED.** It compares `settings.engine != engine` and refuses. What it returns is an
+    `IntakeVerdict(ok=False, …)` that its callers turn into a 401, not a 409 — so the SHAPE
+    is borrowed and the status is chosen here on its own merits: nothing is wrong with the
+    caller's credential, and the request would be valid against the same platform configured
+    differently, which is what `conflict` means in this repo's error ladder.
+    """
+    return get_settings().engine == ENGINE_NAME
+
+
+def refuse_wrong_engine() -> ProblemError:
+    """409 for a worker talking to a deployment that is not running its engine."""
+    return ProblemError.conflict(
+        "worker_engine_not_enabled",
+        (
+            "This deployment is not running the voice worker's engine, so it cannot accept "
+            "calls, observations or settlements from one."
+        ),
+        remediation=(
+            "A worker reaching an API configured for another engine is a deploy fault: the "
+            "rows it would write are reconciled by the process-wide ENGINE and would be "
+            "unreadable. Point the worker at the deployment whose ENGINE is this one."
+        ),
+    )
 
 
 # --- resolution: a ref the worker holds becomes a tenant we can act as -----------------
@@ -396,6 +444,59 @@ def _session_language(published: AgentConfig, models: ModelConfig) -> str | None
     return published.language_primary
 
 
+# --- POST /v1/worker/agents/{engine_agent_ref}/attestation -----------------------------
+
+
+async def record_prompt_attestation(
+    engine_agent_ref: str, request: AttestationIn
+) -> AttestationOut:
+    """What a worker says it loaded, written as the witness `get_agent` answers from.
+
+    **WITHOUT THIS THE TABLE HAD NO PRODUCTION WRITER (D-626).** `agents/config_versions.
+    record_attestation` was reachable only from tests, so `agent_config_attestations` was
+    empty on every deployment, `PipecatEngine.get_agent` answered
+    `system_prompt_readable=False` for every agent for ever, and hard rule 5's engine-side
+    verification — the thing OPERATIONS §2 gate 2 turns on — never ran once on this leg. The
+    worker computed `observed_prompt_sha256` and it reached nothing.
+
+    **THE WORKER SENDS WHAT IT OBSERVED; THE SERVER DECIDES WHAT THAT MEANS.** The body
+    carries the digest and not the verdict. `voice_worker/pipeline.AssembledCall` also
+    computes `prompt_matches_config_version`, and it is deliberately NOT what is stored: an
+    attestation whose verdict came from the attesting process would agree with itself by
+    construction, which is the `control_plane` defect `config_versions.py` exists to close.
+    We re-read `agent_config_versions.prompt_sha256` under this tenant's RLS and compare.
+
+    **A MISMATCH IS A 200 WITH `matches=False`.** It is the finding this whole arrangement
+    exists to be able to make, and refusing the write would delete the evidence of exactly
+    the condition the table was built to catch.
+    """
+    parsed = parse_owned_runtime_agent_ref(engine_agent_ref)
+    if parsed is None:
+        raise _refuse_unknown_agent()
+    tenant_id, agent_id = parsed
+    if request.agent_id != agent_id:
+        raise _refuse_identity("agent")
+    async with tenant_session(tenant_id) as session:
+        attestation = await record_attestation(
+            session,
+            tenant_id,
+            agent_id=agent_id,
+            agent_config_version_id=request.agent_config_version_id,
+            prompt_sha256=request.observed_prompt_sha256,
+        )
+    log.info(
+        "worker_attestation_recorded",
+        extra={
+            "tenant_id": str(tenant_id),
+            "agent_id": str(agent_id),
+            "agent_config_version_id": str(request.agent_config_version_id),
+            "attestation_id": str(attestation.id),
+            "matches": attestation.matches,
+        },
+    )
+    return AttestationOut(attestation_id=attestation.id, matches=attestation.matches)
+
+
 # --- POST /v1/worker/calls/{engine_call_id}/observations -------------------------------
 
 
@@ -416,18 +517,20 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
     status = _forward_status(batch)
     written = already = 0
     async with tenant_session(tenant_id) as session:
-        call_row_id = await _upsert_call(
-            session,
-            engine_call_id=engine_call_id,
-            tenant_id=tenant_id,
-            agent_id=batch.agent_id,
-            direction=batch.direction,
-            status=status,
-            started_at=_first(batch, "started_at"),
-            ended_at=_first(batch, "ended_at"),
-            from_e164=batch.from_e164,
-            to_e164=batch.to_e164,
-        )
+        call_row_id = (
+            await _upsert_call(
+                session,
+                engine_call_id=engine_call_id,
+                tenant_id=tenant_id,
+                agent_id=batch.agent_id,
+                direction=batch.direction,
+                status=status,
+                started_at=_first(batch, "started_at"),
+                ended_at=_first(batch, "ended_at"),
+                from_e164=batch.from_e164,
+                to_e164=batch.to_e164,
+            )
+        ).id
         for turn in batch.turns:
             # THE ONE REDACTION CALL, ON OUR SIDE OF THE WALL. `RedactionResult.kinds` says
             # WHAT was found and is loggable; the text either side of it is not.
@@ -556,7 +659,7 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
     _check_settlement(request)
     occurred_at = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
-        call_row_id = await _upsert_call(
+        call = await _upsert_call(
             session,
             engine_call_id=engine_call_id,
             tenant_id=tenant_id,
@@ -568,6 +671,7 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
             from_e164=request.from_e164,
             to_e164=request.to_e164,
         )
+        call_row_id = call.id
         message_id = await enqueue_outbox_once(
             session,
             job=POSTCALL_JOB,
@@ -592,88 +696,173 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
             return SettlementOut(
                 already_settled=True,
                 rows_written=0,
-                refusal_recorded=False,
+                refusals_recorded=0,
                 post_call_enqueued=False,
             )
-        refusal = request.refusal
-        rows: tuple[_Priced, ...] = ()
-        if refusal is None:
-            try:
-                rows = _price(request.quantities)
-            except _LegNotPriceableError as unpriceable:
-                refusal = unpriceable.refusal
-        if refusal is not None:
+        # THE WORKER'S REFUSALS AND OURS, IN THAT ORDER. They are different kinds of
+        # failure — the worker could not READ a quantity, we could not PRICE one — and both
+        # belong on the record against the leg they happened to.
+        rows, priced_refusals = _price(request.quantities)
+        refusals = (*request.refusals, *priced_refusals)
+        await _write_usage(session, tenant_id, call_row_id, rows, at=occurred_at)
+        for refusal in refusals:
             await _write_refusal(session, tenant_id, call_row_id, refusal, at=occurred_at)
-        else:
-            await _write_usage(session, tenant_id, call_row_id, rows, at=occurred_at)
 
-    if refusal is not None:
-        # `error` and not `warning`: an unmetered call is spend we absorbed and cannot bill,
-        # and it is the state `admin/health.calls_unmetered` stops the board for.
+    if refusals:
+        # `error` and not `warning`: an unmetered leg is spend we absorbed and cannot bill,
+        # and it is the state `admin/health.calls_unmetered` stops the board for. It is
+        # logged even when other legs settled — a call priced on three legs of five is still
+        # a call whose cost we do not know.
         log.error(
             "worker_call_not_meterable",
             extra={
                 "tenant_id": str(tenant_id),
                 "call_id": str(call_row_id),
-                "leg": refusal.leg,
-                "code": refusal.code,
+                "legs": ",".join(refusal.leg for refusal in refusals),
+                "codes": ",".join(refusal.code for refusal in refusals),
+                "rows": len(rows),
             },
         )
-        return SettlementOut(
-            already_settled=False,
-            rows_written=0,
-            refusal_recorded=True,
-            post_call_enqueued=True,
+    else:
+        log.info(
+            "worker_call_settled",
+            extra={
+                "tenant_id": str(tenant_id),
+                "call_id": str(call_row_id),
+                "rows": len(rows),
+            },
         )
-    log.info(
-        "worker_call_settled",
-        extra={
-            "tenant_id": str(tenant_id),
-            "call_id": str(call_row_id),
-            "rows": len(rows),
-        },
+    _alert_if_nobody_was_on_the_call(
+        tenant_id=tenant_id, call=call, final_status=request.final_status
     )
     return SettlementOut(
         already_settled=False,
         rows_written=len(rows),
-        refusal_recorded=False,
+        refusals_recorded=len(refusals),
         post_call_enqueued=True,
     )
 
 
-def _check_settlement(request: SettlementRequest) -> None:
-    """A REFUSAL OR QUANTITIES, NEVER BOTH. Validated rather than trusted.
+def _alert_if_nobody_was_on_the_call(*, tenant_id: UUID, call: _CallRow, final_status: str) -> None:
+    """A call that ended with NEITHER party known is an operator event, not a NULL column.
 
-    A client is a thing on somebody else's infrastructure, and `metered_rows` is
-    all-or-nothing by design ("THERE IS NO PARTIAL SETTLEMENT") — so a body offering three
-    priced legs AND a refusal is a shape the ledger cannot hold, and is refused.
+    **WHY THIS IS LOUD AND NOT COSMETIC.** `calls.from_e164`/`to_e164` have no producer on
+    this engine at all — verified rather than recalled: nothing under `apps/voice-worker/`
+    assigns either field, Pipecat's Plivo handshake parses neither party, and
+    `voice_worker/carrier.PlivoHandshake` refuses to model what is always `None` (DEPLOYMENT
+    §12.5 gate 9). Three consequences follow for every call that settles this way, and each
+    one is somebody's right rather than a missing screen field:
 
-    ⚠ **NEITHER IS LEGAL, AND THIS CHECK BRIEFLY REFUSED IT BY MISTAKE.** A settlement with
-    no refusal and no quantities is the THIRD state `meter.py` distinguishes on purpose: a
-    session that transcribed and synthesised nothing has no leg to price, which is not the
-    same thing as a leg nobody can price. `sink.Settlement`'s docstring names all three
-    ("zero of both is a call with nothing to meter at all"), the in-process sink wrote
-    neither row for it, and `admin/health.calls_unmetered` is what notices a call carrying no
-    money. Turning it into a 422 would have left such a call permanently unsettled and its
-    post-call pipeline never promised — extraction, CRM columns and lead, silently absent.
-    Caught by `tests/voice_worker_sink_test.py::test_settlement_sends_the_transcript_before_
-    it_settles_anything`, which drives that state through a real request.
+    * **A post-call OPT-OUT cannot be attributed.** `workers/pipeline.py:1600` takes the
+      number to suppress from this row (by way of `PipecatEngine.get_execution`, which reads
+      the column), so a caller who asked not to be called again gets no DNC row — a TRAI
+      matter and not an engineering inconvenience. That path raises its own alarm when it
+      happens, which is later and only when a caller actually opted out; this one says the
+      capability was already gone before anyone needed it.
+    * **No lead is filed.** `leads.phone_e164` is NOT NULL and `pipeline.py:1968` derives it
+      from here, so the thing the client is paying for is silently absent.
+    * **A DPDP erasure has no subject.** There is nothing to match a request against.
+
+    **IT DOES NOT INVENT A NUMBER AND MUST NOT.** There is no second source to fall back on:
+    our own session has no party, and substituting the agent's own line would file a lead
+    against ourselves. The honest act is to make the silence audible.
+
+    `attention` rather than `page`: this fires on every call of this engine until gate 9 is
+    closed, and a code that pages on every call is the D-591 defect that made an inbox
+    unreadable. Its neighbours are already on that rung — `opt_out_unattributable` and the
+    `in_call_optout_*` family are all `attention` for the same shape of failure.
+
+    **TERMINAL ONLY.** A call still in progress has not finished learning who is on it; only
+    the settlement can say nobody ever did.
     """
-    if request.refusal is not None and request.quantities:
-        raise ProblemError(
-            kind="validation",
-            code="worker_settlement_shape",
-            title="A settlement is a refusal or a set of quantities",
-            detail=(
-                "This settlement carried both a refusal and metered quantities. There is no "
-                "partial settlement."
-            ),
-            remediation="Send the refusal the meter reached, or the quantities it measured.",
-        )
+    if final_status not in TERMINAL_STATUSES:
+        return
+    if call.from_e164 is not None or call.to_e164 is not None:
+        return
+    alert(
+        "WORKER_TERMINAL",
+        "call_settled_without_parties",
+        detail=(
+            "This call settled with neither party known, so no opt-out can be attributed to "
+            "a number, no lead can be filed, and a DPDP erasure has no subject for it."
+        ),
+        tenant_id=str(tenant_id),
+        call_id=str(call.id),
+    )
 
 
-def _price(quantities: tuple[MeteredQuantity, ...] | list[MeteredQuantity]) -> tuple[_Priced, ...]:
-    """Every leg, or the first refusal. **THERE IS NO PARTIAL SETTLEMENT.**
+def _check_settlement(request: SettlementRequest) -> None:
+    """A REFUSAL NAMES A LEG; QUANTITIES NAME OTHER LEGS. Validated rather than trusted.
+
+    ⚠ **THIS USED TO BE "A REFUSAL OR QUANTITIES, NEVER BOTH" (D-625).** That exclusivity
+    mirrored an all-or-nothing meter, and between them they made this engine settle nothing
+    at all: no production call has a carrier CDR (BLOCKER-1), so every call arrived as one
+    refusal and the STT seconds, TTS characters and LLM tokens the worker really measured
+    were discarded into an append-only ledger that can never take them later. The rejected
+    alternative IS the old rule, and it was rejected because "nobody witnessed the connected
+    minute" is not a reason to disown the three legs somebody did.
+
+    What the old rule protected survives per leg and is what this function now checks:
+
+    * **No leg is settled twice and no leg is both priced and refused.** That is the shape
+      the ledger genuinely cannot hold — one leg of one call with two contradictory records,
+      neither correctable, because `usage_events` and `call_metering_refusals` are both
+      append-only under hard rule 4.
+    * **The carrier's authority is untouched.** Nothing here lets a quantity stand in for a
+      connected minute; `_price` refuses the carrier and runtime legs by name.
+
+    ⚠ **BOTH EMPTY IS LEGAL, AND THIS CHECK BRIEFLY REFUSED IT BY MISTAKE.** A settlement
+    with no refusals and no quantities is the THIRD state `meter.py` distinguishes on
+    purpose: a session that transcribed and synthesised nothing has no leg to price, which is
+    not the same thing as a leg nobody can price. Turning it into a 422 would leave such a
+    call permanently unsettled and its post-call pipeline never promised — extraction, CRM
+    columns and lead, silently absent.
+    """
+    refused: set[str] = set()
+    for refusal in request.refusals:
+        if refusal.leg in refused:
+            raise _refuse_settlement_shape(
+                f"This settlement refused the {refusal.leg} leg twice.",
+                "One refusal per leg: a leg has one reason it could not be priced.",
+            )
+        refused.add(refusal.leg)
+    for quantity in request.quantities:
+        if quantity.leg in refused:
+            raise _refuse_settlement_shape(
+                f"This settlement both priced and refused the {quantity.leg} leg.",
+                "A refusal names a leg; quantities name other legs.",
+            )
+
+
+def _refuse_settlement_shape(detail: str, remediation: str) -> ProblemError:
+    """One code for every way a settlement body contradicts itself about a leg.
+
+    ONE CODE AND TWO MESSAGES: an operator reading the log needs to know the worker sent a
+    self-contradictory body, and the two ways it can are one fault with one fix.
+    """
+    return ProblemError(
+        kind="validation",
+        code="worker_settlement_shape",
+        title="A settlement cannot say two things about one leg",
+        detail=detail,
+        remediation=remediation,
+    )
+
+
+def _price(
+    quantities: tuple[MeteredQuantity, ...] | list[MeteredQuantity],
+) -> tuple[tuple[_Priced, ...], tuple[SettlementRefusal, ...]]:
+    """Every leg we hold a rate for, and a refusal for every leg we do not (D-625).
+
+    ⚠ **IT USED TO BE "every leg, or the FIRST refusal — THERE IS NO PARTIAL SETTLEMENT",
+    AND THAT WAS THE SERVER HALF OF THE SAME DEFECT `meter.MeteredCall` NAMES.** One leg
+    whose model nobody has attested a price for discarded every other leg of the call,
+    permanently, into an append-only ledger. The legs are priced independently because they
+    FAIL independently: an unattested `gemini-2.5-flash-lite` says nothing about whether we
+    can price the STT seconds beside it.
+
+    Nothing here writes a zero for a refused leg, and nothing prices a leg twice — the caller
+    has already checked that no leg arrives both priced and refused (`_check_settlement`).
 
     **THE RATE CARD IS HERE AND NOWHERE ELSE, WHICH IS WHY THE WIRE CARRIES NO MONEY.**
     `billing/rates.py` is the one door a rupee comes through and it RAISES on a model nobody
@@ -690,9 +879,13 @@ def _price(quantities: tuple[MeteredQuantity, ...] | list[MeteredQuantity]) -> t
     with the reason on the row instead of in a container's memory.
     """
     priced: list[_Priced] = []
+    refusals: list[SettlementRefusal] = []
     for quantity in quantities:
-        priced.append(_price_one(quantity))
-    return tuple(priced)
+        try:
+            priced.append(_price_one(quantity))
+        except _LegNotPriceableError as unpriceable:
+            refusals.append(unpriceable.refusal)
+    return tuple(priced), tuple(refusals)
 
 
 def _price_one(quantity: MeteredQuantity) -> _Priced:
@@ -858,6 +1051,22 @@ async def _write_refusal(
 # --- the call row, which every path passes through -------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class _CallRow:
+    """The call row as it stands after the upsert: its id and who was on it.
+
+    **THE PARTIES ARE READ BACK RATHER THAN ECHOED, AND THAT IS THE POINT.** The upsert
+    COALESCEs the stored value over the incoming one, so a settlement carrying no parties
+    against a call whose first observation batch DID carry them must not read as "nobody was
+    on this call". What the statement RETURNS is what the column holds; what the request said
+    is a claim about one delivery.
+    """
+
+    id: UUID
+    from_e164: str | None
+    to_e164: str | None
+
+
 async def _upsert_call(
     session: AsyncSession,
     *,
@@ -870,8 +1079,8 @@ async def _upsert_call(
     ended_at: datetime | None,
     from_e164: str | None,
     to_e164: str | None,
-) -> UUID:
-    """Write the call row and answer its id. Status only ever moves forward.
+) -> _CallRow:
+    """Write the call row and answer it. Status only ever moves forward.
 
     A status the forward-only clause REFUSES returns no row, which is not an error: a
     terminal call receiving a late `in_progress` is exactly what that clause is for, and the
@@ -910,13 +1119,13 @@ async def _upsert_call(
     if row is None:
         row = (
             await session.execute(
-                text("SELECT id FROM calls WHERE engine_call_id = :ecid"),
+                text("SELECT id, from_e164, to_e164 FROM calls WHERE engine_call_id = :ecid"),
                 {"ecid": engine_call_id},
             )
         ).first()
         if row is None:  # pragma: no cover - only on a concurrent delete
             raise RuntimeError("call row vanished during upsert")
-    return UUID(str(row[0]))
+    return _CallRow(id=UUID(str(row[0])), from_e164=row[1], to_e164=row[2])
 
 
 def _duration_s(started_at: datetime | None, ended_at: datetime | None) -> int | None:
@@ -935,7 +1144,10 @@ __all__ = [
     "POSTCALL_DEDUPE_PREFIX",
     "POSTCALL_JOB",
     "authorized",
+    "engine_enabled",
     "load_session",
     "record_observations",
+    "record_prompt_attestation",
+    "refuse_wrong_engine",
     "settle_call",
 ]

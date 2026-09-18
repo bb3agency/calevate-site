@@ -23,9 +23,10 @@ than a simplification:
   of the wall, which is where the value in a column hard rule 5 promises belongs. A
   `text_redacted` this process computed would be a client-supplied value in that column.
   That import is gone from this container with it.
-* **Nothing is priced here.** `settle` sends the refusal its meter reached, or the
-  QUANTITIES it measured with the prices stripped off. `unit_cost_inr` cannot travel: the
-  wire model has no field for it (`calevate_shared.worker_api.MeteredQuantity`).
+* **Nothing is priced here.** `settle` sends the QUANTITIES it measured with the prices
+  stripped off, and a refusal for every leg its meter could not measure. `unit_cost_inr`
+  cannot travel: the wire model has no field for it
+  (`calevate_shared.worker_api.MeteredQuantity`).
 
 **WHAT DID NOT CHANGE, AND MUST NOT.** The buffer and both its bounds (D-620), the identity
 refusal, the flush-before-settle ordering, and the fact that a failed write leaves the turns
@@ -38,9 +39,15 @@ carries no response body into a message for this reason), and never counted in a
 beyond its index. Nothing here logs a phone number because nothing here HAS one.
 
 **HARD RULE 4 AND 7.** `usage_events` is INSERT-only, so a leg written wrong can never be
-corrected by an UPDATE. That is why `settle` is all-or-nothing, why a leg whose quantity
-could not be read produces a refusal instead of a zero, and why a RE-SETTLEMENT is answered
-`already_settled` by the server rather than writing the ledger twice.
+corrected by an UPDATE. That is why a leg whose quantity could not be read produces a
+refusal instead of a zero, and why a RE-SETTLEMENT is answered `already_settled` by the
+server rather than writing the ledger twice.
+
+⚠ **THAT PARAGRAPH USED TO BEGIN "that is why `settle` is all-or-nothing", AND THE RULE IT
+CITED ARGUES THE OPPOSITE (D-625).** Append-only is exactly why a measurement must not be
+discarded: a settlement that answers is FINAL, so the STT seconds and TTS characters thrown
+away because the carrier leg had no CDR were not deferred, they were destroyed. The unit of
+all-or-nothing is the LEG (`meter.MeteredCall`).
 """
 
 from __future__ import annotations
@@ -108,15 +115,20 @@ class SinkIdentityError(RuntimeError):
 class Settlement:
     """What one settlement attempt did. Returned so a caller can log the branch, not decide it.
 
-    `refused` is a tri-state in disguise and the three cases matter: `rows` written and no
-    refusal is a settled call; a `refusal_code` and no rows is a call recorded as unmetered;
-    and zero of both is a call with nothing to meter at all, which `meter.py` distinguishes
-    from an unpriceable one by design.
+    ⚠ **`refusals` IS A LIST AND USED TO BE ONE OPTIONAL PAIR (D-625).** The branches are no
+    longer exclusive: a call now routinely settles three legs AND records a refusal for the
+    carrier leg nobody could witness, which is the whole of partial settlement. The three
+    cases that mattered still read off this object and a fourth joins them — rows and no
+    refusals is a fully settled call; refusals and no rows is a call nothing could be priced
+    on; zero of both is a call with nothing to meter at all (`meter.MeteredCall`); and rows
+    AND refusals is the ordinary shape of a call on this engine today.
     """
 
     rows: int
-    refusal_code: str | None = None
-    refusal_leg: str | None = None
+    #: `(leg, code)` per leg nobody could price, in the order `metered_rows` reached them.
+    #: The SERVER's own refusals are not in here: it can refuse a leg this worker measured
+    #: fine (an unattested rate), and `refusals_recorded` on the answer is what counts those.
+    refusals: tuple[tuple[str, str], ...] = ()
     #: Whether THIS settlement wrote the outbox row that starts the post-call pipeline.
     #: `False` on a re-settlement is the correct and expected answer — the promise was
     #: already on the books and the pipeline must run once, not twice.
@@ -370,21 +382,27 @@ class HttpEventSink:
         and that pipeline reads this call's turns. Settling first would race a dispatcher
         tick against turns still sitting in memory.
 
-        **THE WORKER SENDS QUANTITIES AND THE SERVER PRICES THEM (D-621).** `metered_rows`
-        still measures and still refuses all-or-nothing, but the RATE it multiplied by cannot
-        cross this wire: `MeteredQuantity` has no money field, and `apps/api/billing/rates.py`
-        is the one door a rupee comes through. What travels is what this container witnessed.
+        **THE WORKER SENDS QUANTITIES AND THE SERVER PRICES THEM (D-621).** The RATE the
+        meter multiplied by cannot cross this wire: `MeteredQuantity` has no money field, and
+        `apps/api/billing/rates.py` is the one door a rupee comes through. What travels is
+        what this container witnessed.
 
-        ⚠ **TWO OF THE FIVE LEGS §1.3 NAMES ARE NO LONGER SETTLEABLE FROM HERE, AND THAT IS
-        THE DESIGN RATHER THAN A REGRESSION.** The carrier's connected minute is priced by
-        the CARRIER (§1.2 makes their CDR the authority for the quantity AND the charge) and
+        ⚠ **TWO OF THE FIVE LEGS §1.3 NAMES ARE NOT SETTLEABLE FROM HERE, AND THAT IS THE
+        DESIGN RATHER THAN A REGRESSION.** The carrier's connected minute is priced by the
+        CARRIER (§1.2 makes their CDR the authority for the quantity AND the charge) and
         Pipecat Cloud's active minute is an unanswered vendor question (§7 P-1). Neither is a
         rate; both are outside facts somebody hands us, and a worker asserting one would be
-        the third party in this system telling us what a call cost. The server records a
-        refusal naming the leg. **This changes nothing in production**: `carrier` and
-        `runtime` are `None` on every production call (there is no CDR — BLOCKER-1), so
+        the third party in this system telling us what a call cost. Each records a refusal
+        naming its leg.
+
+        ⚠ **AND THE OTHER THREE NOW SETTLE ANYWAY (D-625). THIS PARAGRAPH USED TO END "so
         `metered_rows` raises `CarrierFactsMissingError` before anything is measured and the
-        call settles as ONE `call_metering_refusals` row, exactly as it did yesterday.
+        call settles as ONE `call_metering_refusals` row, exactly as it did yesterday" — it
+        was accurate, and what it was describing is that this engine billed and costed
+        NOTHING, ever. `carrier` and `runtime` are `None` on every production call
+        (BLOCKER-1), which under all-or-nothing threw away the STT seconds, TTS characters
+        and LLM tokens this container really measured. It sends both halves now: the
+        quantities it could read, and a refusal per leg it could not.
 
         **CALLED AFTER THE PIPELINE HAS DRAINED, NEVER FROM INSIDE ITS TEARDOWN.**
         `CallMeter.attach` states the reason: usage reports arrive as their own tasks.
@@ -396,12 +414,7 @@ class HttpEventSink:
         for that — the same reason `_duration_s` is not the billable minute.
         """
         await self.flush()
-        refusal: LegNotMeterableError | None = None
-        rows: tuple[UsageRow, ...] = ()
-        try:
-            rows = meter.metered_rows(carrier=carrier, runtime=runtime)
-        except LegNotMeterableError as caught:
-            refusal = caught
+        metered = meter.metered_rows(carrier=carrier, runtime=runtime)
 
         request = SettlementRequest(
             # `completed` and not the observed status: `settle` runs after the pipeline has
@@ -411,43 +424,46 @@ class HttpEventSink:
             final_status="completed",
             direction=self._direction,
             agent_id=self._agent_id,
-            refusal=None if refusal is None else _refusal_of(refusal),
-            quantities=[_quantity_of(row) for row in rows],
+            refusals=[_refusal_of(refused) for refused in metered.refusals],
+            quantities=[_quantity_of(row) for row in metered.rows],
         )
         answer = await self._api.post_settlement(self._engine_call_id, request)
 
-        if answer.refusal_recorded or refusal is not None:
-            # `error` and not `warning`: an unmetered call is spend we absorbed and cannot
+        refusals = tuple((refused.leg.value, refused.code) for refused in metered.refusals)
+        if refusals or answer.refusals_recorded:
+            # `error` and not `warning`: an unmetered leg is spend we absorbed and cannot
             # bill, and it is the state `admin/health.py::calls_unmetered` stops the board
-            # for. The code is the SERVER's when it priced nothing and ours when our own
-            # meter refused first.
+            # for. It is logged even when other legs settled — a call that priced three legs
+            # of five is still a call whose cost we do not know.
+            #
+            # TWO COUNTS, BECAUSE THE TWO ENDS REFUSE FOR DIFFERENT REASONS: ours is a
+            # quantity nobody could read, and the server's is an attested rate that does not
+            # exist for a quantity we read fine (hard rule 7). An operator triages them in
+            # different places, so the log must not merge them.
             logger.error(
                 "call leg not meterable",
                 call_id=self._call_id,
                 tenant_id=str(self._tenant_id),
-                leg=None if refusal is None else refusal.leg.value,
-                code=None if refusal is None else refusal.code,
+                legs=",".join(leg for leg, _ in refusals),
+                codes=",".join(code for _, code in refusals),
+                server_refusals=answer.refusals_recorded,
+                rows=answer.rows_written,
                 already_settled=answer.already_settled,
                 post_call_enqueued=answer.post_call_enqueued,
             )
-            return Settlement(
-                rows=0,
-                refusal_code=None if refusal is None else refusal.code,
-                refusal_leg=None if refusal is None else refusal.leg.value,
-                post_call_enqueued=answer.post_call_enqueued,
+        else:
+            logger.info(
+                "call settled",
+                call_id=self._call_id,
+                tenant_id=str(self._tenant_id),
+                legs=",".join(sorted({row.leg.value for row in metered.rows})),
+                rows=answer.rows_written,
                 already_settled=answer.already_settled,
+                post_call_enqueued=answer.post_call_enqueued,
             )
-        logger.info(
-            "call settled",
-            call_id=self._call_id,
-            tenant_id=str(self._tenant_id),
-            legs=",".join(sorted({row.leg.value for row in rows})),
-            rows=answer.rows_written,
-            already_settled=answer.already_settled,
-            post_call_enqueued=answer.post_call_enqueued,
-        )
         return Settlement(
             rows=answer.rows_written,
+            refusals=refusals,
             post_call_enqueued=answer.post_call_enqueued,
             already_settled=answer.already_settled,
         )

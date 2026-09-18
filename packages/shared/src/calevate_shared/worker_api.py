@@ -27,10 +27,15 @@ Two consequences that look like omissions and are the design:
   (`pipecat_call_ref(tenant, call_id)`) and the server resolves it under RLS. A worker that
   could name a row id could name somebody else's.
 * **No money in the request.** `unit_cost_inr` and `total_inr` are absent by construction,
-  not merely optional. Today the worker cannot price anything anyway — `CallMeter.
-  metered_rows` raises on a missing CDR before it reaches a rate (`meter.py:686-704`,
-  BLOCKER-1) — and hard rule 7 says the figure that reaches `unit_cost_paid` is an attested
-  one. The server holds the rate card; the worker sends QUANTITIES.
+  not merely optional. Hard rule 7 says the figure that reaches `unit_cost_paid` is an
+  attested one, and the server holds the rate card; the worker sends QUANTITIES.
+
+  ⚠ **THIS PARAGRAPH USED TO END "today the worker cannot price anything anyway — `CallMeter.
+  metered_rows` raises on a missing CDR before it reaches a rate", AND THAT SENTENCE WAS A
+  DESIGN DEFECT WEARING A CAVEAT (D-625).** It was true, and what it described was every
+  measured leg of every call on this engine being thrown away because ONE leg had no witness.
+  `metered_rows` now returns the legs it could measure AND a refusal per leg it could not;
+  this module carries both in one body. See `SettlementRequest`.
 """
 
 from __future__ import annotations
@@ -74,6 +79,12 @@ MAX_EVENTS_PER_BATCH: Final = 50
 #: all-or-nothing rule over the real leg set is enforced where the legs are actually known —
 #: `worker/service`, against `MeteredLeg` itself.
 MAX_QUANTITIES: Final = 32
+
+#: And one refusal per leg nobody could price, for the same reason and with the same
+#: argument: a MEMORY BOUND, not a claim about how many legs exist. Since D-625 a settlement
+#: can carry both lists at once (a leg we measured settles beside a leg we could not), so the
+#: two bounds are declared separately rather than one being read as the other's complement.
+MAX_REFUSALS: Final = 32
 
 
 class WorkerSessionOut(BaseModel):
@@ -235,11 +246,16 @@ class MeteredQuantity(BaseModel):
 
 
 class SettlementRefusal(BaseModel):
-    """Why a leg could not be metered — the shape `call_metering_refusals` already stores.
+    """Why ONE leg could not be metered — the shape `call_metering_refusals` already stores.
 
     A refusal is a FACT the worker observed (it could not read a quantity), which is why it
-    travels in the same direction as everything else here. Today it is also the only thing
-    that travels: with no CDR there is no priced leg at all (BLOCKER-1).
+    travels in the same direction as everything else here.
+
+    ⚠ **IT NAMES A LEG, AND SINCE D-625 THAT IS LOAD-BEARING RATHER THAN DESCRIPTIVE.** A
+    refusal used to be the whole settlement — one per call, mutually exclusive with every
+    quantity — so `leg` was a label on a verdict. It is now the KEY: a settlement carries a
+    refusal per leg nobody could price and a quantity per leg somebody could, and the server
+    refuses a body that names one leg in both places (`worker/service._check_settlement`).
     """
 
     model_config = _STRICT
@@ -257,13 +273,26 @@ class SettlementRefusal(BaseModel):
 class SettlementRequest(BaseModel):
     """The terminal write, and the one that carries D-607.
 
-    **A REFUSAL OR QUANTITIES, NEVER BOTH**, mirroring `sink.settle`'s own branch:
-    `metered_rows` is all-or-nothing by design ("THERE IS NO PARTIAL SETTLEMENT"), so a body
-    offering three priced legs and one refusal would be a shape the ledger cannot hold. The
-    server validates the exclusivity rather than trusting it, because a client is a thing on
-    somebody else's infrastructure.
+    **A REFUSAL NAMES A LEG; QUANTITIES NAME OTHER LEGS (D-625).** ⚠ This model used to say
+    "A REFUSAL OR QUANTITIES, NEVER BOTH", and that exclusivity was the wire half of a
+    defect that made this engine bill nothing at all: `metered_rows` built the carrier row
+    first, no production call has a CDR (BLOCKER-1), so every call settled as one refusal
+    and the STT seconds, TTS characters and LLM tokens the worker genuinely measured were
+    discarded on the floor. The rejected alternative is the one that was shipped —
+    all-or-nothing — and it was rejected because "we could not witness the connected minute"
+    is not a reason to disown the three legs we DID witness, while an append-only ledger
+    makes those measurements unrecoverable once the settlement has answered.
 
-    ⚠ **NEITHER IS LEGAL AND THIS PARAGRAPH USED TO SAY IT WAS NOT.** Both empty is the third
+    What the old rule was really protecting is unchanged and is now stated per leg: the
+    carrier's authority is untouched, nothing invents a connected minute or a charge, and a
+    leg nobody can price still becomes a `call_metering_refusals` row rather than a zero.
+
+    So the invariant the server checks is DISJOINTNESS, not exclusivity: no leg may be
+    refused twice, and no leg may appear in `refusals` and in `quantities` at once. It is
+    validated rather than trusted, because a client is a thing on somebody else's
+    infrastructure.
+
+    ⚠ **BOTH EMPTY IS LEGAL AND THIS PARAGRAPH USED TO SAY IT WAS NOT.** It is the third
     state `meter.py` distinguishes deliberately — a session that transcribed and synthesised
     nothing has no leg to price, which is not a leg nobody can price — and it still has to
     settle, because the outbox row that starts the post-call pipeline rides the settlement
@@ -286,7 +315,7 @@ class SettlementRequest(BaseModel):
     #: nothing else will supply them. Same nullability and same gate as the batch's pair.
     from_e164: str | None = None
     to_e164: str | None = None
-    refusal: SettlementRefusal | None = None
+    refusals: list[SettlementRefusal] = Field(default_factory=list, max_length=MAX_REFUSALS)
     quantities: list[MeteredQuantity] = Field(default_factory=list, max_length=MAX_QUANTITIES)
 
 
@@ -303,8 +332,61 @@ class SettlementOut(BaseModel):
 
     already_settled: bool
     rows_written: int
-    refusal_recorded: bool
+    #: HOW MANY LEGS WERE RECORDED AS UNPRICEABLE, not whether any was (D-625). A bool could
+    #: not distinguish "the carrier leg had no CDR and the other three settled" from "nothing
+    #: could be priced at all", which is exactly the distinction partial settlement exists to
+    #: make and the one an operator reads `rows_written` beside.
+    refusals_recorded: int
     post_call_enqueued: bool
+
+
+class AttestationIn(BaseModel):
+    """What the worker recomputed about the prompt it actually loaded (§1.1).
+
+    **THE WORKER SENDS WHAT IT OBSERVED; THE SERVER DECIDES WHAT THAT MEANS.** This body is
+    the sharpest case of that rule in the contract, so it carries the digest and NOT the
+    verdict: `voice_worker/pipeline.AssembledCall` computes `prompt_matches_config_version`
+    for its own logging, and a client-supplied "yes it matched" would make
+    `agents/config_versions.Attestation.matches` agree with the caller by construction —
+    which is the `control_plane` defect `config_versions.py` exists to close. The server
+    re-reads `agent_config_versions.prompt_sha256` and compares.
+
+    ⚠ **WITHOUT THIS ROUTE THE TABLE HAD NO PRODUCTION WRITER AT ALL (D-626).**
+    `record_attestation` was called only by tests, so `PipecatEngine.get_agent` answered
+    `system_prompt_readable=False` for every agent for ever and hard rule 5's engine-side
+    verification never ran once on this leg. The digest was computed in the worker and
+    reached nothing.
+
+    `agent_id` is on the body as well as in the ref the route is posted to, and the server
+    refuses a disagreement rather than reconciling it — `ObservationBatch`'s posture, for
+    its reason.
+    """
+
+    model_config = _STRICT
+
+    agent_id: UUID
+    #: The immutable version this process says it loaded. The server checks it belongs to
+    #: that agent before it writes anything.
+    agent_config_version_id: UUID
+    #: sha256 of the system prompt in this container's memory, lowercase hex. PINNED to that
+    #: shape here so a truncated or upper-cased digest is a 422 at the edge rather than a
+    #: permanent false mismatch in a table whose whole job is to make mismatches meaningful.
+    observed_prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class AttestationOut(BaseModel):
+    """The verdict, answered back so the worker can log what the control plane concluded.
+
+    `matches=False` IS NOT AN ERROR and the route does not fail on it: a stale worker, a
+    version published after the session started, or a prompt truncated on the way into the
+    process are all findings this row exists to preserve. `agents/verification.py` and the
+    drift sweep score them; the writer sees one.
+    """
+
+    model_config = _STRICT
+
+    attestation_id: UUID
+    matches: bool
 
 
 __all__ = [
@@ -312,9 +394,12 @@ __all__ = [
     "MAX_IDENTIFIER",
     "MAX_METERED_QTY",
     "MAX_QUANTITIES",
+    "MAX_REFUSALS",
     "MAX_REFUSAL_TEXT",
     "MAX_TURNS_PER_BATCH",
     "METERED_LEGS",
+    "AttestationIn",
+    "AttestationOut",
     "MeteredLegName",
     "MeteredQuantity",
     "ObservationBatch",

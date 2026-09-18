@@ -22,8 +22,11 @@ that one end is self-consistent.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 
 import httpx
+import pytest
+from apps.api.core.settings import get_settings
 from apps.api.main import app as api_app
 from calevate_shared.engine import pipecat_call_ref
 from voice_worker.api_client import WorkerApiClient
@@ -32,6 +35,30 @@ from voice_worker.api_client import WorkerApiClient
 #: _no_ambient_credentials` strips the real ones and because "no token configured" is itself
 #: one of the behaviours under test.
 TOKEN = "a-token-this-deployment-issued-its-worker"
+
+
+def declare_pipecat_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Configure this deployment as one that RUNS the engine the worker writes for (D-627).
+
+    **A HELPER RATHER THAN A FIXTURE IN `conftest`, AND THE REASON IS MEASURED.** The three
+    MUTATING `/v1/worker` routes answer 409 on a deployment whose `ENGINE` is something else,
+    because everything they write is reconciled by the process-wide engine and
+    `workers/pipeline._post_call_target` never reads the engine the settlement names in its
+    own payload. Folding this into `worker_token` would set `ENGINE=pipecat` for every file
+    that fixture reaches — including the ones whose agents are minted by the FAKE engine and
+    then published through `kb/service.publish_source`, which on the Pipecat adapter re-enters
+    `tenant_session` from inside the caller's transaction and blocks on its own `agents` lock.
+    That is a real defect in `engine/pipecat._PipecatStore.publish` and it is not this seam's
+    to fix; what it means here is that only the files that actually WRITE through these routes
+    may declare the engine.
+
+    A generator so the caller's own autouse fixture can `yield from` it and the settings cache
+    is cleared on both sides — `conftest.worker_token`'s shape, for its reason.
+    """
+    monkeypatch.setenv("ENGINE", "pipecat")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def worker_client(token: str = TOKEN) -> WorkerApiClient:
@@ -80,4 +107,4 @@ def call_ref(tenant_id: uuid.UUID) -> tuple[str, str]:
     return call_id, pipecat_call_ref(tenant_id, call_id)
 
 
-__all__ = ["TOKEN", "call_ref", "published_agent", "worker_client"]
+__all__ = ["TOKEN", "call_ref", "declare_pipecat_engine", "published_agent", "worker_client"]

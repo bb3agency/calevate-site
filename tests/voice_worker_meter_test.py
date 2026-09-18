@@ -129,8 +129,29 @@ RUNTIME = RuntimeUsage(
 
 
 def _rows(meter: CallMeter) -> dict[str, object]:
-    rows = meter.metered_rows(carrier=CDR, runtime=RUNTIME)
-    return {row.unit_type: row for row in rows}
+    return {row.unit_type: row for row in meter.metered_rows(carrier=CDR, runtime=RUNTIME).rows}
+
+
+def _only_refusal(
+    kind: type[LegNotMeterableError],
+    meter: CallMeter,
+    *,
+    carrier: CarrierCdr | None = CDR,
+    runtime: RuntimeUsage | None = RUNTIME,
+) -> LegNotMeterableError:
+    """The ONE refusal this meter reached, asserted to be the only one and of the right type.
+
+    **THE SHAPE `pytest.raises` USED TO GIVE, KEPT DELIBERATELY (D-625).** `metered_rows`
+    returns refusals rather than raising the first one, so every refusal test below would
+    otherwise become three lines of list indexing — and the property each of them is really
+    pinning is unchanged: THIS leg refused, with THIS code, for THIS reason. What the helper
+    adds is the assertion the old shape could not make, because a raise ends the call: that
+    exactly one leg refused and the others did not quietly refuse too.
+    """
+    refusals = meter.metered_rows(carrier=carrier, runtime=runtime).refusals
+    assert len(refusals) == 1, [refused.code for refused in refusals]
+    assert isinstance(refusals[0], kind)
+    return refusals[0]
 
 
 # --- the five legs -------------------------------------------------------------------
@@ -143,8 +164,10 @@ def test_all_five_legs_are_metered_once_each() -> None:
     meter.observe(tts(1000))
     meter.observe(llm(prompt=800, completion=200, total=1000))
 
-    rows = meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    metered = meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    rows = metered.rows
 
+    assert metered.refusals == ()
     assert {row.leg for row in rows} == set(MeteredLeg)
     assert [row.unit_type for row in rows] == [
         UNIT_TELEPHONY_S,
@@ -178,7 +201,9 @@ def test_carrier_leg_keeps_the_charge_whole_when_the_cdr_reports_zero_seconds() 
         cdr_id="cdr-zero",
     )
     (row,) = [
-        r for r in meter.metered_rows(carrier=zero, runtime=RUNTIME) if r.leg is MeteredLeg.CARRIER
+        r
+        for r in meter.metered_rows(carrier=zero, runtime=RUNTIME).rows
+        if r.leg is MeteredLeg.CARRIER
     ]
     assert row.unit_cost_inr == Decimal("0.3000")
     assert row.total_inr == Decimal("0.3000")
@@ -295,61 +320,55 @@ async def test_the_observer_seam_feeds_the_meter_from_a_real_metrics_frame() -> 
 
 def test_a_missing_cdr_refuses_rather_than_timing_the_call_ourselves() -> None:
     meter = CallMeter(rates=FakeRates())
-    with pytest.raises(CarrierFactsMissingError) as exc:
-        meter.metered_rows(carrier=None, runtime=RUNTIME)
+    exc = _only_refusal(CarrierFactsMissingError, meter, carrier=None, runtime=RUNTIME)
 
-    assert exc.value.leg is MeteredLeg.CARRIER
-    assert exc.value.code == "meter_carrier_cdr_missing"
-    assert "session duration" in exc.value.remediation
+    assert exc.leg is MeteredLeg.CARRIER
+    assert exc.code == "meter_carrier_cdr_missing"
+    assert "session duration" in exc.remediation
 
 
 def test_the_runtime_leg_refuses_because_the_active_minute_is_unknown() -> None:
     """§7 / P-1. There is no plausible number here and no way to supply one but an invoice."""
     meter = CallMeter(rates=FakeRates())
-    with pytest.raises(RuntimePriceUnknownError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=None)
+    exc = _only_refusal(RuntimePriceUnknownError, meter, carrier=CDR, runtime=None)
 
-    assert exc.value.leg is MeteredLeg.RUNTIME
-    assert "UNKNOWN" in exc.value.detail
+    assert exc.leg is MeteredLeg.RUNTIME
+    assert "UNKNOWN" in exc.detail
 
 
 def test_no_rate_card_refuses_every_measured_leg() -> None:
     meter = CallMeter(rates=None)
     meter.observe(stt(10.0))
-    with pytest.raises(RateCardMissingError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    exc = _only_refusal(RateCardMissingError, meter)
 
-    assert exc.value.leg is MeteredLeg.STT
+    assert exc.leg is MeteredLeg.STT
 
 
 def test_a_refusing_rate_card_refuses_the_stt_leg_by_name() -> None:
     meter = CallMeter(rates=RefusingRates())
     meter.observe(stt(10.0))
-    with pytest.raises(RateRefusedError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    exc = _only_refusal(RateRefusedError, meter)
 
-    assert exc.value.leg is MeteredLeg.STT
-    assert "no attested STT rate" in exc.value.detail
+    assert exc.leg is MeteredLeg.STT
+    assert "no attested STT rate" in exc.detail
 
 
 def test_a_refusing_rate_card_refuses_the_tts_leg_by_name() -> None:
     meter = CallMeter(rates=RefusingRates())
     meter.observe(tts(500))
-    with pytest.raises(RateRefusedError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    exc = _only_refusal(RateRefusedError, meter)
 
-    assert exc.value.leg is MeteredLeg.TTS
+    assert exc.leg is MeteredLeg.TTS
 
 
 def test_an_unpriced_model_refuses_rather_than_metering_the_language_leg_free() -> None:
     """`llm_inr_per_ktok` raises for a model nobody attested; that refusal reaches the ledger."""
     meter = CallMeter(rates=FakeRates(priced_model="gpt-4o-mini"))
     meter.observe(llm(prompt=100, completion=100, total=200, model="gemini-2.5-flash-lite"))
-    with pytest.raises(RateRefusedError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    exc = _only_refusal(RateRefusedError, meter)
 
-    assert exc.value.leg is MeteredLeg.LLM
-    assert "gemini-2.5-flash-lite" in exc.value.detail
+    assert exc.leg is MeteredLeg.LLM
+    assert "gemini-2.5-flash-lite" in exc.detail
 
 
 def test_a_net_reporting_provider_refuses_instead_of_underbilling_the_cache() -> None:
@@ -357,27 +376,24 @@ def test_a_net_reporting_provider_refuses_instead_of_underbilling_the_cache() ->
     parts fall short of `total_tokens` — billing them would silently drop the cached prompt."""
     meter = CallMeter(rates=FakeRates(priced_model="claude-haiku"))
     meter.observe(llm(prompt=100, completion=50, total=900, model="claude-haiku"))
-    with pytest.raises(TokenUsageNotComparableError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    exc = _only_refusal(TokenUsageNotComparableError, meter)
 
-    assert exc.value.leg is MeteredLeg.LLM
-    assert "900" in exc.value.detail
+    assert exc.leg is MeteredLeg.LLM
+    assert "900" in exc.detail
 
 
 def test_usage_without_a_total_refuses_rather_than_being_dropped() -> None:
     meter = CallMeter(rates=FakeRates())
     meter.observe(llm(prompt=100, completion=50, total=None))
-    with pytest.raises(LlmTotalTokensMissingError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    exc = _only_refusal(LlmTotalTokensMissingError, meter)
 
-    assert "AzureLLMService" in exc.value.detail
+    assert "AzureLLMService" in exc.detail
 
 
 def test_usage_without_a_model_refuses_because_a_price_is_per_model() -> None:
     meter = CallMeter(rates=FakeRates())
     meter.observe(llm(prompt=100, completion=50, total=150, model=None))
-    with pytest.raises(LlmModelUnnamedError):
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    _only_refusal(LlmModelUnnamedError, meter)
 
 
 def test_two_models_in_one_session_refuse_rather_than_picking_one() -> None:
@@ -385,10 +401,9 @@ def test_two_models_in_one_session_refuse_rather_than_picking_one() -> None:
     meter = CallMeter(rates=FakeRates())
     meter.observe(llm(prompt=100, completion=50, total=150))
     meter.observe(llm(prompt=10, completion=5, total=15, model="gpt-4.1-mini"))
-    with pytest.raises(LlmModelAmbiguousError) as exc:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    exc = _only_refusal(LlmModelAmbiguousError, meter)
 
-    assert "gpt-4.1-mini" in exc.value.detail
+    assert "gpt-4.1-mini" in exc.detail
 
 
 def test_every_refusal_shares_one_base_so_a_zero_substitution_is_greppable() -> None:
@@ -433,9 +448,68 @@ def test_a_leg_that_reported_nothing_is_absent_rather_than_refused() -> None:
     """A silent call transcribed nothing and spoke nothing. That is no leg, not an unpriced
     one — the distinction the module must keep, since only one of the two is an incident."""
     meter = CallMeter(rates=RefusingRates())
-    rows = meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    metered = meter.metered_rows(carrier=CDR, runtime=RUNTIME)
 
-    assert {row.leg for row in rows} == {MeteredLeg.CARRIER, MeteredLeg.RUNTIME}
+    assert {row.leg for row in metered.rows} == {MeteredLeg.CARRIER, MeteredLeg.RUNTIME}
+    assert metered.refusals == ()
+
+
+# --- partial settlement: the legs we can price settle, the legs we cannot are recorded ---
+
+
+def test_the_legs_we_measured_settle_even_though_the_carrier_leg_has_no_witness() -> None:
+    """D-625, AND IT IS THE STATE OF EVERY PRODUCTION CALL ON THIS ENGINE.
+
+    `carrier=None` and `runtime=None` is not an edge case: no call has a CDR (BLOCKER-1) and
+    what a Pipecat active minute bills is an unanswered vendor question (§7 P-1). Under the
+    all-or-nothing meter this raised `CarrierFactsMissingError` before anything was measured,
+    so the STT seconds, TTS characters and LLM tokens this session really witnessed were
+    discarded — into an append-only ledger that can never take them afterwards.
+
+    THE ASSERTION IS BOTH HALVES AT ONCE. Rows for the three legs we witnessed, refusals for
+    the two we did not, and nothing invented for either: no carrier row timed off our own
+    clock, no ₹0 runtime row.
+    """
+    meter = CallMeter(rates=FakeRates())
+    meter.observe(stt(60.0))
+    meter.observe(tts(1000))
+    meter.observe(llm(prompt=800, completion=200, total=1000))
+
+    metered = meter.metered_rows(carrier=None, runtime=None)
+
+    assert {row.leg for row in metered.rows} == {MeteredLeg.STT, MeteredLeg.TTS, MeteredLeg.LLM}
+    assert [refused.leg for refused in metered.refusals] == [
+        MeteredLeg.CARRIER,
+        MeteredLeg.RUNTIME,
+    ]
+    assert [refused.code for refused in metered.refusals] == [
+        "meter_carrier_cdr_missing",
+        "meter_runtime_active_minute_unknown",
+    ]
+
+
+def test_one_unpriced_model_does_not_take_the_speech_legs_down_with_it() -> None:
+    """Legs fail INDEPENDENTLY, so they are priced independently.
+
+    An unattested LLM price says nothing about whether we can price the audio seconds beside
+    it — and under all-or-nothing it discarded them anyway, permanently.
+    """
+    meter = CallMeter(rates=FakeRates(priced_model="gpt-4o-mini"))
+    meter.observe(stt(60.0))
+    meter.observe(tts(1000))
+    meter.observe(llm(prompt=100, completion=100, total=200, model="gemini-2.5-flash-lite"))
+
+    metered = meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+
+    assert {row.leg for row in metered.rows} == {
+        MeteredLeg.CARRIER,
+        MeteredLeg.RUNTIME,
+        MeteredLeg.STT,
+        MeteredLeg.TTS,
+    }
+    (refused,) = metered.refusals
+    assert refused.leg is MeteredLeg.LLM
+    assert "gemini-2.5-flash-lite" in refused.detail
 
 
 # --- an unreadable speech report is an absence, never a zero ----------------------------
@@ -455,9 +529,8 @@ def test_stt_reports_we_could_not_read_refuse_the_leg_rather_than_vanish() -> No
     meter = CallMeter(rates=FakeRates())
     meter.observe(ServiceUsageRecord(kind=ServiceUsageKind.STT, processor="p", timestamp=1.0))
 
-    with pytest.raises(LegNotMeterableError) as refusal:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
-    assert refusal.value.leg is MeteredLeg.STT
+    refusal = _only_refusal(LegNotMeterableError, meter)
+    assert refusal.leg is MeteredLeg.STT
 
 
 def test_tts_reports_we_could_not_read_refuse_the_leg_rather_than_vanish() -> None:
@@ -466,9 +539,8 @@ def test_tts_reports_we_could_not_read_refuse_the_leg_rather_than_vanish() -> No
     meter = CallMeter(rates=FakeRates())
     meter.observe(ServiceUsageRecord(kind=ServiceUsageKind.TTS, processor="p", timestamp=1.0))
 
-    with pytest.raises(LegNotMeterableError) as refusal:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
-    assert refusal.value.leg is MeteredLeg.TTS
+    refusal = _only_refusal(LegNotMeterableError, meter)
+    assert refusal.leg is MeteredLeg.TTS
 
 
 def test_an_unreadable_speech_report_still_refuses_when_other_reports_were_fine() -> None:
@@ -479,6 +551,5 @@ def test_an_unreadable_speech_report_still_refuses_when_other_reports_were_fine(
     meter.observe(stt(10.0))
     meter.observe(ServiceUsageRecord(kind=ServiceUsageKind.STT, processor="p", timestamp=1.0))
 
-    with pytest.raises(LegNotMeterableError) as refusal:
-        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
-    assert refusal.value.leg is MeteredLeg.STT
+    refusal = _only_refusal(LegNotMeterableError, meter)
+    assert refusal.leg is MeteredLeg.STT

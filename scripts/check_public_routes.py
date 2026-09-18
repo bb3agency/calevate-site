@@ -469,6 +469,19 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="authorized",
     ),
+    "POST /v1/worker/agents/{engine_agent_ref}/attestation": PublicRoute(
+        why=(
+            "The same worker reporting the sha256 of the system prompt it actually loaded, "
+            "at session start (D-626). MUTATING, same credential and the same "
+            "resolution-from-the-ref property: the tenant and agent are PARSED out of the "
+            "engine-space agent ref and the write runs under that tenant's RLS. It is the "
+            "only production writer of `agent_config_attestations` — on an owned_runtime "
+            "engine there is no vendor to read an agent back off, so this row is the "
+            "independent witness hard rule 5's engine-side verification is scored against, "
+            "and the server computes the verdict rather than storing the worker's."
+        ),
+        credential="authorized",
+    ),
     "POST /v1/worker/calls/{engine_call_id}/settlement": PublicRoute(
         why=(
             "The same worker's terminal write: the call row, the ledger-or-refusal and "

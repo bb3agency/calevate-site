@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -43,12 +44,20 @@ from sqlalchemy import text
 from tests.kb_workflow_test import _tenant_with_published_agent
 from tests.voice_worker_pipeline_test import CREDENTIALS, FakeLLM, FakeTransport, _PassThrough
 from tests.voice_worker_session_test import _agent_config
-from tests.worker_api_harness import worker_client
+from tests.worker_api_harness import declare_pipecat_engine, worker_client
 from voice_worker import pipeline, runtime
 from voice_worker.api_client import WorkerApiClient
 from voice_worker.sink import HttpEventSink
 
 pytestmark = [pytest.mark.rls]
+
+
+@pytest.fixture(autouse=True)
+def _pipecat_deployment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Every test in this file writes through `/v1/worker`, which refuses any other engine
+    (D-627). `worker_api_harness.declare_pipecat_engine` records why this is per file."""
+    yield from declare_pipecat_engine(monkeypatch)
+
 
 _REPLY = "నమస్కారం, ఎలా సహాయం చేయగలను"
 
@@ -313,10 +322,15 @@ async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
         await worker_runtime.aclose()
 
     assert seen == {"handle_sigint": True, "handle_sigterm": False}
-    # And the real production shape of a settlement today: no CDR, so a recorded refusal
-    # rather than rupees (§1.2 / BLOCKER-1).
+    # And the real production shape of a settlement today: this session transcribed and
+    # synthesised nothing (a fake transport with no audio), so there is no measured leg to
+    # price — and the two legs nobody can witness are each recorded, by name, rather than
+    # one of them ending the settlement for all five (D-625).
     assert outcome.settlement.rows == 0
-    assert outcome.settlement.refusal_code == "meter_carrier_cdr_missing"
+    assert outcome.settlement.refusals == (
+        ("carrier", "meter_carrier_cdr_missing"),
+        ("runtime", "meter_runtime_active_minute_unknown"),
+    )
 
     async with tenant_session(tenant_id) as db:
         refusals = (
@@ -328,4 +342,66 @@ async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
                 {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
-    assert refusals == 1
+    assert refusals == 2, "a refused leg took the leg beside it off the record"
+
+
+async def test_running_a_call_records_what_prompt_the_worker_actually_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_token: None,
+) -> None:
+    """**THE ATTESTATION REACHES THE DATABASE, WHICH IT NEVER DID BEFORE (D-626).**
+
+    `voice_worker/pipeline.AssembledCall` has computed `observed_prompt_sha256` since the
+    engine was built and it reached nothing: `agents/config_versions.record_attestation` was
+    called only by tests, so `agent_config_attestations` was empty on every deployment and
+    `PipecatEngine.get_agent` answered `system_prompt_readable=False` for every agent for
+    ever. Hard rule 5's engine-side verification therefore never ran once on this leg.
+
+    THE ASSERTION IS THE ROW, not the request: what matters is that a real `run_call` leaves
+    the witness `get_agent` reads. `matches` is true because this worker loaded the prompt
+    the control plane published, which is the point of the digest being recomputed rather
+    than echoed.
+    """
+    from apps.api.agents.config_versions import latest_attestation
+
+    class _Recording:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def add_workers(self, *_workers: Any) -> None:
+            return None
+
+        async def run(self) -> None:
+            return None
+
+    class _NoPacks:
+        async def fetch(self, _key: str) -> bytes | None:
+            return None
+
+    tenant_id, agent_id, call_id, api, _sink = await _live_call()
+    await PipecatEngine().create_agent(_agent_config(tenant_id, agent_id))
+    monkeypatch.setattr(runtime, "WorkerRunner", _Recording)
+
+    async with tenant_session(tenant_id) as db:
+        before = await latest_attestation(db, agent_id)
+    assert before is None, "something already attested; this test would prove nothing"
+
+    worker_runtime = runtime.WorkerRuntime(api, fetcher=_NoPacks())
+    try:
+        await worker_runtime.run_call(
+            call_id=call_id,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            direction="inbound",
+            engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
+            credentials_for=lambda _provider: CREDENTIALS,
+            greeting="skip",
+            transport=FakeTransport(),
+        )
+    finally:
+        await worker_runtime.aclose()
+
+    async with tenant_session(tenant_id) as db:
+        stored = await latest_attestation(db, agent_id)
+    assert stored is not None, "a whole call ran and left no record of the prompt it loaded"
+    assert stored.matches is True

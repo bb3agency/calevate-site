@@ -284,6 +284,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "outstanding_probe_incomplete": "record",
     "outstanding_probe_budget_exhausted": "record",
     "call_duration_negative": "attention",
+    # A call settled TERMINAL with NEITHER party known (D-628). `attention` and not `page`
+    # for the reason this file exists: nothing produces `calls.from_e164`/`to_e164` on the
+    # Pipecat leg yet (DEPLOYMENT §12.5 gate 9), so it fires on every call of that engine
+    # until the carrier work lands — and a code that pages on every call is the inbox nobody
+    # reads. Its neighbours are on this rung already: `opt_out_unattributable` and the
+    # `in_call_optout_*` family are the same failure (a suppression with no number).
+    "call_settled_without_parties": "attention",
     "reconciliation_fetch_failed": "record",
     "reconciliation_probe_incomplete": "record",
     "reconciliation_listing_incomplete": "attention",

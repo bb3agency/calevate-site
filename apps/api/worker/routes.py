@@ -1,4 +1,4 @@
-"""`/v1/worker` — the three routes `apps/voice-worker` speaks to (D-621).
+"""`/v1/worker` — the four routes `apps/voice-worker` speaks to (D-621, D-626).
 
 **WHY THIS SURFACE EXISTS AT ALL.** `docs/DEPLOYMENT.md` §12.5 gate 6: the worker runs on
 Pipecat Cloud and cannot reach our Postgres — that database is on the VPS host, behind the
@@ -36,6 +36,8 @@ from __future__ import annotations
 from typing import Annotated
 
 from calevate_shared.worker_api import (
+    AttestationIn,
+    AttestationOut,
     ObservationBatch,
     ObservationsOut,
     SettlementOut,
@@ -48,8 +50,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.worker.service import (
     authorized,
+    engine_enabled,
     load_session,
     record_observations,
+    record_prompt_attestation,
+    refuse_wrong_engine,
     settle_call,
 )
 
@@ -67,18 +72,39 @@ router = APIRouter(prefix="/v1/worker", tags=["voice-worker"])
 _REF_MAX = 128
 
 
-def _require_token(authorization: str | None) -> None:
-    """401 or nothing. Every route's first line, and the only shared guard.
+def _admit(authorization: str | None, *, writes: bool = True) -> None:
+    """401, 409, or nothing. Every route's first line, and the only shared guard.
 
     A FUNCTION RATHER THAN A `Depends`, deliberately: a dependency that raised would still
     be the same three lines, and this way the refusal sits where a reader of the handler can
     see it. The log line names no token, no ref and no engine — an operator debugging a
     rotation reads this and the console's Secrets panel, not a log with a credential in it.
+
+    **THE ORDER IS THE CREDENTIAL FIRST (D-627).** A stranger who found the URL learns
+    nothing about which engine this deployment runs, because they never get past the 401 —
+    `engine_intake`'s gates are ordered the same way and for the same reason.
+
+    ⚠ **THE ENGINE CHECK IS NOT TIDINESS.** Everything these routes WRITE is reconciled by
+    the post-call pipeline through the PROCESS-WIDE `ENGINE`, which never reads the `engine`
+    key the settlement puts in its own outbox payload. On a deployment configured for another
+    engine, an accepted settlement therefore mints rows whose pipeline asks the wrong vendor
+    for this call — and the extraction, CRM columns and lead are lost. See
+    `service.engine_enabled`.
+
+    **`writes=False` IS THE SESSION READ, AND THE EXEMPTION IS THE WHOLE POINT OF THE
+    SMALLER FIX.** That route answers a published agent's configuration: it writes no row,
+    promises no pipeline and reconciles against no vendor, so none of the harm above is
+    reachable through it. It is also what `api_client.probe` presents at boot, and a
+    reachability check that could not distinguish "wrong URL" from "wrong engine" would send
+    an operator to the wrong dashboard. Everything that touches the ledger is gated; the
+    read is not.
     """
-    if authorized(authorization):
-        return
-    log.warning("worker_api_unauthorized")
-    raise ProblemError.unauthorized("This caller is not permitted to reach the worker API.")
+    if not authorized(authorization):
+        log.warning("worker_api_unauthorized")
+        raise ProblemError.unauthorized("This caller is not permitted to reach the worker API.")
+    if writes and not engine_enabled():
+        log.warning("worker_api_engine_not_enabled")
+        raise refuse_wrong_engine()
 
 
 @router.get("/session/{engine_agent_ref}", include_in_schema=False)
@@ -96,7 +122,7 @@ async def worker_session(
     that names no agent: a 404 proves the API is reachable AND the credential is good, which
     is strictly more than the `SELECT 1` it replaces ever proved.
     """
-    _require_token(authorization)
+    _admit(authorization, writes=False)
     return await load_session(engine_agent_ref)
 
 
@@ -112,7 +138,7 @@ async def worker_observations(
     re-delivered batch inserts nothing twice and the answer says how many were already
     there. That difference is the idempotency working, not loss.
     """
-    _require_token(authorization)
+    _admit(authorization)
     return await record_observations(engine_call_id, batch)
 
 
@@ -129,8 +155,31 @@ async def worker_settlement(
     UPDATE with which to correct a double write, so "answer the retry" is the only shape
     available — see `service.settle_call` for what marks a call settled.
     """
-    _require_token(authorization)
+    _admit(authorization)
     return await settle_call(engine_call_id, request)
+
+
+@router.post("/agents/{engine_agent_ref}/attestation", include_in_schema=False)
+async def worker_attestation(
+    engine_agent_ref: Annotated[str, Path(max_length=_REF_MAX)],
+    request: AttestationIn,
+    authorization: Annotated[str | None, Header()] = None,
+) -> AttestationOut:
+    """What the worker recomputed about the prompt it actually loaded, at session start.
+
+    **THIS IS THE ONLY PRODUCTION WRITER OF `agent_config_attestations` (D-626)**, and
+    therefore the only thing that makes `PipecatEngine.get_agent` able to answer anything but
+    "we have never heard from a worker". On `owned_runtime` there is no vendor to read the
+    agent back off, so this row IS the independent witness hard rule 5's engine-side
+    verification is scored against.
+
+    **ON THE CALL'S CRITICAL PATH IN THE SENSE THAT MATTERS AND NOT IN THE SENSE THAT
+    COSTS.** It is posted once per session while the pipeline is being assembled, and the
+    worker does not wait on it to answer the phone — see `voice_worker/runtime.run_call` for
+    why a failure here degrades rather than refuses.
+    """
+    _admit(authorization)
+    return await record_prompt_attestation(engine_agent_ref, request)
 
 
 __all__ = ["router"]

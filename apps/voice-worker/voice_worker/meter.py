@@ -8,8 +8,9 @@ there was one — is the whole subject of this module.
 **NOTHING HERE DEFAULTS A LEG TO ZERO.** A silent ₹0 leg is a margin we think we have and do
 not: it produces `usage_events` rows that reconcile against nothing and is discovered when
 somebody compares a vendor invoice to a month of ledger. Every leg this module cannot price
-raises a named refusal an operator can act on, exactly as `billing/rates.py::llm_inr_per_ktok`
-already does for the model it does not know.
+produces a named refusal an operator can act on, exactly as `billing/rates.py::
+llm_inr_per_ktok` already does for the model it does not know — and, since D-625, it produces
+it BESIDE the legs that priced fine rather than instead of them (`MeteredCall`).
 
 WHAT EACH LEG IS METERED FROM, and where the runtime signal was read (pipecat-ai 1.10.0 at
 `f67c18af`, the tree `docs/evidence/pipecat-api-surface-2026-09-13.md` cites; paths relative
@@ -57,7 +58,7 @@ module from importing `apps.api.billing.rates` directly.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
@@ -84,6 +85,7 @@ __all__ = [
     "LlmModelAmbiguousError",
     "LlmModelUnnamedError",
     "LlmTotalTokensMissingError",
+    "MeteredCall",
     "MeteredLeg",
     "RateCard",
     "RateCardMissingError",
@@ -176,6 +178,13 @@ class LegNotMeterableError(Exception):
 
     Catching this to write ₹0 would reintroduce exactly what §1.3 forbids, so it is a single
     base class on purpose: `except LegNotMeterableError` is easy to find in review.
+
+    ⚠ **`metered_rows` CATCHES IT, AND THAT IS THE ONE PERMITTED CATCH (D-625).** It writes no
+    zero and swallows nothing: the caught refusal is CARRIED on `MeteredCall.refusals` all the
+    way to a `call_metering_refusals` row, so the leg is still unpriced and still on the
+    record. What the catch buys is that ONE unwitnessable leg no longer discards the four
+    beside it. Any other `except LegNotMeterableError` in this tree is the defect this
+    sentence is here to make visible.
     """
 
     kind = "business_rule"
@@ -542,6 +551,41 @@ class UsageRow:
     meta: Mapping[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class MeteredCall:
+    """What one call could be metered for, AND what it could not. Both, always (D-625).
+
+    **THE LEGS WE CAN HONESTLY PRICE SETTLE; THE LEGS WE CANNOT EACH RECORD THEIR OWN
+    REFUSAL ALONGSIDE THEM.** This type is the whole of that decision, so the rejected
+    alternative belongs here: `metered_rows` used to be ALL-OR-NOTHING — it built the
+    carrier row first and RAISED `CarrierFactsMissingError` when there was no CDR, so the
+    settlement carried a refusal and zero quantities.
+
+    That was defensible as a rule about a LEDGER ("do not write a call's money half-way")
+    and indefensible as a rule about MEASUREMENT, which is what it actually governed. No
+    production call on this engine has a CDR (BLOCKER-1), so in practice it discarded the
+    STT seconds, the TTS characters and the LLM tokens this container genuinely witnessed,
+    on every call, for ever — and `usage_events` is append-only, so once the settlement has
+    answered those measurements are gone rather than pending.
+
+    What all-or-nothing was really protecting is unchanged and is now per leg:
+
+    * **The carrier's authority is untouched.** A leg with no independent witness produces a
+      REFUSAL, never a zero and never a quantity timed by our own clock (§1.2).
+    * **Nothing is invented.** A refusal still names the leg, the code, what happened and
+      what closes it; the server still prices from an attested rate or refuses in turn.
+    * **A half-written leg is still impossible.** The unit of all-or-nothing is the LEG, and
+      it always was — what changed is that the call is no longer the unit too.
+
+    `refusals` is ordered as §1.3 lists the legs, so the first refusal an operator reads is
+    the one furthest from our control: a missing CDR and an unanswered vendor question are
+    somebody's to go and get, while an unattested rate is a form in the ops console.
+    """
+
+    rows: tuple[UsageRow, ...]
+    refusals: tuple[LegNotMeterableError, ...]
+
+
 def _unit_cost(*, total_inr: Decimal, qty: Decimal) -> Decimal:
     """A leg total expressed per unit of `qty`, with `workers/pipeline.py::_unit_price`'s rule
     for a zero quantity: keep the leg cost whole on the row rather than divide by zero.
@@ -700,23 +744,38 @@ class CallMeter:
 
     def metered_rows(
         self, *, carrier: CarrierCdr | None, runtime: RuntimeUsage | None
-    ) -> tuple[UsageRow, ...]:
-        """All five legs, or the first refusal. **THERE IS NO PARTIAL SETTLEMENT.**
+    ) -> MeteredCall:
+        """Every leg this call can be priced on, and a refusal for every leg it cannot.
+
+        **IT RETURNS REFUSALS RATHER THAN RAISING ONE (D-625).** See `MeteredCall` for the
+        decision and for the alternative it replaces; the mechanical consequence here is that
+        each leg is built inside its own `try`, so one leg's refusal cannot take the four
+        beside it down with it. Nothing is caught to substitute a zero — a caught refusal is
+        CARRIED, which is what `LegNotMeterableError`'s "never caught to substitute a zero"
+        has always meant and is now the only way to reach the ledger with one.
 
         Both arguments are required and nullable rather than optional, so a caller cannot
         reach a four-leg total by forgetting an argument: omitting the CDR has to be spelled
-        `carrier=None`, and it raises.
+        `carrier=None`, and it refuses that leg.
 
-        The legs are priced in the order they are listed in §1.3 so the refusal an operator
-        sees first is the one furthest from our control — a missing CDR and an unanswered
-        vendor question are somebody's to go and get, while an unattested rate is a form in
-        the ops console.
+        The legs are evaluated in the order §1.3 lists them, so `refusals` reads
+        furthest-from-our-control first.
         """
-        rows = [self._carrier_row(carrier), self._runtime_row(runtime)]
-        rows.extend(self._stt_rows())
-        rows.extend(self._tts_rows())
-        rows.extend(self._llm_rows())
-        return tuple(rows)
+        rows: list[UsageRow] = []
+        refusals: list[LegNotMeterableError] = []
+        legs: tuple[Callable[[], list[UsageRow]], ...] = (
+            lambda: [self._carrier_row(carrier)],
+            lambda: [self._runtime_row(runtime)],
+            self._stt_rows,
+            self._tts_rows,
+            self._llm_rows,
+        )
+        for leg in legs:
+            try:
+                rows.extend(leg())
+            except LegNotMeterableError as refused:
+                refusals.append(refused)
+        return MeteredCall(rows=tuple(rows), refusals=tuple(refusals))
 
     def _carrier_row(self, carrier: CarrierCdr | None) -> UsageRow:
         if carrier is None:

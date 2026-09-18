@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Iterator
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -40,16 +42,25 @@ from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from loguru import logger
 from sqlalchemy import text
-from tests.worker_api_harness import published_agent, worker_client
+from tests.worker_api_harness import declare_pipecat_engine, published_agent, worker_client
 from voice_worker.api_client import WorkerApiClient, WorkerApiError
 from voice_worker.meter import (
+    UNIT_STT_S,
     CarrierFactsMissingError,
+    MeteredCall,
     MeteredLeg,
     UsageRow,
 )
 from voice_worker.sink import HttpEventSink, SinkIdentityError
 
 pytestmark = [pytest.mark.rls]
+
+
+@pytest.fixture(autouse=True)
+def _pipecat_deployment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Every test in this file writes through `/v1/worker`, which refuses any other engine
+    (D-627). `worker_api_harness.declare_pipecat_engine` records why this is per file."""
+    yield from declare_pipecat_engine(monkeypatch)
 
 
 async def _sink(call_id: str, **kwargs: Any) -> tuple[HttpEventSink, uuid.UUID, uuid.UUID, Any]:
@@ -125,17 +136,43 @@ class _Flaky:
 
 
 class _RefusesTheCarrier:
-    """The meter every production call has today: no CDR, so nothing is priced (BLOCKER-1)."""
+    """The carrier leg nobody witnessed, and NOTHING else measured — a silent call with no CDR.
 
-    def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-        raise CarrierFactsMissingError
+    ⚠ **THIS USED TO BE "the meter every production call has today" AND IT IS NOW THE CORNER
+    CASE (D-625).** A real call transcribes and synthesises, so the production shape is
+    `_MeasuredEverythingButTheCarrier` below: three legs priced, one recorded as unpriceable.
+    This one keeps the "nothing could be priced at all" branch under test, because the server
+    and the sink still have to distinguish it from a call with no leg to price.
+    """
+
+    def metered_rows(self, *, carrier: Any, runtime: Any) -> MeteredCall:
+        return MeteredCall(rows=(), refusals=(CarrierFactsMissingError(),))
+
+
+class _MeasuredEverythingButTheCarrier:
+    """THE PRODUCTION SHAPE OF EVERY CALL ON THIS ENGINE: three legs measured, one refused."""
+
+    def metered_rows(self, *, carrier: Any, runtime: Any) -> MeteredCall:
+        return MeteredCall(
+            rows=(
+                UsageRow(
+                    leg=MeteredLeg.STT,
+                    unit_type=UNIT_STT_S,
+                    qty=Decimal("60"),
+                    unit_cost_inr=Decimal("0.01"),
+                    total_inr=Decimal("0.60"),
+                    meta={"reports": "3"},
+                ),
+            ),
+            refusals=(CarrierFactsMissingError(),),
+        )
 
 
 class _NoLegs:
     """A session that transcribed and synthesised nothing — distinct from an unpriceable one."""
 
-    def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
-        return ()
+    def metered_rows(self, *, carrier: Any, runtime: Any) -> MeteredCall:
+        return MeteredCall(rows=(), refusals=())
 
 
 # ---------------------------------------------------------------------------------------
@@ -392,8 +429,7 @@ async def test_a_call_with_no_cdr_settles_as_a_recorded_refusal(worker_token: No
         await api.aclose()
 
     assert settlement.rows == 0
-    assert settlement.refusal_code == "meter_carrier_cdr_missing"
-    assert settlement.refusal_leg == MeteredLeg.CARRIER.value
+    assert settlement.refusals == ((MeteredLeg.CARRIER.value, "meter_carrier_cdr_missing"),)
     assert settlement.post_call_enqueued is True
     assert settlement.already_settled is False
 
@@ -417,6 +453,62 @@ async def test_a_call_with_no_cdr_settles_as_a_recorded_refusal(worker_token: No
         ).scalar_one()
     assert refusals == [("carrier", "meter_carrier_cdr_missing")]
     assert usage == 0
+
+
+async def test_the_legs_we_measured_settle_beside_the_leg_nobody_witnessed(
+    worker_token: None,
+) -> None:
+    """**PARTIAL SETTLEMENT, END TO END ACROSS THE WIRE (D-625).**
+
+    This is the production shape of every call on this engine: the worker measured the STT
+    seconds it really witnessed, and nobody witnessed the connected minute (BLOCKER-1). Under
+    the old contract the whole settlement was ONE refusal and the measured leg was discarded
+    into an append-only ledger that could never take it later — so this test fails outright
+    without the fix, on the `usage_events` count and on the 422 the wire model would answer a
+    body carrying both.
+
+    BOTH HALVES ARE ASSERTED IN THE DATABASE, because either alone is the bug: a usage row
+    without the refusal would be a call we think we priced, and the refusal without the usage
+    row is what shipped.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(call_id)
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
+        settlement = await sink.settle(
+            _MeasuredEverythingButTheCarrier(),  # type: ignore[arg-type]
+            carrier=None,
+            runtime=None,
+        )
+    finally:
+        await sink.aclose()
+        await api.aclose()
+
+    assert settlement.rows == 1
+    assert settlement.refusals == ((MeteredLeg.CARRIER.value, "meter_carrier_cdr_missing"),)
+    assert settlement.post_call_enqueued is True
+
+    async with tenant_session(tenant_id) as db:
+        row_id = (
+            await db.execute(
+                text("SELECT id FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
+            )
+        ).scalar_one()
+        usage = (
+            await db.execute(
+                text("SELECT unit_type, qty FROM usage_events WHERE call_id = :c"),
+                {"c": row_id},
+            )
+        ).all()
+        refusals = (
+            await db.execute(
+                text("SELECT leg, code FROM call_metering_refusals WHERE call_id = :c"),
+                {"c": row_id},
+            )
+        ).all()
+    assert [(unit, qty) for unit, qty in usage] == [(UNIT_STT_S, Decimal("60.0000"))]
+    assert refusals == [("carrier", "meter_carrier_cdr_missing")]
 
 
 async def test_settling_twice_is_reported_and_not_re_applied(worker_token: None) -> None:

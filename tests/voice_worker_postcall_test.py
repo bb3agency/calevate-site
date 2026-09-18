@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -45,10 +46,18 @@ from apps.workers.pipeline import POSTCALL_JOB, run_post_call_pipeline
 from calevate_shared.engine import VoiceEngine, pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from sqlalchemy import text
-from tests.worker_api_harness import worker_client
+from tests.worker_api_harness import declare_pipecat_engine, worker_client
+from voice_worker.meter import MeteredCall
 from voice_worker.sink import HttpEventSink
 
 pytestmark = [pytest.mark.rls]
+
+
+@pytest.fixture(autouse=True)
+def _pipecat_deployment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Every test in this file writes through `/v1/worker`, which refuses any other engine
+    (D-627). `worker_api_harness.declare_pipecat_engine` records why this is per file."""
+    yield from declare_pipecat_engine(monkeypatch)
 
 
 CLINIC_SCHEMA: list[dict[str, Any]] = [
@@ -145,8 +154,8 @@ class _NothingToMeter:
     card and no carrier CDR, which is every deployment today (`meter.RateCardMissingError`,
     BLOCKER-1) — and the branch that used to open no transaction at all."""
 
-    def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[Any, ...]:
-        return ()
+    def metered_rows(self, *, carrier: Any, runtime: Any) -> MeteredCall:
+        return MeteredCall(rows=(), refusals=())
 
 
 async def _run_one_call(

@@ -399,7 +399,8 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
 # engine with no agent record can have no BYOK leg. Here there is an agent record and every
 # leg really is ours, which is the whole point of running the pipeline.
 OWNED_RUNTIME_CAPABILITIES = EngineCapabilities(
-    # the owned runtime is the variant that does NOT record — it stands in for Pipecat, and a fake that recorded would let the truthful-answer clause regress with a green suite.
+    # The owned runtime is the variant that does NOT record: it stands in for Pipecat, and
+    # a fake that recorded would let the truthful-answer clause regress with a green suite.
     records_audio=False,
     stt="ours",
     tts="ours",

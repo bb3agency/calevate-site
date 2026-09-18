@@ -81,17 +81,18 @@ from typing import Literal
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
+from calevate_shared.worker_api import AttestationIn
 from loguru import logger
 from pipecat.observers.service_metrics_observer import ServiceMetricsObserver
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
-from voice_worker.api_client import WorkerApiClient
+from voice_worker.api_client import WorkerApiClient, WorkerApiError
 from voice_worker.carrier import arm_first_turn
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.meter import CallMeter, CarrierCdr, RateCard, RuntimeUsage
-from voice_worker.pipeline import VendorCredentials
+from voice_worker.pipeline import SessionConfig, VendorCredentials
 from voice_worker.session import AssembledCall, open_session, pack_cache
 from voice_worker.sink import (
     DEFAULT_TURN_BATCH_SIZE,
@@ -281,6 +282,18 @@ class WorkerRuntime:
             observers=[observer],
         )
 
+        # §1.1's ATTESTATION, POSTED AT SESSION START (D-626). `AssembledCall` has recomputed
+        # the digest of the prompt in this process's memory; until now it reached nothing, so
+        # `agent_config_attestations` had no production writer, `PipecatEngine.get_agent`
+        # answered `system_prompt_readable=False` for every agent for ever, and hard rule 5's
+        # engine-side verification never ran on this leg.
+        #
+        # WHAT IS SENT IS THE DIGEST AND NOT `prompt_matches_config_version`. The verdict is
+        # the SERVER's — an attestation whose verdict came from the attesting process agrees
+        # with itself by construction, which is the whole defect `config_versions.py` exists
+        # to close. The local flag stays for this log line and nothing else.
+        await self._attest(engine_agent_ref, config, call)
+
         if on_assembled is not None:
             # THE CONTAINER LEARNS ABOUT THE CALL THE MOMENT IT EXISTS, so a SIGTERM
             # arriving one instant later drains it gracefully instead of cutting a caller
@@ -326,7 +339,10 @@ class WorkerRuntime:
             agent_id=str(agent_id),
             drained=drained,
             settled_rows=settlement.rows,
-            refusal_code=settlement.refusal_code,
+            # EVERY LEG NOBODY COULD PRICE, NOT THE FIRST (D-625). A call now settles the
+            # legs it measured and records a refusal beside them for the legs it could not,
+            # so this is a list and an empty one is a fully metered call.
+            refusal_codes=",".join(code for _, code in settlement.refusals),
             # Whether this settlement PROMISED the post-call pipeline (D-607). `False` on a
             # re-settlement is correct and expected; `False` on a container's only
             # settlement of a call is the line an operator needs, because it means the
@@ -335,6 +351,58 @@ class WorkerRuntime:
             post_call_enqueued=settlement.post_call_enqueued,
         )
         return CallOutcome(call_id=call_id, drained=drained, settlement=settlement)
+
+    async def _attest(
+        self, engine_agent_ref: str, config: SessionConfig, call: AssembledCall
+    ) -> None:
+        """Report what this process loaded, and NEVER fail the call over it.
+
+        **A DEGRADATION AND NOT A REFUSAL, WHICH IS THE OPPOSITE OF THE SESSION READ.** That
+        read decides whether a model gets a system prompt at all, so it refuses
+        (`api_client.WorkerApiClient.session`). This one records EVIDENCE about a prompt the
+        process already holds and has already checked: `config.refuse_unless_disclosed` has
+        run, so hard rule 5's sentence is in the text either way. Dropping a live caller
+        because the witness table could not be written would trade a real call for a row, and
+        the row is not what protects the caller.
+
+        What it costs when it fails is visible rather than silent: the drift sweep sees an
+        agent whose worker has not attested, which is exactly the state the sweep exists to
+        notice. `logger.error` and not `warning` for that reason — it is a gap in the one
+        control that can say what this engine is really running.
+        """
+        try:
+            answer = await self._api.post_attestation(
+                # THE REF THIS CALL WAS STARTED WITH, not `config.engine_agent_ref`. The
+                # latter is what the `agents` row happens to hold and is nullable for an
+                # agent published before that column was read here; this one is the handle
+                # the session was actually resolved by, so it always names the agent whose
+                # prompt is being attested.
+                engine_agent_ref,
+                AttestationIn(
+                    agent_id=config.agent_id,
+                    agent_config_version_id=config.agent_config_version_id,
+                    observed_prompt_sha256=call.observed_prompt_sha256,
+                ),
+            )
+        except WorkerApiError as failure:
+            logger.error(
+                "prompt attestation not recorded",
+                call_id=config.call_id,
+                tenant_id=str(config.tenant_id),
+                agent_id=str(config.agent_id),
+                reason=type(failure).__name__,
+            )
+            return
+        logger.info(
+            "prompt attestation recorded",
+            call_id=config.call_id,
+            tenant_id=str(config.tenant_id),
+            agent_id=str(config.agent_id),
+            # The CONTROL PLANE's verdict, which is the one that counts. A disagreement with
+            # `call.prompt_matches_config_version` would mean the two ends disagree about the
+            # version row itself, and the server's reading is the one taken from it.
+            matches=answer.matches,
+        )
 
     async def aclose(self) -> None:
         """Release the client. LAST, after every call this container ran has settled."""

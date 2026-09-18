@@ -28,6 +28,7 @@ scoped to ids it created, and nothing counts rows globally.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from decimal import Decimal
 
 import httpx
@@ -44,10 +45,23 @@ from calevate_shared.worker_api import (
 )
 from pydantic import ValidationError
 from sqlalchemy import text
-from tests.worker_api_harness import call_ref, published_agent, worker_client
+from tests.worker_api_harness import (
+    call_ref,
+    declare_pipecat_engine,
+    published_agent,
+    worker_client,
+)
 from voice_worker.api_client import WorkerApiError
 
 pytestmark = [pytest.mark.rls]
+
+
+@pytest.fixture(autouse=True)
+def _pipecat_deployment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Every test in this file writes through `/v1/worker`, which refuses any other engine
+    (D-627). `worker_api_harness.declare_pipecat_engine` records why this is per file."""
+    yield from declare_pipecat_engine(monkeypatch)
+
 
 #: A number the redactor must find, so "did the server redact?" is a question with a visible
 #: answer rather than an equality against an unchanged string.
@@ -94,21 +108,29 @@ def batch(
 
 
 def refusal_settlement(agent_id: uuid.UUID) -> SettlementRequest:
-    """The shape EVERY production call reaches today: no CDR, so no priced leg at all.
+    """One leg nobody could witness and nothing else measured — a silent call with no CDR.
 
     `meter.CarrierFactsMissingError`'s own four fields, because the worker sends the refusal
     its meter reached rather than one invented here (BLOCKER-1, §1.2).
+
+    ⚠ **THIS USED TO SAY "the shape EVERY production call reaches today" AND IT IS NOW THE
+    CORNER CASE (D-625).** A real call transcribes and synthesises, so the ordinary body
+    carries this refusal AND the quantities beside it — see
+    `test_a_refused_leg_does_not_discard_the_legs_beside_it`, which reuses these refusals for
+    exactly that reason.
     """
     return SettlementRequest(
         final_status="completed",
         direction="inbound",
         agent_id=agent_id,
-        refusal=SettlementRefusal(
-            leg="carrier",
-            code="meter_carrier_cdr_missing",
-            detail="no carrier CDR was supplied, so the connected duration has no witness.",
-            remediation="Retrieve the CDR from the carrier and meter again.",
-        ),
+        refusals=[
+            SettlementRefusal(
+                leg="carrier",
+                code="meter_carrier_cdr_missing",
+                detail="no carrier CDR was supplied, so the connected duration has no witness.",
+                remediation="Retrieve the CDR from the carrier and meter again.",
+            )
+        ],
     )
 
 
@@ -380,14 +402,14 @@ async def test_the_same_settlement_twice_writes_one_refusal_and_answers_already_
         first = await api.post_settlement(ref, refusal_settlement(agent_id))
         second = await api.post_settlement(ref, refusal_settlement(agent_id))
 
-    assert (first.already_settled, first.refusal_recorded, first.post_call_enqueued) == (
+    assert (first.already_settled, first.refusals_recorded, first.post_call_enqueued) == (
         False,
-        True,
+        1,
         True,
     )
-    assert (second.already_settled, second.refusal_recorded, second.post_call_enqueued) == (
+    assert (second.already_settled, second.refusals_recorded, second.post_call_enqueued) == (
         True,
-        False,
+        0,
         False,
     )
     assert await counts(tenant_id, ref) == {
@@ -517,32 +539,64 @@ async def test_a_status_never_moves_backwards_off_a_terminal_row(worker_token: N
     assert status == "completed"
 
 
-async def test_a_settlement_offering_both_a_refusal_and_quantities_is_refused(
+async def test_a_settlement_that_both_prices_and_refuses_one_leg_is_refused(
     worker_token: None,
 ) -> None:
-    """THERE IS NO PARTIAL SETTLEMENT, validated rather than trusted.
+    """A REFUSAL NAMES A LEG; QUANTITIES NAME OTHER LEGS (D-625), validated not trusted.
 
-    `metered_rows` is all-or-nothing by design, so a body offering priced legs AND a refusal
-    is a shape the ledger cannot hold — and the client is a thing on somebody else's
-    infrastructure, so the server checks instead of assuming. Nothing is written, including
-    the post-call promise: a refused settlement must not leave a pipeline owed over a ledger
-    that was never set.
+    ⚠ **THE EXCLUSIVITY THIS USED TO PIN IS GONE AND THE REPLACEMENT IS NARROWER.** A body
+    offering priced legs AND a refusal is the ORDINARY shape now — it is what every call on
+    this engine sends. What the ledger genuinely cannot hold is two contradictory records of
+    ONE leg, because `usage_events` and `call_metering_refusals` are both append-only under
+    hard rule 4 and neither has an UPDATE to correct the other with.
+
+    Nothing is written, including the post-call promise: a refused settlement must not leave
+    a pipeline owed over a ledger that was never set.
     """
     tenant_id, agent_id, _ = await published_agent()
     call_id, ref = call_ref(tenant_id)
-    both = SettlementRequest(
+    contradictory = SettlementRequest(
         final_status="completed",
         direction="inbound",
         agent_id=agent_id,
-        refusal=refusal_settlement(agent_id).refusal,
-        quantities=[MeteredQuantity(leg="stt", unit_type="stt_s", qty=Decimal("1"))],
+        refusals=refusal_settlement(agent_id).refusals,
+        quantities=[MeteredQuantity(leg="carrier", unit_type="telephony_s", qty=Decimal("60"))],
     )
     async with worker_client() as api:
         await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
         with pytest.raises(WorkerApiError) as refused:
-            await api.post_settlement(ref, both)
+            await api.post_settlement(ref, contradictory)
     assert "422" in str(refused.value)
     assert (await counts(tenant_id, ref))["outbox"] == 0, "a refused settlement promised a pipeline"
+
+
+async def test_a_refused_leg_does_not_discard_the_legs_beside_it(worker_token: None) -> None:
+    """**PARTIAL SETTLEMENT, ON THE SERVER (D-625), AND IT IS THE PRODUCTION SHAPE.**
+
+    The worker measured STT seconds it really witnessed and could not witness the carrier's
+    connected minute (BLOCKER-1). Under the old contract this body was a 422 — a refusal and
+    quantities together — and the shape the worker sent instead was the refusal ALONE, so the
+    measured leg never reached the ledger at all. `usage_events` is append-only, so it could
+    not reach it afterwards either.
+
+    BOTH ROWS ARE ASSERTED. A usage row without the refusal would be a call we believe we
+    priced in full; a refusal without the usage row is what shipped.
+    """
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+    request = SettlementRequest(
+        final_status="completed",
+        direction="inbound",
+        agent_id=agent_id,
+        refusals=refusal_settlement(agent_id).refusals,
+        quantities=[MeteredQuantity(leg="stt", unit_type="stt_s", qty=Decimal("42.5"))],
+    )
+    async with worker_client() as api:
+        await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
+        answer = await api.post_settlement(ref, request)
+
+    assert (answer.rows_written, answer.refusals_recorded) == (1, 1)
+    assert await counts(tenant_id, ref) == {"turns": 0, "usage": 1, "refusals": 1, "outbox": 1}
 
 
 async def test_a_call_with_nothing_to_meter_settles_to_neither_a_row_nor_a_refusal(
@@ -561,14 +615,12 @@ async def test_a_call_with_nothing_to_meter_settles_to_neither_a_row_nor_a_refus
     """
     tenant_id, agent_id, _ = await published_agent()
     call_id, ref = call_ref(tenant_id)
-    nothing = SettlementRequest(
-        final_status="completed", direction="inbound", agent_id=agent_id, refusal=None
-    )
+    nothing = SettlementRequest(final_status="completed", direction="inbound", agent_id=agent_id)
     async with worker_client() as api:
         await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
         answer = await api.post_settlement(ref, nothing)
 
-    assert (answer.rows_written, answer.refusal_recorded) == (0, False)
+    assert (answer.rows_written, answer.refusals_recorded) == (0, 0)
     assert answer.post_call_enqueued is True
     assert await counts(tenant_id, ref) == {"turns": 0, "usage": 0, "refusals": 0, "outbox": 1}
 
@@ -582,8 +634,9 @@ async def test_a_leg_whose_price_is_not_ours_to_know_is_recorded_rather_than_inv
     minute is an unanswered vendor question (§7 P-1).
 
     A quantity naming either is therefore settled as a RECORDED REFUSAL, never as a figure
-    the worker asserted. The STT leg beside it is priced from `billing/rates.py` and is not
-    written either, because there is no partial settlement.
+    the worker asserted. ⚠ **AND THE STT LEG BESIDE IT IS NOW WRITTEN (D-625)** — this
+    docstring used to end "and is not written either, because there is no partial
+    settlement", which is exactly the sentence that made this engine bill nothing.
     """
     tenant_id, agent_id, _ = await published_agent()
     call_id, ref = call_ref(tenant_id)
@@ -600,7 +653,7 @@ async def test_a_leg_whose_price_is_not_ours_to_know_is_recorded_rather_than_inv
         await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
         answer = await api.post_settlement(ref, request)
 
-    assert (answer.refusal_recorded, answer.rows_written) == (True, 0)
+    assert (answer.refusals_recorded, answer.rows_written) == (1, 1)
     async with tenant_session(tenant_id) as db:
         row_id = (
             await db.execute(text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": ref})
@@ -617,7 +670,7 @@ async def test_a_leg_whose_price_is_not_ours_to_know_is_recorded_rather_than_inv
             )
         ).scalar_one()
     assert (leg, code) == ("carrier", "meter_leg_not_priceable_here")
-    assert usage == 0, "a partial settlement reached an append-only ledger"
+    assert usage == 1, "the leg we could price was discarded with the one we could not"
 
 
 async def test_a_priced_leg_is_multiplied_by_the_rate_card_this_host_holds(
@@ -647,7 +700,7 @@ async def test_a_priced_leg_is_multiplied_by_the_rate_card_this_host_holds(
         await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
         answer = await api.post_settlement(ref, request)
 
-    assert (answer.rows_written, answer.refusal_recorded) == (1, False)
+    assert (answer.rows_written, answer.refusals_recorded) == (1, 0)
     async with tenant_session(tenant_id) as db:
         row_id = (
             await db.execute(text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": ref})
@@ -821,13 +874,237 @@ async def test_a_settlement_can_mint_the_row_with_its_parties(
                 agent_id=agent_id,
                 from_e164="+919000000005",
                 to_e164="+918000000006",
-                refusal=SettlementRefusal(
-                    leg="carrier",
-                    code="carrier_facts_missing",
-                    detail="no CDR",
-                    remediation=None,
-                ),
+                refusals=[
+                    SettlementRefusal(
+                        leg="carrier",
+                        code="carrier_facts_missing",
+                        detail="no CDR",
+                        remediation=None,
+                    )
+                ],
             ),
         )
 
     assert await _parties(tenant_id, ref) == ("+919000000005", "+918000000006")
+
+
+# ---------------------------------------------------------------------------------------
+# A settlement with no parties is an operator event (D-628).
+# ---------------------------------------------------------------------------------------
+
+
+def _capture_alerts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, dict[str, str]]]:
+    """Every `alert()` the worker service fires, as (stage, code, ids).
+
+    Patched on the MODULE THAT CALLS IT, which is the shape `fx_rate_test` established: the
+    alarm path itself is under test elsewhere, and what matters here is that this call site
+    reaches it at all.
+    """
+    import apps.api.worker.service as service_module
+
+    fired: list[tuple[str, str, dict[str, str]]] = []
+
+    def record(stage: str, code: str, *, detail: str | None = None, **ids: str) -> None:
+        fired.append((stage, code, dict(ids)))
+
+    monkeypatch.setattr(service_module, "alert", record)
+    return fired
+
+
+async def test_a_terminal_settlement_with_no_parties_is_an_operator_alert(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**THE SILENCE IS MADE AUDIBLE, BECAUSE IT COSTS SOMEBODY SOMETHING (D-628).**
+
+    Nothing on this engine produces `calls.from_e164`/`to_e164` (§12.5 gate 9), and the
+    consequence is not a blank screen field: `workers/pipeline.py:1600` cannot attribute a
+    post-call OPT-OUT, so a caller who asked not to be called again gets no DNC row; `:1968`
+    files no lead, because `leads.phone_e164` is NOT NULL; and a DPDP erasure has no subject.
+    Only the first of the three says anything today, and only once a caller has actually
+    opted out — which is one call too late to be a warning.
+
+    Nothing is invented to fill the gap — the assertion below is that the row stays NULL AND
+    that an operator is told.
+    """
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+    fired = _capture_alerts(monkeypatch)
+
+    async with worker_client() as api:
+        await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
+        await api.post_settlement(ref, refusal_settlement(agent_id))
+
+    assert await _parties(tenant_id, ref) == (None, None), "a party was invented"
+    codes = [(stage, code) for stage, code, _ in fired]
+    assert ("WORKER_TERMINAL", "call_settled_without_parties") in codes
+    (ids,) = [ids for _stage, code, ids in fired if code == "call_settled_without_parties"]
+    assert ids["tenant_id"] == str(tenant_id)
+
+
+async def test_a_settlement_that_knows_one_party_raises_nothing(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ONE party is enough to attribute a suppression and to file a lead, so it is not the
+    condition. The alarm fires on "nobody", never on "incomplete" — a code that fired on a
+    knowable call would be the noise D-591 exists to keep out of the console."""
+    tenant_id, agent_id, _ = await published_agent()
+    _, ref = call_ref(tenant_id)
+    fired = _capture_alerts(monkeypatch)
+
+    async with worker_client() as api:
+        await api.post_settlement(
+            ref,
+            SettlementRequest(
+                final_status="completed",
+                direction="inbound",
+                agent_id=agent_id,
+                from_e164="+919000000007",
+            ),
+        )
+
+    assert [code for _stage, code, _ids in fired] == []
+
+
+async def test_parties_learned_from_an_earlier_batch_are_not_reported_as_absent(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**THE ALARM READS THE COLUMN, NOT THE REQUEST**, and that is not a detail.
+
+    The upsert COALESCEs the stored party over the incoming one, so a settlement carrying no
+    parties against a call whose first observation batch DID carry them leaves the row intact
+    — and an alarm that judged the request body would call that call unattributable and send
+    an operator looking for a number that is already there.
+    """
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+
+    async with worker_client() as api:
+        await api.post_observations(
+            ref, batch(call_id, tenant_id, agent_id, from_e164="+919000000008")
+        )
+        fired = _capture_alerts(monkeypatch)
+        await api.post_settlement(ref, refusal_settlement(agent_id))
+
+    assert [code for _stage, code, _ids in fired] == []
+
+
+# ---------------------------------------------------------------------------------------
+# The attestation route (D-626) and the engine gate (D-627).
+# ---------------------------------------------------------------------------------------
+
+
+async def test_the_worker_attestation_is_written_and_the_server_judges_it(
+    worker_token: None,
+) -> None:
+    """**THE TABLE HAD NO PRODUCTION WRITER AT ALL UNTIL THIS ROUTE (D-626).**
+
+    `record_attestation` was reachable only from tests, so `agent_config_attestations` was
+    empty on every deployment and `PipecatEngine.get_agent` answered
+    `system_prompt_readable=False` for every agent for ever — i.e. hard rule 5's engine-side
+    verification never ran once on this leg.
+
+    THE SERVER JUDGES, THE WORKER REPORTS. The digest sent here is the one the control plane
+    itself wrote, so `matches` must be true; the next test sends a different one and it must
+    be false, which is what proves the verdict is computed from the version row rather than
+    echoed from the body.
+    """
+    from apps.api.agents.config_versions import latest_attestation
+    from calevate_shared.worker_api import AttestationIn
+
+    tenant_id, agent_id, agent_ref = await published_agent()
+    async with tenant_session(tenant_id) as db:
+        version_id, expected = (
+            await db.execute(
+                text(
+                    "SELECT agent_config_version_id, v.prompt_sha256 FROM pipecat_agents p "
+                    "JOIN agent_config_versions v ON v.id = p.agent_config_version_id "
+                    "WHERE p.agent_id = :a"
+                ),
+                {"a": agent_id},
+            )
+        ).one()
+
+    async with worker_client() as api:
+        answer = await api.post_attestation(
+            agent_ref,
+            AttestationIn(
+                agent_id=agent_id,
+                agent_config_version_id=version_id,
+                observed_prompt_sha256=expected,
+            ),
+        )
+
+    assert answer.matches is True
+    async with tenant_session(tenant_id) as db:
+        stored = await latest_attestation(db, agent_id)
+    assert stored is not None
+    assert stored.prompt_sha256 == expected
+    assert stored.matches is True
+
+
+async def test_a_worker_running_a_different_prompt_is_recorded_as_a_mismatch(
+    worker_token: None,
+) -> None:
+    """A MISMATCH IS A FINDING, NOT AN ERROR — a stale deploy, a version published after the
+    session started, a prompt truncated on the way in. Refusing the write would delete the
+    evidence of exactly the condition the table exists to catch, so it is a 200."""
+    from calevate_shared.worker_api import AttestationIn
+
+    tenant_id, agent_id, agent_ref = await published_agent()
+    async with tenant_session(tenant_id) as db:
+        version_id = (
+            await db.execute(
+                text("SELECT agent_config_version_id FROM pipecat_agents WHERE agent_id = :a"),
+                {"a": agent_id},
+            )
+        ).scalar_one()
+
+    async with worker_client() as api:
+        answer = await api.post_attestation(
+            agent_ref,
+            AttestationIn(
+                agent_id=agent_id,
+                agent_config_version_id=version_id,
+                observed_prompt_sha256="0" * 64,
+            ),
+        )
+
+    assert answer.matches is False
+
+
+async def test_the_writing_routes_refuse_a_deployment_running_another_engine(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**409, BECAUSE THE CONSUMER OF THESE ROWS DOES NOT ASK WHICH ENGINE WROTE THEM
+    (D-627).** `settle_call` puts `"engine": "pipecat"` in the outbox payload and
+    `workers/pipeline._post_call_target` never reads it — the adapter comes from the
+    process-wide `ENGINE`. So on a deployment running another engine an accepted settlement
+    mints rows whose pipeline asks the wrong vendor for this call, and the extraction, CRM
+    columns and lead are lost.
+
+    The SESSION READ is deliberately exempt: it writes nothing, and it is what `probe`
+    presents at boot.
+    """
+    from apps.api.core.settings import get_settings as _settings
+
+    tenant_id, agent_id, agent_ref = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+    monkeypatch.setenv("ENGINE", "bolna")
+    _settings.cache_clear()
+
+    async with worker_client() as api:
+        await api.session(agent_ref)  # the read still answers
+        with pytest.raises(WorkerApiError) as refused:
+            await api.post_settlement(ref, refusal_settlement(agent_id))
+        assert "409" in str(refused.value)
+        with pytest.raises(WorkerApiError) as refused_batch:
+            await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
+        assert "409" in str(refused_batch.value)
+
+    async with tenant_session(tenant_id) as db:
+        minted = (
+            await db.execute(
+                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"), {"c": ref}
+            )
+        ).scalar_one()
+    assert minted == 0, "a refused write still minted the call row it would have written to"
