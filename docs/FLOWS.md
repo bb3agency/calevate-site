@@ -498,11 +498,22 @@ ported per client wish.
 
 ## 10. Number Provisioning & DLT Roles (reference)
 
-**No physical SIMs.** All numbers are virtual DIDs (Exotel / Vobiz / Plivo, connected to
-the engine — Bolna guides verified for all three; **Vobiz inbound is ASSERTED in their
-capability matrix with no provider-specific guide published**, where Twilio, Plivo and
-Exotel each have one — `bolna-findings/mirror/pages/supported-telephony-providers.md:33`,
-TRD §5), routed over SIP, stored in `phone_numbers`.
+**No physical SIMs.** All numbers are virtual DIDs (Exotel / Vobiz / Plivo), routed over
+SIP, stored in `phone_numbers`.
+
+⚠ **THIS PARAGRAPH AND THE CARRIER SPLIT BELOW WERE WRITTEN FOR THE BOLNA ERA AND MISLED A
+READER ON 17 SEP 2026** — into believing Calevate provisions numbers and that outbound runs
+on 140-series. Both were read off this page and taken as current, which is exactly the cost
+of a stale blueprint. What the sentence used to carry: that the three providers were
+"connected to the engine", with Bolna's own guides verified for each and Vobiz inbound only
+ASSERTED in their capability matrix. **D-592 removed Bolna**, so there is no engine to
+connect a number to — the worker is ours and the carrier is reached directly.
+
+**READ `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` BEFORE THIS SECTION.** It
+carries the three models (A closed by UL-VNO licence text, BYON with no documented path,
+B documented), the KYC-versus-DLT distinction, and the unresolved question of where a
+Telemarketer ID attaches to a VOICE call — which nothing in this repository can answer and
+which decides whether a ₹5,900 registration is spent at all.
 
 **CALEVATE DOES NOT BUY, SELL, RENT, ALLOCATE OR PORT A NUMBER — MODEL B**
 (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). The client's entity is on the CAF and the carrier
@@ -519,10 +530,19 @@ opening a Calevate carrier account to park client traffic on is stop-list item 1
 runs on the client's side: DLT Principal-Entity registration, documents to the carrier's
 compliance address, carrier allocation, then header and template approval.
 
-The carrier is not a preference either — it is fixed by the series, in the vendor's own
-table (`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md`,
-VERIFIED-VENDOR-DOCS): **140-series → Vobiz**, **160-series → Plivo**. TRD §5 carries the
-same split, and `campaigns/provisioning.KNOWN_PROVIDERS` is the one list that names them.
+⚠ **THE CARRIER SPLIT BELOW IS BOLNA'S, NOT OURS, AND IT NO LONGER BINDS ANYTHING.** It
+read: *"the carrier is not a preference either — it is fixed by the series, in the vendor's
+own table: 140-series → Vobiz, 160-series → Plivo"*, sourced from
+`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md`. That was
+a fact about which carriers BOLNA could buy each series through. **We never had a Vobiz
+relationship — Bolna did, and we rented Bolna** (D-592 removed it). TRD §5 carries the same
+split and `campaigns/provisioning.KNOWN_PROVIDERS` still names them.
+
+Two corrections that followed from reading TRAI's own text rather than the vendor's table:
+**1600xx is restricted to RBI/SEBI/IRDAI/PFRDA-regulated entities and government** (TRAI
+clarification, 10 July 2026), so ordinary SMB clients cannot have it whatever a carrier
+table says; and the ₹5,900 PE registration figure recorded in `docs/LEGAL-SURFACE.md:1284`
+is **₹5,000 + 18% GST**, not a separate charge.
 
 **One number set per client — mandatory**, because: (a) inbound number IS the client's
 public line; (b) DLT ties outbound numbers to one business identity + its templates —
