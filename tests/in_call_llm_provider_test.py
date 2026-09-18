@@ -51,6 +51,7 @@ import json
 from decimal import Decimal
 
 import pytest
+from apps.api.agents.voices import CARTESIA_TTS_MODEL
 from apps.api.engine.bolna import (
     BolnaEngine,
     _agent_models,
@@ -89,6 +90,7 @@ def _azure_models() -> ModelConfig:
         llm_provider="azure_openai",
         llm_base_url=ENDPOINT,
         tts_provider="cartesia",
+        tts_model=CARTESIA_TTS_MODEL,
         tts_voice="anushka",
     )
 

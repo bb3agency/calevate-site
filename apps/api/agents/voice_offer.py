@@ -168,6 +168,10 @@ def default_tts_price_is_billable(provider: VoiceProvider) -> bool:
 _price_reader: TtsPriceReader | None = None
 
 
+#: A caller's answer to ground 1, per provider — see `install_tts_credential_reader`.
+TtsCredentialReader = Callable[[VoiceProvider], bool]
+
+
 def install_tts_price_reader(reader: TtsPriceReader | None) -> None:
     """Register where "is this tier priced" comes from. `None` uninstalls.
 
@@ -192,6 +196,25 @@ def tts_price_is_billable(provider: VoiceProvider) -> bool:
 # --- ground 1: the installed key ---------------------------------------------------
 
 
+#: Where "is this provider's key installed" comes from, when something has said.
+#:
+#: ⚠ **THE SIBLING THE PRICE GROUND ALREADY HAD AND THIS ONE DID NOT (18 Sep 2026).**
+#: `install_tts_price_reader` above, and `llm_models.install_llm_credential_reader`, exist
+#: so a caller can describe a deployment without being one. Ground 1 had no such seam, so a
+#: test that needed an offerable voice had to put a real-looking key in `os.environ` — which
+#: leaks for the life of the process and broke the two readiness clauses that assert the key
+#: is ABSENT, plus the ambient-credential guard hard rule 10 names by number. A seam is the
+#: repo's own answer to exactly that, twice already.
+_credential_reader: TtsCredentialReader | None = None
+
+
+def install_tts_credential_reader(reader: TtsCredentialReader | None) -> None:
+    """Register where ground 1's answer comes from. `None` uninstalls, restoring the read
+    of `get_settings()` that production makes."""
+    global _credential_reader
+    _credential_reader = reader
+
+
 def tts_credential_installed(provider: VoiceProvider) -> bool:
     """Ground 1, per provider: can a call on this voice reach a synthesiser at all?
 
@@ -211,6 +234,8 @@ def tts_credential_installed(provider: VoiceProvider) -> bool:
     """
     if f"{provider}_api_key" in ENV_ONLY_FOREIGN_ENV:
         return True
+    if _credential_reader is not None:
+        return _credential_reader(provider)
     return cartesia_credential_installed()
 
 
@@ -620,6 +645,7 @@ __all__ = [
     "DISABLED_REASON",
     "NOT_CURATED_REASON",
     "OfferedVoice",
+    "TtsCredentialReader",
     "TtsPriceReader",
     "VoiceCuration",
     "VoiceReasonAudience",
@@ -630,6 +656,7 @@ __all__ = [
     "count_live_cartesia_agents",
     "curation_unofferable_reason",
     "default_tts_price_is_billable",
+    "install_tts_credential_reader",
     "install_tts_price_reader",
     "no_attested_price_reason",
     "no_credential_reason",

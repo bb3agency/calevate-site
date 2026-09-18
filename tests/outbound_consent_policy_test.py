@@ -115,10 +115,30 @@ async def _set_policy(tenant_id: UUID, *, enabled: bool) -> bool:
 
 
 async def _gate(tenant_id: UUID, agent_id: UUID, phone: str) -> DispatchDecision:
-    async with tenant_session(tenant_id) as session:
-        return await check_dispatch(
-            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
-        )
+    """The dial gate, asked at a FIXED hour.
+
+    ⚠ **THESE CLAUSES USED TO READ THE WALL CLOCK AND WERE THEREFORE TIME BOMBS.** Without
+    the pin they passed inside Indian calling hours and failed outside them, with every
+    assertion reporting `calling_hours` instead of the consent rule it was written for —
+    which is not a flake, it is a suite that only tests anything for part of the day. It
+    duly failed the moment a container restart moved the run into the evening.
+
+    11:00 IST is the middle of the permitted window, and `lead_consent_carryover_test`
+    pins the same instant for the same reason. What this suite measures is the CONSENT
+    clause; the hours are a different rule with its own tests.
+    """
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(
+        "apps.api.compliance.service.ist_now",
+        lambda: datetime(2026, 8, 11, 11, 0, tzinfo=UTC),
+    )
+    try:
+        async with tenant_session(tenant_id) as session:
+            return await check_dispatch(
+                session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+            )
+    finally:
+        monkey.undo()
 
 
 async def test_the_permissive_default_is_unchanged_for_every_other_account() -> None:

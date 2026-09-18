@@ -1313,12 +1313,20 @@ def stale_deferrals(root: Path | None = None, deferrals: dict[str, str] | None =
 TRD = REPO_ROOT / "docs" / "TRD.md"
 TTS_RATE_HEADING = "### 10.1 Stack cost, computed from published rates"
 
-#: The product name a §10.1 TTS row is a claim about: `Bulbul v3` or `Sonic 3.5`, however
-#: the row bolds it. TWO RUNGS SINCE D-547, and they are two different VENDORS rather than
-#: two qualities of one — `Bulbul v2`, the withdrawn "value" rung of the old ladder, still
-#: matches nothing here, so a lingering v2 row in the doc stays drift the check refuses to
-#: reconcile against a code rate that no longer exists.
-_TTS_PRODUCT = r"(?:Bulbul\s*\*{0,2}v3|Sonic\s*\*{0,2}3\.5)"
+#: The product name a §10.1 TTS row is a claim about, however the row bolds it. THREE
+#: NAMES, ONE PRICED RUNG since D-629 (18 Sep 2026) — the list is deliberately wider than
+#: the card, because every name here that the code does NOT price becomes a tripwire
+#: rather than a blind spot:
+#:
+#:   * `Sonic 3.5` — the one rung the biller holds a rate for.
+#:   * `Timbre v2.5` — Gnani, the Clear rung. Gnani publish NO price, so `billing/rates.py`
+#:     has no such rung, and §4b therefore FAILS the day §10.1 states a rate for it. That
+#:     is the point: hard rule 7 keeps a Gnani figure off every surface, and the only
+#:     figure in this tree is a reseller's for their own platform.
+#:   * `Bulbul v3` — Sarvam, which left the synthesis leg entirely at D-629. Its code rate
+#:     went with the card row, so a Bulbul row reappearing in §10.1 fails the same way.
+#:     (`Bulbul v2`, withdrawn earlier, has never matched here at all.)
+_TTS_PRODUCT = r"(?:Bulbul\s*\*{0,2}v3|Sonic\s*\*{0,2}3\.5|Timbre\s*\*{0,2}v2\.5)"
 #: `| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |` — the vendor's own unit. The
 #: rate may sit in ANY later cell of the row, not only the next one: the Cartesia card
 #: carries the plan terms in between (`$49 / month, 1,250,000 credits`), and a pattern that
@@ -1335,10 +1343,16 @@ _DOC_TTS_1K = re.compile(
 )
 
 #: Which code key each doc row is a claim about, keyed by the row's product name with its
-#: markdown bold and whitespace normalised away (`_tts_row_key`). TWO ENTRIES since D-547:
-#: the doc names the VENDOR's product, the code holds one constant per vendor, and the
-#: mapping between them is stated once here rather than assumed by either side.
-TTS_DOC_ROW_TO_TIER: dict[str, str] = {"bulbulv3": "bulbul-v3", "sonic3.5": "sonic-3.5"}
+#: markdown bold and whitespace normalised away (`_tts_row_key`). The doc names the
+#: VENDOR's product and the code holds one constant per vendor, so the mapping between
+#: them is stated once here rather than assumed by either side. Two of the three entries
+#: map to a rung `billing/rates.py` does NOT hold — see `_TTS_PRODUCT` for why that is the
+#: design and not a leftover.
+TTS_DOC_ROW_TO_TIER: dict[str, str] = {
+    "bulbulv3": "bulbul-v3",
+    "sonic3.5": "sonic-3.5",
+    "timbrev2.5": "timbre-v2.5",
+}
 
 
 def _tts_row_key(product: str) -> str:

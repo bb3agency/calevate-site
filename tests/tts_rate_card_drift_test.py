@@ -317,3 +317,22 @@ def test_the_doc_may_round_to_paise_without_being_reported() -> None:
             "precise than the doc"
         )
     assert not guard.llm_cost_curve_drift()
+
+
+def test_a_gnani_rate_appearing_in_the_card_is_named() -> None:
+    """THE HARD-RULE-7 TRIPWIRE (D-629, 18 Sep 2026), and it is the reason
+    `_TTS_PRODUCT` is deliberately wider than the rungs the biller prices.
+
+    Gnani publish no price of any kind. The only per-character figure anywhere in this
+    tree is a RESELLER's for their own platform, and a client-facing rate card is exactly
+    the surface it must never reach. `billing/rates.py` therefore holds no `timbre-v2.5`
+    rung — so the day §10.1 starts stating one, §4b fails naming the rung and the rupees,
+    rather than falling silent because the parser never learned the product's name.
+
+    The mutation states the reseller figure on the Gnani row's SECOND cell, where the row
+    currently reads `**none published**`. That is the shape the defect would really take.
+    """
+    offenders = guard.tts_rate_card_drift(
+        _mutated("| **none published** |", "| ₹27.00 / 10,000 chars |")
+    )
+    assert any("timbre-v2.5" in line and "no such rung" in line for line in offenders), offenders

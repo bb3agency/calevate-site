@@ -32,6 +32,7 @@ from apps.api.agents.voice_offer import (
     OfferedVoice,
     cartesia_cap_reached_reason,
     client_unofferable_reason,
+    install_tts_credential_reader,
     install_tts_price_reader,
     no_attested_price_reason,
     no_credential_reason,
@@ -67,8 +68,14 @@ def _clean_price_reader() -> object:
     reader back afterwards.
     """
     install_tts_price_reader(None)
+    # AND THE CREDENTIAL READER, for the identical reason one line up. Ground 1 gained the
+    # same seam on 18 Sep 2026 (it had none, so the suite fixture was putting a key in
+    # `os.environ` and leaking it for the whole session). This file asserts the refusals, so
+    # it drives the REAL `get_settings()` read that a fresh deployment makes.
+    install_tts_credential_reader(None)
     yield None
     install_tts_price_reader(None)
+    install_tts_credential_reader(None)
 
 
 @pytest.fixture

@@ -538,11 +538,16 @@ def _tts_price_reader_is_restored() -> Iterator[None]:
     all. That failure lands in the test that runs next, never in the one that caused it.
     """
     from apps.api.agents import voice_offer
-    from tests.voice_fixture import FIXTURE_TTS_PRICE_READER
+    from tests.voice_fixture import FIXTURE_TTS_CREDENTIAL_READER, FIXTURE_TTS_PRICE_READER
 
     yield
     if voice_offer._price_reader is not FIXTURE_TTS_PRICE_READER:
         voice_offer.install_tts_price_reader(FIXTURE_TTS_PRICE_READER)
+    # GROUND 1's READER IS RESTORED THE SAME WAY, for the same reason: a suite that
+    # uninstalls it to exercise the cold default would otherwise leave every later test on
+    # a platform holding no key, and that failure lands in whichever test runs next.
+    if voice_offer._credential_reader is not FIXTURE_TTS_CREDENTIAL_READER:
+        voice_offer.install_tts_credential_reader(FIXTURE_TTS_CREDENTIAL_READER)
 
 
 @pytest.fixture(autouse=True)

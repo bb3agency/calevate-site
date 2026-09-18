@@ -559,6 +559,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # pay Cartesia for. Per call, re-derivable from `usage_events`, and correctable.
     "engine_billed_byok_tts": "attention",
     "cartesia_voice_incomplete": "attention",
+    # D-629's refusal, and the same rung as the sibling above it. Nobody's call is
+    # dropped — a publish is refused, the live version keeps serving, and the fix is an
+    # operator moving the agent to a voice this engine carries. It pages nobody at 3am.
+    "tts_provider_not_on_this_engine": "attention",
     "engine_kb_document_missing": "attention",
     "engine_kb_agent_config_required": "attention",
     "engine_kb_ambiguous_source": "attention",

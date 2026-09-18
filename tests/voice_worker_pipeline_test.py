@@ -314,8 +314,7 @@ def test_sarvam_tts_speakers_are_a_closed_enum_which_is_the_ground_for_d593() ->
     legs = pipeline.build_vendor_legs(make_config(), CREDENTIALS)
 
     assert not isinstance(legs.tts, SarvamTTSService), (
-        "the Sarvam TTS leg is back; it was withdrawn on 18 Sep 2026 and the Clear rung is "
-        "Gnani's"
+        "the Sarvam TTS leg is back; it was withdrawn on 18 Sep 2026 and the Clear rung is Gnani's"
     )
     assert isinstance(legs.stt, SarvamSTTService), (
         "SARVAM STILL TRANSCRIBES EVERY CALL. Only the synthesis half was withdrawn, and a "

@@ -54,7 +54,10 @@ import os
 from datetime import UTC, datetime
 from typing import Final
 
-from apps.api.agents.voice_offer import install_tts_price_reader
+from apps.api.agents.voice_offer import (
+    install_tts_credential_reader,
+    install_tts_price_reader,
+)
 from apps.api.agents.voices import CARTESIA_TTS_MODEL, Voice, catalogue_note, voice_id_for
 from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
@@ -173,7 +176,14 @@ def platform_can_speak(monkeypatch: object | None = None) -> None:
     table itself drives `ops/model_pricing.attest_tts_price` directly.
     """
     del monkeypatch  # accepted so a caller can pass one; nothing here needs it
-    os.environ.setdefault("CARTESIA_API_KEY", "fixture-cartesia-key")
+    # ⚠ **THROUGH THE SEAM, NOT THROUGH `os.environ` (corrected 18 Sep 2026).** This set
+    # `CARTESIA_API_KEY` with `setdefault`, which is process-wide and permanent — so the two
+    # readiness clauses that assert the key is ABSENT, and the ambient-credential guard hard
+    # rule 10 names by number, all failed for the whole session. A real key reaching
+    # `os.environ` is precisely the condition that guard exists to catch, and a fixture is
+    # not exempt from it. `install_tts_credential_reader` is ground 1's sibling of the price
+    # reader below, and it describes a deployment without becoming one.
+    install_tts_credential_reader(FIXTURE_TTS_CREDENTIAL_READER)
     # AND THE CAP RAISED, which is the third thing a real operator does and the one that
     # bites hardest now that every offerable voice is Cartesia's: `cartesia_agent_cap`
     # defaults to 2 LIVE AGENTS PLATFORM-WIDE (the founder's rule, struck while Sarvam
@@ -185,6 +195,22 @@ def platform_can_speak(monkeypatch: object | None = None) -> None:
     os.environ.setdefault("CARTESIA_AGENT_CAP", "10000")
     get_settings.cache_clear()
     install_tts_price_reader(FIXTURE_TTS_PRICE_READER)
+
+
+def _fixture_tts_credential_is_installed(provider: str) -> bool:
+    """The fixture deployment holds a Cartesia key and no other.
+
+    Gnani is not asked — `tts_credential_installed` abstains for it before reaching any
+    reader, because its key lives in the Pipecat worker's own secret set and this process
+    cannot see that box at all. Answering here would be inventing a fact about another
+    deployment's environment.
+    """
+    return provider == "cartesia"
+
+
+#: Named so `conftest` can restore exactly this reader rather than a fresh lambda, which is
+#: what makes the "did a suite swap it?" identity check meaningful.
+FIXTURE_TTS_CREDENTIAL_READER = _fixture_tts_credential_is_installed
 
 
 def _fixture_tts_price_is_billable(provider: str) -> bool:
