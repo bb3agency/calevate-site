@@ -344,3 +344,105 @@ the CPaaS the TM" — no, per Plivo (§2), on the 140 leg only.
    ₹50,000 deposit apply when the entity physically submitting traffic is the CPaaS?
 4. **Confirm the Plivo sentence from a Plivo page.** The summary's citation points elsewhere
    (see this addendum's header). It is the sentence that makes us the Telemarketer.
+
+---
+
+# Addendum 2, 18 Sep 2026: the competitor's caller ID, and a correction to "unenforced"
+
+## The observation
+
+The founder placed a call through a competitor (Outpero) and read the caller ID off the
+handset: **`+918765267389` — an ordinary 10-digit Indian mobile number.** Not 140. Not 160.
+
+**EVIDENCE CLASS: DIRECT OBSERVATION**, by the founder, 18 Sep 2026. The strongest single
+data point in this whole line of research, because it is a fact about what actually happens
+on a live Indian call rather than about what a document says.
+
+## What it establishes, and what it does not
+
+**Establishes:** that competitor's outbound is **not in the 140 chain at all** — no Voice
+Header, no PE–TM mapping, no Voice Template. Which is why no client of theirs pays ₹5,900:
+the apparatus §5 of this file describes is simply not in their path.
+
+It therefore also **disposes of the hypothesis** that they operate as the Principal Entity
+for their clients. There is no PE registration to speak of on an ordinary mobile DID, because
+there is no Header CLI to register.
+
+**Does NOT establish:** whose name that number is in. A follow-up test would settle it — if
+the SAME number appears for every client it is the platform's own; if it varies per client,
+each client's number is being presented, which loops back to the caller-ID question §1 of
+addendum 1 found unanswerable from primary sources.
+
+## Why the whole market does this, and it is in our own BRD
+
+`docs/BRD.md:326` already carried the commercial reason and nobody had connected it to the
+compliance question:
+
+> *"140-series promotional answer rates run 8–20% industry-wide (vs 45–65% on 160-series /
+> recognized numbers)"*
+
+**A compliant 140 promotional call is answered roughly one time in eight.** Recipients can
+block 140 by sector under DND — TRAI's 10 July 2026 clarification says so explicitly — and
+they do. So the mandate produces a trap: comply and the product barely functions; use an
+ordinary number and it functions but sits outside the mandate.
+
+That is not a loophole somebody discovered. It is the predictable outcome of a mandate whose
+preventive machinery TRAI itself reported as unbuilt.
+
+## ⚠ CORRECTION: "the enforcement machinery isn't built" WAS TOO LOOSE, AND IN THE DANGEROUS DIRECTION
+
+Stated in conversation on 18 Sep 2026: *"a mandate whose enforcement machinery TRAI itself
+says isn't built."* What TRAI's 4 May 2024 direction actually said is narrower — that **DLT
+for voice** was unimplemented, so **real-time consent recording and scrubbing** were not
+happening. That is the PREVENTIVE half.
+
+**The PUNITIVE half is running at scale.** From the same brief, source 17 (DoT/TRAI UCC
+enforcement statistics, 2025):
+
+* **731,120 UTM notices** issued in 2025
+* **1,84,482 disconnections** in 2025
+* **₹153.8 crore** held in financial disincentives on TSPs
+
+So the accurate statement is: **nothing stops the call going out, and the consequence arrives
+afterwards, by complaint.** That is a worse risk shape than "unenforced", not a better one —
+there is no gate to bounce off, only a bill that arrives later.
+
+And the shape of the consequence matters here more than the volume. **TCCCPR Reg 25(6)
+disconnects "all telecom resources of the sender" and blacklists that sender for up to two
+years.** Whether "the sender" resolves to one client or to the account carrying every
+client's traffic is **lawyer question 5 in the brief and is unresolved** — which is the
+contagion risk this file's §7 already flagged, now with a number attached to how often
+disconnection actually happens.
+
+## The classification question that may make all of this moot
+
+Before any decision about whether to follow the 140 mandate, there is a prior question nobody
+has answered: **is this product's outbound PROMOTIONAL at all?**
+
+The described use case is a client calling **their own existing, consenting customers** about
+**that customer's own bookings, orders and appointments**. TCCCPR distinguishes promotional
+from transactional and service communication, and the 140 mandate is aimed at the
+promotional class.
+
+**If these calls are service/transactional, the 140 mandate is not aimed at them and there is
+no rule being worked around.** That is a correct classification, not a workaround — and it is
+a far better place to stand than a decision to operate outside a mandate.
+
+It is unresolved here and it is the single highest-value question left:
+
+> **Are calls made by a business to its own existing, consenting customers about those
+> customers' own bookings, orders or appointments PROMOTIONAL under TCCCPR — requiring
+> 140-series — or TRANSACTIONAL/SERVICE? And separately: what is the practical exposure,
+> for the client and for the platform, of the market's evident practice of promotional
+> calling from ordinary DIDs?**
+
+## What this does NOT change in the code
+
+`apps/api/compliance/service.py` requires, for a DLT-governed dispatch, an entity chain and
+**the agent's own DLT-registered bound number, never a shared pool** (`agent_outbound_number_blocker`).
+
+**That gate is not relaxed by anything in this addendum.** Changing it is a decision with a
+name on it and belongs in `docs/ROADMAP.md` with its reasoning, not in a quietly edited
+check. `dlt_governed=False` already exists as a per-call-path selector for a genuinely
+different regime (WhatsApp, §11 of the playbook); using it to route around the voice regime
+would be the "satisfying the words while defeating the purpose" defect hard rule 12 names.
