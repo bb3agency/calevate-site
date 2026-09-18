@@ -123,6 +123,28 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash: "sha256:468d870b16d23499b66f47ca14609601e99b9512b31a483012986df88ac12af0",
       },
+      // §9 now publishes two retention periods this notice had never disclosed and one it
+      // enforced in silence. `campaign_contacts` (an uploaded name and number for someone
+      // who may never have been dialled) and `scheduled_callbacks` (a number plus a
+      // model-written note about what one caller asked for) previously aged out NEVER;
+      // they now expire on the lead and transcript clocks. And `caller_memory` — what an
+      // agent remembers about a CALLER between calls — was enforced at 180 days and
+      // appeared in no published table at all, which is the one omitted category whose
+      // subject is the caller rather than the client's own staff.
+      //
+      // MATERIAL, AND THE JUDGEMENT IS THE CONSERVATIVE ONE ON PURPOSE. Nothing here is a
+      // new use of anyone's data and every period either shortens a retention or names one
+      // that was already running, so a case could be made that it only makes the notice
+      // more honest. But the question this flag asks is "must somebody who accepted
+      // revision 6 accept again", and a reader of revision 6 could not have known we held
+      // an uploaded contact list indefinitely or remembered their callers for six months.
+      // Learning what is kept about you is exactly the kind of thing a person agrees to,
+      // so this re-asks rather than assuming the answer would be the same.
+      {
+        revision: "7",
+        material: true,
+        contentHash: "sha256:9cf7f8394aa1e973e0f83ffcff3f796b4d321df30fc9fd56fca77a637f459e87",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

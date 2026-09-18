@@ -237,6 +237,22 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "provider. MATERIAL — a new recipient of caller-derived text is a new "
                 "disclosure, not a clarification.",
             ),
+            Revision(
+                "7",
+                True,
+                "Section 9 publishes two retention periods the notice had never "
+                "disclosed and one it enforced in silence. An uploaded campaign contact "
+                "list and a promised call-back — a name, a number and a note about "
+                "someone who may never have been dialled — previously aged out never, "
+                "and now expire on the lead and transcript clocks; and what an agent "
+                "remembers about a CALLER between calls was enforced at 180 days while "
+                "appearing in no published table. MATERIAL, conservatively: nothing here "
+                "is a new use of anybody's data and every period either shortens a "
+                "retention or names one already running, but a reader of revision 6 "
+                "could not have known an uploaded list was kept indefinitely or that "
+                "their callers were remembered for six months, and what is kept about "
+                "you is exactly what a person agrees to.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
