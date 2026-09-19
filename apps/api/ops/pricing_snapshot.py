@@ -25,13 +25,15 @@ the second: "we hold a key for this leg" and "an operator has attested this leg'
 not train on what we send it" are two facts with two owners, and a single set would make an
 installed key look like a compliance clearance.
 
-All three must be synchronous and take no session, because they are called several layers
+All FOUR must be synchronous and take no session, because they are called several layers
 deep in code that has no business opening a database — the picker on a request, the metering
 path on a job, the assist selector inside a worker — and because they must stay exercisable
 with no database at all (tests install a fake reader; the default is empty, which is the
-honest "nothing attested yet" state). This module is the ops side of all three seams: it
-keeps an in-process SNAPSHOT of the attested prices, the installed credentials and the
-data-use attestations, refreshes it off the request path, and installs the readers over it.
+honest "nothing attested yet" state). This module is the ops side of all FOUR seams — it
+said "three" until 19 Sep 2026, which stopped being true when the voice twin above joined
+them, and a count in prose is the defect class hard rule 4 names. It keeps an in-process
+SNAPSHOT of the attested prices, the installed credentials and the data-use attestations,
+refreshes it off the request path, and installs the readers over it.
 The shape is `core/platform_config`'s: durable truth in Postgres, an in-memory snapshot in
 front, a background poll that refreshes it.
 
@@ -276,7 +278,9 @@ def install_pricing_readers() -> None:
 
 
 def uninstall_pricing_readers() -> None:
-    """Reset all three seams to their empty default. For tests, which must not leak a
+    """Reset all FOUR seams to their empty default (it said "three" until 19 Sep 2026, and
+    has installed four since the voice picker's TTS-price reader joined — a count in prose is
+    the defect class hard rule 4 names). For tests, which must not leak a
     snapshot between cases — the mirror of the catalogue lane's `install_*(None)`."""
     install_llm_price_attestations(None)
     install_llm_credential_reader(None)

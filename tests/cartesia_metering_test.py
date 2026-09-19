@@ -6,6 +6,18 @@ with a character allotment rather than a per-call charge. So the engine's `tts_i
 and there is no vendor number to meter — the cost is the operator-attested plan rate times
 the characters OUR transcript says the agent spoke.
 
+⚠ **EVERY `voice=` BELOW IS A RUNG AND EIGHT OF THEM SPELLED A VENDOR UNTIL 19 SEP 2026.**
+`_tts_cost_rows(voice: VoiceTier)` compares against `tts_volume.PLAN_BILLED_VOICE_TIER`,
+which is DERIVED from the plan-billed provider and became `"studio"` when D-630 renamed the
+rungs. The six `voice="cartesia"` cases then took the NON-plan-billed arm and asserted
+`tts_kchars` against a `tts_chars` row — red, correctly, because they were describing a
+vendor where the function wants a rung. The two `voice="sarvam"` cases were worse: they went
+on PASSING, for the wrong reason, because any token that is not the plan-billed rung takes
+the arm they assert — they would have passed on a typo. Both halves are the defect the
+rename exists to surface (`tts_volume.PLAN_BILLED_VOICE` vs `PLAN_BILLED_VOICE_TIER`: two
+facts that shared one word), and a test green by coincidence is the one that hides it next
+time. Rungs here, vendors only where a vendor is genuinely meant.
+
 What these tests pin is the pair of failure modes that follow: metering the leg at zero
 (a fabricated zero on an append-only ledger, which reads as a working leg and overstates
 margin forever) and metering it at a rate nobody read (hard rule 7).
@@ -85,7 +97,7 @@ async def _operator() -> uuid.UUID:
     return admin_id
 
 
-async def test_a_sarvam_call_still_meters_the_engines_own_leg_figure() -> None:
+async def test_a_clear_rung_call_still_meters_the_engines_own_leg_figure() -> None:
     """The engine buys Sarvam synthesis and reports what it charged. Nothing about D-547
     moves that row — its `qty` is still 1 and its price is still the whole leg."""
     tenant_id, call_id = await _tenant_with_call(agent_chars="900")
@@ -100,7 +112,7 @@ async def test_a_sarvam_call_still_meters_the_engines_own_leg_figure() -> None:
             session,
             tenant_id=tenant_id,
             call_id=call_id,
-            voice="sarvam",
+            voice="clear",
             agent_chars=agent_chars,
             engine_tts_inr=Decimal("1.6200"),
             at=datetime.now(UTC),
@@ -108,7 +120,7 @@ async def test_a_sarvam_call_still_meters_the_engines_own_leg_figure() -> None:
     assert rows == [("tts_chars", Decimal(1), Decimal("1.6200"))]
 
 
-async def test_a_sarvam_call_the_engine_priced_nothing_for_writes_no_row() -> None:
+async def test_a_clear_rung_call_the_engine_priced_nothing_for_writes_no_row() -> None:
     """`None` from the adapter is "the payload said nothing", not "it was free", and the
     difference is the whole of D-370: a ₹0 row is indistinguishable from a working leg."""
     tenant_id, call_id = await _tenant_with_call(agent_chars="900")
@@ -124,7 +136,7 @@ async def test_a_sarvam_call_the_engine_priced_nothing_for_writes_no_row() -> No
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
-                voice="sarvam",
+                voice="clear",
                 agent_chars=agent_chars,
                 engine_tts_inr=None,
                 at=datetime.now(UTC),
@@ -133,7 +145,7 @@ async def test_a_sarvam_call_the_engine_priced_nothing_for_writes_no_row() -> No
         )
 
 
-async def test_a_cartesia_call_meters_our_own_character_count_at_the_attested_rate() -> None:
+async def test_a_studio_rung_call_meters_our_own_character_count_at_the_attested_rate() -> None:
     """The agent spoke 900 characters and the plan's attested rate is ₹3.4496 per 1,000,
     so the row is 0.9 thousand-characters priced at 3.4496 — ₹3.10464 of real cost that
     the engine reported as zero. The AGENT's turns only: the caller's 5,000 characters
@@ -160,7 +172,7 @@ async def test_a_cartesia_call_meters_our_own_character_count_at_the_attested_ra
             session,
             tenant_id=tenant_id,
             call_id=call_id,
-            voice="cartesia",
+            voice="studio",
             agent_chars=agent_chars,
             # ₹0 from the engine, which is the whole reason this seam exists.
             engine_tts_inr=Decimal("0"),
@@ -178,7 +190,7 @@ async def test_a_cartesia_call_meters_our_own_character_count_at_the_attested_ra
     assert qty * unit_cost == Decimal("3.10464")
 
 
-async def test_a_cartesia_call_with_no_attested_price_writes_no_row_rather_than_a_zero() -> None:
+async def test_a_studio_rung_call_with_no_attested_price_writes_no_row_rather_than_a_zero() -> None:
     """Hard rule 7 has no REPORTED tier and no zero tier. The voice should not have been
     offerable without a price, so this state is an operator error somebody is told about —
     never a number this code invents."""
@@ -195,7 +207,7 @@ async def test_a_cartesia_call_with_no_attested_price_writes_no_row_rather_than_
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
-                voice="cartesia",
+                voice="studio",
                 agent_chars=agent_chars,
                 engine_tts_inr=Decimal("0"),
                 at=datetime(2024, 1, 1, tzinfo=UTC),
@@ -204,7 +216,7 @@ async def test_a_cartesia_call_with_no_attested_price_writes_no_row_rather_than_
         )
 
 
-async def test_a_cartesia_call_whose_agent_said_nothing_meters_nothing() -> None:
+async def test_a_studio_rung_call_whose_agent_said_nothing_meters_nothing() -> None:
     """No characters, no synthesis, no cost. `qty = 0` would be read as a WHOLE-LEG row
     by `_ROW_COST_SQL` (D-370) and would put the plan's rate on a call that never spoke."""
     tenant_id, call_id = await _tenant_with_call(agent_chars="0")
@@ -230,7 +242,7 @@ async def test_a_cartesia_call_whose_agent_said_nothing_meters_nothing() -> None
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
-                voice="cartesia",
+                voice="studio",
                 agent_chars=agent_chars,
                 engine_tts_inr=Decimal("0"),
                 at=at,
@@ -239,7 +251,7 @@ async def test_a_cartesia_call_whose_agent_said_nothing_meters_nothing() -> None
         )
 
 
-async def test_a_non_zero_engine_charge_on_a_cartesia_call_is_metered_and_alarmed(
+async def test_a_non_zero_engine_charge_on_a_studio_rung_call_is_metered_and_alarmed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """OPERATIONS §2 GATE 51 IS UNKNOWN, AND THIS IS ITS ONLY MEASUREMENT.
@@ -280,7 +292,7 @@ async def test_a_non_zero_engine_charge_on_a_cartesia_call_is_metered_and_alarme
             session,
             tenant_id=tenant_id,
             call_id=call_id,
-            voice="cartesia",
+            voice="studio",
             agent_chars=agent_chars,
             engine_tts_inr=Decimal("0.4100"),
             at=at,
@@ -292,7 +304,7 @@ async def test_a_non_zero_engine_charge_on_a_cartesia_call_is_metered_and_alarme
     assert raised == [("WORKER_TERMINAL", "engine_billed_byok_tts")]
 
 
-async def test_a_cartesia_call_the_engine_charged_nothing_for_raises_nothing(
+async def test_a_studio_rung_call_the_engine_charged_nothing_for_raises_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """₹0 is the EXPECTED figure on a BYOK leg, so it is not news and must not page
@@ -321,7 +333,7 @@ async def test_a_cartesia_call_the_engine_charged_nothing_for_raises_nothing(
             session,
             tenant_id=tenant_id,
             call_id=call_id,
-            voice="cartesia",
+            voice="studio",
             agent_chars=agent_chars,
             engine_tts_inr=Decimal("0"),
             at=at,
@@ -330,7 +342,7 @@ async def test_a_cartesia_call_the_engine_charged_nothing_for_raises_nothing(
     assert raised == []
 
 
-async def test_the_engines_charge_survives_a_cartesia_call_with_no_attested_price(
+async def test_the_engines_charge_survives_a_studio_rung_call_with_no_attested_price(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The two facts are independent. A withdrawn price means OUR plan cost cannot be
@@ -351,7 +363,7 @@ async def test_the_engines_charge_survives_a_cartesia_call_with_no_attested_pric
             session,
             tenant_id=tenant_id,
             call_id=call_id,
-            voice="cartesia",
+            voice="studio",
             agent_chars=agent_chars,
             engine_tts_inr=Decimal("0.4100"),
             at=datetime(2024, 1, 1, tzinfo=UTC),

@@ -128,10 +128,14 @@ class CreditPack:
     pack_id: str
     #: What the client pays, in rupees. Equal to the credits granted (1 credit = ₹1).
     amount_inr: Decimal
-    #: ₹/min for a call taken by an agent on the Sarvam (Bulbul v3) voice.
+    #: ₹/min for a call taken by an agent on the CLEAR rung. ⚠ This line named a VENDOR
+    #: ("the Sarvam (Bulbul v3) voice") until 19 Sep 2026, and by then the vendor was
+    #: wrong: the Sarvam TTS leg was withdrawn on 18 Sep and Gnani `timbre-v2.5` serves
+    #: this rung (D-629). A pack sells a RUNG — which vendor speaks it is ours to change
+    #: and has changed once already — so the field is documented by what the client bought.
     clear_inr_per_min: Decimal
-    #: ₹/min for a call taken by an agent on the Cartesia (Sonic 3.5) voice. Never below
-    #: the Sarvam rate — invariant 6, checked by `card_refusals`.
+    #: ₹/min for a call taken by an agent on the STUDIO rung (Cartesia Sonic 3.5 today).
+    #: Never below the Clear rate — invariant 6, checked by `card_refusals`.
     studio_inr_per_min: Decimal
     #: The single "best value" badge (the deepest pack). Exactly one pack carries it; pinned
     #: by `tests/credit_packs_test.py`.
@@ -317,8 +321,13 @@ def card_refusals(card: tuple[CreditPack, ...] = PACK_CATALOGUE) -> list[str]:
         if verdict.below_cost
     ]
     failures += [
-        f"pack {pack.pack_id!r} prices Cartesia at ₹{pack.studio_inr_per_min} and Sarvam "
-        f"at ₹{pack.clear_inr_per_min}: the dearer voice may not be the cheaper rate "
+        # NAMED FOR THE RUNGS, not for the vendors serving them — this sentence read
+        # "prices Cartesia ... and Sarvam" until 19 Sep 2026, and by then Sarvam did not
+        # synthesise at all (D-629) while the operator's console, the wire and the lot
+        # columns all said `clear` / `studio` (D-630). A refusal an operator has to
+        # translate is a refusal they cannot act on.
+        f"pack {pack.pack_id!r} prices Studio at ₹{pack.studio_inr_per_min} and Clear "
+        f"at ₹{pack.clear_inr_per_min}: the dearer rung may not be the cheaper rate "
         "(invariant 6)"
         for pack in card
         if pack.studio_inr_per_min < pack.clear_inr_per_min

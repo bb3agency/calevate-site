@@ -223,8 +223,11 @@ AI_QUOTA_INR: Final[dict[str, Decimal]] = {
     # would have been a migration that quietly cut a live client's included AI allowance
     # — from ₹250 to whatever the new number was — on a change they were told was about
     # billing motion. A silent reduction is the one thing a data migration may not do.
-    # The lookup below falls back to the TRIAL allowance for an unknown tier, so omitting
-    # the key would have cut it to ₹40 without an error anywhere.
+    # ⚠ This bullet used to end "the lookup below falls back to the TRIAL allowance for an
+    # unknown tier, so omitting the key would have cut it to ₹40 without an error anywhere"
+    # — which described the hole rather than closing it. It is closed (19 Sep 2026): the
+    # read below INDEXES this dict, so a tier missing from it is a `KeyError` an operator
+    # can act on instead of a client silently cut to the smallest allowance on the ladder.
     #
     # It is a product term and the founder's to move (see the note above this dict); if
     # prepaid is meant to buy less dashboard AI than a retainer does, that is a priced
@@ -672,7 +675,19 @@ async def read_ai_quota(
     return AiQuota(
         month=period,
         plan_tier=tier,
-        included_inr=AI_QUOTA_INR.get(tier, AI_QUOTA_INR["trial"]),
+        # ⚠ **INDEXED, NOT `.get(tier, AI_QUOTA_INR["trial"])`, SINCE 19 SEP 2026.** The
+        # default was a lookup plus a silent guess, and the guess was the SMALLEST
+        # allowance on the ladder: a tier this dict had not been taught about — one added
+        # to `tenancy.models.PLAN_TIERS` and forgotten here, exactly the omission the
+        # `prepaid` note above records somebody nearly making — would have answered ₹40 to
+        # a client entitled to ₹250, blocking their dashboard AI six times early and
+        # putting the overage modal in front of them for money they did not owe. Nothing
+        # would have raised. `plan_tier` is CHECK-constrained to `PLAN_TIERS`
+        # (`tenancy/models.Organization`) and `tests/billing_tier_lookup_totality_test.py`
+        # pins this dict's keys to that tuple, so the `KeyError` is unreachable from the
+        # database and reachable only from a code change that forgot this file — which is
+        # the one reader who should meet it.
+        included_inr=AI_QUOTA_INR[tier],
         used_inr=used,
         requests_used=requests,
         kb_used_inr=kb_used,

@@ -78,6 +78,7 @@ from apps.api.billing.rates import (
     VOICE_TIER_LABELS,
     VoiceTier,
     is_surchargeable_llm_model,
+    stored_voice_tier,
 )
 from apps.api.billing.trials import counter_epoch, read_trial
 from apps.api.core.errors import ProblemError
@@ -2942,12 +2943,16 @@ async def usage_summary(
         # actually taken off the wallet, not minutes re-multiplied by a rate — which is the
         # whole reason `meta.lots` records them.
         #
-        # THE FIELD NAMES ARE THE VENDOR'S AND THE LABELS ARE THE CLIENT'S, deliberately.
-        # `sarvam_*` is what an auditor reconciles against a Sarvam invoice; "Clear" is
-        # what a client reads, and no client-facing surface names a vendor as a product
-        # tier (founder, 7 Sep 2026). The label is SENT rather than kept in the browser for
-        # the reason every money figure here is: a second copy in TypeScript is how the two
-        # drift and a client meets both names.
+        # ⚠ **THE FIELD NAMES ARE THE RUNG'S, AND THIS COMMENT USED TO SAY THEY WERE THE
+        # VENDOR'S** ("`sarvam_*` is what an auditor reconciles against a Sarvam invoice").
+        # They were `sarvam_*` / `cartesia_*` until D-630 renamed the rungs to `clear` /
+        # `studio` (19 Sep 2026), and the old justification died twice over: Sarvam no
+        # longer synthesises anything (D-629), and a vendor's name on a wire field is a
+        # field that lies the day the rung changes hands — which is exactly what happened.
+        # A rung is what the client bought and what a lot's rates are frozen against; who
+        # speaks it is ours to change. The LABEL is still sent rather than kept in the
+        # browser, for the reason every money figure here is: a second copy in TypeScript
+        # is how the two drift and a client meets both names.
         "clear_minutes": to_paise(voices[VALUE_VOICE_TIER].minutes),
         "clear_charges_inr": to_paise(voices[VALUE_VOICE_TIER].charged_inr),
         "clear_label": VOICE_TIER_LABELS[VALUE_VOICE_TIER],
@@ -3125,19 +3130,65 @@ async def voice_tier_usage(
     every other figure on the usage panel takes it: the trial boundary moves the window,
     and charges read over a wider window than the minutes printed beside them would not
     describe one period.
+
+    ⚠ **A SPLIT THIS BUILD CANNOT PLACE IS NO LONGER SILENTLY DISCARDED (19 Sep 2026).**
+    The result was composed by a comprehension over `VOICE_TIER_LABELS` alone, so a `call`
+    split naming anything else never appeared in `by_voice` at all. That is not a display
+    nicety: `total_inr` sums `by_voice`, `total_inr` IS `calling_revenue_inr` for every
+    prepaid tenant, and the rupees dropped had already been taken off the client's wallet.
+    The panel would have printed a calling total SMALLER than the debits behind it, the
+    margin board would have understated revenue by the same gap, and `attribution`'s
+    residual would have absorbed it — three surfaces quietly disagreeing with an
+    append-only ledger, with nothing raising anywhere.
+
+    **THE COMMON CASE IS A RENAME, AND IT IS RESOLVED RATHER THAN REFUSED.** D-630 renamed
+    the rungs on 19 Sep 2026 and `credit_ledger` cannot be rewritten (hard rule 4), so a
+    debit written the day before spells its rung `sarvam` or `cartesia`. Those rupees are
+    not unreadable — the rung still exists under a new name — so they are folded onto it
+    through `rates.stored_voice_tier`, the ONE place this tree writes the historical
+    spellings down (`list_rates._parse_pack_rate_key` reads the same function for the same
+    reason). A month straddling the rename ADDS the two spellings together rather than
+    letting the later one win, which is what `+=` below is for: they are the same rung.
+
+    **A TOKEN IT CANNOT PLACE AT ALL RAISES.** Every other per-tier money accessor in this
+    tree refuses an unknown rung (`OpenLot.rate_for`, `LotRates.rate_for`,
+    `CreditPack.inr_per_min`, `cost_floor_inr_per_min`, `ops/config_routes._cost_for`);
+    this one defaulted, to zero, which reads on a screen exactly like "nothing was spoken".
+    Rejected: folding an unknown token into the cheaper rung, which is the rule PRICING
+    uses for an unattributed call (`tier_usage`) and is wrong here — that rule exists so a
+    call we cannot prove ran on the dearer rung is never CHARGED the dearer rate, and these
+    rupees are already charged. Rejected too: a third bucket, which every reader of
+    `by_voice` would have to learn about to publish a total that already exists.
+
+    ⚠ **THE REFUSAL IS NOT FREE AND ITS BLAST RADIUS IS WORTH KNOWING**:
+    `spend_routes.fleet_spend` walks every live organisation through `margin_for_tenant` ->
+    `usage_summary` -> here with no per-tenant isolation, so ONE such tenant takes the whole
+    admin money board to a 500. Measured, on this tree, with a hand-made fixture. That is
+    `fleet_spend`'s to fix — a tenant whose figures cannot be derived belongs on the board
+    as a NAMED error row — and it is not a reason for this function to answer a number it
+    knows is short.
     """
     binds = {"tid": tenant_id, **_month_bounds(month, since=since)}
     rows = (await session.execute(text(_VOICE_SPLIT_SQL), binds)).all()
-    found = {
-        str(row[0]): VoiceUsage(
-            minutes=Decimal(str(row[1] or 0)), charged_inr=Decimal(str(row[2] or 0))
-        )
-        for row in rows
-    }
+    # Both rungs always present, at zero where nothing was spoken — see the docstring.
+    minutes = dict.fromkeys(VOICE_TIER_LABELS, Decimal("0"))
+    charged = dict.fromkeys(VOICE_TIER_LABELS, Decimal("0"))
+    for stored, row_minutes, row_charged in rows:
+        tier = stored_voice_tier(str(stored))
+        if tier is None:
+            raise ValueError(
+                f"{month}'s wallet debits carry call splits spelled {stored!r}, which "
+                "this build cannot place on a rung. Those rupees were taken off the "
+                "wallet and may not be dropped from the month's calling total — teach "
+                "`rates.stored_voice_tier` the spelling, or the statement will disagree "
+                "with the ledger it is derived from."
+            )
+        minutes[tier] += Decimal(str(row_minutes or 0))
+        charged[tier] += Decimal(str(row_charged or 0))
     extra = (await session.execute(text(_CALL_EXTRA_SPLIT_SQL), binds)).scalar_one()
     return LotCharges(
         by_voice={
-            tier: found.get(tier, VoiceUsage(minutes=Decimal("0"), charged_inr=Decimal("0")))
+            tier: VoiceUsage(minutes=minutes[tier], charged_inr=charged[tier])
             for tier in VOICE_TIER_LABELS
         },
         extra_inr=Decimal(str(extra or 0)),
@@ -3281,11 +3332,17 @@ def _spend_used(period: str, today: str, live: Decimal, *, closed_month_billed: 
     still reads both sides; nothing was removed, the two just stopped being one number.
 
     The closed-month figure is computed by the caller because the caller has already done
-    the arithmetic: for a PREPAID tier it is the list rate times the month's minutes, and
-    for a MANAGED tier it is `overage_cost` — the sum of the very rungs the invoice will
-    print, so the statement and the panel cannot disagree by a paisa. The retainer is
-    deliberately not in it: `monthly_fee_inr` is published as its own field and adding it
-    here would double it on any screen that shows both.
+    the arithmetic: for a PREPAID tier it is the sum of the month's `meta.lots` call splits
+    — the rupees the wallet was actually debited — and for a MANAGED tier it is
+    `overage_cost`, the sum of the very rungs the invoice will print, so the statement and
+    the panel cannot disagree by a paisa. ⚠ **THE PREPAID HALF OF THIS SENTENCE SAID "the
+    list rate times the month's minutes" UNTIL 19 SEP 2026, AND THAT WAS THE D-547 DEFECT
+    DESCRIBING ITSELF**: one rate cannot price a wallet holding two lots bought at two
+    cards, so the closed month and the open month's counter answered differently and the
+    same month changed value at IST rollover. `calling_revenue_inr` carries the measurement.
+
+    The retainer is deliberately not in it: `monthly_fee_inr` is published as its own field
+    and adding it here would double it on any screen that shows both.
 
     `spend_state` is ONE row per tenant (PK `tenant_id`), stamped with the month it is
     counting and reset by the meter on rollover. It has no history whatsoever, so it can

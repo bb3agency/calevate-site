@@ -937,11 +937,20 @@ class UnattestedTtsRateError(LookupError):
 TTS_RATE_REFUSAL: Final = (
     "no attested per-character TTS price on this deployment: the Sarvam list rate this "
     "used to return was withdrawn with the Sarvam TTS leg (18 Sep 2026), and neither "
-    "surviving provider publishes a per-character rate we may bill from — Cartesia sells a "
-    "monthly subscription and Gnani publish no figure at all. Attest the provider's TTS "
-    "price in the ops console (`ops/model_pricing.attest_tts_price`); until then a "
-    "synthesised character settles as a refusal rather than at somebody else's rate."
+    "surviving provider gives us a per-character rate we may BILL from — Cartesia sells a "
+    "monthly subscription, and Gnani publish a catalogue rate, which is not an invoice. "
+    "Attest the provider's TTS price in the ops console "
+    "(`ops/model_pricing.attest_tts_price`); until then a synthesised character settles "
+    "as a refusal rather than at somebody else's rate."
 )
+# ⚠ THAT STRING SAID "Gnani publish no figure at all" UNTIL 19 SEP 2026 AND IT WAS FALSE
+# (D-631): their console publishes ₹27.00 / 10,000 characters for Text to Speech
+# (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed —
+# VENDOR-PUBLISHED; the host is egress-blocked from CI). The REFUSAL is unchanged and its
+# ground is now the stronger one: hard rule 7 admits an operator's attested invoice figure
+# and nothing else, so a published catalogue price never reaches `unit_cost_paid` however
+# real it is. An operator reading a refusal that misstates a vendor fact goes looking for a
+# page they are told does not exist.
 
 
 def tts_rate_inr_per_char() -> Decimal:
@@ -2098,6 +2107,53 @@ PREMIUM_VOICE_TIER: Final[VoiceTier] = "studio"
 #: pack guard, the card writer and the ops preview, so a third tier is added once, here.
 VOICE_TIERS: Final[tuple[VoiceTier, ...]] = (VALUE_VOICE_TIER, PREMIUM_VOICE_TIER)
 
+#: EVERY SPELLING A *STORED* RUNG MAY CARRY, mapped to the rung it names today.
+#:
+#: **THE PROBLEM THIS SOLVES IS THAT A RENAME CANNOT REACH THE ROWS.** D-630 renamed the
+#: rungs from `sarvam` / `cartesia` to `clear` / `studio` on 19 Sep 2026. `credit_ledger`
+#: and `platform_list_rates` are APPEND-ONLY under hard rule 4 — a database trigger refuses
+#: an UPDATE — so every row written before that date still spells the rung the old way, for
+#: ever, and rewriting them would be falsifying what was recorded on the day it was
+#: recorded. A reader that knows only today's two tokens therefore meets a rung it cannot
+#: name on rows that are perfectly good.
+#:
+#: **IT LIVES HERE BECAUSE TWO MODULES NEED IT AND TWO COPIES WOULD DRIFT.** It began as
+#: `list_rates._VOICE_BY_NAME`, private to the rate-card key parser; `service
+#: .voice_tier_usage` then needed the identical mapping to read a month's wallet debits, and
+#: a second copy is the "two ways to say one thing" defect this repo refuses (D-103/D-105).
+#: `rates.py` is the lowest money module and the one that already owns `VoiceTier`, so the
+#: rung vocabulary — current spellings and historical ones alike — is written down once.
+#:
+#: The current spellings are DERIVED from `VOICE_TIERS` rather than retyped, so a third rung
+#: is admitted here by adding it there. The two aliases are READ-ONLY: `pack_rate_key` and
+#: `lots.split_meta` write only the current spelling, so nothing new can land under them, and
+#: they retire the day no stored row predates D-630.
+_VOICE_TIER_BY_STORED_NAME: Final[Mapping[str, VoiceTier]] = {
+    **{tier: tier for tier in VOICE_TIERS},
+    "sarvam": VALUE_VOICE_TIER,
+    "cartesia": PREMIUM_VOICE_TIER,
+}
+
+
+def stored_voice_tier(name: str) -> VoiceTier | None:
+    """The rung a STORED token names today, or `None` for one this build cannot place.
+
+    A dict lookup rather than an `in VOICE_TIERS` membership test for the reason its
+    predecessor gave: the test narrows nothing for the type checker, and the arm a `cast`
+    would then need is an arm no test can reach — an unreachable branch in this package is
+    an uncovered unit the ratchet scores with a budget of zero, and a coverage suppression
+    scores as one too.
+
+    ⚠ **`None` IS NOT "the cheaper rung" AND MUST NOT BE TREATED AS ONE.** What each caller
+    does with it differs, and deliberately: `list_rates._parse_pack_rate_key` SKIPS the row
+    (a rate card recorded for a pack id this build has forgotten is not a cell it can
+    render), while `service.voice_tier_usage` RAISES (the rupees on that split were taken
+    off a client's wallet and dropping them makes a statement disagree with its own ledger).
+    Returning the answer rather than deciding for them is what lets both be right.
+    """
+    return _VOICE_TIER_BY_STORED_NAME.get(name)
+
+
 #: WHAT A CLIENT SEES A TIER CALLED. Since 19 Sep 2026 this map is a CAPITALISATION and
 #: nothing more — the tokens, the columns, the wire and the ledger all spell the rung the
 #: same way, so a reader no longer has to hold two vocabularies to follow a rate from a
@@ -2652,6 +2708,7 @@ __all__ = [
     "prepaid_billed_inr",
     "rate_margin",
     "sarvam_llm_reference_inr_per_ktok",
+    "stored_voice_tier",
     "stt_cost_inr",
     "stt_rate_inr_per_minute",
     "stt_rate_inr_per_second",
