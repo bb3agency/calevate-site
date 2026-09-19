@@ -405,6 +405,28 @@ class FleetTenantOut(Strict):
     margin_pct: str | None
 
 
+class FleetUndecidableOut(Strict):
+    """A client this board WALKED and could not price, named rather than dropped.
+
+    **WHY A SECOND LIST RATHER THAN NULLABLE MONEY ON `FleetTenantOut`.** Every field on
+    that row is a rupee figure an operator compares against the row above it; making five
+    of them nullable would put "we could not derive this" and "this client spent nothing"
+    into the same shape, on a board whose whole job is telling those two apart. A separate
+    list cannot be misread and cannot be accidentally summed.
+
+    `reason` is the exception's own message. It is an OPERATOR-facing string on an
+    admin-only route — the ledger spelling that could not be placed, the month, and the
+    remedy — and it never reaches a client. It carries no phone number, transcript or
+    extraction payload (hard rule 6); the ids beside it are ids.
+    """
+
+    tenant_id: str
+    name: str
+    slug: str
+    plan_tier: str
+    reason: str
+
+
 class TtsPlanSpendOut(Strict):
     """ONE voice vendor's month: what the plan cost us, against what our meter attributed.
 
@@ -483,12 +505,31 @@ class FleetSpendOut(Strict):
     """
 
     month: str
+    #: HOW MANY CLIENTS THE TOTALS BELOW ARE MADE OF — `len(tenants)`, NOT the size of the
+    #: fleet. A client this walk could not price is in `undecidable` and in neither. The
+    #: two numbers are published separately so a partial board says it is partial rather
+    #: than counting a client at zero and reading as a fleet that spent less.
     clients: int
     revenue_inr: str
     cost_inr: str
     margin_inr: str
     margin_pct: str | None
     tenants: list[FleetTenantOut]
+    #: THE CLIENTS THIS WALK COULD NOT PRICE, named (19 Sep 2026).
+    #:
+    #: ⚠ **ONE OF THEM USED TO TAKE THE WHOLE BOARD TO A 500.** The walk below called
+    #: `margin_for_tenant` per client with no `try` around it, so a single tenant whose
+    #: ledger this build could not derive a figure from — measured, with a hand-made
+    #: fixture, not reasoned — denied every OTHER client's numbers to the operator. That is
+    #: the wrong failure mode for a money board: the one client with a problem is exactly
+    #: the reason somebody opened it.
+    #:
+    #: The refusals are REAL and are not softened. `voice_tier_usage` raises rather than
+    #: dropping rupees it cannot place (that refusal is itself a 19 Sep fix), and this
+    #: board's answer to it is to publish the name and the reason instead of a number it
+    #: would have to invent. The totals above are sums of `tenants` ONLY, so a partial
+    #: board is arithmetically honest: nothing here is counted at zero.
+    undecidable: list[FleetUndecidableOut]
     #: WHAT THE VOICE VENDORS BILLED, beside what this board attributed (D-547 Phase D.3).
     #: One row per plan-billed vendor with an attested fee for the month, in vendor order;
     #: an empty list means nobody has attested one, which the console renders as a stated
@@ -961,6 +1002,14 @@ async def fleet_spend(
 
     Nothing truncates, for the reason the health board does not: hiding the client at the
     bottom of a money board defeats the board. The walk is watched instead.
+
+    **AND NOTHING IS DROPPED EITHER, INCLUDING A CLIENT WHOSE FIGURES REFUSE TO DERIVE.**
+    Each client is read inside its own `try`: a `ValueError` out of the money readers is a
+    statement about THAT tenant's data, so it becomes a named row in `undecidable` and the
+    other clients' numbers still reach the operator. Before 19 Sep 2026 it did not, and one
+    such tenant returned a 500 for the whole board — measured here with a hand-made fixture.
+    Anything that is not a `ValueError` still propagates, because a connection failure or a
+    programming error is not about one client and must not be published as sixty of them.
     """
     started = perf_counter()
     rows = (await directory.execute(text(_DIRECTORY), {"ended": list(_ENDED_STATUSES)})).all()
@@ -983,18 +1032,50 @@ async def fleet_spend(
     tts_prices = await attested_tts_prices(directory, at=month_pricing_instant(period))
 
     walked: list[_FleetRow] = []
+    undecidable: list[FleetUndecidableOut] = []
     attributed = _NO_TTS_ATTRIBUTION
     for org in rows:
         tenant_id = UUID(str(org[0]))
-        async with tenant_session(tenant_id) as scoped:
-            margin = await billing.margin_for_tenant(scoped, tenant_id=tenant_id, month=period)
-            # Inside the client's own scope, like every other rupee on this board.
-            tts = (
-                await scoped.execute(
-                    text(_TTS_ATTRIBUTED_SQL),
-                    {"tid": tenant_id, "start": window_start, "next": window_next},
+        try:
+            async with tenant_session(tenant_id) as scoped:
+                margin = await billing.margin_for_tenant(scoped, tenant_id=tenant_id, month=period)
+                # Inside the client's own scope, like every other rupee on this board.
+                tts = (
+                    await scoped.execute(
+                        text(_TTS_ATTRIBUTED_SQL),
+                        {"tid": tenant_id, "start": window_start, "next": window_next},
+                    )
+                ).one()
+        except ValueError as exc:
+            # ONE CLIENT'S REFUSAL IS ONE ROW, NOT THE WHOLE BOARD (19 Sep 2026). This walk
+            # had no isolation, so a single tenant `voice_tier_usage` could not price took
+            # every other client's figures down with it — measured on this tree with a
+            # hand-made fixture, not reasoned. An operator opens this page BECAUSE one
+            # client is wrong; a 500 is the one answer that helps nobody.
+            #
+            # `ValueError` and not `Exception`, deliberately: it is the class the money
+            # readers raise when a stored value cannot be placed on a rung
+            # (`billing/service.voice_tier_usage`, `rates.stored_voice_tier`,
+            # `lots.OpenLot.rate_for`), which is a statement ABOUT ONE TENANT'S DATA. A
+            # connection failure, a cancelled request or a programming error is not, and
+            # must still take the board down rather than be published as sixty clients
+            # each "undecidable" for a reason that is really one broken deployment.
+            log.warning(
+                "fleet_spend_tenant_undecidable",
+                # Ids and a reason (hard rule 6). The reason is the reader's own message,
+                # which names the spelling and the remedy and carries no personal data.
+                extra={"tenant_id": str(tenant_id), "month": period, "reason": str(exc)},
+            )
+            undecidable.append(
+                FleetUndecidableOut(
+                    tenant_id=str(tenant_id),
+                    name=str(org[1]),
+                    slug=str(org[2]),
+                    plan_tier=str(org[3]),
+                    reason=str(exc),
                 )
-            ).one()
+            )
+            continue
         attributed = attributed.plus(_dec(tts[0]), _dec(tts[1]) * _CHARS_PER_KCHAR, int(tts[2]))
         walked.append(
             _FleetRow(
@@ -1051,6 +1132,7 @@ async def fleet_spend(
             # opened this page for. Ties by name so the order is stable between renders.
             for r in sorted(walked, key=lambda r: (_dec(r.margin["margin_inr"]), r.name))
         ],
+        undecidable=undecidable,
         tts_plan=_tts_plan_rows(month=period, fees=fees, prices=tts_prices, attributed=attributed),
     )
 

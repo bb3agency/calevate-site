@@ -754,6 +754,14 @@ export interface paths {
          *
          *     Nothing truncates, for the reason the health board does not: hiding the client at the
          *     bottom of a money board defeats the board. The walk is watched instead.
+         *
+         *     **AND NOTHING IS DROPPED EITHER, INCLUDING A CLIENT WHOSE FIGURES REFUSE TO DERIVE.**
+         *     Each client is read inside its own `try`: a `ValueError` out of the money readers is a
+         *     statement about THAT tenant's data, so it becomes a named row in `undecidable` and the
+         *     other clients' numbers still reach the operator. Before 19 Sep 2026 it did not, and one
+         *     such tenant returned a 500 for the whole board — measured here with a hand-made fixture.
+         *     Anything that is not a `ValueError` still propagates, because a connection failure or a
+         *     programming error is not about one client and must not be published as sixty of them.
          */
         get: operations["fleet_spend_v1_admin_spend_get"];
         put?: never;
@@ -6573,7 +6581,7 @@ export interface paths {
         };
         /**
          * The self-serve rate card — list rate and credit packs — for the public site
-         * @description Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, the client-facing name of each voice tier, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.
+         * @description Unauthenticated and identical for everyone. The list rate (the entry pack's Clear rate), the lowest rate any pack delivers on each voice, the client-facing name of each voice tier, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.
          */
         get: operations["read_public_rate_card_v1_public_rate_card_get"];
         put?: never;
@@ -10736,6 +10744,8 @@ export interface components {
             tenants: components["schemas"]["FleetTenantOut"][];
             /** Tts Plan */
             tts_plan: components["schemas"]["TtsPlanSpendOut"][];
+            /** Undecidable */
+            undecidable: components["schemas"]["FleetUndecidableOut"][];
         };
         /**
          * FleetTenantOut
@@ -10758,6 +10768,33 @@ export interface components {
             plan_tier: string;
             /** Revenue Inr */
             revenue_inr: string;
+            /** Slug */
+            slug: string;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * FleetUndecidableOut
+         * @description A client this board WALKED and could not price, named rather than dropped.
+         *
+         *     **WHY A SECOND LIST RATHER THAN NULLABLE MONEY ON `FleetTenantOut`.** Every field on
+         *     that row is a rupee figure an operator compares against the row above it; making five
+         *     of them nullable would put "we could not derive this" and "this client spent nothing"
+         *     into the same shape, on a board whose whole job is telling those two apart. A separate
+         *     list cannot be misread and cannot be accidentally summed.
+         *
+         *     `reason` is the exception's own message. It is an OPERATOR-facing string on an
+         *     admin-only route — the ledger spelling that could not be placed, the month, and the
+         *     remedy — and it never reaches a client. It carries no phone number, transcript or
+         *     extraction payload (hard rule 6); the ids beside it are ids.
+         */
+        FleetUndecidableOut: {
+            /** Name */
+            name: string;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Reason */
+            reason: string;
             /** Slug */
             slug: string;
             /** Tenant Id */

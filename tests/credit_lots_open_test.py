@@ -82,17 +82,22 @@ async def test_the_same_ledger_entry_cannot_open_two_lots() -> None:
         await _open()
 
 
+# The parameter names are the RUNGS the columns hold, not the vendors that happened to
+# serve them when this case was written — `sarvam`/`cartesia` here and "Sarvam rate" in the
+# expected message outlived both D-630's column rename and D-629's change of vendor on the
+# Clear rung, which left a money test asserting a sentence in a vocabulary nothing else in
+# this tree still speaks.
 @pytest.mark.parametrize(
-    ("credits_inr", "sarvam", "cartesia", "message"),
+    ("credits_inr", "clear", "studio", "message"),
     [
         ("0.00", "5.00", "7.00", "credits > 0"),
         ("-10.00", "5.00", "7.00", "credits > 0"),
-        ("100.00", "0.00", "7.00", "Sarvam rate"),
+        ("100.00", "0.00", "7.00", "Clear rate"),
         ("100.00", "5.00", "4.00", "may not be below"),
     ],
 )
 async def test_terms_that_would_make_an_unspendable_lot_are_refused_by_name(
-    credits_inr: str, sarvam: str, cartesia: str, message: str
+    credits_inr: str, clear: str, studio: str, message: str
 ) -> None:
     """`ValueError` and not a `ProblemError`: every argument comes from our own catalogue
     or console, never from a client's keyboard, so a bad one is a defect to fix rather than
@@ -107,8 +112,8 @@ async def test_terms_that_would_make_an_unspendable_lot_are_refused_by_name(
                 session,
                 tenant_id=tenant,
                 credits_inr=Decimal(credits_inr),
-                clear_inr_per_min=Decimal(sarvam),
-                studio_inr_per_min=Decimal(cartesia),
+                clear_inr_per_min=Decimal(clear),
+                studio_inr_per_min=Decimal(studio),
                 source="topup",
                 pack_id="growth",
                 ledger_entry_id=entry,

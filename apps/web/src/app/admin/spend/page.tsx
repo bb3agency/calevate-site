@@ -98,10 +98,26 @@ export default function FleetSpendPage() {
     facts: data
       ? [
           { key: "month", label: "Month shown", value: data.month },
-          { key: "clients", label: "Live clients walked", value: String(data.clients) },
-          { key: "revenue_inr", label: "Fleet revenue (₹)", value: data.revenue_inr },
-          { key: "cost_inr", label: "What the fleet cost us (₹)", value: data.cost_inr },
-          { key: "margin_inr", label: "Fleet margin (₹)", value: data.margin_inr },
+          {
+            key: "clients",
+            label: "Live clients walked",
+            value: String(data.clients),
+          },
+          {
+            key: "revenue_inr",
+            label: "Fleet revenue (₹)",
+            value: data.revenue_inr,
+          },
+          {
+            key: "cost_inr",
+            label: "What the fleet cost us (₹)",
+            value: data.cost_inr,
+          },
+          {
+            key: "margin_inr",
+            label: "Fleet margin (₹)",
+            value: data.margin_inr,
+          },
           {
             key: "margin_pct",
             label: "Fleet margin (%)",
@@ -111,7 +127,9 @@ export default function FleetSpendPage() {
             key: "loss_making",
             label: "Clients whose month is losing money",
             value: String(
-              data.tenants.filter((row) => row.margin_inr.trim().startsWith("-")).length,
+              data.tenants.filter((row) =>
+                row.margin_inr.trim().startsWith("-"),
+              ).length,
             ),
           },
         ]
@@ -131,8 +149,8 @@ export default function FleetSpendPage() {
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          What every live client billed and cost us this month, worst margin first.
-          Suspended and closed accounts are not included.
+          What every live client billed and cost us this month, worst margin
+          first. Suspended and closed accounts are not included.
         </p>
         <input
           type="month"
@@ -145,7 +163,12 @@ export default function FleetSpendPage() {
         />
       </div>
 
-      {board.error && <ProblemNotice error={board.error} onRetry={() => void board.refetch()} />}
+      {board.error && (
+        <ProblemNotice
+          error={board.error}
+          onRetry={() => void board.refetch()}
+        />
+      )}
 
       {/* §52: a skeleton is not a fleet total and a failed walk is not "we made ₹0". */}
       {!data ? (
@@ -155,7 +178,10 @@ export default function FleetSpendPage() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatTile label={`Revenue · ${data.month}`} value={formatINR(data.revenue_inr)} />
+            <StatTile
+              label={`Revenue · ${data.month}`}
+              value={formatINR(data.revenue_inr)}
+            />
             <StatTile label="Our cost" value={formatINR(data.cost_inr)} />
             <div className="rounded-card border border-line bg-surface p-5">
               <p className="text-[13px] font-medium text-ink-muted">Margin</p>
@@ -178,7 +204,11 @@ export default function FleetSpendPage() {
                 different facts. */}
             <StatTile
               label="Margin %"
-              value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
+              value={
+                data.margin_pct === null
+                  ? "not billed yet"
+                  : `${data.margin_pct}%`
+              }
               hint={`${formatCount(data.clients)} live ${data.clients === 1 ? "client" : "clients"} walked.`}
             />
           </div>
@@ -196,14 +226,28 @@ export default function FleetSpendPage() {
                 <table className="w-full min-w-[820px] text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
-                      <th className="px-4 py-3 font-semibold sm:px-6">Client</th>
+                      <th className="px-4 py-3 font-semibold sm:px-6">
+                        Client
+                      </th>
                       <th className="px-4 py-3 font-semibold sm:px-6">Plan</th>
-                      <th className="px-4 py-3 text-right font-semibold sm:px-6">Calls</th>
-                      <th className="px-4 py-3 text-right font-semibold sm:px-6">Minutes</th>
-                      <th className="px-4 py-3 text-right font-semibold sm:px-6">Revenue</th>
-                      <th className="px-4 py-3 text-right font-semibold sm:px-6">Our cost</th>
-                      <th className="px-4 py-3 text-right font-semibold sm:px-6">Margin</th>
-                      <th className="px-4 py-3 text-right font-semibold sm:px-6">Margin %</th>
+                      <th className="px-4 py-3 text-right font-semibold sm:px-6">
+                        Calls
+                      </th>
+                      <th className="px-4 py-3 text-right font-semibold sm:px-6">
+                        Minutes
+                      </th>
+                      <th className="px-4 py-3 text-right font-semibold sm:px-6">
+                        Revenue
+                      </th>
+                      <th className="px-4 py-3 text-right font-semibold sm:px-6">
+                        Our cost
+                      </th>
+                      <th className="px-4 py-3 text-right font-semibold sm:px-6">
+                        Margin
+                      </th>
+                      <th className="px-4 py-3 text-right font-semibold sm:px-6">
+                        Margin %
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
@@ -215,6 +259,12 @@ export default function FleetSpendPage() {
               </ScrollRegion>
             )}
           </Card>
+
+          {/* ABOVE nothing and BELOW the board, because it is a footnote to the totals
+              rather than a competing headline — but it is never collapsed away: these are
+              the clients the figures above do NOT include. Before 19 Sep 2026 one of them
+              returned a 500 for this whole page. */}
+          <UndecidableCard board={data} />
         </>
       )}
 
@@ -242,7 +292,9 @@ function trimRate(value: string): string {
 function RatePoint({ point }: { point: SpeakingRatePoint }) {
   return (
     <>
-      <span className="font-semibold tabular-nums text-ink">{trimRate(point.chars_per_minute)}</span>{" "}
+      <span className="font-semibold tabular-nums text-ink">
+        {trimRate(point.chars_per_minute)}
+      </span>{" "}
       chars/min → {formatRupeeRate(point.tts_inr_per_minute)}/min
     </>
   );
@@ -270,21 +322,30 @@ function TtsSpeakingRateCard() {
   return (
     <Card title="TTS speaking rate — measured">
       {query.error ? (
-        <ProblemNotice error={query.error} onRetry={() => void query.refetch()} />
+        <ProblemNotice
+          error={query.error}
+          onRetry={() => void query.refetch()}
+        />
       ) : !rate ? (
         <Skeleton rows={3} label="Reading every client's transcripts" />
       ) : rate.measured && rate.p50 && rate.p95 && rate.pooled ? (
         <div className="space-y-3 text-sm text-ink-muted">
           <p>
-            <span className="font-semibold text-ink">{formatCount(rate.calls)}</span> calls with a
-            transcript across{" "}
-            <span className="font-semibold text-ink">{formatCount(rate.clients)}</span>{" "}
-            {rate.clients === 1 ? "client" : "clients"}, priced at {formatRupeeRate(rate.tts_inr_per_10k_chars)}{" "}
-            per 10,000 characters.
+            <span className="font-semibold text-ink">
+              {formatCount(rate.calls)}
+            </span>{" "}
+            calls with a transcript across{" "}
+            <span className="font-semibold text-ink">
+              {formatCount(rate.clients)}
+            </span>{" "}
+            {rate.clients === 1 ? "client" : "clients"}, priced at{" "}
+            {formatRupeeRate(rate.tts_inr_per_10k_chars)} per 10,000 characters.
           </p>
           <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-3">
             <div>
-              <dt className="text-[13px] font-medium">Pooled (Σ chars ÷ Σ minutes)</dt>
+              <dt className="text-[13px] font-medium">
+                Pooled (Σ chars ÷ Σ minutes)
+              </dt>
               <dd>
                 <RatePoint point={rate.pooled} />
               </dd>
@@ -307,18 +368,21 @@ function TtsSpeakingRateCard() {
             Replaces the assumed {trimRate(rate.assumed_low.chars_per_minute)}–
             {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
             {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
-            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) in TRD §10.1. ⚠ This
-            paragraph used to end &ldquo;re-derive the cost floor from it, not from the
-            band&rdquo; — an instruction to a person that nothing carried out. It is code now,
-            and what it produced is below.
+            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) in TRD
+            §10.1. ⚠ This paragraph used to end &ldquo;re-derive the cost floor
+            from it, not from the band&rdquo; — an instruction to a person that
+            nothing carried out. It is code now, and what it produced is below.
           </p>
           <FleetFloorLine rate={rate} />
         </div>
       ) : (
         <div className="space-y-3 text-sm text-ink-muted">
           <p>
-            <span className="font-semibold text-ink">Not enough calls to measure yet:</span>{" "}
-            {formatCount(rate.calls)} of {formatCount(rate.minimum_calls)} needed
+            <span className="font-semibold text-ink">
+              Not enough calls to measure yet:
+            </span>{" "}
+            {formatCount(rate.calls)} of {formatCount(rate.minimum_calls)}{" "}
+            needed
             {rate.clients > 0
               ? ` (across ${formatCount(rate.clients)} ${rate.clients === 1 ? "client" : "clients"})`
               : ""}
@@ -333,8 +397,8 @@ function TtsSpeakingRateCard() {
             {trimRate(rate.assumed_low.chars_per_minute)}–
             {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
             {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
-            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min), which is an
-            assumption and not a reading.
+            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min), which
+            is an assumption and not a reading.
           </p>
           <FleetFloorLine rate={rate} />
         </div>
@@ -362,15 +426,15 @@ function FleetFloorLine({ rate }: { rate: TtsSpeakingRate }) {
   if (fleet === null) return null;
   return (
     <p>
-      <span className="font-semibold text-ink">What the cost model uses:</span> {fleet.basis}.
-      A Clear call-minute costs {formatRupeeRate(fleet.cost_floor_inr_per_min)} at that rate;
-      a rate card is refused below{" "}
-      {formatRupeeRate(fleet.refusal_floor_inr_per_min)}, which stays where it is whatever
-      this measurement says.{" "}
+      <span className="font-semibold text-ink">What the cost model uses:</span>{" "}
+      {fleet.basis}. A Clear call-minute costs{" "}
+      {formatRupeeRate(fleet.cost_floor_inr_per_min)} at that rate; a rate card
+      is refused below {formatRupeeRate(fleet.refusal_floor_inr_per_min)}, which
+      stays where it is whatever this measurement says.{" "}
       {fleet.floor_above_refusal ? (
         <span className="font-semibold text-red-600">
-          The measured cost is ABOVE that bound — some rungs may be under water and still
-          recordable. That is a pricing decision.
+          The measured cost is ABOVE that bound — some rungs may be under water
+          and still recordable. That is a pricing decision.
         </span>
       ) : null}
     </p>
@@ -398,7 +462,9 @@ function FleetRow({ tenant }: { tenant: FleetTenant }) {
         <span className="ml-2 text-xs text-ink-faint">/c/{tenant.slug}</span>
       </td>
       <td className="px-4 py-3 text-ink-muted sm:px-6">{tenant.plan_tier}</td>
-      <td className="px-4 py-3 text-right tabular-nums sm:px-6">{formatCount(tenant.calls)}</td>
+      <td className="px-4 py-3 text-right tabular-nums sm:px-6">
+        {formatCount(tenant.calls)}
+      </td>
       <td className="px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6">
         {tenant.minutes_used}
       </td>
@@ -418,7 +484,9 @@ function FleetRow({ tenant }: { tenant: FleetTenant }) {
         {formatINR(tenant.margin_inr)}
       </td>
       <td className="px-4 py-3 text-right tabular-nums text-ink-muted sm:px-6">
-        {tenant.margin_pct === null ? "not billed yet" : `${tenant.margin_pct}%`}
+        {tenant.margin_pct === null
+          ? "not billed yet"
+          : `${tenant.margin_pct}%`}
       </td>
     </tr>
   );
@@ -442,6 +510,54 @@ function FleetRow({ tenant }: { tenant: FleetTenant }) {
  * this card renders `unused_inr` and never computes it, because a difference worked out in
  * a browser is float arithmetic on money and would be a second answer to what we paid.
  */
+/**
+ * THE CLIENTS THE TOTALS ABOVE LEAVE OUT, named with the reason.
+ *
+ * `fleet_spend` walks each client inside its own `try` and publishes the ones whose
+ * figures refused to derive here instead of failing the request (`billing/spend_routes.py`
+ * argues why). Rendering them as a stated absence is the other half of that: a board that
+ * silently walked 59 of 60 clients is a board that under-reports revenue and says nothing,
+ * which is the failure the server-side fix exists to avoid — moving it to the browser
+ * would be the same defect one layer up.
+ *
+ * Renders NOTHING when the list is empty, which is the normal case. An always-present
+ * "0 problems" card trains an operator to stop reading this spot.
+ *
+ * `reason` is the server's own sentence, printed verbatim — it names the ledger spelling
+ * that could not be placed and the remedy, and rewording it here would be a second version
+ * of one fact.
+ */
+function UndecidableCard({ board }: { board: FleetSpend | undefined }) {
+  const rows = board?.undecidable ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <Card
+      title={`${formatCount(rows.length)} ${rows.length === 1 ? "client is" : "clients are"} not in the totals above`}
+    >
+      <p className="mb-3 text-[13px] text-ink-muted">
+        Their month could not be priced from the ledger. Every other
+        client&rsquo;s figures above are complete.
+      </p>
+      <ul className="divide-y divide-line">
+        {rows.map((row) => (
+          <li key={row.tenant_id} className="py-3 first:pt-0 last:pb-0">
+            <Link
+              href={`/admin/tenants/${row.tenant_id}/spend`}
+              className="text-sm font-semibold text-ink underline-offset-2 hover:underline"
+            >
+              {row.name}
+            </Link>
+            <p className="text-[13px] text-ink-muted">
+              /c/{row.slug} · {row.plan_tier}
+            </p>
+            <p className="mt-1 text-[13px] text-ink-muted">{row.reason}</p>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function TtsPlanCard({ board }: { board: FleetSpend | undefined }) {
   if (board === undefined) return null;
   // An empty list and a missing month are ONE absence: the API omits a vendor's row rather
@@ -457,9 +573,10 @@ function TtsPlanCard({ board }: { board: FleetSpend | undefined }) {
         // §52: "no plan spend was published" is not "the voices cost us nothing". A ₹0 plan
         // fee on this board would show a fleet margin that does not exist.
         <p className="text-sm text-ink-muted">
-          This deployment did not publish what the voice vendors billed, so nothing is shown
-          rather than a zero. The client figures above are unaffected — they are what the
-          calls were charged; this card is what we paid the vendor for the month.
+          This deployment did not publish what the voice vendors billed, so
+          nothing is shown rather than a zero. The client figures above are
+          unaffected — they are what the calls were charged; this card is what
+          we paid the vendor for the month.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -489,7 +606,9 @@ function TtsPlanRow({ row }: { row: TtsPlanSpend }) {
         </div>
         <div>
           <dt className="text-ink-faint">Attributed to calls</dt>
-          <dd className="tabular-nums text-ink">{formatINR(row.attributed_inr)}</dd>
+          <dd className="tabular-nums text-ink">
+            {formatINR(row.attributed_inr)}
+          </dd>
         </div>
         <div>
           <dt className="text-ink-faint">Allotment unused</dt>
@@ -528,7 +647,9 @@ function SpeakingRateByVendor({ rate }: { rate: TtsSpeakingRate }) {
   if (rows.length === 0) return null;
   return (
     <div className="mt-3 border-t border-line pt-3">
-      <p className="text-[13px] font-medium text-ink">What that rate costs on each voice</p>
+      <p className="text-[13px] font-medium text-ink">
+        What that rate costs on each voice
+      </p>
       <ul className="mt-1 space-y-1 text-sm text-ink-muted">
         {rows.map((row) => (
           <li key={row.provider}>
@@ -545,16 +666,16 @@ function VendorRateLine({ row }: { row: SpeakingRateByProvider }) {
   if (!row.price_attested || row.inr_per_1k_chars === null) {
     return (
       <>
-        <span className="font-semibold text-ink">{vendor}</span>: no confirmed price, so the
-        characters above meter at nothing and this voice cannot be sold. Confirm it on the
-        ops model-prices panel.
+        <span className="font-semibold text-ink">{vendor}</span>: no confirmed
+        price, so the characters above meter at nothing and this voice cannot be
+        sold. Confirm it on the ops model-prices panel.
       </>
     );
   }
   return (
     <>
-      <span className="font-semibold text-ink">{vendor}</span>: {formatRupeeRate(row.inr_per_1k_chars)}{" "}
-      per 1,000 characters
+      <span className="font-semibold text-ink">{vendor}</span>:{" "}
+      {formatRupeeRate(row.inr_per_1k_chars)} per 1,000 characters
       {/* The server's own multiplication or nothing at all. The browser does not multiply a
           chars/min figure by a price to invent a per-minute cost. */}
       {row.pooled_inr_per_minute !== null

@@ -472,11 +472,18 @@ async def open_lot(
     """
     if credits_inr <= 0:
         raise ValueError(f"a lot must open with credits > 0, got {credits_inr}")
+    # ⚠ THESE TWO SENTENCES NAMED THE VENDORS ("a lot's Sarvam rate", "a lot's Cartesia
+    # rate may not be below its Sarvam rate") UNTIL 19 SEP 2026, AND D-630 RENAMED THE
+    # COLUMNS THEY DESCRIBE. An operator reading `clear_inr_per_min` on the wire, in the
+    # console and in the lot row, and a refusal calling it Sarvam's, has to work out for
+    # themselves that the two are one thing — and one of those vendors no longer speaks on
+    # this product at all. The rungs are what the columns hold, so the rungs are what the
+    # refusal says.
     if clear_inr_per_min <= 0:
-        raise ValueError(f"a lot's Sarvam rate must be > 0, got {clear_inr_per_min}")
+        raise ValueError(f"a lot's Clear rate must be > 0, got {clear_inr_per_min}")
     if studio_inr_per_min < clear_inr_per_min:
         raise ValueError(
-            f"a lot's Cartesia rate may not be below its Sarvam rate: "
+            f"a lot's Studio rate may not be below its Clear rate: "
             f"{studio_inr_per_min} < {clear_inr_per_min}"
         )
     await credit_service.lock_tenant_credits(session, tenant_id)
@@ -763,6 +770,10 @@ async def runway(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Decimal
     is still the runway on the screens until Phase B2 re-points them.
     """
     lots = await read_open_lots(session, tenant_id=tenant_id)
-    sarvam = sum((lot.credits_remaining / lot.clear_inr_per_min for lot in lots), Decimal("0"))
-    cartesia = sum((lot.credits_remaining / lot.studio_inr_per_min for lot in lots), Decimal("0"))
-    return {"clear_minutes": _minutes(sarvam), "studio_minutes": _minutes(cartesia)}
+    # Named for the RUNGS they hold, not for the vendors that happened to serve them when
+    # this was written (`sarvam` / `cartesia` until 19 Sep 2026). One of those vendors has
+    # since stopped synthesising altogether, and a local whose name disagrees with the key
+    # it is returned under is the next reader's wrong five minutes.
+    clear = sum((lot.credits_remaining / lot.clear_inr_per_min for lot in lots), Decimal("0"))
+    studio = sum((lot.credits_remaining / lot.studio_inr_per_min for lot in lots), Decimal("0"))
+    return {"clear_minutes": _minutes(clear), "studio_minutes": _minutes(studio)}

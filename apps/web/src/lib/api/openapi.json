@@ -9332,6 +9332,13 @@
             },
             "title": "Tts Plan",
             "type": "array"
+          },
+          "undecidable": {
+            "items": {
+              "$ref": "#/components/schemas/FleetUndecidableOut"
+            },
+            "title": "Undecidable",
+            "type": "array"
           }
         },
         "required": [
@@ -9342,6 +9349,7 @@
           "margin_inr",
           "margin_pct",
           "tenants",
+          "undecidable",
           "tts_plan"
         ],
         "title": "FleetSpendOut",
@@ -9412,6 +9420,41 @@
           "margin_pct"
         ],
         "title": "FleetTenantOut",
+        "type": "object"
+      },
+      "FleetUndecidableOut": {
+        "additionalProperties": false,
+        "description": "A client this board WALKED and could not price, named rather than dropped.\n\n**WHY A SECOND LIST RATHER THAN NULLABLE MONEY ON `FleetTenantOut`.** Every field on\nthat row is a rupee figure an operator compares against the row above it; making five\nof them nullable would put \"we could not derive this\" and \"this client spent nothing\"\ninto the same shape, on a board whose whole job is telling those two apart. A separate\nlist cannot be misread and cannot be accidentally summed.\n\n`reason` is the exception's own message. It is an OPERATOR-facing string on an\nadmin-only route \u2014 the ledger spelling that could not be placed, the month, and the\nremedy \u2014 and it never reaches a client. It carries no phone number, transcript or\nextraction payload (hard rule 6); the ids beside it are ids.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "plan_tier",
+          "reason"
+        ],
+        "title": "FleetUndecidableOut",
         "type": "object"
       },
       "FxObservationOut": {
@@ -27129,7 +27172,7 @@
     },
     "/v1/admin/spend": {
       "get": {
-        "description": "The board that answers \"which client is costing us money\", one row per client.\n\nONE directory query, then ONE `tenant_session` per client, exactly as\n`admin/health.py::client_health` does \u2014 the directory comes from the `app.admin`\nsession (which widens `organizations` and nothing else) and every rupee is read under\nordinary RLS inside the client's own scope. Nothing here can see two tenants at once\nand no policy is widened to make it faster.\n\nNothing truncates, for the reason the health board does not: hiding the client at the\nbottom of a money board defeats the board. The walk is watched instead.",
+        "description": "The board that answers \"which client is costing us money\", one row per client.\n\nONE directory query, then ONE `tenant_session` per client, exactly as\n`admin/health.py::client_health` does \u2014 the directory comes from the `app.admin`\nsession (which widens `organizations` and nothing else) and every rupee is read under\nordinary RLS inside the client's own scope. Nothing here can see two tenants at once\nand no policy is widened to make it faster.\n\nNothing truncates, for the reason the health board does not: hiding the client at the\nbottom of a money board defeats the board. The walk is watched instead.\n\n**AND NOTHING IS DROPPED EITHER, INCLUDING A CLIENT WHOSE FIGURES REFUSE TO DERIVE.**\nEach client is read inside its own `try`: a `ValueError` out of the money readers is a\nstatement about THAT tenant's data, so it becomes a named row in `undecidable` and the\nother clients' numbers still reach the operator. Before 19 Sep 2026 it did not, and one\nsuch tenant returned a 500 for the whole board \u2014 measured here with a hand-made fixture.\nAnything that is not a `ValueError` still propagates, because a connection failure or a\nprogramming error is not about one client and must not be published as sixty of them.",
         "operationId": "fleet_spend_v1_admin_spend_get",
         "parameters": [
           {
@@ -41122,7 +41165,7 @@
     },
     "/v1/public/rate-card": {
       "get": {
-        "description": "Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, the client-facing name of each voice tier, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.",
+        "description": "Unauthenticated and identical for everyone. The list rate (the entry pack's Clear rate), the lowest rate any pack delivers on each voice, the client-facing name of each voice tier, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.",
         "operationId": "read_public_rate_card_v1_public_rate_card_get",
         "responses": {
           "200": {

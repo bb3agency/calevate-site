@@ -607,7 +607,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     summary="The self-serve rate card — list rate and credit packs — for the public site",
     description=(
         "Unauthenticated and identical for everyone. The list rate (the entry pack's "
-        "Sarvam rate), the lowest rate any pack delivers on each voice, the client-facing "
+        "Clear rate), the lowest rate any pack delivers on each voice, the client-facing "
         "name of each voice tier, and the static pack catalogue: amount, credits, both "
         "per-minute rates and both talk times. The same builder serves the authenticated "
         "`/v1/billing/topups/packs`. Nothing about the caller is read or returned."

@@ -393,7 +393,7 @@ async def test_the_credit_quote_takes_the_dearer_of_the_wallet_s_two_rates() -> 
     IT IS TAKEN BY PRICE, AND THE TEST THAT TRIED TO PROVE THAT WAS IMPOSSIBLE. An earlier
     version of this case opened a lot with the rates inverted — Studio cheaper than Clear —
     to show the code does not simply trust the tier's name. `open_lot` REFUSES that lot
-    (`billing/lots.py`: "a lot's Cartesia rate may not be below its Sarvam rate"), so the
+    (`billing/lots.py`: "a lot's Studio rate may not be below its Clear rate"), so the
     state it was written to distinguish cannot be reached, and a test asserting a verdict
     about an impossible lot proves nothing. The invariant is what makes by-price and
     by-name agree; the case below pins the invariant instead, which is the real guarantee.
@@ -419,7 +419,10 @@ async def test_a_lot_cannot_be_opened_with_the_premium_voice_cheaper() -> None:
     that relaxing it turns this file red at the same time as it makes the ceiling's
     reasoning load-bearing."""
     tenant_id, _ = await _tenant()
-    with pytest.raises(ValueError, match="may not be below its Sarvam rate"):
+    # The rung, not the vendor: `add_lot`'s refusals were renamed with the columns on
+    # 19 Sep 2026 (D-630), and a test still matching "Sarvam" would have been the one thing
+    # keeping a vendor's name on a money message.
+    with pytest.raises(ValueError, match="may not be below its Clear rate"):
         await add_lot(tenant_id, credits_inr="5000.00", rates=(Decimal("9.00"), Decimal("4.00")))
 
 

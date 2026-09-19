@@ -116,7 +116,12 @@ const TENANT_SPEND: TenantSpend = {
   cost_currency_stated: false,
   unattributed: { minutes: "0.0000", cost_inr: "120.00" },
   // `kb_used_inr` is a COMPONENT of `used_inr` (D-608), never a sibling to add to it.
-  ai_assist: { used_inr: "412.50", requests: 87, kb_used_inr: "96.00", kb_requests: 12 },
+  ai_assist: {
+    used_inr: "412.50",
+    requests: 87,
+    kb_used_inr: "96.00",
+    kb_requests: 12,
+  },
   by_unit: [{ unit_type: "telephony_s", qty: "2550", cost_inr: "180000.00" }],
   by_agent: [
     {
@@ -140,6 +145,10 @@ const FLEET: FleetSpend = {
   // No vendor row: the API omits a month nobody has attested rather than sending a zero
   // fee, and the board renders that absence in words (D-547 Phase D.3).
   tts_plan: [],
+  // EMPTY IS THE NORMAL CASE, and the card renders nothing for it — an always-present
+  // "0 problems" tile trains an operator to stop reading that spot. The populated case is
+  // its own test below.
+  undecidable: [],
   month: IST_MONTH,
   clients: 2,
   revenue_inr: LAKHS,
@@ -756,6 +765,56 @@ describe("the operator's half", () => {
     // Colour is the one signal the a11y sweep cannot check and a colour-blind operator may
     // not have.
     expect(container.textContent).toContain("Losing money:");
+  });
+
+  it("names a client whose month could not be priced, instead of it vanishing", async () => {
+    // THE DEFECT THIS IS ABOUT WAS A 500 FOR THE WHOLE BOARD (19 Sep 2026): the server
+    // walked each client with no isolation, so one tenant whose ledger could not be priced
+    // denied every other client's figures to the operator who had opened the page BECAUSE
+    // one client was wrong. The server now publishes that client as a named row; this
+    // pins the browser half, which is that the row is rendered rather than dropped — a
+    // board silently missing a client under-reports revenue and says nothing, which is the
+    // same defect one layer up.
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: {
+        ...FLEET,
+        undecidable: [
+          {
+            tenant_id: "0199a7f4-0000-7000-8000-00000000beef",
+            name: "Kukatpally Motors",
+            slug: "kukatpally-motors",
+            plan_tier: "prepaid",
+            reason:
+              "2026-09's wallet debits carry call splits spelled 'bulbul', which this " +
+              "build cannot place on a rung.",
+          },
+        ],
+      },
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Kukatpally Motors");
+    const text = container.textContent ?? "";
+    // The SERVER's sentence, verbatim — it names the spelling and the remedy, and a
+    // reworded copy here would be a second version of one fact.
+    expect(text).toContain("which this build cannot place on a rung");
+    // And it says plainly that the totals above exclude them, rather than leaving an
+    // operator to reconcile a fleet revenue that is quietly short.
+    expect(text).toContain("not in the totals above");
+    // The other clients are still on the board. That is the whole point.
+    expect(container.querySelectorAll("tbody tr").length).toBe(
+      FLEET.tenants.length,
+    );
+  });
+
+  it("renders nothing about undecidable clients when there are none", async () => {
+    // An always-present "0 problems" card is how an operator learns to stop reading that
+    // spot, so the empty case renders no card at all.
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Vasavi Dental");
+    expect(container.textContent).not.toContain("not in the totals above");
   });
 
   it("refuses out loud when the walk fails, and reports no fleet total", async () => {
