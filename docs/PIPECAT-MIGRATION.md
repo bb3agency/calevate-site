@@ -125,7 +125,7 @@ corroborating anything.
 | Leg | Quantity | Source | Evidence |
 |---|---|---|---|
 | Carrier | connected minutes | Plivo CDR | independent, billable |
-| Runtime | Pipecat active minutes | Pipecat Cloud usage | ⚠ what an "active minute" covers is UNKNOWN — §7a Q1 of `pre-build-blockers` |
+| Runtime | Pipecat active minutes | Pipecat Cloud usage | ⚠ what an "active minute" covers is UNKNOWN — **P-1 of `docs/evidence/pre-build-blockers-2026-09-13.md` §3.5**, and OPERATIONS §2 gate 57. (This cell read "§7a Q1" until 19 Sep 2026 and §7a is the letter to GNANI about the TTS leg — a reader chasing the runtime question landed on a voice-cloning letter. `voice_worker/meter.py::RuntimePriceUnknownError` cites the right address.) |
 | STT | audio seconds | our worker's own meter | ours |
 | TTS | characters synthesised | our worker's own meter | ours, priced at the attested rate |
 | LLM | `total_tokens` | `LLMTokenUsage` | see the trap below |
@@ -1006,6 +1006,70 @@ TTS** are published by Sarvam in rupees"; Sarvam left the synthesis leg on 18 Se
 (D-629) and the rupee-denominated TTS leg is now Gnani's. The **LLM** leg is struck at `LIST_PRICE_USD_INR`
 (₹95.66), a different card that must not be re-struck — doing so reprices every account and
 TRD §10's fifteen cost points.
+
+### 10.3a THE RUNTIME LEG IS PRICED AND NOT METERED, AND THOSE ARE DIFFERENT CLAIMS
+
+⚠ **DO NOT READ §10.1's ₹0.95 AS A METERED COST. IT IS A COST-MODEL FIGURE AND NOTHING
+ELSE.** Two separate facts, and the founder audit that produced this section had them
+collapsed:
+
+* **The PRICE is read.** $0.01/min active, $0.0005/min warm — VERIFIED-VENDOR-DOCS at
+  `docs.pipecat.ai/pipecat-cloud/pricing` through
+  `docs/evidence/engine-replacement-comet-2026-09-06.md:93,103,122`, whose own note is that
+  the vendor's page carries **no date**. It is in `ENGINE_PLATFORM_FEE_USD_PER_MIN`, it is
+  summed into both cost floors, and TRD §10's margin model runs on it. It is not a
+  placeholder and it is not a zero.
+* **The QUANTITY is UNKNOWN.** What an "active minute" covers — connected time only, or
+  container start and teardown as well; whether a 3-minute call bills 3 minutes or more;
+  whether a warm-but-idle container accrues them — is unanswered. P-1 of
+  `docs/evidence/pre-build-blockers-2026-09-13.md` §3.5, and **OPERATIONS §2 gate 57**.
+  `docs.pipecat.ai`, `www.daily.co` and `pipecat.daily.co` are all egress-blocked from the
+  build container (measured 19 Sep 2026: `curl: (56) CONNECT tunnel failed, response 403`),
+  so no session can close it from here.
+
+**WHAT THE CODE DOES WITH THAT, AND IT IS ALREADY RIGHT.** A rate with no quantity cannot
+meter a call, so `voice_worker/meter.py::_runtime_row` refuses: no `RuntimeUsage`, no row,
+a `RuntimePriceUnknownError` carried to a `call_metering_refusals` row, and NEVER a
+fabricated ₹0 — the same standard `billing/rates.llm_inr_per_ktok` and
+`ops/model_pricing.tts_price_is_billable` hold every other leg to. The published $0.01 is
+deliberately NOT used to synthesise a per-call figure, because a catalogue price is not an
+invoice (hard rule 11).
+
+**WHAT IT COSTS UNTIL AN INVOICE LANDS**, stated plainly because it is the flattering
+direction: a Pipecat call's `usage_events` rows are missing their runtime leg, and
+`billing/service.margin_for_tenant` sums the rows that exist without saying a leg was
+refused — so the per-client margin card reads BETTER than the truth by roughly ₹0.95 a
+call-minute. Closing it is one operator attestation
+(`RuntimeUsage(active_minutes=..., inr_per_active_minute=...)`, invoice as `source`);
+surfacing it meanwhile is a refusal count beside `cost_inr` on `MarginOut`.
+
+### 10.3b COMET PROMPT — the Pipecat Cloud active minute (gate 57)
+
+Egress-blocked here, so this is the shape `pre-build-blockers` §10 uses for Plivo. It asks
+for a PAGE reading; only an INVOICE closes gate 57, and the prompt says so rather than
+letting a catalogue answer be mistaken for one.
+
+> Read **https://docs.pipecat.ai/pipecat-cloud/pricing** and any page it links about
+> billing, usage or metering for Pipecat Cloud (including Daily's own pricing page if
+> Pipecat Cloud billing is described there). Quote VERBATIM, with the URL and the section
+> heading for each quote, and say explicitly when the page does not answer a question
+> rather than inferring:
+>
+> 1. The exact definition of a billed **"active minute"**. Does it start when the container
+>    starts, or when a session/call connects? Does it end at disconnect or at container
+>    teardown? Is it rounded up, and to what unit (second, minute)?
+> 2. The current per-active-minute price and the per-minute price of a **warm / reserved /
+>    min-instance** slot, with currency. Do they differ by region — specifically
+>    **`ap-south` (Mumbai)**?
+> 3. Does a warm instance with **no session on it** accrue ACTIVE minutes, or only the
+>    reserved rate?
+> 4. Any minimum billable duration, minimum monthly spend, or free tier.
+> 5. **The date the pricing page was last updated**, or any version/changelog marker on it.
+>    Our copy of these figures is undated and that is recorded as a weakness.
+>
+> Do not summarise or average. If a figure appears only in a blog post, a forum answer or a
+> third-party comparison, say so and label it as such — we treat those as REPORTED and they
+> cannot reach our ledger.
 
 ### 10.4 Embedding cost is not a per-minute cost
 

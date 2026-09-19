@@ -3497,6 +3497,25 @@ async def margin_for_tenant(
     Revenue is the plan's monthly fee plus overage — the invoice, not an estimate. Cost
     is the sum of `unit_cost_paid`, which the pipeline stamps per usage row at capture
     time with the fx rate it used, so a later rate move cannot rewrite history.
+
+    ⚠ **`cost_inr` IS THE SUM OF THE LEGS THAT COULD BE PRICED, AND IT DOES NOT SAY SO.**
+    On the owned runtime a call's cost is five independently metered legs (D-595), and any
+    leg nobody can honestly price writes a `call_metering_refusals` row INSTEAD of a
+    `usage_events` row — deliberately, because a fabricated ₹0 on an append-only ledger is
+    worse than a visible gap (`voice_worker/meter.py`). Nothing on this path reads that
+    table, so a month with refused legs produces a `cost_inr` and a `margin_pct` that are
+    arithmetically correct over the rows that exist and are MISSING money, in the
+    flattering direction. **The live instance of that is the RUNTIME leg**: what a Pipecat
+    Cloud active minute bills is UNKNOWN (OPERATIONS §2 gate 57), so until an operator
+    attests it from an invoice every Pipecat call refuses that leg and the margin here
+    reads better than it is.
+    **CLOSED (19 Sep 2026): `legs_unpriced` is that count, published beside the figure.**
+    It is a COUNT and not a rupee estimate, deliberately — the whole reason those legs have
+    no `usage_events` row is that nobody can honestly price them, so totalling them would be
+    the fabrication the refusal exists instead of. A non-zero count means `cost_inr` is a
+    floor rather than a total, and `margin_pct` is therefore a ceiling. This is the number
+    D-12 says G2 gates on, and a founder pricing against a margin has to know which legs
+    are in it.
     """
     usage = await usage_summary(session, tenant_id=tenant_id, month=month)
     # OUR COST HAS ONE DEFINITION AND THIS IS IT. This function used to carry its own
@@ -3548,6 +3567,18 @@ async def margin_for_tenant(
     )
     margin = to_paise(revenue - cost_inr)
     pct = margin_pct(margin_inr=margin, revenue_inr=revenue)
+    # THE LEGS THAT COULD NOT BE PRICED, counted over the SAME month window the cost above
+    # is summed over — a count taken over a different window would make the two figures
+    # describe different periods, which is worse than not publishing it.
+    unpriced = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM call_metering_refusals r JOIN calls c ON c.id = "
+                "r.call_id WHERE c.started_at >= :month_from AND c.started_at < :month_to"
+            ),
+            _month_bounds(usage["month"]),
+        )
+    ).scalar_one()
     return {
         "month": usage["month"],
         "minutes_used": usage["minutes_used"],
@@ -3556,6 +3587,7 @@ async def margin_for_tenant(
         "cost_inr": cost_inr,
         "margin_inr": margin,
         "margin_pct": pct,
+        "legs_unpriced": int(unpriced),
     }
 
 

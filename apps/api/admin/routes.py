@@ -1835,6 +1835,17 @@ class MarginOut(BaseModel):
     # None rather than "0.0" when nothing has been billed: "0% margin" and "nothing
     # billed yet" are different facts, and an operator acts differently on each.
     margin_pct: str | None
+    #: HOW MANY LEGS THIS MONTH COULD NOT BE PRICED, so `cost_inr` is read as a FLOOR and
+    #: `margin_pct` as a CEILING when it is non-zero.
+    #:
+    #: A COUNT and never a rupee estimate: the reason those legs have no `usage_events`
+    #: row is that nobody can honestly price them, and totalling them would be exactly the
+    #: fabrication the refusal exists instead of. The live instance is the RUNTIME leg —
+    #: what a Pipecat Cloud active minute bills is UNKNOWN (OPERATIONS §2 gate 57), so
+    #: until an operator attests it from an invoice every Pipecat call refuses that leg.
+    #: Until this field existed the board answered as though the cost were complete, in
+    #: the flattering direction, on the number D-12 says G2 gates on.
+    legs_unpriced: int
     tiers: TierSplitOut
 
 

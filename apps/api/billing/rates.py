@@ -284,6 +284,115 @@ MONEY_Q = Decimal(1).scaleb(-(MONEY.scale or 0))
 ROUNDING = ROUND_HALF_UP
 
 
+# --- CAN THE LEDGER HOLD THIS RATE? (the sub-paise question, asked once) ---------------
+#
+# `unit_cost_paid` is `NUMERIC(12,4)`, so the smallest non-zero figure it holds is
+# ₹0.0001 per unit of `qty` and every rate struck finer than that is rounded ON THE WAY
+# IN. This repository has already answered that question three times, each time the same
+# way and each time in a comment rather than in code:
+#
+#   * `ai_assist_ktok_*` — per THOUSAND tokens, because `gpt-4o-mini` input is ₹0.0000143
+#     a token and a per-token rate stores as `0.0000` (billing/models.py).
+#   * `tts_kchars` — per THOUSAND characters, because the attested Cartesia plan rate is
+#     ₹0.0034496 a character and a per-character rate meters our own TTS cost 1.4% light
+#     (billing/models.py, D-547).
+#   * `llm_ktok_*` — per THOUSAND tokens, for the first of those reasons on the owned
+#     runtime's leg (`apps/voice-worker/voice_worker/meter.py`, D-592).
+#
+# THE HOUSE PATTERN IS THEREFORE *SCALE THE UNIT UNTIL THE RATE FITS*, not widen the
+# column. It is the right pattern and it stays: `usage_events` is append-only under hard
+# rule 4, so a scale change is a migration against frozen history that re-reads every
+# closed month, and it would buy nothing the `k`-prefix has not already bought.
+#
+# WHAT WAS MISSING IS THE CHECK. Each of those three decisions was made by a human doing
+# the arithmetic by hand at the moment a unit was invented, and nothing re-does it when a
+# rate MOVES underneath a unit that already exists. The live path for that is not
+# hypothetical: `platform_tts_prices.inr_per_1k_chars` and `platform_model_prices
+# .{input,output}_usd_per_mtok` are `NUMERIC(12,6)`, so an operator can attest a figure
+# with two more decimal places than the ledger can hold, and today it is simply rounded
+# with nobody told. The next vendor, tier or promotional discount arrives the same way.
+#
+# So the arithmetic lives here, beside the quantum it is about, and the seams that accept
+# a rate call it (`ops/model_pricing.attest_price`, `attest_tts_price`);
+# `tests/rate_precision_test.py` walks every rate this repository strikes today.
+
+
+#: How far a STRUCK PER-UNIT RATE may be distorted by landing in `NUMERIC(12,4)`, as a
+#: FRACTION of the rate itself — 1%.
+#:
+#: RELATIVE and not absolute, because absolute is the wrong question: half a quantum
+#: (₹0.00005) is nothing against a ₹2.70/1k TTS rate and is 5% of a rate struck at
+#: ₹0.0010. It is the fraction that tells you whether the unit was scaled far enough.
+#:
+#: **WHY 1%, AND WHAT IT IS NOT.** It is not a tolerance anybody is happy to lose: every
+#: rate this repository strikes today clears it by a wide margin (worst is
+#: `gemini-2.5-flash-lite` input at +0.36%, and the whole TTS card is under 0.01%), so
+#: this is a TRIPWIRE for a rate whose unit is wrong by a factor of ten, not a budget to
+#: be spent down. A figure that fails it does not need a wider column — it needs the unit
+#: it is quoted in multiplied, which is what the three `k`-prefixed units above are.
+#: Deliberately not 0%: the exchange-rate conversion in `_usd_mtok_to_inr_ktok` makes an
+#: exact 4-decimal landing a coincidence, and a guard that fires on every honest price is
+#: one that gets waived.
+LEDGER_RATE_ERROR_BUDGET: Final[Decimal] = Decimal("0.01")
+
+
+def ledger_rate_error(rate: Decimal) -> Decimal:
+    """What fraction of `rate` is lost or gained when `unit_cost_paid` stores it.
+
+    Returns `|stored - rate| / rate`, both as `Decimal` (hard rule 7 — this is a figure
+    about money and a float here would be measuring rounding error with rounding error).
+
+    A rate that quantizes to exactly ZERO returns `1` — the whole of it is lost — rather
+    than dividing by the stored value. That is the case the three `k`-prefixed units were
+    invented for and it must be the worst score this function can give, not an
+    ``InvalidOperation`` the caller has to know about.
+
+    A non-positive rate is refused rather than scored: every seam that reaches here has
+    already refused zero and negative with its own operator-facing message (a zero meters
+    a real leg as free while looking like a working one), so reaching this with one is a
+    caller that skipped its own validation, and returning a number would hide that.
+    """
+    if rate <= 0:
+        raise ValueError("a rate must be strictly positive to be scored for ledger precision")
+    stored = rate.quantize(MONEY_Q, rounding=ROUNDING)
+    if stored == 0:
+        return Decimal(1)
+    return abs(stored - rate) / rate
+
+
+def rate_is_meterable(rate: Decimal) -> bool:
+    """Does `rate` survive `NUMERIC(12,4)` within `LEDGER_RATE_ERROR_BUDGET`?"""
+    return ledger_rate_error(rate) <= LEDGER_RATE_ERROR_BUDGET
+
+
+def assert_rate_is_meterable(rate: Decimal, *, subject: str, unit: str) -> Decimal:
+    """Return `rate` unchanged, or RAISE naming the unit that is quoted too small.
+
+    Returns the rate rather than the quantized value ON PURPOSE. The quantization belongs
+    to the ledger's INSERT, which happens once, at the column; handing back a rounded
+    figure here would make this a second rounding site and give two callers two spellings
+    of one number — the D-103 shape this module has paid for. This function decides
+    whether a rate may be accepted at all; it does not transform it.
+
+    The message names the UNIT because the unit is the fix. There is no code change that
+    makes ₹0.00008 per character storable in this column, and widening the column is a
+    migration against an append-only ledger's frozen history; multiplying the unit by a
+    thousand costs one constant.
+    """
+    error = ledger_rate_error(rate)
+    if error <= LEDGER_RATE_ERROR_BUDGET:
+        return rate
+    stored = rate.quantize(MONEY_Q, rounding=ROUNDING)
+    raise ValueError(
+        f"{subject} is struck at {rate} per {unit}, which usage_events.unit_cost_paid "
+        f"(NUMERIC(12,4)) stores as {stored} — {error * 100:.2f}% away from the figure "
+        f"quoted, against a budget of {LEDGER_RATE_ERROR_BUDGET * 100:.0f}%. The column is "
+        "append-only frozen history and is not the thing to widen: quote the rate in a "
+        "larger unit (per thousand, per ten thousand) the way tts_kchars, llm_ktok_* and "
+        "ai_assist_ktok_* already are, so the stored figure is the figure."
+    )
+
+
 # --- the LLM leg, which stopped being free (D-400) and now has TWO prices (D-410) ----
 #
 # D-36 priced the in-call LLM leg at ₹0.00 because Sarvam 105B is free per token, and
@@ -361,6 +470,19 @@ ROUNDING = ROUND_HALF_UP
 LIST_PRICE_USD_INR: Final = Decimal("95.66")
 
 
+def usd_mtok_to_inr_ktok_exact(usd_per_mtok: Decimal) -> Decimal:
+    """USD per MILLION tokens -> rupees per THOUSAND, EXACT — before any quantization.
+
+    The arithmetic `_usd_mtok_to_inr_ktok` does and then rounds, factored out so that the
+    precision guard (`assert_rate_is_meterable`) can score the figure the ledger is about
+    to round rather than the figure it has already rounded. Extracted rather than
+    re-spelled at the call site: `usd * fx / 1000` written twice is two places for the
+    exchange rate or the unit to drift, which is the defect the one-conversion rule in
+    `_usd_mtok_to_inr_ktok`'s own docstring exists to prevent.
+    """
+    return usd_per_mtok * LIST_PRICE_USD_INR / Decimal("1000")
+
+
 def _usd_mtok_to_inr_ktok(
     *, input_usd: Decimal, output_usd: Decimal | None
 ) -> Mapping[str, Decimal]:
@@ -390,9 +512,7 @@ def _usd_mtok_to_inr_ktok(
                 # literal that is not.
                 Decimal("0").quantize(MONEY_Q, rounding=ROUNDING)
                 if usd is None
-                else (usd * LIST_PRICE_USD_INR / Decimal("1000")).quantize(
-                    MONEY_Q, rounding=ROUNDING
-                )
+                else usd_mtok_to_inr_ktok_exact(usd).quantize(MONEY_Q, rounding=ROUNDING)
             )
             for leg, usd in (("in", input_usd), ("out", output_usd))
         }
@@ -2651,6 +2771,7 @@ __all__ = [
     "ENGINE_REPORTS_TTS_MODEL",
     "ENGINE_RESERVED_INSTANCE_USD_PER_MIN",
     "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
+    "LEDGER_RATE_ERROR_BUDGET",
     "LIST_PRICE_USD_INR",
     "MIN_GROSS_MARGIN",
     "MONEY_Q",
@@ -2678,6 +2799,7 @@ __all__ = [
     "SpeakingRateBasis",
     "UnattestedTtsRateError",
     "VoiceTier",
+    "assert_rate_is_meterable",
     "assumed_speaking_rate",
     "attested_llm_prices",
     "cartesia_best_marginal_cost_inr_per_min",
@@ -2699,6 +2821,7 @@ __all__ = [
     "gross_margin_ratio",
     "install_llm_price_attestations",
     "is_surchargeable_llm_model",
+    "ledger_rate_error",
     "llm_cost_inr_per_minute",
     "llm_inr_per_ktok",
     "llm_price_is_billable",
@@ -2706,6 +2829,7 @@ __all__ = [
     "llm_surcharge_applies",
     "llm_surcharge_billed_inr",
     "prepaid_billed_inr",
+    "rate_is_meterable",
     "rate_margin",
     "sarvam_llm_reference_inr_per_ktok",
     "stored_voice_tier",
@@ -2715,6 +2839,7 @@ __all__ = [
     "surchargeable_models_are_dearer",
     "tts_inr_per_call_minute",
     "tts_rate_inr_per_char",
+    "usd_mtok_to_inr_ktok_exact",
     "value_rung_tts_inr_per_char",
     "voice_tier_label",
 ]

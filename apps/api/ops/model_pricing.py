@@ -534,6 +534,44 @@ def _require_known_model(model: str) -> None:
         )
 
 
+def _refuse_unmeterable_rate(inr_rate: Decimal, *, subject: str, unit: str) -> None:
+    """Refuse a figure `usage_events.unit_cost_paid` cannot hold at its stated size.
+
+    **THE SEAM THIS CLOSES.** `platform_model_prices` and `platform_tts_prices` both store
+    their figures at `NUMERIC(12,6)`; `unit_cost_paid` is `NUMERIC(12,4)`. So an operator
+    could attest a rate with two more decimal places than the ledger can hold, and it was
+    silently rounded on the way into every row — the class of leak the `k`-prefixed units
+    (`tts_kchars`, `llm_ktok_*`, `ai_assist_ktok_*`) were invented to prevent at the moment
+    each unit was designed, with nothing re-doing that arithmetic when a RATE later moved
+    underneath a unit that already existed.
+
+    `billing/rates.assert_rate_is_meterable` owns the arithmetic and the budget, beside the
+    quantum they are about. This function exists only to translate its `ValueError` into the
+    operator-facing refusal every other validation on these seams already speaks — the
+    console is where a human is holding the invoice, and a 500 on a money form tells them
+    nothing they can act on.
+
+    It is checked on the CONVERTED rupee figure and never on the USD an operator typed,
+    because rupees per thousand is what the column actually stores.
+    """
+    try:
+        rates.assert_rate_is_meterable(inr_rate, subject=subject, unit=unit)
+    except ValueError as too_small:
+        raise ProblemError(
+            kind="validation",
+            code="attested_price_not_meterable",
+            title="This price is quoted in too small a unit to meter",
+            detail=str(too_small),
+            remediation=(
+                "Check the figure — a price this small per unit is usually a decimal point "
+                "in the wrong place. If it is right, the UNIT has to change in code (the way "
+                "tts_kchars and llm_ktok_* already quote per thousand) before this vendor's "
+                "minutes can be metered honestly; entering it now would record every one of "
+                "them at a rate the ledger rounds away."
+            ),
+        ) from too_small
+
+
 async def attest_price(
     session: AsyncSession,
     *,
@@ -570,6 +608,12 @@ async def attest_price(
                 "minute on this model at nothing while looking like a working leg "
                 "(billing/rates.LlmPriceAttestation refuses it for the same reason)."
             ),
+        )
+    for leg, usd in (("input", input_usd_per_mtok), ("output", output_usd_per_mtok)):
+        _refuse_unmeterable_rate(
+            rates.usd_mtok_to_inr_ktok_exact(usd),
+            subject=f"the attested {leg} price for {model!r}",
+            unit="1,000 tokens",
         )
     # The PK collision, turned into a sentence. `pg_advisory_xact_lock` on the model is not
     # needed — the PK is `(model, effective_from)` and two writers colliding on it is
@@ -785,6 +829,11 @@ async def attest_embedding_price(
                 "(billing/rates.LlmPriceAttestation refuses it for the same reason)."
             ),
         )
+    _refuse_unmeterable_rate(
+        rates.usd_mtok_to_inr_ktok_exact(input_usd_per_mtok),
+        subject=f"the attested input price for {model!r}",
+        unit="1,000 tokens",
+    )
     existing = (
         await session.execute(
             text("SELECT 1 FROM platform_model_prices WHERE model = :m AND effective_from = :ef"),
@@ -1109,6 +1158,11 @@ async def attest_tts_price(
                 "on this voice at nothing while looking like a working leg."
             ),
         )
+    _refuse_unmeterable_rate(
+        inr_per_1k_chars,
+        subject=f"the attested TTS price for {provider!r}",
+        unit="1,000 characters",
+    )
     existing = (
         await session.execute(
             text("SELECT 1 FROM platform_tts_prices WHERE provider = :p AND effective_from = :ef"),
