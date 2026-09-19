@@ -12633,6 +12633,18 @@
             "title": "Data",
             "type": "object"
           },
+          "first_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Call Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",

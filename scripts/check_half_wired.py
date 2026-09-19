@@ -129,13 +129,6 @@ WRITE_ONLY_BASELINE: dict[str, str] = {
         "year, not by a screen. Closes when the ops incident-scope surface exists — a "
         "response-model change, so it lands with `apps/web` rather than here"
     ),
-    "Lead.first_call_id": (
-        "the call that created the lead. `last_call_id` is selected and returned; this "
-        "one is written by the same INSERT and never read, and giving it a reader means "
-        "adding a field to `LeadOut` — a response-model change, which regenerates "
-        "`apps/web/src/lib/api/openapi.json`. Closes with that snapshot, in the change "
-        "that adds the field"
-    ),
     "HandoffAttempt.leg_cost_reported": (
         "an UNANSWERED VENDOR QUESTION held as a column rather than as a guess (D-533). "
         "The voice platform reports a cost for the transferred leg separately from the "

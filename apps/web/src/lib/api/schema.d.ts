@@ -12254,6 +12254,8 @@ export interface components {
             data?: {
                 [key: string]: unknown;
             };
+            /** First Call Id */
+            first_call_id?: string | null;
             /**
              * Id
              * Format: uuid

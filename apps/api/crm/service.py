@@ -470,7 +470,8 @@ async def lead_columns(
 
 _LEAD_COLUMNS = (
     "l.id, l.phone_e164, l.name, l.status, l.source, l.data, l.schema_version, "
-    "l.call_count, l.is_repeat_caller, l.last_call_id, l.created_at, l.updated_at, "
+    "l.call_count, l.is_repeat_caller, l.first_call_id, l.last_call_id, "
+    "l.created_at, l.updated_at, "
     "l.assigned_to, owner.name AS assigned_to_name"
 )
 _LEAD_OWNER_JOIN = (
@@ -914,11 +915,12 @@ def _lead_out(r: Any) -> LeadOut:
         schema_version=r[6],
         call_count=r[7],
         is_repeat_caller=r[8],
-        last_call_id=r[9],
-        created_at=r[10],
-        updated_at=r[11],
-        assigned_to=r[12],
-        assigned_to_name=r[13],
+        first_call_id=r[9],
+        last_call_id=r[10],
+        created_at=r[11],
+        updated_at=r[12],
+        assigned_to=r[13],
+        assigned_to_name=r[14],
     )
 
 

@@ -148,6 +148,21 @@ class LeadOut(Strict):
     schema_version: int | None = None
     call_count: int
     is_repeat_caller: bool
+    #: THE CALL THAT CREATED THIS LEAD — written by the post-call upsert's INSERT arm and,
+    #: until 19 Sep 2026, read by nothing (`scripts/check_half_wired.WRITE_ONLY_BASELINE`).
+    #: The deferral said in so many words what closed it: "giving it a reader means adding
+    #: a field to `LeadOut` — a response-model change, which regenerates
+    #: `apps/web/src/lib/api/openapi.json`. Closes with that snapshot, in the change that
+    #: adds the field." This is that change.
+    #:
+    #: It is NOT redundant with `last_call_id` on a repeat caller, which is the case that
+    #: matters: the pair is the lead's span, and "which call did this relationship start
+    #: on" is the question behind every "where did this lead come from" a client asks. The
+    #: upsert's `DO UPDATE` arm deliberately never touches it, so it cannot drift forward.
+    #:
+    #: NULL for a lead this platform did not create from a call — an import, or a row
+    #: written before the column existed — and never a guess.
+    first_call_id: UUID | None = None
     last_call_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
