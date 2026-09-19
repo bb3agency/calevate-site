@@ -81,7 +81,7 @@ The maps found more already built than the conversation assumed. Read this befor
 - **Pack**: a catalogue row — `pack_id`, `amount_inr`, `clear_inr_per_min`, `studio_inr_per_min`. Static, bounded (`check_list_bounds` already pins the two pack endpoints as bounded by `PACK_CATALOGUE` being static, `scripts/check_list_bounds.py:286-292`).
 - **Lot**: the credits one purchase (or grant, or migration) created, with the two rates frozen at creation. `credits_total`, `credits_remaining`, `clear_inr_per_min`, `studio_inr_per_min`, `source` (`topup` | `grant` | `bonus_legacy` | `migration` | `override`), `pack_id` (nullable), `override_of_pack_id` (nullable, Q6), `opened_at`.
 - **Voice tier**: `clear` | `studio`, a property of the AGENT (`agents.voice_tier`, derived from the chosen voice's provider — never stored separately from the voice, §4.3).
-  ⚠ **THE TOKENS WERE `sarvam` | `cartesia` THROUGHOUT THIS PLAN AND WERE RENAMED ON 19 Sep 2026** (`alembic/versions/f1c40d8b6e93`, `billing/rates.VoiceTier`). They were the VENDORS then serving each rung; Sarvam left the synthesis leg on 18 Sep 2026 (D-629) and Gnani took the Clear rung, leaving two money columns named after a company with nothing to do with them. The implementation steps below are left as they were written — they are a record of what was done, not of what is there now — so read every `"sarvam"`/`"cartesia"` in this document as the rung it then named.
+  ⚠ **THE TOKENS WERE `sarvam` | `cartesia` THROUGHOUT THIS PLAN AND WERE RENAMED ON 19 Sep 2026** (`alembic/versions/f1c40d8b6e93`, `billing/rates.VoiceTier`). They were the VENDORS then serving each rung; Sarvam left the synthesis leg on 18 Sep 2026 (D-629) and Gnani took the Clear rung, leaving two money columns named after a company with nothing to do with them. The implementation steps below are left as they were written — they are a record of what was done, not of what is there now — so read every `"sarvam"`/`"cartesia"` in this document as the rung it then named. ⚠ **THAT INSTRUCTION COVERS THE WHOLE DOCUMENT AND NOT ONLY THE STEPS, AND THIS NOTE USED TO SAY "the implementation steps below" ALONE (widened 19 Sep 2026)**: §4.1's floors, §11's definition of done, §12's tables and §13's appendices all spell the rungs the old way too. The live spellings are `clear` and `studio` (`billing/rates.py::VoiceTier`, `:2091::VALUE_VOICE_TIER`, `:2095::PREMIUM_VOICE_TIER`); the live VENDORS are `gnani` and `cartesia` (`rates.py::_TIER_OF_TTS_PROVIDER`), and the two sets no longer share a member — which is the whole point of D-630, since the shared `cartesia` was hiding three live rate-lookup bugs.
 - **Card**: the pack table in force at an instant. Dated: a new card applies to lots opened after its `effective_from`; existing lots are untouched (D-492 extended, §2.4).
 
 ### 2.2 The final card (from the founder's sign-off, 7 Sep 2026)
@@ -95,7 +95,7 @@ The maps found more already built than the conversation assumed. Read this befor
 | `pro` | ₹25,000 | 4.60 | 6.25 |
 | `max` | ₹50,000 | 4.50 | 6.00 |
 
-Floors that bind these numbers, from `billing/rates.py` and the plan arithmetic recorded in `docs/evidence/cartesia-tts-verification-2026-09-06.md`: the Sarvam worst-case cost is ₹4.12/min (fee 1.76 + STT 0.50 + LLM 0.24 + Bulbul 1.62), so no Sarvam rate may go below it — `MIN_GROSS_MARGIN` is re-pointed to check BOTH rates of every pack (§4.1). The Cartesia rate has no per-minute cost floor because its TTS cost is a monthly plan; the floor for it is the platform-wide minute count (§4.6).
+Floors that bind these numbers, from `billing/rates.py` and the plan arithmetic recorded in `docs/evidence/cartesia-tts-verification-2026-09-06.md`: the Sarvam worst-case cost is ₹4.12/min (fee 1.76 + STT 0.50 + LLM 0.24 + Bulbul 1.62), so no Sarvam rate may go below it — `MIN_GROSS_MARGIN` is re-pointed to check BOTH rates of every pack (§4.1). The Cartesia rate has no per-minute cost floor because its TTS cost is a monthly plan; the floor for it is the platform-wide minute count (§4.6). ⚠ **EVERY FIGURE IN THIS PARAGRAPH IS THE 7 Sep 2026 ONE AND NONE OF THEM IS TODAY'S** (noted 19 Sep 2026). Read from the code: the CLEAR floor is **₹3.1491** (`billing/rates.py::SELF_SERVE_COST_FLOOR_INR_PER_MIN` — 0.95 engine + 0.50 STT + 0.2411 LLM + 1.458 TTS) and the STUDIO floor is **₹4.7099** (`::CARTESIA_COST_FLOOR_INR_PER_MIN`). Three things moved under them: D-556 (9 Sep) gave the Cartesia rung a real per-minute floor — the worst MARGINAL cost on the Pro plan — so the last sentence above is no longer true; D-592 (13 Sep) halved the shared engine leg from ₹1.76 to ₹0.95; and D-631 (19 Sep) re-struck the Clear TTS leg at Gnani's published ₹27.00 / 10,000 chars. The rung is `clear`, not `sarvam` (D-630), and its vendor is Gnani (D-629).
 
 ### 2.3 Invariants (each becomes a test)
 1. `SUM(credit_lots.credits_remaining) == wallet balance` for every tenant, when the balance is ≥ 0. A negative balance means every lot is at 0 and `overdraft_inr = -balance`.
@@ -146,7 +146,7 @@ One-shot data migration in the same revision: for every tenant with `balance_aft
 Today `tts_chars` usage rows write `qty = 1` and `unit_cost_paid = CostBreakdown.tts_inr`, the ENGINE's reported synthesizer leg cost (`workers/pipeline.py:2500-2520`, `engine/bolna.py:5487`). Under a BYOK Cartesia plan the engine's synthesizer figure is expected to be zero (we pay Cartesia, not Bolna) — **UNKNOWN until gate 51 (§9)**. So the Cartesia leg needs its own attested cost seam:
 - `TtsPriceAttestation` ⚠ **THIS ADDRESS IS STALE AS BUILT: it lives at `ops/model_pricing.py:655`, NOT in `billing/rates.py`** — the attestation types sit with the ops panel that writes them. Operator-attested, value = the plan's marginal rate per 1,000 characters. ⚠ **THIS READ "Startup: ₹4,312 / 1.25M = ₹3.4496/1k" UNTIL 9 SEP 2026 (D-556)** — a fee-over-allotment AVERAGE on a plan we are not on. It is now the vendor's **Pro overage rate, ₹5.72/1,000 characters** ($65 per 1M credits at ₹88; VENDOR-PUBLISHED, Tinmaz correspondence — evidence file ADDENDUM 3), recorded as such with its evidence class.
 - `qty` = agent characters spoken, counted from OUR transcript turns (the same measurement `billing/tts_speaking_rate.py` already makes), NOT from the vendor. ⚠ **AS BUILT THE UNIT IS `tts_kchars`, A NEW ONE, AND NOT `tts_chars`** — `unit_cost_paid` is `NUMERIC(12,4)`, so a per-CHARACTER rate stores as `0.0034` and our own cost would meter 1.4% light on every Cartesia call. `qty` is therefore characters ÷ 1,000, which is what the attested ₹/1k figure is denominated in (`billing/models.py:157`, `apps/workers/pipeline.py:2959-3028`).
-- `unit_cost_paid` = attested rate × qty. The plan fee itself is recorded once a month as a platform cost row (the `platform_ai_usage` shape) so the margin panel shows both the attributed cost and the true plan spend, and their difference is the plan's unused allotment. ⚠ **THAT SECOND SENTENCE IS PHASE D.3 AND IS NOT BUILT** (§12.1): no committed migration creates the table, so the board publishes the attributed cost with nothing beside it and the unused allotment is computed nowhere.
+- `unit_cost_paid` = attested rate × qty. The plan fee itself is recorded once a month as a platform cost row (the `platform_ai_usage` shape) so the margin panel shows both the attributed cost and the true plan spend, and their difference is the plan's unused allotment. ⚠ **THIS SENTENCE READ "THAT SECOND SENTENCE IS PHASE D.3 AND IS NOT BUILT … no committed migration creates the table" UNTIL 19 Sep 2026, AND D.3 HAD BEEN BUILT SINCE 8 Sep 2026** — `bc6da1d`, migration `alembic/versions/b7d4e91a0c58_platform_tts_plan_fees.py`, model `ops/models.py::PlatformTtsPlanFee`, attested through `ops/model_pricing.py::attest_tts_plan_fee` and published as `FleetSpendOut.tts_plan` (`billing/spend_routes.py::FleetSpendOut.tts_plan`). §12.1 already recorded the closure; this line and the Phase D heading did not, which is the contradiction a reader hit first. ⚠ The vendor named in it is now GNANI on the Clear rung and CARTESIA on Studio (D-629), and the PLAN FEE is Cartesia's — Sarvam was and is refused a plan-fee row by name because we buy no bundle there.
 - Until a Cartesia price is attested, `offerable_voices()` (§4.3) refuses the Cartesia tier with `NO_ATTESTED_PRICE_REASON` — the exact rule `offerable_models()` applies to an LLM (`agents/llm_models.py:452-476`).
 
 ---
@@ -235,26 +235,61 @@ Files: `agents/voices.py`, `agents/voice_routes.py`, `agents/verification.py`, `
 7. **Conformance**: `packages/shared/tests/engine_conformance/contract_test.py:79-85,1263` pin one TTS model; extended to require both adapters (bolna, fake) to round-trip both providers.
 8. `voice_tier(agent)` helper = provider of its voice; the pipeline stamps `meta.tts_tier` with it (`pipeline.py:2484` currently the constant `"premium"`; `BASE_OVERAGE_RUNG`/`_RUNGS` (`service.py:1190-1197`) are re-pointed to `("sarvam","cartesia","")`).
 
-### Phase D — LANDED IN PART `1df9a5a`, `a822c7e` (7–8 Sep 2026). D.3 IS NOT BUILT; D.4's revenue half IS NOT BUILT
+### Phase D — LANDED IN FULL. `1df9a5a`, `a822c7e` (7 Sep 2026), then `bc6da1d`, `f5b3a3d` (8 Sep 2026)
+
+⚠ **THIS HEADING READ "LANDED IN PART … D.3 IS NOT BUILT; D.4's revenue half IS NOT BUILT"
+UNTIL 19 Sep 2026, AND IT WAS STALE BY ABOUT TWENTY-FOUR HOURS.** It was written on 7 Sep
+against `014d77f..be5a5ec`; both halves landed the NEXT DAY, in `bc6da1d` (D.3) and
+`f5b3a3d` (D.4's revenue half), and nobody came back to the heading. §12's completion table
+had the commits right the whole time (rows at §12's "Phase D.3" and "A closed month priced
+at list-rate x minutes"), so this document contradicted itself for eleven days and the
+half that was WRONG is the half a reader starts from. Both paragraphs below are kept, struck,
+because the next reader will otherwise re-derive "not built" from the same §12 they should
+have trusted.
 
 **Built**: D.1 (`TtsPriceAttestation` and `tts_price_is_billable`) and D.2 (the metering
 seam), D.4's panel half (`UsagePanelOut` gained `clear_minutes`/`studio_minutes` and
-their charges, `crm/schemas.py:1035-1038`, fed by `voice_tier_usage`, with no total derived
-in the browser — D-458 kept).
+their charges on `crm/schemas.py::UsagePanelOut`, fed by
+`billing/service.py::voice_tier_usage`, with no total derived in the browser — D-458 kept).
+⚠ This line cited `crm/schemas.py:1035-1038` and that address was stale; the fields move
+with every edit to that module, so they are cited by SYMBOL here instead (19 Sep 2026).
 
-**⚠ `TtsPriceAttestation` LIVES IN `ops/model_pricing.py:655`, NOT IN `billing/rates.py`** —
+**⚠ `TtsPriceAttestation` LIVES IN `ops/model_pricing.py`, NOT IN `billing/rates.py`** —
 §3.5 says "beside `LlmPriceAttestation` (`rates.py:494`)" and that address is STALE: the
 attestation types moved to the ops module with the panel that writes them, and this plan
 was never re-pointed. `billing/rates.py` is not where to look.
 
-**NOT BUILT — D.3**, the monthly `cartesia_plan` platform cost row. A `PlatformTtsPlanFee`
+~~**NOT BUILT — D.3**, the monthly `cartesia_plan` platform cost row. A `PlatformTtsPlanFee`
 model and a migration for `platform_tts_plan_fees` exist UNCOMMITTED in the working tree as
 another lane's in-flight work; nothing in `014d77f..be5a5ec` carries them, so the spend
-board today shows the ATTRIBUTED Cartesia cost with no plan spend to compare it against.
+board today shows the ATTRIBUTED Cartesia cost with no plan spend to compare it against.~~
+⚠ **D.3 IS BUILT — the uncommitted work this paragraph described was committed the next
+morning as `bc6da1d` ("what the voice vendor billed, beside what we attributed to it").**
+Verified against the tree on 19 Sep 2026: `alembic/versions/b7d4e91a0c58_platform_tts_plan_fees.py`,
+`apps/api/ops/models.py::PlatformTtsPlanFee`, the attestation door
+`apps/api/ops/model_pricing.py::attest_tts_plan_fee` with its reader
+`::attested_tts_plan_fees` and reference `::reference_tts_plan_fee`, the step-up-gated route
+`apps/api/ops/model_price_routes.py::attest_voice_plan_fee`, and
+`apps/api/billing/spend_routes.py::FleetSpendOut.tts_plan` on the wire. Sarvam is refused by name in
+`TTS_PROVIDERS` (`ops/model_pricing.py::TTS_PROVIDERS`, pinned by `tests/tts_plan_fee_test.py`) because
+we buy no bundle there and hold no character count of our own.
 
-**NOT BUILT — D.4's revenue half.** `calling_revenue_inr` still prices a prepaid month as
+~~**NOT BUILT — D.4's revenue half.** `calling_revenue_inr` still prices a prepaid month as
 `self_serve_rate_inr_per_min * minutes` (`billing/service.py:2900`), a single Sarvam list
-rate, and does NOT take the lot splits' sum. §12 carries it as an open money-path defect.
+rate, and does NOT take the lot splits' sum. §12 carries it as an open money-path defect.~~
+⚠ **D.4's REVENUE HALF IS BUILT, IN `f5b3a3d` (8 Sep 2026), AND THE DEFECT THIS PARAGRAPH
+NAMED IS CLOSED.** Read on 19 Sep 2026: `billing/service.py::calling_revenue_inr` takes
+`prepaid_charged_inr` as a REQUIRED keyword (no default, deliberately — "a default is how
+the re-derivation gets back in, silently, at whichever call site forgets", its own
+docstring) and its
+prepaid branch is literally `return prepaid_charged_inr` (its `plan_tier in PREPAID_TIERS` branch), the sum of the lot
+splits `voice_tier_usage` reads off the very rows the wallet was debited on. The trial
+counterfactual moved to a SEPARATE function rather than a flag —
+`billing/service.py::absorbed_calling_inr` — because a trial takes no debit, so the
+splits are empty and a shared function would have answered ₹0.00 for both questions.
+⚠ One detail of this paragraph was already wrong when written and is corrected rather than
+repeated: the rate it described was the VALUE rung's list rate, which this document then
+spelled `sarvam`; D-630 (19 Sep 2026) renamed that rung `clear`.
 Files: `billing/rates.py`, `ops/model_pricing.py`, `workers/pipeline.py`, `billing/service.py` (margin SQL), `billing/attribution.py`, `billing/cost_unit.py`, `crm/schemas.py` (`UsagePanelOut`), tests.
 1. §3.5's `TtsPriceAttestation`, ops attestation panel entry, and `tts_price_is_billable("cartesia")`.
 2. Pipeline: for a Cartesia call, `tts_chars` row `qty` = agent characters from transcript, `unit_cost_paid` = attested rate × qty; for a Sarvam call the existing engine-leg figure stays (its own attestation question is gate 7, `docs/OPERATIONS.md:88`, unchanged).
@@ -473,11 +508,14 @@ A (card)  ──►  B (lots + debit)  ──►  D (Cartesia metering)  ──�
 
 ## 11. Definition of done
 
-**This is the TARGET, not a status.** ⚠ Several lines below are NOT met — the margin
-panel's plan-spend half, the statement's per-lot revenue, and the ratchet run itself —
-and §12 names each with its evidence. Read §12 before reading a tick into any line here.
+**This is the TARGET, not a status.** ⚠ **THIS PREAMBLE NAMED THREE UNMET LINES — "the margin
+panel's plan-spend half, the statement's per-lot revenue, and the ratchet run itself" — AND THE
+FIRST TWO WERE MET ON 8 Sep 2026 (corrected 19 Sep 2026)**: `bc6da1d` and `f5b3a3d`, recorded in
+§12.1 and now in the Phase D heading. What is still unmet on this list is the Cartesia/Gnani
+attestation line (hard rule 7 — no TTS price is attested, so no Clear voice is offerable) and the
+ratchet run. §12 names each with its evidence; read it before reading a tick into any line here.
 
-- A clinic buys a ₹15,000 pack and sees 3,191 Sarvam minutes / 2,307 Cartesia minutes and two rates on its wallet; a second ₹2,000 pack appears BEHIND it with its own rates.
+- A clinic buys a ₹15,000 pack and sees 3,750 Clear minutes / 2,459 Studio minutes and two rates on its wallet; a second ₹2,000 pack appears BEHIND it with its own rates. ⚠ **THIS LINE READ "3,191 Sarvam minutes / 2,307 Cartesia minutes" UNTIL 19 Sep 2026 AND BOTH FIGURES WERE OFF THE CARD THAT SHIPPED.** The `plus` pack is ₹15,000 at `clear_inr_per_min` ₹4.00 and `studio_inr_per_min` ₹6.10 (the `plus` row of `billing/credit_packs.py::PACK_CATALOGUE`), and `billing/credit_packs.py::pack_talk_time_minutes` is `total_credits / rate` floored by `payment_routes._pack_out` — 3,750 and 2,459. The old pair was computed from a draft card (₹4.70 / ₹6.50) that D-601 replaced on 14 Sep 2026 (`docs/PIPECAT-MIGRATION.md` §6 step 16).
 - A call on a Cartesia agent debits FIFO at the oldest lot's Cartesia rate, splits across lots when one runs out, and the ledger row shows the splits.
 - A wallet driven negative is repaid by the next top-up before a new lot opens.
 - The public rate card shows both rates per pack and every ₹ figure on the marketing pages comes from it (the provenance test unchanged in spirit).

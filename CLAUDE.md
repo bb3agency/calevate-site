@@ -253,6 +253,13 @@ apps/web            Next.js 15 (App Router) + TS — admin.calevate.tech + app.c
 apps/api            FastAPI modular monolith — tenancy, agents, crm, billing, kb, ...
 apps/voice-runtime  FastAPI — engine webhooks, in-call tool endpoints. LATENCY-CRITICAL.
 apps/workers        ARQ workers — post-call pipeline, embeddings, campaigns, retention
+apps/voice-worker   Pipecat conversation loop — our own container on Pipecat Cloud
+                    ap-south. Python package `voice_worker`; everything an operator types
+                    is `pipecat-worker`. ⚠ THIS BLOCK LISTED THE OTHER FOUR APPS AND NOT
+                    THIS ONE (added 19 Sep 2026) — the directory landed with D-592 on
+                    13 Sep 2026 and the layout was never widened, while hard rule 2 below
+                    names it as the third home for vendor imports. That is exactly the
+                    "leaving a fourth deployable unnamed" the rule argues against.
 packages/shared     Pydantic models, VoiceEngine protocol, normalized events
 infra/              nginx templates, backup units + wal-g config, object-lifecycle policy,
                     and Terraform whose ONLY resource is that S3 lifecycle configuration.

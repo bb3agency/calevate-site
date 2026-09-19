@@ -652,14 +652,21 @@ cheaper minute than a ₹50,000 purchase.
    `meta.lots`).
 
    ⚠ **NO CLIENT-FACING SURFACE NAMES A VENDOR AS A PRODUCT TIER** (founder, 7 Sep 2026).
-   The two voice qualities are **Clear** (Sarvam) and **Studio** (Cartesia), defined once
+   The two voice qualities are **Clear** (spoken by Gnani Timbre v2.5) and **Studio**
+   (Cartesia Sonic 3.5), defined once
    in `billing/rates.VOICE_TIER_LABELS` and SENT to the browser beside every per-tier
    figure — a second copy in TypeScript is how the two drift and a client meets both names.
-   Every wire FIELD, column, ledger value and `meta` key keeps the vendor spelling
-   (`voice_tier`, `clear_inr_per_min`, `clear_minutes`): those are what an auditor
-   reconciles against a vendor invoice, and renaming a vendor in a ledger is how a leg
-   becomes unauditable. This flow's own prose above uses the vendor names because it
-   describes the ledger; a screen does not.
+   ⚠ **THIS PARAGRAPH SAID "Clear (Sarvam)" AND SAID EVERY FIELD "keeps the VENDOR
+   spelling", AND BOTH ARE NOW WRONG** (corrected 19 Sep 2026). D-629 took Sarvam off the
+   synthesis leg on 18 Sep 2026 — it is still the STT vendor on every call — and D-630
+   renamed the money columns and wire fields to the RUNGS the next morning. So the fields
+   named below keep the **rung** spelling, not a vendor's: `voice_tier`,
+   `clear_inr_per_min`, `clear_minutes` are `clear`/`studio`
+   (`billing/rates.py::VoiceTier`), and a lot's two rates were renamed by
+   `alembic/versions/f1c40d8b6e93_voice_tiers_named_for_rungs.py`, which refuses against a
+   non-empty table because they are frozen at purchase. What the paragraph was protecting is
+   unchanged and is what the rename served: an auditor reconciles a column against an
+   invoice, so a money column must never be named for a supplier that can be swapped.
 
 9. **Correcting a purchase.** An operator restating an UNDER-credited payment grows that
    payment's own lot (one bank transfer, one card, one lot). One taking credit BACK restates
@@ -673,8 +680,12 @@ cheaper minute than a ₹50,000 purchase.
 ### The two branches that are easy to forget
 
 **A debit that SPLITS across two lots, at two different rates.** A client with 40 credits
-left on a `plus` lot (₹4.70 Sarvam) and 5,000 on a newer `starter` lot (₹5.00) takes a
-12-minute Sarvam call. The oldest lot pays for 8.51 minutes and empties; the remaining 3.49
+left on a `plus` lot (₹4.70 Clear) and 5,000 on a newer `starter` lot (₹5.00) takes a
+12-minute Clear call. ⚠ (This worked example said "Sarvam" for the rung; the rung is `clear`
+since D-630, and both ₹ figures are from the card in force on 7 Sep 2026 — today's is Clear
+flat ₹4.00, `billing/credit_packs.py::PACK_CATALOGUE`. It is kept at the old rates
+deliberately: with Clear flat, no two packs price a Clear minute differently, so the split
+this example exists to show could not be built from today's card at all.) The oldest lot pays for 8.51 minutes and empties; the remaining 3.49
 minutes are priced at ₹5.00 off the newer lot. One call, one `usage` row, TWO entries in
 `meta.lots`, and the totals in the panel are the sum of the splits — never minutes × one
 rate. This is the ordinary case at every pack boundary, not an edge case, and it is the

@@ -1397,18 +1397,27 @@ card reads measured, re-derive this section's floor from the POOLED figure.
 > `Literal["sonic-3.5", "timbre-v2.5"]`, **Gnani took the Clear (value) rung Sarvam held**
 > and Cartesia stays Studio.
 >
-> **SO THE CLEAR RUNG HAS A VENDOR AND NO PRICE, AND THAT IS THE WHOLE OF THE CHANGE TO
-> THIS SECTION.** Its per-call-minute row states no rate: what survives is a FLOOR, struck
-> at the frozen historical Sarvam scalar and labelled as such in `billing/rates.py`, which a
-> retail rate would be judged against if one were ever set — and none may be, because no
-> Gnani voice is offerable. Gnani publish none — `docs/PIPECAT-MIGRATION.md` §6 step 9 and §7 record
-> it, and the single figure in the wild (₹27 / 10,000 characters) is a RESELLER's price for
-> THEIR platform and is not Gnani's, which is a stronger reason to keep it out than
-> "unverified": re-verifying it would not make it a Gnani rate. Hard rule 7 therefore keeps
-> every Gnani voice out of what a client can pick — `agents/voice_offer.py`'s attested-price
-> ground, the same pre-flight `agents/llm_models.offerable_models()` applies to a model — and
-> no Gnani minute reaches `unit_cost_paid`. One operator
-> attestation of a real invoice unblocks all of it.
+> ⚠ **THIS BLOCK READ "SO THE CLEAR RUNG HAS A VENDOR AND NO PRICE … Gnani publish none"
+> UNTIL 19 Sep 2026, AND THE NO-PRICE HALF WAS A NOT-FINDING WRITTEN DOWN AS A VENDOR
+> FACT** (D-631; hard rule 11, committed about hard rule 11's own subject). **THE CLEAR RUNG
+> HAS A VENDOR, A PUBLISHED PRICE, AND STILL NO SELLABLE RATE — and the last of those three
+> is the only one that has not moved.** Gnani's own console publishes **₹27.00 / 10,000
+> characters** for Text to Speech, with a **60 requests/minute** limit
+> (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed; the host is
+> egress-blocked from this container, so the evidence class is **VENDOR-PUBLISHED**,
+> founder-relayed, not fetched here). `billing/rates.py::TTS_INR_PER_10K_CHARS` is struck
+> at it and the per-call-minute row below states **₹0.97–1.46**, replacing a FLOOR that had
+> been struck at a withdrawn vendor's ₹30 scalar for one day.
+> **THE PROVENANCE HALF OF THE OLD BLOCK WAS RIGHT AND SURVIVES**: the single figure that was
+> already in the wild came from a RESELLER's page for THEIR platform
+> (`docs/PIPECAT-MIGRATION.md` §7), it is not Gnani's, and re-verifying a reseller would never
+> have made it a Gnani rate — a figure that later turns out to match is still not a source.
+> **WHAT DOES NOT CHANGE: no Gnani minute is sellable.** A published catalogue price is not an
+> invoice, so hard rule 7 keeps every Gnani voice out of what a client can pick —
+> `agents/voice_offer.py`'s attested-price ground, the same pre-flight
+> `agents/llm_models.offerable_models()` applies to a model, and the identical standard that
+> makes the Gemini catalogue price `verified=False` — and no Gnani minute reaches
+> `unit_cost_paid`. One operator attestation of a real invoice unblocks all of it.
 >
 > **WHAT THIS MEANS FOR EVERY ₹1.08–1.62 IN THIS DOCUMENT**: it was the Bulbul v3 TTS band
 > and it prices nothing now. Where it appears below in a DATED comparison (§10's engine
@@ -1580,11 +1589,17 @@ Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt
 
 > ⚠ **EVERY ROW OF THE TABLE BELOW HAS A BULBUL V3 TTS LEG, AND NO STACK OF OURS HAS ONE
 > SINCE D-629 (18 Sep 2026).** They are kept as the record of what was computed, not as the
-> live cost model: the TTS leg on the Clear rung is Gnani Timbre v2.5 and Gnani publish no
-> price, so the Clear combination has **no figure at all** and none is invented (hard rule
-> 11, hard rule 7). The Studio combination is the Cartesia rung, unchanged, and is obtained
-> by swapping ₹2.06–3.09 in for the v3 band as the "All-in" row already says. When an
-> operator attests a Gnani invoice figure, these rows are re-derived from it in one edit.
+> live cost model: the TTS leg on the Clear rung is Gnani Timbre v2.5. ⚠ **THIS NOTE SAID
+> "and Gnani publish no price, so the Clear combination has no figure at all" UNTIL
+> 19 Sep 2026, AND THAT WAS THE HARD-RULE-11 FAILURE D-631 RECORDS.** Gnani's published
+> ₹27.00 / 10,000 chars gives the Clear TTS leg **₹0.97–1.46** per call-minute (§10.1's
+> table above), so a Clear combination IS derivable by swapping that band in for the v3
+> band exactly as the Studio one swaps ₹2.06–3.09 — the rows below are not re-derived here
+> only because they are a dated record. ⚠ **A DERIVED COST IS STILL NOT A SELLABLE RATE**:
+> hard rule 7 admits an operator's attested invoice figure and nothing else, so no Clear
+> minute is billed and no Gnani voice is offerable (hard rule 11 on the source, hard rule 7
+> on the money). When an operator attests a Gnani invoice figure, these rows are re-derived
+> from it in one edit.
 
 | Combination | Per call-minute |
 |---|---|
@@ -1634,8 +1649,8 @@ every figure below was read from that code, not restated from the plan:
 | `max` ₹50,000 | 4.50 | 8.4% | 6.00 | 27.3% |
 
 **The two floors those margins are struck against are DERIVED, never typed:** ₹4.1211/min
-for the Sarvam voice (`SELF_SERVE_COST_FLOOR_INR_PER_MIN` = engine fee 1.76 + STT 0.50 +
-LLM 0.2411 + TTS 1.62) and **₹5.5899** for the Cartesia voice
+for the CLEAR rung (`SELF_SERVE_COST_FLOOR_INR_PER_MIN` = engine fee 1.76 + STT 0.50 +
+LLM 0.2411 + TTS 1.62) and **₹5.5899** for the STUDIO rung
 (`CARTESIA_COST_FLOOR_INR_PER_MIN` — the same three shared legs plus **₹3.0888**, the
 vendor's Pro overage rate over one call-minute of characters). Telephony is in neither,
 because the client pays their own carrier (D-474).
@@ -1643,8 +1658,13 @@ because the client pays their own carrier (D-474).
 ⚠ **THE CARTESIA FIGURE WAS ₹4.3639 UNTIL 9 SEP 2026 AND THE MARGINS IN THE TABLE ABOVE
 MOVED WITH IT** — on the card then in force the Cartesia column went from reading 45.5%
 down to 27.3% to reading 30.1% at ₹8.00 down to **6.8%** at ₹6.00. ⚠ **BOTH HALVES HAVE
-MOVED AGAIN SINCE AND NEITHER PAIR IS TODAY'S**: D-592 halved the engine leg (the floors are
-₹3.3111 and ₹4.7099) and D-601 cut the card (Clear flat ₹4.00, Studio 7.00 → 5.50). The
+MOVED AGAIN SINCE AND NEITHER PAIR IS TODAY'S**: D-592 halved the engine leg (the floors
+became ₹3.3111 and ₹4.7099) and D-601 cut the card (Clear flat ₹4.00, Studio 7.00 → 5.50).
+⚠ **AND THE CLEAR FLOOR MOVED A THIRD TIME ON 19 Sep 2026 (D-631)**: its TTS leg was still
+₹1.62 — 540 chars at a withdrawn vendor's ₹30 / 10,000 — and is now Gnani's published
+₹27.00 / 10,000 (₹1.458 at the same 540 chars), so the pair READ FROM THE CODE on
+19 Sep 2026 is **₹3.1491** (`rates.py::SELF_SERVE_COST_FLOOR_INR_PER_MIN`) and
+**₹4.7099** (`::CARTESIA_COST_FLOOR_INR_PER_MIN`, unmoved). The
 twelve margins in force are computed, never quoted — `credit_packs.card_margins`, tabulated
 in `docs/PIPECAT-MIGRATION.md` §12. Nothing was repriced: the old floor was the $49
 Startup plan fee spread over the ~2,315 call-minutes at which its allotment is exactly
@@ -1725,10 +1745,27 @@ model moves the two totals together and the delta by nothing** — consistent wi
 > chosen per agent, priced as two per-minute rates on each of six packs. So the ladder this
 > section sketches is half-right in a way worth stating exactly: the **Cartesia rung is real
 > and is ours now**, and the **v2 rung is still withdrawn**, so our ladder goes UP from the
-> Sarvam voice rather than down. It is also not a ladder of "qualities" — it is a ladder of
-> VENDORS, and whether Cartesia's Telugu is better than Bulbul v3's is still the ear test
-> nobody in this tree has run (§5). The v2 cost figures here are retained only as the
-> historical inputs the reconstruction was built on.
+> cheaper voice rather than down. It is also not a ladder of "qualities" — it is a ladder of
+> VENDORS, and whether the Studio vendor's Telugu is better than the Clear vendor's is still
+> the ear test nobody in this tree has run (§5). The v2 cost figures here are retained only
+> as the historical inputs the reconstruction was built on.
+>
+> ⚠ **A THIRD TIME, AND THIS SECTION WAS NOT RE-READ FOR IT: D-629 (18 Sep 2026) TOOK SARVAM
+> OFF THE SYNTHESIS LEG ALTOGETHER** (noted 19 Sep 2026; two sentences above were edited,
+> the rest of the section is left as the dated record). Everywhere below that calls the
+> cheaper of OUR two voices a Sarvam or Bulbul v3 voice is describing the card as it stood
+> before that date. `agents/voices.py::TtsModel` is `Literal["sonic-3.5", "timbre-v2.5"]`:
+> the Clear rung is **Gnani Timbre v2.5** and Studio is Cartesia Sonic 3.5, and D-630
+> (19 Sep 2026) renamed the RUNGS `clear`/`studio` so that neither is spelled with a vendor's
+> name. **The client-facing rates in this section are unaffected** — ₹4.00 flat on Clear and
+> ₹7.00 → ₹5.50 on Studio are PACK rates, not vendor rates
+> (`billing/credit_packs.py::PACK_CATALOGUE`) — and **Outpero's** own
+> `rates.sarvam_per_min` below is THEIR bundle's symbol for THEIR tier and was never ours.
+> What IS affected is the cost side: our Clear leg is no longer a Bulbul v3 leg, and §10.1
+> prices it at Gnani's published ₹27.00 / 10,000 chars (₹0.97–1.46/call-minute).
+> ⚠ **AND NO CLEAR MINUTE IS SELLABLE AT ALL until an operator attests a Gnani invoice
+> figure** (hard rule 7, `agents/voice_offer.tts_price_is_billable`), so every "our Clear
+> voice at ₹4.00" sentence below describes a card rung no agent can currently be put on.
 
 With the verified Sarvam rate card, their pricing reconciles cleanly — and the reconstruction
 is instructive because **they buy the same inputs we do.** Confidence is marked per line.
@@ -1761,9 +1798,12 @@ to reconcile — do not build on it without direct verification.)*
 > **FOUNDER EAR-TEST, 6 Sep 2026 (FOUNDER-OBSERVED, relayed):** the ₹3 tier "literally
 > robotic voices". That is consistent with **Bulbul v2** and not with v3, and it is the
 > evidence that settles which Sarvam model sits behind `rates.sarvam_per_min`. Their ₹7
-> premium is Cartesia; **so is our second voice, since D-547.** Our Sarvam voice is
-> **Bulbul v3** at a flat **₹4.00** by pack — ₹1 above their cheapest tier — and our
-> Cartesia voice is **Sonic 3.5** at **₹7.00** on the entry pack, level with their premium,
+> premium is Cartesia; **so is our second voice, since D-547.** ⚠ **THIS SENTENCE PAIR
+> NAMED OUR OWN VENDORS AND ONE OF THEM IS GONE (corrected 19 Sep 2026)**: it read "Our
+> Sarvam voice is **Bulbul v3** at a flat ₹4.00" and Sarvam left the synthesis leg on
+> 18 Sep 2026 (D-629). Our CLEAR voice — **Gnani Timbre v2.5** — is at a flat **₹4.00** by
+> pack, ₹1 above their cheapest tier, and our
+> STUDIO voice is **Cartesia Sonic 3.5** at **₹7.00** on the entry pack, level with their premium,
 > falling under it from the ₹5,000 pack (₹6.70) and reaching **₹5.50** at ₹50,000. ⚠ **THIS
 > READ "₹5.00 falling to ₹4.50" AND "₹8.00 ... reaching ₹6.00" UNTIL D-601 (14 Sep 2026)**,
 > and the conclusion under it moved with the card: we no longer start ABOVE them on the same

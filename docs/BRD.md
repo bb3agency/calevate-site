@@ -207,15 +207,30 @@ verified model cost is ₹1.04–1.31/min (Bulbul v2 + Sarvam LLM) to
 to stop there, which made it incomplete rather than wrong**: both are Sarvam-LLM
 combinations, so their LLM leg is free and no model migration can move them — but neither
 is what we ship. **The shipped default is Bulbul v3 + `gpt-4o-mini` at ₹1.74–2.28/min**
-(five-minute call), or ₹2.02–2.56 on the `gpt-4.1-mini` switch. A tier ladder is reachable
+(five-minute call), or ₹2.02–2.56 on the `gpt-4.1-mini` switch. ⚠ **BOTH LEGS OF THAT
+"SHIPPED DEFAULT" HAVE MOVED AND THIS SENTENCE IS A DATED FIGURE, NOT A CURRENT ONE**
+(noted 19 Sep 2026). The TTS leg is no longer Bulbul v3 — D-629 took Sarvam off the
+synthesis leg on 18 Sep 2026 and the Clear rung is Gnani Timbre v2.5 — and the PLATFORM
+default model has been `gemini-2.5-flash-lite` since 4 Sep 2026
+(`PLATFORM_DEFAULT_LLM_MODEL`, `Settings.platform_llm_model`), while `gpt-4o-mini` remains
+only the FROZEN base-rate model the plan rate is struck against
+(`billing/rates.py::BASE_RATE_LLM_MODEL`). TRD §10.1's per-leg table is the live
+arithmetic; the combination rows under it are kept as a dated record and say so. A tier ladder is reachable
 on any of them, but the platform fee decides the floor (TRD §10.1–10.3). **The ladder we
-took is TWO VOICES × SIX PACKS, not three voice tiers (D-547):** Clear (Sarvam) at a FLAT
+took is TWO VOICES × SIX PACKS, not three voice tiers (D-547):** Clear (⚠ **this read
+"Clear (Sarvam)" until 19 Sep 2026; it is Gnani Timbre v2.5 since D-629**) at a FLAT
 ₹4.00 and Studio (Cartesia) falling ₹7.00 → ₹5.50 in even ₹0.30 steps, across ₹2,000 /
 5,000 / 10,000 / 15,000 / 25,000 / 50,000. ⚠ **THIS READ "Sarvam ₹5.00 falling to ₹4.50,
 Cartesia ₹8.00 falling to ₹6.00" UNTIL D-601 (14 Sep 2026)** — the founder cut every cell to
-win the first clients, and the Clear ladder became one number. The Sarvam floor is the ₹4.12 worst-case minute (engine fee 1.76 + STT 0.50 + LLM
-0.24 + Bulbul v3 1.62, telephony excluded because the client pays their own carrier,
-D-474). ⚠ **THE CARTESIA LEG HAS A FLOOR, AND THIS PASSAGE HAS NOW BEEN WRONG TWICE.** It first
+win the first clients, and the Clear ladder became one number. ⚠ **THIS SENTENCE READ "The Sarvam floor is the ₹4.12 worst-case minute (engine fee 1.76 +
+STT 0.50 + LLM 0.24 + Bulbul v3 1.62 …)" AND EVERY TERM OF IT HAS MOVED SINCE** (corrected
+19 Sep 2026, read from the code). It is the **CLEAR** floor, not a vendor's; D-592 halved
+the engine leg to 0.95 and D-631 re-struck the TTS leg at Gnani's published ₹27.00 / 10,000
+chars (₹1.458 at the assumed 540 chars/call-minute), so
+`billing/rates.py::SELF_SERVE_COST_FLOOR_INR_PER_MIN` is **₹3.1491** = 0.95 engine +
+0.50 STT + 0.2411 LLM + 1.458 TTS. Telephony is still excluded because the client pays
+their own carrier (D-474), and the figure is still DERIVED rather than typed — quote the
+constant, not this sentence. ⚠ **THE CARTESIA LEG HAS A FLOOR, AND THIS PASSAGE HAS NOW BEEN WRONG TWICE.** It first
 said the leg had "no per-minute cost floor at all"; it was then corrected to **₹4.3639/min**,
 and on 9 Sep 2026 the founder read that figure on the ops console under a column headed
 "COSTS US" and said the Studio leg could not cost us that little. He was right. ₹4.3639 was
@@ -224,8 +239,12 @@ allotment is exactly consumed — **the cheapest a Cartesia minute can ever be, 
 this platform has never run**. A best case had been given a floor's name.
 
 **THE FLOOR IS ₹5.5899/min** (`billing/rates.py::CARTESIA_COST_FLOOR_INR_PER_MIN`): the same
-three shared legs as the Sarvam floor plus **₹3.0888**, the vendor's own overage rate on the
-plan we are actually on. Two things changed underneath it, both from direct vendor
+three shared legs as the Clear floor plus **₹3.0888**, the vendor's own overage rate on the
+plan we are actually on. ⚠ **₹5.5899 IS THE 9 Sep 2026 FIGURE AND THE CONSTANT READS
+₹4.7099 TODAY** (checked 19 Sep 2026): D-592 halved the shared ENGINE leg from ₹1.76 to
+₹0.95, which took ₹0.81 off both floors. The ₹3.0888 overage term and the reasoning below it
+are unchanged; only the shared legs moved. ⚠ This passage also said "the Sarvam floor" for
+the other rung — it is the CLEAR rung's floor and its vendor has been Gnani since D-629. Two things changed underneath it, both from direct vendor
 correspondence (Ege Tinmaz, Product Support Engineer, Cartesia, relayed by the founder,
 9 Sep 2026; `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3):
 
@@ -268,23 +287,40 @@ NAMES A VENDOR AS A PRODUCT TIER (founder, 7 Sep 2026).** A client buys **Clear*
 by Gnani Timbre v2.5) or **Studio** (spoken by Cartesia Sonic 3.5). ⚠ **CLEAR WAS SPOKEN BY
 SARVAM BULBUL V3 UNTIL D-629 (18 Sep 2026)**, which took Sarvam off the synthesis leg
 entirely and gave Clear to Gnani — Sarvam still transcribes every call and still reads the
-first extraction pass, and nothing about that changed. **CLEAR CANNOT BE SOLD TODAY**: Gnani
-publish no price of any kind, so hard rule 7 keeps every Gnani voice off the picker until an
-operator attests a real invoice figure, and every client-facing surface says that rather
-than advertising it (`apps/web/src/lib/api/rateCard.ts::UNPRICED_TIER_NOTICE`, one wording,
-three renderers). The names are defined
+first extraction pass, and nothing about that changed. **CLEAR CANNOT BE SOLD TODAY**, and ⚠ **THE REASON GIVEN HERE
+WAS WRONG UNTIL 19 Sep 2026**: this passage read *"Gnani publish no price of any kind"*, and
+they do — ₹27.00 / 10,000 characters for Text to Speech, with a 60 requests/minute limit, on
+their own console (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed;
+VENDOR-PUBLISHED, D-631). The CONCLUSION is unchanged and the corrected reason is the
+stronger one: **a published catalogue price is not an invoice**, so hard rule 7 keeps every
+Gnani voice off the picker until an operator attests a real invoice figure — the identical
+standard that makes the Gemini catalogue price `verified=False` on the language leg — and
+every client-facing surface says that rather than advertising it
+(`apps/web/src/lib/api/rateCard.ts::UNPRICED_TIER_NOTICE`, one wording, three renderers). The names are defined
 once, in code, at `apps/api/billing/rates.py::VOICE_TIER_LABELS`, and travel to every
 screen over the wire rather than being retyped in the web bundle — the same provenance
-discipline the marketing pages already hold every ₹ figure to. **The wire fields, the
-ledger, the lot rows and every column keep the VENDOR spelling** (`sarvam`, `cartesia`),
-because that is what they mean and renaming a vendor in a money column is how a leg becomes
-unauditable. Two reasons, and the first is commercial rather than cosmetic: **the vendor
-behind a tier must be able to change without a client-visible rename** — a client who bought
-"Cartesia" has been sold a supplier, and a client who bought "Studio" has been sold a voice.
+discipline the marketing pages already hold every ₹ figure to. ⚠ **THIS PARAGRAPH SAID "The wire fields, the
+ledger, the lot rows and every column keep the VENDOR spelling (`sarvam`, `cartesia`)" AND
+D-630 REVERSED IT ON 19 Sep 2026.** They now spell the RUNG:
+`credit_lots.clear_inr_per_min` / `studio_inr_per_min` (migration
+`alembic/versions/f1c40d8b6e93_voice_tiers_named_for_rungs.py`, which refuses against a
+non-empty table because a lot's rates are frozen at purchase),
+`billing/rates.py::VoiceTier = Literal["clear", "studio"]`, and the same two words on the
+wire (`billing/credit_routes.py::CreditLotOut` and the pack response beside it), in the browser
+(`apps/web/src/lib/api/rateCard.ts::packRate`) and in `usage_events.meta.voice_tier`. **The
+client-facing half of this paragraph is UNCHANGED and is what the rename served**: the vendor
+behind a tier must be able to change without a client-visible rename — a client who bought
+"Cartesia" has been sold a supplier, and a client who bought "Studio" has been sold a voice —
+and when Sarvam left the synthesis leg on 18 Sep 2026 a money column was left named after a
+company with nothing to do with the rung it priced. The overlap also hid three live bugs: the
+voice picker, the admin agent-detail panel and the client publishing panel each looked a rate
+up by PROVIDER among rows keyed by TIER, which resolved only while every vendor's name
+equalled its rung's, so from 18 Sep a Gnani agent's per-minute price silently did not render.
 The second is accuracy: `standard`/`premium` are Outpero's own rung names (TRD §10.3, read
 out of their shipped bundle) and copying a competitor's ladder reads as a copy of the
-product, while `basic` would be a claim about the Sarvam voice this repository has no
-measurement to support — the ear test in R-10 has not been run, and TRD §10.3 records a
+product, while `basic` would be a claim about the Clear voice this repository has no
+measurement to support (⚠ this sentence said "the Sarvam voice" until 19 Sep 2026; the rung
+has been Gnani's since D-629 and the ear test is no more run on one vendor than the other) — the ear test in R-10 has not been run, and TRD §10.3 records a
 reader already misled by exactly that kind of inference.
 
 **Motion A — MANAGED (unchanged, the client-#1 path and where the margin is):**

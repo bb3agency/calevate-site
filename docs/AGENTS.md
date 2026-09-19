@@ -11,27 +11,49 @@ D-31) + BYOK models. **Speech is TWO VENDORS ON TWO DIFFERENT LEGS, and the TTS 
 chosen PER AGENT (D-547)** — STT is Sarvam Saaras throughout, TTS is
 `apps/api/agents/voices.py::TtsModel`, which is `Literal["sonic-3.5", "timbre-v2.5"]`:
 Cartesia Sonic 3.5 (**Studio**, ₹2.06–3.09 per call-minute, TRD §10.1) or Gnani Timbre v2.5
-(**Clear**, no price at all). ⚠ **THIS LINE SAID `Literal["bulbul:v3", "sonic-3.5"]` AND IS
+(**Clear**, ₹0.97–1.46 per call-minute, published but not yet sellable — see below).
+⚠ **THIS LINE SAID "(**Clear**, no price at all)" UNTIL 19 Sep 2026, AND THAT WAS A
+NOT-FINDING WRITTEN DOWN AS A VENDOR FACT** (D-631, hard rule 11 on its own subject).
+⚠ **THIS LINE ALSO SAID `Literal["bulbul:v3", "sonic-3.5"]` AND IS
 TWO CORRECTIONS DEEP.** D-618 made the Literal three by adding Gnani; **D-629 (18 Sep 2026)
 made it two again with a DIFFERENT PAIR** — Sarvam left the TEXT-TO-SPEECH leg and Gnani
 took the Clear rung. **Sarvam STT is untouched**: Saaras still transcribes every call, still
 receives the caller's AUDIO and the raw transcript, still runs the first extraction pass,
 and its sub-processor standing, cross-border transfers and ToS s.17.5 training permission
 are disclosed exactly as before (`/legal/subprocessors` §3.4, `/legal/privacy` §6). **The
-provider and the tier are different vocabularies** (D-618): `voices.VOICE_TIER_OF_PROVIDER`
-maps `gnani` to `billing/rates.VALUE_VOICE_TIER`, which is still spelled `"sarvam"` because
-that is the LEDGER's name for the Clear rung and renaming a money column is a migration
-nobody has run — the key is history, the vendor is Gnani. What keeps a Gnani minute off a
-client's agent is `agents/voice_offer.py`'s attested-price ground, not the tier map. ⚠ **So the Clear rung exists, has
-a vendor and CANNOT BE SOLD**: Gnani publish no price of any kind, the only figure in this
-tree is a RESELLER's (₹27/10,000 chars, `docs/PIPECAT-MIGRATION.md` §7 — not Gnani's, and
-never to reach a client-facing surface), and hard rule 7 keeps every Gnani voice out of
-`agents/voice_offer` until one operator attests a real invoice. `TTS_INR_PER_10K_CHARS`
-stayed in the code but is no longer a rate anybody is charged: FROZEN and labelled as the
-last figure anybody read for a value-rung voice, divided into the Clear rung's cost FLOOR
-only, and retired the day a Gnani figure is attested. Bulbul **v2** remains withdrawn and
+provider and the tier are different vocabularies** (D-618), and **the two sets no longer
+share a member** (D-630, 19 Sep 2026): rungs are `clear`/`studio`, vendors are
+`gnani`/`cartesia`. `voices.VOICE_TIER_OF_PROVIDER` maps `gnani` to
+`billing/rates.VALUE_VOICE_TIER`. ⚠ **THAT CONSTANT IS `"clear"` AND THIS PARAGRAPH SAID
+IT WAS "still spelled `"sarvam"` … renaming a money column is a migration nobody has
+run".** Somebody ran it: `alembic/versions/f1c40d8b6e93_voice_tiers_named_for_rungs.py`
+renames `credit_lots.sarvam_inr_per_min` → `clear_inr_per_min` and `cartesia_inr_per_min`
+→ `studio_inr_per_min` and REFUSES against a non-empty table, because those rates are
+frozen at purchase; `billing/rates.py::VoiceTier` is `Literal["clear", "studio"]`,
+and the wire (`billing/credit_routes.py::CreditLotOut` and the pack response beside it), the web client
+(`apps/web/src/lib/api/rateCard.ts::packRate`) and `usage_events.meta.voice_tier` moved with it.
+The overlap on `cartesia` had been hiding three live bugs: the voice picker, the agent
+detail panel and the client publishing panel each looked a rate up by PROVIDER among rows
+keyed by TIER, so from 18 Sep 2026 a Gnani agent's rate simply did not render. What keeps a
+Gnani minute off a client's agent is `agents/voice_offer.py`'s attested-price ground, not
+the tier map. ⚠ **So the Clear rung exists, has a vendor, HAS A PUBLISHED PRICE, and STILL
+CANNOT BE SOLD.** ⚠ **THIS PARAGRAPH SAID "Gnani publish no price of any kind" AND WAS
+WRONG (D-631, 19 Sep 2026)**: Gnani's own console publishes **₹27.00 / 10,000 characters**
+for Text to Speech and a **60 requests/minute** limit (`app.gnani.ai/voice/pricing`, read by
+the founder 19 Sep 2026 and relayed; the host is egress-blocked from this container, so this
+is a founder-relayed reading of a PRIMARY source — **VENDOR-PUBLISHED**). The provenance
+half of the old claim survives and was right: the ₹27 already in this tree came from a
+RESELLER's page for their own platform (`docs/PIPECAT-MIGRATION.md` §7), refusing it was
+correct, and a figure that turns out to match is still not a source. Hard rule 7 keeps every
+Gnani voice out of `agents/voice_offer` until one operator attests a real invoice — a
+published catalogue price is not an invoice, the same standard that makes the Gemini
+catalogue price `verified=False`. `billing/rates.py::TTS_INR_PER_10K_CHARS` is
+**₹27.00, Gnani's own number**, and is divided INTO the Clear rung's cost FLOOR; it is not a
+rate a client pays. ⚠ It was a FROZEN ₹30 placeholder — a withdrawn vendor's Bulbul v3 list
+rate — for exactly one day. Bulbul **v2** remains withdrawn and
 prices nothing, and the premium/value `Mapping[TtsTier, Decimal]` it once named was deleted
-with the old ladder (TRD §10.1, whose Clear row states no rate a client pays). Language is **Azure OpenAI in East US 2** —
+with the old ladder (TRD §10.1, whose Clear row now states ₹27.00 / 10,000 chars →
+₹0.97–1.46 per call-minute). Language is **Azure OpenAI in East US 2** —
 `AZURE_LOCATION`
 (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with `gpt-4.1-mini`
 a live config switch through `azure_openai_model`. **D-410 supersedes D-400/D-404 on the
@@ -152,6 +174,12 @@ make web-check                # frontend: typecheck + lint + vitest + browser ax
 - `apps/workers` — ARQ jobs; idempotent, keyed by call_id; **3 attempts total** (i.e. 2
   retries — `WORKER_MAX_TRIES`; outbound deliveries wait 30s then 120s) + DLQ. A job
   earns a retry only by raising `arq.Retry`; a plain `raise` is terminal.
+- `apps/voice-worker` — the Pipecat conversation loop, our own container on Pipecat Cloud
+  `ap-south`; Python package `voice_worker`, but every env var, secret set and script an
+  operator touches says `pipecat-worker`. ⚠ **THIS LIST NAMED FOUR DEPLOYABLES AND THE TREE HAS
+  FIVE** (added 19 Sep 2026): the package landed with D-592 on 13 Sep 2026, hard rule 2
+  names it as the third place vendor SDKs may be imported, and this section never learned
+  it existed.
 - `packages/shared` — Pydantic models, VoiceEngine Protocol, normalized events.
 
 ## Non-negotiable rules

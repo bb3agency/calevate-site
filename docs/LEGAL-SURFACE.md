@@ -466,9 +466,32 @@ to any client who bought on that sentence.
    processing outside India, so "Indian service" may not be written where a reader will take
    it for residency (see the correction in §4 above).
 
+⚠ **AND "SPEECH" IS NO LONGER ONE LEG WITH ONE VENDOR — D-629 (18 Sep 2026) SPLIT IT, AND
+NOTHING IN THIS DOCUMENT HAD LEARNED THAT** (noted 19 Sep 2026). Read every "speech
+(Sarvam)" above and below as **speech-to-TEXT only**. Sarvam Saaras still transcribes every
+call and still runs the first extraction pass, and everything this document says about what
+Sarvam RECEIVES is unchanged. What left is SYNTHESIS: `agents/voices.py::TtsModel` is
+`Literal["sonic-3.5", "timbre-v2.5"]`, so the voice a caller HEARS is Gnani's (Clear) or
+Cartesia's (Studio) — and of Gnani's own pages nobody here has read one (all three sites
+egress-blocked, measured 15 Sep 2026), while Cartesia's sub-processor row reads NOT VERIFIED
+on location. **So the sentence "speech … remains an Indian service" may not be written
+unqualified any more, even in the narrowed vendor-is-an-Indian-company sense this section
+established on 27 Aug 2026.** The legal SET moved with D-629 (privacy r8, DPA r7,
+sub-processors r7, and `apps/web/src/lib/legal/subprocessors.ts` carries Gnani's own
+row); this document did not. ⚠ **AND ONE LIVE MARKETING STRING STILL HAS THE OLD
+SENTENCE**: `apps/web/src/lib/marketing/compliance.ts::WHERE_IT_RUNS` opens *"Speech and the
+first reading of your transcript are Indian services, on every call"*, rendered by
+`components/marketing/home/trust.tsx` and `app/security/page.tsx`. That is an F-1 CPA
+2019 surface and it is outside this document's reach — flagged here, not fixed here.
+
 **⚠ AND THE NARROWED REPLACEMENT ON THE LANDING PAGE IS NOW WRONG TOO, IN TWO WAYS. Read
-this before quoting anything above as closed.** `apps/web/src/app/page.tsx` (the residency
-tile, ~line 546) currently reads:
+this before quoting anything above as closed.** ⚠ **THE QUOTED TILE NO LONGER EXISTS**
+(checked 19 Sep 2026): `apps/web/src/app/page.tsx` has been rebuilt into eight chapters, the
+string "The AI runs on Indian endpoints" is nowhere in `apps/web/src`, and
+`apps/web/tests/publicLanding.test.tsx` line 87 is inside a route-walker helper, not the verbatim assertion this
+section says moves with the change. The live wording is `WHERE_IT_RUNS` above. **The finding
+below is kept because its ANALYSIS is what the replacement wording has to satisfy, and
+because a reader who quotes the tile will not find it.** It read:
 
 > **"The AI runs on Indian endpoints"** — "Speech, language and the reading of your
 > transcripts are Indian services. **The one model endpoint that is not is pinned to
@@ -487,8 +510,10 @@ LANGUAGE leg is Microsoft's on BOTH surfaces, so "the one model endpoint that is
 
 **What the page may truthfully say** — narrower again, and after D-449 it may not claim
 India for the language leg at all, nor (after the 27 Aug 2026 correction in §4) India
-PROCESSING for the speech leg: speech (Sarvam) and the first post-call extraction pass run
-on an Indian company whose own policy permits it to process outside India, and the landing
+PROCESSING for the speech leg: speech-to-TEXT (Sarvam) and the first post-call extraction
+pass run on an Indian company whose own policy permits it to process outside India
+(⚠ this read "speech (Sarvam)"; since D-629 the SYNTHESIS half of speech is Gnani's or
+Cartesia's and may not be covered by that clause), and the landing
 page now says both halves in one sentence; the language model runs on a Microsoft Azure OpenAI account
 **configured for East US 2**, no code path can send it anywhere else without editing one
 frozen constant, **and the account's region and deployment type are confirmed by a person
@@ -496,7 +521,9 @@ against the provider's console and filed as evidence** — checked, not proved b
 **Anything of the form "your callers' words stay in India" is now false and must not
 appear.** `apps/web/tests/publicLanding.test.tsx:87`
 asserts the current wording verbatim, so the test moves in the same change; that is the
-guard working, not an obstacle.
+guard working, not an obstacle. ⚠ **THAT LAST SENTENCE IS STALE TOO**: the tile and its
+verbatim assertion are both gone (see the correction above this quotation), and
+`publicLanding.test.tsx:87` is now inside a route-walker helper.
 
 I did not edit `page.tsx` — it is outside my scope. **FOLLOW-UP-2 is now CLOSED (verified by
 reading the file 24 Aug 2026), not pending.** The residency tile in
