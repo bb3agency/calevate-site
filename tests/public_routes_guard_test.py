@@ -166,8 +166,45 @@ class TestWiring:
         its own verdict: the worker sends the digest and never `matches`, because an
         attestation whose verdict came from the attesting process agrees with itself by
         construction. A leaked token can therefore write a WRONG witness row, which the
-        server scores `matches=False` — visible, and the opposite of silence."""
-        assert len(exempt) <= 44, sorted(exempt)
+        server scores `matches=False` — visible, and the opposite of silence.
+
+        RAISED 44 -> 48 by the four in-call TOOLS, and the tripwire fired exactly where the
+        paragraph three above said it would ("a fourth route here ... is the conversation
+        this tripwire is for"), so the argument is owed in full.
+
+        `POST /v1/worker/calls/{engine_call_id}/tools/{opt-out,callback,callback/cancel,
+        handoff}` are what an agent running on our OWN engine calls mid-conversation. They
+        exist because the product had two engines and one set of tools:
+        `apps/voice-runtime/tool_routes.py` serves these same four on the rented engine and
+        `voice_worker/pipeline.assemble_call` advertised exactly ONE, the knowledge search.
+        So on `owned_runtime` a caller saying "stop calling me" reached nothing at all — no
+        `dnc_list` row, no `consent_ledger` evidence, nothing for the dispatch gate to read.
+        That is hard rule 5 and SEC-COMP §2.3 failing silently, which is why this is four
+        routes in one change rather than one route now and three later.
+
+        **THEY ARE THE SAME SURFACE AS THE FOUR ABOVE THEM, NOT A NEW ONE**, and that is the
+        whole of why the bound moves rather than the design. Same Bearer token, same
+        constant-time comparison, same unconfigured-deployment-answers-nobody posture, same
+        engine gate (D-627), and — the property the ledger paragraph above rests on — the
+        same resolution: **none of them takes a tenant id**. The tenant is PARSED out of the
+        engine-space call ref and every statement runs under that tenant's RLS, so a leaked
+        token reaches exactly the calls whose refs it holds and no others.
+
+        **WHAT IS GENUINELY NEW, AND IS THE THING TO RE-READ FIRST IF THIS BOUND MOVES
+        AGAIN:** three of the four write, and they write COMPLIANCE rows rather than ledger
+        rows — `dnc_list`, `consent_ledger`, `scheduled_callbacks`. Those are reached through
+        `compliance/optout.record_call_optout` and `callbacks/service.book` /
+        `cancel_for_phones`, which are the SAME functions the rented engine's ARQ jobs reach;
+        no statement about a suppression is written here that is not written there. The
+        fourth writes nothing: this engine cannot transfer a caller
+        (`PIPECAT_CAPABILITIES.in_call_handoff` is False) and the route exists so the agent
+        hears a truthful refusal instead of answering from its priors and telling a caller to
+        hold for a transfer that never happens.
+
+        A ninth `/v1/worker/*` route, or any route on this surface that took a tenant id or
+        a phone number as an ARGUMENT rather than as an observation the server may refuse, is
+        the conversation this tripwire is for."""
+        assert len(exempt) <= 48, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

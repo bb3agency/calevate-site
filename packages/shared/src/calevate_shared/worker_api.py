@@ -46,7 +46,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from calevate_shared.engine import ModelConfig
+from calevate_shared.engine import AgentConfig, ModelConfig
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 
 #: Every model here forbids unknown fields. A body carrying a key the server does not know
@@ -86,6 +86,42 @@ MAX_QUANTITIES: Final = 32
 #: two bounds are declared separately rather than one being read as the other's complement.
 MAX_REFUSALS: Final = 32
 
+#: The platform's call cap when an agent's owner has chosen none, DERIVED rather than
+#: retyped. `agents/service.effective_call_cap` already resolves `agents.max_call_duration_s`
+#: against `agents/models.CALL_CAP_DEFAULT_S` before `AgentConfig` is built, so the resolved
+#: config a worker is served always carries a real integer and this default is only ever
+#: read by a caller constructing a `SessionConfig` by hand (a test, a local run).
+#:
+#: ⚠ **NOT THE LITERAL `600`, AND THAT IS THE WHOLE POINT.** `packages/shared` cannot import
+#: `apps/`, so `CALL_CAP_DEFAULT_S` is unreachable from here — but `AgentConfig.
+#: max_call_duration_s` carries the same number as its own field default and IS reachable, so
+#: the value is read off the model instead of being spelled a third time. A platform constant
+#: with two spellings is hard rule 4's "named here rather than copied" defect, and a cap the
+#: console shows while the worker enforces a different one is the version of it that costs a
+#: client money.
+DEFAULT_CALL_CAP_S: Final[int] = int(AgentConfig.model_fields["max_call_duration_s"].default)
+
+#: WHO IS ON THE FAR END, OR THE NAMED REASON WE CANNOT SAY.
+#:
+#: ⚠ **DECLARED HERE BECAUSE `apps/api` CANNOT IMPORT THE WORKER.** `voice_worker/carrier.
+#: CallerIdentityState` is the same four words and is the authority on what they mean; the
+#: directory is hyphenated and lives in another deployable, so the wire needs its own
+#: spelling. `carrier.py` should import THIS one rather than declaring a second — that is a
+#: one-line change in a file this change was not permitted to touch, and it is reported
+#: rather than made.
+#:
+#: The four states are not decoration. A `None` number that means four unrelated things
+#: cannot be triaged, which is exactly how `calls.from_e164` came to be empty on every call
+#: of this engine with nothing anywhere saying why:
+#:
+#: * ``known`` — a number is in hand.
+#: * ``withheld_by_carrier`` — our pinned client DOES read this carrier's field and the
+#:   carrier put nothing in it. A real carrier answer (caller ID withheld, or absent).
+#: * ``unparsed_by_client`` — the client maps no field for this carrier, so nobody can say
+#:   whether one was sent. This is Plivo today, and it is an UNKNOWN, not a finding.
+#: * ``not_read`` — nobody looked. The default.
+CallerIdentityState = Literal["known", "withheld_by_carrier", "unparsed_by_client", "not_read"]
+
 
 class WorkerSessionOut(BaseModel):
     """What one published agent is, answered for a worker about to take its call.
@@ -112,6 +148,19 @@ class WorkerSessionOut(BaseModel):
     knowledge_pack_sha256: str | None = None
     #: Hard rule 5's sentence, carried so the worker can prove it is in the prompt it runs.
     ai_disclosure_line: str | None = None
+    #: HOW LONG THIS AGENT'S CALLS MAY RUN, IN SECONDS — the cap the console already writes
+    #: (`agents/publishing_routes.py:403`) and the rented engine already pushes as
+    #: `call_terminate` (`engine/bolna.py:4106`).
+    #:
+    #: ⚠ **IT REACHED THIS ENGINE NOWHERE AT ALL UNTIL NOW.** `assemble_call` sets
+    #: `idle_timeout_secs=None` deliberately (a phone call has its own end), so on
+    #: `owned_runtime` a call that never ended never ended — burning a client's credits
+    #: against a cap they had set and been shown. That is a money defect under hard rule 7
+    #: before it is a trust one, and it is fixed on the leg the money is spent on rather
+    #: than by a screen note. The worker enforces it by pushing an `EndWorkerFrame`
+    #: (`pipeline.CallDurationCap`), which DRAINS — the caller hears the end of the
+    #: sentence in flight, not a dead line.
+    max_call_duration_s: int = DEFAULT_CALL_CAP_S
 
 
 class ObservationBatch(BaseModel):
@@ -156,15 +205,25 @@ class ObservationBatch(BaseModel):
     #: Pipecat has no poller — this contract IS the snapshot — so they belong here, as
     #: session facts, beside `agent_id` and `direction` and for the same reason.
     #:
-    #: ⚠ **THE PRODUCER IS UNBUILT AND IS A NAMED GATE, NOT AN OVERSIGHT** (DEPLOYMENT
-    #: §12.5 gate 9). Pipecat's Plivo handshake parses neither party (`runner/utils.py:
-    #: 250-262`, and `voice_worker/carrier.PlivoHandshake` refuses to model what is always
-    #: `None`); the outbound dial is `OUTBOUND_DIAL_UNKNOWN`; and the CDR read that would
-    #: supply them waits on a carrier decision. They are declared here because the SERVER's
-    #: half must exist before any producer can be wired to it — and because the next carrier
-    #: may simply hand them over: Pipecat's Exotel handshake populates both (`ExotelCallData`,
-    #: `runner/utils.py:283`). Absent, they leave the column NULL, which every reader above
-    #: already tolerates.
+    #: ⚠ **THE PRODUCER EXISTS NOW, AND THIS NOTE USED TO SAY IT DID NOT** (DEPLOYMENT
+    #: §12.5 gate 9; corrected 19 Sep 2026). It read that "`voice_worker/carrier.
+    #: PlivoHandshake` refuses to model what is always `None`" — it no longer refuses:
+    #: `carrier.CallerIdentity` models the answer as a four-state verdict (`known`,
+    #: `withheld_by_carrier`, `unparsed_by_client`, `not_read`), `pipeline.
+    #: NormalizedEventBoundary` writes the number onto every `CallEvent` it emits when the
+    #: state is `known`, and `worker/service.record_observations` takes it from the events
+    #: when the batch names no party. Two facts about the PINNED client are unchanged and
+    #: still bound what can arrive: Pipecat's Plivo branch writes only `streamId`/`callId`
+    #: (`runner/utils.py:257-262`) so `from_number` stays `None` with nothing consulted
+    #: (`runner/types.py:94`) — that is `unparsed_by_client`, an UNKNOWN rather than a
+    #: finding — and the outbound dial is still `OUTBOUND_DIAL_UNKNOWN`. Telnyx (`:253`) and
+    #: Exotel (`:270`) both write `"from"`, so the next carrier may simply hand it over.
+    #: Absent, these leave the column NULL, which every reader above already tolerates.
+    #:
+    #: ⚠ **THE STATE DOES NOT RIDE HERE AND THAT IS NOT AN OVERSIGHT.** `calls` has no
+    #: column for it and this change adds no migration, so the verdict is carried where a
+    #: reader can act on it instead: on the tool bodies below, where it decides SYNCHRONOUSLY
+    #: what an agent may tell a caller who has just asked not to be called again.
     from_e164: str | None = None
     to_e164: str | None = None
     events: list[CallEvent] = Field(default_factory=list, max_length=MAX_EVENTS_PER_BATCH)
@@ -389,21 +448,219 @@ class AttestationOut(BaseModel):
     matches: bool
 
 
+# --- the in-call tools (the four `apps/voice-runtime/tool_routes.py` already serves) ----
+#
+# **THE ENGINE LEG IS THE SPECIFICATION AND THIS IS THE SAME BEHAVIOUR, NOT A SECOND
+# OPINION.** `tool_routes.py` decides what an opt-out does, what a booking validates, what a
+# cancellation means and what the agent is told in each outcome; every model below is that
+# vocabulary, and the handlers in `apps/api/worker/tools.py` reach the SAME service
+# functions the engine leg's ARQ jobs reach (`compliance/optout.record_call_optout`,
+# `callbacks/service.book`, `callbacks/service.cancel_for_phones`). Two implementations of
+# "add this caller to the DNC list" is the defect this arrangement exists to prevent.
+#
+# **ONE WORD IS DELIBERATELY DIFFERENT AND IT IS THE HONEST ONE.** The engine leg answers
+# `accepted` and never "done", because on that leg the write happens in a worker a few
+# hundred milliseconds later, behind an authenticated Get Execution. There is no execution
+# to fetch here and no poller: the worker names its own call ref, the server resolves the
+# tenant from it and does the write IN THE REQUEST, so the truthful status is `recorded` /
+# `booked` / `cancelled`. Saying "accepted" would be under-claiming, and under-claiming is
+# a sentence an agent reads out to a caller.
+#
+# **`say` IS GUIDANCE FOR THE AGENT, IN ENGLISH, WHICH ITS OWN LLM RENDERS INTO THE
+# CALLER'S LANGUAGE** — `calling_window.SlotRefusal`'s rule, which these follow because the
+# caller may be speaking Telugu and a bare status word is not something a model can say.
+
+#: The longest model-authored string a tool body may carry. `workers/optout._REASON_CHARS`
+#: (80) and `callbacks.MAX_NOTE` (200) are what the values are truncated to where they are
+#: STORED; this is the bound at the edge, for `MAX_REFUSAL_TEXT`'s reason — a language model
+#: has no length contract and an unbounded body is a 1 vCPU host materialising it.
+MAX_TOOL_TEXT: Final = 500
+
+
+class CallerIdentityIn(BaseModel):
+    """What the container observed about who is on the far end, carried per tool call.
+
+    **IT IS ON THE TOOL BODY AND NOT ONLY ON `ObservationBatch` BECAUSE THE DECISION IS
+    SYNCHRONOUS.** The engine leg answers an opt-out `accepted` and lets an ARQ job discover
+    minutes later that the call named nobody — `workers/optout.py` alerts
+    `in_call_optout_unattributable` and returns `"unattributable"`, by which time the caller
+    has hung up believing they were removed. On this leg the agent is waiting for an answer
+    it is about to SAY, so the verdict has to be readable in the moment.
+
+    `state` is the fact; `e164` is the number and only ever travels with `state="known"`.
+    Hard rule 6: the number is carried, never logged — the server logs `state` and nothing
+    else, and `state` is authored in `voice_worker/carrier.py` rather than built from wire
+    data, so it cannot smuggle one.
+    """
+
+    model_config = _STRICT
+
+    state: CallerIdentityState = "not_read"
+    e164: str | None = None
+
+
+class OptOutToolIn(BaseModel):
+    """ "Do not call me again", as the model reports it. Both fields are hints.
+
+    They become EVIDENCE text in `consent_ledger` (append-only, hard rule 4) and nothing
+    else: the number suppressed is never taken from either.
+    """
+
+    model_config = _STRICT
+
+    reason: str | None = Field(default=None, max_length=MAX_TOOL_TEXT)
+    language: str | None = Field(default=None, max_length=8)
+    caller: CallerIdentityIn = Field(default_factory=CallerIdentityIn)
+
+
+class OptOutToolOut(BaseModel):
+    """Two statuses, and the second one is the whole reason this model is not a bare ack.
+
+    **`not_recorded` MUST NOT READ AS SUCCESS ANYWHERE.** A person who asked not to be
+    called again and was told "done" when nothing was written is the worst outcome
+    available — worse than being told a person will handle it, because they will not ring
+    again to check. So the failure carries its own `say`, and the agent is told in words
+    what it may and may not claim.
+    """
+
+    model_config = _STRICT
+
+    status: Literal["recorded", "not_recorded"]
+    say: str
+    #: A machine code an operator can grep, never prose for the caller: `caller_number_unknown`
+    #: (with the identity state appended), `not_suppressible`, or `""` on success.
+    reason: str = ""
+
+
+class CallbackBookIn(BaseModel):
+    """ "Ring me back Tuesday at four", already resolved by the model into date and time.
+
+    `confirmed` IS A BOOL ON THIS WIRE AND A NARROW PARSE IN THE WORKER. The engine leg
+    receives whatever the vendor substitutes and narrows it in `tool_routes._truthy`
+    (`true`/`"true"`/`"yes"` and nothing else); here the narrowing happens in
+    `voice_worker/call_tools.py` before the body is built, so the contract between the two
+    halves of OUR product carries a decided boolean rather than a string to re-interpret.
+    """
+
+    model_config = _STRICT
+
+    callback_date: str | None = Field(default=None, max_length=MAX_IDENTIFIER)
+    callback_time: str | None = Field(default=None, max_length=MAX_IDENTIFIER)
+    confirmed: bool = False
+    note: str | None = Field(default=None, max_length=MAX_TOOL_TEXT)
+    language: str | None = Field(default=None, max_length=8)
+    caller: CallerIdentityIn = Field(default_factory=CallerIdentityIn)
+
+
+class CallbackToolOut(BaseModel):
+    """The booking's four answers. `tool_routes.CallbackToolOut`'s three, plus the honest one.
+
+    `needs_confirmation` and `not_booked` are that model's, unchanged and for its reasons:
+    confirm-before-commit is a SERVER-SIDE control, and a time outside 09:00-21:00 IST is
+    unlawful to dial (TCCCPR; SEC-COMP §3) and must be refused while the caller is still on
+    the phone. `booked` replaces `accepted` because the row is written in this request.
+
+    The fourth is `not_booked` with `reason="caller_number_unknown"`: a promise to ring
+    somebody back needs a number to ring, and this leg can be told there is none.
+    """
+
+    model_config = _STRICT
+
+    status: Literal["booked", "needs_confirmation", "not_booked"]
+    say: str
+    #: The unambiguous spoken form the agent must read back — "Tuesday 8 September at
+    #: 4:00 PM". Weekday and month NAME, never a numeric date (`calling_window.Slot`).
+    booked_for: str = ""
+    reason: str = ""
+
+
+class CallbackCancelIn(BaseModel):
+    """ "Actually, don't ring me back." No time in it at all — `_cancel_callback`'s rule.
+
+    A cancellation must not be able to fail because a date could not be parsed, and it is
+    NOT an opt-out: "do not ring me back on Tuesday" is not "never call me again", and
+    answering it with a DNC entry would suppress a number on a sentence nobody said.
+    """
+
+    model_config = _STRICT
+
+    caller: CallerIdentityIn = Field(default_factory=CallerIdentityIn)
+
+
+class CallbackCancelOut(BaseModel):
+    """What was called off. `cancelled` is a count so "nothing was booked" is sayable."""
+
+    model_config = _STRICT
+
+    status: Literal["cancelled", "not_cancelled"]
+    say: str
+    cancelled: int = 0
+    reason: str = ""
+
+
+class HandoffToolIn(BaseModel):
+    """The model's own words about why it wants a person, passed through unread.
+
+    Both are conversation content and neither is logged (hard rule 6) — `tool_routes.
+    _handoff_started` carries the same two for the same reason.
+    """
+
+    model_config = _STRICT
+
+    reason: str | None = Field(default=None, max_length=MAX_TOOL_TEXT)
+    summary: str | None = Field(default=None, max_length=MAX_TOOL_TEXT)
+
+
+class HandoffToolOut(BaseModel):
+    """ONE STATUS, BECAUSE THIS ENGINE HAS ONE HONEST ANSWER (`ToolAckOut`'s shape).
+
+    ⚠ **`owned_runtime` CANNOT TRANSFER A CALLER AND THE REFUSAL IS THE FEATURE.**
+    `engine/pipecat.PIPECAT_CAPABILITIES` declares `transfer=False` and
+    `in_call_handoff=False` — facts about a carrier surface nobody has read, not policy —
+    and `update_agent` already refuses to publish an agent carrying a handoff config on this
+    engine. So there is no destination to dial and no leg to place.
+
+    What was there before this tool existed was WORSE than a refusal: with no tool at all a
+    model asked to fetch a human answers from its priors, says "putting you through now",
+    and the caller hears nothing happen. `build_knowledge_tool`'s posture applied to the
+    second-hardest question a caller asks — advertised and honest — and the `say` sends the
+    agent to the call-back tool beside it rather than inventing a second booking path here.
+    """
+
+    model_config = _STRICT
+
+    status: Literal["not_transferred"]
+    say: str
+    reason: str = ""
+
+
 __all__ = [
+    "DEFAULT_CALL_CAP_S",
     "MAX_EVENTS_PER_BATCH",
     "MAX_IDENTIFIER",
     "MAX_METERED_QTY",
     "MAX_QUANTITIES",
     "MAX_REFUSALS",
     "MAX_REFUSAL_TEXT",
+    "MAX_TOOL_TEXT",
     "MAX_TURNS_PER_BATCH",
     "METERED_LEGS",
     "AttestationIn",
     "AttestationOut",
+    "CallbackBookIn",
+    "CallbackCancelIn",
+    "CallbackCancelOut",
+    "CallbackToolOut",
+    "CallerIdentityIn",
+    "CallerIdentityState",
+    "HandoffToolIn",
+    "HandoffToolOut",
     "MeteredLegName",
     "MeteredQuantity",
     "ObservationBatch",
     "ObservationsOut",
+    "OptOutToolIn",
+    "OptOutToolOut",
     "SettlementOut",
     "SettlementRefusal",
     "SettlementRequest",

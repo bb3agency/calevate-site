@@ -417,6 +417,15 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         greet_first=True,
         knowledge_pack_sha256=pack_sha,
         ai_disclosure_line=ai_disclosure_line,
+        # THE CAP THE CONSOLE ALREADY SHOWS, REACHING THE ENGINE THAT SPENDS THE MONEY.
+        # `agents/service._to_config` resolves `agents.max_call_duration_s` through
+        # `effective_call_cap` before this config version is composed, so the published
+        # config always carries a real integer and nothing here defaults anything. It was
+        # in the row the whole time and no reader on this leg had ever asked for it: the
+        # Bolna adapter pushes it as `call_terminate` (`engine/bolna.py:4106`) and
+        # `engine/pipecat.py` mentions it nowhere, so an `owned_runtime` call ran until
+        # somebody hung up — against a cap its owner had set and been shown (hard rule 7).
+        max_call_duration_s=published.max_call_duration_s,
     )
 
 
@@ -527,8 +536,22 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
                 status=status,
                 started_at=_first(batch, "started_at"),
                 ended_at=_first(batch, "ended_at"),
-                from_e164=batch.from_e164,
-                to_e164=batch.to_e164,
+                # THE BATCH IS THE CONTRACT AND THE EVENTS ARE THE SAME SESSION FACT.
+                #
+                # ⚠ **A FALLBACK, NOT A SECOND SOURCE** (19 Sep 2026). `ObservationBatch`
+                # declares the parties as session facts precisely so they are not guessed
+                # from "whichever event happened to be in the batch" — and that argument was
+                # about `agent_id`, which genuinely differs event to event. These two do
+                # not: `pipeline.NormalizedEventBoundary._event` stamps every `CallEvent`
+                # it emits from the ONE `CallerIdentity` the carrier handshake produced for
+                # the session, so an event's party is the batch's party by construction.
+                #
+                # It exists because the producer landed at the boundary and `sink.py` — the
+                # module that would copy it onto the batch — was another agent's file in the
+                # same hour. Reading it off the events closes the hop with no second writer
+                # and no migration, and the day the sink sets it the batch simply wins.
+                from_e164=batch.from_e164 or _party(batch, "from_e164"),
+                to_e164=batch.to_e164 or _party(batch, "to_e164"),
             )
         ).id
         for turn in batch.turns:
@@ -589,6 +612,19 @@ def _check_batch_identity(tenant_id: UUID, batch: ObservationBatch) -> None:
     call_ids = {event.call_id for event in batch.events} | {t.call_id for t in batch.turns}
     if len(call_ids) > 1:
         raise _refuse_identity("call")
+
+
+def _party(batch: ObservationBatch, field: str) -> str | None:
+    """The first party any event in this batch names, or None. See `record_observations`.
+
+    HARD RULE 6: this returns a phone number and therefore never logs, never raises with a
+    value in the message, and is read only into a bound parameter.
+    """
+    for event in batch.events:
+        value: str | None = getattr(event, field)
+        if value:
+            return value
+    return None
 
 
 def _first(batch: ObservationBatch, field: str) -> datetime | None:
@@ -746,12 +782,18 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
 def _alert_if_nobody_was_on_the_call(*, tenant_id: UUID, call: _CallRow, final_status: str) -> None:
     """A call that ended with NEITHER party known is an operator event, not a NULL column.
 
-    **WHY THIS IS LOUD AND NOT COSMETIC.** `calls.from_e164`/`to_e164` have no producer on
-    this engine at all — verified rather than recalled: nothing under `apps/voice-worker/`
-    assigns either field, Pipecat's Plivo handshake parses neither party, and
-    `voice_worker/carrier.PlivoHandshake` refuses to model what is always `None` (DEPLOYMENT
-    §12.5 gate 9). Three consequences follow for every call that settles this way, and each
-    one is somebody's right rather than a missing screen field:
+    **WHY THIS IS LOUD AND NOT COSMETIC.** ⚠ This paragraph used to say the two columns had
+    "no producer on this engine at all" and that "`voice_worker/carrier.PlivoHandshake`
+    refuses to model what is always `None`" — BOTH ARE NOW OUT OF DATE (19 Sep 2026).
+    `carrier.CallerIdentity` models the answer as a four-state verdict,
+    `pipeline.NormalizedEventBoundary` stamps the number onto every `CallEvent` when the
+    state is `known`, and `record_observations` takes it from there. What has NOT changed is
+    the fact underneath: our pinned client's Plivo branch writes only `streamId`/`callId`
+    (`pipecat/runner/utils.py:257-262`), so on Plivo the state is `unparsed_by_client` and
+    these columns are still NULL on every call — an UNKNOWN about what the carrier sent,
+    not a finding that it sent nothing (DEPLOYMENT §12.5 gate 9). This alert therefore still
+    fires on every call of this engine, and each of the three consequences below is still
+    somebody's right rather than a missing screen field:
 
     * **A post-call OPT-OUT cannot be attributed.** `workers/pipeline.py:1600` takes the
       number to suppress from this row (by way of `PipecatEngine.get_execution`, which reads

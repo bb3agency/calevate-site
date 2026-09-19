@@ -492,6 +492,50 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="authorized",
     ),
+    "POST /v1/worker/calls/{engine_call_id}/tools/opt-out": PublicRoute(
+        why=(
+            "The same worker's in-call opt-out tool: the ONLY path by which a caller "
+            "saying 'stop calling me' on an owned_runtime call reaches `dnc_list` "
+            "(SEC-COMP §2.3, hard rule 5). `apps/voice-runtime/tool_routes.py` serves the "
+            "rented engine and served this one nothing. MUTATING, same credential and the "
+            "same RLS-from-the-ref property as the observations route above: the tenant is "
+            "PARSED out of the engine-space call ref and the suppression is written under "
+            "that tenant's RLS by `compliance/optout.record_call_optout`, the one writer "
+            "the post-call transcript pass already uses. A call this deployment is not "
+            "running is 404."
+        ),
+        credential="authorized",
+    ),
+    "POST /v1/worker/calls/{engine_call_id}/tools/callback": PublicRoute(
+        why=(
+            "The same worker's in-call call-back booking. MUTATING, same credential and "
+            "same RLS-from-the-ref property. The lawful-hours refusal (TCCCPR; SEC-COMP "
+            "§3) and the confirm-before-commit gate both run here, server-side, because "
+            "neither may be a line in a prompt a model can talk itself out of."
+        ),
+        credential="authorized",
+    ),
+    "POST /v1/worker/calls/{engine_call_id}/tools/callback/cancel": PublicRoute(
+        why=(
+            "The same worker calling off every live call-back promised to this caller's "
+            "number. MUTATING, same credential and same RLS-from-the-ref property, and "
+            "deliberately NOT an opt-out: 'do not ring me back' is not 'never call me "
+            "again', and answering it with a DNC entry would suppress a number on a "
+            "sentence its speaker did not say."
+        ),
+        credential="authorized",
+    ),
+    "POST /v1/worker/calls/{engine_call_id}/tools/handoff": PublicRoute(
+        why=(
+            "The same worker's request for a human handover. NON-MUTATING on this engine "
+            "and answered as a refusal: `PIPECAT_CAPABILITIES.in_call_handoff` is False, "
+            "so there is no leg to place — the value of the route is that the agent hears "
+            "a truthful 'you cannot transfer' instead of answering from its priors and "
+            "telling a caller to hold for a transfer that never happens. Same credential "
+            "and same RLS-from-the-ref property."
+        ),
+        credential="authorized",
+    ),
     "GET /v1/public/rate-card": PublicRoute(
         why=(
             "The self-serve rate card for the public site (D-545): the live list rate, "
