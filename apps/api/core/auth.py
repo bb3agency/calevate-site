@@ -327,6 +327,24 @@ async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None)
         sql = (
             "SELECT m.tenant_id, m.role, o.slug FROM memberships m "
             "JOIN organizations o ON o.id = m.tenant_id "
+            # ⚠ **`churned` AND NOT `suspended`, AND THAT ASYMMETRY IS A DECISION NOBODY
+            # HAD WRITTEN DOWN (stated 19 Sep 2026).** A SUSPENDED account's people can
+            # still sign in, and must be able to: suspension is what an operator does to a
+            # client who owes money or whose compliance readiness lapsed, and the whole
+            # point of it is that they come back and fix it. Locking them out would hide
+            # the wallet, the invoice, the KYC panel and the reason itself — every surface
+            # that could end the suspension — behind the suspension. What suspension stops
+            # is the DIALLING (`compliance/service._STOPPED_STATUSES` →
+            # `account_suspended`, read by `check_dispatch`), and inbound answering is
+            # deliberately left alive too.
+            #
+            # `churned` is the opposite case and blocks: the account is offboarded, an
+            # erasure is scheduled against it, and there is nothing inside to act on.
+            #
+            # This was found by reading rather than by a failure — it is not asserted
+            # anywhere in prose, which is exactly how a later reader "tightens" it as an
+            # oversight and locks out the clients most likely to pay.
+            # `tests/realm_boundary_test.py` pins BOTH halves so that change fails.
             "WHERE m.user_id = :uid AND o.deleted_at IS NULL AND o.status <> 'churned'"
         )
         if org_slug:

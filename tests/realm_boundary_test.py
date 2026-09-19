@@ -602,6 +602,43 @@ async def test_a_dev_token_naming_something_that_is_not_one_of_our_ids_is_refuse
 # ------------------------------------------------------------ the lifecycle asymmetry
 
 
+async def test_a_suspended_tenant_still_lets_its_members_sign_in_and_that_is_the_point() -> None:
+    """THE OTHER HALF OF THE SAME PREDICATE, AND IT WAS UNWRITTEN UNTIL 19 SEP 2026.
+
+    `_load_client_principal` filters `o.status <> 'churned'` — `churned` ONLY. So a
+    SUSPENDED account's people can still sign in, and the clause above pins that they
+    must. It was found by reading, not by a failure, and nothing asserted it: which is
+    precisely how a later reader "tightens" the predicate to `NOT IN ('churned',
+    'suspended')` believing they are closing an oversight.
+
+    **THEY WOULD BE LOCKING OUT THE CLIENTS MOST LIKELY TO PAY.** Suspension is what an
+    operator does to an account that owes money or whose compliance readiness lapsed, and
+    its whole purpose is that the client comes back and ends it. Every surface that could
+    end it — the wallet, the invoice, the top-up, the KYC panel, and the reason itself —
+    is inside the account. Hiding them behind the suspension makes the state
+    unrecoverable by the only person who can recover it.
+
+    What suspension DOES stop is the dialling: `compliance/service._STOPPED_STATUSES`
+    answers `account_suspended` and `check_dispatch` is the one door every outbound call
+    passes. Inbound answering is deliberately left alive too, so a suspended client's
+    existing callers are not dropped mid-relationship.
+
+    Asserted as a 200 on a real request rather than by reading the SQL, because the SQL
+    is what a future edit changes.
+    """
+    org = await _make_org(status="suspended")
+    tenant_id = uuid.UUID(str(org["id"]))
+    _user_id, client_token = await _make_member(tenant_id)
+
+    async with _client() as http:
+        member = await http.get(
+            "/v1/agents",
+            headers={"Authorization": f"Bearer {client_token}", "X-Org-Slug": str(org["slug"])},
+        )
+
+    assert member.status_code == 200, member.text
+
+
 async def test_a_churned_tenant_locks_out_its_members_and_stays_open_to_an_operator() -> None:
     """A DELIBERATE asymmetry, pinned so nobody has to guess whether it is one.
 
