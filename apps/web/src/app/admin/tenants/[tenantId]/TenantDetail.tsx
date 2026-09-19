@@ -17,6 +17,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 
+import { AccountStateBanner } from "./AccountStateBanner";
 import { AgentsPanel } from "./AgentsPanel";
 import { CampaignSetup } from "./CampaignSetup";
 import { HoldsBanner } from "./HoldsBanner";
@@ -120,6 +121,14 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           { key: "slug", label: "Slug", value: tenant.slug },
           { key: "status", label: "Account status", value: tenant.status },
           {
+            // WHICH WAY THE MONEY MOVES, which decides what half this screen's other
+            // figures mean: a `managed` client has no wallet to be empty, so "why have
+            // their calls stopped" has different answers either side of it.
+            key: "plan_tier",
+            label: "Billing motion (prepaid draws a wallet down; managed is invoiced)",
+            value: tenant.plan_tier,
+          },
+          {
             key: "vertical_template",
             label: "Vertical template",
             value: tenant.vertical_template ?? "none",
@@ -189,11 +198,18 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           </Link>
           <h1 className="mt-1 text-xl font-semibold text-ink">{tenant.name}</h1>
           <p className="text-sm text-ink-muted">
-            /c/{tenant.slug} · {tenant.status} · {tenant.vertical_template ?? "no template"}
+            /c/{tenant.slug} · {tenant.status} · {tenant.plan_tier} ·{" "}
+            {tenant.vertical_template ?? "no template"}
           </p>
         </div>
         <TenantNav tenantId={tenantId} slug={tenant.slug} />
       </div>
+
+      {/* ABOVE the holds, because it outranks them: `check_dispatch` asks the account
+          state before it asks any gate, so a suspended account is refused whether or not
+          a hold is also open, and an operator told only about the hold would clear it and
+          watch nothing change. */}
+      <AccountStateBanner tenantId={tenantId} status={tenant.status} />
 
       <HoldsBanner tenantId={tenantId} holds={tenant.holds} />
 

@@ -37,6 +37,8 @@ import {
 
 import { useAdminAccess } from "@/app/admin/access";
 
+import { BillingMotionPanel } from "./BillingMotionPanel";
+
 /**
  * Commercials — what this client pays, and every dated agreement behind it.
  *
@@ -97,6 +99,14 @@ export default function CommercialsPage({
           never edited.
         </p>
       </div>
+
+      {/* ABOVE the terms ladder and outside it, deliberately. The billing MOTION is read
+          off the client's directory row rather than off `plans`, so it is answerable when
+          the agreement read fails — and it is the first thing that makes sense of what is
+          below: an invoice for a managed client and a wallet draw-down for a prepaid one
+          are two different documents. A panel withheld behind `terms.data` would be a
+          control an operator cannot reach on exactly the screen that failed. */}
+      <BillingMotionPanel tenantId={tenantId} currentTier={tenant.plan_tier} />
 
       {terms.error && <ProblemNotice error={terms.error} onRetry={() => terms.refetch()} />}
 

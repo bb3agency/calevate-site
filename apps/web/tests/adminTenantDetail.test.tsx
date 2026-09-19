@@ -468,6 +468,63 @@ describe("the client detail screen", () => {
     expect(container.textContent).not.toContain("0%");
   });
 
+  /* --- The account state, where an operator actually looks ------------------------
+   *
+   * `organizations.status` was on this screen as one lowercase word in the grey subtitle,
+   * under a page of agents, spend and a margin — all of which read as a healthy account.
+   * `check_dispatch` asks the account state BEFORE it asks any gate, so a suspended client
+   * dials nothing whatever else is green, and the operator opening this page to ask why is
+   * the person the word was hidden from.
+   */
+  it("says plainly that a suspended account is stopped, and where to reverse it", async () => {
+    const { container } = await render({ [TENANT_PATH]: tenant({ status: "suspended" }) });
+
+    const title = await screen.findByText("This account is suspended.");
+    // The half nobody guesses: outbound stops, inbound deliberately does not.
+    expect(container.textContent).toContain("outbound dialling is refused");
+    expect(container.textContent).toContain("Inbound answering is deliberately untouched");
+    // Scoped to the banner. The nav above carries a link of the same name to the same
+    // screen, and an unscoped query would pass on the nav alone — which is the wiring
+    // this case exists to prove is NOT what is being asserted.
+    const banner = within(title.parentElement as HTMLElement);
+    expect(banner.getByRole("link", { name: "Account state" }).getAttribute("href")).toBe(
+      `/admin/tenants/${TENANT}/lifecycle`,
+    );
+  });
+
+  it("says a closed account is closed, and points at the one screen that reopens it", async () => {
+    const { container } = await render({ [TENANT_PATH]: tenant({ status: "churned" }) });
+
+    const title = await screen.findByText("This account is closed.");
+    expect(container.textContent).toContain("Nobody at the client can sign in");
+    const banner = within(title.parentElement as HTMLElement);
+    expect(banner.getByRole("link", { name: "Closing the account" }).getAttribute("href")).toBe(
+      `/admin/tenants/${TENANT}/closure`,
+    );
+    // THE COUNTDOWN IS NOT REPEATED HERE. `days_remaining` is computed server-side on one
+    // clock and belongs beside the button that acts on it; a deadline printed on two
+    // screens is a deadline that will disagree with itself.
+    expect(container.textContent).not.toContain("days left");
+  });
+
+  it("shows no state banner at all for a live account", async () => {
+    const { container } = await render();
+
+    await screen.findByText("Sri Traders");
+    expect(container.textContent).not.toContain("This account is suspended.");
+    expect(container.textContent).not.toContain("This account is closed.");
+  });
+
+  it("names the billing motion on the page, not only on the commercials screen", async () => {
+    // Which way the money moves decides what the rest of this screen means: a managed
+    // client has no wallet to be empty, so "why have their calls stopped" has a different
+    // answer either side of it.
+    const { container } = await render({ [TENANT_PATH]: tenant({ plan_tier: "managed" }) });
+
+    await screen.findByText("Sri Traders");
+    expect(container.textContent).toContain("managed");
+  });
+
   it("refuses to invent a client when the tenant read fails", async () => {
     const { container } = await render({
       [TENANT_PATH]: problem(403, {

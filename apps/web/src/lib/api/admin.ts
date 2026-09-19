@@ -35,6 +35,9 @@ import {
   CLIENT_HEALTH_QUERY_KEY,
   type ClientHealth,
 } from "./clientHealth";
+// The wallet's query key only — no session, no request shaper. A tier change decides
+// whether this client HAS a wallet, so the screen that shows one must re-read after it.
+import { creditsKey } from "./credits";
 import { HOLDS_PATH, HOLDS_QUERY_KEY, type HeldTenant } from "./holds";
 import { KYC_PATH, toRecordBody, type KycRecord, type KycRecordIn } from "./kyc";
 import type { components } from "./schema";
@@ -1140,5 +1143,67 @@ export function useTenantAgents(slug: string) {
     queryFn: () =>
       apiRequest<components["schemas"]["AgentOut"][]>(viewAsSession(slug), "/v1/agents"),
     enabled: Boolean(slug),
+  });
+}
+
+/* --- The billing motion (D-521) ----------------------------------------------------
+ *
+ * `POST /v1/admin/tenants/{id}/plan-tier` shipped audited, reason-required and tested,
+ * and NOTHING in this console called it: moving a client between the two billing motions
+ * could only be done with a hand-assembled `curl` against production, which is the exact
+ * state D-521's own route docstring says the seam exists to end ("a decision that can only
+ * be carried out by an UPDATE typed into a production database is not a decision the
+ * product supports"). A route nobody mounted a caller for is a defect that looks like
+ * progress, so the hook lives here and the panel is on the Commercials screen.
+ *
+ * The hook is in `admin.ts` rather than `commercials.ts` for the reason every other
+ * per-tenant admin write in this file is: the path names the tenant and the session is the
+ * ADMIN realm's, never the client's (TRD §11 / D-177). The two realms share no session
+ * logic, so a hook that builds the admin session belongs beside the ones that do.
+ */
+
+/** What an operator submits — the two motions the API accepts, and why (route docstring):
+ * `self_serve` and `trial` are signup states, not motions, and the API answers 422. */
+export type PlanTierIn = Schemas["PlanTierIn"];
+export type PlanTierOut = Schemas["PlanTierOut"];
+/** The settable motions, from the generated schema rather than respelled here — the
+ * console cannot offer a third without the API's own Literal gaining one. */
+export type SettablePlanTier = PlanTierIn["plan_tier"];
+
+export function planTierPath(tenantId: string): string {
+  return `/v1/admin/tenants/${encodeURIComponent(tenantId)}/plan-tier`;
+}
+
+/**
+ * Move a client between prepaid credit and an invoiced retainer.
+ *
+ * NO STEP-UP AND NO TYPED CONFIRMATION, and that is the API's own line rather than an
+ * omission here: `set_tenant_plan_tier` carries neither, because both directions are
+ * reversible by this same call and neither destroys anything. Ceremony on a reversible act
+ * is how operators learn to type past ceremony.
+ *
+ * What it invalidates, and why each:
+ *   * this client's directory row — `plan_tier` is ON it and the screen prints it;
+ *   * the directory and the holds queue — `read_tenant_holds` composes its list from the
+ *     gates themselves and the R-11 holds apply to `self_serve`/`trial` only, so a move
+ *     onto `prepaid` or `managed` can take a row off that queue;
+ *   * the wallet — `managed` has no wallet at all and `prepaid` starts drawing one down,
+ *     so the credits screen means something different either side of this write.
+ */
+export function useSetPlanTier(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: PlanTierIn) =>
+      apiRequest<PlanTierOut>(adminSession(), planTierPath(tenantId), {
+        method: "POST",
+        body: payload,
+      }),
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
+        client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
+        client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+      ]),
   });
 }
