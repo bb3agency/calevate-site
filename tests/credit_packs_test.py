@@ -124,7 +124,7 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
     """
     half_floor = (cost_floor_inr_per_min("clear") / 2).quantize(Decimal("0.01"))
     below_cost = _pack("greedy", "50000", str(half_floor), "6.00")
-    verdict = pack_rate_margin(below_cost, voice="sarvam")
+    verdict = pack_rate_margin(below_cost, voice="clear")
     assert verdict.below_cost is True
     assert [f for f in card_refusals((below_cost,)) if "below cost" in f]
 
@@ -133,7 +133,7 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
     # floor — the property this half of the test is actually about.
     thin_rate = (cost_floor_inr_per_min("clear") + Decimal("0.10")).quantize(Decimal("0.01"))
     thin_pack = _pack("thin", "50000", str(thin_rate), "6.00")
-    thin = pack_rate_margin(thin_pack, voice="sarvam")
+    thin = pack_rate_margin(thin_pack, voice="clear")
     assert thin.below_cost is False
     assert thin.below_target is True
     assert thin.margin is not None and thin.margin < MIN_MARGIN
@@ -143,7 +143,7 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
 def test_a_zero_rate_is_below_cost_and_has_no_margin_to_display() -> None:
     """A free minute is a loss, not an undefined margin. `RateMargin.margin` is None only
     because the ratio has no denominator; `below_cost` still says what it is."""
-    verdict = pack_rate_margin(_pack("free", "2000", "0", "0"), voice="sarvam")
+    verdict = pack_rate_margin(_pack("free", "2000", "0", "0"), voice="clear")
     assert verdict.below_cost is True
     assert verdict.margin is None
     assert verdict.below_target is False
@@ -260,8 +260,8 @@ def test_a_pack_prices_by_voice_and_refuses_a_tier_it_does_not_carry() -> None:
     back to the cheaper column would undercharge a Cartesia minute silently."""
     plus = pack_by_id("plus")
     assert plus is not None
-    assert plus.inr_per_min("sarvam") == Decimal("4.00")
-    assert plus.inr_per_min("cartesia") == Decimal("6.10")
+    assert plus.inr_per_min("clear") == Decimal("4.00")
+    assert plus.inr_per_min("studio") == Decimal("6.10")
     with pytest.raises(ValueError, match="not a voice tier"):
         plus.inr_per_min("elevenlabs")  # type: ignore[arg-type]
 
@@ -275,8 +275,8 @@ def test_credits_are_one_rupee_each_and_talk_time_divides_by_the_voices_rate() -
     assert plus is not None
     assert plus.paid_credits == Decimal("15000.0000")
     assert plus.total_credits == plus.paid_credits
-    sarvam = pack_talk_time_minutes(plus, voice="sarvam")
-    cartesia = pack_talk_time_minutes(plus, voice="cartesia")
+    sarvam = pack_talk_time_minutes(plus, voice="clear")
+    cartesia = pack_talk_time_minutes(plus, voice="studio")
     assert int(sarvam) == 3750
     assert int(cartesia) == 2459
     assert cartesia < sarvam

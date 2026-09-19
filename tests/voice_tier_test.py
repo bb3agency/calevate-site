@@ -41,6 +41,7 @@ from apps.api.agents.voice_offer import (
 )
 from apps.api.agents.voices import (
     CARTESIA_TTS_MODEL,
+    VOICE_TIER_OF_PROVIDER,
     CurationState,
     TtsModel,
     Voice,
@@ -210,7 +211,7 @@ def test_the_tier_is_the_provider_and_nothing_else() -> None:
     """Plan §2.3 invariant 7: there is no way to hold a Cartesia voice and a Sarvam tier,
     because the tier is not stored anywhere it could disagree with the voice."""
     for voice in catalogue():
-        assert voice_tier(voice.id) == voice.provider
+        assert voice_tier(voice.id) == VOICE_TIER_OF_PROVIDER[voice.provider]
     assert voice_tier(_cartesia_voice().id) == "studio", (
         "⚠ THIS ASSERTION USED TO EXPECT `sarvam`, AND REVERSING IT IS THE POINT OF D-585. "
         "The tier used to be a CATALOGUE LOOKUP that answered 'sarvam' for any id it could "
@@ -642,12 +643,12 @@ def test_curation_cannot_re_tier_an_agent_or_re_price_a_minute() -> None:
     says anything at all.
     """
     for voice in (*catalogue(), _cartesia_voice()):
-        expected = voice.provider
+        expected = VOICE_TIER_OF_PROVIDER[voice.provider]
         # The tier takes no curation argument at all, which is the structural half of the
         # guarantee: there is no parameter through which a console click could reach it.
         assert voice_tier(voice.id) == expected
         # And it holds with NOTHING installed — the state of a process that has never
-        # synced, where a membership-based derivation would answer `sarvam` for every id.
+        # synced, where a membership-based derivation would answer the value rung for every id.
         installed = catalogue()
         try:
             voices_module.install_voice_catalogue(None)

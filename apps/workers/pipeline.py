@@ -66,6 +66,7 @@ from apps.api.billing.rates import (
     MONEY_Q,
     PREPAID_TIERS,
     ROUNDING,
+    VoiceTier,
     llm_surcharge_applies,
     llm_surcharge_billed_inr,
     prepaid_billed_inr,
@@ -3160,19 +3161,27 @@ async def _tts_cost_rows(
     *,
     tenant_id: UUID,
     call_id: UUID,
-    voice: str,
+    voice: VoiceTier,
     agent_chars: int,
     engine_tts_inr: Decimal | None,
     at: datetime,
 ) -> list[tuple[str, Decimal, Decimal | None]]:
     """The `usage_events` rows for this call's SYNTHESIZER leg — none, one, or two.
 
-    Two voices, two sources of truth, and which one applies is a property of the voice:
+    ⚠ **`voice` IS A RUNG AND THIS FUNCTION COMPARED IT AGAINST A VENDOR'S NAME UNTIL
+    19 SEP 2026.** The test was `if voice != "cartesia"`, which resolved correctly only
+    while the premium rung and its vendor shared a word. D-630 renamed the rungs
+    `clear`/`studio`, and the comparison silently became unsatisfiable: EVERY call took the
+    non-BYOK arm, so a Studio call wrote no `tts_kchars` row and its synthesis cost
+    vanished from the ledger entirely — a gap on the exact leg this function exists to
+    meter. The parameter is typed `VoiceTier` now, so the next rename is a type error.
 
-    * **Sarvam** — the engine buys the synthesis and reports what it charged. That figure
+    Two rungs, two sources of truth, and which one applies is a property of the rung:
+
+    * **Clear** — the engine buys the synthesis and reports what it charged. That figure
       is the cost, on a `tts_chars` row at `qty = 1`, exactly as before. (Whether the
       engine's own figure is right is OPERATIONS §2 gate 7 and is not this seam.)
-    * **Cartesia** — BYOK, so the engine is *expected* to charge nothing. The cost is the
+    * **Studio** — BYOK, so the engine is *expected* to charge nothing. The cost is the
       operator-attested plan rate times the characters our transcript says the agent
       spoke, on a `tts_kchars` row whose `qty` is that count in thousands — PLUS, if the
       engine reported a charge anyway, that charge on a `tts_chars` row beside it, with an
@@ -3188,7 +3197,7 @@ async def _tts_cost_rows(
     agent, which is an operator error somebody has to be told about rather than a number
     to invent. The alert is the telling.
     """
-    if voice != "cartesia":
+    if voice != PLAN_BILLED_VOICE_TIER:
         return [] if engine_tts_inr is None else [("tts_chars", Decimal(1), engine_tts_inr)]
     rows: list[tuple[str, Decimal, Decimal | None]] = []
     if engine_tts_inr is not None and engine_tts_inr > 0:

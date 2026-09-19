@@ -17,7 +17,7 @@ Run: uv run pytest tests/voice_tier_label_test.py -q
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import get_args
+from typing import Final, get_args
 
 from apps.api.agents.voices import VoiceProvider
 from apps.api.billing.rates import (
@@ -35,15 +35,28 @@ def test_every_tier_has_a_label_and_no_tier_has_two() -> None:
     )
 
 
+#: Every name a VENDOR of ours goes by, including one that no longer speaks.
+#:
+#: ⚠ **THIS USED TO BE `VOICE_TIERS`, AND THE GUARD HAS BEEN CHECKING THE WRONG SET SINCE
+#: IT WAS WRITTEN (corrected 19 Sep 2026).** It read "for vendor in VOICE_TIERS" and passed
+#: only because the rung tokens WERE the vendors' names — so the day they stopped being
+#: (D-630) it began asserting that the label "Clear" must not contain the rung token
+#: `clear`, which is the opposite of the rule. The rule is that no VENDOR's name reaches a
+#: client, and the vendors are `VoiceProvider`. `sarvam` is kept by hand: it is not a TTS
+#: provider any more (D-629) and a label naming it would still be a vendor name on a
+#: client's screen, which is exactly what this guard is for.
+_VENDOR_NAMES: Final = (*get_args(VoiceProvider), "sarvam", "bulbul", "timbre", "sonic")
+
+
 def test_no_label_names_a_vendor() -> None:
     """The decision itself. A client buys a voice quality, not a vendor's product."""
     for tier, label in VOICE_TIER_LABELS.items():
         lowered = label.lower()
-        for vendor in VOICE_TIERS:
+        for vendor in _VENDOR_NAMES:
             assert vendor not in lowered, (
                 f"the {tier} tier is shown to clients as {label!r}, which names the "
-                f"vendor {vendor!r}. The wire keeps the vendor spelling; what a human "
-                f"reads must not."
+                f"vendor {vendor!r}. The wire keeps the rung's token; what a human "
+                f"reads must not name who synthesises it."
             )
 
 
@@ -90,7 +103,7 @@ def test_no_catalogue_note_names_a_vendor_as_the_tier() -> None:
     notes = [catalogue_note(p) for p in get_args(VoiceProvider)]
     for note in (*(voice.note for voice in catalogue()), *notes):
         lowered = note.lower()
-        for vendor in VOICE_TIERS:
+        for vendor in _VENDOR_NAMES:
             assert f"{vendor} voice tier" not in lowered, (
                 f"a catalogue note calls the tier {vendor!r}. A client reads this string."
             )

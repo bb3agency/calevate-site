@@ -47,6 +47,8 @@ from __future__ import annotations
 
 from alembic import op
 
+from apps.api.db.migration_offline import probe_skipped_offline
+
 revision = "f1c40d8b6e93"
 down_revision = "d8b3f5127ac4"
 branch_labels = None
@@ -77,7 +79,24 @@ def _refuse_if_sold() -> None:
     Deliberately NOT `SET ROLE` or RLS-bracketed: migrations run as the owner, and the
     count must see every tenant's rows — a policy-filtered zero here would be the exact
     false reassurance this function exists to refuse.
+
+    ⚠ **OFFLINE (`alembic upgrade head --sql`) THERE IS NO CONNECTION TO COUNT WITH.** An
+    unguarded `op.get_bind()` here raises while RENDERING the script, which does not just
+    fail this revision — it makes every later revision unreachable offline, which is how a
+    DBA loses the ability to review a migration before it runs. So the probe is skipped and
+    the emitted file SAYS it was skipped: a reviewer reading the DDL below has no other way
+    to learn that a safety check visible in the source did not happen. The rename itself is
+    still emitted in full — only the count is dropped, per
+    `tests/migration_offline_guard_test`'s rule that a probe may be skipped and a data
+    statement may not.
     """
+    if probe_skipped_offline(
+        f"{_TABLE} row count NOT checked: no connection in offline mode. These two columns "
+        "hold per-minute rates FROZEN at purchase, so this rename must not be applied to a "
+        "database with lots in it. Verify by hand before running: "
+        f"SELECT count(*) FROM {_TABLE};"
+    ):
+        return
     sold = op.get_bind().exec_driver_sql(f"SELECT count(*) FROM {_TABLE}").scalar_one()
     if sold:
         raise RuntimeError(

@@ -59,13 +59,13 @@ def test_the_provider_vocabulary_is_the_voice_catalogues_and_the_ledgers() -> No
     frozen on every credit lot. A PROVIDER is who synthesises. They were one Literal only
     while the two happened to spell the same.
 
-    ⚠ **AND THEY NO LONGER SPELL THE SAME AT ALL (18 Sep 2026).** The founder withdrew the
-    Sarvam TEXT-TO-SPEECH leg, so `sarvam` is a TIER token and NOT a provider — a
-    historical name for the value rung, argued at `billing/rates.VoiceTier`, now served by
-    Gnani. (Sarvam is still the STT vendor; that leg has never been in either of these
-    vocabularies.) So the two sets are no longer nested in either direction, and what this
-    clause pins is the relation that still has to hold: every provider is attestable, and
-    every provider bills on a rung that is a real tier.
+    ⚠ **AND THE TWO VOCABULARIES ARE NOW DISJOINT (19 Sep 2026).** Two moves got them
+    there. D-629 withdrew the Sarvam TEXT-TO-SPEECH leg, which left `sarvam` a TIER token
+    naming no provider; D-630 then renamed the rungs to `clear` / `studio`, so no token is
+    both a tier and a provider any more. (Sarvam remains the STT vendor; that leg has never
+    been in either of these vocabularies.) What this clause pins is the relation that still
+    has to hold across the two sets: every provider is attestable, and every provider bills
+    on a rung that is a real tier.
     """
     assert set(TTS_PROVIDERS) == set(get_args(VoiceProvider))
     assert "sarvam" not in TTS_PROVIDERS, (
@@ -74,9 +74,17 @@ def test_the_provider_vocabulary_is_the_voice_catalogues_and_the_ledgers() -> No
     )
     assert set(VOICE_TIER_OF_PROVIDER) == set(get_args(VoiceProvider))
     assert {t for t in VOICE_TIER_OF_PROVIDER.values() if t is not None} <= set(get_args(VoiceTier))
-    assert set(get_args(VoiceTier)) == {"sarvam", "cartesia"}, (
-        "the tier tokens are money vocabulary frozen onto credit lots and their columns; "
-        "renaming one restates sold terms (`billing/rates.VoiceTier`)"
+    assert set(get_args(VoiceTier)) == {"clear", "studio"}, (
+        "the tier tokens are money vocabulary frozen onto credit lots and their columns "
+        "(`credit_lots.clear_inr_per_min` / `studio_inr_per_min`), so renaming one from "
+        "here on restates terms somebody has bought — D-630 could rename them only because "
+        "the table was empty, and its migration `f1c40d8b6e93` refuses against a table that "
+        "is not"
+    )
+    assert not set(get_args(VoiceTier)) & set(get_args(VoiceProvider)), (
+        "a token that is BOTH a rung and a provider is what let three screens look a rate "
+        "up by provider among rows keyed by tier and resolve for the wrong reason (D-630); "
+        "the two vocabularies must stay disjoint"
     )
 
 

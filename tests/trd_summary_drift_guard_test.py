@@ -32,17 +32,19 @@ TRD_TEXT = TRD.read_text(encoding="utf-8")
 # --- the card the summary is judged against ------------------------------------------
 
 
-def test_the_per_call_minute_column_parses_to_the_one_priced_rung() -> None:
+def test_the_per_call_minute_column_parses_to_both_priced_rungs() -> None:
     """§4f is only as good as its right-hand side, and that side is a table cell.
 
-    ONE BAND SINCE D-629 (18 Sep 2026), and the absences are the interesting half.
-    `bulbul-v3` is gone because Sarvam left the synthesis leg with its card row; the Clear
-    rung's vendor is now Gnani, and `timbre-v2.5` is READ by the parser (it is in
-    `TTS_DOC_ROW_TO_TIER`) but yields no band because Gnani publish no price at all. A
-    band appearing for it would mean §10.1 had started stating a Gnani rate, which hard
-    rule 7 forbids — so this assertion is the tripwire, not a record of a shrunken card.
+    TWO BANDS AGAIN SINCE D-631 (19 Sep 2026), and the history is the interesting part.
+    `bulbul-v3` left with Sarvam at D-629 and for one day the card priced ONE rung, because
+    the Clear rung's new vendor was believed to publish no price. Gnani publish ₹27.00 per
+    10,000 characters, so the rung has a band again: ₹0.97-1.46 at the assumed speaking
+    band's ends. A band DISAPPEARING from here is the thing to distrust — it means either a
+    vendor genuinely withdrew or somebody recorded a not-finding as a fact, and this repo
+    has now done the second.
     """
     assert doc_tts_per_minute_bands(TRD_TEXT) == {
+        "timbre-v2.5": (Decimal("0.97"), Decimal("1.46")),
         "sonic-3.5": (Decimal("2.06"), Decimal("3.09")),
     }
 
@@ -117,8 +119,8 @@ def test_rewording_the_leg_changes_nothing() -> None:
     assert (
         tts_summary_drift(
             _with_leg(
-                "**TTS: the Clear voice (Gnani Timbre v2.5) has no published price at "
-                "all, and the Cartesia voice costs 2.06–3.09, per agent since D-547**"
+                "**TTS: the Clear voice (Gnani Timbre v2.5) costs 0.97–1.46 and the "
+                "Cartesia voice 2.06–3.09, per agent since D-547**"
             )
         )
         == []
@@ -130,7 +132,7 @@ def test_a_model_name_that_looks_like_a_price_is_not_read_as_one() -> None:
     assert (
         tts_summary_drift(
             _with_leg(
-                "**TTS none published (Timbre v2.5) or 2.06–3.09 (Sonic 3.5, Sonic 3.5 "
+                "**TTS 0.97–1.46 (Timbre v2.5) or 2.06–3.09 (Sonic 3.5, Sonic 3.5 "
                 "again, D-547, TRD §10.1)**"
             )
         )
@@ -143,7 +145,7 @@ def test_symbol_citations_are_never_read_as_prices() -> None:
     assert (
         tts_summary_drift(
             _with_leg(
-                "**TTS 2.06–3.09 "
+                "**TTS 0.97–1.46 or 2.06–3.09 "
                 "(`billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, "
                 "`billing/rates.py::cartesia_cost_inr_per_call_minute`, "
                 "`apps/api/billing/rates.py:1823`)**"

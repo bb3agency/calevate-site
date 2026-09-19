@@ -124,7 +124,7 @@ async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
             credits_written.append((entry, amount))
             continue
 
-        tier: lots.VoiceTier = "cartesia" if rng.random() < 0.4 else "sarvam"
+        tier: lots.VoiceTier = "studio" if rng.random() < 0.4 else "clear"
         minutes = Decimal(rng.randrange(1, 400))
         async with tenant_session(tenant) as session:
             # ONE ledger row whose delta is the sum of the splits, allowed to overdraw

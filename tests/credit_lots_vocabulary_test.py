@@ -52,4 +52,4 @@ def test_the_voice_tiers_are_the_two_the_card_prices() -> None:
     This is the pin that the two do not drift apart while they are apart."""
     from apps.api.billing.lots import VoiceTier
 
-    assert get_args(VoiceTier) == ("sarvam", "cartesia")
+    assert get_args(VoiceTier) == ("clear", "studio")

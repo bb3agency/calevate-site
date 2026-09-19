@@ -19,6 +19,7 @@ import importlib.util
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
+from typing import Final
 from uuid import UUID
 
 import pytest
@@ -60,11 +61,39 @@ async def _ledger(tenant_id: UUID, *, delta: str, reason: str, balance_after: st
         )
 
 
+#: The column rename `f1c40d8b6e93` applied on 19 Sep 2026 (D-630), as a translation
+#: applied to THIS revision's statements at execution time.
+#:
+#: ⚠ **WHY A TRANSLATION AND NOT AN EDIT TO EITHER SIDE.** `c9f3a71e58d2` is APPLIED in
+#: production and must not be rewritten — its statements are the ones that ran, which is
+#: this file's whole premise. But the database these tests run against is at HEAD, where
+#: those two columns are `clear_inr_per_min` / `studio_inr_per_min`. So the historical SQL
+#: is correct, the live schema is correct, and they do not match: a migration written
+#: before a rename cannot name columns that did not exist yet.
+#:
+#: What this file tests is the migration's LOGIC — which wallets open a lot, at which
+#: frozen rates, with a marker entry that moves no money. None of that is about the column
+#: spelling, so translating the spelling preserves the test and rewriting the revision
+#: would destroy the record. The pair is spelled out rather than derived so that a THIRD
+#: rename fails loudly here instead of silently translating to something stale.
+_RENAMED_COLUMNS: Final = (
+    ("sarvam_inr_per_min", "clear_inr_per_min"),
+    ("cartesia_inr_per_min", "studio_inr_per_min"),
+)
+
+
+def _at_head(statement: str) -> str:
+    """One of this revision's statements, with its columns renamed to today's."""
+    for before, after in _RENAMED_COLUMNS:
+        statement = statement.replace(before, after)
+    return statement
+
+
 async def _run_migration_for(tenant_id: UUID) -> None:
     revision = _revision()
     async with tenant_session(tenant_id) as session:
-        await session.execute(text(revision._INSERT_MARKERS))
-        await session.execute(text(revision._INSERT_LOTS))
+        await session.execute(text(_at_head(revision._INSERT_MARKERS)))
+        await session.execute(text(_at_head(revision._INSERT_LOTS)))
 
 
 async def test_a_positive_balance_opens_exactly_one_lot_at_the_q2_rates() -> None:

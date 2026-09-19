@@ -254,7 +254,7 @@ async def test_the_model_surcharge_is_in_the_calling_total_and_in_neither_voice(
         charges = await billing.voice_tier_usage(
             session, tenant_id=tenant_id, month=billing.current_billing_month()
         )
-    assert charges.by_voice["sarvam"].charged_inr == Decimal("188.0000")
+    assert charges.by_voice["clear"].charged_inr == Decimal("188.0000")
     assert charges.extra_inr == Decimal("12.00")
     assert charges.total_inr == Decimal("200.0000")
 
@@ -385,13 +385,13 @@ async def test_a_recorded_card_prices_the_lot_a_purchase_opens() -> None:
             ),
             [
                 {
-                    "k": pack_rate_key("starter", "sarvam"),
+                    "k": pack_rate_key("starter", "clear"),
                     "ef": at,
                     "amt": Decimal("5.5000"),
                     "by": admin_id,
                 },
                 {
-                    "k": pack_rate_key("starter", "cartesia"),
+                    "k": pack_rate_key("starter", "studio"),
                     "ef": at,
                     "amt": Decimal("8.7500"),
                     "by": admin_id,

@@ -82,8 +82,8 @@ async def _isolated_history() -> AsyncIterator[None]:
 def test_a_card_key_round_trips_through_its_spelling() -> None:
     """`pack:<pack_id>:<voice>` — built by a function so the writer and the reader cannot
     come to disagree about the spelling, which two matching string literals would."""
-    assert pack_rate_key("plus", "cartesia") == "pack:plus:cartesia"
-    assert pack_rate_key("plus", "cartesia").startswith(f"{PACK_RATE_KEY_PREFIX}:")
+    assert pack_rate_key("plus", "studio") == "pack:plus:studio"
+    assert pack_rate_key("plus", "studio").startswith(f"{PACK_RATE_KEY_PREFIX}:")
 
 
 async def test_a_card_write_lands_twelve_rates_and_the_legacy_key_at_one_instant() -> None:
@@ -149,10 +149,10 @@ async def test_the_card_resolves_to_the_greatest_effective_from_at_or_before_the
     # moves must not turn a resolution test red.
     plus = next(pack for pack in PACK_CATALOGUE if pack.pack_id == "plus")
     cut = Decimal("0.25")
-    assert before["plus"]["sarvam"] == plus.clear_inr_per_min
-    assert before["plus"]["cartesia"] == plus.studio_inr_per_min
-    assert after["plus"]["sarvam"] == plus.clear_inr_per_min - cut
-    assert after["plus"]["cartesia"] == plus.studio_inr_per_min - cut
+    assert before["plus"]["clear"] == plus.clear_inr_per_min
+    assert before["plus"]["studio"] == plus.studio_inr_per_min
+    assert after["plus"]["clear"] == plus.clear_inr_per_min - cut
+    assert after["plus"]["studio"] == plus.studio_inr_per_min - cut
 
 
 async def test_an_instant_before_any_card_falls_back_to_the_static_catalogue() -> None:
@@ -215,7 +215,7 @@ async def test_a_key_this_build_cannot_interpret_is_skipped_not_fatal() -> None:
     # the catalogue's — the point being that the four junk keys changed nothing, not that
     # `plus` costs any particular figure.
     plus = next(pack for pack in PACK_CATALOGUE if pack.pack_id == "plus")
-    assert card["plus"]["cartesia"] == plus.studio_inr_per_min
+    assert card["plus"]["studio"] == plus.studio_inr_per_min
 
 
 async def test_a_card_is_resolved_at_an_aware_instant_only() -> None:

@@ -403,11 +403,11 @@ async def test_the_tier_is_derived_from_the_id_and_not_from_the_form() -> None:
     async with untenanted_session() as session:
         row = await read_one_curated_voice(session, voice_id=CLONE_VOICE_ID)
     assert row.voice.provider == "cartesia"
-    assert voice_tier(CLONE_VOICE_ID) == "cartesia"
+    assert voice_tier(CLONE_VOICE_ID) == "studio"
     # Derived from the ID ALONE — true even with nothing in the catalogue at all, which is
     # the property the money lane needs (a cache miss must not re-price a minute).
     install_voice_catalogue(None)
-    assert voice_tier(CLONE_VOICE_ID) == "cartesia"
+    assert voice_tier(CLONE_VOICE_ID) == "studio"
 
 
 # --- the properties D-588 established, held across the change --------------------

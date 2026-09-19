@@ -172,13 +172,13 @@ async def test_the_pending_view_prices_each_voice_off_the_clients_own_lots() -> 
     assert response.status_code == 200, response.text
     assert response.json()["voice_tier_rates"] == [
         {
-            "provider": "sarvam",
+            "voice_tier": "clear",
             "label": "Clear",
             "inr_per_min": "4.7000",
             "further_open_lots": 1,
         },
         {
-            "provider": "cartesia",
+            "voice_tier": "studio",
             "label": "Studio",
             "inr_per_min": "6.5000",
             "further_open_lots": 1,

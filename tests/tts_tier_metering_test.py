@@ -61,7 +61,7 @@ def test_the_value_rungs_scalar_is_frozen_and_numeric() -> None:
     value rung's cost floor is struck at. Pinned here so a later session cannot quietly
     re-strike a floor that TRD §10.1, the pack guard and the margin model all rest on.
     """
-    assert Decimal("30.0000") == rates.TTS_INR_PER_10K_CHARS
+    assert Decimal("27.0000") == rates.TTS_INR_PER_10K_CHARS
     assert isinstance(rates.TTS_INR_PER_10K_CHARS, Decimal)
     assert not isinstance(rates.TTS_INR_PER_10K_CHARS, float)
 
@@ -88,8 +88,8 @@ def test_the_cost_model_still_prices_a_call_minute_from_the_frozen_scalar() -> N
     deleted with the billable door — a character count no longer has a price — and
     `tts_inr_per_call_minute` is what the floor, TRD §10.1's per-call-minute cell and the
     measured speaking-rate board all go through."""
-    assert rates.value_rung_tts_inr_per_char() == Decimal("30.0000") / Decimal(10_000)
-    assert rates.tts_inr_per_call_minute(Decimal(10_000)) == Decimal("30.0000")
+    assert rates.value_rung_tts_inr_per_char() == Decimal("27.0000") / Decimal(10_000)
+    assert rates.tts_inr_per_call_minute(Decimal(10_000)) == Decimal("27.0000")
     assert not hasattr(rates, "tts_cost_inr"), (
         "a per-character COST helper is a billable door by another name; the floor takes a "
         "speaking rate, not a character count"

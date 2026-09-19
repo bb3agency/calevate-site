@@ -132,13 +132,13 @@ async def _publish(amount: Decimal, *, effective_from: datetime, by: UUID) -> No
             [
                 {"k": SELF_SERVE_PER_MIN, "ef": effective_from, "amt": amount, "by": by},
                 {
-                    "k": pack_rate_key("starter", "sarvam"),
+                    "k": pack_rate_key("starter", "clear"),
                     "ef": effective_from,
                     "amt": amount,
                     "by": by,
                 },
                 {
-                    "k": pack_rate_key("starter", "cartesia"),
+                    "k": pack_rate_key("starter", "studio"),
                     "ef": effective_from,
                     "amt": amount + Decimal("3.0000"),
                     "by": by,

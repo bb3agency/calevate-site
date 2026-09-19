@@ -208,7 +208,25 @@ PACK_RATE_KEY_PREFIX = "pack"
 #: too. The directive is described rather than spelled out on purpose: coverage's exclude
 #: pattern matches it ANYWHERE on a line, so writing it inside this very sentence excluded
 #: the constant below and cost this surface its zero.
-_VOICE_BY_NAME: Final[Mapping[str, VoiceTier]] = {voice: voice for voice in VOICE_TIERS}
+_VOICE_BY_NAME: Final[Mapping[str, VoiceTier]] = {
+    **{voice: voice for voice in VOICE_TIERS},
+    # ⚠ **THE TWO HISTORICAL SPELLINGS, READ-ONLY, AND THEY ARE NOT DECORATION.**
+    # Until 19 Sep 2026 (D-630) the rungs were named after the vendors then serving them,
+    # so a rate card recorded before that date holds keys like `pack:plus:sarvam`.
+    # `platform_list_rates` is APPEND-ONLY HISTORY — those rows cannot be rewritten, and
+    # rewriting them would be falsifying what was recorded on the day it was recorded.
+    #
+    # Without these two entries `_parse_pack_rate_key` returns `None` for such a key and
+    # the caller SKIPS the row, which is its correct behaviour for a pack id this build has
+    # forgotten and exactly the wrong one here: the rung still exists, under a new name, and
+    # a card would silently render with its Clear column missing. A missing column reads as
+    # "that rate was never set", which is a different and worse claim than the truth.
+    #
+    # `pack_rate_key` writes ONLY the current spelling, so nothing new lands under these.
+    # They are the read half of a rename, and they retire when no row predates D-630.
+    "sarvam": VALUE_VOICE_TIER,
+    "cartesia": PREMIUM_VOICE_TIER,
+}
 
 
 def pack_rate_key(pack_id: str, voice: VoiceTier) -> str:

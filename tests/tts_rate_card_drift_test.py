@@ -77,13 +77,16 @@ def test_the_check_reads_the_real_rate_card_and_the_real_biller() -> None:
     declared = guard.doc_tts_rates()
     billed = guard.code_tts_rates()
     assert declared, "TRD §10.1's TTS rate card did not parse — section 4b is reading nothing"
-    # ONE billed rung since 18 Sep 2026 (see the module docstring), and it is DERIVED in
-    # code from the vendor's overage rate — so this is also what pins the doc row to the
-    # arithmetic rather than to a figure somebody rounded.
-    assert set(declared) == set(billed) == {"sonic-3.5"}
+    # TWO rungs again since 19 Sep 2026 (D-631). It was one for a day: the Clear rung's
+    # vendor changed at D-629 and Gnani were believed to publish no price, so that rung had
+    # no card row to diff. They publish ₹27.00 / 10,000 chars, so both rungs are back —
+    # Cartesia's DERIVED in code from the vendor's overage rate (which is what pins the doc
+    # row to arithmetic rather than to a figure somebody rounded), Gnani's read off their
+    # console. Neither is a rate any minute is BILLED at; see `code_tts_rates`.
+    assert set(declared) == set(billed) == {"sonic-3.5", "timbre-v2.5"}
     assert declared == billed, f"the doc and the biller already disagree: {declared} vs {billed}"
     assert "bulbul-v3" not in billed, (
-        "`TTS_INR_PER_10K_CHARS` is the value rung's FROZEN cost-model scalar and not a "
+        "`TTS_INR_PER_10K_CHARS` is the CLEAR rung's per-character rate and not a "
         "rate anybody is billed at; listing it here would demand a rate-card row for a "
         "vendor card that no longer exists"
     )
@@ -207,8 +210,15 @@ def test_prose_about_a_rate_is_not_read_as_a_rate() -> None:
         "was wrong. The card below is the first-party read.\n\n"
         "| Cartesia API | Published rate |\n|---|---|\n"
         "| Text-to-Speech **Sonic 3.5** | ₹57.20 / 10,000 chars |\n"
+        # BOTH rungs, because §4b diffs the whole card in both directions: a fixture
+        # carrying one rung while the biller holds two reports the missing one as drift and
+        # this clause would fail for a reason that has nothing to do with prose (D-631).
+        "| Text-to-Speech **Timbre v2.5** | ₹27.00 / 10,000 chars |\n"
     )
-    assert guard.doc_tts_rates(prose) == {"sonic-3.5": Decimal("57.20")}
+    assert guard.doc_tts_rates(prose) == {
+        "sonic-3.5": Decimal("57.20"),
+        "timbre-v2.5": Decimal("27.00"),
+    }
     # What this asserts is that the SENTENCE quoting ₹99.00 produced no rate claim at all:
     # the only sonic-3.5 figure the parse found is the table row's, which agrees with code.
     assert not guard.tts_rate_card_drift(prose)
@@ -333,6 +343,6 @@ def test_a_gnani_rate_appearing_in_the_card_is_named() -> None:
     currently reads `**none published**`. That is the shape the defect would really take.
     """
     offenders = guard.tts_rate_card_drift(
-        _mutated("| **none published** |", "| ₹27.00 / 10,000 chars |")
+        _mutated("| ₹27.00 / 10,000 chars |", "| ₹41.00 / 10,000 chars |")
     )
-    assert any("timbre-v2.5" in line and "no such rung" in line for line in offenders), offenders
+    assert any("timbre-v2.5" in line and "41" in line for line in offenders), offenders

@@ -177,7 +177,7 @@ def test_the_measured_floor_moves_by_exactly_the_tts_leg_and_nothing_else() -> N
     # assertion below is what actually guards. The literal moves with the card; the
     # RELATIONSHIP — measured floor differs from the assumed one only by the TTS leg — does
     # not, and is the reason this test exists.
-    assert floor.inr_per_min == Decimal("2.8911")
+    assert floor.inr_per_min == Decimal("2.7711")
     assert SELF_SERVE_COST_FLOOR_INR_PER_MIN - floor.inr_per_min == (
         tts_inr_per_call_minute(TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1])
         - tts_inr_per_call_minute(Decimal("400"))
@@ -501,7 +501,7 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
     assert sarvam, "the card has a Clear column"
     for cell in sarvam:
         # The MEASURED floor, not the frozen one — and they differ, which is the whole point.
-        assert cell.cost_inr_per_min_at_volume == "2.8911"
+        assert cell.cost_inr_per_min_at_volume == "2.7711"
         assert cell.cost_floor_inr_per_min == str(SELF_SERVE_COST_FLOOR_INR_PER_MIN)
         assert cell.cost_inr_per_min_at_volume != cell.cost_floor_inr_per_min
     # THE STUDIO COLUMN DOES NOT MOVE WITH THE SPEAKING RATE, deliberately: two independent
@@ -523,7 +523,7 @@ def test_the_console_block_carries_the_basis_the_sample_and_the_window() -> None
     assert published.minimum_calls == TTS_SPEAKING_RATE_MIN_CALLS
     assert published.window == "2026-09"
     assert "measured" in published.basis
-    assert published.cost_floor_inr_per_min == "2.8911"
+    assert published.cost_floor_inr_per_min == "2.7711"
     assert published.refusal_floor_inr_per_min == str(SELF_SERVE_COST_FLOOR_INR_PER_MIN)
     assert published.floor_above_refusal is False
 
@@ -554,7 +554,7 @@ def test_the_spend_board_publishes_the_counter_beside_the_walk() -> None:
     assert out.measured is True
     assert out.chars_per_minute == "400.0000"
     assert out.window == "2026-07..2026-09"
-    assert out.cost_floor_inr_per_min == "2.8911"
+    assert out.cost_floor_inr_per_min == "2.7711"
     assert out.refusal_floor_inr_per_min == str(SELF_SERVE_COST_FLOOR_INR_PER_MIN)
     assert out.floor_above_refusal is False
 

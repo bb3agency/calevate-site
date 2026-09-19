@@ -211,12 +211,12 @@ async def test_agent_characters_over_call_minutes_to_the_paise() -> None:
     # Sorted rates [0, 300, 450]; nearest-rank p50 is position ceil(1.5) = 2, p95 is
     # position ceil(2.85) = 3.
     assert rate.p50.chars_per_minute == Decimal("300.0000")
-    assert rate.p50.tts_inr_per_minute == Decimal("0.9000")
+    assert rate.p50.tts_inr_per_minute == Decimal("0.8100")
     assert rate.p95.chars_per_minute == Decimal("450.0000")
-    assert rate.p95.tts_inr_per_minute == Decimal("1.3500")
-    # Pooled: 1,200 chars x 60 / 210 s = 342.857142... chars/min -> x ₹0.003 = ₹1.028571...
+    assert rate.p95.tts_inr_per_minute == Decimal("1.2150")
+    # Pooled: 1,200 chars x 60 / 210 s = 342.857142... chars/min -> x ₹0.0027 = ₹0.925714...
     assert rate.pooled.chars_per_minute == Decimal("342.8571")
-    assert rate.pooled.tts_inr_per_minute == Decimal("1.0286")
+    assert rate.pooled.tts_inr_per_minute == Decimal("0.9257")
 
 
 def test_the_implied_rupee_is_the_live_rate_card_and_never_a_literal() -> None:
@@ -306,8 +306,11 @@ async def test_the_route_walks_every_live_tenant_and_pools_both_tenants_calls() 
     assert body["clients"] >= 2
     assert body["minimum_calls"] == TTS_SPEAKING_RATE_MIN_CALLS
     assert body["tts_inr_per_10k_chars"] == str(TTS_INR_PER_10K_CHARS)
-    assert body["assumed_low"] == {"chars_per_minute": "360.0000", "tts_inr_per_minute": "1.0800"}
-    assert body["assumed_high"] == {"chars_per_minute": "540.0000", "tts_inr_per_minute": "1.6200"}
+    assert body["assumed_low"] == {"chars_per_minute": "360.0000", "tts_inr_per_minute": "0.9720"}
+    assert body["assumed_high"] == {
+        "chars_per_minute": "540.0000",
+        "tts_inr_per_minute": "1.4580",
+    }
     if body["measured"]:
         for key in ("p50", "p95", "pooled"):
             assert isinstance(body[key]["chars_per_minute"], str)
@@ -348,8 +351,8 @@ def test_the_assumed_band_is_pinned_to_trd_10_1() -> None:
     low, high = assumed_band()
     # §10.1's per-call-minute cell for the TTS leg, derived rather than restated.
     assert (low.tts_inr_per_minute, high.tts_inr_per_minute) == (
-        Decimal("1.0800"),
-        Decimal("1.6200"),
+        Decimal("0.9720"),
+        Decimal("1.4580"),
     )
     assert f"₹1.08{EN_DASH}1.62" in TRD_TEXT
 
