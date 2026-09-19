@@ -77,7 +77,20 @@ export const COMPLIANCE_INVARIANTS: readonly {
  *
  * The residency card, narrowed FOUR times and now WITHDRAWN as an India claim (D-449,
  * 22 Aug 2026): the declared model region is Azure OpenAI `eastus2`, still Regional and not
- * Global, speech and first extraction untouched and still Sarvam. ⚠ AND ON 27 AUG 2026 THE
+ * Global, speech and first extraction untouched and still Sarvam.
+ *
+ * ⚠ **"SPEECH … ARE INDIAN SERVICES" WAS FALSE FROM 18 SEP 2026 AND THIS IS A
+ * CLIENT-FACING REPRESENTATION, NOT A DOC NIT (corrected 19 Sep 2026).** D-629 split the
+ * speech leg in two and moved half of it: transcription stays with the Indian company,
+ * but SYNTHESIS is now Gnani `timbre-v2.5` or Cartesia `sonic-3.5` — and Cartesia is not
+ * Indian, with its own sub-processor row reading NOT VERIFIED on location. The old
+ * sentence said "speech", which a reader takes as both halves, so for every Studio call it
+ * asserted something untrue about where a caller’s voice is made. This text is rendered on
+ * the public homepage and on /security, so it is a representation under the Consumer
+ * Protection Act 2019 — the same class as a price. It now names the transcription leg
+ * explicitly and says the voice leg is a different vendor that may be abroad.
+ *
+ * ⚠ AND ON 27 AUG 2026 THE
  * INDIAN HALF WAS NARROWED TOO: Sarvam is an Indian COMPANY, but its published privacy
  * policy ("Cross-Border Data Transfers", read by the founder 27 Aug 2026 and relayed —
  * `sarvam.ai` is egress-blocked from this container) says personal data may be processed
@@ -94,11 +107,14 @@ export const COMPLIANCE_INVARIANTS: readonly {
  * endpoint built by hand.
  */
 export const WHERE_IT_RUNS =
-  "Speech and the first reading of your transcript are Indian services, on every call — " +
-  "an Indian COMPANY, which since 27 August 2026 we no longer let you read as processing " +
-  "that stays in the country: that vendor’s own published privacy policy permits it to " +
-  "process personal data outside India, including on United States cloud infrastructure, " +
-  "and the sub-processor page says so in its own words. The language model is not Indian " +
+  "Turning your caller’s words into text, and the first reading of that transcript, are " +
+  "done by an Indian COMPANY on every call — which since 27 August 2026 we no longer let " +
+  "you read as processing that stays in the country: that vendor’s own published privacy " +
+  "policy permits it to process personal data outside India, including on United States " +
+  "cloud infrastructure, and the sub-processor page says so in its own words. The VOICE " +
+  "your caller hears is a different vendor again, and since 18 September 2026 it is not " +
+  "that Indian company at all: one of the two voices we offer is synthesised abroad, and " +
+  "the sub-processor page names which. The language model is not Indian " +
   "either: it runs on a Microsoft Azure OpenAI account in the United States, in the East " +
   "US 2 region. Until 22 August 2026 that account was in South India and this card said " +
   "so, and we would rather withdraw the sentence than soften it. What our code still does " +

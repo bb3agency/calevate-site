@@ -220,7 +220,22 @@ describe("the landing page's claims", () => {
      * that drops THAT qualification is the defect to catch.
      */
     expect(text).toContain(
-      "Speech and the first reading of your transcript are Indian",
+      "the first reading of that transcript, are " +
+        "done by an Indian COMPANY on every call",
+    );
+    /*
+     * ⚠ **THE PINNED SUBSTRING USED TO READ "Speech and the first reading of your
+     * transcript are Indian", AND THAT SENTENCE BECAME FALSE ON 18 SEP 2026.** D-629 split
+     * the speech leg: transcription stayed with the Indian company, synthesis moved to
+     * Gnani or Cartesia, and Cartesia is not Indian. "Speech" reads as both halves, so the
+     * page was telling every Studio caller's client something untrue about where the voice
+     * is made — on a public page, which makes it a representation under the Consumer
+     * Protection Act 2019 rather than a wording preference. The guard pinned the false
+     * sentence, so it had to move with the copy; this clause is the replacement and the
+     * one below is new, because the omission this test exists for is now TWO omissions.
+     */
+    expect(text).toContain(
+      "The VOICE your caller hears is a different vendor again",
     );
     expect(text).toContain(
       "Microsoft Azure OpenAI account in the United States",
