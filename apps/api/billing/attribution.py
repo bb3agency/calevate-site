@@ -124,6 +124,7 @@ from apps.api.billing.service import (
     _ROW_TIER_SQL,
     _SECONDS_PER_MINUTE,
     _SURCHARGED_MODEL_SQL,
+    BASE_OVERAGE_RUNG,
     _month_bounds,
     _surcharge_binds,
     allocate_paise,
@@ -415,13 +416,22 @@ def _rung_rate(
     otherwise — the caller decides from the bucket the ledger put them in, so this
     function never sees a model identifier and cannot invent an opinion about one.
 
+    ⚠ **THE BASE RUNG WAS SPELLED `"premium"` HERE AS A BARE LITERAL UNTIL 19 SEP 2026**,
+    while `service.BASE_OVERAGE_RUNG` exists precisely so the token is written once — its
+    own comment says "spelled once so the writer and the reader cannot drift apart". A
+    second spelling is how that drift starts, and the rung is a FROZEN ledger token
+    (D-558): `usage_events` is append-only, so the day anybody re-points the constant, a
+    literal here would go on pricing a rung nothing stamps any more, silently, on closed
+    months. It reads the constant now, so there is one place to change and it cannot be
+    changed by half.
+
     Unattributed (`''`) is priced with `value`, never `premium` — SURFACES §2b's rule that
     a call we cannot PROVE got the premium voice is never charged the premium rate, and
     `tier_usage` states the same thing about the same bucket. A plan quoting no separate
     value rate bills both rungs at `rate`, which is what `NULL` means on that column and
     not "the value rung is free".
     """
-    base = rate if tier == "premium" or rate_value is None else rate_value
+    base = rate if tier == BASE_OVERAGE_RUNG or rate_value is None else rate_value
     return base if surcharge is None else base + surcharge
 
 

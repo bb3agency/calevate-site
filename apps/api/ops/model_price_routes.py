@@ -322,16 +322,20 @@ class TtsPriceOut(BaseModel):
     #: rather than being typed in the browser, so the console and the client's own screen
     #: cannot come to call one tier two things.
     tier_label: str
-    #: The synthesizer model this leg speaks with (`bulbul:v3`, `sonic-3.5`) — the fact
+    #: The synthesizer model this leg speaks with (`sonic-3.5`, `timbre-v2.5`) — the fact
     #: that makes a price checkable against a vendor's price list, which is quoted per
-    #: model rather than per company.
+    #: model rather than per company. ⚠ The examples read `bulbul:v3, sonic-3.5` until
+    #: 19 Sep 2026; `bulbul:v3` left `agents/voices.TtsModel` with the Sarvam TTS leg
+    #: (D-629) and naming a withdrawn model here sends an operator to the wrong price list.
     tts_model: str
     #: Is a key for this vendor installed on this deployment? Ground 1 of the picker's
     #: three (`agents/voice_offer`), reported here because a price attested against a
     #: vendor we hold no key for buys nothing.
     credential_installed: bool
-    #: Has an operator attested a figure — distinct from `price_billable`, which is True
-    #: for the engine-metered Sarvam leg with no attestation at all.
+    #: Has an operator attested a figure — distinct from `price_billable`, which a leg the
+    #: ENGINE meters and bills would be True on with no attestation at all. ⚠ This said
+    #: "the engine-metered Sarvam leg" until 19 Sep 2026: that leg was withdrawn (D-629)
+    #: and no survivor satisfies the exemption today, which `_tts_row` argues in full.
     price_attested: bool
     #: May a minute on this tier be METERED at a cost right now — THE one door,
     #: `ops/model_pricing.tts_price_is_billable`.
@@ -342,8 +346,11 @@ class TtsPriceOut(BaseModel):
     #: reports it per agent (`voice_offer.cartesia_cap_reached_reason`).
     offerable: bool
     #: WHY THIS LEG NEEDS NO ATTESTATION, when it needs none — `null` when it does need
-    #: one. A Sarvam row with an empty price field and no explanation reads as an
+    #: one. An engine-metered row with an empty price field and no explanation reads as an
     #: outstanding job; it is not one, and the console prints this sentence instead.
+    #: ⚠ The example was "A Sarvam row" until 19 Sep 2026, and no such row exists any more
+    #: (D-629) — the field stays because `default_tts_price_is_billable` decides this, not
+    #: a vendor's name (`_tts_row`).
     billable_without_attestation_reason: str | None
     #: The attested figure, rupees per 1,000 characters, as a string. `null` until attested.
     inr_per_1k_chars: str | None
@@ -352,9 +359,12 @@ class TtsPriceOut(BaseModel):
     attested_by: str | None
     source_note: str | None
     #: THIS TREE'S OWN figure, pre-filled into the form GREYED and labelled "confirm
-    #: against your vendor invoice". Never authoritative: Sarvam's is a published list rate
-    #: and Cartesia's is the vendor's marginal overage rate, which is why hard rule 7
-    #: keeps both out of `unit_cost_paid` (`ops/model_pricing.reference_tts_price`).
+    #: against your vendor invoice". Never authoritative: Cartesia's is the vendor's
+    #: marginal overage rate, which is why hard rule 7 keeps it out of `unit_cost_paid`
+    #: (`ops/model_pricing.reference_tts_price`). ⚠ This also named SARVAM's published list
+    #: rate until 19 Sep 2026; that leg was withdrawn (D-629) and this panel has no row for
+    #: it. Gnani's arm answers `null` today for the reason D-632 records, not for want of a
+    #: published price (D-631).
     #:
     #: ⚠ **`null` WHEN THIS TREE HOLDS NO REFERENCE FIGURE FOR THE PROVIDER (D-618).**
     #: ⚠ **THIS SAID "Gnani publish no figure at all" AND THAT WAS FALSE (D-631,

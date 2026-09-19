@@ -220,6 +220,23 @@ rungs were left exactly as they were, and the voice got `meta.voice_tier` of its
 reason is under Phase B above; it is the same departure, recorded in both places because
 the sentence that specified it is here.
 
+⚠ **THE VENDOR NAMES IN C.1 AND C.6 BELOW ARE STALE, AND ONE OF THEM NAMES A MODEL THIS
+PRODUCT NO LONGER HAS (re-read from the code, 19 Sep 2026).** C.1 specifies
+`TtsModel = Literal["bulbul:v3", "sonic-3.5"]` and `Voice.provider: Literal["sarvam","cartesia"]`;
+`apps/api/agents/voices.py` holds `Literal["sonic-3.5", "timbre-v2.5"]` and the providers are
+`gnani` / `cartesia`, because D-629 (18 Sep 2026) withdrew the Sarvam TEXT-TO-SPEECH leg and
+gave the Clear rung to Gnani, and D-630 (19 Sep 2026) renamed the RUNGS `clear` / `studio` so
+that no rung shares a word with a vendor. C.6's `TTS_MODEL_LIFECYCLE` row for `bulbul:v3` is
+gone for the same reason and `timbre-v2.5` stands in its place, with stance `unread` (D-618).
+Read those two steps as HISTORY of what landed on 7 Sep, never as the current catalogue.
+
+⚠ **C.3 CITES THE WRONG GATE NUMBER.** It says the Cartesia block "fails LOUD at publish …
+until gate 50 (§9) records the real shape". The wire-shape gate is **52**
+(`docs/OPERATIONS.md:163`); gate 50 is the `graph_agent` cost question
+(`docs/OPERATIONS.md:161`), which §9's own table below states correctly. Corrected 19 Sep 2026
+rather than silently — a reader chasing the publish refusal would have opened a gate about a
+different subject and found nothing about `provider_config`.
+
 **A Cartesia voice still CANNOT be published, and refuses by name.** The catalogue ships
 EMPTY because the Telugu voice ids need one authenticated call that needs the key installed
 first, so `_synthesizer_config` raises `cartesia_voice_incomplete`
@@ -233,7 +250,7 @@ Files: `agents/voices.py`, `agents/voice_routes.py`, `agents/verification.py`, `
 5. **Publish read-back**: `verification.py:169-304` diffs the SPEAKER only; it now diffs `tts_provider` and `tts_model` too (`_agent_models`, `bolna.py:2500-2521`, already reads them back), so a Cartesia agent that the engine holds as Sarvam is `voice_applied=False`. `AgentSnapshot.holds_speech("tts")` (`engine.py:3150-3164`) returns `(provider, model, voice)` for the TTS leg.
 6. **Lifecycle**: `check_model_lifecycle` is LLM-only and closed (`scripts/check_model_lifecycle.py:118-126`). A `TTS_MODEL_LIFECYCLE` table with the same `retirement_stance` field is added for `bulbul:v3` and `sonic-3.5` (both "vendor announced nothing", class VERIFIED-VENDOR-DOCS from the mirror), and the checker gains the second table rather than a second script.
 7. **Conformance**: `packages/shared/tests/engine_conformance/contract_test.py:79-85,1263` pin one TTS model; extended to require both adapters (bolna, fake) to round-trip both providers.
-8. `voice_tier(agent)` helper = provider of its voice; the pipeline stamps `meta.tts_tier` with it (`pipeline.py:2484` currently the constant `"premium"`; `BASE_OVERAGE_RUNG`/`_RUNGS` (`service.py:1190-1197`) are re-pointed to `("sarvam","cartesia","")`).
+8. `voice_tier(agent)` helper = provider of its voice; the pipeline stamps `meta.tts_tier` with it (`pipeline.py:2484` currently the constant `"premium"`; `BASE_OVERAGE_RUNG`/`_RUNGS` (`service.py:1190-1197`) are re-pointed to `("sarvam","cartesia","")`). ⚠ **DO NOT DO THE SECOND HALF OF THIS STEP — IT IS THE SAME LIVE MONEY DEFECT PHASE D STEP 4 CARRIED, AND IT IS SPELLED OUT HERE TOO NOW (19 Sep 2026).** The heading above already records the sentence as SUPERSEDED, but it is restated verbatim at the end of this line, which is where a reader acts from. `BASE_OVERAGE_RUNG` is `"premium"` at `billing/service.py:1826` and `_ROW_TIER_SQL` (`:2003`) reads `meta->>'tts_tier'` against it; `usage_events` is APPEND-ONLY, so stamping a new token re-files every closed month into `unattributed`, which `tier_usage` prices at the CHEAPER rung (`apps/workers/pipeline.py:2529-2539` argues it in full). The overage rung is a PLAN SLOT, not a voice. What landed instead is the voice's own `meta.voice_tier` key (`pipeline.py:2548`), which is what D-630 renamed. The addresses in this step are also stale: `service.py:1190-1197` is now `:1826-1846`.
 
 ### Phase D — LANDED IN FULL. `1df9a5a`, `a822c7e` (7 Sep 2026), then `bc6da1d`, `f5b3a3d` (8 Sep 2026)
 
@@ -246,6 +263,17 @@ at list-rate x minutes"), so this document contradicted itself for eleven days a
 half that was WRONG is the half a reader starts from. Both paragraphs below are kept, struck,
 because the next reader will otherwise re-derive "not built" from the same §12 they should
 have trusted.
+
+**RE-READ FROM THE CODE ON 19 Sep 2026 (a SECOND pass, after the morning's corrections), and
+all four steps stand as built.** D.1: `ops/model_pricing.TtsPriceAttestation`,
+`::attest_tts_price`, `::tts_price_is_billable` and the panel row
+`ops/model_price_routes.TtsPriceOut`, over `TTS_PROVIDERS = ("cartesia", "gnani")`. D.2:
+`apps/workers/pipeline.py::_tts_cost_rows` — the Studio arm writes a `tts_kchars` row at
+`qty` = agent characters ÷ 1,000 and `unit_cost_paid` = the ATTESTED ₹/1k, writes NO row
+rather than a fabricated ₹0 when nothing is attested (and alerts), and records any engine
+charge on the BYOK leg beside it as gate 51's only measurement. D.3 and D.4 as the two
+struck paragraphs below record. What is NOT built anywhere is a way to SELL the Clear rung,
+and that is hard rule 7 refusing an unattested price, not a missing step (§9 gate 56).
 
 **Built**: D.1 (`TtsPriceAttestation` and `tts_price_is_billable`) and D.2 (the metering
 seam), D.4's panel half (`UsagePanelOut` gained `clear_minutes`/`studio_minutes` and
@@ -312,6 +340,21 @@ Files: `billing/payment_routes.py`, `apps/web/src/lib/api/rateCard.ts`, OpenAPI 
 2. `isRateCard` (`rateCard.ts:334` — ⚠ this said `:125-143` until 19 Sep 2026) validates the new fields as money strings; `cheapestPack` becomes per-voice.
 
 ### Phase F — LANDED `5ceb0bd`, `7333e3b` (7 Sep 2026)
+
+**RE-READ FROM THE CODE ON 19 Sep 2026 and all three steps stand.** F.1's lot promise is at
+`apps/web/src/lib/legal/terms.ts:319-320` ("…Credit does not expire. Credit is spent oldest
+purchase first."); F.2's plural is live in BOTH places — `terms.ts:341` ("not the rates your
+credit balance is drawn down at") and `refunds.ts:56-62` ("one for each voice quality an
+agent can speak in"); F.3's `mergewt/` worktree is still present and still untouched.
+⚠ **ONE SENTENCE IN THIS SECTION IS NOW STALE AND IS NOT THIS LANE'S TO FIX**: the privacy
+notice and the DPA were corrected on 7 Sep for a world in which synthesis on the FIRST
+quality ran on an Indian provider. D-629 withdrew the Sarvam TTS leg on 18 Sep, so BOTH
+qualities are now spoken by vendors whose processing location nobody here has established —
+D-629's own ROADMAP row records the legal set moving again for exactly that reason. The
+client-facing files are `apps/web/src/lib/legal/**` and are outside this lane's fence;
+`docs/SECURITY-COMPLIANCE.md:288` still describes the in-call stack as "Saaras STT and
+Bulbul v3 TTS … sovereign BY VENDOR", which is the same stale claim in the internal register
+and wants the next lane that owns `docs/`.
 
 Terms §6.1 and Refunds §1 carry the lot promise, three documents bump material and the
 Python catalogue bumps with them. **Two things landed that this section did not ask for and
@@ -458,7 +501,7 @@ rates. ⚠ **The Q6 override CONTROL is committed and its backend ROUTE is not**
 | `docs/OPERATIONS.md` §2 | Gate 12 (`:94`) (h) TTS speaking rate now also feeds Cartesia `qty`; new gates 50–52 (§9). |
 | `docs/ROADMAP.md` | **D-547** (this plan) — supersedes the un-numbered "single-tier voice decision" cited at `rates.py:3`, `TRD:1365`; extends D-492 (rates per lot) and D-545 (card shape). |
 | `docs/BUILD-LOG.md` | One entry per phase landed. |
-| `docs/SECURITY-COMPLIANCE.md` | Nothing on pricing; only the sub-processor list gains Cartesia (already present in `lib/legal/subprocessors.ts`? — `:125-126` lists Sarvam; Cartesia's entry, data-handling terms from `cartesia-tts-verification-2026-09-06.md` §A5, is added in Phase F). |
+| `docs/SECURITY-COMPLIANCE.md` | Nothing on pricing; only the sub-processor list gains Cartesia (already present in `lib/legal/subprocessors.ts`? — `:125-126` lists Sarvam; Cartesia's entry, data-handling terms from `cartesia-tts-verification-2026-09-06.md` §A5, is added in Phase F). ⚠ **DONE on the client-facing register and NOT DONE here (checked 19 Sep 2026)**: `apps/web/src/lib/legal/subprocessors.ts` carries Cartesia's own voice-synthesis row, but `docs/SECURITY-COMPLIANCE.md` contains the string "cartesia" ZERO times and `:288` still states the in-call stack as *"Saaras STT and Bulbul v3 TTS … sovereign BY VENDOR"* — a synthesis leg withdrawn by D-629 on 18 Sep 2026. Outside this lane's write fence; named here so the next `docs/` lane has the address rather than the symptom. |
 | `apps/api/billing/credit_packs.py`, `rates.py`, `agents/voices.py` prose | Rewritten in Phase A/C (the docstrings are the doc for those modules). |
 | `CLAUDE.md` | No pricing sentence to fix (grep confirmed); the Sarvam/"one voice" paragraph in the header is about the SPEECH posture, not price, and is left. |
 
@@ -488,12 +531,30 @@ A (card)  ──►  B (lots + debit)  ──►  D (Cartesia metering)  ──�
 
 ## 9. Operations gates this plan opens (live Bolna + Cartesia account; not code)
 
+⚠ **THIS TABLE WAS TWO GATES SHORT AND ITS HEADING NAMED THE WRONG ACCOUNT (re-read against
+`docs/OPERATIONS.md` §2, 19 Sep 2026).** Gate **54** was opened by this plan's own ADDENDUM 3
+§3.3 and was never listed here; gate **56** did not exist when this table was written and is
+now **the gate that decides whether the Clear rung can be sold at all**, which no row here
+said. Neither is new work — both are filed in OPERATIONS §2 — but a reader checking this
+plan's gates off against that table would have found two extra and concluded the list had
+drifted the other way. The heading's "live Bolna + Cartesia account" is likewise short by a
+vendor: since D-629 (18 Sep 2026) the Clear rung is **Gnani's**, and gate 56 is a
+**GNANI commercial conversation**, not a Bolna or Cartesia one.
+
+**Every row below is OPEN and none is answerable from this repository.** Each needs either a
+live engine account (50–54) or a vendor who will answer a commercial question (56); the hosts
+behind all three vendors' docs are egress-blocked from this container, so the honest status
+of every vendor fact this table asks for is **UNKNOWN — the host is egress-blocked here**,
+and no row may be closed by inference from anything already in this tree (hard rule 11).
+
 | # | Question | Why it blocks |
 |---|---|---|
-| 50 | (exists) graph-agent read-back — unchanged. | — |
+| 50 | (exists) graph-agent read-back — unchanged. ⚠ **This row's ONE-LINE SUMMARY is not what gate 50 says**: `docs/OPERATIONS.md:161` asks what moving to `graph_agent` COSTS and whether a static node is really zero TTS. Phase C.3 above cites "gate 50" for the Cartesia wire shape, which is gate **52**. | — |
 | 51 | **Does a BYOK Cartesia call's `cost_breakdown.synthesizer` read 0 on Bolna, and is `synthesizer_characters` populated?** One call, read the execution. | Decides whether §3.5's transcript-counted `qty` is the only source (expected) or the vendor's count is usable. |
 | 52 | **The Cartesia `provider_config` field names on `POST /v2/agent`** — voice id key, model key, language handling. Absent from the pinned mirror. One CREATE with the Phase C block; record the 200 or the 422 body. | Until recorded, every Cartesia publish fails loud by design (Phase C.3). |
 | 53 | **Cartesia concurrency under load**: 10 simultaneous Cartesia agents speaking, Startup plan (5 contexts) — count 429s. | The tier's availability rule (Q10) is set from this, not from the vendor's rule of thumb. |
+| 54 | **Does the engine's own synthesizer cache (`Synthesizer.caching`) already save us the repeated-utterance TTS characters?** (`docs/OPERATIONS.md:165`; opened by this plan's ADDENDUM 3 §3.3 and missing from this table until 19 Sep 2026.) | Every character it saves is a character §3.5's transcript-counted `qty` bills for and the vendor does not — i.e. a metering error in the client's favour and a margin error in ours. |
+| 56 | **The three GNANI commercial questions — what a Gnani minute COSTS on an invoice, what the rate limit counts, and whether closing the WebSocket stops synthesis (and the billing) server-side** (`docs/OPERATIONS.md:167`, D-618/D-632). ⚠ **NOT "does Gnani publish a price" — they do**: ₹27.00 / 10,000 characters and a 60 requests/minute limit on their own console (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed; VENDOR-PUBLISHED, and **UNKNOWN — `app.gnani.ai` is egress-blocked here**, so this repository has never fetched it). | **THIS IS WHAT KEEPS THE CLEAR RUNG UNSELLABLE, and it is hard rule 7 working rather than a gap.** A published catalogue price is not an invoice, so `agents/voice_offer.tts_price_is_billable` opens only on an operator's attestation and every Gnani voice is refused. It also blocks the PAIR D-632 records: `ops/model_pricing.reference_tts_price("gnani")` returns `None` and `scripts/check_model_lifecycle.tts_choosable` reads it, so returning the figure alone turns CI red over `timbre-v2.5`'s `unread` stance. |
 | 25 | (exists) `/inbound/setup` with a Plivo `phone_number_id` — unchanged, still the one unverified link in the number chain. | — |
 
 ---
@@ -549,6 +610,20 @@ this section was created to fix, one commit later.
 
 ### 12.2 Still open in this repository
 
+⚠ **A SEVENTH ITEM WAS FOUND ON 19 SEP 2026, BY READING THE CODE RATHER THAN THIS
+DOCUMENT, AND IS CLOSED IN THE SAME CHANGE.** `billing/attribution.py::_rung_rate` — the
+function that prices a closed month's minutes per overage rung — compared `tier == "premium"`
+as a BARE LITERAL, a second spelling of `billing/service.BASE_OVERAGE_RUNG`, whose own
+comment exists to say the token is written once *"so the writer (`pipeline._meter`) and the
+reader (`_ROW_TIER_SQL`) cannot drift apart"*. It priced correctly today and would have gone
+on pricing the OLD rung the day anybody re-pointed the constant — on append-only rows, in
+rupees, with nothing raising. It now reads the constant, and `tests/billing_rung_spelling_test.py`
+pins that it FOLLOWS the constant rather than matching its present value (re-point the token
+and the old string must fall to the value rate) — an assertion the literal cannot pass, and
+verified by putting the literal back and watching it fail. Recorded here because the sentence
+below says nothing is open, and a claim like that is only worth what the last reading of the
+code was worth.
+
 ⚠ **ALL SIX ITEMS THIS TABLE CARRIED WERE CLOSED ON 8 SEP 2026, AND THIS SECTION IS NOW
 EMPTY.** They are moved into the table below rather than deleted, because "was open,
 closed by" is the only form of this section that a later reader can check. **Nothing in
@@ -570,7 +645,13 @@ ours to close.
 The Telugu voice ids (the library is behind a login; the catalogue ships EMPTY and a
 Cartesia publish refuses by name) and OPERATIONS §2 gates **51**, **52**, **53** and **54**.
 Cartesia's overage rate past the allotment and the BYOK platform fee's billing granularity
-remain UNKNOWN, and both floors are struck without them.
+remain UNKNOWN, and both floors are struck without them. ⚠ **GATE 56 JOINS THIS LIST
+(19 Sep 2026) AND IS THE ONE THAT DECIDES THE CLEAR RUNG.** It is a GNANI conversation:
+what a Gnani minute costs on an invoice, what the 60 req/min limit counts, and whether
+closing the socket stops the billing. Until an operator attests a figure, `voice_offer`
+refuses every Gnani voice and `reference_tts_price("gnani")` stays `None` for the paired
+reason D-632 records. Gnani's PUBLISHED ₹27.00 / 10,000 characters does not close it and
+was never meant to — a catalogue price is not an invoice (hard rule 7).
 
 ---
 
