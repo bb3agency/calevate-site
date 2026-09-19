@@ -33,7 +33,7 @@ def test_a_call_split_carries_all_six_keys() -> None:
         "lot_id": str(split.lot_id),
         "minutes": "10.0000",
         "inr_per_min": "4.7000",
-        "voice_tier": "cartesia",
+        "voice_tier": "studio",
     }
 
 

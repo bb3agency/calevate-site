@@ -21,7 +21,7 @@ pytestmark = [pytest.mark.rls]
 
 
 async def _consume_call(
-    tenant_id: UUID, *, minutes: str, tier: lots.VoiceTier = "sarvam", fallback: str = "5.00"
+    tenant_id: UUID, *, minutes: str, tier: lots.VoiceTier = "clear", fallback: str = "5.00"
 ) -> list[lots.LotSplit]:
     async with tenant_session(tenant_id) as session:
         return await lots.consume(
@@ -78,7 +78,7 @@ async def test_the_cartesia_rate_prices_a_cartesia_call_out_of_the_same_lot() ->
     tenant = await make_tenant()
     await add_lot(tenant, credits_inr="700.00", rates=GROWTH)
 
-    splits = await _consume_call(tenant, minutes="10", tier="cartesia")
+    splits = await _consume_call(tenant, minutes="10", tier="studio")
 
     assert splits[0].credits == Decimal("70.0000")
     assert isinstance(splits[0], lots.CallSplit)

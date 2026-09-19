@@ -1029,10 +1029,17 @@ class LotRates:
         wallet with no open lot was debited at ₹5.00 against a card that sells that minute
         at ₹8.00 and a cost floor of ₹4.36. A pair plus this accessor is what makes the
         two unable to come apart.
+
+        ⚠ **TOTAL OVER THE LITERAL, AND RAISING ON ANYTHING ELSE SINCE 19 SEP 2026** —
+        `lots.OpenLot.rate_for`'s change, for the same reason and in the same words. The
+        unconditional `return self.studio_inr_per_min` priced every unrecognised token at
+        the DEARER rate, silently, in the direction that overcharges.
         """
         if voice_tier == VALUE_VOICE_TIER:
             return self.clear_inr_per_min
-        return self.studio_inr_per_min
+        if voice_tier == PREMIUM_VOICE_TIER:
+            return self.studio_inr_per_min
+        raise ValueError(f"{voice_tier!r} is not a voice tier these rates price")
 
 
 def _smallest_pack() -> CreditPack:

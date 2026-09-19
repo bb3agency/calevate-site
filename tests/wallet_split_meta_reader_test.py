@@ -37,7 +37,7 @@ _GOOD_SPLIT = {
     "lot_id": "01912f1e-0000-7000-8000-000000000001",
     "minutes": "10.00",
     "inr_per_min": "5.0000",
-    "voice_tier": "sarvam",
+    "voice_tier": "clear",
 }
 
 

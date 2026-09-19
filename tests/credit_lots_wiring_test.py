@@ -123,7 +123,7 @@ async def test_a_call_splits_across_two_lots_and_each_part_is_priced_at_its_own_
     splits = row["meta"]["lots"]
     assert [s["inr_per_min"] for s in splits] == ["4.7000", "5.0000"]
     assert [s["kind"] for s in splits] == ["call", "call"]
-    assert [s["voice_tier"] for s in splits] == ["sarvam", "sarvam"]
+    assert [s["voice_tier"] for s in splits] == ["clear", "clear"]
     # The first lot is spent to the paisa; the remainder is priced at the second's rate.
     assert splits[0]["credits"] == "100.0000"
     assert Decimal(splits[1]["credits"]) == (
@@ -208,7 +208,7 @@ async def test_a_wallet_with_no_lots_at_all_is_priced_at_the_callers_fallback() 
             "credits": "24.0000",
             "minutes": "4.0000",
             "inr_per_min": "6.00",
-            "voice_tier": "sarvam",
+            "voice_tier": "clear",
         }
     ]
 
@@ -577,9 +577,9 @@ async def test_the_picker_reads_the_oldest_open_lot_and_counts_what_is_behind_it
     await add_lot(tenant_id, credits_inr="200.00", rates=GROWTH, pack_id="growth")
     async with tenant_session(tenant_id) as session:
         tiers = await voice_tier_rates(session, tenant_id=tenant_id)
-    assert [(t.provider, t.inr_per_min, t.further_open_lots) for t in tiers] == [
-        ("sarvam", Decimal("4.7000"), 1),
-        ("cartesia", Decimal("6.5000"), 1),
+    assert [(t.voice_tier, t.inr_per_min, t.further_open_lots) for t in tiers] == [
+        ("clear", Decimal("4.7000"), 1),
+        ("studio", Decimal("6.5000"), 1),
     ]
 
 
@@ -589,9 +589,9 @@ async def test_the_picker_says_nothing_rather_than_quoting_a_card_it_has_not_sol
     tenant_id = await make_tenant()
     async with tenant_session(tenant_id) as session:
         tiers = await voice_tier_rates(session, tenant_id=tenant_id)
-    assert [(t.provider, t.inr_per_min, t.further_open_lots) for t in tiers] == [
-        ("sarvam", None, 0),
-        ("cartesia", None, 0),
+    assert [(t.voice_tier, t.inr_per_min, t.further_open_lots) for t in tiers] == [
+        ("clear", None, 0),
+        ("studio", None, 0),
     ]
 
 
@@ -682,11 +682,11 @@ async def test_a_month_splits_its_minutes_and_charges_by_the_voice_that_spoke() 
     # and it IS in the calling total the statement and the margin panel are struck from.
     assert charges.extra_inr == Decimal("9.00")
     assert charges.total_inr == Decimal("87.0000")
-    assert voices["sarvam"].minutes == Decimal("10.0000")
-    assert voices["sarvam"].charged_inr == Decimal("50.0000")
-    assert voices["cartesia"].minutes == Decimal("4.0000")
+    assert voices["clear"].minutes == Decimal("10.0000")
+    assert voices["clear"].charged_inr == Decimal("50.0000")
+    assert voices["studio"].minutes == Decimal("4.0000")
     # 4 x ₹7.00 — the surcharge is NOT in it.
-    assert voices["cartesia"].charged_inr == Decimal("28.0000")
+    assert voices["studio"].charged_inr == Decimal("28.0000")
 
 
 async def test_a_wallet_that_spoke_nothing_reports_both_voices_at_zero() -> None:
@@ -701,6 +701,6 @@ async def test_a_wallet_that_spoke_nothing_reports_both_voices_at_zero() -> None
     assert charges.extra_inr == Decimal("0")
     assert charges.total_inr == Decimal("0")
     assert {tier: (v.minutes, v.charged_inr) for tier, v in charges.by_voice.items()} == {
-        "sarvam": (Decimal("0"), Decimal("0")),
-        "cartesia": (Decimal("0"), Decimal("0")),
+        "clear": (Decimal("0"), Decimal("0")),
+        "studio": (Decimal("0"), Decimal("0")),
     }

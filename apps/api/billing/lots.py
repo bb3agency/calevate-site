@@ -73,6 +73,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing import service as credit_service
 from apps.api.billing.rates import (
     MONEY_Q,
+    PREMIUM_VOICE_TIER,
     ROUNDING,
     VALUE_VOICE_TIER,
     VOICE_TIERS,
@@ -222,10 +223,22 @@ class OpenLot:
     closed_at: datetime | None
 
     def rate_for(self, voice_tier: VoiceTier) -> Decimal:
-        """What a minute of `voice_tier` costs out of THIS lot."""
+        """What a minute of `voice_tier` costs out of THIS lot.
+
+        ⚠ **TOTAL OVER THE LITERAL, AND RAISING ON ANYTHING ELSE SINCE 19 SEP 2026.** This
+        used to be `if tier == VALUE: clear` then an unconditional `return studio`, so ANY
+        token that was not the value rung — a stale `"sarvam"`, a typo, a tier from a build
+        that has since renamed one — was silently priced at the DEARER rate. Not a crash
+        and not a zero: a bill, in the direction that overcharges, on an append-only ledger.
+        `credit_packs.CreditPack.inr_per_min` has raised here since it was written and says
+        why in the same words; this is the twin that did not, and a live rename is what
+        surfaced it.
+        """
         if voice_tier == VALUE_VOICE_TIER:
             return self.clear_inr_per_min
-        return self.studio_inr_per_min
+        if voice_tier == PREMIUM_VOICE_TIER:
+            return self.studio_inr_per_min
+        raise ValueError(f"{voice_tier!r} is not a voice tier this lot prices")
 
 
 @dataclass(frozen=True, slots=True)

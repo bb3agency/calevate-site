@@ -452,9 +452,9 @@ async def test_the_client_wallet_lots_read_carries_both_tiers_the_queue_and_the_
     body = (await read_wallet_lots(_owner(tenant_id))).model_dump(mode="json")
 
     tiers = body["tiers"]
-    assert [tier["provider"] for tier in tiers] == list(rates.VOICE_TIERS)
+    assert [tier["voice_tier"] for tier in tiers] == list(rates.VOICE_TIERS)
     for tier in tiers:
-        assert tier["label"] == rates.voice_tier_label(tier["provider"])
+        assert tier["label"] == rates.voice_tier_label(tier["voice_tier"])
         assert tier["minutes_left"] is None or _is_money(tier["minutes_left"])
     # ₹1,000 at ₹4 and at ₹8 — summed off the LOT's own frozen rates, never one balance
     # divided by one live list price.

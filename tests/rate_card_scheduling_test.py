@@ -325,7 +325,7 @@ async def test_a_card_is_audited_with_the_operators_address() -> None:
 
 
 async def test_a_cell_below_its_voices_cost_floor_is_refused() -> None:
-    below = {("starter", "sarvam"): "3.0000"}
+    below = {("starter", "clear"): "3.0000"}
     response = await _post(_later(), below)
     assert response.status_code == 409, response.text
     assert _code(response) == "rate_card_below_floor"
@@ -336,7 +336,7 @@ async def test_a_column_that_is_not_monotone_is_refused() -> None:
     """A bigger pack that buys a dearer minute is arbitrageable by buying the smaller one
     twice — invariant 6, reused from `card_refusals` rather than re-derived here."""
     dearest = max(PACK_CATALOGUE, key=lambda pack: pack.amount_inr)
-    response = await _post(_later(), {(dearest.pack_id, "sarvam"): "9.0000"})
+    response = await _post(_later(), {(dearest.pack_id, "clear"): "9.0000"})
     assert response.status_code == 409, response.text
     assert "invariant 6" in response.json()["detail"]
 
@@ -370,7 +370,7 @@ async def test_a_cell_this_card_does_not_have_is_refused_by_name() -> None:
     token = await _make_admin()
     at = _later()
     body = _body(at)
-    body["cells"][0] = {"pack_id": "enterprise", "voice_tier": "sarvam", "inr_per_min": "5.0000"}
+    body["cells"][0] = {"pack_id": "enterprise", "voice_tier": "clear", "inr_per_min": "5.0000"}
     async with _client() as http:
         response = await http.post(PATH, json=body, headers=_headers(token, at))
     assert response.status_code == 422, response.text
@@ -705,8 +705,8 @@ async def test_the_rate_card_read_lists_pending_cards_and_the_earliest_date() ->
     pending = {
         (c["pack_id"], c["voice_tier"]): c["inr_per_min"] for c in body["pending"][0]["cells"]
     }
-    assert Decimal(in_force[(starter.pack_id, "sarvam")]) == starter.clear_inr_per_min
-    assert Decimal(pending[(starter.pack_id, "sarvam")]) == starter.clear_inr_per_min + Decimal(
+    assert Decimal(in_force[(starter.pack_id, "clear")]) == starter.clear_inr_per_min
+    assert Decimal(pending[(starter.pack_id, "clear")]) == starter.clear_inr_per_min + Decimal(
         "0.50"
     )
 
@@ -743,7 +743,7 @@ def test_a_card_built_from_partial_cells_keeps_the_catalogue_rate_for_the_rest()
     """`card_at`'s per-cell fallback reason, one layer up: the only other reading silently
     DROPS a rung, and a dropped rung is a purchase nobody can price."""
     starter = min(PACK_CATALOGUE, key=lambda pack: pack.amount_inr)
-    partial = card_with_rates({starter.pack_id: {"sarvam": Decimal("6.0000")}})
+    partial = card_with_rates({starter.pack_id: {"clear": Decimal("6.0000")}})
     built = {pack.pack_id: pack for pack in partial}
     assert built[starter.pack_id].clear_inr_per_min == Decimal("6.0000")
     assert built[starter.pack_id].studio_inr_per_min == starter.studio_inr_per_min

@@ -39,7 +39,12 @@ from apps.api.agents.voices import (
     voice_id_for,
     voice_tier,
 )
-from apps.api.billing.rates import VALUE_VOICE_TIER, VOICE_TIERS, voice_tier_label
+from apps.api.billing.rates import (
+    PREMIUM_VOICE_TIER,
+    VALUE_VOICE_TIER,
+    VOICE_TIERS,
+    voice_tier_label,
+)
 from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE, TtsProvider
 from gnani.tts.client import SUPPORTED_MODELS, SUPPORTED_TTS_LANGUAGES, TIMBRE_V25_VOICES
 
@@ -208,11 +213,14 @@ def test_gnani_is_the_provider_of_the_value_rung_and_is_not_itself_a_tier() -> N
 def test_a_label_is_total_over_providers_and_over_tiers() -> None:
     """⚠ **`voice_tier_label("gnani")` USED TO BE `UNPRICED_TIER_LABEL` ("Unreleased").**
     Both that constant and the hole it named are gone: every provider bills on a rung now,
-    and Gnani's is the value one. The function takes either vocabulary because the two stopped
-    spelling the same when the Sarvam TTS leg was withdrawn."""
+    and Gnani's is the value one. The function takes either vocabulary because the two are
+    now entirely disjoint: the rungs were renamed `clear`/`studio` on 19 Sep 2026 (D-630),
+    so no token is both a provider and a tier any more — which is why every case below has
+    to be asserted rather than inferred from one word covering two jobs."""
     assert voice_tier_label("clear") == "Clear"  # the TIER token
-    assert voice_tier_label("studio") == "Studio"  # provider and tier, same spelling
+    assert voice_tier_label("studio") == "Studio"  # the other TIER token
     assert voice_tier_label("gnani") == "Clear"  # the PROVIDER of the value rung
+    assert voice_tier_label("cartesia") == "Studio"  # the PROVIDER of the premium rung
     # It names no vendor: no client-facing surface calls a tier by its vendor.
     for label in ("Clear", "Studio"):
         assert "gnani" not in label.lower()
@@ -245,7 +253,7 @@ def test_a_minute_on_a_provider_with_no_rung_refuses_instead_of_billing(
 
     monkeypatch.undo()
     assert voice_tier("timbre-v2.5:Suhana") == VALUE_VOICE_TIER
-    assert voice_tier("sonic-3.5:anything") == "cartesia"
+    assert voice_tier("sonic-3.5:anything") == PREMIUM_VOICE_TIER
     # An id naming none of our models is the value rung, which is a decision and not a
     # fallback (`voices.voice_tier`). `bulbul:v3` is such an id now.
     assert voice_tier(None) == VALUE_VOICE_TIER

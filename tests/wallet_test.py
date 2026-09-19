@@ -310,7 +310,7 @@ async def test_the_runway_is_a_pair_priced_off_the_lots_not_a_balance_over_a_rat
     await add_lot(tenant_id, credits_inr="1000", rates=(Decimal("4"), Decimal("8")))
     async with tenant_session(tenant_id) as session:
         pair = await tier_minutes(session, tenant_id=tenant_id)
-    assert [tier.provider for tier in pair] == ["clear", "studio"], "both, catalogue order"
+    assert [tier.voice_tier for tier in pair] == ["clear", "studio"], "both, catalogue order"
     assert [tier.minutes for tier in pair] == [250, 125]
     assert [tier.label for tier in pair] == [
         voice_tier_label("clear"),
@@ -475,8 +475,8 @@ def test_the_low_balance_mail_quotes_minutes_per_voice_quality_in_the_clients_wo
         level=WALLET_LEVEL_LOW,
         balance_inr=Decimal("150.00"),
         minutes_left=(
-            TierMinutes(provider="clear", label=voice_tier_label("clear"), minutes=620),
-            TierMinutes(provider="studio", label=voice_tier_label("studio"), minutes=430),
+            TierMinutes(voice_tier="clear", label=voice_tier_label("clear"), minutes=620),
+            TierMinutes(voice_tier="studio", label=voice_tier_label("studio"), minutes=430),
         ),
         slug="clinic",
     )
@@ -496,8 +496,8 @@ def test_a_low_balance_mail_promises_nothing_rather_than_zero_minutes() -> None:
         level=WALLET_LEVEL_LOW,
         balance_inr=Decimal("150.00"),
         minutes_left=(
-            TierMinutes(provider="clear", label=voice_tier_label("clear"), minutes=0),
-            TierMinutes(provider="studio", label=voice_tier_label("studio"), minutes=0),
+            TierMinutes(voice_tier="clear", label=voice_tier_label("clear"), minutes=0),
+            TierMinutes(voice_tier="studio", label=voice_tier_label("studio"), minutes=0),
         ),
         slug="clinic",
     )
