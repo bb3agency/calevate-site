@@ -564,10 +564,11 @@ def _refuse_unmeterable_rate(inr_rate: Decimal, *, subject: str, unit: str) -> N
             detail=str(too_small),
             remediation=(
                 "Check the figure — a price this small per unit is usually a decimal point "
-                "in the wrong place. If it is right, the UNIT has to change in code (the way "
-                "tts_kchars and llm_ktok_* already quote per thousand) before this vendor's "
-                "minutes can be metered honestly; entering it now would record every one of "
-                "them at a rate the ledger rounds away."
+                "in the wrong place. If it is right, the price has to be quoted in a larger "
+                "unit before this vendor's minutes can be metered honestly: per thousand "
+                "characters, or per thousand tokens, the way the rates already in the ledger "
+                "are. Entering it as it stands would record every one of those minutes at a "
+                "rate the ledger rounds away."
             ),
         ) from too_small
 

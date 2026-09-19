@@ -26,6 +26,7 @@ from the two ends the gate is read from.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.compliance.service import add_to_dnc, check_dispatch
@@ -33,6 +34,21 @@ from apps.api.core import alerting
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from tests.lead_dial_routes_test import _client, _dialable_tenant, _lead, _outbound_calls
+
+
+@pytest.fixture(autouse=True)
+def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """11:00 IST, so a refusal in this file is never the CLOCK.
+
+    `lead_dial_routes_test` pins the same instant for the same reason and this file
+    borrows its helpers without its fixtures, which made the two cases below depend on
+    when the suite ran: outside 09:00-21:00 IST `calling_hours` refuses first and the
+    assertion reads `calling_hours` where it expects `dnc`. A test whose verdict moves
+    with the wall clock is a test that goes red on the night somebody is trying to ship.
+    """
+    fixed = datetime(2026, 8, 11, 5, 30, tzinfo=UTC) + timedelta(hours=5, minutes=30)
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
+
 
 pytestmark = pytest.mark.anyio
 

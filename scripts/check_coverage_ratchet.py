@@ -356,6 +356,15 @@ AREAS: tuple[Area, ...] = (
             # not, and the fact that the process around it is a phone call rather than a
             # request changes nothing about what breaks.
             "apps/voice-worker/voice_worker/db.py",
+            # The THIRD module to execute `set_config('app.tenant_id', ...)`, enrolled by
+            # the same derivation. `cancel_for_phones_fleet_wide` calls off a promised
+            # call-back in every account at once, for a suppression that is
+            # platform-wide — so it runs the per-tenant statement once per tenant under
+            # that tenant's own GUC rather than reaching for a policy exemption. That
+            # makes it this area's failure exactly: a walk that sets the GUC wrong
+            # cancels a stranger's call-back, or restores the entry GUC to the wrong
+            # value and hands the next read somebody else's rows.
+            "apps/api/callbacks/service.py",
         ),
         why=(
             "the session factory is where the tenant GUC is set and where RLS therefore "
