@@ -133,7 +133,7 @@ def test_no_entry_carries_a_price_and_every_entry_says_it_is_not_on_sale() -> No
         assert "₹" not in entry.note
         assert "27" not in entry.note
         assert voice_tier_label("gnani") in entry.note
-        assert voice_tier_label("cartesia") not in entry.note
+        assert voice_tier_label("studio") not in entry.note
         assert "not yet on sale" in entry.note.lower()
         # AND IT NAMES NONE OF OUR MACHINERY: this string reaches a client on
         # `GET /v1/agents/voices`. The operator's version of the same fact —
@@ -210,8 +210,8 @@ def test_a_label_is_total_over_providers_and_over_tiers() -> None:
     Both that constant and the hole it named are gone: every provider bills on a rung now,
     and Gnani's is the value one. The function takes either vocabulary because the two stopped
     spelling the same when the Sarvam TTS leg was withdrawn."""
-    assert voice_tier_label("sarvam") == "Clear"  # the TIER token
-    assert voice_tier_label("cartesia") == "Studio"  # provider and tier, same spelling
+    assert voice_tier_label("clear") == "Clear"  # the TIER token
+    assert voice_tier_label("studio") == "Studio"  # provider and tier, same spelling
     assert voice_tier_label("gnani") == "Clear"  # the PROVIDER of the value rung
     # It names no vendor: no client-facing surface calls a tier by its vendor.
     for label in ("Clear", "Studio"):

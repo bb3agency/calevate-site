@@ -166,7 +166,7 @@ export function WhatCallsCost({
           icon={<Waves className="h-4 w-4" aria-hidden />}
           claim={
             labels
-              ? `Two voice qualities — ${labels.sarvam} and ${labels.cartesia} — and each agent speaks with one of them`
+              ? `Two voice qualities — ${labels.clear} and ${labels.studio} — and each agent speaks with one of them`
               : "Two voice qualities, and each agent speaks with one of them"
           }
         >
@@ -259,19 +259,19 @@ export function WhatCallsCost({
 function rateBand(
   card: CreditPacks,
 ):
-  | Record<"sarvam" | "cartesia", { cheapest: string; dearest: string; falls: boolean }>
+  | Record<"clear" | "studio", { cheapest: string; dearest: string; falls: boolean }>
   | undefined {
-  const sarvamLow = cheapestRate(card, "sarvam");
-  const sarvamHigh = dearestRate(card, "sarvam");
-  const cartesiaLow = cheapestRate(card, "cartesia");
-  const cartesiaHigh = dearestRate(card, "cartesia");
-  if (!sarvamLow || !sarvamHigh || !cartesiaLow || !cartesiaHigh) return undefined;
+  const clearLow = cheapestRate(card, "clear");
+  const clearHigh = dearestRate(card, "clear");
+  const studioLow = cheapestRate(card, "studio");
+  const studioHigh = dearestRate(card, "studio");
+  if (!clearLow || !clearHigh || !studioLow || !studioHigh) return undefined;
   return {
-    sarvam: { cheapest: sarvamLow, dearest: sarvamHigh, falls: ladderFalls(card, "sarvam") },
-    cartesia: {
-      cheapest: cartesiaLow,
-      dearest: cartesiaHigh,
-      falls: ladderFalls(card, "cartesia"),
+    clear: { cheapest: clearLow, dearest: clearHigh, falls: ladderFalls(card, "clear") },
+    studio: {
+      cheapest: studioLow,
+      dearest: studioHigh,
+      falls: ladderFalls(card, "studio"),
     },
   };
 }

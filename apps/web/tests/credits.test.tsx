@@ -83,8 +83,8 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
       max_days: 365,
     },
     minutes_left: [
-      { provider: "sarvam", label: "Clear", minutes: 425 },
-      { provider: "cartesia", label: "Studio", minutes: 304 },
+      { voice_tier: "clear", label: "Clear", minutes: 425 },
+      { voice_tier: "studio", label: "Studio", minutes: 304 },
     ],
     drawdown: {
       calls_inr: "8400.00",
@@ -143,10 +143,10 @@ const PACK_CARD = {
   // screen here that names a quality is naming one this fixture sent.
   list_rate_inr_per_min: "8.00",
   from_inr_per_min: "8.00",
-  from_sarvam_inr_per_min: "8.00",
-  from_cartesia_inr_per_min: "10.00",
-  sarvam_tier_label: "Clear",
-  cartesia_tier_label: "Studio",
+  from_clear_inr_per_min: "8.00",
+  from_studio_inr_per_min: "10.00",
+  clear_tier_label: "Clear",
+  studio_tier_label: "Studio",
   packs: [
     {
       pack_id: "starter",
@@ -155,10 +155,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "1000.00",
       bonus_pct: "0",
-      sarvam_inr_per_min: "8.0000",
-      cartesia_inr_per_min: "10.0000",
-      sarvam_minutes: 125,
-      cartesia_minutes: 100,
+      clear_inr_per_min: "8.0000",
+      studio_inr_per_min: "10.0000",
+      clear_minutes: 125,
+      studio_minutes: 100,
       effective_rate_inr_per_min: "8.0000",
       talk_time_minutes: 125,
       best_value: false,
@@ -178,23 +178,23 @@ const PACK_CARD = {
  */
 const LOTS = {
   tiers: [
-    { provider: "sarvam", label: "Clear", minutes_left: "1080" },
-    { provider: "cartesia", label: "Studio", minutes_left: "800" },
+    { voice_tier: "clear", label: "Clear", minutes_left: "1080" },
+    { voice_tier: "studio", label: "Studio", minutes_left: "800" },
   ],
   lots: [
     {
       lot_id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
       opened_at: "2026-08-01T09:00:00Z",
       credits_remaining: "3200.0000",
-      sarvam_inr_per_min: "4.7000",
-      cartesia_inr_per_min: "6.5000",
+      clear_inr_per_min: "4.7000",
+      studio_inr_per_min: "6.5000",
     },
     {
       lot_id: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
       opened_at: "2026-08-20T09:00:00Z",
       credits_remaining: "2000.0000",
-      sarvam_inr_per_min: "5.0000",
-      cartesia_inr_per_min: "8.0000",
+      clear_inr_per_min: "5.0000",
+      studio_inr_per_min: "8.0000",
     },
   ],
   overdraft_inr: "0.00",
@@ -314,8 +314,8 @@ describe("the hero: how much, and how long it lasts", () => {
         [WALLET]: wallet({
           balance_inr: "1000.00",
           minutes_left: [
-            { provider: "sarvam", label: "Clear", minutes: 125 },
-            { provider: "cartesia", label: "Studio", minutes: 89 },
+            { voice_tier: "clear", label: "Clear", minutes: 125 },
+            { voice_tier: "studio", label: "Studio", minutes: 89 },
           ],
           runway: {
             basis: "too_new",
@@ -388,8 +388,8 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           is_low: true,
           outbound_stopped: true,
           minutes_left: [
-            { provider: "sarvam", label: "Clear", minutes: 0 },
-            { provider: "cartesia", label: "Studio", minutes: 1 },
+            { voice_tier: "clear", label: "Clear", minutes: 0 },
+            { voice_tier: "studio", label: "Studio", minutes: 1 },
           ],
           runway: {
             basis: "empty",
@@ -439,8 +439,8 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           is_low: true,
           outbound_stopped: true,
           minutes_left: [
-            { provider: "sarvam", label: "Clear", minutes: 0 },
-            { provider: "cartesia", label: "Studio", minutes: 1 },
+            { voice_tier: "clear", label: "Clear", minutes: 0 },
+            { voice_tier: "studio", label: "Studio", minutes: 1 },
           ],
           runway: {
             basis: "empty",
@@ -487,8 +487,8 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           balance_inr: "150.00",
           is_low: true,
           minutes_left: [
-            { provider: "sarvam", label: "Clear", minutes: 18 },
-            { provider: "cartesia", label: "Studio", minutes: 13 },
+            { voice_tier: "clear", label: "Clear", minutes: 18 },
+            { voice_tier: "studio", label: "Studio", minutes: 13 },
           ],
         }),
       }),
@@ -551,8 +551,8 @@ describe("the credit itself: what is left, and at which rates", () => {
         [LOTS_ROUTE]: {
           ...LOTS,
           tiers: [
-            { provider: "sarvam", label: "Everyday", minutes_left: "1080" },
-            { provider: "cartesia", label: "Premium", minutes_left: "800" },
+            { voice_tier: "clear", label: "Everyday", minutes_left: "1080" },
+            { voice_tier: "studio", label: "Premium", minutes_left: "800" },
           ],
         },
       }),
@@ -607,8 +607,8 @@ describe("the credit itself: what is left, and at which rates", () => {
       routes({
         [LOTS_ROUTE]: {
           tiers: [
-            { provider: "sarvam", label: "Clear", minutes_left: "0" },
-            { provider: "cartesia", label: "Studio", minutes_left: "0" },
+            { voice_tier: "clear", label: "Clear", minutes_left: "0" },
+            { voice_tier: "studio", label: "Studio", minutes_left: "0" },
           ],
           lots: [],
           overdraft_inr: "1000.00",
@@ -645,8 +645,8 @@ describe("the credit itself: what is left, and at which rates", () => {
     const reversed = {
       ...LOTS,
       tiers: [
-        { provider: "cartesia", label: "Studio", minutes_left: "800" },
-        { provider: "sarvam", label: "Clear", minutes_left: "1080" },
+        { voice_tier: "studio", label: "Studio", minutes_left: "800" },
+        { voice_tier: "clear", label: "Clear", minutes_left: "1080" },
       ],
     };
     await renderBillingHub(routes({ [LOTS_ROUTE]: reversed }));
@@ -677,7 +677,7 @@ describe("the credit itself: what is left, and at which rates", () => {
         [LOTS_ROUTE]: {
           ...LOTS,
           tiers: [
-            { provider: "sarvam", label: "Clear", minutes_left: "1080" },
+            { voice_tier: "clear", label: "Clear", minutes_left: "1080" },
             { provider: "elevenlabs", label: "Theatre", minutes_left: "600" },
           ],
         },
@@ -709,8 +709,8 @@ describe("the credit itself: what is left, and at which rates", () => {
       routes({
         [LOTS_ROUTE]: {
           tiers: [
-            { provider: "sarvam", label: "Clear", minutes_left: "0" },
-            { provider: "cartesia", label: "Studio", minutes_left: "0" },
+            { voice_tier: "clear", label: "Clear", minutes_left: "0" },
+            { voice_tier: "studio", label: "Studio", minutes_left: "0" },
           ],
           lots: [],
           overdraft_inr: "0.00",
@@ -773,8 +773,8 @@ describe("the credit itself: what is left, and at which rates", () => {
       routes({
         [LOTS_ROUTE]: {
           tiers: [
-            { provider: "sarvam", label: "Clear", minutes_left: "0" },
-            { provider: "cartesia", label: "Studio", minutes_left: "0" },
+            { voice_tier: "clear", label: "Clear", minutes_left: "0" },
+            { voice_tier: "studio", label: "Studio", minutes_left: "0" },
           ],
           lots: [],
           overdraft_inr: "0.00",
@@ -892,7 +892,7 @@ describe("the ledger and its receipts", () => {
                   credits: "47.00",
                   minutes: "10.0000",
                   inr_per_min: "4.7000",
-                  voice_tier: "sarvam",
+                  voice_tier: "clear",
                 },
                 {
                   kind: "call",
@@ -900,7 +900,7 @@ describe("the ledger and its receipts", () => {
                   credits: "13.00",
                   minutes: "2.6000",
                   inr_per_min: "5.0000",
-                  voice_tier: "sarvam",
+                  voice_tier: "clear",
                 },
               ],
             },
@@ -1289,8 +1289,8 @@ describe("the facts the hub hands the assistant", () => {
         [LOTS_ROUTE]: {
           ...LOTS,
           tiers: [
-            { provider: "sarvam", label: "Clear", minutes_left: "1080.0000" },
-            { provider: "cartesia", label: "Studio", minutes_left: "800.4000" },
+            { voice_tier: "clear", label: "Clear", minutes_left: "1080.0000" },
+            { voice_tier: "studio", label: "Studio", minutes_left: "800.4000" },
           ],
         },
       }),

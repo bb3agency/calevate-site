@@ -34,8 +34,8 @@ async def _update(tenant_id, lot_id, assignment: str) -> None:  # type: ignore[n
 @pytest.mark.parametrize(
     "assignment",
     [
-        "sarvam_inr_per_min = 1.0000",
-        "cartesia_inr_per_min = 99.0000",
+        "clear_inr_per_min = 1.0000",
+        "studio_inr_per_min = 99.0000",
         "source = 'grant'",
         "pack_id = 'max'",
         "override_of_pack_id = 'max'",
@@ -94,4 +94,4 @@ async def test_the_freeze_is_enumerated_from_the_mutable_side() -> None:
     assert "to_jsonb(NEW)" in body
     for mutable in ("credits_remaining", "credits_total", "closed_at", "updated_at"):
         assert f"'{mutable}'" in body
-    assert "sarvam_inr_per_min" not in body
+    assert "clear_inr_per_min" not in body

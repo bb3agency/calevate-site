@@ -118,15 +118,16 @@ function storedVoice(
 ): NonNullable<PendingState["voice"]["live"]> {
   return {
     voice_id: id,
-    provider: "sarvam",
+    provider: "gnani",
+    voice_tier: "clear",
     catalog: {
       id,
       label,
-      provider: "sarvam",
+      provider: "gnani",
       tts_model: id,
       // Fixed rather than derived from `id`: this helper is keyed on the MODEL, and the
       // speaker is the other half of the pair the catalogue now carries (D-358).
-      speaker: "anushka" as const,
+      speaker: "Suhana" as const,
       gender: null,
       languages: ["te-IN"],
       note: "",
@@ -142,7 +143,7 @@ function storedVoice(
 function legacyVoice(
   voiceId: string,
 ): NonNullable<PendingState["voice"]["live"]> {
-  return { voice_id: voiceId, provider: "sarvam", catalog: null };
+  return { voice_id: voiceId, provider: "gnani", voice_tier: "clear", catalog: null };
 }
 
 /** No staged edit, and the engine holds the voice the row names: the state an agent spends
@@ -163,11 +164,11 @@ function settled(over: Partial<PendingState> = {}): PendingState {
     // credit lot to quote a next-minute rate from, so the voice fact prints no price.
     voice_tier_rates: [],
     voice: {
-      configured: storedVoice("bulbul:v3", "Bulbul v3"),
-      live: storedVoice("bulbul:v3", "Bulbul v3"),
+      configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
+      live: storedVoice("timbre-v2.5", "Timbre v2.5"),
       republish_required: false,
       unnamed_note: null,
-      headline: "Callers hear Bulbul v3.",
+      headline: "Callers hear Timbre v2.5.",
     },
     engine_verification: {
       state: "applied",
@@ -412,7 +413,7 @@ describe("which voice callers are actually hearing", () => {
           // that the schema carries it, not through a hand validator.
           voice_tier_rates: [
             {
-              provider: "sarvam",
+              voice_tier: "clear",
               label: "Clear",
               inr_per_min: "5.0000",
               further_open_lots: 1,
@@ -456,23 +457,24 @@ describe("which voice callers are actually hearing", () => {
               configured: {
                 voice_id: "sonic-3.5:ananya",
                 provider: "cartesia",
+                voice_tier: "studio",
                 catalog: null,
               },
-              live: storedVoice("bulbul:v3", "Bulbul v3"),
+              live: storedVoice("timbre-v2.5", "Timbre v2.5"),
               republish_required: true,
               unnamed_note: null,
-              headline: "Callers still hear Bulbul v3.",
+              headline: "Callers still hear Timbre v2.5.",
             },
           }),
           voice_tier_rates: [
             {
-              provider: "sarvam",
+              voice_tier: "clear",
               label: "Clear",
               inr_per_min: "5.0000",
               further_open_lots: 0,
             },
             {
-              provider: "cartesia",
+              voice_tier: "studio",
               label: "Studio",
               inr_per_min: "8.0000",
               further_open_lots: 0,
@@ -491,7 +493,7 @@ describe("which voice callers are actually hearing", () => {
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Voice callers hear");
-    expect(factValue("Voice callers hear")).toBe("Bulbul v3");
+    expect(factValue("Voice callers hear")).toBe("Timbre v2.5");
     expect(container.textContent).not.toContain("New voice waiting");
   });
 
@@ -502,7 +504,7 @@ describe("which voice callers are actually hearing", () => {
     // explanation and no such voice in the picker below. The sentence is the server's, is
     // printed verbatim, and names no vendor.
     const ref = "sonic-3.5:b6dafaa0-3a87-40b2-823c-1e4cf3c07314";
-    const unnamed = { voice_id: ref, provider: "cartesia", catalog: null };
+    const unnamed = { voice_id: ref, provider: "cartesia", voice_tier: "studio", catalog: null };
     const note =
       "The code shown is the voice platform's own reference for this voice.";
     const { container } = await renderClientPage(
@@ -535,7 +537,7 @@ describe("which voice callers are actually hearing", () => {
       routes({
         "/v1/agents/agent-1/pending": settled({
           voice: {
-            configured: storedVoice("bulbul:v3", "Bulbul v3"),
+            configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
             live: legacyVoice("bulbul:legacy"),
             republish_required: true,
             unnamed_note: null,
@@ -547,7 +549,7 @@ describe("which voice callers are actually hearing", () => {
 
     await screen.findByText("Voice callers hear");
     expect(factValue("Voice callers hear")).toBe("bulbul:legacy");
-    expect(factValue("New voice waiting")).toBe("Bulbul v3");
+    expect(factValue("New voice waiting")).toBe("Timbre v2.5");
   });
 
   it("says a published agent's voice is unknown rather than claiming it is the configured one", async () => {
@@ -559,7 +561,7 @@ describe("which voice callers are actually hearing", () => {
       routes({
         "/v1/agents/agent-1/pending": settled({
           voice: {
-            configured: storedVoice("bulbul:v3", "Bulbul v3"),
+            configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
             live: null,
             republish_required: true,
             unnamed_note: null,
@@ -571,8 +573,8 @@ describe("which voice callers are actually hearing", () => {
 
     await screen.findByText("Voice callers hear");
     expect(factValue("Voice callers hear")).toBe("We cannot say from here");
-    expect(container.textContent).not.toContain("Voice callers hearBulbul v3");
-    expect(factValue("New voice waiting")).toBe("Bulbul v3");
+    expect(container.textContent).not.toContain("Voice callers hearTimbre v2.5");
+    expect(factValue("New voice waiting")).toBe("Timbre v2.5");
   });
 
   it("says an unpublished agent has no voice in force at all", async () => {
@@ -586,7 +588,7 @@ describe("which voice callers are actually hearing", () => {
           published: false,
           agent_status: "draft",
           voice: {
-            configured: storedVoice("bulbul:v3", "Bulbul v3"),
+            configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
             live: null,
             republish_required: false,
             unnamed_note: null,
@@ -677,13 +679,13 @@ describe("the numbers come from the server", () => {
         "/v1/agents/agent-1/pending": settled({
           voice_tier_rates: [
             {
-              provider: "sarvam",
+              voice_tier: "clear",
               label: "Clear",
               inr_per_min: null,
               further_open_lots: 0,
             },
             {
-              provider: "cartesia",
+              voice_tier: "studio",
               label: "Studio",
               inr_per_min: null,
               further_open_lots: 0,

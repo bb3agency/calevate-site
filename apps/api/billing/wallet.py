@@ -204,15 +204,20 @@ class TierMinutes:
 
     `label` is the CLIENT'S word for the tier — "Clear", "Studio" — resolved from
     `billing/rates.voice_tier_label` and carried beside the figure so no screen and no
-    email has to keep its own copy of the naming rule, and so a vendor name can never
-    reach a client. `provider` is the wire spelling, which is what a ledger row, a
-    `meta.lots` split and a vendor invoice are reconciled against.
+    email has to keep its own copy of the naming rule. `voice_tier` is the wire spelling,
+    which is what a ledger row and a `meta.lots` split are reconciled against.
+
+    ⚠ **THE FIELD WAS CALLED `provider` UNTIL 19 SEP 2026 AND ITS DOCSTRING SAID IT WAS
+    RECONCILED AGAINST A VENDOR INVOICE.** It never held a vendor: it held the RUNG, which
+    was simply spelled with a vendor's name at the time. Both halves are fixed together —
+    a field called `provider` carrying `"clear"` would have been the same confusion one
+    layer up from the one the rename removes.
 
     `minutes` is floored, never rounded, for the reason `lots.runway` quantizes down: a
     minute quoted that the wallet cannot cover is discovered mid-call.
     """
 
-    provider: VoiceTier
+    voice_tier: VoiceTier
     label: str
     minutes: int
 
@@ -561,7 +566,7 @@ async def tier_minutes(session: AsyncSession, *, tenant_id: UUID) -> tuple[TierM
     minutes = await lot_runway(session, tenant_id=tenant_id)
     return tuple(
         TierMinutes(
-            provider=tier,
+            voice_tier=tier,
             label=voice_tier_label(tier),
             # `int(...)` truncates what `runway` has already floored to whole minutes; the
             # second flooring is a no-op and is here because the wire type is an integer.

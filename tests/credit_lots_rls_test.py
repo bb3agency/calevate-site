@@ -75,7 +75,7 @@ async def test_another_tenant_cannot_open_a_lot_on_this_tenant_s_wallet() -> Non
             await session.execute(
                 text(
                     "INSERT INTO credit_lots (id, tenant_id, source, credits_total, "
-                    "credits_remaining, sarvam_inr_per_min, cartesia_inr_per_min, "
+                    "credits_remaining, clear_inr_per_min, studio_inr_per_min, "
                     "ledger_entry_id) SELECT gen_random_uuid(), :owner, 'grant', 10, 10, "
                     "5, 7, gen_random_uuid()"
                 ),

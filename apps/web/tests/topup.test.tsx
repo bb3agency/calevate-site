@@ -93,8 +93,8 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
     // Per QUALITY since D-547, because one balance divided by one live rate is a figure
     // that is wrong for every client whose lots were bought at anything but today's card.
     minutes_left: [
-      { provider: "sarvam", label: "Clear", minutes: 240 },
-      { provider: "cartesia", label: "Studio", minutes: 171 },
+      { voice_tier: "clear", label: "Clear", minutes: 240 },
+      { voice_tier: "studio", label: "Studio", minutes: 171 },
     ],
     drawdown: {
       calls_inr: "2730.00",
@@ -133,7 +133,7 @@ const CALLBACK = "POST /v1/billing/topups/callback";
  * a screen that went on reading them would be caught printing the wrong voice's figure as
  * though it were the pack's only one.
  *
- * `sarvam_tier_label` / `cartesia_tier_label` are what a CLIENT calls the two qualities.
+ * `clear_tier_label` / `studio_tier_label` are what a CLIENT calls the two qualities.
  * They are the API's words (`billing/rates.py::VOICE_TIER_LABELS`) and the browser holds
  * no copy of them — which is why the panel is also driven WITHOUT them below, and asserted
  * to print no vendor name and no unattributed rate in that state.
@@ -141,10 +141,10 @@ const CALLBACK = "POST /v1/billing/topups/callback";
 const PACK_CARD = {
   list_rate_inr_per_min: "5.00",
   from_inr_per_min: "4.50",
-  from_sarvam_inr_per_min: "4.50",
-  from_cartesia_inr_per_min: "6.00",
-  sarvam_tier_label: "Clear",
-  cartesia_tier_label: "Studio",
+  from_clear_inr_per_min: "4.50",
+  from_studio_inr_per_min: "6.00",
+  clear_tier_label: "Clear",
+  studio_tier_label: "Studio",
   packs: [
     {
       pack_id: "starter",
@@ -153,10 +153,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "2000.00",
       bonus_pct: "0",
-      sarvam_inr_per_min: "5.0000",
-      cartesia_inr_per_min: "8.0000",
-      sarvam_minutes: 400,
-      cartesia_minutes: 250,
+      clear_inr_per_min: "5.0000",
+      studio_inr_per_min: "8.0000",
+      clear_minutes: 400,
+      studio_minutes: 250,
       effective_rate_inr_per_min: "5.0000",
       talk_time_minutes: 400,
       best_value: false,
@@ -168,10 +168,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "5000.00",
       bonus_pct: "0",
-      sarvam_inr_per_min: "5.0000",
-      cartesia_inr_per_min: "7.0000",
-      sarvam_minutes: 1000,
-      cartesia_minutes: 714,
+      clear_inr_per_min: "5.0000",
+      studio_inr_per_min: "7.0000",
+      clear_minutes: 1000,
+      studio_minutes: 714,
       effective_rate_inr_per_min: "5.0000",
       talk_time_minutes: 1000,
       best_value: false,
@@ -183,10 +183,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "10000.00",
       bonus_pct: "0",
-      sarvam_inr_per_min: "4.8500",
-      cartesia_inr_per_min: "6.7500",
-      sarvam_minutes: 2061,
-      cartesia_minutes: 1481,
+      clear_inr_per_min: "4.8500",
+      studio_inr_per_min: "6.7500",
+      clear_minutes: 2061,
+      studio_minutes: 1481,
       effective_rate_inr_per_min: "4.8500",
       talk_time_minutes: 2061,
       best_value: false,
@@ -198,10 +198,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "15000.00",
       bonus_pct: "0",
-      sarvam_inr_per_min: "4.7000",
-      cartesia_inr_per_min: "6.5000",
-      sarvam_minutes: 3191,
-      cartesia_minutes: 2307,
+      clear_inr_per_min: "4.7000",
+      studio_inr_per_min: "6.5000",
+      clear_minutes: 3191,
+      studio_minutes: 2307,
       effective_rate_inr_per_min: "4.7000",
       talk_time_minutes: 3191,
       best_value: false,
@@ -213,10 +213,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "25000.00",
       bonus_pct: "0",
-      sarvam_inr_per_min: "4.6000",
-      cartesia_inr_per_min: "6.2500",
-      sarvam_minutes: 5434,
-      cartesia_minutes: 4000,
+      clear_inr_per_min: "4.6000",
+      studio_inr_per_min: "6.2500",
+      clear_minutes: 5434,
+      studio_minutes: 4000,
       effective_rate_inr_per_min: "4.6000",
       talk_time_minutes: 5434,
       best_value: false,
@@ -228,10 +228,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "50000.00",
       bonus_pct: "0",
-      sarvam_inr_per_min: "4.5000",
-      cartesia_inr_per_min: "6.0000",
-      sarvam_minutes: 11111,
-      cartesia_minutes: 8333,
+      clear_inr_per_min: "4.5000",
+      studio_inr_per_min: "6.0000",
+      clear_minutes: 11111,
+      studio_minutes: 8333,
       effective_rate_inr_per_min: "4.5000",
       talk_time_minutes: 11111,
       best_value: true,
@@ -242,8 +242,8 @@ const PACK_CARD = {
 /** The same card from an API build that has not started sending the two tier names. */
 const UNNAMED_CARD = {
   ...PACK_CARD,
-  sarvam_tier_label: undefined,
-  cartesia_tier_label: undefined,
+  clear_tier_label: undefined,
+  studio_tier_label: undefined,
 };
 
 /**
@@ -682,7 +682,7 @@ describe("the top-up panel", () => {
 
   it("prints no rate and no vendor name when the card carries no tier names", async () => {
     // THE NAMES ARE THE SERVER'S AND THERE IS NO FALLBACK. An API build that does not send
-    // `sarvam_tier_label` / `cartesia_tier_label` leaves this panel with two rupee figures
+    // `clear_tier_label` / `studio_tier_label` leaves this panel with two rupee figures
     // it cannot attribute — and a reader shown an unnamed pair assigns the cheaper one to
     // whichever voice they had in mind. So the prices go, and the vendor's word is never
     // borrowed to keep them.

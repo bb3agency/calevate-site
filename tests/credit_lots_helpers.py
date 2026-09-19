@@ -105,8 +105,8 @@ async def add_lot(
             session,
             tenant_id=tenant_id,
             credits_inr=Decimal(credits_inr),
-            sarvam_inr_per_min=rates[0],
-            cartesia_inr_per_min=rates[1],
+            clear_inr_per_min=rates[0],
+            studio_inr_per_min=rates[1],
             source=source,
             pack_id=pack_id,
             ledger_entry_id=entry_id,
@@ -121,7 +121,7 @@ async def lot_rows(tenant_id: UUID) -> list[dict[str, Any]]:
             await session.execute(
                 text(
                     "SELECT id, source, pack_id, override_of_pack_id, credits_total, "
-                    "credits_remaining, sarvam_inr_per_min, cartesia_inr_per_min, "
+                    "credits_remaining, clear_inr_per_min, studio_inr_per_min, "
                     "closed_at FROM credit_lots WHERE tenant_id = :t "
                     "ORDER BY opened_at, id"
                 ),

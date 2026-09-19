@@ -99,7 +99,7 @@ async def _tenant() -> uuid.UUID:
     ("label", "demand"),
     [
         ("ai_assist", AiAssistDemand(credits=Decimal("0"))),
-        ("call", CallDemand(minutes=Decimal("0"), voice_tier="sarvam", fallback_rates=_FALLBACK)),
+        ("call", CallDemand(minutes=Decimal("0"), voice_tier="clear", fallback_rates=_FALLBACK)),
     ],
 )
 async def test_a_demand_that_consumed_nothing_writes_no_ledger_row(

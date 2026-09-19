@@ -1374,7 +1374,7 @@ function VoiceDetail({
   // and the ledger call it, and this line used to print it at a person. The label is the
   // server's (`billing/rates.py::VOICE_TIER_LABELS`) and is simply omitted when this build's
   // API does not send it — a quality named by nobody is better than one named by us twice.
-  const tier = voiceTierRate(rates, voice.provider);
+  const tier = voiceTierRate(rates, voice.voice_tier);
   const quality = voice.tier_label ?? tier?.label ?? null;
   return (
     <div className="rounded-card border border-line p-3 text-xs text-ink-muted">

@@ -65,12 +65,12 @@ const ALL_PATH = `${OPS_VOICES_PATH}?scope=all`;
 
 function voice(over: Partial<CuratedVoice> = {}): CuratedVoice {
   return {
-    voice_id: "bulbul:v3:ashutosh",
+    voice_id: "timbre-v2.5:Deepak",
     label: "Ashutosh",
-    provider: "sarvam",
+    provider: "gnani",
     tier_label: "Clear",
-    tts_model: "bulbul:v3",
-    engine_voice_id: "ashutosh",
+    tts_model: "timbre-v2.5",
+    engine_voice_id: "Deepak",
     languages: ["te-IN", "hi-IN", "en-IN"],
     source: "platform",
     state: "enabled",
@@ -94,9 +94,9 @@ function form(over: Partial<AddVoiceForm> = {}): AddVoiceForm {
   return {
     providers: [
       {
-        provider: "sarvam",
+        provider: "gnani",
         tier_label: "Clear",
-        models: ["bulbul:v3"],
+        models: ["timbre-v2.5"],
         selectable: true,
         unavailable_reason: null,
       },
@@ -263,7 +263,7 @@ describe("the voices page", () => {
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({ [ALL_PATH]: catalogue({ scope: "all", voices: [voice(), voice({
-        voice_id: "bulbul:v3:stock",
+        voice_id: "timbre-v2.5:stock",
         label: "Stock One",
         origin: "synced",
         state: "disabled",
@@ -325,7 +325,7 @@ describe("the voices page", () => {
           voices: [
             voice({ state: "disabled", offered: false }),
             voice({
-              voice_id: "bulbul:v3:gone",
+              voice_id: "timbre-v2.5:gone",
               label: "Withdrawn One",
               state: "enabled",
               offered: false,
@@ -384,7 +384,7 @@ describe("the voices page", () => {
       const patch = calls.find((call) => call.method === "PATCH");
       expect(patch?.path).toBe(OPS_VOICES_PATH);
       expect(JSON.parse(String(patch?.body))).toEqual({
-        voice_id: "bulbul:v3:ashutosh",
+        voice_id: "timbre-v2.5:Deepak",
         state: "disabled",
       });
     });

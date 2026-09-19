@@ -66,7 +66,7 @@ export const OPS_RATE_CARD_PATH = "/v1/ops/rate-card";
 export const OPS_RATE_CARD_QUERY_KEY = ["admin", "ops", "rate-card"] as const;
 
 /** The machine tier, spelled as the vendor it names — the lot's own vocabulary. */
-export type VoiceTier = "sarvam" | "cartesia";
+export type VoiceTier = "clear" | "studio";
 
 /**
  * One cell: one pack rung on one voice — `RateCardCellOut`, generated.
@@ -123,24 +123,24 @@ export type SpeakingRate = Schemas["SpeakingRateOut"];
 /**
  * The vendor, named — this is the one surface where that is required rather than avoided.
  *
- * ⚠ **THE `sarvam` KEY NO LONGER NAMES THE VENDOR IT IS SPELLED AFTER (D-629, 18 Sep
- * 2026).** Sarvam stopped synthesising anything on that date; the Clear rung is Gnani's.
- * The KEY is unchanged on purpose — it is the ledger's and the wire's spelling of the
- * cheaper rung (`credit_lots.sarvam_inr_per_min`, `CreditPackOut.sarvam_inr_per_min`), and
- * renaming a money column is a migration nobody has run. So the key is history and the
- * VALUE is the vendor: an operator reconciling an invoice needs the company that will send
- * one, and from D-629 that company is Gnani.
+ * The KEY is the RUNG (`clear`, `studio`) and the VALUE is the VENDOR currently serving
+ * it. They were the same word until 19 Sep 2026, when the rungs stopped being spelled with
+ * their vendors' names — and this map is why that mattered: on 18 Sep 2026 Sarvam stopped
+ * synthesising anything and Gnani took the Clear rung, so for one day the key said
+ * `sarvam` and the value said Gnani. An operator reconciling an invoice needs the company
+ * that will send one; the key needs to be the thing the ledger is keyed on. Those are two
+ * facts and they now have two spellings.
  *
  * Sarvam is still a vendor of ours — it transcribes every call and reads the first pass over
  * the transcript — but it bills no rung on this card.
  */
 export const TIER_VENDOR: Record<VoiceTier, string> = {
-  sarvam: "Gnani",
-  cartesia: "Cartesia",
+  clear: "Gnani",
+  studio: "Cartesia",
 };
 
 export function tierVendor(tier: string): string {
-  return tier === "sarvam" || tier === "cartesia" ? TIER_VENDOR[tier] : tier;
+  return tier === "clear" || tier === "studio" ? TIER_VENDOR[tier] : tier;
 }
 
 /** The rungs, in the order the card ladders, each with its two voices. */

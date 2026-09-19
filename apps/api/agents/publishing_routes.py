@@ -98,7 +98,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -107,7 +107,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
-from apps.api.agents.voices import Voice
+from apps.api.agents.voices import VOICE_TIER_OF_PROVIDER, Voice, VoiceProvider
 from apps.api.billing.lots import TierRate, voice_tier_rates
 from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
@@ -184,6 +184,16 @@ class AgentVoiceOut(Strict):
 
     voice_id: str
     provider: str | None
+    #: WHICH RUNG THIS VOICE BILLS ON, beside the vendor that speaks it. `None` exactly when
+    #: `provider` is — an id this build cannot resolve names no rung either.
+    #:
+    #: ⚠ **ADDED 19 SEP 2026 WITH THE BUG IT FIXES ALREADY LIVE.** The client console priced
+    #: the live voice with `voiceTierRate(rates, ...provider)` — a PROVIDER matched against
+    #: rate rows keyed by TIER. It worked only while each provider's name equalled its
+    #: rung's, and stopped on 18 Sep 2026 when Gnani took the Clear rung: the panel found no
+    #: row and printed no rate for the very voice the client was being charged for. The
+    #: server knows `VOICE_TIER_OF_PROVIDER`; a browser re-deriving it is a second copy.
+    voice_tier: str | None
     catalog: Voice | None
 
 
@@ -316,15 +326,20 @@ class VoiceTierRateOut(Strict):
     wallet). It is a real state, not a missing value, and the alternative — falling back to
     the card — would quote a rate the client has not bought.
 
-    `label` is the CLIENT-FACING name of the tier and `provider` is the vendor. Both are
+    `label` is the CLIENT-FACING name of the tier and `voice_tier` is the token. Both are
     published because they answer different questions: no client-facing surface names a
-    vendor as a product tier (founder, 7 Sep 2026), while `provider` is what a ledger row,
-    a `meta.lots` split and a vendor invoice are all reconciled on. The label comes from
+    tier with anything but its product name (founder, 7 Sep 2026), while `voice_tier` is
+    what a ledger row and a `meta.lots` split are reconciled on. The label comes from
     `billing/rates.voice_tier_label`, never a literal here and never a second copy in the
     browser — one definition, sent down, for the reason the money figures are.
+
+    ⚠ **THIS FIELD WAS CALLED `provider` AND THIS DOCSTRING CALLED IT "THE VENDOR"
+    (until 19 Sep 2026).** It never carried a vendor. It carried the rung, which happened
+    to be spelled with a vendor's name — and on the Clear rung that name had been wrong
+    since 18 Sep 2026, when Sarvam stopped speaking on this product at all.
     """
 
-    provider: str
+    voice_tier: str
     label: str
     #: NUMERIC INR per minute, as exact digits. Null when no open lot can price it.
     inr_per_min: Decimal | None
@@ -450,7 +465,21 @@ async def pending(agent_id: UUID, principal: PublishingReader) -> PendingOut:
 def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
     if voice is None:
         return None
-    return AgentVoiceOut(voice_id=voice.voice_id, provider=voice.provider, catalog=voice.catalog)
+    provider = voice.provider
+    return AgentVoiceOut(
+        voice_id=voice.voice_id,
+        provider=provider,
+        # `voice_tier_of_provider` RAISES on a provider with no rung rather than guessing
+        # one, which is right at a billing seam and wrong on a read-only panel: this route
+        # describes what is on the agent, and a provider nobody has priced still has a name
+        # worth showing. So the absence is carried as `None` and the screen says nothing.
+        voice_tier=(
+            VOICE_TIER_OF_PROVIDER.get(cast(VoiceProvider, provider))
+            if provider in VOICE_TIER_OF_PROVIDER
+            else None
+        ),
+        catalog=voice.catalog,
+    )
 
 
 def _render(state: publishing.PendingState, *, tier_rates: list[TierRate]) -> PendingOut:
@@ -483,8 +512,8 @@ def _render(state: publishing.PendingState, *, tier_rates: list[TierRate]) -> Pe
         ),
         voice_tier_rates=[
             VoiceTierRateOut(
-                provider=tier.provider,
-                label=voice_tier_label(tier.provider),
+                voice_tier=tier.voice_tier,
+                label=voice_tier_label(tier.voice_tier),
                 inr_per_min=tier.inr_per_min,
                 further_open_lots=tier.further_open_lots,
             )

@@ -211,7 +211,7 @@ def test_the_tier_is_the_provider_and_nothing_else() -> None:
     because the tier is not stored anywhere it could disagree with the voice."""
     for voice in catalogue():
         assert voice_tier(voice.id) == voice.provider
-    assert voice_tier(_cartesia_voice().id) == "cartesia", (
+    assert voice_tier(_cartesia_voice().id) == "studio", (
         "⚠ THIS ASSERTION USED TO EXPECT `sarvam`, AND REVERSING IT IS THE POINT OF D-585. "
         "The tier used to be a CATALOGUE LOOKUP that answered 'sarvam' for any id it could "
         "not find. That was safe only while the catalogue was a frozen compiled constant; "
@@ -239,7 +239,7 @@ def test_an_unknown_or_missing_voice_is_the_cheaper_tier() -> None:
     The tier a legacy Sarvam row prices at does not move; only the reason does."""
     for unknown in (None, "", "bulbul:v3", "whatever-this-is", "Anushka", "bulbul"):
         assert voice_tier(unknown) == VALUE_VOICE_TIER
-    assert voice_tier("sonic-3.5") == "cartesia", (
+    assert voice_tier("sonic-3.5") == "studio", (
         "a legacy row naming the Cartesia model is a Cartesia row; billing it on the value "
         "rung is unmetered spend on the dearer tier (hard rule 7)"
     )

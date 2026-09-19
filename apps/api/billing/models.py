@@ -711,7 +711,7 @@ class CreditLot(PKMixin, TimestampMixin, Base):
     ledger — one signed balance, unchanged — and the TERMS live here, on a row that is
     allowed to shrink.
 
-    WHAT IS FROZEN, AND WHAT MOVES. `sarvam_inr_per_min` / `cartesia_inr_per_min`,
+    WHAT IS FROZEN, AND WHAT MOVES. `clear_inr_per_min` / `studio_inr_per_min`,
     `source`, `pack_id`, `override_of_pack_id`, `tenant_id`, `ledger_entry_id` and
     `opened_at` are the TERMS of a sale that already happened; nothing may edit them and
     the `credit_lots_terms_frozen` trigger refuses an UPDATE that tries (invariant
@@ -741,13 +741,13 @@ class CreditLot(PKMixin, TimestampMixin, Base):
             "credits_remaining >= 0 AND credits_remaining <= credits_total",
             name="remaining_within_total",
         ),
-        CheckConstraint("sarvam_inr_per_min > 0", name="sarvam_rate_positive"),
-        # Invariant §2.3.6 at the row level: the premium voice is never the cheap one.
-        # A card that inverted them would sell a Cartesia minute below a Sarvam minute
-        # and every margin figure downstream would be struck against the wrong leg.
-        CheckConstraint(
-            "cartesia_inr_per_min >= sarvam_inr_per_min", name="cartesia_not_below_sarvam"
-        ),
+        CheckConstraint("clear_inr_per_min > 0", name="clear_rate_positive"),
+        # Invariant §2.3.6 at the row level: the premium rung is never the cheap one.
+        # A card that inverted them would sell a Studio minute below a Clear minute and
+        # every margin figure downstream would be struck against the wrong leg. Named for
+        # the RUNGS since 19 Sep 2026 — it was `cartesia_not_below_sarvam`, which named two
+        # vendors, one of which no longer speaks on this product at all.
+        CheckConstraint("studio_inr_per_min >= clear_inr_per_min", name="studio_not_below_clear"),
         # THE FIFO SCAN, and the only index this table needs. `billing/lots.py::consume`
         # reads `WHERE tenant_id = :t AND closed_at IS NULL ORDER BY opened_at, id`;
         # partial on the predicate because a spent lot is the steady state and is never
@@ -779,8 +779,8 @@ class CreditLot(PKMixin, TimestampMixin, Base):
     override_of_pack_id: Mapped[str | None] = mapped_column(Text)
     credits_total: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     credits_remaining: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
-    sarvam_inr_per_min: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
-    cartesia_inr_per_min: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    clear_inr_per_min: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    studio_inr_per_min: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     ledger_entry_id: Mapped[UUID] = mapped_column(
         ForeignKey("credit_ledger.id", ondelete="RESTRICT"), nullable=False, unique=True
     )

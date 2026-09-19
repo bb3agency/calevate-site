@@ -1424,21 +1424,32 @@ def code_tts_rates() -> dict[str, Decimal]:
     until 9 Sep 2026, an AVERAGE true at one volume only; the vendor's own overage rate
     closed that UNKNOWN and `billing/rates.py`'s Cartesia block records the change.
 
-    ⚠ **THE `bulbul-v3` ENTRY LEFT THIS DICT ON 18 Sep 2026 AND `TTS_INR_PER_10K_CHARS` DID
-    NOT LEAVE THE CODE.** The founder withdrew the Sarvam TTS leg. This function's subject is
-    narrow and is in its own name: **the rates the BILLER holds**, one row per rung of the
-    published card — and there is no Sarvam rung to bill. The constant survives as the value
-    rung's frozen COST-MODEL scalar (see its own block in `billing/rates.py`), which is a
-    different kind of figure: it is divided INTO a floor that a retail rate is judged
-    against, never stated as a rate a client pays. Listing it here would demand a rate-card
-    row in TRD §10.1 for a vendor card that no longer exists, which is the doc drift this
-    check is meant to catch rather than to cause. **The value rung's own arithmetic is not
-    unguarded**: §4e holds `TTS_ASSUMED_CHARS_PER_CALL_MINUTE` to §10.1's speaking band, and
-    the floor is pinned by `tests/cost_floor_test.py`.
-    """
-    from apps.api.billing.rates import CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
+    ⚠ **TWO ENTRIES AGAIN SINCE 19 Sep 2026, AND THE HISTORY MATTERS BECAUSE IT IS WHY THIS
+    CHECK WENT QUIET FOR A DAY.** The `bulbul-v3` entry left on 18 Sep 2026 when the founder
+    withdrew the Sarvam TTS leg, and nothing replaced it: the Clear rung's vendor was Gnani,
+    Gnani were believed to publish no price, and a rung with no rate has no row to diff. That
+    left §4b guarding one rung while the product sold two.
 
-    return {"sonic-3.5": CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS}
+    The belief was wrong. Gnani's own console states ₹27.00 / 10,000 characters
+    (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed), so the Clear
+    rung has a published rate again and `TTS_INR_PER_10K_CHARS` holds it. Both rungs are
+    listed here, and §4b is back to diffing the whole card.
+
+    **WHAT THIS FUNCTION IS NOT.** Its subject is in its own name: the rates the COST MODEL
+    holds, one row per rung of the published card. Neither entry is a rate any minute is
+    BILLED at — Cartesia's is a plan overage and Gnani's is a catalogue price, and hard rule
+    7 admits only an operator's attested invoice figure to `unit_cost_paid`. A row here means
+    "TRD §10.1 must state this number", not "somebody is charged it".
+    """
+    from apps.api.billing.rates import (
+        CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
+        TTS_INR_PER_10K_CHARS,
+    )
+
+    return {
+        "sonic-3.5": CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
+        "timbre-v2.5": TTS_INR_PER_10K_CHARS,
+    }
 
 
 def tts_rate_card_drift(text: str | None = None) -> list[str]:

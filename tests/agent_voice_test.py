@@ -1257,7 +1257,7 @@ async def test_a_tier_with_nothing_in_it_says_so_rather_than_simply_not_appearin
     # own absence. Asserted over EVERY empty provider rather than a named one, so a fourth
     # provider cannot arrive without a line.
     assert tiers["cartesia"]["note"] is None, "a tier with choices in it invented a refusal"
-    assert tiers["cartesia"]["label"] == voice_tier_label("cartesia")
+    assert tiers["studio"]["label"] == voice_tier_label("studio")
     empty = [p for p in OUR_PROVIDERS if p != "cartesia"]
     assert empty, "the fixture stopped having an empty tier, so this proves nothing"
     for provider in empty:

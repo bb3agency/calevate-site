@@ -27,7 +27,7 @@ from apps.api.billing.rates import (
     ASSUMED_SPEAKING_RATE,
     CARTESIA_EVIDENCE_USD_INR,
     CARTESIA_VOLUME_LADDER_CALL_MINUTES,
-    sarvam_cost_floor_at,
+    clear_cost_floor_at,
 )
 from apps.api.billing.spend_routes import _CHARS_PER_KCHAR
 from apps.api.billing.tts_volume import (
@@ -171,9 +171,9 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
         PACK_CATALOGUE,
         measured_cost=Decimal("6.9011"),
         fx=fx,
-        clear=sarvam_cost_floor_at(ASSUMED_SPEAKING_RATE),
+        clear=clear_cost_floor_at(ASSUMED_SPEAKING_RATE),
     )
-    studio = [cell for cell in cells if cell.voice_tier == "cartesia"]
+    studio = [cell for cell in cells if cell.voice_tier == "studio"]
     assert len(studio) == len(PACK_CATALOGUE)
     for cell in studio:
         assert cell.breakeven_call_minutes is not None, cell.pack_id
@@ -207,7 +207,7 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     # exactly while the assumed basis is in force — which is what is asserted here — and
     # different the day a measurement clears twenty calls
     # (`tests/tts_speaking_rate_loop_test.py` owns that half).
-    clear = [cell for cell in cells if cell.voice_tier == "sarvam"]
+    clear = [cell for cell in cells if cell.voice_tier == "clear"]
     assert all(cell.breakeven_call_minutes is None for cell in clear)
     assert all(cell.cost_inr_per_min_at_volume == cell.cost_floor_inr_per_min for cell in clear)
 
@@ -239,7 +239,7 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
     assert published.refusal_floor_inr_per_min == "4.7099"
     assert Decimal(published.floor_inr_per_min) > Decimal(published.refusal_floor_inr_per_min)
     assert Decimal(published.refusal_floor_inr_per_min) < min(
-        pack.cartesia_inr_per_min for pack in PACK_CATALOGUE
+        pack.studio_inr_per_min for pack in PACK_CATALOGUE
     )
 
     fallback = config_routes._cartesia_volume_out(
@@ -392,7 +392,7 @@ async def test_the_post_call_meter_moves_the_counter_exactly_once_for_a_studio_c
         before = await fleet_cartesia_volume(session, month=month)
 
     original = pipeline.voice_tier
-    pipeline.voice_tier = lambda _voice_id: "cartesia"  # type: ignore[assignment]
+    pipeline.voice_tier = lambda _voice_id: "studio"  # type: ignore[assignment]
     try:
         await pipeline._meter(tenant_id, call_id, snapshot)
         async with untenanted_session() as session:

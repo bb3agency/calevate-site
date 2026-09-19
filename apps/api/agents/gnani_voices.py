@@ -33,13 +33,23 @@ WHAT THIS MODULE DELIBERATELY DOES NOT DO
   A compiled list installed at import is by construction a list nobody enabled — the exact
   defect that deleted the old seed. These entries become catalogue rows the day an operator
   admits them, and `gnani_voice_entries()` is what such an admission is built from.
-* **It does not put a price anywhere.** Gnani publish none (module `voices.py`'s
-  `_GNANI_NOTE`, `docs/PIPECAT-MIGRATION.md` §7). The ₹27/10 000-character figure that
-  exists in the wild is a RESELLER's price for their own platform and is not Gnani's; it
-  may not appear in this product at all. ⚠ Gnani now HOLDS the value rung
-  (`VOICE_TIER_OF_PROVIDER["gnani"]`, 18 Sep 2026, when the Sarvam TTS leg was withdrawn) —
-  which says which rung a Gnani minute would bill on and NOT that one may be billed. Until
-  an operator attests a price, `agents/voice_offer.py` refuses every Gnani voice.
+* **It does not put a price anywhere, and the price now exists.** ⚠ **THIS BULLET SAID
+  "Gnani publish none" AND THAT WAS WRONG (corrected 19 Sep 2026).** Gnani's own console
+  states **₹27.00 per 10,000 characters** for Text to Speech, with a **60 requests/minute**
+  limit (`app.gnani.ai/voice/pricing`, read by the founder and relayed —
+  VENDOR-PUBLISHED). The rate lives in `billing/rates.TTS_INR_PER_10K_CHARS` and nowhere
+  else; a rate card does not belong in a catalogue module. ⚠ The ₹27 figure that was
+  already in this tree came from a RESELLER's page for their own platform and was refused
+  under hard rule 7 — correctly, because a figure that happens to match is not a source.
+  Gnani HOLDS the value rung (`VOICE_TIER_OF_PROVIDER["gnani"]`, 18 Sep 2026), which says
+  which rung a Gnani minute bills on and NOT that one may be billed: a published catalogue
+  price is not an invoice, so until an operator attests one, `agents/voice_offer.py` still
+  refuses every Gnani voice.
+* **The 60 requests/minute limit is a CONCURRENCY ceiling and nobody has costed it.** One
+  synthesis request per assistant turn puts a hard cap on simultaneous calls on this rung,
+  independent of price. It is recorded here because this is where the voices are; the
+  pipeline that would meet it is `apps/voice-worker`. UNKNOWN whether the limit is per key,
+  per account or per model — the page states the number and not its scope.
 * **It does not claim a voice can speak a second language.** The vendor groups each voice
   under one locale and says a mismatched `language` *"may reduce quality"*; whether a voice
   can speak OUTSIDE its group is NOT STATED, so `languages` below is a one-element tuple

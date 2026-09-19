@@ -293,7 +293,7 @@ async def test_the_production_writers_cannot_mint_a_duplicate_key() -> None:
                 call_id=call_id,
                 demand=CallDemand(
                     minutes=Decimal("6"),
-                    voice_tier="sarvam",
+                    voice_tier="clear",
                     fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )

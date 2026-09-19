@@ -72,7 +72,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack
-from apps.api.billing.rates import VOICE_TIERS, VoiceTier
+from apps.api.billing.rates import (
+    PREMIUM_VOICE_TIER,
+    VALUE_VOICE_TIER,
+    VOICE_TIERS,
+    VoiceTier,
+)
 from apps.api.core.settings import get_settings
 
 #: The one key this table carries today: the name of the `Settings` field it dates, so the
@@ -475,9 +480,11 @@ def card_with_rates(cells: Mapping[str, Mapping[VoiceTier, Decimal]]) -> tuple[C
     return tuple(
         replace(
             pack,
-            sarvam_inr_per_min=cells.get(pack.pack_id, {}).get("sarvam", pack.sarvam_inr_per_min),
-            cartesia_inr_per_min=cells.get(pack.pack_id, {}).get(
-                "cartesia", pack.cartesia_inr_per_min
+            clear_inr_per_min=cells.get(pack.pack_id, {}).get(
+                VALUE_VOICE_TIER, pack.clear_inr_per_min
+            ),
+            studio_inr_per_min=cells.get(pack.pack_id, {}).get(
+                PREMIUM_VOICE_TIER, pack.studio_inr_per_min
             ),
         )
         for pack in PACK_CATALOGUE
@@ -493,7 +500,7 @@ def card_list_rate(card: Sequence[CreditPack]) -> Decimal:
     from the card rather than taken as a second argument, because the two coming apart is
     how `self_serve_rate_at` would answer a rate the card never sold.
     """
-    return min(card, key=lambda pack: pack.amount_inr).sarvam_inr_per_min
+    return min(card, key=lambda pack: pack.amount_inr).clear_inr_per_min
 
 
 @dataclass(frozen=True, slots=True)

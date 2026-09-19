@@ -773,22 +773,28 @@ credit_ledger(id, tenant_id, delta NUMERIC,
 credit_lots(id, tenant_id, source ENUM-as-CHECK[topup,grant,bonus_legacy,migration,override],
   pack_id NULL, override_of_pack_id NULL,
   credits_total NUMERIC(12,4), credits_remaining NUMERIC(12,4),
-  sarvam_inr_per_min NUMERIC(12,4), cartesia_inr_per_min NUMERIC(12,4),
+  clear_inr_per_min NUMERIC(12,4), studio_inr_per_min NUMERIC(12,4),
   ledger_entry_id UNIQUE FK credit_ledger(id), opened_at, closed_at NULL,
   created_at, updated_at)                    -- NOT append-only, and NOT in APPEND_ONLY_TABLES
 -- WHAT IT HOLDS AND WHY IT EXISTS (D-547, `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` §3.1).
 --   A credit is still ₹1 and still never expires. What a bigger pack buys is no longer BONUS
 --   CREDITS on the balance — it is a CHEAPER MINUTE, and a minute has two prices because the
---   voice tier is chosen per agent (`sarvam` | `cartesia`). A price that varies by purchase
+--   voice tier is chosen per agent (`clear` | `studio`). A price that varies by purchase
 --   cannot live on the tenant and cannot live on the ledger row that spends it: it belongs to
 --   the credits themselves. A lot IS that grouping — the credits one purchase (or grant, or
 --   the migration, or an operator override) created, carrying the two per-minute rates FROZEN
 --   at the moment it was opened.
 -- CHECKS: `source IN ('topup','grant','bonus_legacy','migration','override')`;
 --   `credits_total > 0`; `credits_remaining >= 0 AND credits_remaining <= credits_total`;
---   `sarvam_inr_per_min > 0`; `cartesia_inr_per_min >= sarvam_inr_per_min`. The last one is
---   the card's own shape made structural: the Cartesia voice is never the cheaper of the two
+--   `clear_inr_per_min > 0`; `studio_inr_per_min >= clear_inr_per_min`. The last one is
+--   the card's own shape made structural: the Studio rung is never the cheaper of the two
 --   on any pack, so a row that says it is is a data defect, not a promotion.
+-- ⚠ THE TWO RATE COLUMNS WERE `sarvam_inr_per_min` / `cartesia_inr_per_min` UNTIL
+--   19 Sep 2026. They were named for the VENDORS then serving each rung, and one of those
+--   vendors (Sarvam) left the synthesis leg entirely on 18 Sep 2026, leaving a money column
+--   named after a company with nothing to do with it. Renamed to the RUNGS by
+--   `f1c40d8b6e93`, which refuses to run against a non-empty `credit_lots` because these
+--   rates are FROZEN at purchase — so from the first sale the names are frozen with them.
 -- RLS: ENABLE + FORCE with the strict `tenant_isolation` policy for EVERY verb — the
 --   repo-wide shape, NOT the `OR <guc> IS NULL` form `f2b91c47e0a3` had to correct on
 --   `kb_uploads`. Registered in `db/registry.TENANT_TABLES`, so `check_rls_coverage` refuses

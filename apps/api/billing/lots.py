@@ -71,7 +71,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # and a `from ... import lock_tenant_credits` here would then resolve at import time
 # against a half-initialised module. Attribute access on the module object does not.
 from apps.api.billing import service as credit_service
-from apps.api.billing.rates import MONEY_Q, ROUNDING
+from apps.api.billing.rates import (
+    MONEY_Q,
+    ROUNDING,
+    VALUE_VOICE_TIER,
+    VOICE_TIERS,
+    VoiceTier,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -84,18 +90,15 @@ if TYPE_CHECKING:  # `LotRates` is a type here and never a runtime import.
     from apps.api.billing.service import LotRates
 
 #: WHICH RUNG A CALL BILLS ON, and therefore which of a lot's two rates prices it.
-#: Spelled here rather than imported from `agents/voices.py` because Phase C owns that
-#: file and this module must not depend on the catalogue to price a minute;
-#: `tests/credit_lots_vocabulary_test.py` holds the two spellings equal once C lands.
 #:
-#: ⚠ **`"sarvam"` IS A HISTORICAL NAME FOR THE VALUE RUNG AND NOT A VENDOR (18 Sep 2026).**
-#: The Sarvam TEXT-TO-SPEECH leg was withdrawn and Gnani serves that rung; Sarvam remains
-#: the STT vendor, which has never been in this vocabulary. The token is unchanged because
-#: it is spelled identically in `credit_lots.sarvam_inr_per_min`, in the rate cells frozen
-#: onto every lot at purchase, on the client's own wire and in the web client —
-#: `billing/rates.VoiceTier` carries the argument in full, including the one constraint
-#: that did NOT apply to the decision and will apply to the next one.
-VoiceTier = Literal["sarvam", "cartesia"]
+#: ⚠ **THIS WAS A SECOND `Literal` SPELLED OUT HERE UNTIL 19 SEP 2026, AND THE REASON IT
+#: WAS HAS EXPIRED.** It was written independently because Phase C owned `agents/voices.py`
+#: and this module must not depend on the CATALOGUE to price a minute — a real constraint,
+#: and still true. But `billing/rates` is not the catalogue: it is the money module this
+#: file already imports `MONEY_Q` and `ROUNDING` from, and it is where the rung is defined.
+#: So the duplicate bought nothing and cost the thing duplicates always cost — when the
+#: tokens were renamed `clear`/`studio`, one of the two copies would have kept paying a
+#: rate under a name the other no longer knew.
 
 #: Where a lot's credits came from. The DB twin is `models.LOT_SOURCES` and the CHECK
 #: built from it; `tests/credit_lots_vocabulary_test.py` holds them equal.
@@ -109,7 +112,7 @@ _MAX_CAS_ATTEMPTS = 8
 
 _LOT_COLUMNS = """
 SELECT id, tenant_id, source, pack_id, override_of_pack_id, credits_total,
-       credits_remaining, sarvam_inr_per_min, cartesia_inr_per_min, opened_at,
+       credits_remaining, clear_inr_per_min, studio_inr_per_min, opened_at,
        closed_at
 FROM credit_lots
 """
@@ -144,10 +147,10 @@ WHERE id = :id
 _INSERT_LOT = """
 INSERT INTO credit_lots
     (id, tenant_id, source, pack_id, override_of_pack_id, credits_total,
-     credits_remaining, sarvam_inr_per_min, cartesia_inr_per_min, ledger_entry_id,
+     credits_remaining, clear_inr_per_min, studio_inr_per_min, ledger_entry_id,
      opened_at, created_at, updated_at)
 VALUES (:id, :tid, :source, :pack_id, :override_of_pack_id, :credits, :credits,
-        :sarvam, :cartesia, :ledger_entry_id,
+        :clear, :studio, :ledger_entry_id,
         COALESCE(CAST(:opened_at AS timestamptz), clock_timestamp()), clock_timestamp(),
         clock_timestamp())
 """
@@ -210,8 +213,8 @@ class OpenLot:
     override_of_pack_id: str | None
     credits_total: Decimal
     credits_remaining: Decimal
-    sarvam_inr_per_min: Decimal
-    cartesia_inr_per_min: Decimal
+    clear_inr_per_min: Decimal
+    studio_inr_per_min: Decimal
     opened_at: datetime
     #: `None` for every lot the FIFO scan returns — it selects open lots only. It is a real
     #: value on the by-id read, which `service.reprice_lot` uses to tell "this credit is
@@ -220,9 +223,9 @@ class OpenLot:
 
     def rate_for(self, voice_tier: VoiceTier) -> Decimal:
         """What a minute of `voice_tier` costs out of THIS lot."""
-        if voice_tier == "sarvam":
-            return self.sarvam_inr_per_min
-        return self.cartesia_inr_per_min
+        if voice_tier == VALUE_VOICE_TIER:
+            return self.clear_inr_per_min
+        return self.studio_inr_per_min
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,8 +389,8 @@ def _lot_of(row: RowMapping) -> OpenLot:
         ),
         credits_total=Decimal(str(row["credits_total"])),
         credits_remaining=Decimal(str(row["credits_remaining"])),
-        sarvam_inr_per_min=Decimal(str(row["sarvam_inr_per_min"])),
-        cartesia_inr_per_min=Decimal(str(row["cartesia_inr_per_min"])),
+        clear_inr_per_min=Decimal(str(row["clear_inr_per_min"])),
+        studio_inr_per_min=Decimal(str(row["studio_inr_per_min"])),
         opened_at=row["opened_at"],
         closed_at=row["closed_at"],
     )
@@ -420,8 +423,8 @@ async def open_lot(
     *,
     tenant_id: UUID,
     credits_inr: Decimal,
-    sarvam_inr_per_min: Decimal,
-    cartesia_inr_per_min: Decimal,
+    clear_inr_per_min: Decimal,
+    studio_inr_per_min: Decimal,
     source: LotSource,
     pack_id: str | None,
     ledger_entry_id: UUID,
@@ -456,12 +459,12 @@ async def open_lot(
     """
     if credits_inr <= 0:
         raise ValueError(f"a lot must open with credits > 0, got {credits_inr}")
-    if sarvam_inr_per_min <= 0:
-        raise ValueError(f"a lot's Sarvam rate must be > 0, got {sarvam_inr_per_min}")
-    if cartesia_inr_per_min < sarvam_inr_per_min:
+    if clear_inr_per_min <= 0:
+        raise ValueError(f"a lot's Sarvam rate must be > 0, got {clear_inr_per_min}")
+    if studio_inr_per_min < clear_inr_per_min:
         raise ValueError(
             f"a lot's Cartesia rate may not be below its Sarvam rate: "
-            f"{cartesia_inr_per_min} < {sarvam_inr_per_min}"
+            f"{studio_inr_per_min} < {clear_inr_per_min}"
         )
     await credit_service.lock_tenant_credits(session, tenant_id)
     lot_id = uuid7()
@@ -474,8 +477,8 @@ async def open_lot(
             "pack_id": pack_id,
             "override_of_pack_id": override_of_pack_id,
             "credits": _money(credits_inr),
-            "sarvam": _money(sarvam_inr_per_min),
-            "cartesia": _money(cartesia_inr_per_min),
+            "clear": _money(clear_inr_per_min),
+            "studio": _money(studio_inr_per_min),
             "ledger_entry_id": ledger_entry_id,
             "opened_at": opened_at,
         },
@@ -710,7 +713,7 @@ class TierRate:
     the wallet, and the picker says so rather than quoting one number for a queue.
     """
 
-    provider: VoiceTier
+    voice_tier: VoiceTier
     inr_per_min: Decimal | None
     further_open_lots: int
 
@@ -727,11 +730,11 @@ async def voice_tier_rates(session: AsyncSession, *, tenant_id: UUID) -> list[Ti
     behind = max(len(lots) - 1, 0)
     return [
         TierRate(
-            provider=tier,
+            voice_tier=tier,
             inr_per_min=lots[0].rate_for(tier) if lots else None,
             further_open_lots=behind,
         )
-        for tier in ("sarvam", "cartesia")
+        for tier in VOICE_TIERS
     ]
 
 
@@ -747,6 +750,6 @@ async def runway(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Decimal
     is still the runway on the screens until Phase B2 re-points them.
     """
     lots = await read_open_lots(session, tenant_id=tenant_id)
-    sarvam = sum((lot.credits_remaining / lot.sarvam_inr_per_min for lot in lots), Decimal("0"))
-    cartesia = sum((lot.credits_remaining / lot.cartesia_inr_per_min for lot in lots), Decimal("0"))
-    return {"sarvam_minutes": _minutes(sarvam), "cartesia_minutes": _minutes(cartesia)}
+    sarvam = sum((lot.credits_remaining / lot.clear_inr_per_min for lot in lots), Decimal("0"))
+    cartesia = sum((lot.credits_remaining / lot.studio_inr_per_min for lot in lots), Decimal("0"))
+    return {"clear_minutes": _minutes(sarvam), "studio_minutes": _minutes(cartesia)}

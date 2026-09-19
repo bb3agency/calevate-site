@@ -298,7 +298,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                       "never" where no volume rescues the rate, which is a different fact
                       from a big number and is said as itself. */}
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-faint">
-                    {cell.voice_tier !== "cartesia"
+                    {cell.voice_tier !== "studio"
                       ? ""
                       : cell.breakeven_call_minutes === null
                         ? "never"

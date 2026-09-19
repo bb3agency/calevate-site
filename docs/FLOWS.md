@@ -620,7 +620,7 @@ cheaper minute than a ₹50,000 purchase.
    same transaction, keyed to that row (`credit_lots.ledger_entry_id` UNIQUE). A ledger row
    with no lot, or a lot with no ledger row, is not a state this system can reach — which
    is what makes the balance and the sum of remaining credits provable against each other.
-4. **What the lot freezes.** `sarvam_inr_per_min` and `cartesia_inr_per_min`, stamped from
+4. **What the lot freezes.** `clear_inr_per_min` and `studio_inr_per_min`, stamped from
    the card in force at that instant and immutable afterwards by trigger. Raising the card
    later records a NEW card; nothing already sold moves. That is the promise Terms §6.1
    carries, and it is the reason the flow is written this way rather than as a rate on the
@@ -648,7 +648,7 @@ cheaper minute than a ₹50,000 purchase.
    one rate stopped being a true sentence. Below it, the open lots oldest-first with their
    two rates: *"3,200 credits at ₹4.70 / ₹6.50, then 2,000 at ₹5.00 / ₹8.00"*. A `usage`
    entry in the transactions list expands to its splits, and the usage panel reports the
-   month per voice (`sarvam_minutes` / `cartesia_minutes` and their charges, read out of
+   month per voice (`clear_minutes` / `studio_minutes` and their charges, read out of
    `meta.lots`).
 
    ⚠ **NO CLIENT-FACING SURFACE NAMES A VENDOR AS A PRODUCT TIER** (founder, 7 Sep 2026).
@@ -656,7 +656,7 @@ cheaper minute than a ₹50,000 purchase.
    in `billing/rates.VOICE_TIER_LABELS` and SENT to the browser beside every per-tier
    figure — a second copy in TypeScript is how the two drift and a client meets both names.
    Every wire FIELD, column, ledger value and `meta` key keeps the vendor spelling
-   (`voice_tier`, `sarvam_inr_per_min`, `sarvam_minutes`): those are what an auditor
+   (`voice_tier`, `clear_inr_per_min`, `clear_minutes`): those are what an auditor
    reconciles against a vendor invoice, and renaming a vendor in a ledger is how a leg
    becomes unauditable. This flow's own prose above uses the vendor names because it
    describes the ledger; a screen does not.

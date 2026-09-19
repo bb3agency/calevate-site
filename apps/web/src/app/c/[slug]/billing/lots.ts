@@ -17,7 +17,7 @@
  * `readVoiceUsage` were re-checking exactly what the compiler proves — and the weaker of
  * two spellings of one wire contract is the one that eventually gets believed. What is
  * left here is the part a type cannot do: the ACCESSORS that pick a vendor-named field by
- * quality (so no screen writes `sarvam_inr_per_min` by hand), the money comparisons, and
+ * quality (so no screen writes `clear_inr_per_min` by hand), the money comparisons, and
  * `readLotSplits`, whose payload is still an untyped dict on the wire (see it for why).
  *
  * The property the survivors keep: **a screen renders NOTHING rather than a wrong number.**
@@ -35,14 +35,19 @@
  *
  * ## The two vocabularies, and which one may reach a human
  *
- * `sarvam` / `cartesia` name the VENDOR. They key the lot columns, the metering and the
- * ledger, and they are what a vendor invoice is reconciled against — so the wire keeps
- * them and so does this module. **No client-facing surface names a vendor as a product
- * tier** (founder, 7 Sep 2026): what a human reads is the tier LABEL ("Clear", "Studio"),
- * defined once in `apps/api/billing/rates.py::VOICE_TIER_LABELS` and CARRIED over the wire
- * beside every figure it names. Nothing here holds a copy of those names, and a payload
- * that arrives without them renders no name at all rather than falling back to the
- * vendor's word.
+ * `clear` / `studio` name the RUNG. They key the lot columns, the metering and the ledger,
+ * so the wire keeps them and so does this module. What a human reads is the tier LABEL
+ * ("Clear", "Studio"), defined once in `apps/api/billing/rates.py::VOICE_TIER_LABELS` and
+ * CARRIED over the wire beside every figure it names. Nothing here holds a copy of those
+ * names, and a payload that arrives without them renders no name at all rather than
+ * inventing one.
+ *
+ * ⚠ **THE TWO USED TO BE DIFFERENT WORDS, AND THE DIFFERENCE WAS THE DEFECT.** Until
+ * 19 Sep 2026 the wire spelled the rungs `sarvam` / `cartesia` — VENDOR names — and this
+ * block explained at length why a client must never see them. They are the rungs' own
+ * names now, so what is left to keep apart is a capitalisation, and the rule that a screen
+ * prints the server's label rather than title-casing the token itself still holds: the
+ * label is a product decision and can change without the ledger's vocabulary moving.
  *
  * ## Money
  *
@@ -70,21 +75,25 @@ function isFilledString(value: unknown): value is string {
 }
 
 /**
- * The wire's name for a voice quality: the VENDOR. Keys money and metering; never rendered.
- * The same union `lib/api/rateCard.ts` and `lib/api/voices.ts` declare, for the same reason
- * — it is the API's vocabulary, not a name anyone reads.
+ * The wire's name for a voice quality: the RUNG. Keys money and metering; never rendered
+ * (the client reads the `label` the server sends, which differs only in case). The same
+ * union `lib/api/rateCard.ts` and `lib/api/voices.ts` declare, for the same reason — it is
+ * the API's vocabulary, not a name anyone reads.
+ *
+ * It was `"clear" | "studio"` until 19 Sep 2026, when the rungs stopped being spelled
+ * with their vendors' names — one of which had not served its rung since 18 Sep 2026.
  */
-export type VoiceTier = "sarvam" | "cartesia";
+export type VoiceTier = "clear" | "studio";
 
 /** Both qualities, in the order the card leads with them (the cheaper minute first). */
-export const VOICE_TIERS: readonly VoiceTier[] = ["sarvam", "cartesia"];
+export const VOICE_TIERS: readonly VoiceTier[] = ["clear", "studio"];
 
 /**
  * Is this string one of the two qualities this browser knows how to price?
  *
  * The wire spells a quality as a bare `string` wherever the server ENUMERATES them
- * (`WalletTierRunwayOut.provider`, a lot split's `voice_tier`), so every place that turns a
- * server-sent provider into one of our accessors needs the same narrowing. One predicate
+ * (`WalletTierRunwayOut.voice_tier` and a lot split's `voice_tier`), so every place that turns a
+ * server-sent tier into one of our accessors needs the same narrowing. One predicate
  * rather than three inline `includes(... as VoiceTier)` casts, because the failure it
  * guards is silent: a quality we cannot price must render NOTHING, and a cast renders the
  * wrong voice's rate.
@@ -97,8 +106,8 @@ export function isVoiceTier(value: unknown): value is VoiceTier {
 export type TierLabels = Readonly<Record<VoiceTier, string>>;
 
 /**
- * The two tier names carried by the pack card (`CreditPacksOut.sarvam_tier_label` /
- * `cartesia_tier_label`), or `undefined` when the card has not arrived — or when it
+ * The two tier names carried by the pack card (`CreditPacksOut.clear_tier_label` /
+ * `studio_tier_label`), or `undefined` when the card has not arrived — or when it
  * arrived without them.
  *
  * It replaced `readTierLabels(unknown)`, which read the two names positionally while the
@@ -109,17 +118,18 @@ export type TierLabels = Readonly<Record<VoiceTier, string>>;
  *
  *  - the failure it prevents is not a blank, it is the string `"undefined"` rendered into
  *    a sentence a client reads about what they are buying;
- *  - every caller uses this answer to decide whether to print a PER-MINUTE RATE at all, and
- *    the only other name available for a quality is the VENDOR's — the one name a
- *    client-facing surface may not print (founder, 7 Sep 2026). So a card that cannot name
- *    its two qualities prices neither of them, which is what `TopUp` and the hub do.
+ *  - every caller uses this answer to decide whether to print a PER-MINUTE RATE at all,
+ *    and the only other name available for a quality is the raw wire token — which a
+ *    client-facing surface does not print, because the label is the product's word and the
+ *    token is the ledger's. So a card that cannot name its two qualities prices neither of
+ *    them, which is what `TopUp` and the hub do.
  */
 export function tierLabels(card: CreditPacks | undefined): TierLabels | undefined {
   if (card === undefined) return undefined;
-  const sarvam = card.sarvam_tier_label;
-  const cartesia = card.cartesia_tier_label;
-  if (!isFilledString(sarvam) || !isFilledString(cartesia)) return undefined;
-  return { sarvam, cartesia };
+  const clear = card.clear_tier_label;
+  const studio = card.studio_tier_label;
+  if (!isFilledString(clear) || !isFilledString(studio)) return undefined;
+  return { clear, studio };
 }
 
 /** One open lot: what is left of a purchase, and the two rates frozen on it. */
@@ -137,20 +147,20 @@ export type WalletLots = Schemas["WalletLotsOut"];
  * leak into the table that renders it.
  */
 export function lotRate(lot: WalletLot, tier: VoiceTier): string {
-  return tier === "sarvam" ? lot.sarvam_inr_per_min : lot.cartesia_inr_per_min;
+  return tier === "clear" ? lot.clear_inr_per_min : lot.studio_inr_per_min;
 }
 
 /**
  * The runway row for one quality, or `undefined` — the join between the wire's vendor
  * vocabulary and the NAME a client may read.
  *
- * `WalletTierRunwayOut.provider` is a bare `string` on the wire, not the two-member union,
- * so this is the one place a server-sent provider is matched against a quality we know how
- * to price. A quality the server did not send simply has no row, and a screen prints no
- * name for it rather than falling back to the vendor's word.
+ * `WalletTierRunwayOut.voice_tier` is a bare `string` on the wire, not the two-member
+ * union, so this is the one place a server-sent tier is matched against a quality we know
+ * how to price. A quality the server did not send simply has no row, and a screen prints
+ * no name for it rather than inventing one.
  */
 export function tierRunway(lots: WalletLots, tier: VoiceTier): TierRunway | undefined {
-  return lots.tiers.find((row) => row.provider === tier);
+  return lots.tiers.find((row) => row.voice_tier === tier);
 }
 
 export const WALLET_LOTS_PATH = "/v1/billing/wallet/lots";
@@ -193,7 +203,7 @@ export type VoiceUsageRow = {
  * is `month_charges_inr`, the server's own (D-458).
  *
  * **`readVoiceUsage(unknown)` IS GONE.** The six fields it read positionally
- * (`sarvam_minutes` and its five siblings) are generated and REQUIRED on `UsagePanelOut`,
+ * (`clear_minutes` and its five siblings) are generated and REQUIRED on `UsagePanelOut`,
  * so what is left is the projection into the rows the panel iterates — the vendor-keyed
  * fields picked by quality in ONE place, never in the JSX.
  */
@@ -201,16 +211,16 @@ export function voiceUsage(usage: UsagePanel | undefined): readonly VoiceUsageRo
   if (usage === undefined) return undefined;
   return [
     {
-      provider: "sarvam",
-      label: usage.sarvam_label,
-      minutes: usage.sarvam_minutes,
-      charges_inr: usage.sarvam_charges_inr,
+      provider: "clear",
+      label: usage.clear_label,
+      minutes: usage.clear_minutes,
+      charges_inr: usage.clear_charges_inr,
     },
     {
-      provider: "cartesia",
-      label: usage.cartesia_label,
-      minutes: usage.cartesia_minutes,
-      charges_inr: usage.cartesia_charges_inr,
+      provider: "studio",
+      label: usage.studio_label,
+      minutes: usage.studio_minutes,
+      charges_inr: usage.studio_charges_inr,
     },
   ];
 }
@@ -282,12 +292,12 @@ export function readLotSplits(entry: unknown): readonly LotSplit[] | undefined {
 
 /** One pack's ₹/min on one quality — the ONE door, so no screen picks a field by hand. */
 export function packRate(pack: CreditPack, tier: VoiceTier): string {
-  return tier === "sarvam" ? pack.sarvam_inr_per_min : pack.cartesia_inr_per_min;
+  return tier === "clear" ? pack.clear_inr_per_min : pack.studio_inr_per_min;
 }
 
 /** Whole minutes a pack's credits buy on one quality, as the server floored them. */
 export function packMinutes(pack: CreditPack, tier: VoiceTier): number {
-  return tier === "sarvam" ? pack.sarvam_minutes : pack.cartesia_minutes;
+  return tier === "clear" ? pack.clear_minutes : pack.studio_minutes;
 }
 
 /**
@@ -328,7 +338,7 @@ export function packForAmount(
 /**
  * The DEAREST ₹/min any pack quotes on a quality — the entry rung of the ladder.
  *
- * Its partner, the cheapest, is a field the server publishes (`from_sarvam_inr_per_min`);
+ * Its partner, the cheapest, is a field the server publishes (`from_clear_inr_per_min`);
  * this end is not, and the explainer needs both to say "between X and Y". A comparison
  * between two figures the catalogue sent, computing no price of its own.
  */
@@ -347,7 +357,7 @@ export function dearestRate(card: CreditPacks, tier: VoiceTier): string | undefi
 /** The cheapest ₹/min the card delivers on a quality — the server's own "from" figure. */
 export function cheapestRate(card: CreditPacks, tier: VoiceTier): string | undefined {
   const from =
-    tier === "sarvam" ? card.from_sarvam_inr_per_min : card.from_cartesia_inr_per_min;
+    tier === "clear" ? card.from_clear_inr_per_min : card.from_studio_inr_per_min;
   return isMoneyString(from) ? from : undefined;
 }
 

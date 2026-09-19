@@ -82,7 +82,11 @@ from apps.api.billing.service import (
 )
 from apps.api.billing.trials import trial_covers
 from apps.api.billing.tts_speaking_rate import bump_speaking_rate
-from apps.api.billing.tts_volume import CHARS_PER_KCHAR, PLAN_BILLED_VOICE, bump_cartesia_volume
+from apps.api.billing.tts_volume import (
+    CHARS_PER_KCHAR,
+    PLAN_BILLED_VOICE_TIER,
+    bump_cartesia_volume,
+)
 from apps.api.compliance.consent import record_recording_notice
 from apps.api.compliance.deletion import refile_erasure_for_late_records
 from apps.api.compliance.disclosure import disclosure_spoken
@@ -2618,7 +2622,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # wrote, minutes off this call's own billed duration — deriving minutes from
         # characters would put the unmeasured 360-540 speaking band back inside the
         # measurement that exists to replace it.
-        if voice == PLAN_BILLED_VOICE:
+        if voice == PLAN_BILLED_VOICE_TIER:
             await bump_cartesia_volume(
                 session,
                 month=ist_billing_month(snapshot.ended_at or datetime.now(UTC)),

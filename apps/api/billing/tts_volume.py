@@ -45,6 +45,9 @@ from typing import Final
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.voices import VoiceProvider, voice_tier_of_provider
+from apps.api.billing.rates import VoiceTier
+
 #: Characters per unit of `usage_events.qty` on a `tts_kchars` row — the quantum
 #: `workers/pipeline._CHARS_PER_KCHAR` divides by, spelled here because this module
 #: multiplies it back before storing. `billing/spend_routes.py` holds the same constant for
@@ -55,7 +58,16 @@ CHARS_PER_KCHAR: Final[Decimal] = Decimal("1000")
 #: `ops/model_pricing.PLAN_BILLED_TTS_PROVIDERS`: a `usage_events` row carries no vendor, so
 #: a second plan-billed vendor could not be told from the first without a discriminator on
 #: the ledger row — a migration, not an edit to a constant.
-PLAN_BILLED_VOICE: Final = "cartesia"
+PLAN_BILLED_VOICE: Final[VoiceProvider] = "cartesia"
+
+#: THE RUNG that vendor bills on, which is a DIFFERENT FACT from the vendor and was
+#: indistinguishable from it until 19 Sep 2026. Both were spelled `"cartesia"`, so
+#: `workers/pipeline.py` compared a call's voice TIER against the constant above — a vendor
+#: name — and it matched for the wrong reason. Renaming the rungs to `clear`/`studio` turned
+#: that into a type error, which is the whole argument for the rename in one line. The tier
+#: is DERIVED from the provider here rather than written down again, so a provider that
+#: moves rung cannot leave this counter reading the old one.
+PLAN_BILLED_VOICE_TIER: Final[VoiceTier] = voice_tier_of_provider(PLAN_BILLED_VOICE)
 
 #: THE COUNTER MOVES IN ONE STATEMENT, so two calls completing at the same instant cannot
 #: both read a pre-increment total and both write it back (BACKEND-PATTERNS §5 — the guard
@@ -144,6 +156,7 @@ async def bump_cartesia_volume(
 __all__ = [
     "CHARS_PER_KCHAR",
     "PLAN_BILLED_VOICE",
+    "PLAN_BILLED_VOICE_TIER",
     "CartesiaVolume",
     "bump_cartesia_volume",
     "fleet_cartesia_volume",

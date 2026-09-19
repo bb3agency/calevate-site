@@ -1005,8 +1005,8 @@ def _refund_by_amount(prefix: str = "rfnd_AMT") -> Any:
 LEGACY_BONUS_PACK = CreditPack(
     pack_id="growth",
     amount_inr=Decimal("5000"),
-    sarvam_inr_per_min=Decimal("5.00"),
-    cartesia_inr_per_min=Decimal("7.00"),
+    clear_inr_per_min=Decimal("5.00"),
+    studio_inr_per_min=Decimal("7.00"),
     bonus_pct=Decimal("3"),
 )
 

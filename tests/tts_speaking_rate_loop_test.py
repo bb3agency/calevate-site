@@ -49,8 +49,8 @@ from apps.api.billing.rates import (
     TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
     SpeakingRateBasis,
     assumed_speaking_rate,
+    clear_cost_floor_at,
     cost_floor_inr_per_min,
-    sarvam_cost_floor_at,
     tts_inr_per_call_minute,
 )
 from apps.api.billing.tts_speaking_rate import (
@@ -153,9 +153,9 @@ def test_the_frozen_floor_is_this_function_at_the_assumed_basis() -> None:
     """ONE ARITHMETIC. If the constant were summed separately it could drift from the
     measured figure by rounding, and a screen showing both would be showing two models."""
     assert (
-        sarvam_cost_floor_at(ASSUMED_SPEAKING_RATE).inr_per_min == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+        clear_cost_floor_at(ASSUMED_SPEAKING_RATE).inr_per_min == SELF_SERVE_COST_FLOOR_INR_PER_MIN
     )
-    assert cost_floor_inr_per_min("sarvam") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("clear") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
     assert ASSUMED_SPEAKING_RATE.chars_per_call_minute == TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
 
 
@@ -170,7 +170,7 @@ def test_the_measured_floor_moves_by_exactly_the_tts_leg_and_nothing_else() -> N
         minimum_calls=TTS_SPEAKING_RATE_MIN_CALLS,
         window="2026-08..2026-09",
     )
-    floor = sarvam_cost_floor_at(measured)
+    floor = clear_cost_floor_at(measured)
     assert floor.refusal_inr_per_min == SELF_SERVE_COST_FLOOR_INR_PER_MIN
     # ₹3.7011 until D-592 put the engine leg on Pipecat's $0.01 active minute at ₹95/$; the
     # measured floor fell by exactly the ₹0.81 the engine leg fell by, which the delta
@@ -198,11 +198,11 @@ def test_a_fleet_that_talks_more_than_the_model_assumes_is_flagged_not_swallowed
         minimum_calls=TTS_SPEAKING_RATE_MIN_CALLS,
         window="2026-09",
     )
-    floor = sarvam_cost_floor_at(talkative)
+    floor = clear_cost_floor_at(talkative)
     assert floor.inr_per_min > floor.refusal_inr_per_min
     assert floor.above_refusal is True
     # And the veto itself has NOT moved: a card recordable this morning is recordable now.
-    assert cost_floor_inr_per_min("sarvam") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("clear") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
 
 
 # --- a figure below the bar may be shown and may not be called a measurement ----------
@@ -288,7 +288,7 @@ async def test_the_counter_pools_three_totals_and_publishes_only_above_the_bar()
     assert basis.measured is False
     assert basis.chars_per_call_minute == TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
     assert (basis.calls, basis.minimum_calls) == (19, TTS_SPEAKING_RATE_MIN_CALLS)
-    assert sarvam_cost_floor_at(basis).inr_per_min == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert clear_cost_floor_at(basis).inr_per_min == SELF_SERVE_COST_FLOOR_INR_PER_MIN
 
     async with untenanted_session() as session:
         # The twentieth call, and a longer one, so the pooled figure is not the same number
@@ -304,7 +304,7 @@ async def test_the_counter_pools_three_totals_and_publishes_only_above_the_bar()
     assert published.chars_per_call_minute == Decimal("314.2857")
     assert published.window == month
     # ...and the floor really moved, in the arithmetic the card is judged by.
-    assert sarvam_cost_floor_at(published).inr_per_min < SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert clear_cost_floor_at(published).inr_per_min < SELF_SERVE_COST_FLOOR_INR_PER_MIN
 
 
 async def test_a_call_with_no_seconds_is_not_a_sample() -> None:
@@ -481,7 +481,7 @@ async def test_a_metered_call_with_no_transcript_does_not_enter_the_sample() -> 
 
 
 def _measured_floor() -> object:
-    return sarvam_cost_floor_at(
+    return clear_cost_floor_at(
         SpeakingRateBasis(Decimal("400.0000"), True, 84, TTS_SPEAKING_RATE_MIN_CALLS, "2026-09")
     )
 
@@ -497,7 +497,7 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
     cells = config_routes._cells_out(
         PACK_CATALOGUE, measured_cost=Decimal("6.9011"), fx=fx, clear=clear
     )
-    sarvam = [cell for cell in cells if cell.voice_tier == "sarvam"]
+    sarvam = [cell for cell in cells if cell.voice_tier == "clear"]
     assert sarvam, "the card has a Clear column"
     for cell in sarvam:
         # The MEASURED floor, not the frozen one — and they differ, which is the whole point.
@@ -508,9 +508,7 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
     # counts of a month somebody ran beat any speaking rate, and re-deriving it from one
     # would put the unmeasured band back inside the measurement built to replace it.
     assert all(
-        cell.cost_inr_per_min_at_volume == "6.9011"
-        for cell in cells
-        if cell.voice_tier == "cartesia"
+        cell.cost_inr_per_min_at_volume == "6.9011" for cell in cells if cell.voice_tier == "studio"
     )
 
 
@@ -529,7 +527,7 @@ def test_the_console_block_carries_the_basis_the_sample_and_the_window() -> None
     assert published.refusal_floor_inr_per_min == str(SELF_SERVE_COST_FLOOR_INR_PER_MIN)
     assert published.floor_above_refusal is False
 
-    unmeasured = config_routes._speaking_rate_out(sarvam_cost_floor_at(ASSUMED_SPEAKING_RATE))
+    unmeasured = config_routes._speaking_rate_out(clear_cost_floor_at(ASSUMED_SPEAKING_RATE))
     assert unmeasured.measured is False
     assert unmeasured.window is None
     # No placeholder rate, and no rate PRETENDING to be measured: the assumption still in

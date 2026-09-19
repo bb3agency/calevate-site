@@ -87,7 +87,7 @@ def test_a_cartesia_id_outside_the_catalogue_still_bills_as_cartesia() -> None:
     """
     stranger = "sonic-3.5:a-voice-no-catalogue-here-has-ever-held"
     assert voices_module.get_voice(stranger) is None, "the premise: this id is not catalogued"
-    assert voice_tier(stranger) == "cartesia"
+    assert voice_tier(stranger) == "studio"
 
 
 def test_the_tier_survives_a_catalogue_that_holds_only_the_other_provider() -> None:
@@ -96,7 +96,7 @@ def test_the_tier_survives_a_catalogue_that_holds_only_the_other_provider() -> N
     install_voice_catalogue(
         catalogue_from_listing(EngineVoiceListing(voices=[_engine_voice()], complete=True))
     )
-    assert voice_tier("sonic-3.5:whatever") == "cartesia"
+    assert voice_tier("sonic-3.5:whatever") == "studio"
 
 
 # --- the translation ------------------------------------------------------------------

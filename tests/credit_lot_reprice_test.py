@@ -174,9 +174,9 @@ async def test_a_reprice_closes_the_lot_and_opens_its_replacement_at_the_new_rat
     assert closed["closed_at"] is not None
     assert closed["credits_remaining"] == Decimal("0.0000")
     growth = _pack("growth")
-    assert (closed["sarvam_inr_per_min"], closed["cartesia_inr_per_min"]) == (
-        growth.sarvam_inr_per_min,
-        growth.cartesia_inr_per_min,
+    assert (closed["clear_inr_per_min"], closed["studio_inr_per_min"]) == (
+        growth.clear_inr_per_min,
+        growth.studio_inr_per_min,
     )
     # The replacement carries the credit at the ₹50,000 pack's rates, under `override`,
     # naming the pack whose terms were borrowed — the field that answers "why is this
@@ -187,9 +187,9 @@ async def test_a_reprice_closes_the_lot_and_opens_its_replacement_at_the_new_rat
     assert replacement["pack_id"] is None, "the client did not buy that pack"
     assert replacement["override_of_pack_id"] == "max"
     deepest = _pack("max")
-    assert (replacement["sarvam_inr_per_min"], replacement["cartesia_inr_per_min"]) == (
-        deepest.sarvam_inr_per_min,
-        deepest.cartesia_inr_per_min,
+    assert (replacement["clear_inr_per_min"], replacement["studio_inr_per_min"]) == (
+        deepest.clear_inr_per_min,
+        deepest.studio_inr_per_min,
     )
     # NO MONEY MOVED, in either direction, and invariant §2.3.1 still holds.
     assert await _balance(tenant_id) == before
@@ -234,7 +234,7 @@ async def test_the_next_call_is_charged_at_the_replacements_rate() -> None:
     """
     token, tenant_id = await _admin(), await _tenant()
     growth, deepest = _pack("growth"), _pack("max")
-    assert deepest.cartesia_inr_per_min < growth.cartesia_inr_per_min, (
+    assert deepest.studio_inr_per_min < growth.studio_inr_per_min, (
         "the re-price must actually lower this tier, or this test proves nothing"
     )
     async with _client() as http:
@@ -251,11 +251,11 @@ async def test_the_next_call_is_charged_at_the_replacements_rate() -> None:
             call_id=uuid.uuid4(),
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="cartesia",
+                voice_tier="studio",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
             ),
         )
-    assert charged == Decimal("10") * deepest.cartesia_inr_per_min, (
+    assert charged == Decimal("10") * deepest.studio_inr_per_min, (
         "ten minutes at the ₹50,000 pack's Studio rate, not at the rung it was bought on"
     )
 
@@ -349,8 +349,8 @@ async def test_a_lot_whose_credit_is_all_spent_is_refused_with_a_sentence() -> N
                     # THE WHOLE LOT, derived: ₹6,000 divided by the rung's own Clear rate.
                     # A typed 1,200 minutes was ₹6,000 at ₹5.00 and is ₹4,800 at ₹4.00,
                     # which leaves the lot open and the refusal untested.
-                    minutes=Decimal("6000") / _pack("growth").sarvam_inr_per_min,
-                    voice_tier="sarvam",
+                    minutes=Decimal("6000") / _pack("growth").clear_inr_per_min,
+                    voice_tier="clear",
                     fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
                 ),
             )
@@ -425,8 +425,8 @@ async def test_the_marker_moves_no_money_and_says_where_the_lot_came_from() -> N
     assert meta["reason"] == "founding client, agreed in week three"
     # Rates as STRINGS on both sides of the change (hard rule 7), written out rather than
     # left to be looked up from today's card: the card moves and this decision does not.
-    assert meta["previous_sarvam_inr_per_min"] == f"{_pack('growth').sarvam_inr_per_min:.4f}"
-    assert meta["sarvam_inr_per_min"] == str(_pack("max").sarvam_inr_per_min)
+    assert meta["previous_clear_inr_per_min"] == f"{_pack('growth').clear_inr_per_min:.4f}"
+    assert meta["clear_inr_per_min"] == str(_pack("max").clear_inr_per_min)
     assert meta["rates_of_pack_id"] == "max"
 
 
@@ -578,7 +578,7 @@ async def test_a_reprice_that_would_make_a_minute_dearer_is_refused_naming_both_
     assert body["type"].endswith("/lot_reprice_raises_rate"), answer.text
     # BOTH figures, in the operator's own vocabulary, so the refusal can be acted on
     # without opening the rate card in another tab.
-    was, now = _pack("growth").cartesia_inr_per_min, _pack("starter").cartesia_inr_per_min
+    was, now = _pack("growth").studio_inr_per_min, _pack("starter").studio_inr_per_min
     assert now > was, "this test needs a pack that raises the Studio rate"
     assert (
         f"Studio ₹{rate_to_display(was)} to ₹{rate_to_display(now)} a minute." in (body["detail"])
@@ -589,7 +589,7 @@ async def test_a_reprice_that_would_make_a_minute_dearer_is_refused_naming_both_
     # NOTHING MOVED: no replacement lot, no marker row, no money.
     rows = await lot_rows(tenant_id)
     assert len(rows) == 1 and rows[0]["closed_at"] is None
-    assert rows[0]["cartesia_inr_per_min"] == _pack("growth").cartesia_inr_per_min
+    assert rows[0]["studio_inr_per_min"] == _pack("growth").studio_inr_per_min
     assert await _balance(tenant_id) == before
     async with tenant_session(tenant_id) as session:
         marker = (
@@ -616,8 +616,8 @@ async def test_a_reprice_that_raises_both_tiers_names_both_of_them() -> None:
     contrivance.
     """
     token, tenant_id = await _admin(), await _tenant()
-    cheapest_clear = min(pack.sarvam_inr_per_min for pack in PACK_CATALOGUE)
-    cheapest_studio = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
+    cheapest_clear = min(pack.clear_inr_per_min for pack in PACK_CATALOGUE)
+    cheapest_studio = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
     bespoke = (cheapest_clear - Decimal("0.10"), cheapest_studio - Decimal("0.10"))
     lot_id = await add_lot(
         tenant_id,
@@ -628,7 +628,7 @@ async def test_a_reprice_that_raises_both_tiers_names_both_of_them() -> None:
         override_of_pack_id="max",
     )
     target = _pack("growth")
-    assert target.sarvam_inr_per_min > bespoke[0] and target.cartesia_inr_per_min > bespoke[1]
+    assert target.clear_inr_per_min > bespoke[0] and target.studio_inr_per_min > bespoke[1]
     async with _client() as http:
         answer = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override",
@@ -638,10 +638,10 @@ async def test_a_reprice_that_raises_both_tiers_names_both_of_them() -> None:
     assert answer.status_code == 422, answer.text
     assert answer.json()["type"].endswith("/lot_reprice_raises_rate"), answer.text
     detail = answer.json()["detail"]
-    clear = f"Clear ₹{rate_to_display(bespoke[0])} to ₹{rate_to_display(target.sarvam_inr_per_min)}"
+    clear = f"Clear ₹{rate_to_display(bespoke[0])} to ₹{rate_to_display(target.clear_inr_per_min)}"
     studio = (
         f"Studio ₹{rate_to_display(bespoke[1])} to "
-        f"₹{rate_to_display(target.cartesia_inr_per_min)} a minute."
+        f"₹{rate_to_display(target.studio_inr_per_min)} a minute."
     )
     assert clear in detail, detail
     assert studio in detail, detail

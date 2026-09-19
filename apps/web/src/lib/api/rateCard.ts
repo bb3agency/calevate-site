@@ -30,8 +30,8 @@
  * (`VOICE_TIER_LABELS`), and a copy of them in TypeScript would be a second definition of a
  * name a client reads — the drift that ends with one buyer meeting both. So the label
  * crosses the wire beside the rate and `tierLabel` passes it through untouched. The wire
- * FIELD names still say `sarvam`/`cartesia`: those mean the vendor, they are the ledger's
- * vocabulary, and they are not shown to anybody.
+ * FIELD names say `clear`/`studio`: those are the ledger's vocabulary, and they are not
+ * shown to anybody — a screen prints the label the server sent, never the token.
  *
  * ## Server-side, at request time, through the generated client
  *
@@ -82,15 +82,19 @@ export type PublicRateCard = Schemas["CreditPacksOut"];
 export type RateCardPack = Schemas["CreditPackOut"];
 
 /**
- * The two voices a rate can be for, spelled the way the WIRE and the ledger spell them —
- * by vendor. A client never reads these strings: what they read is the card's
- * `*_tier_label`, which is a name the API chose (`billing/rates.VOICE_TIER_LABELS`) and
- * this module only ever passes through. The two vocabularies are deliberately different:
- * a vendor may be replaced under a voice quality without renaming anything a client has
- * seen, and a money column that said "Clear" instead of "sarvam" would stop being
- * auditable the day the vendor behind it changed.
+ * The two rungs a rate can be for, spelled the way the WIRE and the ledger spell them. A
+ * client never reads these strings: what they read is the card's `*_tier_label`, which is
+ * a name the API chose (`billing/rates.VOICE_TIER_LABELS`) and this module only ever
+ * passes through.
+ *
+ * ⚠ **THEY WERE `"sarvam" | "cartesia"` UNTIL 19 SEP 2026, AND THE ARGUMENT FOR THAT WAS
+ * THAT A VENDOR MAY BE REPLACED UNDER A RUNG WITHOUT RENAMING WHAT A CLIENT SEES.** That
+ * is true and is exactly what happened on 18 Sep 2026, when Sarvam stopped speaking on
+ * this product — which left a money column named after a vendor that no longer served it.
+ * Naming the rungs after the rungs keeps the property the old argument wanted and drops
+ * the part that aged.
  */
-export type VoiceTier = "sarvam" | "cartesia";
+export type VoiceTier = "clear" | "studio";
 
 /**
  * Both voices, in the order the card leads with them (the cheaper first).
@@ -101,21 +105,21 @@ export type VoiceTier = "sarvam" | "cartesia";
  * Tailwind scans source text and cannot generate a class it has not read, and a third
  * voice arriving would otherwise be priced in the document with no way to select it.
  */
-export const VOICE_TIERS = ["sarvam", "cartesia"] as const satisfies readonly VoiceTier[];
+export const VOICE_TIERS = ["clear", "studio"] as const satisfies readonly VoiceTier[];
 
 /** One pack's ₹/min on one voice, as the 4dp string the API sent. THE ONE DOOR. */
 export function packRate(pack: RateCardPack, voice: VoiceTier): string {
-  return voice === "sarvam" ? pack.sarvam_inr_per_min : pack.cartesia_inr_per_min;
+  return voice === "clear" ? pack.clear_inr_per_min : pack.studio_inr_per_min;
 }
 
 /** Whole minutes one pack's credits buy on one voice, as the API floored them. */
 export function packMinutes(pack: RateCardPack, voice: VoiceTier): number {
-  return voice === "sarvam" ? pack.sarvam_minutes : pack.cartesia_minutes;
+  return voice === "clear" ? pack.clear_minutes : pack.studio_minutes;
 }
 
 /** The lowest ₹/min any pack delivers on one voice — the site's "from" figure. */
 export function cardFromRate(card: PublicRateCard, voice: VoiceTier): string {
-  return voice === "sarvam" ? card.from_sarvam_inr_per_min : card.from_cartesia_inr_per_min;
+  return voice === "clear" ? card.from_clear_inr_per_min : card.from_studio_inr_per_min;
 }
 
 /**
@@ -148,7 +152,7 @@ export function ladderFalls(card: PublicRateCard, voice: VoiceTier): boolean {
  * a name is how a client comes to meet both of them (founder, 7 Sep 2026).
  */
 export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
-  return voice === "sarvam" ? card.sarvam_tier_label : card.cartesia_tier_label;
+  return voice === "clear" ? card.clear_tier_label : card.studio_tier_label;
 }
 
 /**
@@ -177,7 +181,7 @@ export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
  * sites are deleted together — that is the whole change, and it is why the notice is one
  * export rather than three sentences.
  */
-export const UNPRICED_TIER: VoiceTier = "sarvam";
+export const UNPRICED_TIER: VoiceTier = "clear";
 
 /** The sentence itself. Rendered verbatim; never reworded at a call site. */
 export const UNPRICED_TIER_NOTICE =
@@ -267,10 +271,10 @@ export function isRateCard(body: unknown): body is PublicRateCard {
   // missing one is a heading with `undefined` in it, and a blank label is a voice with no
   // name beside its price. Checked before the rows because a card that cannot introduce
   // its columns cannot honestly print them.
-  for (const field of ["from_sarvam_inr_per_min", "from_cartesia_inr_per_min"] as const) {
+  for (const field of ["from_clear_inr_per_min", "from_studio_inr_per_min"] as const) {
     if (typeof card[field] !== "string" || !MONEY_STRING.test(card[field] as string)) return false;
   }
-  for (const field of ["sarvam_tier_label", "cartesia_tier_label"] as const) {
+  for (const field of ["clear_tier_label", "studio_tier_label"] as const) {
     const label = card[field];
     if (typeof label !== "string" || label.trim() === "") return false;
   }
@@ -290,10 +294,10 @@ export function isRateCard(body: unknown): body is PublicRateCard {
       // any more: nothing on this site reads them, they leave the wire next release
       // (plan §10), and a guard that refuses a card for a field nobody renders would take
       // the pricing page down on the release that removes them.
-      money(row.sarvam_inr_per_min) &&
-      money(row.cartesia_inr_per_min) &&
-      wholeMinutes(row.sarvam_minutes) &&
-      wholeMinutes(row.cartesia_minutes) &&
+      money(row.clear_inr_per_min) &&
+      money(row.studio_inr_per_min) &&
+      wholeMinutes(row.clear_minutes) &&
+      wholeMinutes(row.studio_minutes) &&
       typeof row.best_value === "boolean"
     );
   });

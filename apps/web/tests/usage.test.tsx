@@ -75,12 +75,12 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     // The two voice qualities, always both, always named by the SERVER (D-547). They are
     // required on the wire rather than optional because a panel that can omit a quality
     // is a panel that can silently bill one and show the other.
-    sarvam_minutes: "120.50",
-    sarvam_charges_inr: "602.50",
-    sarvam_label: "Clear",
-    cartesia_minutes: "0.00",
-    cartesia_charges_inr: "0.00",
-    cartesia_label: "Studio",
+    clear_minutes: "120.50",
+    clear_charges_inr: "602.50",
+    clear_label: "Clear",
+    studio_minutes: "0.00",
+    studio_charges_inr: "0.00",
+    studio_label: "Studio",
     included_minutes: 500,
     minutes_used: "120.50",
     credit_balance_inr: null,

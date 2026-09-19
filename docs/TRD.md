@@ -1218,12 +1218,13 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
 
-Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · **TTS UNKNOWN on the Clear
-voice (Gnani Timbre v2.5 since D-629 — the vendor publishes no price of any kind, so this
-leg has no figure at all and no minute may be billed against it; this clause carried the
-Sarvam Bulbul v3 band until 18 Sep 2026, when Sarvam left the synthesis leg, and the band
-is struck out rather than re-stated here because a summary quoting a rate no rung charges
-is exactly what §10.1 is the card for) or 2.06–3.09 on the Cartesia voice (Sonic 3.5 — a
+Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · **TTS 0.97–1.46 on the Clear
+voice (Gnani Timbre v2.5 since D-629, at the vendor's published per-character rate, `₹27.00 / 10,000 chars` —
+⚠ this clause said the leg had "no figure at all" for one day, because a previous session
+had not found Gnani's pricing page and recorded the not-finding as a vendor fact; it also
+carried the Sarvam Bulbul v3 band until 18 Sep 2026, when Sarvam left the synthesis leg.
+A published rate is not a billable one: no Gnani minute may be metered until an operator
+attests an invoice figure, hard rule 7) or 2.06–3.09 on the Cartesia voice (Sonic 3.5 — a
 MONTHLY PLAN whose MARGINAL per-character rate past the included allotment is what this
 band is struck at, `billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, priced per
 call-minute by `billing/rates.py::cartesia_tts_inr_per_call_minute` and all-in by
@@ -1517,7 +1518,7 @@ published as exposure rather than multiplied into a floor.
 | Leg | Rate | Per call-minute |
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
-| TTS — Gnani **Timbre v2.5** *(the Clear voice tier since D-629, 18 Sep 2026. Gnani publish NO price — no per-character rate, no per-second rate, no currency, no free tier — and the only figure in this tree is a RESELLER's for their own platform (`docs/PIPECAT-MIGRATION.md` §7), which hard rule 7 and hard rule 11 both keep out of every surface. The rung's COST FLOOR is still struck at `billing/rates.py::TTS_INR_PER_10K_CHARS`, now FROZEN and labelled as the last figure anybody read for a value-rung voice — a withdrawn vendor's ₹30 / 10,000 chars, VENDOR-PUBLISHED, HISTORICAL. That is honest as a floor precisely because **nothing may be sold against it**: no Gnani voice is offerable until an operator attests a real invoice figure, at which point the floor is re-struck from it and that constant retires)* | **none published** | **no rate a client pays; floor only** |
+| TTS — Gnani **Timbre v2.5** *(the Clear voice tier since D-629, 18 Sep 2026. ⚠ **THIS ROW READ "none published" AND ASSERTED THAT GNANI PUBLISH NO PRICE OF ANY KIND UNTIL 19 Sep 2026** — a previous session did not find the page and wrote the not-finding down as a vendor fact, which is the failure hard rule 11 exists for. Gnani's own console states ₹27.00 / 10,000 characters for Text to Speech, with a 60 requests/minute limit (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed; the host is not reachable from the build container, so this is a founder-relayed reading of a primary source). The rung's COST FLOOR is struck at it, `billing/rates.py::TTS_INR_PER_10K_CHARS`, replacing a withdrawn vendor's ₹30 that had been frozen as a placeholder. ⚠ **A PUBLISHED PRICE IS NOT A BILLABLE ONE**: hard rule 7 admits an operator's attested invoice figure, and a catalogue price is `verified=False` for the same reason the Gemini one is — so no Gnani voice is offerable yet and no minute is billed at this rate)* | ₹27.00 / 10,000 chars | **₹0.97–1.46** |
 | TTS — Cartesia **Sonic 3.5** *(the second voice tier; the vendor's **Pro overage rate**, VENDOR-PUBLISHED — see the card above. ⚠ This row read ₹3.4496 / 1,000 chars and ₹1.24–1.86 until 9 Sep 2026, from the retired fee-over-allotment average on a plan we are not on)* | ₹5.7200 / 1,000 chars | **₹2.06–3.09** |
 | LLM — `gpt-4o-mini` on Azure OpenAI `eastus2` *(D-410's default and still the **base-rate** model `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against — no longer the platform default; region per D-449)* | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |

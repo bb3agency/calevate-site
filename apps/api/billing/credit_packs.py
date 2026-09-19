@@ -16,7 +16,7 @@ which bonus credits sitting in one undifferentiated balance never could.
 
 THE MODEL, in one paragraph
 ---------------------------
-Every pack carries `sarvam_inr_per_min` and `cartesia_inr_per_min`. Which one prices a call
+Every pack carries `clear_inr_per_min` and `studio_inr_per_min`. Which one prices a call
 is a property of the AGENT that took it — its voice tier, derived from the voice's provider
 (`rates.VoiceTier`, plan §2.3.7) — never of the wallet. So the same 15,000 credits buy
 3,750 minutes on a Sarvam agent and 2,459 on a Cartesia one, and the wallet screen quotes
@@ -74,7 +74,9 @@ from typing import Final
 from apps.api.billing.rates import (
     MIN_GROSS_MARGIN,
     MONEY_Q,
+    PREMIUM_VOICE_TIER,
     ROUNDING,
+    VALUE_VOICE_TIER,
     VOICE_TIERS,
     RateMargin,
     VoiceTier,
@@ -127,10 +129,10 @@ class CreditPack:
     #: What the client pays, in rupees. Equal to the credits granted (1 credit = ₹1).
     amount_inr: Decimal
     #: ₹/min for a call taken by an agent on the Sarvam (Bulbul v3) voice.
-    sarvam_inr_per_min: Decimal
+    clear_inr_per_min: Decimal
     #: ₹/min for a call taken by an agent on the Cartesia (Sonic 3.5) voice. Never below
     #: the Sarvam rate — invariant 6, checked by `card_refusals`.
-    cartesia_inr_per_min: Decimal
+    studio_inr_per_min: Decimal
     #: The single "best value" badge (the deepest pack). Exactly one pack carries it; pinned
     #: by `tests/credit_packs_test.py`.
     best_value: bool = False
@@ -148,10 +150,10 @@ class CreditPack:
         defaulted to the cheaper column would undercharge for a Cartesia minute silently,
         which is the one direction this rate must never fail in.
         """
-        if voice == "sarvam":
-            return self.sarvam_inr_per_min
-        if voice == "cartesia":
-            return self.cartesia_inr_per_min
+        if voice == VALUE_VOICE_TIER:
+            return self.clear_inr_per_min
+        if voice == PREMIUM_VOICE_TIER:
+            return self.studio_inr_per_min
         raise ValueError(f"{voice!r} is not a voice tier this card prices")
 
     @property
@@ -209,38 +211,38 @@ PACK_CATALOGUE: Final[tuple[CreditPack, ...]] = (
     CreditPack(
         pack_id="starter",
         amount_inr=Decimal("2000"),
-        sarvam_inr_per_min=Decimal("4.00"),
-        cartesia_inr_per_min=Decimal("7.00"),
+        clear_inr_per_min=Decimal("4.00"),
+        studio_inr_per_min=Decimal("7.00"),
     ),
     CreditPack(
         pack_id="growth",
         amount_inr=Decimal("5000"),
-        sarvam_inr_per_min=Decimal("4.00"),
-        cartesia_inr_per_min=Decimal("6.70"),
+        clear_inr_per_min=Decimal("4.00"),
+        studio_inr_per_min=Decimal("6.70"),
     ),
     CreditPack(
         pack_id="scale",
         amount_inr=Decimal("10000"),
-        sarvam_inr_per_min=Decimal("4.00"),
-        cartesia_inr_per_min=Decimal("6.40"),
+        clear_inr_per_min=Decimal("4.00"),
+        studio_inr_per_min=Decimal("6.40"),
     ),
     CreditPack(
         pack_id="plus",
         amount_inr=Decimal("15000"),
-        sarvam_inr_per_min=Decimal("4.00"),
-        cartesia_inr_per_min=Decimal("6.10"),
+        clear_inr_per_min=Decimal("4.00"),
+        studio_inr_per_min=Decimal("6.10"),
     ),
     CreditPack(
         pack_id="pro",
         amount_inr=Decimal("25000"),
-        sarvam_inr_per_min=Decimal("4.00"),
-        cartesia_inr_per_min=Decimal("5.80"),
+        clear_inr_per_min=Decimal("4.00"),
+        studio_inr_per_min=Decimal("5.80"),
     ),
     CreditPack(
         pack_id="max",
         amount_inr=Decimal("50000"),
-        sarvam_inr_per_min=Decimal("4.00"),
-        cartesia_inr_per_min=Decimal("5.50"),
+        clear_inr_per_min=Decimal("4.00"),
+        studio_inr_per_min=Decimal("5.50"),
         best_value=True,
     ),
 )
@@ -315,11 +317,11 @@ def card_refusals(card: tuple[CreditPack, ...] = PACK_CATALOGUE) -> list[str]:
         if verdict.below_cost
     ]
     failures += [
-        f"pack {pack.pack_id!r} prices Cartesia at ₹{pack.cartesia_inr_per_min} and Sarvam "
-        f"at ₹{pack.sarvam_inr_per_min}: the dearer voice may not be the cheaper rate "
+        f"pack {pack.pack_id!r} prices Cartesia at ₹{pack.studio_inr_per_min} and Sarvam "
+        f"at ₹{pack.clear_inr_per_min}: the dearer voice may not be the cheaper rate "
         "(invariant 6)"
         for pack in card
-        if pack.cartesia_inr_per_min < pack.sarvam_inr_per_min
+        if pack.studio_inr_per_min < pack.clear_inr_per_min
     ]
     ordered = sorted(card, key=lambda pack: pack.amount_inr)
     failures += [

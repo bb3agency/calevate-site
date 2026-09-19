@@ -120,8 +120,8 @@ async def test_the_card_resolves_to_the_greatest_effective_from_at_or_before_the
         CreditPack(
             pack_id=pack.pack_id,
             amount_inr=pack.amount_inr,
-            sarvam_inr_per_min=pack.sarvam_inr_per_min - Decimal("0.25"),
-            cartesia_inr_per_min=pack.cartesia_inr_per_min - Decimal("0.25"),
+            clear_inr_per_min=pack.clear_inr_per_min - Decimal("0.25"),
+            studio_inr_per_min=pack.studio_inr_per_min - Decimal("0.25"),
         )
         for pack in PACK_CATALOGUE
     )
@@ -149,10 +149,10 @@ async def test_the_card_resolves_to_the_greatest_effective_from_at_or_before_the
     # moves must not turn a resolution test red.
     plus = next(pack for pack in PACK_CATALOGUE if pack.pack_id == "plus")
     cut = Decimal("0.25")
-    assert before["plus"]["sarvam"] == plus.sarvam_inr_per_min
-    assert before["plus"]["cartesia"] == plus.cartesia_inr_per_min
-    assert after["plus"]["sarvam"] == plus.sarvam_inr_per_min - cut
-    assert after["plus"]["cartesia"] == plus.cartesia_inr_per_min - cut
+    assert before["plus"]["sarvam"] == plus.clear_inr_per_min
+    assert before["plus"]["cartesia"] == plus.studio_inr_per_min
+    assert after["plus"]["sarvam"] == plus.clear_inr_per_min - cut
+    assert after["plus"]["cartesia"] == plus.studio_inr_per_min - cut
 
 
 async def test_an_instant_before_any_card_falls_back_to_the_static_catalogue() -> None:
@@ -215,7 +215,7 @@ async def test_a_key_this_build_cannot_interpret_is_skipped_not_fatal() -> None:
     # the catalogue's — the point being that the four junk keys changed nothing, not that
     # `plus` costs any particular figure.
     plus = next(pack for pack in PACK_CATALOGUE if pack.pack_id == "plus")
-    assert card["plus"]["cartesia"] == plus.cartesia_inr_per_min
+    assert card["plus"]["cartesia"] == plus.studio_inr_per_min
 
 
 async def test_a_card_is_resolved_at_an_aware_instant_only() -> None:

@@ -747,10 +747,10 @@ function matchSentence(
   labels: TierLabels | undefined,
 ): string {
   const amount = formatINR(match.pack.amount_inr);
-  const dear = formatCount(packMinutes(match.pack, "cartesia"));
-  const cheap = formatCount(packMinutes(match.pack, "sarvam"));
+  const dear = formatCount(packMinutes(match.pack, "studio"));
+  const cheap = formatCount(packMinutes(match.pack, "clear"));
   const spread = labels
-    ? ` — about ${dear} minutes on ${labels.cartesia} and ${cheap} on ${labels.sarvam}`
+    ? ` — about ${dear} minutes on ${labels.studio} and ${cheap} on ${labels.clear}`
     : "";
   if (match.short) {
     return `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount}${spread} — add credit more than once, or talk to us about a monthly invoiced plan.`;
@@ -781,10 +781,10 @@ function suggestPack(
   minutes: number,
 ): { pack: CreditPack; short: boolean } | null {
   const ascending = [...packs].sort(
-    (a, b) => packMinutes(a, "cartesia") - packMinutes(b, "cartesia"),
+    (a, b) => packMinutes(a, "studio") - packMinutes(b, "studio"),
   );
   const largest = ascending[ascending.length - 1];
   if (largest === undefined) return null;
-  const covering = ascending.find((pack) => packMinutes(pack, "cartesia") >= minutes);
+  const covering = ascending.find((pack) => packMinutes(pack, "studio") >= minutes);
   return covering ? { pack: covering, short: false } : { pack: largest, short: true };
 }

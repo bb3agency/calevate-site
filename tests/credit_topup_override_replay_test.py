@@ -113,7 +113,7 @@ async def _two_packs(http: AsyncClient, token: str, tenant_id: uuid.UUID) -> tup
     packs = (
         await http.get(f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token))
     ).json()["override_packs"]
-    ordered = sorted(packs, key=lambda pack: Decimal(pack["sarvam_inr_per_min"]))
+    ordered = sorted(packs, key=lambda pack: Decimal(pack["clear_inr_per_min"]))
     assert len(ordered) >= 2, "the card must offer at least two rungs to borrow from"
     return str(ordered[0]["pack_id"]), str(ordered[-1]["pack_id"])
 
@@ -134,7 +134,7 @@ async def _lot_terms(tenant_id: uuid.UUID, entry_id: str) -> dict[str, Any] | No
         row = (
             await session.execute(
                 text(
-                    "SELECT override_of_pack_id, sarvam_inr_per_min, cartesia_inr_per_min "
+                    "SELECT override_of_pack_id, clear_inr_per_min, studio_inr_per_min "
                     "FROM credit_lots WHERE ledger_entry_id = :eid"
                 ),
                 {"eid": entry_id},
@@ -144,8 +144,8 @@ async def _lot_terms(tenant_id: uuid.UUID, entry_id: str) -> dict[str, Any] | No
         return None
     return {
         "override_of_pack_id": row[0],
-        "sarvam_inr_per_min": Decimal(str(row[1])),
-        "cartesia_inr_per_min": Decimal(str(row[2])),
+        "clear_inr_per_min": Decimal(str(row[1])),
+        "studio_inr_per_min": Decimal(str(row[2])),
     }
 
 
@@ -258,7 +258,7 @@ async def test_replaying_an_override_at_a_different_pack_is_refused_with_the_pac
     terms = await _lot_terms(tenant_id, first.json()["entry_id"])
     assert terms is not None
     assert terms["override_of_pack_id"] == cheap, "the frozen terms are still the frozen terms"
-    assert Decimal(first.json()["lot"]["sarvam_inr_per_min"]) == terms["sarvam_inr_per_min"]
+    assert Decimal(first.json()["lot"]["clear_inr_per_min"]) == terms["clear_inr_per_min"]
 
 
 # --- 4: the entry that opened no lot ---------------------------------------------------
@@ -289,7 +289,7 @@ async def test_an_override_replayed_onto_a_payment_that_opened_no_lot_names_the_
             ref="call:overdraft-1",
             demand=CallDemand(
                 minutes=Decimal("100"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
             ),
             allow_negative=True,
@@ -423,7 +423,7 @@ async def test_a_part_payment_against_arrears_is_recorded_rather_than_refused() 
             ref="call:arrears-1",
             demand=CallDemand(
                 minutes=Decimal("100"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
             ),
             allow_negative=True,

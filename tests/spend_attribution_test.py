@@ -456,7 +456,7 @@ async def test_a_prepaid_call_is_charged_what_actually_left_the_wallet() -> None
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("12"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -939,7 +939,7 @@ async def test_a_prepaid_months_items_and_its_total_are_the_same_rupees() -> Non
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("8"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )

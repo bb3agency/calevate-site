@@ -349,7 +349,7 @@ function rateFor(
   // typed — the card is ascending by amount, which `tests/public_rate_card_test.py` pins.
   const entry = card.packs[0];
   const rate =
-    voice === "sarvam" || entry === undefined
+    voice === "clear" || entry === undefined
       ? card.list_rate_inr_per_min
       : packRate(entry, voice);
   return { rate, pack: undefined };
@@ -465,7 +465,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // same direction `rateFor`'s own warning above is about. So it opens on the voice an
   // agent can be put on, and the cheaper one keeps its rate, its radio and the notice
   // saying why it cannot be chosen. Flip this back the day the Gnani price is attested.
-  const [voice, setVoice] = useState<VoiceTier>("cartesia");
+  const [voice, setVoice] = useState<VoiceTier>("studio");
   const { rate: selectedRate, pack: selectedPack } = rateFor(card, voice, rateChoice);
   const calevatePaisePerMin = ratePaisePerMin(selectedRate);
   const cheapest = cheapestPack(card, voice);
@@ -698,7 +698,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                  and until D-629 it was the cheapest on the card — which is now a rung
                  nobody can choose. A legend leading with it would advertise a price no
                  agent can be run at. */
-              legend={`Which voice your agents use — priced from ${formatRateINR(cardFromRate(card, "cartesia"))}/min`}
+              legend={`Which voice your agents use — priced from ${formatRateINR(cardFromRate(card, "studio"))}/min`}
               options={voiceOptions(card)}
               value={voice}
               onChange={setVoice}
@@ -1131,22 +1131,22 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                     its figure would have explained a sum with a rate the sum did not use.
                     The order is now: the voice this opened on, then the other one with why
                     it is not selectable. */}
-                {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min is our
-                published self-serve list rate on the {tierLabel(card, "cartesia")} voice,
+                {formatRateINR(rateFor(card, "studio", LIST_RATE).rate)}/min is our
+                published self-serve list rate on the {tierLabel(card, "studio")} voice,
                 read from our own rate card when this page loaded
                 {/* The pack clause is CONDITIONAL for the same reason the voice captions'
                     is: on a flat column "a prepaid pack brings it down to ₹4.00/min"
                     quotes the list rate straight back as a discount. */}
-                {ladderFalls(card, "cartesia") && (
+                {ladderFalls(card, "studio") && (
                   <>
                     ; a prepaid pack brings it down to{" "}
-                    {formatRateINR(cardFromRate(card, "cartesia"))}/min
+                    {formatRateINR(cardFromRate(card, "studio"))}/min
                   </>
                 )}
-                . The {tierLabel(card, "sarvam")} voice is{" "}
+                . The {tierLabel(card, "clear")} voice is{" "}
                 {formatRateINR(card.list_rate_inr_per_min)}/min on the same card and cannot
                 be chosen at the moment, for the reason printed beside it above — which is
-                why the comparison opens on the {tierLabel(card, "cartesia")} voice, and at
+                why the comparison opens on the {tierLabel(card, "studio")} voice, and at
                 the list rate rather than at the cheapest pack, on purpose.
               </li>
               <li>

@@ -286,8 +286,8 @@ describe("the pricing page", () => {
     const fromCard = new Set(
       [
         RATE_CARD.list_rate_inr_per_min,
-        RATE_CARD.from_sarvam_inr_per_min,
-        RATE_CARD.from_cartesia_inr_per_min,
+        RATE_CARD.from_clear_inr_per_min,
+        RATE_CARD.from_studio_inr_per_min,
         ...RATE_CARD.packs.flatMap((pack) =>
           VOICE_TIERS.map((voice) => packRate(pack, voice)),
         ),
@@ -326,10 +326,10 @@ describe("the pricing page", () => {
     // The two headline figures are the card's own per-voice "from" rates, rounded to the
     // paisa by the page.
     expect(text).toContain(
-      formatRateForTest(RATE_CARD.from_sarvam_inr_per_min),
+      formatRateForTest(RATE_CARD.from_clear_inr_per_min),
     );
     expect(text).toContain(
-      formatRateForTest(RATE_CARD.from_cartesia_inr_per_min),
+      formatRateForTest(RATE_CARD.from_studio_inr_per_min),
     );
     expect(text).toContain(formatRateForTest(RATE_CARD.list_rate_inr_per_min));
     // Every rung, priced ON BOTH VOICES. A ladder that silently rendered five of six, or a
@@ -375,8 +375,8 @@ describe("the pricing page", () => {
     stubApi({
       "/v1/public/rate-card": {
         ...RATE_CARD,
-        sarvam_tier_label: "Everyday",
-        cartesia_tier_label: "Concert",
+        clear_tier_label: "Everyday",
+        studio_tier_label: "Concert",
       },
     });
     const { container } = render(await PricingPage());
@@ -408,7 +408,7 @@ describe("the pricing page", () => {
     expect(text).not.toMatch(/\bClear\b|\bStudio\b/);
     // And no vendor's name anywhere on the page — the failure this rule exists for is a
     // tier called "Sarvam" or "Cartesia" in copy somebody wrote from the field names.
-    expect(text).not.toMatch(/sarvam|cartesia|bulbul|sonic/i);
+    expect(text).not.toMatch(/clear|studio|bulbul|sonic/i);
   });
 
   it("shows no price at all when the rate card cannot be loaded", async () => {
@@ -430,8 +430,8 @@ describe("the pricing page", () => {
     // "could not be loaded" branch it takes for an unreachable API, which is the only
     // honest answer to "we cannot tell you what this rate is for".
     const unnamed: Record<string, unknown> = { ...RATE_CARD };
-    delete unnamed.sarvam_tier_label;
-    delete unnamed.cartesia_tier_label;
+    delete unnamed.clear_tier_label;
+    delete unnamed.studio_tier_label;
     stubApi({ "/v1/public/rate-card": unnamed });
     const { container } = render(await PricingPage());
     const text = container.querySelector("#self-serve")?.textContent ?? "";
@@ -482,12 +482,12 @@ describe("the pricing page", () => {
     // still on the page, in the lede, with the sentence saying why it cannot be chosen.
     const dearestStudio = formatRateForTest(
       RATE_CARD.packs
-        .map((pack) => packRate(pack, "cartesia"))
+        .map((pack) => packRate(pack, "studio"))
         .reduce((a, b) => (Number(a) >= Number(b) ? a : b)),
     );
     const h1 = container.querySelector("h1")?.textContent ?? "";
     expect(h1).toContain(dearestStudio);
-    expect(h1).toContain(formatRateForTest(RATE_CARD.from_cartesia_inr_per_min));
+    expect(h1).toContain(formatRateForTest(RATE_CARD.from_studio_inr_per_min));
     // The heading that used to re-quote one end of it says no figure at all now.
     expect(prose).not.toMatch(/start today/i);
   });
@@ -527,8 +527,8 @@ describe("the pricing page", () => {
     stubApi({
       "/v1/public/rate-card": {
         ...RATE_CARD,
-        sarvam_tier_label: "Everyday",
-        cartesia_tier_label: "Concert",
+        clear_tier_label: "Everyday",
+        studio_tier_label: "Concert",
       },
     });
     const { container } = render(await PricingPage());
@@ -575,8 +575,8 @@ describe("the pricing page", () => {
       stubApi({
         "/v1/public/rate-card": {
           ...RATE_CARD,
-          sarvam_tier_label: "Everyday",
-          cartesia_tier_label: "Concert",
+          clear_tier_label: "Everyday",
+          studio_tier_label: "Concert",
         },
       });
       const { container } = render(await PricingPage());

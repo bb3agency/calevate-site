@@ -33,7 +33,7 @@ async def _spend(tenant_id, *, minutes: str) -> None:  # type: ignore[no-untyped
             tenant_id=tenant_id,
             demand=lots.CallDemand(
                 minutes=Decimal(minutes),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -63,7 +63,7 @@ async def test_a_downward_restatement_floors_at_zero_and_returns_the_shortfall()
     )
     assert row["closed_at"] is not None
     # The RATES are untouched in either direction — that is what stays frozen.
-    assert row["sarvam_inr_per_min"] == Decimal("5.0000")
+    assert row["clear_inr_per_min"] == Decimal("5.0000")
 
 
 async def test_a_downward_restatement_the_lot_can_absorb_leaves_no_shortfall() -> None:
@@ -172,8 +172,8 @@ async def test_a_lot_that_moved_under_the_correction_is_a_conflict_not_a_silent_
         override_of_pack_id=fresh[0].override_of_pack_id,
         credits_total=fresh[0].credits_total,
         credits_remaining=Decimal("999.0000"),  # someone spent ₹1 between read and write
-        sarvam_inr_per_min=fresh[0].sarvam_inr_per_min,
-        cartesia_inr_per_min=fresh[0].cartesia_inr_per_min,
+        clear_inr_per_min=fresh[0].clear_inr_per_min,
+        studio_inr_per_min=fresh[0].studio_inr_per_min,
         opened_at=fresh[0].opened_at,
         closed_at=fresh[0].closed_at,
     )

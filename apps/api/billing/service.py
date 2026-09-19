@@ -71,8 +71,10 @@ from apps.api.billing.plans import (
 from apps.api.billing.rates import (
     CLIENT_CHOSEN_LLM_SOURCES,
     MONEY_Q,
+    PREMIUM_VOICE_TIER,
     PREPAID_TIERS,
     ROUNDING,
+    VALUE_VOICE_TIER,
     VOICE_TIER_LABELS,
     VoiceTier,
     is_surchargeable_llm_model,
@@ -1014,8 +1016,8 @@ class LotRates:
     and `lots.open_lot` refuses the inversion a layer down (plan §2.3 invariant 6).
     """
 
-    sarvam_inr_per_min: Decimal
-    cartesia_inr_per_min: Decimal
+    clear_inr_per_min: Decimal
+    studio_inr_per_min: Decimal
 
     def rate_for(self, voice_tier: VoiceTier) -> Decimal:
         """What a minute of `voice_tier` costs at these rates.
@@ -1028,9 +1030,9 @@ class LotRates:
         at ₹8.00 and a cost floor of ₹4.36. A pair plus this accessor is what makes the
         two unable to come apart.
         """
-        if voice_tier == "sarvam":
-            return self.sarvam_inr_per_min
-        return self.cartesia_inr_per_min
+        if voice_tier == VALUE_VOICE_TIER:
+            return self.clear_inr_per_min
+        return self.studio_inr_per_min
 
 
 def _smallest_pack() -> CreditPack:
@@ -1070,7 +1072,10 @@ class RateCard:
     def of_pack(self, pack: CreditPack) -> LotRates:
         """One pack's rates as published at this card's instant."""
         cell = self.cells[pack.pack_id]
-        return LotRates(sarvam_inr_per_min=cell["sarvam"], cartesia_inr_per_min=cell["cartesia"])
+        return LotRates(
+            clear_inr_per_min=cell[VALUE_VOICE_TIER],
+            studio_inr_per_min=cell[PREMIUM_VOICE_TIER],
+        )
 
     def list_rates(self) -> LotRates:
         """THE LIST RATES: the smallest pack's, which is what the card's own floor is.
@@ -1185,8 +1190,8 @@ async def apply_credit_to_lots(
         session,
         tenant_id=tenant_id,
         credits_inr=remainder,
-        sarvam_inr_per_min=rates.sarvam_inr_per_min,
-        cartesia_inr_per_min=rates.cartesia_inr_per_min,
+        clear_inr_per_min=rates.clear_inr_per_min,
+        studio_inr_per_min=rates.studio_inr_per_min,
         source=source,
         pack_id=pack_id,
         ledger_entry_id=ledger_entry_id,
@@ -1519,8 +1524,8 @@ async def reprice_lot(
     # recorded in the ops console is what publishes it (`RateCard`).
     rates = (await rate_card_at(session, at=datetime.now(UTC))).of_pack(pack)
     previous = LotRates(
-        sarvam_inr_per_min=lot.sarvam_inr_per_min,
-        cartesia_inr_per_min=lot.cartesia_inr_per_min,
+        clear_inr_per_min=lot.clear_inr_per_min,
+        studio_inr_per_min=lot.studio_inr_per_min,
     )
     if rates == previous:
         # Refused rather than performed. It would be a valid close-and-replace producing
@@ -1529,8 +1534,8 @@ async def reprice_lot(
         raise ProblemError.business_rule(
             "lot_already_at_those_rates",
             (
-                f"That credit is already priced at ₹{rate_to_display(rates.sarvam_inr_per_min)} "
-                f"and ₹{rate_to_display(rates.cartesia_inr_per_min)} a minute."
+                f"That credit is already priced at ₹{rate_to_display(rates.clear_inr_per_min)} "
+                f"and ₹{rate_to_display(rates.studio_inr_per_min)} a minute."
             ),
             remediation="Choose a different pack, or a different lot.",
         )
@@ -1551,8 +1556,8 @@ async def reprice_lot(
     # BOTH tiers are checked and both are named — a pack that lowers Clear while raising
     # Studio is still a rate rise for every agent on the Studio voice.
     tiers: tuple[tuple[VoiceTier, Decimal, Decimal], ...] = (
-        ("sarvam", previous.sarvam_inr_per_min, rates.sarvam_inr_per_min),
-        ("cartesia", previous.cartesia_inr_per_min, rates.cartesia_inr_per_min),
+        (VALUE_VOICE_TIER, previous.clear_inr_per_min, rates.clear_inr_per_min),
+        (PREMIUM_VOICE_TIER, previous.studio_inr_per_min, rates.studio_inr_per_min),
     )
     raised = [
         f"{VOICE_TIER_LABELS[tier]} ₹{rate_to_display(was)} to ₹{rate_to_display(now)}"
@@ -1593,10 +1598,10 @@ async def reprice_lot(
             # reads.
             "previous_pack_id": lot.override_of_pack_id or lot.pack_id,
             "rates_of_pack_id": pack.pack_id,
-            "previous_sarvam_inr_per_min": str(previous.sarvam_inr_per_min),
-            "previous_cartesia_inr_per_min": str(previous.cartesia_inr_per_min),
-            "sarvam_inr_per_min": str(rates.sarvam_inr_per_min),
-            "cartesia_inr_per_min": str(rates.cartesia_inr_per_min),
+            "previous_clear_inr_per_min": str(previous.clear_inr_per_min),
+            "previous_studio_inr_per_min": str(previous.studio_inr_per_min),
+            "clear_inr_per_min": str(rates.clear_inr_per_min),
+            "studio_inr_per_min": str(rates.studio_inr_per_min),
             "credits_inr": str(lot.credits_remaining),
             **({"repriced_by": str(operator_id)} if operator_id else {}),
         },
@@ -1624,8 +1629,8 @@ async def reprice_lot(
         session,
         tenant_id=tenant_id,
         credits_inr=lot.credits_remaining,
-        sarvam_inr_per_min=rates.sarvam_inr_per_min,
-        cartesia_inr_per_min=rates.cartesia_inr_per_min,
+        clear_inr_per_min=rates.clear_inr_per_min,
+        studio_inr_per_min=rates.studio_inr_per_min,
         source="override",
         # NULL for the same reason the purchase-time override leaves it NULL: the client
         # did not buy this pack, they were given its terms, and stamping `pack_id` would
@@ -2936,12 +2941,12 @@ async def usage_summary(
         # tier (founder, 7 Sep 2026). The label is SENT rather than kept in the browser for
         # the reason every money figure here is: a second copy in TypeScript is how the two
         # drift and a client meets both names.
-        "sarvam_minutes": to_paise(voices["sarvam"].minutes),
-        "sarvam_charges_inr": to_paise(voices["sarvam"].charged_inr),
-        "sarvam_label": VOICE_TIER_LABELS["sarvam"],
-        "cartesia_minutes": to_paise(voices["cartesia"].minutes),
-        "cartesia_charges_inr": to_paise(voices["cartesia"].charged_inr),
-        "cartesia_label": VOICE_TIER_LABELS["cartesia"],
+        "clear_minutes": to_paise(voices[VALUE_VOICE_TIER].minutes),
+        "clear_charges_inr": to_paise(voices[VALUE_VOICE_TIER].charged_inr),
+        "clear_label": VOICE_TIER_LABELS[VALUE_VOICE_TIER],
+        "studio_minutes": to_paise(voices[PREMIUM_VOICE_TIER].minutes),
+        "studio_charges_inr": to_paise(voices[PREMIUM_VOICE_TIER].charged_inr),
+        "studio_label": VOICE_TIER_LABELS[PREMIUM_VOICE_TIER],
     }
 
 

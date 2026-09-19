@@ -1149,12 +1149,12 @@ def _by_provider_out(
 def _fleet_speaking_rate_out(fleet: tts_speaking_rate.FleetSpeakingRate) -> FleetSpeakingRateOut:
     """The counter as the cost model reads it: one basis, and the floor it produces.
 
-    The floor is `rates.sarvam_cost_floor_at`, the SAME function `SELF_SERVE_COST_FLOOR_INR_
+    The floor is `rates.clear_cost_floor_at`, the SAME function `SELF_SERVE_COST_FLOOR_INR_
     PER_MIN` is defined as over the assumed basis — so the measured figure and the frozen one
     cannot differ by arithmetic, only by basis, which is the whole claim this block makes.
     """
     basis = fleet.basis()
-    floor = rates.sarvam_cost_floor_at(basis)
+    floor = rates.clear_cost_floor_at(basis)
     return FleetSpeakingRateOut(
         measured=basis.measured,
         chars_per_minute=str(basis.chars_per_call_minute),

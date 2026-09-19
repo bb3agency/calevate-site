@@ -44,6 +44,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.voices import voice_tier_of_provider
 from apps.api.billing import spend_routes
 from apps.api.billing.plans import ist_month_window
 from apps.api.billing.rates import (
@@ -97,9 +98,18 @@ def _unique_month() -> str:
 
 
 def test_the_plan_billed_set_is_inside_the_voice_vocabulary() -> None:
-    """A fee can only be attested for a vendor the rest of the product knows about."""
+    """A fee can only be attested for a vendor the rest of the product knows about.
+
+    ⚠ **THE SECOND ASSERTION USED TO READ `set(VOICE_TIERS) >= PLAN_BILLED_TTS_PROVIDERS`
+    AND IT WAS COMPARING TWO DIFFERENT VOCABULARIES (19 Sep 2026).** It passed only because
+    `cartesia` was both a provider and a rung; the rungs are `clear`/`studio` now and the
+    sets are disjoint, so the old line asserts something that cannot be true. What it MEANT
+    is below: every plan-billed provider bills on a rung this product publishes — which is
+    the real property, and which is now derived through `voice_tier_of_provider` rather
+    than resting on two words happening to match.
+    """
     assert set(TTS_PROVIDERS) >= PLAN_BILLED_TTS_PROVIDERS
-    assert set(VOICE_TIERS) >= PLAN_BILLED_TTS_PROVIDERS
+    assert {voice_tier_of_provider(p) for p in PLAN_BILLED_TTS_PROVIDERS} <= set(VOICE_TIERS)
 
 
 def test_the_second_voice_vendor_is_not_plan_billed() -> None:

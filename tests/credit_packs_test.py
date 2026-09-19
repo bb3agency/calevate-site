@@ -79,8 +79,8 @@ def _pack(pack_id: str, amount: str, sarvam: str, cartesia: str) -> CreditPack:
     return CreditPack(
         pack_id=pack_id,
         amount_inr=Decimal(amount),
-        sarvam_inr_per_min=Decimal(sarvam),
-        cartesia_inr_per_min=Decimal(cartesia),
+        clear_inr_per_min=Decimal(sarvam),
+        studio_inr_per_min=Decimal(cartesia),
     )
 
 
@@ -122,7 +122,7 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
     17.2%, and Studio's `pro` and `max` at 18.8% and 14.4% — and none below cost. The
     assertions below do not depend on any of that, which is the point of deriving them.
     """
-    half_floor = (cost_floor_inr_per_min("sarvam") / 2).quantize(Decimal("0.01"))
+    half_floor = (cost_floor_inr_per_min("clear") / 2).quantize(Decimal("0.01"))
     below_cost = _pack("greedy", "50000", str(half_floor), "6.00")
     verdict = pack_rate_margin(below_cost, voice="sarvam")
     assert verdict.below_cost is True
@@ -131,7 +131,7 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
     # DERIVED for the same reason as the rate above: a literal ₹4.50 was thin against a
     # ₹4.1211 floor and earns 26% against ₹3.3111. Ten paisa over the floor is thin at any
     # floor — the property this half of the test is actually about.
-    thin_rate = (cost_floor_inr_per_min("sarvam") + Decimal("0.10")).quantize(Decimal("0.01"))
+    thin_rate = (cost_floor_inr_per_min("clear") + Decimal("0.10")).quantize(Decimal("0.01"))
     thin_pack = _pack("thin", "50000", str(thin_rate), "6.00")
     thin = pack_rate_margin(thin_pack, voice="sarvam")
     assert thin.below_cost is False
@@ -153,7 +153,7 @@ def test_invariant_6_cartesia_is_never_cheaper_than_sarvam() -> None:
     """Plan §2.3.6, first half. Cartesia costs us more per minute; a card that priced it
     lower would sell the dearer voice at the cheaper price on every call."""
     for pack in PACK_CATALOGUE:
-        assert pack.cartesia_inr_per_min >= pack.sarvam_inr_per_min, pack.pack_id
+        assert pack.studio_inr_per_min >= pack.clear_inr_per_min, pack.pack_id
     inverted = _pack("inverted", "2000", "8.00", "5.00")
     assert [f for f in card_refusals((inverted,)) if "invariant 6" in f]
 
@@ -178,8 +178,7 @@ def test_the_founder_approved_card_is_pinned() -> None:
     plus the deliberate choice of ROUND rungs over the competitor's ₹x,999 charm prices.
     """
     assert [
-        (p.pack_id, p.amount_inr, p.sarvam_inr_per_min, p.cartesia_inr_per_min)
-        for p in PACK_CATALOGUE
+        (p.pack_id, p.amount_inr, p.clear_inr_per_min, p.studio_inr_per_min) for p in PACK_CATALOGUE
     ] == APPROVED_CARD
     amounts = [p.amount_inr for p in PACK_CATALOGUE]
     assert amounts == sorted(amounts), "the ladder is read top to bottom; keep it ascending"
@@ -214,7 +213,7 @@ def test_the_legacy_list_rate_setting_still_equals_the_entry_rungs_clear_rate() 
     # what has to stay paired with the code catalogue is the figure a deployment falls back
     # to when nobody has set one. (`tests/platform_config_test.py` reads it the same way.)
     default = Settings.model_fields["self_serve_inr_per_min"].get_default(call_default_factory=True)
-    assert default == PACK_CATALOGUE[0].sarvam_inr_per_min
+    assert default == PACK_CATALOGUE[0].clear_inr_per_min
 
 
 def test_the_fifteen_thousand_rung_exists_between_ten_and_twenty_five() -> None:
@@ -307,8 +306,8 @@ def _legacy_bonus_pack(pack_id: str, amount: str, bonus_pct: str) -> CreditPack:
     return CreditPack(
         pack_id=pack_id,
         amount_inr=Decimal(amount),
-        sarvam_inr_per_min=Decimal("5.00"),
-        cartesia_inr_per_min=Decimal("8.00"),
+        clear_inr_per_min=Decimal("5.00"),
+        studio_inr_per_min=Decimal("8.00"),
         bonus_pct=Decimal(bonus_pct),
     )
 
@@ -686,10 +685,10 @@ async def test_the_packs_endpoint_lists_the_catalogue_priced() -> None:
     # Money is a string on the wire (hard rule 7).
     for pack in body["packs"]:
         assert isinstance(pack["amount_inr"], str)
-        assert isinstance(pack["sarvam_inr_per_min"], str)
-        assert isinstance(pack["cartesia_inr_per_min"], str)
+        assert isinstance(pack["clear_inr_per_min"], str)
+        assert isinstance(pack["studio_inr_per_min"], str)
         assert isinstance(pack["total_credits"], str)
     # The list rate IS the entry rung's Sarvam rate since D-547.
     starter = next(p for p in body["packs"] if p["pack_id"] == "starter")
-    assert Decimal(starter["sarvam_inr_per_min"]) == Decimal(body["list_rate_inr_per_min"])
+    assert Decimal(starter["clear_inr_per_min"]) == Decimal(body["list_rate_inr_per_min"])
     assert next(p for p in body["packs"] if p["best_value"])["pack_id"] == "max"

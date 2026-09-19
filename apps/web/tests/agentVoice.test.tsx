@@ -60,20 +60,21 @@ const SET_VOICE_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/voice`;
 
 function voice(over: Partial<OfferedVoice> = {}): OfferedVoice {
   return {
-    id: "bulbul:v3:anushka",
-    label: "Anushka",
-    provider: "sarvam",
-    tts_model: "bulbul:v3",
+    id: "timbre-v2.5:Suhana",
+    label: "Suhana",
+    provider: "gnani",
+    voice_tier: "clear",
+    tts_model: "timbre-v2.5",
     // The SPEAKER, which the catalogue now names separately from the model (D-358). An id
     // is `<tts_model>:<speaker>`; before the split this fixture's `id` was the model.
-    speaker: "anushka",
+    speaker: "Suhana",
     gender: "female",
     languages: ["te-IN", "hi-IN", "en-IN"],
     note: "Warm, unhurried; the default for Telugu receptionists.",
     verified: false,
     // D-547 made the catalogue two-tier, so a row now carries its own verdict: whether a
-    // client may pick it, and — when they may not — the sentence saying why. A Sarvam row
-    // is always offerable; the Cartesia rows are the ones that can arrive refused.
+    // client may pick it, and — when they may not — the sentence saying why. Both rungs can
+    // arrive refused now: Studio on the Cartesia cap, Clear until a Gnani price is attested.
     offerable: true,
     unavailable_reason: null,
     // WHETHER THE REFUSAL MEANS "NOT ON OFFER" rather than "offered and currently
@@ -93,18 +94,18 @@ function voice(over: Partial<OfferedVoice> = {}): OfferedVoice {
   };
 }
 
-// Two PERSONAS on the one Sarvam voice quality: same Bulbul v3 model, different speakers.
+// Two PERSONAS on the one Gnani voice quality: same Timbre v2.5 model, different speakers.
 // The Cartesia tier is a SECOND quality alongside these (D-547) and this fixture does not
 // carry one — the picker's two-tier behaviour is covered where the picker is built.
 const VOICES: OfferedVoice[] = [
   voice(),
   voice({
-    id: "bulbul:v3:vidya",
-    label: "Vidya",
-    speaker: "vidya",
+    id: "timbre-v2.5:Lehara",
+    label: "Lehara",
+    speaker: "Lehara",
     gender: "female",
     verified: true,
-    note: "A brisker, more formal read; still Bulbul v3.",
+    note: "A brisker, more formal read; still Timbre v2.5.",
   }),
 ];
 
@@ -114,6 +115,7 @@ function studio(over: Partial<OfferedVoice> = {}): OfferedVoice {
     id: "sonic-3.5:ananya",
     label: "Ananya",
     provider: "cartesia",
+    voice_tier: "studio",
     tts_model: "sonic-3.5",
     speaker: "ananya",
     tier_label: "Studio",
@@ -149,7 +151,7 @@ const TWO_TIER_CATALOGUE: VoiceCatalogue = {
   // a tier has nothing choosable in it, and the picker prints it — an absent heading used
   // to be the only signal a whole quality was missing, which is no signal at all.
   tiers: [
-    { provider: "sarvam", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
+    { provider: "gnani", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
     { provider: "cartesia", label: "Studio", offerable: 0, in_catalogue: 1, note: null },
   ],
 };
@@ -171,7 +173,7 @@ const CATALOGUE: VoiceCatalogue = {
   // NO STUDIO ROWS AT ALL — and the tier still has a line, which is the whole point of
   // the field: a tier that is missing must not be missing from its own report (D-617).
   tiers: [
-    { provider: "sarvam", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
+    { provider: "gnani", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
     {
       provider: "cartesia",
       label: "Studio",
@@ -201,7 +203,8 @@ const DICTATED_CATALOGUE: VoiceCatalogue = {
 function stored(id: string): NonNullable<AgentVoiceState["configured"]> {
   return {
     voice_id: id,
-    provider: "sarvam",
+    provider: "gnani",
+    voice_tier: "clear",
     catalog: VOICES.find((entry) => entry.id === id) ?? null,
   };
 }
@@ -211,12 +214,12 @@ function stored(id: string): NonNullable<AgentVoiceState["configured"]> {
  * row says it is. The interesting cases override it.
  */
 const VOICE_IN_SYNC: AgentVoiceState = {
-  configured: stored("bulbul:v3:anushka"),
-  live: stored("bulbul:v3:anushka"),
+  configured: stored("timbre-v2.5:Suhana"),
+  live: stored("timbre-v2.5:Suhana"),
   republish_required: false,
   unnamed_note: null,
   headline:
-    "Callers hear Anushka — the voice platform is holding the configured voice.",
+    "Callers hear Suhana — the voice platform is holding the configured voice.",
 };
 
 function pendingRoute(
@@ -298,13 +301,13 @@ function render(over: Partial<Routes> = {}) {
  */
 const TIER_RATES: VoiceTierRate[] = [
   {
-    provider: "sarvam",
+    voice_tier: "clear",
     label: "Clear",
     inr_per_min: "5.0000",
     further_open_lots: 0,
   },
   {
-    provider: "cartesia",
+    voice_tier: "studio",
     label: "Studio",
     inr_per_min: "8.0000",
     further_open_lots: 2,
@@ -321,7 +324,7 @@ describe("the voice panel", () => {
   it("reads the catalogue through the tenant's impersonation session", async () => {
     const { calls } = await render();
 
-    await screen.findByRole("radio", { name: /Anushka/ });
+    await screen.findByRole("radio", { name: /Suhana/ });
     const read = calls.filter((call) => call.path === VOICES_PATH);
     expect(read).toHaveLength(1);
     // The header IS the mechanism: without it `current_any` falls through to the client
@@ -332,18 +335,18 @@ describe("the voice panel", () => {
   it("offers every catalogue entry and marks the unverified ones", async () => {
     const { container } = await render();
 
-    await screen.findByRole("radio", { name: /Anushka/ });
+    await screen.findByRole("radio", { name: /Suhana/ });
     expect(screen.getAllByRole("radio")).toHaveLength(2);
-    expect(voiceRow(/Anushka/).value).toBe("bulbul:v3:anushka");
-    expect(voiceRow(/Vidya/).value).toBe("bulbul:v3:vidya");
+    expect(voiceRow(/Suhana/).value).toBe("timbre-v2.5:Suhana");
+    expect(voiceRow(/Lehara/).value).toBe("timbre-v2.5:Lehara");
     // The catalogue carries `verified: false` until the pilot confirms the engine accepts
     // the string (OPERATIONS §2 gate 3). Rendered, not hidden — and on the row itself, so
     // it is part of the accessible name a screen reader announces for that option.
     expect(container.textContent).toContain("Not yet heard on a live call");
-    expect(voiceRow(/Anushka/).labels?.[0]?.textContent).toContain(
+    expect(voiceRow(/Suhana/).labels?.[0]?.textContent).toContain(
       "Not yet heard",
     );
-    expect(voiceRow(/Vidya/).labels?.[0]?.textContent).not.toContain(
+    expect(voiceRow(/Lehara/).labels?.[0]?.textContent).not.toContain(
       "Not yet heard",
     );
   });
@@ -356,9 +359,9 @@ describe("the voice panel", () => {
     // re-pick a value that is already set.
     const { container } = await render();
 
-    await screen.findByRole("radio", { name: /Anushka/ });
-    expect(voiceRow(/Anushka/).checked).toBe(true);
-    expect(voiceRow(/Vidya/).checked).toBe(false);
+    await screen.findByRole("radio", { name: /Suhana/ });
+    expect(voiceRow(/Suhana/).checked).toBe(true);
+    expect(voiceRow(/Lehara/).checked).toBe(false);
     // The detail block follows the selection without anyone touching the control.
     expect(container.textContent).toContain(
       "Warm, unhurried; the default for Telugu receptionists.",
@@ -378,7 +381,7 @@ describe("the voice panel", () => {
       }),
     });
 
-    await screen.findByRole("radio", { name: /Anushka/ });
+    await screen.findByRole("radio", { name: /Suhana/ });
     expect(
       screen
         .getAllByRole("radio")
@@ -397,27 +400,27 @@ describe("the voice panel", () => {
     // as labelled data, and the server's own sentence sits above them.
     const { container } = await render({
       [PENDING_PATH]: pendingRoute({
-        configured: stored("bulbul:v3:vidya"),
-        live: stored("bulbul:v3:anushka"),
+        configured: stored("timbre-v2.5:Lehara"),
+        live: stored("timbre-v2.5:Suhana"),
         republish_required: true,
         unnamed_note: null,
         headline:
-          "Callers still hear Anushka; Vidya reaches them at the next publish.",
+          "Callers still hear Suhana; Lehara reaches them at the next publish.",
       }),
     });
 
-    await screen.findByRole("radio", { name: /Vidya/ });
+    await screen.findByRole("radio", { name: /Lehara/ });
     // Pre-selection follows CONFIGURED — the operator edits the configuration.
-    expect(voiceRow(/Vidya/).checked).toBe(true);
-    expect(voiceRow(/Anushka/).checked).toBe(false);
+    expect(voiceRow(/Lehara/).checked).toBe(true);
+    expect(voiceRow(/Suhana/).checked).toBe(false);
 
     expect(container.textContent).toContain("Callers hear now");
-    expect(container.textContent).toContain("Anushka (bulbul:v3)");
+    expect(container.textContent).toContain("Suhana (timbre-v2.5)");
     expect(container.textContent).toContain("Configured");
-    expect(container.textContent).toContain("Vidya (bulbul:v3)");
+    expect(container.textContent).toContain("Lehara (timbre-v2.5)");
     // The server's sentence, printed rather than paraphrased.
     expect(container.textContent).toContain(
-      "Callers still hear Anushka; Vidya reaches them at the next publish.",
+      "Callers still hear Suhana; Lehara reaches them at the next publish.",
     );
     // And WHO closes the gap. Only a publish does; nothing on this screen is it.
     expect(container.textContent).toContain(
@@ -431,16 +434,16 @@ describe("the voice panel", () => {
     // for a republish, and the screen must not soften that into a green state.
     const { container } = await render({
       [PENDING_PATH]: pendingRoute({
-        configured: stored("bulbul:v3:vidya"),
+        configured: stored("timbre-v2.5:Lehara"),
         live: null,
         republish_required: true,
         unnamed_note: null,
         headline:
-          "Callers hear whatever voice was last published; we have no record of which. Vidya reaches them at the next publish.",
+          "Callers hear whatever voice was last published; we have no record of which. Lehara reaches them at the next publish.",
       }),
     });
 
-    await screen.findByRole("radio", { name: /Vidya/ });
+    await screen.findByRole("radio", { name: /Lehara/ });
     expect(container.textContent).toContain(
       "Not recorded — publish to be sure",
     );
@@ -453,19 +456,19 @@ describe("the voice panel", () => {
     const { container } = await render({
       [PENDING_PATH]: {
         ...pendingRoute({
-          configured: stored("bulbul:v3:vidya"),
+          configured: stored("timbre-v2.5:Lehara"),
           live: null,
           republish_required: false,
           unnamed_note: null,
           headline:
-            "This agent is not on the voice platform yet; publishing it will use Vidya.",
+            "This agent is not on the voice platform yet; publishing it will use Lehara.",
         }),
         published: false,
         agent_status: "draft",
       },
     });
 
-    await screen.findByRole("radio", { name: /Vidya/ });
+    await screen.findByRole("radio", { name: /Lehara/ });
     expect(container.textContent).toContain(
       "Nothing — not on the voice platform yet",
     );
@@ -477,12 +480,12 @@ describe("the voice panel", () => {
   it("shows the chosen voice's detail before it is saved", async () => {
     const { container } = await render();
 
-    await screen.findByRole("radio", { name: /Vidya/ });
-    fireEvent.click(voiceRow(/Vidya/));
+    await screen.findByRole("radio", { name: /Lehara/ });
+    fireEvent.click(voiceRow(/Lehara/));
 
     await waitFor(() =>
       expect(container.textContent).toContain(
-        "A brisker, more formal read; still Bulbul v3.",
+        "A brisker, more formal read; still Timbre v2.5.",
       ),
     );
     expect(container.textContent).toContain("te-IN, hi-IN, en-IN");
@@ -501,14 +504,14 @@ describe("the voice panel", () => {
       [SET_VOICE_PATH]: {
         agent_id: AGENT,
         voice: voice({
-          id: "bulbul:v3:vidya",
-          label: "Vidya",
-          speaker: "vidya",
+          id: "timbre-v2.5:Lehara",
+          label: "Lehara",
+          speaker: "Lehara",
         }),
         agent_status: "live",
         published: true,
         engine_synced: false,
-        live_voice_id: "bulbul:v3:anushka",
+        live_voice_id: "timbre-v2.5:Suhana",
         republish_required: true,
         unnamed_note: null,
         next_step:
@@ -516,8 +519,8 @@ describe("the voice panel", () => {
       },
     });
 
-    await screen.findByRole("radio", { name: /Vidya/ });
-    fireEvent.click(voiceRow(/Vidya/));
+    await screen.findByRole("radio", { name: /Lehara/ });
+    fireEvent.click(voiceRow(/Lehara/));
     fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
 
     await waitFor(() =>
@@ -527,7 +530,7 @@ describe("the voice panel", () => {
     expect(write.method).toBe("PATCH");
     // ONE field. The tenant is in the path the call was made to (`SET_VOICE_PATH`), and
     // sending it twice would be two places to disagree.
-    expect(JSON.parse(write.body!)).toEqual({ voice_id: "bulbul:v3:vidya" });
+    expect(JSON.parse(write.body!)).toEqual({ voice_id: "timbre-v2.5:Lehara" });
     // The admin write is NOT impersonating — the impersonation header on a mutation is a
     // guaranteed 403 under D-22.
     expect(write.headers["X-Impersonate-Org"]).toBeUndefined();
@@ -539,7 +542,7 @@ describe("the voice panel", () => {
         "Publish the agent to send this voice to the engine",
       ),
     );
-    expect(container.textContent).toContain("Saved — Vidya (bulbul:v3)");
+    expect(container.textContent).toContain("Saved — Lehara (timbre-v2.5)");
 
     // And the read that feeds the "in force" block is refetched, because the write moved
     // `voice.configured` and deliberately left `voice.live` alone. Without this the panel
@@ -604,20 +607,20 @@ describe("the voice panel", () => {
         detail:
           "That voice is not in the catalog, so it cannot be set on an agent.",
         remediation:
-          "Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya.",
+          "Pick one of the available voices: timbre-v2.5:Suhana, timbre-v2.5:Lehara.",
         kind: "business_rule",
       }),
     });
 
-    await screen.findByRole("radio", { name: /Anushka/ });
-    fireEvent.click(voiceRow(/Anushka/));
+    await screen.findByRole("radio", { name: /Suhana/ });
+    fireEvent.click(voiceRow(/Suhana/));
     fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
 
     await screen.findByText(
       "That voice is not in the catalog, so it cannot be set on an agent.",
     );
     expect(container.textContent).toContain(
-      "Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya",
+      "Pick one of the available voices: timbre-v2.5:Suhana, timbre-v2.5:Lehara",
     );
     // Still usable: the operator can pick another entry without reloading.
     expect(screen.getByRole("button", { name: "Set voice" })).toBeTruthy();
@@ -626,8 +629,9 @@ describe("the voice panel", () => {
   it("groups the two qualities under the names the SERVER gave them, never the vendor's", async () => {
     // The founder's rule (7 Sep 2026): no human-facing surface names a vendor as a tier.
     // "Clear" and "Studio" are the API's words (`billing/rates.py::VOICE_TIER_LABELS`);
-    // `sarvam`/`cartesia` name the vendor, key the money, and must never reach a screen —
-    // so this asserts both halves, and the second half is the one that regresses silently.
+    // `gnani`/`cartesia` name the VENDOR and must never reach a screen; `clear`/`studio`
+    // name the rung and key the money. This asserts both halves, and the second half is
+    // the one that regresses silently.
     const { container } = await render({ [VOICES_PATH]: TWO_TIER_CATALOGUE });
 
     await screen.findByRole("radio", { name: /Ananya/ });
@@ -638,11 +642,11 @@ describe("the voice panel", () => {
     const studio = screen.getByRole("group", { name: "Studio voice" });
     // Each quality holds its own voices: the personas are inside their tier's group, which
     // is what makes this two qualities rather than one flat list of three names.
-    expect(clear.textContent).toContain("Anushka");
-    expect(clear.textContent).toContain("Vidya");
+    expect(clear.textContent).toContain("Suhana");
+    expect(clear.textContent).toContain("Lehara");
     expect(clear.textContent).not.toContain("Ananya");
     expect(studio.textContent).toContain("Ananya");
-    expect(studio.textContent).not.toContain("Anushka");
+    expect(studio.textContent).not.toContain("Suhana");
     // NO VENDOR NAME ANYWHERE — with one deliberate exception, the server's refusal, which
     // is addressed to the operator who installs the key and has to know whose key it is.
     // Everything else on this screen names the QUALITY.
@@ -662,7 +666,7 @@ describe("the voice panel", () => {
     await screen.findByRole("radio", { name: /Ananya/ });
     expect(screen.getAllByRole("radio")).toHaveLength(3);
     expect(voiceRow(/Ananya/).getAttribute("aria-disabled")).toBe("true");
-    expect(voiceRow(/Anushka/).getAttribute("aria-disabled")).toBeNull();
+    expect(voiceRow(/Suhana/).getAttribute("aria-disabled")).toBeNull();
     // VERBATIM. The panel does not compose its own sentence from the flags and get the
     // audience or the remedy wrong.
     expect(container.textContent).toContain(NO_PRICE_REASON);
@@ -699,7 +703,7 @@ describe("the voice panel", () => {
     // the selection that was there stays there.
     fireEvent.click(refused);
     expect((refused as HTMLInputElement).checked).toBe(false);
-    expect(voiceRow(/Anushka/).checked).toBe(true);
+    expect(voiceRow(/Suhana/).checked).toBe(true);
   });
 
   it("prices each quality from the account's oldest open credit lot", async () => {
@@ -786,8 +790,8 @@ describe("the voice panel", () => {
       },
     });
 
-    await screen.findByRole("radio", { name: /Anushka/ });
-    expect(voiceRow(/Anushka/).disabled).toBe(true);
+    await screen.findByRole("radio", { name: /Suhana/ });
+    expect(voiceRow(/Suhana/).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Set voice" })).toHaveProperty(
       "disabled",
       true,
@@ -803,7 +807,7 @@ describe("the voice panel", () => {
     // is still shown — an operator can search for an id, and "unknown" reads as a fault
     // rather than as a voice the platform no longer lists — but never on its own.
     const ref = "sonic-3.5:b6dafaa0-3a87-40b2-823c-1e4cf3c07314";
-    const unnamed = { voice_id: ref, provider: "cartesia", catalog: null };
+    const unnamed = { voice_id: ref, provider: "cartesia", voice_tier: "studio", catalog: null };
     const note =
       "The code shown is the voice platform's own reference for this voice.";
     const { container } = await render({
@@ -816,7 +820,7 @@ describe("the voice panel", () => {
       }),
     });
 
-    await screen.findByRole("radio", { name: /Anushka/ });
+    await screen.findByRole("radio", { name: /Suhana/ });
     expect(container.textContent).toContain(ref);
     // The server's sentence, verbatim and beside it.
     expect(container.textContent).toContain(note);
@@ -829,7 +833,7 @@ describe("the voice panel", () => {
     // Studio line — the state the founder was looking at.
     const { container } = await render();
 
-    await screen.findByRole("radio", { name: /Anushka/ });
+    await screen.findByRole("radio", { name: /Suhana/ });
     expect(container.textContent).toContain("Studio voice");
     expect(container.textContent).toContain(
       "The voice platform's catalogue holds no Studio voices on this account at all",

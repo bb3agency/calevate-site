@@ -65,9 +65,9 @@ import {
 /** One tier heading's money line, or `null` when there is no rate to state. */
 export function tierRateReading(
   rates: VoiceTierRates | undefined,
-  provider: string | null | undefined,
+  voiceTier: string | null | undefined,
 ): { rate: string; note: string } | null {
-  const tier = voiceTierRate(rates, provider);
+  const tier = voiceTierRate(rates, voiceTier);
   if (!tier || tier.inr_per_min === null) return null;
   return {
     rate: `${formatRupeeRate(tier.inr_per_min)} / min`,
@@ -278,14 +278,19 @@ export function VoicePicker({
   // Voices with no server-sent tier name render first and ungrouped; the rest gather under
   // their label in first-appearance order, so the server's ordering survives the grouping.
   const ungrouped = shown.filter((voice) => tierLabel(voice) === null);
-  const groups: { label: string; provider: string; rows: OfferedVoice[] }[] =
+  // KEYED BY THE RUNG, NOT THE VENDOR, AND THAT WAS A LIVE BUG UNTIL 19 SEP 2026. This
+  // held `provider` and passed it to `tierRateReading`, which looks a rate up among rows
+  // keyed by TIER — so it resolved only while each vendor's name equalled its rung's. From
+  // 18 Sep 2026 the Clear rung is Gnani's and no rate row is called `gnani`, so the Clear
+  // heading silently lost its price: the one number a client needs to compare two voices.
+  const groups: { label: string; voiceTier: string; rows: OfferedVoice[] }[] =
     [];
   for (const voice of shown) {
     const label = tierLabel(voice);
     if (label === null) continue;
     const group = groups.find((candidate) => candidate.label === label);
     if (group) group.rows.push(voice);
-    else groups.push({ label, provider: voice.provider, rows: [voice] });
+    else groups.push({ label, voiceTier: voice.voice_tier, rows: [voice] });
   }
 
   return (
@@ -331,7 +336,7 @@ export function VoicePicker({
             </p>
           ))}
         {groups.map((group) => {
-          const money = tierRateReading(rates, group.provider);
+          const money = tierRateReading(rates, group.voiceTier);
           const headingId = `${name}-tier-${group.label.toLowerCase().replace(/\s+/g, "-")}`;
           return (
             <div key={group.label} role="group" aria-labelledby={headingId}>

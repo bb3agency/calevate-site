@@ -196,7 +196,7 @@ function VoiceFacts({
   // configured one: an agent with a chosen-but-unpublished voice is still charged at the
   // rate of the voice on the calling system, and pricing the wrong one is the same
   // inversion the two Facts below exist to prevent.
-  const tier = voiceTierRate(rates, state.live?.catalog?.provider ?? state.live?.provider);
+  const tier = voiceTierRate(rates, state.live?.voice_tier);
   return (
     <>
       <Fact

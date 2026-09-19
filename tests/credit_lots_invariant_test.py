@@ -116,7 +116,7 @@ async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
                     tenant_id=tenant,
                     credits_inr=amount,
                     balance_after=await _balance(tenant),
-                    rates=LotRates(sarvam_inr_per_min=card[0], cartesia_inr_per_min=card[1]),
+                    rates=LotRates(clear_inr_per_min=card[0], studio_inr_per_min=card[1]),
                     source="topup",
                     pack_id="growth",
                     ledger_entry_id=entry,
@@ -174,8 +174,8 @@ async def test_a_spent_wallet_holds_no_open_lot_and_a_refund_style_credit_reopen
             session,
             tenant_id=tenant,
             credits_inr=Decimal("100.00"),
-            sarvam_inr_per_min=Decimal("5.00"),
-            cartesia_inr_per_min=Decimal("8.00"),
+            clear_inr_per_min=Decimal("5.00"),
+            studio_inr_per_min=Decimal("8.00"),
             source="topup",
             pack_id="starter",
             ledger_entry_id=entry,
@@ -185,7 +185,7 @@ async def test_a_spent_wallet_holds_no_open_lot_and_a_refund_style_credit_reopen
             tenant_id=tenant,
             demand=lots.CallDemand(
                 minutes=Decimal("40"),  # ₹200 against a ₹100 lot
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -249,7 +249,7 @@ async def test_a_downward_correction_drains_the_queue_for_what_the_lot_could_not
             call_id=uuid5(NAMESPACE_URL, f"drain-{tenant}"),
             demand=lots.CallDemand(
                 minutes=Decimal("800"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -301,7 +301,7 @@ async def test_a_correction_with_nothing_left_to_take_reports_the_overdraft_it_c
             call_id=uuid5(NAMESPACE_URL, f"drain-all-{tenant}"),
             demand=lots.CallDemand(
                 minutes=Decimal("900"),  # ₹4,500 of a ₹5,000 lot
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )

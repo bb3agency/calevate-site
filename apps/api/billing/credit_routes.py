@@ -226,7 +226,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin.service import tenant_exists
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from apps.api.billing.lots import split_meta
-from apps.api.billing.rates import voice_tier_label
+from apps.api.billing.rates import PREMIUM_VOICE_TIER, VALUE_VOICE_TIER, voice_tier_label
 from apps.api.billing.service import (
     ADJUSTMENT_META_KIND,
     GRANT_META_KIND,
@@ -565,9 +565,9 @@ class CreditLotOut(Strict):
     they credit a wallet, which is why every write below returns the one it touched rather
     than leaving the console to guess which of five lots moved.
 
-    **BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `sarvam_inr_per_min` names the vendor
+    **BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `clear_inr_per_min` names the vendor
     because an operator has to connect a rate to the key they installed and the invoice they
-    attested; `sarvam_label` is what the client reading their own screen calls it, so a
+    attested; `clear_label` is what the client reading their own screen calls it, so a
     support call is one vocabulary. Neither is composed in the browser.
 
     Money and rates are exact decimal STRINGS on the wire for hard rule 7's reason — a rate
@@ -588,11 +588,11 @@ class CreditLotOut(Strict):
     override_of_pack_id: str | None
     credits_total: Decimal
     credits_remaining: Decimal
-    sarvam_inr_per_min: Decimal
-    cartesia_inr_per_min: Decimal
+    clear_inr_per_min: Decimal
+    studio_inr_per_min: Decimal
     #: `billing/rates.VOICE_TIER_LABELS`, over the wire.
-    sarvam_label: str
-    cartesia_label: str
+    clear_label: str
+    studio_label: str
     opened_at: datetime
     #: When this lot was spent to nothing, or `null` while it still has credit on it. The
     #: queue read below returns OPEN lots only, so it is `null` on every row there; it is
@@ -612,8 +612,8 @@ class OverridePackOut(Strict):
 
     pack_id: str
     amount_inr: Decimal
-    sarvam_inr_per_min: Decimal
-    cartesia_inr_per_min: Decimal
+    clear_inr_per_min: Decimal
+    studio_inr_per_min: Decimal
 
 
 class LotRepriceIn(Strict):
@@ -1006,7 +1006,7 @@ def _override_pack(payload: TopUpIn) -> CreditPack | None:
 #: to another tenant is not visible to ask about (`lots._SELECT_ONE_OPEN_LOT`'s argument).
 _LOT_FIELDS = (
     "SELECT id, source, pack_id, override_of_pack_id, credits_total, credits_remaining, "
-    "sarvam_inr_per_min, cartesia_inr_per_min, opened_at, closed_at FROM credit_lots "
+    "clear_inr_per_min, studio_inr_per_min, opened_at, closed_at FROM credit_lots "
 )
 
 
@@ -1026,10 +1026,10 @@ def _lot_out(row: Any) -> CreditLotOut:
         # a driver hands back a float, a frozen rate must not inherit the binary error.
         credits_total=Decimal(str(row[4])),
         credits_remaining=Decimal(str(row[5])),
-        sarvam_inr_per_min=Decimal(str(row[6])),
-        cartesia_inr_per_min=Decimal(str(row[7])),
-        sarvam_label=voice_tier_label("sarvam"),
-        cartesia_label=voice_tier_label("cartesia"),
+        clear_inr_per_min=Decimal(str(row[6])),
+        studio_inr_per_min=Decimal(str(row[7])),
+        clear_label=voice_tier_label(VALUE_VOICE_TIER),
+        studio_label=voice_tier_label(PREMIUM_VOICE_TIER),
         opened_at=row[8],
         closed_at=row[9],
     )
@@ -1357,8 +1357,8 @@ async def record_topup(
             # is one nobody reads.
             summary["rates_of_pack_id"] = override.pack_id
             summary["override_reason"] = payload.override_reason
-            summary["sarvam_inr_per_min"] = str(override.sarvam_inr_per_min)
-            summary["cartesia_inr_per_min"] = str(override.cartesia_inr_per_min)
+            summary["clear_inr_per_min"] = str(override.clear_inr_per_min)
+            summary["studio_inr_per_min"] = str(override.studio_inr_per_min)
         await write_audit(
             scoped,
             # ITS OWN ACTION NAME when the card was departed from, so the question "show
@@ -1757,10 +1757,10 @@ async def reprice_credit_lot(
                 # BOTH pairs, written out rather than left to be looked up from today's
                 # card: the card moves, this decision does not, and an audit entry that has
                 # to be re-joined to a catalogue to be read is one nobody reads.
-                "previous_sarvam_inr_per_min": str(repriced.previous_rates.sarvam_inr_per_min),
-                "previous_cartesia_inr_per_min": str(repriced.previous_rates.cartesia_inr_per_min),
-                "sarvam_inr_per_min": str(repriced.rates.sarvam_inr_per_min),
-                "cartesia_inr_per_min": str(repriced.rates.cartesia_inr_per_min),
+                "previous_clear_inr_per_min": str(repriced.previous_rates.clear_inr_per_min),
+                "previous_studio_inr_per_min": str(repriced.previous_rates.studio_inr_per_min),
+                "clear_inr_per_min": str(repriced.rates.clear_inr_per_min),
+                "studio_inr_per_min": str(repriced.rates.studio_inr_per_min),
                 # The operator's own words — the field a later review of a below-card rate
                 # is actually looking for.
                 "reason": payload.reason,
@@ -2286,8 +2286,8 @@ async def read_credits(
             OverridePackOut(
                 pack_id=pack.pack_id,
                 amount_inr=pack.amount_inr,
-                sarvam_inr_per_min=pack.sarvam_inr_per_min,
-                cartesia_inr_per_min=pack.cartesia_inr_per_min,
+                clear_inr_per_min=pack.clear_inr_per_min,
+                studio_inr_per_min=pack.studio_inr_per_min,
             )
             for pack in PACK_CATALOGUE
         ],

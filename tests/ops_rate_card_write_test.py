@@ -104,11 +104,17 @@ async def _store_rate(admin: UUID, *, pack_id: str, voice: str, rate: str) -> No
 
 
 async def test_a_card_that_sells_below_cost_is_refused_and_writes_nothing() -> None:
-    """The veto. A ₹3.00 Sarvam rate is under the ₹3.3111 floor; the operator gets a
+    """The veto. A ₹3.00 Clear rate is under the ₹3.1491 floor; the operator gets a
     problem+json naming the pack and the append-only history is untouched — which matters
-    more than the refusal itself, because a card recorded in error cannot be edited out."""
+    more than the refusal itself, because a card recorded in error cannot be edited out.
+
+    ⚠ **THE FLOOR FELL FROM ₹3.3111 TO ₹3.1491 ON 19 Sep 2026** (D-631: Gnani's published
+    ₹27.00/10k replaced a withdrawn vendor's frozen ₹30 behind the Clear leg). ₹3.00 is
+    still under it, which is why this rate rather than a nearer one — a fixture chosen to
+    sit just below a moving line is a test that breaks every time the cost model improves.
+    """
     admin = await _admin()
-    await _store_rate(admin, pack_id="starter", voice="sarvam", rate="3.00")
+    await _store_rate(admin, pack_id="starter", voice="clear", rate="3.00")
     before = await _card_rows()
     async with untenanted_session() as session:
         with pytest.raises(ProblemError) as raised:
@@ -121,10 +127,10 @@ async def test_a_card_that_sells_below_cost_is_refused_and_writes_nothing() -> N
 
 async def test_a_card_that_breaks_invariant_6_is_refused() -> None:
     """A bigger pack that buys a dearer minute is arbitrageable by buying the smaller one
-    twice, and a Cartesia rate under its Sarvam rate sells the dearer voice cheaper. Both
+    twice, and a Studio rate under its Clear rate sells the dearer voice cheaper. Both
     are refusals, not warnings: the card is wrong rather than thin."""
     admin = await _admin()
-    await _store_rate(admin, pack_id="max", voice="sarvam", rate="5.50")
+    await _store_rate(admin, pack_id="max", voice="clear", rate="5.50")
     async with untenanted_session() as session:
         with pytest.raises(ProblemError) as raised:
             await config_routes._record_card(
@@ -145,7 +151,10 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
     the plan's BEST possible minute) with the worst MARGINAL cost and four Studio rungs
     joined it; then D-592 halved the engine leg, the floors fell to ₹3.3111 / ₹4.7099 and
     nothing was thin at all; then the founder's 14 Sep card put eight of the twelve back
-    under target. Only that last move was a repricing — the others were the yardstick.
+    under target; then D-631 (19 Sep 2026) re-struck the Clear floor at Gnani's own
+    published rate, ₹3.3111 → ₹3.1491, and all six Clear rungs cleared target again —
+    leaving TWO thin cells, both Studio, where the floor did not move. Only the 14 Sep move
+    was a repricing; every other one was the yardstick.
 
     So what is asserted is the RULE the console follows: a cell is logged at WARNING
     exactly when the margin guard calls it thin, and thinness never blocks the write. The
@@ -172,7 +181,7 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
         if verdict.below_target
     }
     assert {(r.pack_id, r.voice_tier) for r in thin} == expected_thin
-    assert len(expected_thin) == 8, "the founder's 14 Sep card prices eight of twelve thin"
+    assert len(expected_thin) == 2, "only the two dearest Studio rungs are under target"
     # Money in a log line is a STRING (hard rule 7): a float here is a float somebody
     # quotes back.
     assert all(isinstance(r.inr_per_min, str) for r in previews)

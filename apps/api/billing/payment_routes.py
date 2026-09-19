@@ -110,7 +110,15 @@ from apps.api.billing.payments import (
     verify_checkout_signature,
     verify_signature,
 )
-from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING, VoiceTier, voice_tier_label
+from apps.api.billing.rates import (
+    MONEY_Q,
+    PREMIUM_VOICE_TIER,
+    PREPAID_TIERS,
+    ROUNDING,
+    VALUE_VOICE_TIER,
+    VoiceTier,
+    voice_tier_label,
+)
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
 from apps.api.billing.wallet import record_attempt, settle_attempt
 from apps.api.compliance.audit import write_audit
@@ -308,8 +316,8 @@ class CreditPackOut(Strict):
     amount_inr: Decimal
     paid_credits: Decimal
     #: DEPRECATED (D-547, removed next release): always "0.00". Packs no longer grant bonus
-    #: credits — a bigger pack buys a cheaper minute instead. Read `sarvam_inr_per_min` /
-    #: `cartesia_inr_per_min`. Still emitted through `to_paise` at 2dp, the precision it has
+    #: credits — a bigger pack buys a cheaper minute instead. Read `clear_inr_per_min` /
+    #: `studio_inr_per_min`. Still emitted through `to_paise` at 2dp, the precision it has
     #: always had on this wire: a deprecated field that changed shape would break the reader
     #: it exists to keep working.
     bonus_credits: Decimal
@@ -320,21 +328,21 @@ class CreditPackOut(Strict):
     #: ₹/min on the Sarvam (Bulbul v3) voice, at rate precision (4dp, NUMERIC(12,4)) — a
     #: RATE, not a rupee amount, so it is not rounded to paise (the distinction
     #: `billing.service.rate_to_display` makes).
-    sarvam_inr_per_min: Decimal
-    #: ₹/min on the Cartesia (Sonic 3.5) voice. Never below `sarvam_inr_per_min`.
-    cartesia_inr_per_min: Decimal
+    clear_inr_per_min: Decimal
+    #: ₹/min on the Cartesia (Sonic 3.5) voice. Never below `clear_inr_per_min`.
+    studio_inr_per_min: Decimal
     #: Whole minutes the credits buy on the Sarvam voice, floored (you do not get a partial
     #: minute, and rounding UP would advertise talk time the credits do not cover). A
     #: display estimate, not a billed figure.
-    sarvam_minutes: int
+    clear_minutes: int
     #: The same on the Cartesia voice. Always the smaller of the two.
-    cartesia_minutes: int
-    #: DEPRECATED (D-547, removed next release): equal to `sarvam_inr_per_min`. It was the
+    studio_minutes: int
+    #: DEPRECATED (D-547, removed next release): equal to `clear_inr_per_min`. It was the
     #: bonus-derived effective rate; there is no single "effective rate" for a pack any
     #: more, and this holds the cheaper of the two so an unmigrated reader under-quotes
     #: rather than over-quotes.
     effective_rate_inr_per_min: Decimal
-    #: DEPRECATED (D-547, removed next release): equal to `sarvam_minutes`.
+    #: DEPRECATED (D-547, removed next release): equal to `clear_minutes`.
     talk_time_minutes: int
     #: The single "best value" badge.
     best_value: bool
@@ -372,14 +380,14 @@ class CreditPacksOut(Strict):
     #: entry rung of it. The setting still exists and still dates a row
     #: (`billing/list_rates.SELF_SERVE_PER_MIN`), and it no longer prices this card.
     list_rate_inr_per_min: Decimal
-    #: DEPRECATED (D-547, removed next release): equal to `from_sarvam_inr_per_min`. A
+    #: DEPRECATED (D-547, removed next release): equal to `from_clear_inr_per_min`. A
     #: single "from" rate cannot describe a two-voice card; it holds the cheaper voice so an
     #: unmigrated reader under-quotes rather than over-quotes.
     from_inr_per_min: Decimal
     #: The lowest Sarvam rate any pack delivers — the marketing site's "from ₹X/min".
-    from_sarvam_inr_per_min: Decimal
+    from_clear_inr_per_min: Decimal
     #: The lowest Cartesia rate any pack delivers.
-    from_cartesia_inr_per_min: Decimal
+    from_studio_inr_per_min: Decimal
     #: What a CLIENT calls the voice the `sarvam_*` rates price — `rates.VOICE_TIER_LABELS`
     #: ("Clear"), crossed over the wire rather than copied into the web (founder decision,
     #: 7 Sep 2026). No client-facing surface names a vendor as a product tier: they buy a
@@ -390,9 +398,9 @@ class CreditPacksOut(Strict):
     #: human reads, and it travels with the rates so a page cannot print a name the API
     #: never sent (`apps/web/tests/marketingPages.test.tsx` holds a tier NAME to the same
     #: provenance rule it holds a ₹ figure to).
-    sarvam_tier_label: str
+    clear_tier_label: str
     #: The same for the voice the `cartesia_*` rates price ("Studio").
-    cartesia_tier_label: str
+    studio_tier_label: str
     packs: list[CreditPackOut]
     #: The next SCHEDULED change to these rates, or `null` when none is (the ordinary
     #: state). A client whose next top-up will cost more can see it here before the day
@@ -489,8 +497,8 @@ def _pack_out(pack: CreditPack) -> CreditPackOut:
     """Price one pack for the table, from the static catalogue. Every derivation happens
     here — never in the browser — so the money arithmetic lives in the one language with an
     exact decimal type."""
-    sarvam = pack.sarvam_inr_per_min.quantize(MONEY_Q, rounding=ROUNDING)
-    sarvam_minutes = _floored_minutes(pack, "sarvam")
+    clear_rate = pack.clear_inr_per_min.quantize(MONEY_Q, rounding=ROUNDING)
+    clear_minutes = _floored_minutes(pack, VALUE_VOICE_TIER)
     return CreditPackOut(
         pack_id=pack.pack_id,
         amount_inr=to_paise(pack.amount_inr),
@@ -500,12 +508,12 @@ def _pack_out(pack: CreditPack) -> CreditPackOut:
         bonus_pct=pack.bonus_pct,
         # Rates stay at NUMERIC(12,4): rounding one to paise would break the client's only
         # arithmetic on it (rate x minutes), the reason `rate_to_display` exists.
-        sarvam_inr_per_min=sarvam,
-        cartesia_inr_per_min=pack.cartesia_inr_per_min.quantize(MONEY_Q, rounding=ROUNDING),
-        sarvam_minutes=sarvam_minutes,
-        cartesia_minutes=_floored_minutes(pack, "cartesia"),
-        effective_rate_inr_per_min=sarvam,
-        talk_time_minutes=sarvam_minutes,
+        clear_inr_per_min=clear_rate,
+        studio_inr_per_min=pack.studio_inr_per_min.quantize(MONEY_Q, rounding=ROUNDING),
+        clear_minutes=clear_minutes,
+        studio_minutes=_floored_minutes(pack, PREMIUM_VOICE_TIER),
+        effective_rate_inr_per_min=clear_rate,
+        talk_time_minutes=clear_minutes,
         best_value=pack.best_value,
     )
 
@@ -565,19 +573,19 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     in_force = card_with_rates(await card_at(session, at=now))
     scheduled = await pending_cards(session, at=now)
     packs = [_pack_out(pack) for pack in in_force]
-    from_sarvam = min(pack.sarvam_inr_per_min for pack in packs)
+    from_sarvam = min(pack.clear_inr_per_min for pack in packs)
     return CreditPacksOut(
-        list_rate_inr_per_min=packs[0].sarvam_inr_per_min,
+        list_rate_inr_per_min=packs[0].clear_inr_per_min,
         from_inr_per_min=from_sarvam,
-        from_sarvam_inr_per_min=from_sarvam,
-        from_cartesia_inr_per_min=min(pack.cartesia_inr_per_min for pack in packs),
+        from_clear_inr_per_min=from_sarvam,
+        from_studio_inr_per_min=min(pack.studio_inr_per_min for pack in packs),
         # From the ONE definition, never a string typed here. `rates.voice_tier_label` is
         # where the two names live (added 7 Sep 2026 with the founder's decision); every
         # other client-facing surface that comes to name a voice reads the same function,
         # so a client cannot meet two names for one voice. As of this commit this route is
         # its only caller — the wallet and the agent screens are other lanes' files.
-        sarvam_tier_label=voice_tier_label("sarvam"),
-        cartesia_tier_label=voice_tier_label("cartesia"),
+        clear_tier_label=voice_tier_label(VALUE_VOICE_TIER),
+        studio_tier_label=voice_tier_label(PREMIUM_VOICE_TIER),
         packs=packs,
         # ONLY THE SOONEST. An operator may have several cards on the books; a client
         # planning a top-up needs to know what changes NEXT, and a ladder of future prices

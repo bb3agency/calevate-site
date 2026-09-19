@@ -34,17 +34,17 @@ const FLAT_CLEAR: PublicRateCard = {
   ...RATE_CARD,
   list_rate_inr_per_min: "4.0000",
   from_inr_per_min: "4.0000",
-  from_sarvam_inr_per_min: "4.0000",
-  from_cartesia_inr_per_min: "5.5000",
+  from_clear_inr_per_min: "4.0000",
+  from_studio_inr_per_min: "5.5000",
   packs: RATE_CARD.packs.map((pack, index) => ({
     ...pack,
-    sarvam_inr_per_min: "4.0000",
+    clear_inr_per_min: "4.0000",
     // ₹7.00 down in even ₹0.30 steps, the interpolation the decision records.
-    cartesia_inr_per_min: (7 - index * 0.3).toFixed(4),
+    studio_inr_per_min: (7 - index * 0.3).toFixed(4),
   })),
 };
 
-const LABELS: TierLabels = { sarvam: "Clear", cartesia: "Studio" };
+const LABELS: TierLabels = { clear: "Clear", studio: "Studio" };
 
 /** Every "₹4.00 … down to … ₹4.00" shape, however the sentence is punctuated between. */
 const FALLS_TO_ITSELF = /₹4\.00[^₹]{0,80}?(down to|coming down)[^₹]{0,40}₹4\.00/i;

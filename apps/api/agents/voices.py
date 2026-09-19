@@ -22,10 +22,14 @@ still a sub-processor. This module is the TTS catalogue and has never named the 
 anyone reading the removals here as "Sarvam is gone" will delete the transcription vendor.
 
 **THE VALUE RUNG EXISTS AND CANNOT BE SOLD YET, AND THAT IS THE INTENDED STATE.** Gnani
-publish no price (`VOICE_TIER_OF_PROVIDER`, `_GNANI_NOTE`), and hard rule 7 keeps an
-unattested figure out of `unit_cost_paid` — so a Gnani voice is in the vocabulary, bills on
-the value rung by construction, and is refused by the offer seam until an operator attests
-what a minute costs. The founder's words, 18 Sep 2026: *"we are still in building phase"*.
+publish ₹27.00 per 10,000 characters for Text to Speech (`app.gnani.ai/voice/pricing`, read
+by the founder 19 Sep 2026 and relayed — VENDOR-PUBLISHED; ⚠ this paragraph said "publish no
+price" until that reading, which was a not-finding written down as a fact). That figure
+prices the Clear rung's COST FLOOR (`billing/rates.TTS_INR_PER_10K_CHARS`) and nothing else:
+a catalogue price is not an invoice, so hard rule 7 keeps it out of `unit_cost_paid` for the
+same reason the Gemini catalogue price is `verified=False`. A Gnani voice is therefore in the
+vocabulary, bills on the value rung by construction, and is still refused by the offer seam
+until an operator attests what a minute actually costs.
 
 **NO PRICE IS WRITTEN IN THIS MODULE.** It used to say "₹5.00/min, ₹30 per 10k chars"
 in this docstring and in every entry's note. A rate card belongs to `billing/` — under
@@ -256,7 +260,7 @@ from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE, TtsProvider
 from pydantic import BaseModel, ConfigDict
 
 from apps.api.agents.languages import Language
-from apps.api.billing.rates import VALUE_VOICE_TIER, voice_tier_label
+from apps.api.billing.rates import PREMIUM_VOICE_TIER, VALUE_VOICE_TIER, voice_tier_label
 from apps.api.billing.rates import VoiceTier as BillingVoiceTier
 
 # `Language` MOVED TO `agents/languages.py` AND IS IMPORTED, NOT DECLARED (see that
@@ -754,10 +758,13 @@ def tts_model_of_voice_id(voice_id: str | None) -> TtsModel | None:
 #: ("we are still in building phase", 18 Sep 2026), not a gap to be closed with a number.
 #: The `None` arm below is kept for the provider that arrives with no rung at all.
 #:
-#: **THE TIER TOKEN `"sarvam"` IS A HISTORICAL NAME AND IS DELIBERATELY NOT RENAMED — see
-#: `billing/rates.VoiceTier`, which is where that decision is argued.**
+#: ⚠ **THE RUNG AND THE PROVIDER ARE NOW SPELLED DIFFERENTLY, WHICH IS THE POINT**
+#: (19 Sep 2026). `"cartesia"` used to be both a provider and a rung, so this map had an
+#: entry that read `"cartesia": "cartesia"` — two different vocabularies agreeing by
+#: accident, and a reader had no way to see which side of the colon meant what. The rungs
+#: are `clear`/`studio` now and both sides are spelled through constants.
 VOICE_TIER_OF_PROVIDER: Final[Mapping[VoiceProvider, VoiceTier | None]] = {
-    "cartesia": "cartesia",
+    "cartesia": PREMIUM_VOICE_TIER,
     "gnani": VALUE_VOICE_TIER,
 }
 
@@ -819,12 +826,28 @@ def voice_tier(tts_voice: str | None) -> VoiceTier:
     provider = provider_of_tts_model(model) if model is not None else None
     if provider is None:
         return VALUE_VOICE_TIER
+    return voice_tier_of_provider(provider, voice_id=tts_voice)
+
+
+def voice_tier_of_provider(provider: VoiceProvider, *, voice_id: str | None = None) -> VoiceTier:
+    """THE rung a TTS PROVIDER bills on, raising when it bills on none.
+
+    Split out of `voice_tier` on 19 Sep 2026 because it had a second caller — the
+    plan-billed volume counter (`billing/tts_volume.PLAN_BILLED_VOICE_TIER`), which knows
+    its vendor and needs that vendor's rung. Before the rungs were renamed to
+    `clear`/`studio` that counter compared a call's TIER against a constant holding a
+    PROVIDER name and matched because both words were `"cartesia"`; deriving the rung here
+    is what stops the next provider re-creating that coincidence.
+
+    `voice_id` is for the message only. A caller that has one gets it named in the error,
+    because "which voice did this" is the first question an operator asks.
+    """
     tier = VOICE_TIER_OF_PROVIDER[provider]
     if tier is None:
+        subject = f"voice {voice_id!r} is synthesised by {provider!r}" if voice_id else provider
         raise UnpricedVoiceProviderError(
-            f"voice {tts_voice!r} is synthesised by {provider!r}, which has no priced tier "
-            "on this deployment — a minute on it cannot be billed until an operator "
-            "attests what it costs (hard rule 7)."
+            f"{subject}, which has no priced tier on this deployment — a minute on it "
+            "cannot be billed until an operator attests what it costs (hard rule 7)."
         )
     return tier
 
@@ -917,4 +940,5 @@ __all__ = [
     "voice_ids",
     "voice_selection_capability",
     "voice_tier",
+    "voice_tier_of_provider",
 ]

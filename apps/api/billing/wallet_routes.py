@@ -205,15 +205,14 @@ class WalletOut(Strict):
 class TierMinutesOut(Strict):
     """One voice quality's runway, as the client's own screen reads it.
 
-    THE CLIENT READS `label` AND NEVER `provider`. "Clear" and "Studio" are the product;
-    the vendor's name is ours and appears on no client surface (`billing/rates
-    .voice_tier_label`, which is where the two strings live). `provider` crosses the wire
-    beside it because the browser keys and orders by it and because it is what a support
-    conversation about a ledger row is conducted in — never because a screen should print
-    it.
+    THE CLIENT READS `label` AND NEVER `voice_tier`. "Clear" and "Studio" are the product
+    names; `voice_tier` is the token the ledger, the lot splits and a support conversation
+    about a row are conducted in, and it crosses the wire because the browser keys and
+    orders by it — never because a screen should print it. Since 19 Sep 2026 the two
+    differ only in case, which is deliberate: the token stopped being a vendor's name.
     """
 
-    provider: str
+    voice_tier: str
     label: str
     #: Whole minutes, floored. Zero is a real answer here (an empty or overdrawn wallet
     #: buys no minutes); "we cannot say" is the null on `minutes_left` itself.
@@ -448,7 +447,7 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
             None
             if summary.minutes_left is None
             else [
-                TierMinutesOut(provider=tier.provider, label=tier.label, minutes=tier.minutes)
+                TierMinutesOut(voice_tier=tier.voice_tier, label=tier.label, minutes=tier.minutes)
                 for tier in summary.minutes_left
             ]
         ),
@@ -592,7 +591,7 @@ class WalletTierRunwayOut(Strict):
     state (an empty wallet, or a rate this build cannot resolve), never a zero.
     """
 
-    provider: str
+    voice_tier: str
     label: str
     minutes_left: str | None
 
@@ -600,7 +599,7 @@ class WalletTierRunwayOut(Strict):
 class WalletLotOut(Strict):
     """One open lot, as the CLIENT reads it: what is left, and what it is priced at.
 
-    The vendor spellings (`sarvam_inr_per_min`) are the FIELD NAMES, which is the rule this
+    The vendor spellings (`clear_inr_per_min`) are the FIELD NAMES, which is the rule this
     repository keeps everywhere — a wire name, a column and a ledger value stay in the
     vendor's vocabulary because that is what an invoice is reconciled against. What a client
     READS is `tiers[].label` ("Clear", "Studio"), which is why the labels travel on the same
@@ -610,8 +609,8 @@ class WalletLotOut(Strict):
     lot_id: UUID
     opened_at: datetime
     credits_remaining: Decimal
-    sarvam_inr_per_min: Decimal
-    cartesia_inr_per_min: Decimal
+    clear_inr_per_min: Decimal
+    studio_inr_per_min: Decimal
 
 
 class WalletLotsOut(Strict):
@@ -674,7 +673,7 @@ async def read_wallet_lots(
     return WalletLotsOut(
         tiers=[
             WalletTierRunwayOut(
-                provider=tier.provider, label=tier.label, minutes_left=str(tier.minutes)
+                voice_tier=tier.voice_tier, label=tier.label, minutes_left=str(tier.minutes)
             )
             for tier in tiers
         ],
@@ -683,8 +682,8 @@ async def read_wallet_lots(
                 lot_id=lot.lot_id,
                 opened_at=lot.opened_at,
                 credits_remaining=lot.credits_remaining,
-                sarvam_inr_per_min=lot.sarvam_inr_per_min,
-                cartesia_inr_per_min=lot.cartesia_inr_per_min,
+                clear_inr_per_min=lot.clear_inr_per_min,
+                studio_inr_per_min=lot.studio_inr_per_min,
             )
             # `read_open_lots` already returns them in `(opened_at, id)` order — the FIFO
             # scan's own ordering, so this list is the order a call will spend them in.

@@ -171,7 +171,7 @@ async def test_a_self_serve_wallet_is_debited_the_list_price_not_the_supplier_co
     # `list_rates.self_serve_rate_at` falls back to the setting on any instant no card row
     # covers, so a closed month would render at a price no wallet was charged. D-601 cut
     # the card and this assertion is what noticed the setting had not moved with it.
-    rate = PACK_CATALOGUE[0].sarvam_inr_per_min
+    rate = PACK_CATALOGUE[0].clear_inr_per_min
     assert get_settings().self_serve_inr_per_min == rate, (
         "the legacy list-rate setting has drifted from the card's entry rung"
     )

@@ -87,7 +87,7 @@ async def test_a_completed_call_is_charged_even_into_the_negative() -> None:
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("8.5"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -109,7 +109,7 @@ async def test_charging_the_same_call_twice_does_not_double_bill() -> None:
                 call_id=call_id,
                 demand=CallDemand(
                     minutes=Decimal("6"),
-                    voice_tier="sarvam",
+                    voice_tier="clear",
                     fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )
@@ -184,7 +184,7 @@ async def test_a_call_that_cost_nothing_leaves_the_wallet_alone() -> None:
             call_id=uuid.uuid4(),
             demand=CallDemand(
                 minutes=Decimal("0"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -194,7 +194,7 @@ async def test_a_call_that_cost_nothing_leaves_the_wallet_alone() -> None:
             call_id=uuid.uuid4(),
             demand=CallDemand(
                 minutes=Decimal("-1"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )

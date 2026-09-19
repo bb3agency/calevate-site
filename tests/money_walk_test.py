@@ -572,7 +572,7 @@ async def test_a_self_serve_wallet_is_debited_at_our_cost_not_at_the_price_we_qu
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(metered_cost / Decimal("10"), metered_cost / Decimal("10")),
             ),
         )

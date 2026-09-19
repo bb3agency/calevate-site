@@ -108,7 +108,7 @@ function cell(over: Partial<RateCardCell> = {}): RateCardCell {
   return {
     pack_id: "starter",
     amount_inr: "2000.00",
-    voice_tier: "sarvam",
+    voice_tier: "clear",
     tier_label: "Clear",
     inr_per_min: "5.0000",
     cost_floor_inr_per_min: "4.1211",
@@ -186,7 +186,7 @@ function cartesiaVolume(over: Partial<CartesiaVolume> = {}): CartesiaVolume {
 const HEALTHY = cell({
   pack_id: "max",
   amount_inr: "50000.00",
-  voice_tier: "cartesia",
+  voice_tier: "studio",
   tier_label: "Studio",
   inr_per_min: "6.0000",
   cost_floor_inr_per_min: "5.5899",
@@ -251,7 +251,7 @@ function fullCard(over: Partial<RateCard> = {}): RateCard {
     [
       cell(),
       cell({
-        voice_tier: "cartesia",
+        voice_tier: "studio",
         tier_label: "Studio",
         inr_per_min: "6.0000",
         below_target: false,
@@ -260,7 +260,7 @@ function fullCard(over: Partial<RateCard> = {}): RateCard {
       cell({
         pack_id: "max",
         amount_inr: "50000.00",
-        voice_tier: "cartesia",
+        voice_tier: "studio",
         tier_label: "Studio",
         inr_per_min: "5.5000",
         below_target: false,
@@ -276,7 +276,7 @@ const SCHEDULED: PendingCard = {
   cells: [
     cell({ inr_per_min: "5.5000" }),
     cell({
-      voice_tier: "cartesia",
+      voice_tier: "studio",
       tier_label: "Studio",
       inr_per_min: "6.0000",
       below_target: false,
@@ -362,10 +362,10 @@ function ttsRow(over: Partial<TtsPrice> = {}): TtsPrice {
   };
 }
 
-const SARVAM_ROW = ttsRow({
-  provider: "sarvam",
+const CLEAR_ROW = ttsRow({
+  provider: "gnani",
   tier_label: "Clear",
-  tts_model: "bulbul:v3",
+  tts_model: "timbre-v2.5",
   price_attested: false,
   price_billable: true,
   offerable: true,
@@ -407,7 +407,7 @@ function routes(extra: Routes = {}): Routes {
     [OPS_RATE_CARD_PATH]: card(),
     [OPS_MODEL_PRICES_PATH]: {
       ...MODEL_PRICES_BASE,
-      tts_prices: [SARVAM_ROW, ttsRow()],
+      tts_prices: [CLEAR_ROW, ttsRow()],
       embedding_prices: [embeddingRow()],
     },
     [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
@@ -478,7 +478,7 @@ describe("the rate card an operator is about to date", () => {
         [OPS_RATE_CARD_PATH]: card([
           cell({
             pack_id: "growth",
-            voice_tier: "cartesia",
+            voice_tier: "studio",
             tier_label: "Studio",
             inr_per_min: "7.0000",
             cost_floor_inr_per_min: "5.5899",
@@ -492,7 +492,7 @@ describe("the rate card an operator is about to date", () => {
           }),
           cell({
             pack_id: "max",
-            voice_tier: "cartesia",
+            voice_tier: "studio",
             tier_label: "Studio",
             inr_per_min: "6.0000",
             cost_floor_inr_per_min: "5.5899",
@@ -809,7 +809,7 @@ describe("the encoder price that decides whether an upload is indexed at all", (
       routes({
         [OPS_MODEL_PRICES_PATH]: {
           ...MODEL_PRICES_BASE,
-          tts_prices: [SARVAM_ROW, ttsRow()],
+          tts_prices: [CLEAR_ROW, ttsRow()],
           embedding_prices: [
             embeddingRow({
               price_attested: true,
@@ -838,7 +838,7 @@ describe("the encoder price that decides whether an upload is indexed at all", (
       routes({
         [OPS_MODEL_PRICES_PATH]: {
           ...MODEL_PRICES_BASE,
-          tts_prices: [SARVAM_ROW, ttsRow()],
+          tts_prices: [CLEAR_ROW, ttsRow()],
           embedding_prices: [],
         },
       }),
@@ -877,7 +877,7 @@ describe("what a margin verdict may say", () => {
     // assertion keeps testing the tone rather than the fixture.
     const healthy = cellVerdict(
       cell({
-        voice_tier: "cartesia",
+        voice_tier: "studio",
         below_target: false,
         below_target_at_volume: false,
       }),
@@ -893,7 +893,7 @@ describe("what a margin verdict may say", () => {
     // the ₹4.3639 column was telling, in smaller type.
     const drowning = cellVerdict(
       cell({
-        voice_tier: "cartesia",
+        voice_tier: "studio",
         inr_per_min: "6.0000",
         below_target: false,
         below_floor: false,

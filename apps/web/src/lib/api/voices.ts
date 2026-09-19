@@ -316,8 +316,8 @@ export type VoiceTierRates = readonly VoiceTierRate[];
 /** The tier row for a voice's provider, or `undefined` — the one join between the two. */
 export function voiceTierRate(
   rates: VoiceTierRates | undefined,
-  provider: VoiceProvider | string | null | undefined,
+  voiceTier: VoiceProvider | string | null | undefined,
 ): VoiceTierRate | undefined {
-  if (!rates || !provider) return undefined;
-  return rates.find((rate) => rate.provider === provider);
+  if (!rates || !voiceTier) return undefined;
+  return rates.find((rate) => rate.voice_tier === voiceTier);
 }

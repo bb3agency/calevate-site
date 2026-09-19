@@ -78,9 +78,10 @@ The maps found more already built than the conversation assumed. Read this befor
 
 ### 2.1 Definitions
 - **Credit**: ₹1 of prepaid value. Never expires.
-- **Pack**: a catalogue row — `pack_id`, `amount_inr`, `sarvam_inr_per_min`, `cartesia_inr_per_min`. Static, bounded (`check_list_bounds` already pins the two pack endpoints as bounded by `PACK_CATALOGUE` being static, `scripts/check_list_bounds.py:286-292`).
-- **Lot**: the credits one purchase (or grant, or migration) created, with the two rates frozen at creation. `credits_total`, `credits_remaining`, `sarvam_inr_per_min`, `cartesia_inr_per_min`, `source` (`topup` | `grant` | `bonus_legacy` | `migration` | `override`), `pack_id` (nullable), `override_of_pack_id` (nullable, Q6), `opened_at`.
-- **Voice tier**: `sarvam` | `cartesia`, a property of the AGENT (`agents.voice_tier`, derived from the chosen voice's provider — never stored separately from the voice, §4.3).
+- **Pack**: a catalogue row — `pack_id`, `amount_inr`, `clear_inr_per_min`, `studio_inr_per_min`. Static, bounded (`check_list_bounds` already pins the two pack endpoints as bounded by `PACK_CATALOGUE` being static, `scripts/check_list_bounds.py:286-292`).
+- **Lot**: the credits one purchase (or grant, or migration) created, with the two rates frozen at creation. `credits_total`, `credits_remaining`, `clear_inr_per_min`, `studio_inr_per_min`, `source` (`topup` | `grant` | `bonus_legacy` | `migration` | `override`), `pack_id` (nullable), `override_of_pack_id` (nullable, Q6), `opened_at`.
+- **Voice tier**: `clear` | `studio`, a property of the AGENT (`agents.voice_tier`, derived from the chosen voice's provider — never stored separately from the voice, §4.3).
+  ⚠ **THE TOKENS WERE `sarvam` | `cartesia` THROUGHOUT THIS PLAN AND WERE RENAMED ON 19 Sep 2026** (`alembic/versions/f1c40d8b6e93`, `billing/rates.VoiceTier`). They were the VENDORS then serving each rung; Sarvam left the synthesis leg on 18 Sep 2026 (D-629) and Gnani took the Clear rung, leaving two money columns named after a company with nothing to do with them. The implementation steps below are left as they were written — they are a record of what was done, not of what is there now — so read every `"sarvam"`/`"cartesia"` in this document as the rung it then named.
 - **Card**: the pack table in force at an instant. Dated: a new card applies to lots opened after its `effective_from`; existing lots are untouched (D-492 extended, §2.4).
 
 ### 2.2 The final card (from the founder's sign-off, 7 Sep 2026)
@@ -102,7 +103,7 @@ Floors that bind these numbers, from `billing/rates.py` and the plan arithmetic 
 3. A lot's two rates never change after creation. (No UPDATE path exists for them; the table's mutable columns are `credits_remaining` and `closed_at` only, enforced by trigger — §3.1.)
 4. Overdraft minutes are priced at the rate of the last lot consumed (Q5). The next credit-adding entry reduces the overdraft first.
 5. Every `usage` ledger row records, in `meta`, the lot splits it drew: `[{lot_id, credits, minutes, inr_per_min, voice_tier}]`. The month's statement and the margin panel are re-derivable from those rows alone (D-492/D-458 kept).
-6. A pack's `cartesia_inr_per_min` is never below its `sarvam_inr_per_min`; both fall monotonically with `amount_inr` across the card.
+6. A pack's `studio_inr_per_min` is never below its `clear_inr_per_min`; both fall monotonically with `amount_inr` across the card.
 7. An agent's voice tier is a pure function of its chosen voice's `provider`; there is no way to hold a Cartesia voice and a Sarvam tier.
 
 ### 2.4 What "dated" means now
@@ -120,8 +121,8 @@ credit_lots(
   pack_id text NULL, override_of_pack_id text NULL,
   credits_total NUMERIC(12,4) NOT NULL CHECK (credits_total > 0),
   credits_remaining NUMERIC(12,4) NOT NULL CHECK (credits_remaining >= 0 AND credits_remaining <= credits_total),
-  sarvam_inr_per_min NUMERIC(12,4) NOT NULL CHECK (> 0),
-  cartesia_inr_per_min NUMERIC(12,4) NOT NULL CHECK (>= sarvam_inr_per_min),
+  clear_inr_per_min NUMERIC(12,4) NOT NULL CHECK (> 0),
+  studio_inr_per_min NUMERIC(12,4) NOT NULL CHECK (>= clear_inr_per_min),
   ledger_entry_id uuid NOT NULL UNIQUE FK credit_ledger(id),   -- the row that opened it
   opened_at timestamptz NOT NULL, closed_at timestamptz NULL,
   created_at, updated_at)
@@ -158,9 +159,9 @@ Order is by dependency. Each phase ends with its tests green standalone and the 
 
 The catalogue is six packs x two rates with `plus` (₹15,000) in the ladder, the margin guard judges each rate against its own re-derived, telephony-free cost floor (Sarvam ₹4.1211 / Cartesia **₹5.5899** — ⚠ the Cartesia figure was ₹4.3639 until D-556 corrected it from a best case to the worst MARGINAL cost; the whole Sarvam column and four of the six Cartesia rungs clear cost and sit under the 20% target, deliberately), `platform_list_rates` takes twelve `pack:*:*` rows per card under one `effective_from` written from the ops console behind a margin preview and a refusal, and every deprecated wire field stays at zero for one release.
 Files: `billing/credit_packs.py`, `billing/rates.py`, `billing/payment_routes.py`, `billing/list_rates.py`, `ops/config_routes.py`, tests.
-1. `CreditPack` gains `sarvam_inr_per_min`, `cartesia_inr_per_min`; loses `bonus_pct`/`bonus_credits` (kept on the wire as deprecated zero fields for one release — §10). `PACK_CATALOGUE` becomes the §2.2 table; `plus` (₹15,000) added.
-2. `CreditPackOut` gains the two rates and `talk_time_minutes` becomes a pair (`sarvam_minutes`, `cartesia_minutes`); `CreditPacksOut.list_rate_inr_per_min` stays (= `starter.sarvam`), `from_inr_per_min` becomes `from_sarvam_inr_per_min` + `from_cartesia_inr_per_min`. The OpenAPI snapshot is regenerated (`check_openapi_fresh --write`, then `pnpm -C apps/web gen:api`).
-3. `MIN_GROSS_MARGIN` check runs for `sarvam_inr_per_min` against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` (`rates.py:895`, re-derived without telephony — the client pays Plivo, D-474) and for `cartesia_inr_per_min` against the ex-plan floor plus the plan-per-minute at the platform-wide break-even count (§4.6). Invariant 6 asserted.
+1. `CreditPack` gains `clear_inr_per_min`, `studio_inr_per_min`; loses `bonus_pct`/`bonus_credits` (kept on the wire as deprecated zero fields for one release — §10). `PACK_CATALOGUE` becomes the §2.2 table; `plus` (₹15,000) added.
+2. `CreditPackOut` gains the two rates and `talk_time_minutes` becomes a pair (`clear_minutes`, `studio_minutes`); `CreditPacksOut.list_rate_inr_per_min` stays (= `starter.sarvam`), `from_inr_per_min` becomes `from_clear_inr_per_min` + `from_studio_inr_per_min`. The OpenAPI snapshot is regenerated (`check_openapi_fresh --write`, then `pnpm -C apps/web gen:api`).
+3. `MIN_GROSS_MARGIN` check runs for `clear_inr_per_min` against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` (`rates.py:895`, re-derived without telephony — the client pays Plivo, D-474) and for `studio_inr_per_min` against the ex-plan floor plus the plan-per-minute at the platform-wide break-even count (§4.6). Invariant 6 asserted.
 4. `platform_list_rates` gains the twelve `pack:*:*` keys; `record_card` writes them; the ops console's rate write (`config_routes.py:683-718`) becomes a card write with a preview of every margin before commit.
 5. `rates.py` module prose (`:1-24, 65-70, 103, 778`), `credit_packs.py` prose (`:1-46, 130-158`), `voices.py:14` — rewritten; `scripts/check_docs_drift.py` §4b gains the second TTS rung so TRD §10.1 and `rates.py` are compared on both.
 
@@ -208,7 +209,7 @@ Files: `billing/models.py`, `billing/service.py`, `billing/lots.py` (new), `work
 3. `workers/pipeline.py:2496-2662`: the call's `minutes` and the agent's `voice_tier` (from the call's `tts_voice`, already stamped at `:2485`) go to `record_usage_from_lots`; `prepaid_billed_inr(minutes, self_serve_rate)` (`rates.py:1062`) is no longer the price of a self-serve call — it survives only for the `bonus_legacy`/trial paths and is deleted in §10.
 4. Every credit-adding writer opens a lot in the same transaction: Razorpay capture (`payments.py:1109-1116`, rates from the pack or Q3 rule for a free amount), admin top-up and restatement (`credit_routes.py:819, 1222` — a restatement adjusts the lot's `credits_total` and `credits_remaining` by the same delta, never its rates), grants (`credit_routes.py:1388`, Q4 rates), trial credit. `_grant_pack_bonus` (`payments.py:1155-1212`) is retired (§10).
 5. Overdraft repayment: a credit-adding entry on a negative balance first books `min(credits, overdraft)` as repayment (no lot), then opens the lot with the remainder (Q5).
-6. `credits_exhausted` (`compliance/service.py:392-440`) is unchanged (balance ≤ 0). `prepaid_minutes_left` (`service.py:279-301`) becomes `runway(tenant) -> {sarvam_minutes, cartesia_minutes}` summed lot by lot (Q7).
+6. `credits_exhausted` (`compliance/service.py:392-440`) is unchanged (balance ≤ 0). `prepaid_minutes_left` (`service.py:279-301`) becomes `runway(tenant) -> {clear_minutes, studio_minutes}` summed lot by lot (Q7).
 7. `ai_quota.py:1189-1196` debits the same wallet in rupees, not minutes: it consumes lots FIFO at face value (₹1 = 1 credit), no rate. Documented in the lot split as `voice_tier = NULL`.
 8. Tests (each a file, per BACKEND-PATTERNS §9): FIFO order; a split across two lots priced at two rates; a debit larger than all lots (overdraft, priced at the last lot's rate); repayment then lot open on the next top-up; replay makes no second consumption; a lot's rates cannot be updated (trigger); cross-tenant zero rows; invariant 1 after a randomised sequence of top-ups and debits; the migration opens one lot per positive balance and none for a negative one.
 
@@ -237,7 +238,7 @@ Files: `agents/voices.py`, `agents/voice_routes.py`, `agents/verification.py`, `
 ### Phase D — LANDED IN PART `1df9a5a`, `a822c7e` (7–8 Sep 2026). D.3 IS NOT BUILT; D.4's revenue half IS NOT BUILT
 
 **Built**: D.1 (`TtsPriceAttestation` and `tts_price_is_billable`) and D.2 (the metering
-seam), D.4's panel half (`UsagePanelOut` gained `sarvam_minutes`/`cartesia_minutes` and
+seam), D.4's panel half (`UsagePanelOut` gained `clear_minutes`/`studio_minutes` and
 their charges, `crm/schemas.py:1035-1038`, fed by `voice_tier_usage`, with no total derived
 in the browser — D-458 kept).
 
@@ -258,7 +259,7 @@ Files: `billing/rates.py`, `ops/model_pricing.py`, `workers/pipeline.py`, `billi
 1. §3.5's `TtsPriceAttestation`, ops attestation panel entry, and `tts_price_is_billable("cartesia")`.
 2. Pipeline: for a Cartesia call, `tts_chars` row `qty` = agent characters from transcript, `unit_cost_paid` = attested rate × qty; for a Sarvam call the existing engine-leg figure stays (its own attestation question is gate 7, `docs/OPERATIONS.md:88`, unchanged).
 3. Monthly `cartesia_plan` platform cost row (operator-attested amount, once per IST month) so the spend board shows plan spend vs attributed. ⚠ **A SECOND PLATFORM ROW LANDED WITH D-556 (9 Sep 2026) AND IS A DIFFERENT FACT**: `platform_tts_volume` (migration `f7c2a94e18b3`) is a COUNTER the post-call meter moves, holding the fleet's monthly Studio characters and call-minutes. The attested fee says what the vendor BILLED; this says how much of the allotment was SPOKEN, which is what turns a subscription into a per-minute cost. Two independent counts, no speaking-rate assumption, `platform_ai_spend`'s shape and reason.
-4. `calling_revenue_inr` (`service.py:2194-2231`) takes the lot splits' sum instead of `(minutes × one rate)`; `_ROW_TIER_SQL` (`:1233`) reads the new tier spellings; `UsagePanelOut` gains `sarvam_minutes`, `cartesia_minutes`, and their charges, still with NO total computed in the browser (D-458).
+4. `calling_revenue_inr` (`service.py:2194-2231`) takes the lot splits' sum instead of `(minutes × one rate)`; `_ROW_TIER_SQL` (`:1233`) reads the new tier spellings; `UsagePanelOut` gains `clear_minutes`, `studio_minutes`, and their charges, still with NO total computed in the browser (D-458).
 
 ### Phase E — LANDED `2e16152`, `2952c90`, `be5a5ec` (7–8 Sep 2026)
 

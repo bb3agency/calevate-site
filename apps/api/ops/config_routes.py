@@ -80,12 +80,14 @@ from apps.api.billing.rates import (
     CARTESIA_VOLUME_LADDER_CALL_MINUTES,
     MIN_GROSS_MARGIN,
     MONEY_Q,
+    PREMIUM_VOICE_TIER,
     PREPAID_TIERS,
     ROUNDING,
     TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
+    VALUE_VOICE_TIER,
     VOICE_TIERS,
     CartesiaPlan,
-    SarvamCostFloor,
+    ClearCostFloor,
     VoiceTier,
     cartesia_best_marginal_cost_inr_per_min,
     cartesia_cheapest_plan,
@@ -95,8 +97,8 @@ from apps.api.billing.rates import (
     cartesia_plan_crossover_call_minutes,
     cartesia_plan_marginal_cost_inr_per_min,
     cartesia_rung_breakeven_call_minutes,
+    clear_cost_floor_at,
     rate_margin,
-    sarvam_cost_floor_at,
     voice_tier_label,
 )
 from apps.api.billing.tts_speaking_rate import fleet_speaking_rate
@@ -1131,7 +1133,7 @@ class SpeakingRateOut(BaseModel):
     that there is not one yet.
 
     The same fields the admin spend board publishes, built from the same two objects
-    (`rates.SpeakingRateBasis`, `rates.sarvam_cost_floor_at`) — a second SERIALIZATION of one
+    (`rates.SpeakingRateBasis`, `rates.clear_cost_floor_at`) — a second SERIALIZATION of one
     arithmetic, never a second arithmetic.
     """
 
@@ -1273,7 +1275,7 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     # one read of THIS route into 8,480 session checkouts, and the paragraph above is the
     # scar. The basis is resolved ONCE here and threaded through every Clear cost below, for
     # the reason `fx` is: a screen whose rows were struck at two bases does not add up.
-    clear_floor = sarvam_cost_floor_at((await fleet_speaking_rate(session)).basis())
+    clear_floor = clear_cost_floor_at((await fleet_speaking_rate(session)).basis())
     measured_cost = cartesia_measured_cost_inr_per_call_minute(
         characters=volume.characters, call_minutes=volume.call_minutes, usd_inr=fx.rate
     )
@@ -1315,7 +1317,7 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
 
 
 def _volume_cost(
-    voice: VoiceTier, measured: Decimal | None, clear: SarvamCostFloor
+    voice: VoiceTier, measured: Decimal | None, clear: ClearCostFloor
 ) -> Decimal | None:
     """What one minute of `voice` cost at what the platform ACTUALLY did.
 
@@ -1332,7 +1334,7 @@ def _volume_cost(
     (`cartesia_measured_cost_inr_per_call_minute`), which is a better figure than any
     speaking rate and must not be re-derived from one. `None` when there was no such month.
     """
-    if voice == "sarvam":
+    if voice == VALUE_VOICE_TIER:
         return clear.inr_per_min
     return measured
 
@@ -1342,7 +1344,7 @@ def _cells_out(
     *,
     measured_cost: Decimal | None,
     fx: UsdInrRate,
-    clear: SarvamCostFloor,
+    clear: ClearCostFloor,
 ) -> list[RateCardCellOut]:
     """One card as twelve rendered cells, verdicts included — TWICE OVER since 9 Sep 2026.
 
@@ -1386,7 +1388,7 @@ def _cells_out(
                 below_floor=verdict.below_cost,
                 breakeven_call_minutes=(
                     None
-                    if voice != "cartesia"
+                    if voice != PREMIUM_VOICE_TIER
                     else _opt_str(
                         cartesia_rung_breakeven_call_minutes(verdict.rate, usd_inr=fx.rate)
                     )
@@ -1405,7 +1407,7 @@ def _opt_str(value: Decimal | None) -> str | None:
     return None if value is None else str(value)
 
 
-def _speaking_rate_out(clear: SarvamCostFloor) -> SpeakingRateOut:
+def _speaking_rate_out(clear: ClearCostFloor) -> SpeakingRateOut:
     """The basis and the floor it produced, as the console reads them. No arithmetic here."""
     return SpeakingRateOut(
         measured=clear.basis.measured,
@@ -1795,7 +1797,7 @@ async def record_rate_card(
             card,
             measured_cost=None,
             fx=usd_inr_rate_now(get_settings().usd_inr_rate),
-            clear=sarvam_cost_floor_at((await fleet_speaking_rate(session)).basis()),
+            clear=clear_cost_floor_at((await fleet_speaking_rate(session)).basis()),
         ),
         clients_notified=notified is not None,
     )

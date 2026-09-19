@@ -310,11 +310,11 @@ async def test_the_runway_is_a_pair_priced_off_the_lots_not_a_balance_over_a_rat
     await add_lot(tenant_id, credits_inr="1000", rates=(Decimal("4"), Decimal("8")))
     async with tenant_session(tenant_id) as session:
         pair = await tier_minutes(session, tenant_id=tenant_id)
-    assert [tier.provider for tier in pair] == ["sarvam", "cartesia"], "both, catalogue order"
+    assert [tier.provider for tier in pair] == ["clear", "studio"], "both, catalogue order"
     assert [tier.minutes for tier in pair] == [250, 125]
     assert [tier.label for tier in pair] == [
-        voice_tier_label("sarvam"),
-        voice_tier_label("cartesia"),
+        voice_tier_label("clear"),
+        voice_tier_label("studio"),
     ], "the CLIENT's word for the tier travels with the figure; a vendor name never does"
 
 
@@ -475,13 +475,13 @@ def test_the_low_balance_mail_quotes_minutes_per_voice_quality_in_the_clients_wo
         level=WALLET_LEVEL_LOW,
         balance_inr=Decimal("150.00"),
         minutes_left=(
-            TierMinutes(provider="sarvam", label=voice_tier_label("sarvam"), minutes=620),
-            TierMinutes(provider="cartesia", label=voice_tier_label("cartesia"), minutes=430),
+            TierMinutes(provider="clear", label=voice_tier_label("clear"), minutes=620),
+            TierMinutes(provider="studio", label=voice_tier_label("studio"), minutes=430),
         ),
         slug="clinic",
     )
-    assert "620 more minutes of calling on " + voice_tier_label("sarvam") in body
-    assert "or 430 on " + voice_tier_label("cartesia") in body
+    assert "620 more minutes of calling on " + voice_tier_label("clear") in body
+    assert "or 430 on " + voice_tier_label("studio") in body
     for vendor in ("sarvam", "cartesia", "Sarvam", "Cartesia"):
         assert vendor not in body, "a client reads the tier LABEL, never the vendor"
 
@@ -496,8 +496,8 @@ def test_a_low_balance_mail_promises_nothing_rather_than_zero_minutes() -> None:
         level=WALLET_LEVEL_LOW,
         balance_inr=Decimal("150.00"),
         minutes_left=(
-            TierMinutes(provider="sarvam", label=voice_tier_label("sarvam"), minutes=0),
-            TierMinutes(provider="cartesia", label=voice_tier_label("cartesia"), minutes=0),
+            TierMinutes(provider="clear", label=voice_tier_label("clear"), minutes=0),
+            TierMinutes(provider="studio", label=voice_tier_label("studio"), minutes=0),
         ),
         slug="clinic",
     )

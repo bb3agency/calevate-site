@@ -42,7 +42,7 @@ async def test_a_debit_that_lost_the_race_re_reads_and_takes_what_is_left() -> N
                 tenant_id=tenant,
                 demand=lots.CallDemand(
                     minutes=Decimal("100"),  # ₹500
-                    voice_tier="sarvam",
+                    voice_tier="clear",
                     fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )
@@ -56,7 +56,7 @@ async def test_a_debit_that_lost_the_race_re_reads_and_takes_what_is_left() -> N
             lots=list(stale),
             demand=lots.CallDemand(
                 minutes=Decimal("120"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )

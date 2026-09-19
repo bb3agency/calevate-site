@@ -79,8 +79,16 @@ from apps.api.billing.rates import (
 TELEPHONY_ESTIMATE_LOW = Decimal("0.35")
 
 
-def test_the_sarvam_floor_is_the_sum_of_its_four_named_legs() -> None:
-    """₹0.95 engine + ₹0.50 STT + ₹0.2411 LLM + ₹1.62 TTS = ₹3.3111/min.
+def test_the_clear_floor_is_the_sum_of_its_four_named_legs() -> None:
+    """₹0.95 engine + ₹0.50 STT + ₹0.2411 LLM + ₹1.4580 TTS = ₹3.1491/min.
+
+    ⚠ **THE TTS LEG AND THE TOTAL MOVED ON 19 Sep 2026 AND THE OTHER THREE DID NOT.** The
+    Clear rung's per-character rate was a FROZEN ₹30 / 10,000 — a withdrawn vendor's card,
+    held in place because Gnani were believed to publish nothing. They publish ₹27.00
+    (`app.gnani.ai/voice/pricing`, D-631), so the rung's floor is struck at its own vendor's
+    number: ₹1.62 → ₹1.4580 on the TTS leg, ₹3.3111 → ₹3.1491 on the total. The floor FELL,
+    so every pack that cleared it still clears it — this is not a repricing of anything
+    sold, and nothing is sold.
 
     Recomputed from the same functions the cost model exposes rather than from a literal, so
     a vendor price move in any leg fails here with the leg named — which is exactly what the
@@ -96,7 +104,7 @@ def test_the_sarvam_floor_is_the_sum_of_its_four_named_legs() -> None:
         sum(legs, Decimal("0")).quantize(MONEY_Q, rounding=ROUNDING)
         == SELF_SERVE_COST_FLOOR_INR_PER_MIN
     )
-    assert Decimal("3.3111") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert Decimal("3.1491") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
 
 
 def test_the_engine_leg_is_the_vendors_published_active_minute() -> None:
@@ -165,10 +173,10 @@ def test_neither_floor_carries_a_telephony_leg() -> None:
     is exactly its own legs, so adding the cheapest published telephony estimate to those
     legs must overshoot it.
     """
-    for voice in ("sarvam", "cartesia"):
+    for voice in ("clear", "studio"):
         floor = cost_floor_inr_per_min(voice)  # type: ignore[arg-type]
         assert floor + TELEPHONY_ESTIMATE_LOW > floor
-        ceiling = Decimal("4.40") if voice == "sarvam" else Decimal("5.80")
+        ceiling = Decimal("4.40") if voice == "clear" else Decimal("5.80")
         assert floor < ceiling, (
             f"the {voice} floor is {floor}; a telephony leg would put it above this line"
         )
@@ -332,9 +340,7 @@ def test_the_cartesia_cost_curve_at_real_volumes_including_one_that_is_underwate
     # print, rather than a blanket one.
     at_100 = cartesia_cost_inr_per_call_minute(Decimal("100"), usd_inr=CARTESIA_EVIDENCE_USD_INR)
     assert at_100 == Decimal("6.0211")
-    underwater = sorted(
-        pack.pack_id for pack in PACK_CATALOGUE if pack.cartesia_inr_per_min < at_100
-    )
+    underwater = sorted(pack.pack_id for pack in PACK_CATALOGUE if pack.studio_inr_per_min < at_100)
     assert underwater == ["max", "pro"]
     assert underwater, "some rung must be under water at the ladder's bottom volume"
     by_depth = sorted(PACK_CATALOGUE, key=lambda pack: pack.amount_inr, reverse=True)
@@ -384,7 +390,7 @@ def test_every_studio_rung_carries_the_volume_it_needs_to_stop_losing_money() ->
     """
     assert {
         pack.pack_id: cartesia_rung_breakeven_call_minutes(
-            pack.cartesia_inr_per_min, usd_inr=CARTESIA_EVIDENCE_USD_INR
+            pack.studio_inr_per_min, usd_inr=CARTESIA_EVIDENCE_USD_INR
         )
         for pack in PACK_CATALOGUE
     } == {
@@ -495,7 +501,7 @@ def test_the_console_ladder_always_contains_a_volume_where_the_card_is_underwate
     assert list(CARTESIA_VOLUME_LADDER_CALL_MINUTES) == sorted(CARTESIA_VOLUME_LADDER_CALL_MINUTES)
     breakevens = [
         cartesia_rung_breakeven_call_minutes(
-            pack.cartesia_inr_per_min, usd_inr=CARTESIA_EVIDENCE_USD_INR
+            pack.studio_inr_per_min, usd_inr=CARTESIA_EVIDENCE_USD_INR
         )
         for pack in PACK_CATALOGUE
     ]
@@ -534,16 +540,16 @@ def test_the_cartesia_floor_holds_at_the_llm_cards_conversion_too() -> None:
     ).quantize(MONEY_Q, rounding=ROUNDING)
     assert alternative == Decimal("5.0488")
     assert alternative > CARTESIA_COST_FLOOR_INR_PER_MIN
-    cheapest = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
+    cheapest = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
     assert cheapest > alternative, "the card must clear the floor under either conversion"
 
 
 def test_the_floor_selector_is_total_over_the_two_tiers_and_raises_otherwise() -> None:
     """One door, two floors, and no default. A selector that fell back to the cheaper floor
     for an unknown tier would pass every check and undercharge for the dearer voice."""
-    assert cost_floor_inr_per_min("sarvam") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
-    assert cost_floor_inr_per_min("cartesia") == CARTESIA_COST_FLOOR_INR_PER_MIN
-    assert cost_floor_inr_per_min("cartesia") > cost_floor_inr_per_min("sarvam")
+    assert cost_floor_inr_per_min("clear") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("studio") == CARTESIA_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("studio") > cost_floor_inr_per_min("clear")
     with pytest.raises(ValueError, match="no cost floor"):
         cost_floor_inr_per_min("elevenlabs")  # type: ignore[arg-type]
 
@@ -565,6 +571,12 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
     §12 publishes, so a floor that moves under our feet fails here with the cell named; it
     is not the thing that encodes the rule.
 
+    ⚠ **THE SIX CLEAR CELLS MOVED FROM 17.22% TO 21.27% ON 19 Sep 2026 AND NO RATE
+    CHANGED.** Gnani's published ₹27.00 / 10,000 characters replaced a withdrawn vendor's
+    frozen ₹30 behind the Clear floor (D-631), pulling it from ₹3.3111 to ₹3.1491 — so the
+    same ₹4.00 rate earns more. Every Clear rung now clears `MIN_GROSS_MARGIN`; the four
+    thin cells that remain are all Studio, where the floor did not move.
+
     ⚠ This test used to be named `..._and_every_rung_clears_target` and asserted exactly
     that. It was true only between D-592 (which halved the engine leg and pulled the floors
     to ₹3.3111 / ₹4.7099) and the 14 Sep card. A literal expectation that sits on the wrong
@@ -573,22 +585,22 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
     read back.
     """
     expected = {
-        ("starter", "sarvam"): Decimal("0.1722"),
-        ("starter", "cartesia"): Decimal("0.3272"),
-        ("growth", "sarvam"): Decimal("0.1722"),
-        ("growth", "cartesia"): Decimal("0.2970"),
-        ("scale", "sarvam"): Decimal("0.1722"),
-        ("scale", "cartesia"): Decimal("0.2641"),
-        ("plus", "sarvam"): Decimal("0.1722"),
-        ("plus", "cartesia"): Decimal("0.2279"),
-        ("pro", "sarvam"): Decimal("0.1722"),
-        ("pro", "cartesia"): Decimal("0.1879"),
-        ("max", "sarvam"): Decimal("0.1722"),
-        ("max", "cartesia"): Decimal("0.1437"),
+        ("starter", "clear"): Decimal("0.2127"),
+        ("starter", "studio"): Decimal("0.3272"),
+        ("growth", "clear"): Decimal("0.2127"),
+        ("growth", "studio"): Decimal("0.2970"),
+        ("scale", "clear"): Decimal("0.2127"),
+        ("scale", "studio"): Decimal("0.2641"),
+        ("plus", "clear"): Decimal("0.2127"),
+        ("plus", "studio"): Decimal("0.2279"),
+        ("pro", "clear"): Decimal("0.2127"),
+        ("pro", "studio"): Decimal("0.1879"),
+        ("max", "clear"): Decimal("0.2127"),
+        ("max", "studio"): Decimal("0.1437"),
     }
     thin = []
     for pack in PACK_CATALOGUE:
-        for voice in ("sarvam", "cartesia"):
+        for voice in ("clear", "studio"):
             rate = pack.inr_per_min(voice)  # type: ignore[arg-type]
             floor = cost_floor_inr_per_min(voice)  # type: ignore[arg-type]
             # THE INVARIANT: no cell may sell a minute for less than that minute costs us.
@@ -633,7 +645,7 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
     assert cartesia_cost_floor_inr_per_min_at(Decimal("95.66")) == Decimal("5.0554")
     assert cartesia_cost_floor_inr_per_min_at(Decimal("100")) == Decimal("5.2511")
 
-    cheapest_rung = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
+    cheapest_rung = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
     assert cheapest_rung == Decimal("5.50")
     assert cheapest_rung > cartesia_cost_floor_inr_per_min_at(Decimal("88"))
     # ⚠ **THE FLOOR RUNG NO LONGER GOES UNDER WATER AT THE LLM CARD'S RATE, AND THAT IS
@@ -660,7 +672,7 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
         cartesia_cost_floor_inr_per_min_at(CARTESIA_EVIDENCE_USD_INR)
         == CARTESIA_COST_FLOOR_INR_PER_MIN
     )
-    assert cost_floor_inr_per_min("cartesia") == CARTESIA_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("studio") == CARTESIA_COST_FLOOR_INR_PER_MIN
     assert card_refusals(PACK_CATALOGUE) == []
 
 
@@ -679,7 +691,7 @@ def test_the_scary_marginal_figure_is_not_the_blended_one_and_both_are_published
     blended = cartesia_cost_inr_per_call_minute(Decimal("200"), usd_inr=fx)
     assert blended == Decimal("4.3379")
     assert blended < cartesia_cost_floor_inr_per_min_at(fx)
-    floor_rung = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
+    floor_rung = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
     assert gross_margin_ratio(rate=floor_rung, cost=blended).quantize(Decimal("0.0001")) == Decimal(
         "0.2113"
     )
@@ -699,7 +711,7 @@ def test_only_the_dollar_legs_move_with_the_rate() -> None:
     assert at_100 - at_88 == ENGINE_PLATFORM_FEE_USD_PER_MIN * Decimal("12")
     assert at_100 == Decimal("1.7411")
     # The Sarvam floor is rupee-priced end to end and is NOT a function of the rate at all.
-    assert Decimal("3.3111") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert Decimal("3.1491") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
 
 
 # ============================================================================

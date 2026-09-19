@@ -70,15 +70,15 @@ async def test_the_rate_card_answers_a_stranger_with_the_card_and_nothing_else()
     # Money is a string on the wire (hard rule 7) — never a JSON number a browser floats.
     assert isinstance(body["list_rate_inr_per_min"], str)
     assert isinstance(body["from_inr_per_min"], str)
-    assert isinstance(body["from_sarvam_inr_per_min"], str)
-    assert isinstance(body["from_cartesia_inr_per_min"], str)
+    assert isinstance(body["from_clear_inr_per_min"], str)
+    assert isinstance(body["from_studio_inr_per_min"], str)
     for pack in body["packs"]:
         for field in (
             "amount_inr",
             "bonus_credits",
             "total_credits",
-            "sarvam_inr_per_min",
-            "cartesia_inr_per_min",
+            "clear_inr_per_min",
+            "studio_inr_per_min",
             "effective_rate_inr_per_min",
         ):
             assert isinstance(pack[field], str), field
@@ -107,13 +107,13 @@ async def test_every_rate_on_the_wire_is_the_catalogue_rate_quantised_once() -> 
         assert Decimal(row["total_credits"]) == pack.total_credits
     # The two "from" figures are the LOWEST published row per column, and the list rate is
     # the ENTRY rung's Sarvam rate: the two ends of the ladder, both derived.
-    assert Decimal(body["from_sarvam_inr_per_min"]) == min(
-        Decimal(row["sarvam_inr_per_min"]) for row in by_id.values()
+    assert Decimal(body["from_clear_inr_per_min"]) == min(
+        Decimal(row["clear_inr_per_min"]) for row in by_id.values()
     )
-    assert Decimal(body["from_cartesia_inr_per_min"]) == min(
-        Decimal(row["cartesia_inr_per_min"]) for row in by_id.values()
+    assert Decimal(body["from_studio_inr_per_min"]) == min(
+        Decimal(row["studio_inr_per_min"]) for row in by_id.values()
     )
-    assert Decimal(body["list_rate_inr_per_min"]) == PACK_CATALOGUE[0].sarvam_inr_per_min
+    assert Decimal(body["list_rate_inr_per_min"]) == PACK_CATALOGUE[0].clear_inr_per_min
 
 
 async def test_the_deprecated_fields_stay_on_the_wire_holding_the_safe_value() -> None:
@@ -126,14 +126,14 @@ async def test_the_deprecated_fields_stay_on_the_wire_holding_the_safe_value() -
     """
     async with _anonymous() as http:
         body = (await http.get(PATH)).json()
-    assert Decimal(body["from_inr_per_min"]) == Decimal(body["from_sarvam_inr_per_min"])
-    assert Decimal(body["from_inr_per_min"]) < Decimal(body["from_cartesia_inr_per_min"])
+    assert Decimal(body["from_inr_per_min"]) == Decimal(body["from_clear_inr_per_min"])
+    assert Decimal(body["from_inr_per_min"]) < Decimal(body["from_studio_inr_per_min"])
     for row in body["packs"]:
         assert Decimal(row["bonus_pct"]) == 0
         assert Decimal(row["bonus_credits"]) == 0
         assert Decimal(row["total_credits"]) == Decimal(row["paid_credits"])
-        assert Decimal(row["effective_rate_inr_per_min"]) == Decimal(row["sarvam_inr_per_min"])
-        assert row["talk_time_minutes"] == row["sarvam_minutes"]
+        assert Decimal(row["effective_rate_inr_per_min"]) == Decimal(row["clear_inr_per_min"])
+        assert row["talk_time_minutes"] == row["clear_minutes"]
 
 
 async def test_the_card_names_each_voice_tier_without_naming_its_vendor() -> None:
@@ -159,7 +159,7 @@ async def test_the_card_names_each_voice_tier_without_naming_its_vendor() -> Non
         assert label.strip(), voice
         for vendor in ("sarvam", "cartesia", "bulbul", "sonic"):
             assert vendor not in label.lower(), (voice, label)
-    assert body["sarvam_tier_label"] != body["cartesia_tier_label"]
+    assert body["clear_tier_label"] != body["studio_tier_label"]
 
 
 async def test_the_packs_arrive_in_ladder_order_with_neither_column_rising() -> None:
@@ -185,8 +185,8 @@ async def test_the_packs_arrive_in_ladder_order_with_neither_column_rising() -> 
         # And the dearer voice is dearer on every rung, which is what lets the page put the
         # two columns side by side without explaining an inversion.
     for row in rows:
-        assert Decimal(row["cartesia_inr_per_min"]) >= Decimal(row["sarvam_inr_per_min"])
-        assert row["cartesia_minutes"] <= row["sarvam_minutes"]
+        assert Decimal(row["studio_inr_per_min"]) >= Decimal(row["clear_inr_per_min"])
+        assert row["studio_minutes"] <= row["clear_minutes"]
 
 
 async def test_the_from_rates_are_derived_and_never_above_the_list_rate() -> None:
@@ -207,12 +207,12 @@ async def test_the_from_rates_are_derived_and_never_above_the_list_rate() -> Non
     constant, and with no card recorded that resolves to the catalogue per cell."""
     async with untenanted_session() as session:
         card = await rate_card_out(session)
-    assert card.from_sarvam_inr_per_min in {p.sarvam_inr_per_min for p in card.packs}
-    assert card.from_cartesia_inr_per_min in {p.cartesia_inr_per_min for p in card.packs}
-    assert card.from_sarvam_inr_per_min == min(p.sarvam_inr_per_min for p in card.packs)
-    assert card.from_cartesia_inr_per_min == min(p.cartesia_inr_per_min for p in card.packs)
-    assert card.from_sarvam_inr_per_min <= card.list_rate_inr_per_min
-    assert card.from_cartesia_inr_per_min > card.from_sarvam_inr_per_min
+    assert card.from_clear_inr_per_min in {p.clear_inr_per_min for p in card.packs}
+    assert card.from_studio_inr_per_min in {p.studio_inr_per_min for p in card.packs}
+    assert card.from_clear_inr_per_min == min(p.clear_inr_per_min for p in card.packs)
+    assert card.from_studio_inr_per_min == min(p.studio_inr_per_min for p in card.packs)
+    assert card.from_clear_inr_per_min <= card.list_rate_inr_per_min
+    assert card.from_studio_inr_per_min > card.from_clear_inr_per_min
 
 
 async def test_the_card_no_longer_moves_with_the_self_serve_setting(

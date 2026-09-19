@@ -647,11 +647,11 @@ const pending: PendingState = {
   precedence_rule:
     "Script decides content, rules decide conduct, voice only changes delivery.",
   voice: {
-    configured: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
-    live: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
+    configured: { voice_id: "timbre-v2.5", provider: "gnani", voice_tier: "clear", catalog: null },
+    live: { voice_id: "timbre-v2.5", provider: "gnani", voice_tier: "clear", catalog: null },
     republish_required: false,
     unnamed_note: null,
-    headline: "Callers hear Bulbul v3.",
+    headline: "Callers hear Timbre v2.5.",
   },
   // The per-quality rate this account would pay, from its oldest open lot. Empty here:
   // this fixture has no wallet, and a screen with no lot prints no rate (D-547).

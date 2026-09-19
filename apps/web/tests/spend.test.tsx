@@ -271,12 +271,12 @@ const HUB_USAGE = {
   credit_balance_inr: null,
   // THE TWO QUALITIES, required on `UsagePanelOut` since D-547. A month with no calls has
   // none on either, and the panel prints no row for a quality with no minutes.
-  sarvam_minutes: "0.0000",
-  sarvam_charges_inr: "0.00",
-  sarvam_label: "Clear",
-  cartesia_minutes: "0.0000",
-  cartesia_charges_inr: "0.00",
-  cartesia_label: "Studio",
+  clear_minutes: "0.0000",
+  clear_charges_inr: "0.00",
+  clear_label: "Clear",
+  studio_minutes: "0.0000",
+  studio_charges_inr: "0.00",
+  studio_label: "Studio",
 };
 
 const HUB_CAPS = {
@@ -312,7 +312,7 @@ const TTS_MEASURED: TtsSpeakingRate = {
       tier_label: "Clear",
       price_attested: true,
       inr_per_1k_chars: "3.0000",
-      pooled_inr_per_minute: "1.2360",
+      pooled_inr_per_minute: "1.1124",
     },
     {
       provider: "cartesia",
@@ -327,11 +327,11 @@ const TTS_MEASURED: TtsSpeakingRate = {
   clients: 2,
   minimum_calls: 20,
   reason: null,
-  p50: { chars_per_minute: "412.0000", tts_inr_per_minute: "1.2360" },
-  p95: { chars_per_minute: "688.5000", tts_inr_per_minute: "2.0655" },
-  pooled: { chars_per_minute: "437.1429", tts_inr_per_minute: "1.3114" },
-  assumed_low: { chars_per_minute: "360.0000", tts_inr_per_minute: "1.0800" },
-  assumed_high: { chars_per_minute: "540.0000", tts_inr_per_minute: "1.6200" },
+  p50: { chars_per_minute: "412.0000", tts_inr_per_minute: "1.1124" },
+  p95: { chars_per_minute: "688.5000", tts_inr_per_minute: "1.8590" },
+  pooled: { chars_per_minute: "437.1429", tts_inr_per_minute: "1.1803" },
+  assumed_low: { chars_per_minute: "360.0000", tts_inr_per_minute: "0.9720" },
+  assumed_high: { chars_per_minute: "540.0000", tts_inr_per_minute: "1.4580" },
   tts_inr_per_10k_chars: "30.0000",
   // THE BLOCK THE COST MODEL ACTUALLY READS (D-557). The fields above are the archive,
   // walked one tenant at a time for its percentiles; this is the platform counter, and the
@@ -585,12 +585,12 @@ describe("the client's spend screen", () => {
           ...HUB_USAGE,
           minutes_used: "140.5000",
           month_charges_inr: "902.50",
-          sarvam_minutes: "120.50",
-          sarvam_charges_inr: "602.50",
-          sarvam_label: "Clear",
-          cartesia_minutes: "20.00",
-          cartesia_charges_inr: "300.00",
-          cartesia_label: "Studio",
+          clear_minutes: "120.50",
+          clear_charges_inr: "602.50",
+          clear_label: "Clear",
+          studio_minutes: "20.00",
+          studio_charges_inr: "300.00",
+          studio_label: "Studio",
         },
       }),
       "Usage",
@@ -781,14 +781,14 @@ describe("the operator's half", () => {
     // The server's digits, trailing zeros trimmed by string surgery and never re-rounded:
     // 437.1429 stays 437.1429 (a float path would print 437.14290000000005 somewhere).
     expect(text).toContain("437.1429");
-    expect(text).toContain("₹1.3114/min");
+    expect(text).toContain("₹1.1803/min");
     expect(text).toContain("412");
     expect(text).toContain("688.5");
-    expect(text).toContain("₹2.0655/min");
+    expect(text).toContain("₹1.8590/min");
     expect(text).toContain("41 calls with a transcript across 2 clients");
     // The band is labelled as the figure this REPLACED, and is still on the card.
     expect(text).toContain(
-      "Replaces the assumed 360–540 chars/min (₹1.0800–₹1.6200/min)",
+      "Replaces the assumed 360–540 chars/min (₹0.9720–₹1.4580/min)",
     );
     expect(text).not.toContain("Not enough calls");
   });
@@ -807,7 +807,7 @@ describe("the operator's half", () => {
     expect(text).toContain("assumption and not a reading");
     expect(text).toContain("360–540 chars/min");
     expect(text).not.toContain("437.1429");
-    expect(text).not.toContain("₹1.3114");
+    expect(text).not.toContain("₹1.1803");
     expect(text).not.toContain("Replaces the assumed");
   });
 });
@@ -848,7 +848,7 @@ const BY_PROVIDER = [
     tier_label: "Clear",
     price_attested: false,
     inr_per_1k_chars: "3.0000",
-    pooled_inr_per_minute: "1.3114",
+    pooled_inr_per_minute: "1.1803",
   },
   {
     provider: "cartesia",

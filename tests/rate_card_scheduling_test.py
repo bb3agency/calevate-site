@@ -223,10 +223,10 @@ async def test_a_future_card_changes_nothing_until_its_date() -> None:
         today = await rate_card_at(session, at=datetime.now(UTC))
         on_the_day = await rate_card_at(session, at=at)
     # Today: exactly what the platform sold this morning.
-    assert today.of_pack(starter).sarvam_inr_per_min == starter.sarvam_inr_per_min
-    assert today.of_pack(starter).cartesia_inr_per_min == starter.cartesia_inr_per_min
+    assert today.of_pack(starter).clear_inr_per_min == starter.clear_inr_per_min
+    assert today.of_pack(starter).studio_inr_per_min == starter.studio_inr_per_min
     # On the day: the new card, and not a moment before it.
-    assert on_the_day.of_pack(starter).sarvam_inr_per_min == starter.sarvam_inr_per_min + Decimal(
+    assert on_the_day.of_pack(starter).clear_inr_per_min == starter.clear_inr_per_min + Decimal(
         "0.50"
     )
 
@@ -240,8 +240,8 @@ async def test_a_purchase_made_today_freezes_todays_rates_even_with_a_card_pendi
     biggest = max(PACK_CATALOGUE, key=lambda pack: pack.amount_inr)
     async with untenanted_session() as session:
         frozen = (await rate_card_at(session, at=datetime.now(UTC))).for_amount(biggest.amount_inr)
-    assert frozen.sarvam_inr_per_min == biggest.sarvam_inr_per_min
-    assert frozen.cartesia_inr_per_min == biggest.cartesia_inr_per_min
+    assert frozen.clear_inr_per_min == biggest.clear_inr_per_min
+    assert frozen.studio_inr_per_min == biggest.studio_inr_per_min
 
 
 async def test_the_recorded_card_lands_as_twelve_rows_plus_the_legacy_key_at_one_instant() -> None:
@@ -505,7 +505,7 @@ async def test_withdrawing_a_scheduled_card_stops_it_pricing_anything_ever() -> 
     async with untenanted_session() as session:
         after = await rate_card_at(session, at=stamped + timedelta(days=365))
         still_pending = await pending_cards(session, at=datetime.now(UTC))
-    assert after.of_pack(starter).sarvam_inr_per_min == starter.sarvam_inr_per_min
+    assert after.of_pack(starter).clear_inr_per_min == starter.clear_inr_per_min
     assert still_pending == ()
 
 
@@ -705,8 +705,8 @@ async def test_the_rate_card_read_lists_pending_cards_and_the_earliest_date() ->
     pending = {
         (c["pack_id"], c["voice_tier"]): c["inr_per_min"] for c in body["pending"][0]["cells"]
     }
-    assert Decimal(in_force[(starter.pack_id, "sarvam")]) == starter.sarvam_inr_per_min
-    assert Decimal(pending[(starter.pack_id, "sarvam")]) == starter.sarvam_inr_per_min + Decimal(
+    assert Decimal(in_force[(starter.pack_id, "sarvam")]) == starter.clear_inr_per_min
+    assert Decimal(pending[(starter.pack_id, "sarvam")]) == starter.clear_inr_per_min + Decimal(
         "0.50"
     )
 
@@ -721,13 +721,11 @@ async def test_the_client_facing_pack_card_publishes_the_next_change_before_it_l
     async with untenanted_session() as session:
         card = await rate_card_out(session)
     starter = min(PACK_CATALOGUE, key=lambda pack: pack.amount_inr)
-    assert card.list_rate_inr_per_min == starter.sarvam_inr_per_min
+    assert card.list_rate_inr_per_min == starter.clear_inr_per_min
     assert card.next_change is not None
     assert card.next_change.effective_from == stamped
     changed = {pack.pack_id: pack for pack in card.next_change.packs}
-    assert changed[starter.pack_id].sarvam_inr_per_min == starter.sarvam_inr_per_min + Decimal(
-        "0.50"
-    )
+    assert changed[starter.pack_id].clear_inr_per_min == starter.clear_inr_per_min + Decimal("0.50")
 
 
 async def test_the_client_facing_card_has_no_next_change_when_none_is_scheduled() -> None:
@@ -747,14 +745,14 @@ def test_a_card_built_from_partial_cells_keeps_the_catalogue_rate_for_the_rest()
     starter = min(PACK_CATALOGUE, key=lambda pack: pack.amount_inr)
     partial = card_with_rates({starter.pack_id: {"sarvam": Decimal("6.0000")}})
     built = {pack.pack_id: pack for pack in partial}
-    assert built[starter.pack_id].sarvam_inr_per_min == Decimal("6.0000")
-    assert built[starter.pack_id].cartesia_inr_per_min == starter.cartesia_inr_per_min
+    assert built[starter.pack_id].clear_inr_per_min == Decimal("6.0000")
+    assert built[starter.pack_id].studio_inr_per_min == starter.studio_inr_per_min
     assert len(built) == len(PACK_CATALOGUE)
 
 
 def test_the_list_rate_is_the_entry_rungs_sarvam_rate() -> None:
     starter = min(PACK_CATALOGUE, key=lambda pack: pack.amount_inr)
-    assert card_list_rate(PACK_CATALOGUE) == starter.sarvam_inr_per_min
+    assert card_list_rate(PACK_CATALOGUE) == starter.clear_inr_per_min
 
 
 async def test_pending_cards_are_soonest_first_and_bounded_to_aware_instants() -> None:

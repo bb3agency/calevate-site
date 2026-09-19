@@ -1576,7 +1576,7 @@ class Settings(BaseSettings):
     # PROJECTION OF THE RATE CARD, NOT AN INDEPENDENT NUMBER.
     #
     # ⚠ **IT MUST EQUAL THE ENTRY RUNG'S CLEAR RATE**
-    # (`apps/api/billing/credit_packs.PACK_CATALOGUE[0].sarvam_inr_per_min`, ₹4.00 since
+    # (`apps/api/billing/credit_packs.PACK_CATALOGUE[0].clear_inr_per_min`, ₹4.00 since
     # D-601, 14 Sep 2026). That is not a coincidence to preserve by hand — it is the
     # DEFINITION the rest of the money path uses: `ops/config_routes._record_card` writes
     # `list_rates.card_list_rate(card)` into this key in the same transaction as every card

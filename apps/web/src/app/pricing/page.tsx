@@ -234,12 +234,12 @@ export default async function PricingPage() {
                   so the headline is the voice that can be and the other is in the lede with
                   the notice saying why. It moves the number UP, which is the only direction
                   a correction to a public price may take on its own. */
-              `Talk time on the ${tierLabel(rateCard, "cartesia")} voice: ${bandSentence(rateCard, "cartesia")}`
+              `Talk time on the ${tierLabel(rateCard, "studio")} voice: ${bandSentence(rateCard, "studio")}`
         }
         lede={
           rateCard === null
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `The ${tierLabel(rateCard, "sarvam")} voice is ${bandSentence(rateCard, "sarvam")} on the same card. ${UNPRICED_TIER_NOTICE} No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, and credit does not expire.`
+            : `The ${tierLabel(rateCard, "clear")} voice is ${bandSentence(rateCard, "clear")} on the same card. ${UNPRICED_TIER_NOTICE} No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, and credit does not expire.`
         }
       />
 

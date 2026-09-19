@@ -34,7 +34,7 @@
  *
  * ## Vendor names
  *
- * The two rates are `sarvam_inr_per_min` and `cartesia_inr_per_min` — the vendors, because
+ * The two rates are `clear_inr_per_min` and `studio_inr_per_min` — the vendors, because
  * this is the admin console and an operator has to connect a rate to the key they installed
  * and the invoice they attested. The client-facing label for each ("Clear", "Studio")
  * crosses the wire beside it and is rendered too, so an operator on the phone reads the

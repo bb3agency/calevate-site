@@ -56,7 +56,7 @@ def _pack(pack_id: str) -> CreditPack:
 def _rates(pack_id: str) -> billing.LotRates:
     """That rung's two rates as the card sells them."""
     pack = _pack(pack_id)
-    return billing.LotRates(pack.sarvam_inr_per_min, pack.cartesia_inr_per_min)
+    return billing.LotRates(pack.clear_inr_per_min, pack.studio_inr_per_min)
 
 
 async def _balance(tenant_id: UUID) -> Decimal:
@@ -114,7 +114,7 @@ async def test_a_call_splits_across_two_lots_and_each_part_is_priced_at_its_own_
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("30"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -147,13 +147,13 @@ async def test_a_cartesia_call_is_priced_at_the_lots_cartesia_column() -> None:
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="cartesia",
+                voice_tier="studio",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
     assert charged == Decimal("70.0000")  # 10 x the LOT's frozen ₹7.00 Studio rate
     splits = (await _usage_meta(tenant_id, str(call_id)))["meta"]["lots"]
-    assert splits[0]["voice_tier"] == "cartesia"
+    assert splits[0]["voice_tier"] == "studio"
     assert splits[0]["inr_per_min"] == "7.0000"
 
 
@@ -170,7 +170,7 @@ async def test_the_overdraft_is_priced_at_the_lot_that_ran_out() -> None:
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 # A DIFFERENT fallback, so a test that passed by reading the fallback
                 # instead of the exhausted lot's own rate would be visible.
                 fallback_rates=LotRates(Decimal("99.00"), Decimal("99.00")),
@@ -196,7 +196,7 @@ async def test_a_wallet_with_no_lots_at_all_is_priced_at_the_callers_fallback() 
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("4"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("6.00"), Decimal("6.00")),
             ),
         )
@@ -221,7 +221,7 @@ async def test_a_replayed_call_consumes_nothing_a_second_time() -> None:
     call_id = uuid.uuid4()
     demand = CallDemand(
         minutes=Decimal("10"),
-        voice_tier="sarvam",
+        voice_tier="clear",
         fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
     )
     async with tenant_session(tenant_id) as session:
@@ -244,7 +244,7 @@ async def test_a_call_that_demands_nothing_writes_no_row() -> None:
             call_id=uuid.uuid4(),
             demand=CallDemand(
                 minutes=Decimal("0"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5"), Decimal("5")),
             ),
         ) == Decimal("0")
@@ -269,7 +269,7 @@ async def test_the_model_surcharge_rides_the_same_row_as_an_ai_assist_split() ->
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
             extra_inr=Decimal("2.50"),
@@ -432,7 +432,7 @@ async def test_a_partial_correction_restates_the_lot_and_leaves_its_rates_alone(
         Decimal("4000.0000"),
         Decimal("4000.0000"),
     )
-    assert lot["sarvam_inr_per_min"] == Decimal("5.0000")
+    assert lot["clear_inr_per_min"] == Decimal("5.0000")
 
 
 async def test_a_correction_bigger_than_what_is_left_floors_the_lot_and_overdraws() -> None:
@@ -458,7 +458,7 @@ async def test_a_correction_bigger_than_what_is_left_floors_the_lot_and_overdraw
             call_id=uuid.uuid4(),
             demand=CallDemand(
                 minutes=Decimal("1800"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -659,7 +659,7 @@ async def test_a_month_splits_its_minutes_and_charges_by_the_voice_that_spoke() 
             call_id=sarvam_call,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -669,7 +669,7 @@ async def test_a_month_splits_its_minutes_and_charges_by_the_voice_that_spoke() 
             call_id=cartesia_call,
             demand=CallDemand(
                 minutes=Decimal("4"),
-                voice_tier="cartesia",
+                voice_tier="studio",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
             extra_inr=Decimal("9.00"),

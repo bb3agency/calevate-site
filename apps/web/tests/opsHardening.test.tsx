@@ -251,7 +251,7 @@ const RATE_CARD = {
     {
       pack_id: "starter",
       amount_inr: "2000.00",
-      voice_tier: "sarvam",
+      voice_tier: "clear",
       tier_label: "Clear",
       inr_per_min: "5.0000",
       cost_floor_inr_per_min: "4.1211",
@@ -267,7 +267,7 @@ const RATE_CARD = {
     {
       pack_id: "max",
       amount_inr: "50000.00",
-      voice_tier: "cartesia",
+      voice_tier: "studio",
       tier_label: "Studio",
       inr_per_min: "6.0000",
       cost_floor_inr_per_min: "5.5899",

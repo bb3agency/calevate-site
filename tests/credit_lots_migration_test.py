@@ -81,8 +81,8 @@ async def test_a_positive_balance_opens_exactly_one_lot_at_the_q2_rates() -> Non
     assert lot["credits_total"] == lot["credits_remaining"] == Decimal("1500.0000")
     # Q2: the ₹5,000-pack card. Exactly what every existing balance was sold at — a
     # migration that invented a better rate would be a gift and a worse one a breach.
-    assert lot["sarvam_inr_per_min"] == Decimal("5.0000")
-    assert lot["cartesia_inr_per_min"] == Decimal("7.0000")
+    assert lot["clear_inr_per_min"] == Decimal("5.0000")
+    assert lot["studio_inr_per_min"] == Decimal("7.0000")
     assert lot["pack_id"] is None
     assert lot["closed_at"] is None
 

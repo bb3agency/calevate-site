@@ -1176,10 +1176,10 @@ function lot(over: Partial<CreditLot> = {}): CreditLot {
     override_of_pack_id: null,
     credits_total: "2000.00",
     credits_remaining: "1200.00",
-    sarvam_inr_per_min: "5.0000",
-    cartesia_inr_per_min: "8.0000",
-    sarvam_label: "Clear",
-    cartesia_label: "Studio",
+    clear_inr_per_min: "5.0000",
+    studio_inr_per_min: "8.0000",
+    clear_label: "Clear",
+    studio_label: "Studio",
     opened_at: "2026-08-12T05:30:00Z",
     closed_at: null,
     ...over,
@@ -1190,8 +1190,8 @@ const OVERRIDE_PACKS: OverridePack[] = [
   {
     pack_id: "pro",
     amount_inr: "25000.00",
-    sarvam_inr_per_min: "4.6000",
-    cartesia_inr_per_min: "6.2500",
+    clear_inr_per_min: "4.6000",
+    studio_inr_per_min: "6.2500",
   },
 ];
 
@@ -1213,7 +1213,7 @@ describe("what the balance is made of", () => {
     expect(container.textContent).toContain("₹1,200.00 left of ₹2,000.00");
     // VENDOR and tier label together — the admin console's deliberate exception.
     // ⚠ **THE CHEAPER RUNG'S VENDOR IS GNANI AND WAS SARVAM UNTIL D-629 (18 Sep 2026).**
-    // The wire field and the DB column are still `sarvam_inr_per_min` — renaming a money
+    // The wire field and the DB column are still `clear_inr_per_min` — renaming a money
     // column is a migration nobody has run, and an append-only ledger has to keep
     // resolving the months a Sarvam voice spoke — so what moved is the NAME PRINTED, which
     // is there so an operator can connect a lot's rate to the invoice that will arrive.

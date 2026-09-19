@@ -7187,6 +7187,8 @@ export interface components {
             provider: string | null;
             /** Voice Id */
             voice_id: string;
+            /** Voice Tier */
+            voice_tier: string | null;
         };
         /**
          * AiExtraIn
@@ -9180,9 +9182,9 @@ export interface components {
          *     they credit a wallet, which is why every write below returns the one it touched rather
          *     than leaving the console to guess which of five lots moved.
          *
-         *     **BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `sarvam_inr_per_min` names the vendor
+         *     **BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `clear_inr_per_min` names the vendor
          *     because an operator has to connect a rate to the key they installed and the invoice they
-         *     attested; `sarvam_label` is what the client reading their own screen calls it, so a
+         *     attested; `clear_label` is what the client reading their own screen calls it, so a
          *     support call is one vocabulary. Neither is composed in the browser.
          *
          *     Money and rates are exact decimal STRINGS on the wire for hard rule 7's reason — a rate
@@ -9191,10 +9193,10 @@ export interface components {
          *     money field on this router uses.
          */
         CreditLotOut: {
-            /** Cartesia Inr Per Min */
-            cartesia_inr_per_min: string;
-            /** Cartesia Label */
-            cartesia_label: string;
+            /** Clear Inr Per Min */
+            clear_inr_per_min: string;
+            /** Clear Label */
+            clear_label: string;
             /** Closed At */
             closed_at: string | null;
             /** Credits Remaining */
@@ -9215,12 +9217,12 @@ export interface components {
             override_of_pack_id: string | null;
             /** Pack Id */
             pack_id: string | null;
-            /** Sarvam Inr Per Min */
-            sarvam_inr_per_min: string;
-            /** Sarvam Label */
-            sarvam_label: string;
             /** Source */
             source: string;
+            /** Studio Inr Per Min */
+            studio_inr_per_min: string;
+            /** Studio Label */
+            studio_label: string;
         };
         /**
          * CreditPackOut
@@ -9242,20 +9244,20 @@ export interface components {
             bonus_credits: string;
             /** Bonus Pct */
             bonus_pct: string;
-            /** Cartesia Inr Per Min */
-            cartesia_inr_per_min: string;
-            /** Cartesia Minutes */
-            cartesia_minutes: number;
+            /** Clear Inr Per Min */
+            clear_inr_per_min: string;
+            /** Clear Minutes */
+            clear_minutes: number;
             /** Effective Rate Inr Per Min */
             effective_rate_inr_per_min: string;
             /** Pack Id */
             pack_id: string;
             /** Paid Credits */
             paid_credits: string;
-            /** Sarvam Inr Per Min */
-            sarvam_inr_per_min: string;
-            /** Sarvam Minutes */
-            sarvam_minutes: number;
+            /** Studio Inr Per Min */
+            studio_inr_per_min: string;
+            /** Studio Minutes */
+            studio_minutes: number;
             /** Talk Time Minutes */
             talk_time_minutes: number;
             /** Total Credits */
@@ -9272,21 +9274,21 @@ export interface components {
          *     site renders a name we chose once rather than a copy that drifts from it.
          */
         CreditPacksOut: {
-            /** Cartesia Tier Label */
-            cartesia_tier_label: string;
-            /** From Cartesia Inr Per Min */
-            from_cartesia_inr_per_min: string;
+            /** Clear Tier Label */
+            clear_tier_label: string;
+            /** From Clear Inr Per Min */
+            from_clear_inr_per_min: string;
             /** From Inr Per Min */
             from_inr_per_min: string;
-            /** From Sarvam Inr Per Min */
-            from_sarvam_inr_per_min: string;
+            /** From Studio Inr Per Min */
+            from_studio_inr_per_min: string;
             /** List Rate Inr Per Min */
             list_rate_inr_per_min: string;
             next_change?: components["schemas"]["RateCardChangeOut"] | null;
             /** Packs */
             packs: components["schemas"]["CreditPackOut"][];
-            /** Sarvam Tier Label */
-            sarvam_tier_label: string;
+            /** Studio Tier Label */
+            studio_tier_label: string;
         };
         /** CreditsOut */
         CreditsOut: {
@@ -13299,7 +13301,7 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "sarvam" | "cartesia" | "gnani";
+            provider: "cartesia" | "gnani";
             /** Speaker */
             speaker: string;
             /** Tier Label */
@@ -13308,7 +13310,7 @@ export interface components {
              * Tts Model
              * @enum {string}
              */
-            tts_model: "bulbul:v3" | "sonic-3.5" | "timbre-v2.5";
+            tts_model: "sonic-3.5" | "timbre-v2.5";
             /** Unavailable Reason */
             unavailable_reason: string | null;
             /**
@@ -13316,6 +13318,8 @@ export interface components {
              * @default false
              */
             verified: boolean;
+            /** Voice Tier */
+            voice_tier: string;
         };
         /** OperatorCreateIn */
         OperatorCreateIn: {
@@ -13456,12 +13460,12 @@ export interface components {
         OverridePackOut: {
             /** Amount Inr */
             amount_inr: string;
-            /** Cartesia Inr Per Min */
-            cartesia_inr_per_min: string;
+            /** Clear Inr Per Min */
+            clear_inr_per_min: string;
             /** Pack Id */
             pack_id: string;
-            /** Sarvam Inr Per Min */
-            sarvam_inr_per_min: string;
+            /** Studio Inr Per Min */
+            studio_inr_per_min: string;
         };
         /** ParamIn */
         ParamIn: {
@@ -15376,7 +15380,7 @@ export interface components {
          *     that there is not one yet.
          *
          *     The same fields the admin spend board publishes, built from the same two objects
-         *     (`rates.SpeakingRateBasis`, `rates.sarvam_cost_floor_at`) — a second SERIALIZATION of one
+         *     (`rates.SpeakingRateBasis`, `rates.clear_cost_floor_at`) — a second SERIALIZATION of one
          *     arithmetic, never a second arithmetic.
          */
         SpeakingRateOut: {
@@ -16308,20 +16312,19 @@ export interface components {
          * TierMinutesOut
          * @description One voice quality's runway, as the client's own screen reads it.
          *
-         *     THE CLIENT READS `label` AND NEVER `provider`. "Clear" and "Studio" are the product;
-         *     the vendor's name is ours and appears on no client surface (`billing/rates
-         *     .voice_tier_label`, which is where the two strings live). `provider` crosses the wire
-         *     beside it because the browser keys and orders by it and because it is what a support
-         *     conversation about a ledger row is conducted in — never because a screen should print
-         *     it.
+         *     THE CLIENT READS `label` AND NEVER `voice_tier`. "Clear" and "Studio" are the product
+         *     names; `voice_tier` is the token the ledger, the lot splits and a support conversation
+         *     about a row are conducted in, and it crosses the wire because the browser keys and
+         *     orders by it — never because a screen should print it. Since 19 Sep 2026 the two
+         *     differ only in case, which is deliberate: the token stopped being a vendor's name.
          */
         TierMinutesOut: {
             /** Label */
             label: string;
             /** Minutes */
             minutes: number;
-            /** Provider */
-            provider: string;
+            /** Voice Tier */
+            voice_tier: string;
         };
         /**
          * TierSplitOut
@@ -17121,12 +17124,12 @@ export interface components {
             cap_minutes: number | null;
             /** Capped */
             capped: boolean;
-            /** Cartesia Charges Inr */
-            cartesia_charges_inr: string;
-            /** Cartesia Label */
-            cartesia_label: string;
-            /** Cartesia Minutes */
-            cartesia_minutes: string;
+            /** Clear Charges Inr */
+            clear_charges_inr: string;
+            /** Clear Label */
+            clear_label: string;
+            /** Clear Minutes */
+            clear_minutes: string;
             /** Credit Balance Inr */
             credit_balance_inr: string | null;
             /** Included Minutes */
@@ -17181,14 +17184,14 @@ export interface components {
             overage_rate_value_inr: string | null;
             /** Plan Tier */
             plan_tier: string;
-            /** Sarvam Charges Inr */
-            sarvam_charges_inr: string;
-            /** Sarvam Label */
-            sarvam_label: string;
-            /** Sarvam Minutes */
-            sarvam_minutes: string;
             /** Spend Used Inr */
             spend_used_inr: string;
+            /** Studio Charges Inr */
+            studio_charges_inr: string;
+            /** Studio Label */
+            studio_label: string;
+            /** Studio Minutes */
+            studio_minutes: string;
             trial: components["schemas"]["UsageTrialOut"];
             /** Trial Absorbed Inr */
             trial_absorbed_inr: string;
@@ -17308,14 +17311,14 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "sarvam" | "cartesia" | "gnani";
+            provider: "cartesia" | "gnani";
             /** Speaker */
             speaker: string;
             /**
              * Tts Model
              * @enum {string}
              */
-            tts_model: "bulbul:v3" | "sonic-3.5" | "timbre-v2.5";
+            tts_model: "sonic-3.5" | "timbre-v2.5";
             /**
              * Verified
              * @default false
@@ -17393,7 +17396,7 @@ export interface components {
          */
         VoiceProviderOptionOut: {
             /** Models */
-            models: ("bulbul:v3" | "sonic-3.5" | "timbre-v2.5")[];
+            models: ("sonic-3.5" | "timbre-v2.5")[];
             /** Provider */
             provider: string;
             /** Selectable */
@@ -17476,12 +17479,17 @@ export interface components {
          *     wallet). It is a real state, not a missing value, and the alternative — falling back to
          *     the card — would quote a rate the client has not bought.
          *
-         *     `label` is the CLIENT-FACING name of the tier and `provider` is the vendor. Both are
+         *     `label` is the CLIENT-FACING name of the tier and `voice_tier` is the token. Both are
          *     published because they answer different questions: no client-facing surface names a
-         *     vendor as a product tier (founder, 7 Sep 2026), while `provider` is what a ledger row,
-         *     a `meta.lots` split and a vendor invoice are all reconciled on. The label comes from
+         *     tier with anything but its product name (founder, 7 Sep 2026), while `voice_tier` is
+         *     what a ledger row and a `meta.lots` split are reconciled on. The label comes from
          *     `billing/rates.voice_tier_label`, never a literal here and never a second copy in the
          *     browser — one definition, sent down, for the reason the money figures are.
+         *
+         *     ⚠ **THIS FIELD WAS CALLED `provider` AND THIS DOCSTRING CALLED IT "THE VENDOR"
+         *     (until 19 Sep 2026).** It never carried a vendor. It carried the rung, which happened
+         *     to be spelled with a vendor's name — and on the Clear rung that name had been wrong
+         *     since 18 Sep 2026, when Sarvam stopped speaking on this product at all.
          */
         VoiceTierRateOut: {
             /** Further Open Lots */
@@ -17490,8 +17498,8 @@ export interface components {
             inr_per_min: string | null;
             /** Label */
             label: string;
-            /** Provider */
-            provider: string;
+            /** Voice Tier */
+            voice_tier: string;
         };
         /**
          * WalletEntryOut
@@ -17535,15 +17543,15 @@ export interface components {
          * WalletLotOut
          * @description One open lot, as the CLIENT reads it: what is left, and what it is priced at.
          *
-         *     The vendor spellings (`sarvam_inr_per_min`) are the FIELD NAMES, which is the rule this
+         *     The vendor spellings (`clear_inr_per_min`) are the FIELD NAMES, which is the rule this
          *     repository keeps everywhere — a wire name, a column and a ledger value stay in the
          *     vendor's vocabulary because that is what an invoice is reconciled against. What a client
          *     READS is `tiers[].label` ("Clear", "Studio"), which is why the labels travel on the same
          *     payload rather than being guessed at from these keys.
          */
         WalletLotOut: {
-            /** Cartesia Inr Per Min */
-            cartesia_inr_per_min: string;
+            /** Clear Inr Per Min */
+            clear_inr_per_min: string;
             /** Credits Remaining */
             credits_remaining: string;
             /**
@@ -17556,8 +17564,8 @@ export interface components {
              * Format: date-time
              */
             opened_at: string;
-            /** Sarvam Inr Per Min */
-            sarvam_inr_per_min: string;
+            /** Studio Inr Per Min */
+            studio_inr_per_min: string;
         };
         /**
          * WalletLotsOut
@@ -17633,8 +17641,8 @@ export interface components {
             label: string;
             /** Minutes Left */
             minutes_left: string | null;
-            /** Provider */
-            provider: string;
+            /** Voice Tier */
+            voice_tier: string;
         };
         /**
          * WalletTrialOut

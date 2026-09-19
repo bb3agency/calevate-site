@@ -84,7 +84,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                   Credit left
                 </th>
                 {lots.tiers.map((tier) => (
-                  <th key={tier.provider} scope="col" className="py-2 pr-3 text-right font-medium">
+                  <th key={tier.voice_tier} scope="col" className="py-2 pr-3 text-right font-medium">
                     {tier.label}
                   </th>
                 ))}
@@ -106,11 +106,11 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                   </th>
                   {lots.tiers.map((tier) => (
                     <td
-                      key={tier.provider}
+                      key={tier.voice_tier}
                       className="py-3 pr-3 text-right tabular-nums text-ink-muted"
                     >
-                      {isVoiceTier(tier.provider)
-                        ? `${formatRupeeRate(lotRate(lot, tier.provider))}/min`
+                      {isVoiceTier(tier.voice_tier)
+                        ? `${formatRupeeRate(lotRate(lot, tier.voice_tier))}/min`
                         : null}
                     </td>
                   ))}
@@ -157,7 +157,7 @@ export function TierRunwayLines({ lots }: { lots: WalletLots }) {
     <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
       <Layers className="h-3.5 w-3.5 shrink-0" aria-hidden />
       {priced.map((tier) => (
-        <span key={tier.provider}>
+        <span key={tier.voice_tier}>
           about{" "}
           <strong className="font-semibold tabular-nums text-ink">
             {formatWhole(tier.minutes_left ?? "")} minutes

@@ -22,7 +22,7 @@ import { copyUnder, type CopyString } from "./copyScan";
  * guard is built for is the opposite one: a sentence written on a screen NOBODY thought of
  * as a money screen — a glossary entry, an empty state, a tooltip, an `aria-label`, a FAQ
  * answer — where the field name was the handiest word to hand. That is precisely how
- * `cartesia_tier_label` becomes "the Cartesia voice" in copy, and no render test that does
+ * `studio_tier_label` becomes "the Cartesia voice" in copy, and no render test that does
  * not exist can catch it.
  *
  * ## The two rules, and why the second one is scoped away from the client realm

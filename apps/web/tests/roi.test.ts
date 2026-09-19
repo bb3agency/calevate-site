@@ -434,13 +434,13 @@ describe("the rate card's per-voice rates", () => {
   it("reads each voice's own column, per pack", () => {
     const plus = RATE_CARD.packs.find((pack) => pack.pack_id === "plus");
     expect(plus).toBeDefined();
-    expect(packRate(plus!, "sarvam")).toBe(plus!.sarvam_inr_per_min);
-    expect(packRate(plus!, "cartesia")).toBe(plus!.cartesia_inr_per_min);
-    expect(packMinutes(plus!, "sarvam")).toBe(plus!.sarvam_minutes);
-    expect(packMinutes(plus!, "cartesia")).toBe(plus!.cartesia_minutes);
+    expect(packRate(plus!, "clear")).toBe(plus!.clear_inr_per_min);
+    expect(packRate(plus!, "studio")).toBe(plus!.studio_inr_per_min);
+    expect(packMinutes(plus!, "clear")).toBe(plus!.clear_minutes);
+    expect(packMinutes(plus!, "studio")).toBe(plus!.studio_minutes);
     // The dearer voice is dearer on every rung, so its talk time is always the smaller.
     for (const pack of RATE_CARD.packs) {
-      expect(packMinutes(pack, "cartesia")).toBeLessThan(packMinutes(pack, "sarvam"));
+      expect(packMinutes(pack, "studio")).toBeLessThan(packMinutes(pack, "clear"));
     }
   });
 
@@ -450,36 +450,36 @@ describe("the rate card's per-voice rates", () => {
     //
     // ⚠ **THE PUBLISHED CARD IS NOW THAT SHAPE BY ITSELF, AND THE OLD FIXTURE WAS
     // INCOHERENT.** This built a card by overriding `max`'s Studio rate to ₹6.50 while
-    // leaving `from_cartesia_inr_per_min` typed at "6.2500" — a figure no pack carried
+    // leaving `from_studio_inr_per_min` typed at "6.2500" — a figure no pack carried
     // once the founder's 14 Sep card moved the column, so `cheapestPack` fell through to
     // its last-pack fallback and the test asserted the fallback. The "from" figures are
     // DERIVED from the rows here, which is what the server does
     // (`payment_routes.rate_card_out`), so the fixture cannot come apart again.
     const packs = RATE_CARD.packs.map((pack) =>
-      pack.pack_id === "max" ? { ...pack, cartesia_inr_per_min: "6.5000" } : pack,
+      pack.pack_id === "max" ? { ...pack, studio_inr_per_min: "6.5000" } : pack,
     );
-    const lowest = (voice: "sarvam" | "cartesia"): string =>
+    const lowest = (voice: "clear" | "studio"): string =>
       packs
         .map((pack) => packRate(pack, voice))
         .reduce((a, b) => (ratePaisePerMin(a) <= ratePaisePerMin(b) ? a : b));
     const card = {
       ...RATE_CARD,
       packs,
-      from_sarvam_inr_per_min: lowest("sarvam"),
-      from_cartesia_inr_per_min: lowest("cartesia"),
+      from_clear_inr_per_min: lowest("clear"),
+      from_studio_inr_per_min: lowest("studio"),
     };
     // Clear is FLAT at ₹4.00 on every rung since 14 Sep 2026, so the FIRST rung already
     // delivers the floor rate — `cheapestPack` returns it, and "from ₹4.00 with the ₹2,000
     // pack" is the true and rather better sentence the pages now print. Studio still falls,
     // and with `max` nudged above `pro` it bottoms out on a different rung, which is the
     // case this test exists for.
-    expect(cheapestPack(card, "sarvam")?.pack_id).toBe("starter");
-    expect(cheapestPack(card, "cartesia")?.pack_id).toBe("pro");
-    expect(cheapestPack(card, "sarvam")?.pack_id).not.toBe(
-      cheapestPack(card, "cartesia")?.pack_id,
+    expect(cheapestPack(card, "clear")?.pack_id).toBe("starter");
+    expect(cheapestPack(card, "studio")?.pack_id).toBe("pro");
+    expect(cheapestPack(card, "clear")?.pack_id).not.toBe(
+      cheapestPack(card, "studio")?.pack_id,
     );
-    expect(cardFromRate(card, "sarvam")).toBe("4.0000");
-    expect(cardFromRate(card, "cartesia")).toBe("5.8000");
+    expect(cardFromRate(card, "clear")).toBe("4.0000");
+    expect(cardFromRate(card, "studio")).toBe("5.8000");
   });
 
   it("prices the comparison at the chosen voice's rate on the chosen pack", () => {
@@ -492,14 +492,14 @@ describe("the rate card's per-voice rates", () => {
     const minutes = 10_400;
     const clear = computeRoi({
       ...BASE,
-      calevatePaisePerMin: ratePaisePerMin(packRate(plus, "sarvam")),
+      calevatePaisePerMin: ratePaisePerMin(packRate(plus, "clear")),
     });
     const studio = computeRoi({
       ...BASE,
-      calevatePaisePerMin: ratePaisePerMin(packRate(plus, "cartesia")),
+      calevatePaisePerMin: ratePaisePerMin(packRate(plus, "studio")),
     });
-    expect(clear.calevatePaise).toBe(minutes * ratePaisePerMin(packRate(plus, "sarvam")));
-    expect(studio.calevatePaise).toBe(minutes * ratePaisePerMin(packRate(plus, "cartesia")));
+    expect(clear.calevatePaise).toBe(minutes * ratePaisePerMin(packRate(plus, "clear")));
+    expect(studio.calevatePaise).toBe(minutes * ratePaisePerMin(packRate(plus, "studio")));
     expect(studio.calevatePaise).toBeGreaterThan(clear.calevatePaise);
   });
 
@@ -507,9 +507,9 @@ describe("the rate card's per-voice rates", () => {
     // The founder's rule of 7 Sep 2026: a client buys a named voice quality and never reads
     // a vendor's name. The names are defined once, server-side; this asserts the web only
     // relays them, by handing it names no build of this repo would ever contain.
-    const card = { ...RATE_CARD, sarvam_tier_label: "Alpha", cartesia_tier_label: "Beta" };
-    expect(tierLabel(card, "sarvam")).toBe("Alpha");
-    expect(tierLabel(card, "cartesia")).toBe("Beta");
-    expect(VOICE_TIERS).toEqual(["sarvam", "cartesia"]);
+    const card = { ...RATE_CARD, clear_tier_label: "Alpha", studio_tier_label: "Beta" };
+    expect(tierLabel(card, "clear")).toBe("Alpha");
+    expect(tierLabel(card, "studio")).toBe("Beta");
+    expect(VOICE_TIERS).toEqual(["clear", "studio"]);
   });
 });

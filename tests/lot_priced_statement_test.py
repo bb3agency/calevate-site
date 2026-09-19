@@ -72,8 +72,8 @@ PLUS_SARVAM, PLUS_CARTESIA = PLUS
 #: The list card's own rates — the smallest pack's, which is what a wallet with no lot
 #: pays. DERIVED: the entry rung is the definition of the list rate
 #: (`billing/list_rates.card_list_rate`), and the founder moves it without warning.
-LIST_SARVAM = PACK_CATALOGUE[0].sarvam_inr_per_min
-LIST_CARTESIA = PACK_CATALOGUE[0].cartesia_inr_per_min
+LIST_SARVAM = PACK_CATALOGUE[0].clear_inr_per_min
+LIST_CARTESIA = PACK_CATALOGUE[0].studio_inr_per_min
 
 assert LIST_SARVAM != PLUS_SARVAM and LIST_CARTESIA != PLUS_CARTESIA, (
     "this suite distinguishes a lot's frozen rate from the list rate by their VALUES; "
@@ -155,7 +155,7 @@ async def _wallet_at_the_plus_rung(minutes: Decimal) -> tuple[UUID, Decimal]:
             call_id=call_id,
             demand=CallDemand(
                 minutes=minutes,
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(LIST_SARVAM, LIST_CARTESIA),
             ),
         )
@@ -186,8 +186,8 @@ async def test_the_statement_reports_what_the_wallet_was_charged_not_the_list_ra
     assert summary["month_charges_inr"] != at_the_list_rate
     # And the per-voice pair the same screen renders adds to it exactly, which is the
     # property that used to fail.
-    assert summary["sarvam_charges_inr"] == to_paise(charged)
-    assert summary["cartesia_charges_inr"] == Decimal("0.00")
+    assert summary["clear_charges_inr"] == to_paise(charged)
+    assert summary["studio_charges_inr"] == Decimal("0.00")
 
 
 async def test_a_closed_month_reports_the_ledger_too_so_the_month_does_not_move_at_rollover() -> (
@@ -246,7 +246,7 @@ async def test_the_model_surcharge_is_in_the_calling_total_and_in_neither_voice(
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("40"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(LIST_SARVAM, LIST_CARTESIA),
             ),
             extra_inr=Decimal("12.00"),
@@ -314,8 +314,8 @@ async def test_the_list_card_prices_both_voices_and_not_just_the_cheaper_one() -
     async with tenant_session(await make_tenant()) as session:
         card = await rate_card_at(session, at=datetime.now(UTC))
     assert card.list_rates() == LotRates(LIST_SARVAM, LIST_CARTESIA)
-    assert card.list_rates().rate_for("sarvam") == LIST_SARVAM
-    assert card.list_rates().rate_for("cartesia") == LIST_CARTESIA
+    assert card.list_rates().rate_for("clear") == LIST_SARVAM
+    assert card.list_rates().rate_for("studio") == LIST_CARTESIA
 
 
 async def test_a_studio_minute_on_a_wallet_with_no_lot_is_charged_at_the_studio_rate() -> None:
@@ -337,7 +337,7 @@ async def test_a_studio_minute_on_a_wallet_with_no_lot_is_charged_at_the_studio_
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="cartesia",
+                voice_tier="studio",
                 fallback_rates=card.list_rates(),
             ),
         )
@@ -349,8 +349,8 @@ def test_a_demand_cannot_disagree_with_its_own_fallback_rate() -> None:
     """The pair plus `LotRates.rate_for` is what makes the mistake unwritable: the voice on
     the demand is the voice the rate is resolved by, in one place, on the demand itself."""
     rates = LotRates(LIST_SARVAM, LIST_CARTESIA)
-    sarvam = CallDemand(minutes=Decimal("1"), voice_tier="sarvam", fallback_rates=rates)
-    cartesia = CallDemand(minutes=Decimal("1"), voice_tier="cartesia", fallback_rates=rates)
+    sarvam = CallDemand(minutes=Decimal("1"), voice_tier="clear", fallback_rates=rates)
+    cartesia = CallDemand(minutes=Decimal("1"), voice_tier="studio", fallback_rates=rates)
     assert sarvam.fallback_inr_per_min == LIST_SARVAM
     assert cartesia.fallback_inr_per_min == LIST_CARTESIA
 
@@ -409,7 +409,7 @@ async def test_a_recorded_card_prices_the_lot_a_purchase_opens() -> None:
         deepest = PACK_CATALOGUE[-1]
         assert deepest.pack_id == "max"
         assert card.for_purchase(pack_id="max", amount_inr=Decimal("50000")) == LotRates(
-            deepest.sarvam_inr_per_min, deepest.cartesia_inr_per_min
+            deepest.clear_inr_per_min, deepest.studio_inr_per_min
         )
     finally:
         await _purge_card_rows()

@@ -31,7 +31,7 @@ async def test_minutes_past_the_last_lot_are_priced_at_that_lot_s_rate() -> None
             tenant_id=tenant,
             demand=lots.CallDemand(
                 minutes=Decimal("35"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("99.00"), Decimal("99.00")),
             ),
         )
@@ -61,7 +61,7 @@ async def test_a_wallet_with_no_lots_at_all_is_priced_at_the_caller_s_fallback()
             tenant_id=tenant,
             demand=lots.CallDemand(
                 minutes=Decimal("4"),
-                voice_tier="cartesia",
+                voice_tier="studio",
                 fallback_rates=LotRates(Decimal("8.00"), Decimal("8.00")),
             ),
         )
@@ -72,7 +72,7 @@ async def test_a_wallet_with_no_lots_at_all_is_priced_at_the_caller_s_fallback()
     assert only.lot_id is None
     assert only.credits == Decimal("32.0000")
     assert only.inr_per_min == Decimal("8.0000")
-    assert only.voice_tier == "cartesia"
+    assert only.voice_tier == "studio"
 
 
 async def test_a_dashboard_ai_debit_overdraws_at_face_value_and_names_no_lot() -> None:
@@ -101,7 +101,7 @@ async def test_a_call_that_exactly_empties_the_last_lot_takes_no_overdraft() -> 
             tenant_id=tenant,
             demand=lots.CallDemand(
                 minutes=Decimal("20"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )

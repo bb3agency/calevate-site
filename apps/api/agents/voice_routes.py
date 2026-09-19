@@ -118,6 +118,7 @@ from apps.api.agents.voices import (
     VoiceSelectionCapability,
     catalogue_source,
     voice_selection_capability,
+    voice_tier_of_provider,
 )
 from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
@@ -264,6 +265,17 @@ class OfferedVoiceOut(Voice):
     #: a vendor invoice are reconciled against; it is simply not what a human is shown
     #: (founder, 7 Sep 2026).
     tier_label: str
+    #: WHICH RUNG THIS VOICE BILLS ON, as the ledger and the rate rows spell it.
+    #:
+    #: ⚠ **ADDED 19 SEP 2026 TO FIX A JOIN THE BROWSER WAS MAKING ON THE WRONG COLUMN, AND
+    #: THE BUG IT FIXES WAS ALREADY LIVE.** The voice panel priced a voice with
+    #: `voiceTierRate(rates, voice.provider)` — a PROVIDER looked up among rows keyed by
+    #: TIER. That worked only while every provider's name happened to equal its rung's, and
+    #: it stopped being true on 18 Sep 2026 when Gnani took the Clear rung: a Gnani agent's
+    #: voice panel found no row and silently printed no rate at all. Sending the rung
+    #: removes the inference rather than correcting it — the server is the side that knows
+    #: `VOICE_TIER_OF_PROVIDER`, and a browser deriving it is a second copy of the mapping.
+    voice_tier: str
 
     @classmethod
     def of(cls, offered: OfferedVoice) -> OfferedVoiceOut:
@@ -274,6 +286,7 @@ class OfferedVoiceOut(Voice):
             not_on_offer=offered.not_on_offer,
             offerable=offered.offerable,
             tier_label=voice_tier_label(offered.voice.provider),
+            voice_tier=voice_tier_of_provider(offered.voice.provider),
         )
 
 

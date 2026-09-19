@@ -82,7 +82,7 @@ async def test_the_cartesia_rate_prices_a_cartesia_call_out_of_the_same_lot() ->
 
     assert splits[0].credits == Decimal("70.0000")
     assert isinstance(splits[0], lots.CallSplit)
-    assert splits[0].voice_tier == "cartesia"
+    assert splits[0].voice_tier == "studio"
 
 
 async def test_a_dashboard_ai_debit_takes_face_value_with_no_rate_at_all() -> None:
@@ -114,15 +114,15 @@ async def test_runway_is_summed_lot_by_lot_at_each_lot_s_own_rate() -> None:
     async with tenant_session(tenant) as session:
         answer = await lots.runway(session, tenant_id=tenant)
 
-    assert answer["sarvam_minutes"] == Decimal("120.0000")
+    assert answer["clear_minutes"] == Decimal("120.0000")
     # 100/7 + 470/6.50 = 14.2857 + 72.3076, floored at the ledger scale.
-    assert answer["cartesia_minutes"] == Decimal("86.5934")
+    assert answer["studio_minutes"] == Decimal("86.5934")
 
 
 async def test_a_wallet_with_no_lots_has_no_runway_and_reports_zero() -> None:
     tenant = await make_tenant()
     async with tenant_session(tenant) as session:
         assert await lots.runway(session, tenant_id=tenant) == {
-            "sarvam_minutes": Decimal("0.0000"),
-            "cartesia_minutes": Decimal("0.0000"),
+            "clear_minutes": Decimal("0.0000"),
+            "studio_minutes": Decimal("0.0000"),
         }

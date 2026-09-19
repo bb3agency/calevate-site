@@ -22,7 +22,7 @@ def test_a_call_split_carries_all_six_keys() -> None:
         credits=Decimal("47.0000"),
         minutes=Decimal("10.0000"),
         inr_per_min=Decimal("4.7000"),
-        voice_tier="cartesia",
+        voice_tier="studio",
     )
 
     [row] = lots.split_meta([split])
@@ -61,7 +61,7 @@ def test_the_overdraft_portion_names_no_lot() -> None:
                 credits=Decimal("23.5000"),
                 minutes=Decimal("5.0000"),
                 inr_per_min=Decimal("4.7000"),
-                voice_tier="sarvam",
+                voice_tier="clear",
             ),
             lots.AiAssistSplit(lot_id=None, credits=Decimal("30.0000")),
         ]
@@ -82,7 +82,7 @@ def test_every_value_crosses_jsonb_as_digits_and_never_as_a_float() -> None:
                 credits=Decimal("2500.1000"),
                 minutes=Decimal("500.0200"),
                 inr_per_min=Decimal("5.0000"),
-                voice_tier="sarvam",
+                voice_tier="clear",
             )
         ]
     )
@@ -101,7 +101,7 @@ def test_the_splits_sum_to_the_ledger_delta_whatever_kind_they_are() -> None:
             credits=Decimal("100.0000"),
             minutes=Decimal("20.0000"),
             inr_per_min=Decimal("5.0000"),
-            voice_tier="sarvam",
+            voice_tier="clear",
         ),
         lots.AiAssistSplit(lot_id=uuid4(), credits=Decimal("30.0000")),
     ]

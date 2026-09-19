@@ -27,7 +27,7 @@ import type { PublicRateCard } from "@/lib/api/rateCard";
  *
  * ⚠ **THE CARD IS THE FOUNDER'S OF 14 SEP 2026** (`docs/PIPECAT-MIGRATION.md` §12): Clear
  * FLAT at ₹4.00 on all six rungs, Studio falling 7.00 → 5.50. The flat column is not a
- * copy-paste slip — it is what makes `from_sarvam_inr_per_min` equal `list_rate_inr_per_min`
+ * copy-paste slip — it is what makes `from_clear_inr_per_min` equal `list_rate_inr_per_min`
  * here, which is the case `pricing/page.tsx::bandSentence` and
  * `billing/WhatCallsCost.tsx::rateBand` collapse to a single figure rather than rendering
  * "₹4.00 a minute, down to ₹4.00 on the largest pack".
@@ -40,17 +40,17 @@ import type { PublicRateCard } from "@/lib/api/rateCard";
 export const RATE_CARD = {
   list_rate_inr_per_min: "4.0000",
   from_inr_per_min: "4.0000",
-  from_sarvam_inr_per_min: "4.0000",
-  from_cartesia_inr_per_min: "5.5000",
-  sarvam_tier_label: "Clear",
-  cartesia_tier_label: "Studio",
+  from_clear_inr_per_min: "4.0000",
+  from_studio_inr_per_min: "5.5000",
+  clear_tier_label: "Clear",
+  studio_tier_label: "Studio",
   packs: [
-    { pack_id: "starter", amount_inr: "2000.00", paid_credits: "2000.00", bonus_credits: "0.00", total_credits: "2000.00", bonus_pct: "0", sarvam_inr_per_min: "4.0000", cartesia_inr_per_min: "7.0000", sarvam_minutes: 500, cartesia_minutes: 285, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 500, best_value: false },
-    { pack_id: "growth", amount_inr: "5000.00", paid_credits: "5000.00", bonus_credits: "0.00", total_credits: "5000.00", bonus_pct: "0", sarvam_inr_per_min: "4.0000", cartesia_inr_per_min: "6.7000", sarvam_minutes: 1250, cartesia_minutes: 746, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 1250, best_value: false },
-    { pack_id: "scale", amount_inr: "10000.00", paid_credits: "10000.00", bonus_credits: "0.00", total_credits: "10000.00", bonus_pct: "0", sarvam_inr_per_min: "4.0000", cartesia_inr_per_min: "6.4000", sarvam_minutes: 2500, cartesia_minutes: 1562, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 2500, best_value: false },
-    { pack_id: "plus", amount_inr: "15000.00", paid_credits: "15000.00", bonus_credits: "0.00", total_credits: "15000.00", bonus_pct: "0", sarvam_inr_per_min: "4.0000", cartesia_inr_per_min: "6.1000", sarvam_minutes: 3750, cartesia_minutes: 2459, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 3750, best_value: false },
-    { pack_id: "pro", amount_inr: "25000.00", paid_credits: "25000.00", bonus_credits: "0.00", total_credits: "25000.00", bonus_pct: "0", sarvam_inr_per_min: "4.0000", cartesia_inr_per_min: "5.8000", sarvam_minutes: 6250, cartesia_minutes: 4310, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 6250, best_value: false },
-    { pack_id: "max", amount_inr: "50000.00", paid_credits: "50000.00", bonus_credits: "0.00", total_credits: "50000.00", bonus_pct: "0", sarvam_inr_per_min: "4.0000", cartesia_inr_per_min: "5.5000", sarvam_minutes: 12500, cartesia_minutes: 9090, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 12500, best_value: true },
+    { pack_id: "starter", amount_inr: "2000.00", paid_credits: "2000.00", bonus_credits: "0.00", total_credits: "2000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "7.0000", clear_minutes: 500, studio_minutes: 285, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 500, best_value: false },
+    { pack_id: "growth", amount_inr: "5000.00", paid_credits: "5000.00", bonus_credits: "0.00", total_credits: "5000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "6.7000", clear_minutes: 1250, studio_minutes: 746, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 1250, best_value: false },
+    { pack_id: "scale", amount_inr: "10000.00", paid_credits: "10000.00", bonus_credits: "0.00", total_credits: "10000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "6.4000", clear_minutes: 2500, studio_minutes: 1562, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 2500, best_value: false },
+    { pack_id: "plus", amount_inr: "15000.00", paid_credits: "15000.00", bonus_credits: "0.00", total_credits: "15000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "6.1000", clear_minutes: 3750, studio_minutes: 2459, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 3750, best_value: false },
+    { pack_id: "pro", amount_inr: "25000.00", paid_credits: "25000.00", bonus_credits: "0.00", total_credits: "25000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "5.8000", clear_minutes: 6250, studio_minutes: 4310, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 6250, best_value: false },
+    { pack_id: "max", amount_inr: "50000.00", paid_credits: "50000.00", bonus_credits: "0.00", total_credits: "50000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "5.5000", clear_minutes: 12500, studio_minutes: 9090, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 12500, best_value: true },
   ],
 } satisfies PublicRateCard;
 

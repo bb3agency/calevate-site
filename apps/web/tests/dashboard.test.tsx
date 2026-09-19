@@ -134,12 +134,12 @@ const USAGE: UsagePanel = {
   minutes_used: "120.5",
   calls: 41,
   // Both voice qualities, always, named by the server (D-547).
-  sarvam_minutes: "120.50",
-  sarvam_charges_inr: "602.50",
-  sarvam_label: "Clear",
-  cartesia_minutes: "0.00",
-  cartesia_charges_inr: "0.00",
-  cartesia_label: "Studio",
+  clear_minutes: "120.50",
+  clear_charges_inr: "602.50",
+  clear_label: "Clear",
+  studio_minutes: "0.00",
+  studio_charges_inr: "0.00",
+  studio_label: "Studio",
   included_minutes: 500,
   overage_minutes: "0",
   // BOTH SPELLINGS: the wire carries the deprecated pair beside the new one
@@ -198,8 +198,8 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
     // Per QUALITY since D-547: one balance over one live rate is wrong for every
     // client whose lots were not bought at today's card.
     minutes_left: [
-      { provider: "sarvam", label: "Clear", minutes: 240 },
-      { provider: "cartesia", label: "Studio", minutes: 171 },
+      { voice_tier: "clear", label: "Clear", minutes: 240 },
+      { voice_tier: "studio", label: "Studio", minutes: 171 },
     ],
     drawdown: {
       calls_inr: "8400.00",
@@ -588,8 +588,8 @@ describe("the calling credit tile", () => {
           is_low: true,
           outbound_stopped: true,
           minutes_left: [
-            { provider: "sarvam", label: "Clear", minutes: 0 },
-            { provider: "cartesia", label: "Studio", minutes: 1 },
+            { voice_tier: "clear", label: "Clear", minutes: 0 },
+            { voice_tier: "studio", label: "Studio", minutes: 1 },
           ],
         }),
       }),

@@ -266,7 +266,7 @@ async def test_two_overlapping_charges_for_one_call_charge_it_once(monkeypatch: 
                 call_id=call_id,
                 demand=CallDemand(
                     minutes=Decimal("6"),
-                    voice_tier="sarvam",
+                    voice_tier="clear",
                     fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )

@@ -1116,11 +1116,23 @@
           "voice_id": {
             "title": "Voice Id",
             "type": "string"
+          },
+          "voice_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Tier"
           }
         },
         "required": [
           "voice_id",
           "provider",
+          "voice_tier",
           "catalog"
         ],
         "title": "AgentVoiceOut",
@@ -5940,15 +5952,15 @@
       },
       "CreditLotOut": {
         "additionalProperties": false,
-        "description": "ONE LOT, as the admin wallet screen reads it (D-547).\n\nA lot is what one purchase, grant or migration created: credits, and the two per-minute\nrates FROZEN onto them at that instant. It is the object an operator is opening when\nthey credit a wallet, which is why every write below returns the one it touched rather\nthan leaving the console to guess which of five lots moved.\n\n**BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `sarvam_inr_per_min` names the vendor\nbecause an operator has to connect a rate to the key they installed and the invoice they\nattested; `sarvam_label` is what the client reading their own screen calls it, so a\nsupport call is one vocabulary. Neither is composed in the browser.\n\nMoney and rates are exact decimal STRINGS on the wire for hard rule 7's reason \u2014 a rate\na browser parsed into a float and printed back is a rate nobody can reconcile. They are\ntyped `Decimal` here and serialise as strings through the same JSON encoder every other\nmoney field on this router uses.",
+        "description": "ONE LOT, as the admin wallet screen reads it (D-547).\n\nA lot is what one purchase, grant or migration created: credits, and the two per-minute\nrates FROZEN onto them at that instant. It is the object an operator is opening when\nthey credit a wallet, which is why every write below returns the one it touched rather\nthan leaving the console to guess which of five lots moved.\n\n**BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `clear_inr_per_min` names the vendor\nbecause an operator has to connect a rate to the key they installed and the invoice they\nattested; `clear_label` is what the client reading their own screen calls it, so a\nsupport call is one vocabulary. Neither is composed in the browser.\n\nMoney and rates are exact decimal STRINGS on the wire for hard rule 7's reason \u2014 a rate\na browser parsed into a float and printed back is a rate nobody can reconcile. They are\ntyped `Decimal` here and serialise as strings through the same JSON encoder every other\nmoney field on this router uses.",
         "properties": {
-          "cartesia_inr_per_min": {
+          "clear_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Cartesia Inr Per Min",
+            "title": "Clear Inr Per Min",
             "type": "string"
           },
-          "cartesia_label": {
-            "title": "Cartesia Label",
+          "clear_label": {
+            "title": "Clear Label",
             "type": "string"
           },
           "closed_at": {
@@ -6005,17 +6017,17 @@
             ],
             "title": "Pack Id"
           },
-          "sarvam_inr_per_min": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Sarvam Inr Per Min",
-            "type": "string"
-          },
-          "sarvam_label": {
-            "title": "Sarvam Label",
-            "type": "string"
-          },
           "source": {
             "title": "Source",
+            "type": "string"
+          },
+          "studio_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Studio Inr Per Min",
+            "type": "string"
+          },
+          "studio_label": {
+            "title": "Studio Label",
             "type": "string"
           }
         },
@@ -6026,10 +6038,10 @@
           "override_of_pack_id",
           "credits_total",
           "credits_remaining",
-          "sarvam_inr_per_min",
-          "cartesia_inr_per_min",
-          "sarvam_label",
-          "cartesia_label",
+          "clear_inr_per_min",
+          "studio_inr_per_min",
+          "clear_label",
+          "studio_label",
           "opened_at",
           "closed_at"
         ],
@@ -6059,13 +6071,13 @@
             "title": "Bonus Pct",
             "type": "string"
           },
-          "cartesia_inr_per_min": {
+          "clear_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Cartesia Inr Per Min",
+            "title": "Clear Inr Per Min",
             "type": "string"
           },
-          "cartesia_minutes": {
-            "title": "Cartesia Minutes",
+          "clear_minutes": {
+            "title": "Clear Minutes",
             "type": "integer"
           },
           "effective_rate_inr_per_min": {
@@ -6082,13 +6094,13 @@
             "title": "Paid Credits",
             "type": "string"
           },
-          "sarvam_inr_per_min": {
+          "studio_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Sarvam Inr Per Min",
+            "title": "Studio Inr Per Min",
             "type": "string"
           },
-          "sarvam_minutes": {
-            "title": "Sarvam Minutes",
+          "studio_minutes": {
+            "title": "Studio Minutes",
             "type": "integer"
           },
           "talk_time_minutes": {
@@ -6108,10 +6120,10 @@
           "bonus_credits",
           "total_credits",
           "bonus_pct",
-          "sarvam_inr_per_min",
-          "cartesia_inr_per_min",
-          "sarvam_minutes",
-          "cartesia_minutes",
+          "clear_inr_per_min",
+          "studio_inr_per_min",
+          "clear_minutes",
+          "studio_minutes",
           "effective_rate_inr_per_min",
           "talk_time_minutes",
           "best_value"
@@ -6123,13 +6135,13 @@
         "additionalProperties": false,
         "description": "The pack rate card: six packs, each with a Sarvam and a Cartesia \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged. The\ntwo tier LABELS obey the same rule for a different kind of value: the name a client\nreads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing\nsite renders a name we chose once rather than a copy that drifts from it.",
         "properties": {
-          "cartesia_tier_label": {
-            "title": "Cartesia Tier Label",
+          "clear_tier_label": {
+            "title": "Clear Tier Label",
             "type": "string"
           },
-          "from_cartesia_inr_per_min": {
+          "from_clear_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "From Cartesia Inr Per Min",
+            "title": "From Clear Inr Per Min",
             "type": "string"
           },
           "from_inr_per_min": {
@@ -6137,9 +6149,9 @@
             "title": "From Inr Per Min",
             "type": "string"
           },
-          "from_sarvam_inr_per_min": {
+          "from_studio_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "From Sarvam Inr Per Min",
+            "title": "From Studio Inr Per Min",
             "type": "string"
           },
           "list_rate_inr_per_min": {
@@ -6164,18 +6176,18 @@
             "title": "Packs",
             "type": "array"
           },
-          "sarvam_tier_label": {
-            "title": "Sarvam Tier Label",
+          "studio_tier_label": {
+            "title": "Studio Tier Label",
             "type": "string"
           }
         },
         "required": [
           "list_rate_inr_per_min",
           "from_inr_per_min",
-          "from_sarvam_inr_per_min",
-          "from_cartesia_inr_per_min",
-          "sarvam_tier_label",
-          "cartesia_tier_label",
+          "from_clear_inr_per_min",
+          "from_studio_inr_per_min",
+          "clear_tier_label",
+          "studio_tier_label",
           "packs"
         ],
         "title": "CreditPacksOut",
@@ -15083,7 +15095,6 @@
           },
           "provider": {
             "enum": [
-              "sarvam",
               "cartesia",
               "gnani"
             ],
@@ -15100,7 +15111,6 @@
           },
           "tts_model": {
             "enum": [
-              "bulbul:v3",
               "sonic-3.5",
               "timbre-v2.5"
             ],
@@ -15122,6 +15132,10 @@
             "default": false,
             "title": "Verified",
             "type": "boolean"
+          },
+          "voice_tier": {
+            "title": "Voice Tier",
+            "type": "string"
           }
         },
         "required": [
@@ -15135,7 +15149,8 @@
           "unavailable_reason",
           "not_on_offer",
           "offerable",
-          "tier_label"
+          "tier_label",
+          "voice_tier"
         ],
         "title": "OfferedVoiceOut",
         "type": "object"
@@ -15412,26 +15427,26 @@
             "title": "Amount Inr",
             "type": "string"
           },
-          "cartesia_inr_per_min": {
+          "clear_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Cartesia Inr Per Min",
+            "title": "Clear Inr Per Min",
             "type": "string"
           },
           "pack_id": {
             "title": "Pack Id",
             "type": "string"
           },
-          "sarvam_inr_per_min": {
+          "studio_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Sarvam Inr Per Min",
+            "title": "Studio Inr Per Min",
             "type": "string"
           }
         },
         "required": [
           "pack_id",
           "amount_inr",
-          "sarvam_inr_per_min",
-          "cartesia_inr_per_min"
+          "clear_inr_per_min",
+          "studio_inr_per_min"
         ],
         "title": "OverridePackOut",
         "type": "object"
@@ -19967,7 +19982,7 @@
       },
       "SpeakingRateOut": {
         "additionalProperties": false,
-        "description": "**WHAT THE CLEAR COLUMN'S COST IS STRUCK AT, AND WHETHER ANYONE MEASURED IT (D-557).**\n\nThe Studio column's at-volume cost comes from two counts of a month somebody ran and\nneeds no speaking rate at all. The CLEAR column has no such counts \u2014 the engine buys that\nsynthesis and reports a rupee figure with no character count anywhere\n(`rates.ENGINE_REPORTS_TTS_MODEL`) \u2014 so its cost per CALL-MINUTE is characters-per-minute\ntimes a rupee-per-character card, and characters-per-minute was TRD \u00a710.1's unmeasured\n360-540 band. This block is the measurement that replaces it, or the honest statement\nthat there is not one yet.\n\nThe same fields the admin spend board publishes, built from the same two objects\n(`rates.SpeakingRateBasis`, `rates.sarvam_cost_floor_at`) \u2014 a second SERIALIZATION of one\narithmetic, never a second arithmetic.",
+        "description": "**WHAT THE CLEAR COLUMN'S COST IS STRUCK AT, AND WHETHER ANYONE MEASURED IT (D-557).**\n\nThe Studio column's at-volume cost comes from two counts of a month somebody ran and\nneeds no speaking rate at all. The CLEAR column has no such counts \u2014 the engine buys that\nsynthesis and reports a rupee figure with no character count anywhere\n(`rates.ENGINE_REPORTS_TTS_MODEL`) \u2014 so its cost per CALL-MINUTE is characters-per-minute\ntimes a rupee-per-character card, and characters-per-minute was TRD \u00a710.1's unmeasured\n360-540 band. This block is the measurement that replaces it, or the honest statement\nthat there is not one yet.\n\nThe same fields the admin spend board publishes, built from the same two objects\n(`rates.SpeakingRateBasis`, `rates.clear_cost_floor_at`) \u2014 a second SERIALIZATION of one\narithmetic, never a second arithmetic.",
         "properties": {
           "basis": {
             "title": "Basis",
@@ -22187,7 +22202,7 @@
       },
       "TierMinutesOut": {
         "additionalProperties": false,
-        "description": "One voice quality's runway, as the client's own screen reads it.\n\nTHE CLIENT READS `label` AND NEVER `provider`. \"Clear\" and \"Studio\" are the product;\nthe vendor's name is ours and appears on no client surface (`billing/rates\n.voice_tier_label`, which is where the two strings live). `provider` crosses the wire\nbeside it because the browser keys and orders by it and because it is what a support\nconversation about a ledger row is conducted in \u2014 never because a screen should print\nit.",
+        "description": "One voice quality's runway, as the client's own screen reads it.\n\nTHE CLIENT READS `label` AND NEVER `voice_tier`. \"Clear\" and \"Studio\" are the product\nnames; `voice_tier` is the token the ledger, the lot splits and a support conversation\nabout a row are conducted in, and it crosses the wire because the browser keys and\norders by it \u2014 never because a screen should print it. Since 19 Sep 2026 the two\ndiffer only in case, which is deliberate: the token stopped being a vendor's name.",
         "properties": {
           "label": {
             "title": "Label",
@@ -22197,13 +22212,13 @@
             "title": "Minutes",
             "type": "integer"
           },
-          "provider": {
-            "title": "Provider",
+          "voice_tier": {
+            "title": "Voice Tier",
             "type": "string"
           }
         },
         "required": [
-          "provider",
+          "voice_tier",
           "label",
           "minutes"
         ],
@@ -24078,16 +24093,16 @@
             "title": "Capped",
             "type": "boolean"
           },
-          "cartesia_charges_inr": {
-            "title": "Cartesia Charges Inr",
+          "clear_charges_inr": {
+            "title": "Clear Charges Inr",
             "type": "string"
           },
-          "cartesia_label": {
-            "title": "Cartesia Label",
+          "clear_label": {
+            "title": "Clear Label",
             "type": "string"
           },
-          "cartesia_minutes": {
-            "title": "Cartesia Minutes",
+          "clear_minutes": {
+            "title": "Clear Minutes",
             "type": "string"
           },
           "credit_balance_inr": {
@@ -24225,20 +24240,20 @@
             "title": "Plan Tier",
             "type": "string"
           },
-          "sarvam_charges_inr": {
-            "title": "Sarvam Charges Inr",
-            "type": "string"
-          },
-          "sarvam_label": {
-            "title": "Sarvam Label",
-            "type": "string"
-          },
-          "sarvam_minutes": {
-            "title": "Sarvam Minutes",
-            "type": "string"
-          },
           "spend_used_inr": {
             "title": "Spend Used Inr",
+            "type": "string"
+          },
+          "studio_charges_inr": {
+            "title": "Studio Charges Inr",
+            "type": "string"
+          },
+          "studio_label": {
+            "title": "Studio Label",
+            "type": "string"
+          },
+          "studio_minutes": {
+            "title": "Studio Minutes",
             "type": "string"
           },
           "trial": {
@@ -24277,12 +24292,12 @@
           "credit_balance_inr",
           "trial",
           "trial_absorbed_inr",
-          "sarvam_minutes",
-          "sarvam_charges_inr",
-          "sarvam_label",
-          "cartesia_minutes",
-          "cartesia_charges_inr",
-          "cartesia_label"
+          "clear_minutes",
+          "clear_charges_inr",
+          "clear_label",
+          "studio_minutes",
+          "studio_charges_inr",
+          "studio_label"
         ],
         "title": "UsagePanelOut",
         "type": "object"
@@ -24527,7 +24542,6 @@
           },
           "provider": {
             "enum": [
-              "sarvam",
               "cartesia",
               "gnani"
             ],
@@ -24540,7 +24554,6 @@
           },
           "tts_model": {
             "enum": [
-              "bulbul:v3",
               "sonic-3.5",
               "timbre-v2.5"
             ],
@@ -24665,7 +24678,6 @@
           "models": {
             "items": {
               "enum": [
-                "bulbul:v3",
                 "sonic-3.5",
                 "timbre-v2.5"
               ],
@@ -24813,7 +24825,7 @@
       },
       "VoiceTierRateOut": {
         "additionalProperties": false,
-        "description": "What ONE voice tier costs this client's NEXT minute, for the voice picker.\n\n**NOT THE CARD'S RATE.** A client who bought a \u20b915,000 pack holds minutes at the rates\nthat pack froze, and a picker quoting today's card would quote a price they do not pay\n(plan \u00a72.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN\nLOT \u2014 the one the next call is actually drawn from \u2014 and `further_open_lots` says how\nmany purchases sit behind it at rates of their own, which is what stops a single\nfigure being read as the price of the whole wallet.\n\n`inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn\nwallet). It is a real state, not a missing value, and the alternative \u2014 falling back to\nthe card \u2014 would quote a rate the client has not bought.\n\n`label` is the CLIENT-FACING name of the tier and `provider` is the vendor. Both are\npublished because they answer different questions: no client-facing surface names a\nvendor as a product tier (founder, 7 Sep 2026), while `provider` is what a ledger row,\na `meta.lots` split and a vendor invoice are all reconciled on. The label comes from\n`billing/rates.voice_tier_label`, never a literal here and never a second copy in the\nbrowser \u2014 one definition, sent down, for the reason the money figures are.",
+        "description": "What ONE voice tier costs this client's NEXT minute, for the voice picker.\n\n**NOT THE CARD'S RATE.** A client who bought a \u20b915,000 pack holds minutes at the rates\nthat pack froze, and a picker quoting today's card would quote a price they do not pay\n(plan \u00a72.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN\nLOT \u2014 the one the next call is actually drawn from \u2014 and `further_open_lots` says how\nmany purchases sit behind it at rates of their own, which is what stops a single\nfigure being read as the price of the whole wallet.\n\n`inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn\nwallet). It is a real state, not a missing value, and the alternative \u2014 falling back to\nthe card \u2014 would quote a rate the client has not bought.\n\n`label` is the CLIENT-FACING name of the tier and `voice_tier` is the token. Both are\npublished because they answer different questions: no client-facing surface names a\ntier with anything but its product name (founder, 7 Sep 2026), while `voice_tier` is\nwhat a ledger row and a `meta.lots` split are reconciled on. The label comes from\n`billing/rates.voice_tier_label`, never a literal here and never a second copy in the\nbrowser \u2014 one definition, sent down, for the reason the money figures are.\n\n\u26a0 **THIS FIELD WAS CALLED `provider` AND THIS DOCSTRING CALLED IT \"THE VENDOR\"\n(until 19 Sep 2026).** It never carried a vendor. It carried the rung, which happened\nto be spelled with a vendor's name \u2014 and on the Clear rung that name had been wrong\nsince 18 Sep 2026, when Sarvam stopped speaking on this product at all.",
         "properties": {
           "further_open_lots": {
             "title": "Further Open Lots",
@@ -24835,13 +24847,13 @@
             "title": "Label",
             "type": "string"
           },
-          "provider": {
-            "title": "Provider",
+          "voice_tier": {
+            "title": "Voice Tier",
             "type": "string"
           }
         },
         "required": [
-          "provider",
+          "voice_tier",
           "label",
           "inr_per_min",
           "further_open_lots"
@@ -24925,11 +24937,11 @@
       },
       "WalletLotOut": {
         "additionalProperties": false,
-        "description": "One open lot, as the CLIENT reads it: what is left, and what it is priced at.\n\nThe vendor spellings (`sarvam_inr_per_min`) are the FIELD NAMES, which is the rule this\nrepository keeps everywhere \u2014 a wire name, a column and a ledger value stay in the\nvendor's vocabulary because that is what an invoice is reconciled against. What a client\nREADS is `tiers[].label` (\"Clear\", \"Studio\"), which is why the labels travel on the same\npayload rather than being guessed at from these keys.",
+        "description": "One open lot, as the CLIENT reads it: what is left, and what it is priced at.\n\nThe vendor spellings (`clear_inr_per_min`) are the FIELD NAMES, which is the rule this\nrepository keeps everywhere \u2014 a wire name, a column and a ledger value stay in the\nvendor's vocabulary because that is what an invoice is reconciled against. What a client\nREADS is `tiers[].label` (\"Clear\", \"Studio\"), which is why the labels travel on the same\npayload rather than being guessed at from these keys.",
         "properties": {
-          "cartesia_inr_per_min": {
+          "clear_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Cartesia Inr Per Min",
+            "title": "Clear Inr Per Min",
             "type": "string"
           },
           "credits_remaining": {
@@ -24947,9 +24959,9 @@
             "title": "Opened At",
             "type": "string"
           },
-          "sarvam_inr_per_min": {
+          "studio_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Sarvam Inr Per Min",
+            "title": "Studio Inr Per Min",
             "type": "string"
           }
         },
@@ -24957,8 +24969,8 @@
           "lot_id",
           "opened_at",
           "credits_remaining",
-          "sarvam_inr_per_min",
-          "cartesia_inr_per_min"
+          "clear_inr_per_min",
+          "studio_inr_per_min"
         ],
         "title": "WalletLotOut",
         "type": "object"
@@ -25135,13 +25147,13 @@
             ],
             "title": "Minutes Left"
           },
-          "provider": {
-            "title": "Provider",
+          "voice_tier": {
+            "title": "Voice Tier",
             "type": "string"
           }
         },
         "required": [
-          "provider",
+          "voice_tier",
           "label",
           "minutes_left"
         ],

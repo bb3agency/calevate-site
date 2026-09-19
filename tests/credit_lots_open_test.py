@@ -39,7 +39,7 @@ async def test_a_lot_records_its_pack_its_source_and_the_pack_its_rates_were_bor
     assert row["source"] == "override"
     assert row["pack_id"] == "starter"
     assert row["override_of_pack_id"] == "pro"
-    assert (row["sarvam_inr_per_min"], row["cartesia_inr_per_min"]) == (
+    assert (row["clear_inr_per_min"], row["studio_inr_per_min"]) == (
         Decimal("4.6000"),
         Decimal("6.2500"),
     )
@@ -70,8 +70,8 @@ async def test_the_same_ledger_entry_cannot_open_two_lots() -> None:
                 session,
                 tenant_id=tenant,
                 credits_inr=Decimal("1000.00"),
-                sarvam_inr_per_min=GROWTH[0],
-                cartesia_inr_per_min=GROWTH[1],
+                clear_inr_per_min=GROWTH[0],
+                studio_inr_per_min=GROWTH[1],
                 source="topup",
                 pack_id="growth",
                 ledger_entry_id=entry,
@@ -107,8 +107,8 @@ async def test_terms_that_would_make_an_unspendable_lot_are_refused_by_name(
                 session,
                 tenant_id=tenant,
                 credits_inr=Decimal(credits_inr),
-                sarvam_inr_per_min=Decimal(sarvam),
-                cartesia_inr_per_min=Decimal(cartesia),
+                clear_inr_per_min=Decimal(sarvam),
+                studio_inr_per_min=Decimal(cartesia),
                 source="topup",
                 pack_id="growth",
                 ledger_entry_id=entry,
@@ -135,6 +135,6 @@ async def test_the_open_lots_read_is_the_one_the_wallet_screen_will_use() -> Non
         Decimal("100.0000"),
         Decimal("200.0000"),
     ]
-    assert open_lots[0].rate_for("sarvam") == Decimal("5.0000")
-    assert open_lots[1].rate_for("cartesia") == Decimal("6.5000")
+    assert open_lots[0].rate_for("clear") == Decimal("5.0000")
+    assert open_lots[1].rate_for("studio") == Decimal("6.5000")
     assert all(lot.tenant_id == tenant for lot in open_lots)

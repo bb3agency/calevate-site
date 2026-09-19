@@ -165,13 +165,13 @@ async def test_the_runway_stops_quoting_minutes_the_client_was_refunded_for() ->
     tenant_id = await _tenant()
     payment_id = await _fund(tenant_id, amount_inr="5000.00", pack_id="growth")
     async with tenant_session(tenant_id) as session:
-        assert (await runway(session, tenant_id=tenant_id))["sarvam_minutes"] > 0
+        assert (await runway(session, tenant_id=tenant_id))["clear_minutes"] > 0
 
     await _refund(tenant_id, payment_id=payment_id, amount_inr="5000.00")
 
     async with tenant_session(tenant_id) as session:
         left = await runway(session, tenant_id=tenant_id)
-    assert left["sarvam_minutes"] == left["cartesia_minutes"] == Decimal("0")
+    assert left["clear_minutes"] == left["studio_minutes"] == Decimal("0")
 
 
 async def test_a_refunded_purchase_does_not_price_the_clients_next_top_up() -> None:
@@ -193,7 +193,7 @@ async def test_a_refunded_purchase_does_not_price_the_clients_next_top_up() -> N
     """
     tenant_id = await _tenant()
     entry, deepest = _pack("starter"), _pack("max")
-    assert entry.cartesia_inr_per_min != deepest.cartesia_inr_per_min, (
+    assert entry.studio_inr_per_min != deepest.studio_inr_per_min, (
         "the two rungs must price this tier differently, or the phantom lot is invisible"
     )
     refunded_payment = await _fund(tenant_id, amount_inr="50000.00", pack_id="max")
@@ -208,11 +208,11 @@ async def test_a_refunded_purchase_does_not_price_the_clients_next_top_up() -> N
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="cartesia",
+                voice_tier="studio",
                 fallback_rates=LotRates(Decimal("9.99"), Decimal("9.99")),
             ),
         )
-    expected = Decimal("10") * entry.cartesia_inr_per_min
+    expected = Decimal("10") * entry.studio_inr_per_min
     assert charged == expected, "10 minutes of the ₹2,000 pack, at the ₹2,000 pack's rate"
     assert (
         await _open_remaining(tenant_id) == await _balance(tenant_id) == Decimal("2000") - expected
@@ -239,9 +239,9 @@ async def test_a_partial_refund_restates_the_lot_and_leaves_its_rates_alone() ->
     assert rows[0]["credits_remaining"] == Decimal("3000.0000")
     assert rows[0]["closed_at"] is None
     growth = _pack("growth")
-    assert (rows[0]["sarvam_inr_per_min"], rows[0]["cartesia_inr_per_min"]) == (
-        growth.sarvam_inr_per_min,
-        growth.cartesia_inr_per_min,
+    assert (rows[0]["clear_inr_per_min"], rows[0]["studio_inr_per_min"]) == (
+        growth.clear_inr_per_min,
+        growth.studio_inr_per_min,
     ), "a refund returns money; it does not re-price what is left"
     assert await _open_remaining(tenant_id) == await _balance(tenant_id) == Decimal("3000.0000")
 
@@ -280,8 +280,8 @@ async def test_a_refund_of_credit_already_spent_overdraws_rather_than_leaving_a_
                 # ₹4,000 of the ₹5,000 pack, DERIVED from the rung's own Clear rate: a
                 # typed 800 minutes was ₹4,000 at ₹5.00 and is ₹3,200 at ₹4.00, which
                 # leaves ₹1,800 on the wallet and a different overdraft to assert.
-                minutes=Decimal("4000") / _pack("growth").sarvam_inr_per_min,
-                voice_tier="sarvam",
+                minutes=Decimal("4000") / _pack("growth").clear_inr_per_min,
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -367,8 +367,8 @@ async def test_a_refund_takes_the_pack_bonus_off_its_lot_too() -> None:
             session,
             tenant_id=tenant_id,
             credits_inr=Decimal("250.00"),
-            sarvam_inr_per_min=Decimal("5.00"),
-            cartesia_inr_per_min=Decimal("7.00"),
+            clear_inr_per_min=Decimal("5.00"),
+            studio_inr_per_min=Decimal("7.00"),
             source="bonus_legacy",
             pack_id="growth",
             ledger_entry_id=UUID(str(bonus_entry_id)),

@@ -251,7 +251,7 @@ async def test_an_attested_voice_price_reaches_the_wire_and_makes_the_tier_offer
     assert written.status_code == 200, written.text
     row = written.json()["price"]
     assert row["provider"] == "cartesia"
-    assert row["tier_label"] == rates.voice_tier_label("cartesia")
+    assert row["tier_label"] == rates.voice_tier_label("studio")
     assert row["price_attested"] is True
     assert row["price_billable"] is True
     # EXACT DIGITS ON THE WIRE. Four decimals of a division a human did against an invoice
@@ -354,20 +354,20 @@ async def test_the_admin_wallet_read_carries_the_lot_queue_and_the_override_pack
         for field in (
             "credits_total",
             "credits_remaining",
-            "sarvam_inr_per_min",
-            "cartesia_inr_per_min",
+            "clear_inr_per_min",
+            "studio_inr_per_min",
         ):
             assert _is_money(lot[field]), f"lot.{field} is not a decimal string"
         # THE CLIENT'S WORD FOR EACH VOICE, over the wire — never composed in the browser,
         # and never the vendor's name on a client's screen.
-        assert lot["sarvam_label"] == rates.voice_tier_label("sarvam")
-        assert lot["cartesia_label"] == rates.voice_tier_label("cartesia")
+        assert lot["clear_label"] == rates.voice_tier_label("clear")
+        assert lot["studio_label"] == rates.voice_tier_label("studio")
 
     packs = body["override_packs"]
     assert packs, "the console renders no catalogue of its own"
     for pack in packs:
         assert isinstance(pack["pack_id"], str) and pack["pack_id"]
-        for field in ("amount_inr", "sarvam_inr_per_min", "cartesia_inr_per_min"):
+        for field in ("amount_inr", "clear_inr_per_min", "studio_inr_per_min"):
             assert _is_money(pack[field])
 
 
@@ -407,8 +407,8 @@ async def test_every_credit_write_names_the_lot_it_touched() -> None:
     # operator to infer it from a table that happens not to have moved.
     assert landed["lot"]["lot_id"] == opened["lot_id"]
     assert Decimal(landed["lot"]["credits_total"]) == Decimal("6500")
-    assert landed["lot"]["sarvam_inr_per_min"] == opened["sarvam_inr_per_min"]
-    assert landed["lot"]["cartesia_inr_per_min"] == opened["cartesia_inr_per_min"]
+    assert landed["lot"]["clear_inr_per_min"] == opened["clear_inr_per_min"]
+    assert landed["lot"]["studio_inr_per_min"] == opened["studio_inr_per_min"]
     # `null`, never a zero: this route restates UPWARDS only, and credit being ADDED to a
     # lot cannot fail to fit, so no shortfall was ever measured.
     assert landed["lot_shortfall_inr"] is None
@@ -463,7 +463,7 @@ async def test_the_client_wallet_lots_read_carries_both_tiers_the_queue_and_the_
     (lot,) = body["lots"]
     assert uuid.UUID(lot["lot_id"])
     assert _is_money(lot["credits_remaining"])
-    assert _is_money(lot["sarvam_inr_per_min"]) and _is_money(lot["cartesia_inr_per_min"])
+    assert _is_money(lot["clear_inr_per_min"]) and _is_money(lot["studio_inr_per_min"])
     assert isinstance(lot["opened_at"], str)
 
     # UNSIGNED, and zero when the wallet owes nothing — a screen that has to decide what a
@@ -513,7 +513,7 @@ async def test_a_wallet_entry_carries_the_lot_split_that_paid_for_it() -> None:
             ref="call:wire-1",
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="sarvam",
+                voice_tier="clear",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
@@ -530,7 +530,7 @@ async def test_a_wallet_entry_carries_the_lot_split_that_paid_for_it() -> None:
     (call_split,) = rows["call:wire-1"]["lots"]
     assert call_split["kind"] == "call"
     assert uuid.UUID(call_split["lot_id"])
-    assert call_split["voice_tier"] == "sarvam"
+    assert call_split["voice_tier"] == "clear"
     for key in ("credits", "minutes", "inr_per_min"):
         assert _is_money(call_split[key]), f"meta.lots.{key} crossed the wire as a non-decimal"
 
@@ -559,7 +559,7 @@ async def test_a_topup_sold_at_another_packs_rates_records_which_pack_and_why() 
         packs = (
             await http.get(f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token))
         ).json()["override_packs"]
-        cheapest = min(packs, key=lambda pack: Decimal(pack["sarvam_inr_per_min"]))
+        cheapest = min(packs, key=lambda pack: Decimal(pack["clear_inr_per_min"]))
 
         written = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
@@ -577,8 +577,8 @@ async def test_a_topup_sold_at_another_packs_rates_records_which_pack_and_why() 
     assert lot["override_of_pack_id"] == cheapest["pack_id"]
     # THE PACK'S OWN RATES, not the free-amount rule's — ₹5,000 would otherwise have been
     # sold at the ₹5,000 rung.
-    assert Decimal(lot["sarvam_inr_per_min"]) == Decimal(cheapest["sarvam_inr_per_min"])
-    assert Decimal(lot["cartesia_inr_per_min"]) == Decimal(cheapest["cartesia_inr_per_min"])
+    assert Decimal(lot["clear_inr_per_min"]) == Decimal(cheapest["clear_inr_per_min"])
+    assert Decimal(lot["studio_inr_per_min"]) == Decimal(cheapest["studio_inr_per_min"])
     # `pack_id` stays NULL: the client did not BUY that pack, and stamping it there would
     # report a purchase that never happened.
     assert lot["pack_id"] is None
