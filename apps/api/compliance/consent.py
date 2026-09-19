@@ -105,7 +105,9 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.models import (
+    CALLBACK_CONSENT_WITHDRAWN_REASON,
     CALLBACK_PURPOSE,
     CONSENT_SOURCES,
     MESSAGING_PURPOSE,
@@ -113,6 +115,7 @@ from apps.api.compliance.models import (
     RECORDING_PURPOSE,
     WITHDRAWAL_ONLY_CONSENT_SOURCES,
 )
+from apps.api.compliance.service import DIAL_REFUSING_CONSENT_STATUSES
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -382,6 +385,33 @@ async def record_call_consent(
         expires_at=expires_at,
     )
     assert captured_at is not None  # unguarded write; see `_append_consent_row`
+    # D-514's HONESTY DOOR, at the third place a dial stops being permitted. The gate is
+    # the enforcement and it already covers this number: `no_consent` is in
+    # `PERSON_LEVEL_REFUSALS`, the consent read is per-number and uncached, so a call-back
+    # to somebody who has withdrawn permission settles `refused` on the next tick whether
+    # or not this statement runs. What was missing is the same thing the DNC doors were
+    # missing until they were fixed — the CLIENT'S SCREEN went on naming a time we were
+    # going to telephone a person who had just said no, until the tick got round to it.
+    #
+    # ONLY A DIAL-REFUSING STATUS, and only on this purpose. `DIAL_REFUSING_CONSENT_STATUSES`
+    # is the gate's own set, imported rather than re-derived, so a status that stops being a
+    # refusal there cannot go on cancelling promises here; and a `messaging` withdrawal is a
+    # different question about a different channel, which is why this lives in the `callback`
+    # writer and not in `_append_consent_row`.
+    #
+    # Same transaction as the ledger row, `dnc.add_numbers`' reason: a record that rolls
+    # back must not leave a call-back cancelled for something nobody said. A `dialing` row
+    # is left alone by `cancel_for_phones` — that dial may be ringing as we write.
+    if status in DIAL_REFUSING_CONSENT_STATUSES:
+        cancelled = await cancel_for_phones(
+            session, phones=[phone_e164], reason=CALLBACK_CONSENT_WITHDRAWN_REASON
+        )
+        if cancelled:
+            # Ids and counts (hard rule 6) — never the number this whole function is about.
+            log.info(
+                "consent_cancelled_callbacks",
+                extra={"tenant_id": str(tenant_id), "cancelled": cancelled},
+            )
     return CallConsent(
         status=status,
         source=source,

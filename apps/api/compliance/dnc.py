@@ -63,7 +63,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.callbacks.service import cancel_for_phones
+from apps.api.callbacks.service import cancel_for_phones, cancel_for_phones_fleet_wide
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import CALLBACK_SUPPRESSED_REASON, DNC_REMOVABLE_SOURCES
@@ -71,6 +71,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.session import admin_session
 from apps.api.ingest.service import normalize_phone
 
 log = get_logger(__name__)
@@ -422,6 +423,37 @@ async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
     return Removal(source=str(source), subject_ref=subject_ref(row[2]))
 
 
+#: Every LIVE client, for the one caller that has to reach all of them at once.
+#:
+#: `deleted_at IS NULL` is the predicate `ops/engine_latency._DIRECTORY` and
+#: `admin/health.client_health` already walk by, and it is the right one here for its own
+#: reason as well: a tenant whose erasure has completed holds no `scheduled_callbacks` row
+#: to cancel (`workers/retention._erase_scheduled_callbacks` ran inside it), so visiting it
+#: would be one round trip to update nothing.
+_LIVE_TENANTS = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
+
+
+async def live_tenant_ids(directory: AsyncSession) -> list[UUID]:
+    """The client directory, for `add_global_numbers`. `directory` MUST be an
+    `admin_session()`.
+
+    That is not a convention: `organizations` FORCEs RLS and its policy admits a session
+    carrying that tenant's own GUC, a session carrying a membership, or one with
+    `app.admin='on'` — which `db/session.admin_session` is the only producer of, and
+    `core/deps.admin_db` the only route-facing door to, behind a verified admin-realm
+    principal. On the ops session this module otherwise runs on (`global_db`) this read
+    returns zero rows, which is RLS working rather than a problem to route around.
+
+    A separate call from the suppression itself, rather than a session argument on it,
+    because the two want different sessions and this repo has one shape for that already:
+    `ops/engine_latency.engine_latency_report` takes the directory and enters each tenant
+    itself. The difference here is that the WRITE has to stay in the suppression's own
+    transaction, so the list crosses the boundary instead of the session.
+    """
+    rows = (await directory.execute(text(_LIVE_TENANTS))).scalars().all()
+    return [UUID(str(row)) for row in rows]
+
+
 async def add_global_numbers(
     session: AsyncSession, *, raw_numbers: list[str], source: str
 ) -> AddResult:
@@ -441,6 +473,13 @@ async def add_global_numbers(
       Postgres treats NULLs as distinct in a unique index, so `ON CONFLICT (tenant_id,
       phone_e164)` on a global insert matches nothing and every retry would have added
       another identical row.
+
+    ...and a FOURTH thing it does that `add_numbers` does not: it reads the client
+    directory on a session of its own (`live_tenant_ids`) to call off the call-backs the
+    suppression has just invalidated in every account. It is done HERE rather than asked
+    of the caller because a caller that forgot it would still get the strong half — the
+    row that stops the dial — and silently skip the honest half, which is the state this
+    function shipped in for as long as `scope='global'` has had a writer.
     """
     if source not in GLOBAL_SOURCES:
         raise ProblemError.business_rule(
@@ -488,6 +527,43 @@ async def add_global_numbers(
         # entry outranks every tenant's own list, so the recall has to reach every
         # tenant's queue rather than one.
         await enqueue_dnc_recall(session, tenant_id=None, phones=fresh)
+        # D-514's HONESTY door, which this writer never had while both tenant-scoped
+        # writers gained it (19 Sep 2026). A global entry outranks every tenant's own
+        # list, so a promise to one of these numbers is settled `refused` at its fire
+        # time in every account — but until the tick reaches it, every one of those
+        # clients' Call-backs screens went on naming a time we were going to ring a
+        # number the platform had just refused to dial for anybody.
+        #
+        # `cancel_for_phones` CANNOT be called directly here and calling it would have
+        # looked like it worked: this session carries no `app.tenant_id` (ops only,
+        # `core/deps.global_db`) and `scheduled_callbacks` is FORCE-RLS'd, so the
+        # statement matches zero rows and returns 0 — a silent no-op with the shape of a
+        # fix. The fleet-wide form asks each tenant in turn under that tenant's own
+        # policy; see its docstring for why that is not an RLS bypass and for the
+        # rejected alternatives.
+        #
+        # Same transaction as the insert, for `add_numbers`' reason: a suppression that
+        # rolls back must not leave a client's call-back cancelled for something that
+        # never happened.
+        #
+        # THE DIRECTORY IS READ ON ITS OWN SESSION, which is the one structural cost of
+        # this door. `session` has no tenant GUC by design, so it cannot see
+        # `organizations` at all; `admin_session()` widens `USING` on that one table and
+        # nothing else, and it is how every fleet walk in this repo gets its tenant list
+        # (`agents/voice_offer.count_live_cartesia_agents:601`,
+        # `ops/engine_latency.engine_latency_report`). The read is outside the
+        # suppression's transaction and the WRITES below are inside it, which is the right
+        # way round: a directory that went stale between the two costs one un-cancelled
+        # promise that the fire-time gate refuses anyway, while a cancellation outside the
+        # transaction could outlive a suppression that rolled back.
+        async with admin_session() as directory:
+            tenant_ids = await live_tenant_ids(directory)
+        cancelled = await cancel_for_phones_fleet_wide(
+            session, tenant_ids=tenant_ids, phones=fresh, reason=CALLBACK_SUPPRESSED_REASON
+        )
+        if cancelled:
+            # Counts only (hard rule 6), and no tenant id — the count spans all of them.
+            log.info("dnc_global_cancelled_callbacks", extra={"cancelled": cancelled})
 
     # Counts only (hard rule 6), and no tenant id — there isn't one.
     log.info("dnc_global_added", extra={"added": len(fresh), "source": source})
@@ -581,6 +657,7 @@ __all__ = [
     "is_removable",
     "list_entries",
     "list_global_entries",
+    "live_tenant_ids",
     "remove_entry",
     "remove_global_entry",
 ]

@@ -458,6 +458,94 @@ async def cancel_for_phones(session: AsyncSession, *, phones: Sequence[str], rea
     return rowcount_of(result)
 
 
+#: Read and restore the transaction's tenant GUC around the walk below. `set_config(...,
+#: true)` is the TRANSACTION-LOCAL form — the same call, with the same third argument, that
+#: every SECURITY INVOKER scan function in this schema uses to move from tenant to tenant
+#: (`dispatch_scan`, `queued_dial_scan`, `unbilled_setup_fees`).
+_ENTRY_TENANT = text("SELECT coalesce(current_setting('app.tenant_id', true), '')")
+_SET_TENANT = text("SELECT set_config('app.tenant_id', :tid, true)")
+
+
+async def cancel_for_phones_fleet_wide(
+    session: AsyncSession, *, tenant_ids: Sequence[UUID], phones: Sequence[str], reason: str
+) -> int:
+    """`cancel_for_phones`, once per tenant, for a suppression that belongs to no tenant.
+
+    THE DEFECT THIS EXISTS FOR. `compliance/dnc.add_global_numbers` runs on a session with
+    no `app.tenant_id` (ops only, `core/deps.global_db`), and `scheduled_callbacks` is
+    FORCE-RLS'd under `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`
+    (`alembic/versions/d8f31a7c2409_a_callback_promised_on_a_call.py:83-85,342-343`). So the
+    one statement `cancel_for_phones` issues — which carries no `tenant_id` in its WHERE
+    precisely because RLS supplies it — matches ZERO rows from there, for every tenant. The
+    tenant-scoped doors got their honesty half on 19 Sep 2026 (`compliance.service.
+    add_to_dnc`, `dnc.add_numbers`); the strongest suppression this platform can write, the
+    one that binds every client at once, was the one still leaving "we will ring you
+    Tuesday" on the screen.
+
+    **THIS IS NOT AN RLS BYPASS AND MUST NEVER BECOME ONE** (hard rule 1). Every UPDATE
+    below runs under the tenant's OWN policy with that tenant's id in the GUC: the session
+    keeps its role, no policy is widened, nothing is exempted, and a tenant id absent from
+    `tenant_ids` is simply not visited. It is the house pattern for "one question, asked of
+    every tenant in turn", moved from PL/pgSQL into the caller.
+
+    **THE TENANT LIST IS AN ARGUMENT AND NOT A QUERY HERE**, which is the one design
+    decision worth arguing. `session` cannot enumerate tenants at all — `organizations` is
+    FORCE-RLS'd and admits only a session carrying that tenant's GUC, a membership, or
+    `app.admin='on'` — and that is RLS working rather than an obstacle. The directory read
+    therefore happens on a session of its own, and it happens in the CALLER
+    (`compliance/dnc.add_global_numbers`, through `dnc.live_tenant_ids`) rather than in
+    here, because this module must keep taking the session it is handed: everything else
+    in it runs inside the caller's transaction, and a function that quietly opened a
+    second connection of its own would be the one exception nobody expects. The parameter
+    has no default for the same reason — a caller that cannot supply the list has not
+    thought about which accounts it means to reach.
+
+    REJECTED, each for a reason rather than a preference:
+
+    * **Walking `engine_agent_routes` instead** — the fleet-wide source
+      `dispatch_scan()` and `queued_dial_scan()` use, and the one table an untenanted
+      session may read (`engine_agent_routes_global_read`, `c4b70e928a1f:104,121`). It
+      needs no admin session and it under-reaches: it lists tenants with a PUBLISHED
+      agent, so an account whose agent was unpublished after a caller was promised a
+      ring-back would keep advertising that promise. "The dialler cannot reach it either"
+      is true and is not the question this door answers — this door is about what the
+      client is SHOWN.
+    * **A new SECURITY INVOKER plpgsql function.** The house shape, and right if a
+      migration were needed here for anything else — but the loop it would hold is the
+      four lines below, the statement it would run is `cancel_for_phones`' statement
+      (which would then exist twice, in two languages, for `TERMINAL_STATUSES`' reason),
+      and a schema object is a thing to keep in step for ever. If the per-tenant round
+      trip ever costs more than it saves, that is the migration to write and this function
+      becomes its caller.
+    * **`SECURITY DEFINER` owned by a role with `BYPASSRLS`.** Refused before this, twice,
+      in writing (`a8d4f21c9b06`, `b8e2d47f0c19`): it answers the same question by taking
+      the guarantee off the table instead of asking each tenant.
+    * **Doing it in the recall WORKER** (`apps/workers/dnc_recall.py`), which already runs
+      fleet-wide for a global suppression. It would work and it would lose the property
+      the tenant doors were built for: the cancellation shares the suppression's
+      transaction, so a suppression that rolls back cannot leave a client's call-back
+      cancelled for something that never happened. That argument is `dnc.add_numbers`' own
+      and it does not weaken at a larger scope.
+
+    One indexed UPDATE per tenant (the partial index on `(tenant_id, phone_e164) WHERE
+    status IN ('scheduled', 'dialing')`), on a route that is ops-only and step-up
+    confirmed. The entry GUC is restored in a `finally`: an exception mid-walk must not
+    leave the caller's remaining statements — the audit row, on this same session —
+    running as whichever tenant we had reached.
+    """
+    if not phones or not tenant_ids:
+        return 0
+    entry = str((await session.execute(_ENTRY_TENANT)).scalar_one())
+    cancelled = 0
+    try:
+        for tenant_id in tenant_ids:
+            await session.execute(_SET_TENANT, {"tid": str(tenant_id)})
+            cancelled += await cancel_for_phones(session, phones=phones, reason=reason)
+    finally:
+        await session.execute(_SET_TENANT, {"tid": entry})
+    return cancelled
+
+
 async def cancel_one(session: AsyncSession, callback_id: UUID, *, reason: str) -> bool:
     """The client's own cancel button. False when there was nothing left to stop."""
     result = await session.execute(
@@ -521,6 +609,7 @@ __all__ = [
     "DueCallback",
     "book",
     "cancel_for_phones",
+    "cancel_for_phones_fleet_wide",
     "cancel_one",
     "claim_due",
     "context_note",

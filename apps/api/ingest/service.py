@@ -41,6 +41,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import dispatch_call
 from apps.api.agents.write_guard import assert_agent_writable
+from apps.api.callbacks.service import cancel_for_phones
+from apps.api.compliance.models import CALLBACK_CONSENT_WITHDRAWN_REASON
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import record_speed_to_lead
 from apps.api.core.errors import ProblemError
@@ -534,6 +536,26 @@ async def _record_dial_consent_declined(
 
     Not idempotency-guarded: two identical declines are two true statements about two
     submissions, the table is append-only, and `check_dispatch` reads only the latest.
+
+    **IT CALLS OFF A PROMISED CALL-BACK TOO, AND FOR A WHILE IT DID NOT (19 Sep 2026).**
+    This is the third door onto one honesty rule (D-514): the ENFORCEMENT was never in
+    doubt — `check_dispatch` refuses a `callback`-purpose decline as `no_consent`, a
+    person-level refusal read uncached per number — but a client's Call-backs screen went
+    on naming an hour we were going to ring somebody who had just declined to be phoned.
+    `compliance.service.add_to_dnc` and `dnc.add_numbers` were given that half first, then
+    `consent.record_call_consent`; this writer was missed because it does NOT go through
+    `record_call_consent` — it writes the ledger row with its own INSERT, and a sweep that
+    looked for callers of that function could not see it.
+
+    The same sentence as the consent door, imported and never re-typed: a client reading
+    their screen must not be able to tell WHICH writer called the promise off, and a
+    number that declined a form is not on anybody's do-not-call list, so the DNC wording
+    would send them looking at a list it is not on.
+
+    Same transaction as the ledger row, for the reason every other door has it: a decline
+    that rolls back must not leave a call-back cancelled for something nobody said. A
+    `dialing` row is deliberately left alone by `cancel_for_phones` — that dial may be
+    ringing as we write.
     """
     await session.execute(
         text(
@@ -543,6 +565,15 @@ async def _record_dial_consent_declined(
         ),
         {"id": uuid7(), "tid": tenant_id, "phone": phone_e164},
     )
+    cancelled = await cancel_for_phones(
+        session, phones=[phone_e164], reason=CALLBACK_CONSENT_WITHDRAWN_REASON
+    )
+    if cancelled:
+        # Ids and counts (hard rule 6) — never the number this function is about.
+        log.info(
+            "form_decline_cancelled_callbacks",
+            extra={"tenant_id": str(tenant_id), "cancelled": cancelled},
+        )
 
 
 async def _timeline(

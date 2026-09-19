@@ -193,6 +193,19 @@ DNC_REMOVABLE_SOURCES: tuple[str, ...] = ("manual",)
 CALLBACK_SUPPRESSED_REASON = (
     "This number was added to your do-not-call list, so we did not ring them back."
 )
+# ...and what a client reads on a call-back the person's own WITHDRAWN PERMISSION called
+# off. A second sentence rather than a second use of the one above, because the two are
+# different facts with different remedies: a do-not-call entry is something this account
+# holds and can look at, a withdrawn consent is the person's own later word on a ledger
+# nobody can edit. Telling a client "we added them to your do-not-call list" when nobody
+# did would send them to a screen where the number is not there.
+#
+# It says what happened and not the rule, for `CALLBACK_SUPPRESSED_REASON`' reason: the
+# gate writes "This person has not agreed to be called" on a call-back it refuses at fire
+# time, and this is the wording for the ones stopped the moment the record was made.
+CALLBACK_CONSENT_WITHDRAWN_REASON = (
+    "This person's permission to be called was withdrawn, so we did not ring them back."
+)
 # The categories a tenant may set a retention period for. Mirrors
 # `ck_retention_policies_category_enum` — the CHECK is the source of truth and this
 # tuple must not drift from it (DATA-MODEL §9, §10).
