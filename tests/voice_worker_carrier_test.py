@@ -122,7 +122,17 @@ async def test_the_handshake_fields_are_the_ones_pipecat_parses_for_plivo() -> N
     handshake = carrier.PlivoHandshake.from_call_data(call_data)
     assert handshake.stream_id == "stream-1"
     assert handshake.carrier_call_id == "carrier-call-1"
-    assert set(carrier.PlivoHandshake.__dataclass_fields__) == {"stream_id", "carrier_call_id"}
+    # THREE FIELDS, and the third is a VERDICT rather than a number: the absence of a
+    # calling party is itself a fact the CRM, the lead pipeline and the DNC path all need,
+    # and modelling it as nothing is what left `calls.from_e164` NULL with no reader able
+    # to say why (`tests/carrier_identity_states_test.py` drives the four states).
+    assert set(carrier.PlivoHandshake.__dataclass_fields__) == {
+        "stream_id",
+        "carrier_call_id",
+        "caller",
+    }
+    assert handshake.caller.state == "unparsed_by_client"
+    assert not handshake.caller.is_known
 
 
 async def test_the_handshake_reader_uses_pipecats_detection_and_agrees_with_it() -> None:
@@ -133,9 +143,12 @@ async def test_the_handshake_reader_uses_pipecats_detection_and_agrees_with_it()
 
     handshake = await carrier.read_plivo_handshake(socket)
 
-    assert handshake == carrier.PlivoHandshake(
-        stream_id="stream-2", carrier_call_id="carrier-call-2"
-    )
+    assert handshake.stream_id == "stream-2"
+    assert handshake.carrier_call_id == "carrier-call-2"
+    # The reader asks the identity question of the carrier it DETECTED, not of a constant,
+    # which is what keeps the seam answerable for the carrier we migrate to.
+    assert handshake.caller.state == "unparsed_by_client"
+    assert "plivo" in handshake.caller.ground
 
 
 async def test_a_socket_from_another_carrier_is_refused_rather_than_mis_serialized() -> None:

@@ -33,10 +33,18 @@ the shipped client of that protocol, read in this session at
 `docs/PIPECAT-MIGRATION.md` §7):
 
 1. **The dialed and calling numbers are not on the Plivo handshake as Pipecat parses it.**
-   `parse_telephony_websocket` populates `from`/`to` for Telnyx and Exotel and leaves both
-   `None` for Plivo (`runner/utils.py:250-262`) — so this module does NOT route a call by
-   the number that was dialled. See `route_of` for what it routes on instead, which is a
-   design that does not need the answer.
+   `parse_telephony_websocket` populates `from`/`to` for Twilio, Telnyx and Exotel and
+   builds a two-key dict for Plivo that names neither (`runner/utils.py:230-272`) — so this
+   module does NOT route a call by the number that was dialled. See `route_of` for what it
+   routes on instead, which is a design that does not need the answer.
+
+   ⚠ **AND THAT IS NOW A NAMED STATE RATHER THAN A `None` (this change).** "We asked the
+   carrier and it did not say" and "nobody has looked yet" were the same `None`, which is
+   how `calls.from_e164` came to be NULL on every call with nothing anywhere saying why.
+   `CallerIdentity` and `CALLER_IDENTITY_PARSE` below answer the question per CARRIER, with
+   a state an operator and a compliance path can both read. THE NUMBER IS STILL ABSENT ON
+   PLIVO — this does not conjure one, and §STEP-4 of `docs/evidence/carrier-caller-identity.md`
+   names exactly what closes that.
 2. **Whether Plivo signs the HTTP request that fetches the answer document.** That leg
    is not here — see the next section — and nothing in the installed Pipecat tree
    verifies a Plivo request signature.
@@ -72,12 +80,14 @@ tenant and agent ids, the carrier's own stream id, and words.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Final
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.engine import parse_owned_runtime_agent_ref
 from calevate_shared.events import CallDirection
+from calevate_shared.extraction import normalize_phone
 from loguru import logger
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.plivo import PlivoFrameSerializer
@@ -163,15 +173,194 @@ class PlivoCredentials:
     auth_token: str
 
 
+#: WHY WE DO OR DO NOT KNOW WHO IS ON THE CALL. Four states, and the fourth is the defect.
+#:
+#: * ``known`` — a number came off the handshake and is carried on `CallerIdentity.e164`.
+#: * ``withheld_by_carrier`` — the pinned client DOES map this carrier's `from` field and
+#:   the carrier put nothing in it. A real carrier answer: caller ID was withheld, or the
+#:   leg has no calling party. Nothing further we write can recover it from the stream.
+#: * ``unparsed_by_client`` — the pinned client maps no `from` field for this carrier at
+#:   all, so NOBODY CAN SAY whether the carrier sent one. This is Plivo today and it is an
+#:   UNKNOWN in hard rule 11's sense, not a finding: see `CALLER_IDENTITY_PARSE`.
+#: * ``not_read`` — nobody has looked. The DEFAULT, and the only state that may ever mean
+#:   "unasked". Separating it from the three above is the whole point of this type: a NULL
+#:   `calls.from_e164` said all four things at once, so no reader could tell a carrier that
+#:   withheld a number from a code path that never asked.
+CallerIdentityState = Literal["known", "withheld_by_carrier", "unparsed_by_client", "not_read"]
+
+
+@dataclass(frozen=True, slots=True)
+class CallerIdentity:
+    """Who is on the far end of a carrier leg, or the named reason we cannot say.
+
+    **THIS TYPE EXISTS BECAUSE A `None` MEANT FOUR THINGS.** `calls.from_e164` is NOT
+    decoration — `leads.phone_e164` is NOT NULL and is derived from it, caller memory
+    filters on `IS NOT NULL`, a DPDP erasure takes its subject from it, and an opt-out is
+    keyed on it (`calevate_shared/worker_api.py:145-166`). A column that is NULL for four
+    unrelated reasons cannot be triaged, which is how this went unnoticed.
+
+    **IT NEVER INVENTS A NUMBER AND HAS NO FALLBACK.** There is no second source on this
+    leg: our own session has no party, and substituting the agent's own line would file a
+    lead against ourselves (`apps/api/worker/service.py:766-768` makes the same argument
+    for the same reason). The honest act is a state, not a guess.
+
+    HARD RULE 6: `e164` is PII. It is carried, never logged. `state` and `ground` are what
+    goes in a log line, and both are safe by construction — `ground` is written HERE and is
+    never built from wire data.
+    """
+
+    state: CallerIdentityState
+    ground: str
+    e164: str | None = None
+
+    @property
+    def is_known(self) -> bool:
+        """True only when a number is really in hand. The one test callers should make."""
+        return self.state == "known" and self.e164 is not None
+
+    @classmethod
+    def not_read(cls) -> CallerIdentity:
+        """The default: this code path has not asked the carrier anything."""
+        return cls(
+            state="not_read",
+            ground="no carrier handshake has been read on this call",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CarrierIdentityParse:
+    """Whether the PINNED client maps a carrier's calling party, and where that is written.
+
+    **KEYED ON THE CARRIER, NOT ON PLIVO**, because the carrier is the part of this product
+    most likely to change: Plivo signup failed, a Telnyx ticket is open, and D-05 picks
+    Exotel (`docs/ROADMAP.md:348`). A seam that answered only for Plivo would be thrown
+    away with Plivo, and — worse — the carrier that CAN answer would arrive with nothing
+    ready to receive the answer.
+
+    `evidence` is a `file:line` into the hash-pinned wheel and is the only kind of claim
+    this table is allowed to hold (VERIFIED-VENDOR-DOCS, hard rule 11). It says what the
+    CLIENT does, never what the CARRIER sends — those are different facts and only the
+    first is readable from this container.
+    """
+
+    carrier: str
+    #: Does `parse_telephony_websocket` map a `from` key for this carrier at all?
+    maps_calling_party: bool
+    evidence: str
+
+
+#: WHAT THE PINNED `pipecat-ai==1.10.0` CLIENT DOES WITH EACH CARRIER'S CALLING PARTY.
+#:
+#: Read out of the installed tree in this session, not recalled. `parse_telephony_websocket`
+#: builds a per-carrier dict and only then validates it onto `CallData`, whose `from_number`
+#: is `Field(alias="from")` (`runner/types.py:94`) — so a carrier whose branch writes no
+#: `"from"` key leaves the field at its `None` default with nothing having been consulted.
+#:
+#: ⚠ **THE PLIVO ENTRY IS AN UNKNOWN, NOT A VENDOR FACT.** `False` here says only that the
+#: CLIENT does not look; it does NOT say Plivo omits the number. Plivo's own `<Stream>`
+#: documentation is the primary source for that and `www.plivo.com` is EGRESS-BLOCKED from
+#: this container (measured 19 Sep 2026, `curl` → 000). Writing "Plivo does not send it"
+#: anywhere is the exact failure hard rule 11 exists for.
+CALLER_IDENTITY_PARSE: Final[Mapping[str, CarrierIdentityParse]] = {
+    "plivo": CarrierIdentityParse(
+        carrier="plivo",
+        maps_calling_party=False,
+        # Two keys and no third: `{"stream_id": start.streamId, "call_id": start.callId}`.
+        evidence="pipecat/runner/utils.py:257-262",
+    ),
+    "telnyx": CarrierIdentityParse(
+        carrier="telnyx",
+        maps_calling_party=True,
+        evidence="pipecat/runner/utils.py:253-254",
+    ),
+    "exotel": CarrierIdentityParse(
+        carrier="exotel",
+        maps_calling_party=True,
+        evidence="pipecat/runner/utils.py:270-271",
+    ),
+    "twilio": CarrierIdentityParse(
+        carrier="twilio",
+        # NOT off the carrier's own start fields: Twilio's branch reads
+        # `start.customParameters["from_number"]` — a parameter the ANSWER DOCUMENT put
+        # there. That is the shape §STEP-4 of the evidence doc asks Plivo about, and the
+        # reason it is the question worth asking: it needs nothing from the carrier's
+        # schema, only the ability to attach our own parameters to the stream.
+        maps_calling_party=True,
+        evidence="pipecat/runner/utils.py:232,240-241",
+    ),
+}
+
+
+def caller_identity_of(transport_type: str, call_data: Any) -> CallerIdentity:
+    """The calling party of a parsed handshake, as a state that is always explainable.
+
+    CARRIER-AGNOSTIC BY CONSTRUCTION: it reads `CallData.from_number`, the one field the
+    client normalises across all four carriers (`runner/types.py:84,94`), and consults
+    `CALLER_IDENTITY_PARSE` only to explain an absence. A new carrier needs a row in that
+    table and nothing else here.
+
+    **THE EMPTY STRING IS NOT THE SAME ABSENCE AS THE MISSING KEY**, and the distinction is
+    the client's, not ours: the Telnyx and Exotel branches default their `"from"` to `""`
+    (`runner/utils.py:253`, `:270`), so an empty value there means the carrier's own start
+    event carried nothing — `withheld_by_carrier`. Plivo writes no key at all, so the field
+    is untouched — `unparsed_by_client`, which is a statement about our client and not
+    about Plivo.
+
+    `normalize_phone` rather than a second canonicaliser: `leads.phone_e164`,
+    `dnc_list.phone_e164` and the extraction path all key on its output, and a carrier
+    number stored in a different form than the one the dispatch gate matches would be a
+    suppression that suppresses nothing.
+    """
+    parse = CALLER_IDENTITY_PARSE.get(transport_type)
+    raw = getattr(call_data, "from_number", None)
+    if isinstance(raw, str) and raw.strip():
+        return CallerIdentity(
+            state="known",
+            ground=f"{transport_type} handshake carried a calling party",
+            e164=normalize_phone(raw.strip()),
+        )
+    if parse is None:
+        return CallerIdentity(
+            state="unparsed_by_client",
+            ground=(
+                f"carrier {transport_type!r} is not in CALLER_IDENTITY_PARSE, so nothing "
+                "here knows whether the pinned client reads its calling party"
+            ),
+        )
+    if parse.maps_calling_party:
+        return CallerIdentity(
+            state="withheld_by_carrier",
+            ground=(
+                f"the pinned client reads {transport_type}'s calling party "
+                f"({parse.evidence}) and the carrier sent none"
+            ),
+        )
+    return CallerIdentity(
+        state="unparsed_by_client",
+        ground=(
+            f"the pinned client maps no calling party for {transport_type} "
+            f"({parse.evidence}); whether the carrier sends one is UNVERIFIED here because "
+            "its documentation host is egress-blocked "
+            "(docs/evidence/carrier-caller-identity.md)"
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PlivoHandshake:
     """What the carrier says at the top of a stream, as Pipecat parses it.
 
-    EXACTLY TWO FIELDS, because exactly two are populated for this provider:
-    `parse_telephony_websocket` maps `start.streamId` and `start.callId` and nothing else
-    (`runner/utils.py:257-262`). A `from_number`/`to_number` pair on this dataclass would
-    be two fields that are always `None` on the one carrier we run — an invitation to route
-    on them.
+    TWO IDENTIFIERS AND A VERDICT. `parse_telephony_websocket` maps `start.streamId` and
+    `start.callId` for this provider and nothing else (`runner/utils.py:257-262`).
+
+    ⚠ **THIS DOCSTRING USED TO ARGUE THAT A THIRD FIELD WOULD BE WRONG** — "a
+    `from_number`/`to_number` pair … would be two fields that are always `None` on the one
+    carrier we run — an invitation to route on them". The routing half of that is still
+    true and `route_of` still routes on the URL. The rest was the defect: the absence
+    itself is a FACT the rest of the system needs, and modelling it as nothing at all is
+    what left `calls.from_e164` NULL with no reader able to say why. `caller` is that fact
+    — a state and a ground, never a guessed number — and it is not routable because it is
+    not a number.
 
     `call_id` here is the CARRIER's id for the call and is NOT `SessionConfig.call_id`,
     which is ours (§1.2: the carrier's CDR is reconciled against our id rather than being
@@ -180,16 +369,28 @@ class PlivoHandshake:
 
     stream_id: str
     carrier_call_id: str
+    #: DEFAULTS TO `not_read()` RATHER THAN BEING REQUIRED, and the default is the honest
+    #: one: a handshake built by hand (a test fixture, a future second entrypoint) really
+    #: has asked no carrier anything, and saying so is the state this type exists to make
+    #: sayable. `from_call_data` always supplies a real verdict.
+    caller: CallerIdentity = field(default_factory=lambda: CallerIdentity.not_read())
 
     @classmethod
-    def from_call_data(cls, call_data: Any) -> PlivoHandshake:
+    def from_call_data(
+        cls, call_data: Any, *, transport_type: str = PLIVO_TRANSPORT_TYPE
+    ) -> PlivoHandshake:
         """Build one from `parse_telephony_websocket`'s `CallData`.
 
         Takes the parsed object rather than the raw websocket so that the caller owns the
         single-use message stream, and takes it as `Any` because `CallData` declares both
-        fields as `str | None` (`runner/types.py:92-93`) — a shape that is right for a
+        fields as `str | None` (`runner/types.py:94-95`) — a shape that is right for a
         model spanning four carriers and wrong for the one contract this worker has. The
         narrowing to two required strings happens here, once, with a refusal attached.
+
+        `transport_type` is a keyword with a default rather than a positional, because the
+        two ids are Plivo-shaped and the identity question is not: the default keeps every
+        existing caller correct while `caller_identity_of` stays answerable for the carrier
+        we migrate to.
         """
         stream_id = getattr(call_data, "stream_id", None)
         carrier_call_id = getattr(call_data, "call_id", None)
@@ -198,7 +399,11 @@ class PlivoHandshake:
                 "the carrier handshake carried no stream id or no call id, so this "
                 "connection cannot be answered or hung up"
             )
-        return cls(stream_id=str(stream_id), carrier_call_id=str(carrier_call_id))
+        return cls(
+            stream_id=str(stream_id),
+            carrier_call_id=str(carrier_call_id),
+            caller=caller_identity_of(transport_type, call_data),
+        )
 
 
 async def read_plivo_handshake(websocket: Any) -> PlivoHandshake:
@@ -223,7 +428,7 @@ async def read_plivo_handshake(websocket: Any) -> PlivoHandshake:
             f"this socket speaks {transport_type!r}, and this deployment's carrier is "
             f"{PLIVO_TRANSPORT_TYPE!r}"
         )
-    return PlivoHandshake.from_call_data(call_data)
+    return PlivoHandshake.from_call_data(call_data, transport_type=transport_type)
 
 
 def route_of(token: str) -> CallRoute:
@@ -352,6 +557,7 @@ async def start_carrier_call(
     direction: CallDirection,
     transport: BaseTransport,
     credentials: VendorCredentials,
+    caller: CallerIdentity | None = None,
     sink: NormalizedEventSink,
     fetcher: PackFetcher,
     cache: PackCache | None = None,
@@ -382,7 +588,20 @@ async def start_carrier_call(
     **THE ORDER IS A DECISION.** Arming the greeting comes last, after the pipeline exists:
     armed first, a carrier that connected during the pack fetch would find a handler closing
     over a call that has not been assembled.
+
+    **`caller` IS OBSERVED HERE AND IS NOT YET CARRIED DOWNSTREAM, AND THAT IS STATED
+    RATHER THAN HIDDEN.** `read_plivo_handshake` now produces a `CallerIdentity` for every
+    call, and this function records its STATE at the moment the call starts — which is the
+    signal an operator has been missing, since `apps/api/worker/service.py::
+    _alert_if_nobody_was_on_the_call` can only notice the absence once the call has already
+    ended. What is NOT done here is putting the number into
+    `calevate_shared.worker_api.ObservationsIn.from_e164`, whose server half already exists
+    and waits for a producer (`worker_api.py:166`): that hop runs through `session.py`,
+    `pipeline.SessionConfig` and `sink.py`, none of which this change was permitted to
+    touch. Passing `None` means the same as passing `CallerIdentity.not_read()` and is the
+    honest default for a caller that has not read a handshake at all.
     """
+    caller = caller or CallerIdentity.not_read()
     route = route_of(token)
     call = await start_session(
         api,
@@ -399,14 +618,17 @@ async def start_carrier_call(
         embedder=embedder,
     )
     arm_first_turn(transport, call, call_id=call_id)
-    # Ids and words (hard rule 6). No number is available here and none would be logged if
-    # it were; the carrier's stream id is what ties this line to their side of the call.
+    # Ids and words (hard rule 6). `caller.state` and `caller.ground` are written in this
+    # module and never built from wire data, so neither can carry a number; `caller.e164`
+    # is deliberately absent from this call and from every other log line here.
     logger.info(
         "carrier call assembled",
         call_id=call_id,
         tenant_id=str(route.tenant_id),
         agent_id=str(route.agent_id),
         direction=direction,
+        caller_identity=caller.state,
+        caller_identity_ground=caller.ground,
     )
     return call
 
@@ -434,10 +656,14 @@ def place_outbound_call(*_args: Any, **_kwargs: Any) -> AssembledCall:
 
 
 __all__ = [
+    "CALLER_IDENTITY_PARSE",
     "CLIENT_CONNECTED_EVENT",
     "OUTBOUND_DIAL_UNKNOWN",
     "PLIVO_TRANSPORT_TYPE",
     "CallRoute",
+    "CallerIdentity",
+    "CallerIdentityState",
+    "CarrierIdentityParse",
     "CarrierNotWrittenError",
     "CarrierWiringError",
     "PlivoCredentials",
@@ -445,6 +671,7 @@ __all__ = [
     "UnroutableCallError",
     "arm_first_turn",
     "build_plivo_transport",
+    "caller_identity_of",
     "place_outbound_call",
     "read_plivo_handshake",
     "route_of",
