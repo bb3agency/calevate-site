@@ -36,7 +36,6 @@ can be told to fail, which is the half a real MinIO cannot easily be asked for.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -622,9 +621,9 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
         await session.execute(
             text(
                 "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, "
-                "name, custom, status, attempts, dedupe_hash, created_at, updated_at) "
+                "name, custom, status, attempts, created_at, updated_at) "
                 "VALUES (:i, :t, :c, :p, 'Ravi', CAST(:custom AS jsonb), 'pending', 0, "
-                ":h, now(), now())"
+                "now(), now())"
             ),
             {
                 "i": uuid7(),
@@ -632,7 +631,6 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
                 "c": campaign_id,
                 "p": phone,
                 "custom": json.dumps({"city": "Warangal"}),
-                "h": hashlib.sha256(phone.encode()).hexdigest()[:16],
             },
         )
         await session.execute(

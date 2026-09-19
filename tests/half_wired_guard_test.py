@@ -13,7 +13,8 @@ sweep that produced this file:
 * `fail_fast`, `get_sample`, `voice_selection_available` — three public functions whose
   only mention outside their own `def` was their own module's `__all__` (D-232).
 * `campaign_contacts.dedupe_hash` — an unsalted truncated SHA-256 of a phone number,
-  written on every upload and read by nothing, ever (D-233).
+  written on every upload and read by nothing, ever (D-233). Step 1 stopped the write; the
+  column itself is gone since `a3f7d21c8b45`, which is what closed the baseline entry.
 * a broad `except` in the pilot's KB prober that turned "our adapter raised" into "the
   vendor says this handle is unknown" (D-234).
 

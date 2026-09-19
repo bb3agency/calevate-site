@@ -365,14 +365,20 @@ async def test_contact_upload_dedupes_and_counts_malformed_without_guessing() ->
 
 
 async def test_a_contact_upload_stores_no_hash_of_the_number() -> None:
-    """`campaign_contacts.dedupe_hash` is not written any more, and this is why.
+    """`campaign_contacts` carries no derivative of the phone number at all.
 
-    It held `sha256(phone)[:16]`, unsalted, in the table whose erasure story is that the
-    number goes — and Indian mobile E.164 is a ~10^9 space, so a truncated unsalted digest
-    of one is the number back in a few seconds of enumeration. Nothing read it: the batch
-    dedupes on `seen` and cross-batch on `ON CONFLICT (campaign_id, phone_e164)`, both on
-    the number itself. Kept as a live assertion rather than a comment because the tempting
-    "fix" for the guard that flags it is to put the write back with a reader bolted on.
+    `dedupe_hash` held `sha256(phone)[:16]`, unsalted, in the table whose erasure story is
+    that the number goes — and Indian mobile E.164 is a ~10^9 space, so a truncated
+    unsalted digest of one is the number back in a few seconds of enumeration. Nothing
+    read it: the batch dedupes on `seen` and cross-batch on
+    `ON CONFLICT (campaign_id, phone_e164)`, both on the number itself. D-233 stopped the
+    write and `a3f7d21c8b45` dropped the column.
+
+    **THE ASSERTION MOVED FROM "THE VALUE IS NULL" TO "THERE IS NO SUCH COLUMN", which is
+    the stronger form of the same property** — a NULL check passes again the moment
+    somebody restores the write, and this one cannot. It is a live assertion rather than a
+    comment for that reason: the tempting "fix" for the half-wired guard that flagged the
+    column was always to put the write back with a reader bolted on.
     """
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
@@ -392,18 +398,23 @@ async def test_a_contact_upload_stores_no_hash_of_the_number() -> None:
             campaign_id=campaign_id,
             contacts=[{"phone": "9876544444"}],
         )
-        hashes = (
+        columns = set(
             (
                 await session.execute(
-                    text("SELECT dedupe_hash FROM campaign_contacts WHERE campaign_id = :c"),
-                    {"c": campaign_id},
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "  WHERE table_name = 'campaign_contacts'"
+                    )
                 )
             )
             .scalars()
             .all()
         )
 
-    assert hashes == [None], "the upload must leave no derivative of the phone number"
+    assert "dedupe_hash" not in columns, (
+        "the column that held an unsalted digest of the phone number is back; "
+        "the upload must leave no derivative of the number and no place to put one"
+    )
 
 
 async def test_contacts_cannot_be_added_to_a_running_campaign() -> None:

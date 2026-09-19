@@ -1265,16 +1265,17 @@ WHERE id IN (
 #: minute, and `uq_campaign_contacts_campaign_id_phone_e164` then refuses the write. See
 #: `_erase_campaign_contacts`, where that cost a whole erasure transaction.
 #:
-#: `dedupe_hash` goes with the number for the reason the erasure gives: it holds
-#: `sha256(phone)[:16]`, unsalted, over a ~10^9 space, so leaving it is leaving the number
-#: in a form that reverses. `custom` is emptied rather than inspected — it is whatever the
-#: client pasted beside the number, and we do not know what is in it.
+#: `dedupe_hash` USED TO BE BLANKED HERE and the column is gone (`a3f7d21c8b45`). It held
+#: `sha256(phone)[:16]`, unsalted, over a ~10^9 space, so leaving it was leaving the number
+#: in a form that reverses — which is why it was cleared while it existed and why dropping
+#: it was the better answer than clearing it for ever. `custom` is emptied rather than
+#: inspected — it is whatever the client pasted beside the number, and we do not know what
+#: is in it.
 _CAMPAIGN_CONTACT_EXPIRE_SQL = """
 UPDATE campaign_contacts
 SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
     name = NULL,
     custom = NULL,
-    dedupe_hash = NULL,
     status = CASE WHEN status = 'pending' THEN 'dnc_blocked' ELSE status END,
     next_attempt_at = NULL,
     updated_at = now()
@@ -1991,10 +1992,12 @@ async def _erase_recordings(
 #: reports this row exactly as it reports one the DNC list stopped, and no reader needs a
 #: new state.
 #:
-#: **`dedupe_hash` IS CLEARED TOO, and it is not in the finding.** It holds
+#: **`dedupe_hash` WAS CLEARED HERE TOO, and it was not in the finding.** It held
 #: `sha256(phone)[:16]` — unsalted, and Indian mobile E.164 is a ~10^9 space anyone can
-#: enumerate in seconds, so leaving it is leaving the number in a form that reverses. It
-#: is only a dedupe key within one upload, so nothing reads it after the import.
+#: enumerate in seconds, so leaving it was leaving the number in a form that reverses. It
+#: was only a dedupe key within one upload and nothing read it after the import, so the
+#: column was DROPPED (`a3f7d21c8b45`) rather than blanked on every sweep for ever. There
+#: is no arm for it below because there is no column.
 #:
 #: `custom` is the whole of what the client pasted from their CSV beside the phone and
 #: the name — every other column, whatever it was — so it is emptied rather than
@@ -2004,7 +2007,6 @@ UPDATE campaign_contacts
 SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
     name = NULL,
     custom = NULL,
-    dedupe_hash = NULL,
     status = 'dnc_blocked',
     next_attempt_at = NULL,
     updated_at = now()

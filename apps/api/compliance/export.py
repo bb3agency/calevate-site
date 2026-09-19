@@ -102,7 +102,8 @@ def subject_ref(phone_e164: str) -> str:
     itself: `retention.py`'s `_CAMPAIGN_CONTACT_ERASE_SQL` says of the IDENTICAL
     construction that it is "unsalted, and Indian mobile E.164 is a ~10^9 space anyone
     can enumerate in seconds, so leaving it is leaving the number in a form that
-    reverses" — which is why erasure CLEARS `dedupe_hash`. Both claims were in the
+    reverses" — which is why erasure cleared `dedupe_hash` while it existed and why
+    `a3f7d21c8b45` has since dropped the column outright. Both claims were in the
     repository and only one can be true. Enumerating a billion candidates and comparing
     digests is seconds of work, so this value must be treated as PSEUDONYMOUS, never as
     anonymous: it is a pointer to a person that a determined reader can resolve.

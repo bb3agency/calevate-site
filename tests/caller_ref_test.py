@@ -7,7 +7,8 @@ row has been scrubbed in place. `compliance/caller_ref.py`'s header argues the d
 file pins the three ways it can silently fail.
 
 1. **It reverses.** An unsalted digest of an Indian mobile is a ~10^9 enumeration — the
-   repository's own reason for clearing `campaign_contacts.dedupe_hash` on erasure. A
+   repository's own reason for DROPPING `campaign_contacts.dedupe_hash` (`a3f7d21c8b45`),
+   which held exactly that and was cleared on erasure until the column went. A
    memory row keyed by one is a phone number with a fact attached.
 2. **It links across tenants.** One person ringing two of our clients must not share a key
    between them, or a dump joins two clients' caller memories into a profile nobody agreed

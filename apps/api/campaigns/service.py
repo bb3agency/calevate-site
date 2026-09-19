@@ -836,9 +836,11 @@ async def add_contacts(
         # erasure, which NULLs it. A hash of PII stored for no reader is a DPDP
         # minimisation finding, not a spare index.
         #
-        # The column survives this release under hard rule 8 — never DROP in the release
-        # that stops writing — so rows already carrying a hash keep being cleared by
-        # `_CAMPAIGN_CONTACT_ERASE_SQL`. D-233 names the DROP migration that closes it.
+        # The column survived one release under hard rule 8 — never DROP in the release
+        # that stops writing — and `a3f7d21c8b45` has since dropped it, which is why there
+        # is no `dedupe_hash` arm left in `_CAMPAIGN_CONTACT_ERASE_SQL` either. This
+        # comment stays because the INSERT below is where somebody would put the write
+        # back.
         result = await session.execute(
             text(
                 "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, name, "

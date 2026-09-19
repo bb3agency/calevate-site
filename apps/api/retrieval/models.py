@@ -216,7 +216,8 @@ class CallerChunk(PKMixin, TimestampMixin, Base):
     #: `PLATFORM_KEK`-derived key, NOT `export.subject_ref`'s unsalted digest. That
     #: construction takes no tenant into the input (so one person calling two clients
     #: collides on one column) and reverses in seconds over the ~10^9 Indian mobile space —
-    #: which is why `_erase_campaign_contacts` CLEARS `dedupe_hash` rather than leaving it.
+    #: which is why `_erase_campaign_contacts` cleared `dedupe_hash` rather than leaving
+    #: it, and why `a3f7d21c8b45` went on to drop that column altogether.
     #: A reversible number beside an invertible sentence is a re-identifiable profile.
     subject_ref: Mapped[str] = mapped_column(Text, nullable=False)
     #: Which KEK generation minted `subject_ref`. A rotation is an ERASURE hazard here, not

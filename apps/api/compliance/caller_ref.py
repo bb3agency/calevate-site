@@ -16,7 +16,8 @@ again — the worst of both worlds, since the fact remains and the erasure canno
 `execute_deletion_request` already re-derives it from the number to find calls a PREVIOUS
 erasure scrubbed (D-310). But it is `sha256(phone)[:32]` with NO KEY, and this repository
 has already written down why that is not good enough for a live store: `_erase_campaign_
-contacts` clears `dedupe_hash` because "it holds `sha256(phone)[:16]` — unsalted, and
+contacts` cleared `dedupe_hash` — and `a3f7d21c8b45` then dropped it — because "it holds
+`sha256(phone)[:16]` — unsalted, and
 Indian mobile E.164 is a ~10^9 space anyone can enumerate in seconds, so leaving it is
 leaving the number in a form that reverses". An unsalted digest sitting in the same row as
 a durable fact about the person is not a pseudonym; it is a re-identifiable profile with

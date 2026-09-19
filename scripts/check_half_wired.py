@@ -147,11 +147,6 @@ WRITE_ONLY_BASELINE: dict[str, str] = {
         "§2 gate 46c, which is one live call and one execution read; the metering it "
         "implies lands in the same change"
     ),
-    "CampaignContact.dedupe_hash": (
-        "write-stopped, step 1 of hard rule 8's two-step (D-233). `service.add_contacts` "
-        "no longer writes it; retention's erase still NULLs the values older rows carry, "
-        "which is the only statement left naming it. Closes with the DROP migration"
-    ),
 }
 
 

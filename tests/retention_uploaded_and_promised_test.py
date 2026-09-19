@@ -69,9 +69,9 @@ TRANSCRIPT_TTL_DAYS = 365
 
 _INSERT_CONTACT_SQL = """
 INSERT INTO campaign_contacts (
-  id, tenant_id, campaign_id, phone_e164, name, custom, status, dedupe_hash,
+  id, tenant_id, campaign_id, phone_e164, name, custom, status,
   created_at, updated_at)
-VALUES (:id, :tenant, :campaign, :phone, :name, CAST(:custom AS jsonb), :status, :hash,
+VALUES (:id, :tenant, :campaign, :phone, :name, CAST(:custom AS jsonb), :status,
         :created, :created)
 """
 
@@ -119,7 +119,7 @@ async def _contact(
     days_ago: int,
     status: str = "pending",
 ) -> uuid.UUID:
-    """One uploaded row: a number, a name, pasted columns and the dedupe hash."""
+    """One uploaded row: a number, a name and the columns pasted beside them."""
     contact_id = uuid7()
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -132,7 +132,6 @@ async def _contact(
                 "name": UPLOADED_NAME,
                 "custom": '{"site": "Kukatpally", "budget": "60L"}',
                 "status": status,
-                "hash": "0123456789abcdef",
                 "created": datetime.now(UTC) - timedelta(days=days_ago),
             },
         )
@@ -175,8 +174,7 @@ async def _contact_state(tenant_id: uuid.UUID, contact_id: uuid.UUID) -> dict[st
         row = (
             await session.execute(
                 text(
-                    "SELECT phone_e164, name, custom, dedupe_hash, status "
-                    "  FROM campaign_contacts WHERE id = :c"
+                    "SELECT phone_e164, name, custom, status FROM campaign_contacts WHERE id = :c"
                 ),
                 {"c": contact_id},
             )
@@ -186,8 +184,7 @@ async def _contact_state(tenant_id: uuid.UUID, contact_id: uuid.UUID) -> dict[st
         "anonymized": str(row[0]).startswith(ANONYMIZED_PHONE[:9]),
         "name": row[1],
         "custom": row[2],
-        "hash": row[3],
-        "status": str(row[4]),
+        "status": str(row[3]),
     }
 
 
@@ -254,7 +251,6 @@ async def test_an_expired_upload_and_an_expired_promise_are_both_forgotten() -> 
     assert gone["anonymized"], "the uploaded number survived its own retention period"
     assert gone["name"] is None
     assert gone["custom"] is None, "the pasted CSV columns are the half nobody inventories"
-    assert gone["hash"] is None, "sha256(phone) unsalted is the number in a form that reverses"
     assert gone["status"] == "dnc_blocked", (
         "a pending row with a blanked number is one the dispatcher still claims — it would "
         "dial a string that is not a phone number"

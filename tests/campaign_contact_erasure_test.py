@@ -65,10 +65,7 @@ async def _campaign_with_contact(
     tenant_id: uuid.UUID, agent_id: uuid.UUID, *, phone: str, name: str = "Padma"
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """One campaign holding one contact, shaped exactly as `campaigns/service.py` writes
-    it — including the `custom` blob and the `dedupe_hash` that is a bare sha256 of the
-    number."""
-    import hashlib
-
+    it — including the `custom` blob, which is whatever the client pasted from their CSV."""
     campaign_id, contact_id = uuid7(), uuid7()
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -82,8 +79,8 @@ async def _campaign_with_contact(
         await session.execute(
             text(
                 "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, "
-                "name, custom, status, attempts, dedupe_hash, created_at, updated_at) "
-                "VALUES (:i, :t, :c, :p, :n, CAST(:custom AS jsonb), 'pending', 0, :h, "
+                "name, custom, status, attempts, created_at, updated_at) "
+                "VALUES (:i, :t, :c, :p, :n, CAST(:custom AS jsonb), 'pending', 0, "
                 "now(), now())"
             ),
             {
@@ -93,7 +90,6 @@ async def _campaign_with_contact(
                 "p": phone,
                 "n": name,
                 "custom": json.dumps({"city": "Warangal", "last_visit": "2026-03-02"}),
-                "h": hashlib.sha256(phone.encode()).hexdigest()[:16],
             },
         )
     return campaign_id, contact_id
@@ -104,7 +100,7 @@ async def _contact(tenant_id: uuid.UUID, contact_id: uuid.UUID) -> dict[str, Any
         row = (
             await session.execute(
                 text(
-                    "SELECT phone_e164, name, custom, dedupe_hash, status, next_attempt_at "
+                    "SELECT phone_e164, name, custom, status, next_attempt_at "
                     "FROM campaign_contacts WHERE id = :i"
                 ),
                 {"i": contact_id},
@@ -115,9 +111,8 @@ async def _contact(tenant_id: uuid.UUID, contact_id: uuid.UUID) -> dict[str, Any
         "phone_e164": row[0],
         "name": row[1],
         "custom": row[2],
-        "dedupe_hash": row[3],
-        "status": row[4],
-        "next_attempt_at": row[5],
+        "status": row[3],
+        "next_attempt_at": row[4],
     }
 
 
@@ -163,9 +158,6 @@ async def test_a_subject_with_no_call_and_no_lead_is_still_found_on_a_campaign_l
     assert phone not in row["phone_e164"]
     assert row["name"] is None
     assert row["custom"] is None, "the pasted CSV columns are the client's own free text"
-    assert row["dedupe_hash"] is None, (
-        "sha256(phone)[:16] is unsalted over a ~10^9 space — leaving it leaves the number"
-    )
 
 
 async def test_the_erased_person_cannot_be_dialled_off_the_list() -> None:
@@ -280,7 +272,7 @@ async def test_a_tenant_erasure_clears_every_uploaded_contact() -> None:
     for contact_id in (second, third):
         row = await _contact(tenant_id, contact_id)
         assert row["phone_e164"].startswith(ANONYMIZED_PHONE[:9])
-        assert row["name"] is None and row["custom"] is None and row["dedupe_hash"] is None
+        assert row["name"] is None and row["custom"] is None
         assert row["status"] == "dnc_blocked"
 
 
