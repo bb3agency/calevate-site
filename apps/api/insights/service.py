@@ -30,7 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.context import Principal
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -417,6 +417,52 @@ async def get_gap(session: AsyncSession, gap_id: UUID) -> KnowledgeGapOut:
     return _row_to_out(await _load_gap(session, gap_id))
 
 
+async def _claim_gap(
+    session: AsyncSession, gap_id: UUID, *, statement: str, params: dict[str, object], to: str
+) -> None:
+    """Move an OPEN gap to `to`, or refuse — BACKEND-PATTERNS §5's conditional UPDATE.
+
+    ⚠ **BOTH CLIENT WRITES USED TO BE UNGUARDED `UPDATE ... WHERE id = :id`, AND THE COST
+    WAS A DUPLICATED SIDE EFFECT RATHER THAN A LOST FLAG.** `teach_gap` seeds a KB draft
+    through `kb.submit_source` before it writes, so two teaches of one gap — a double
+    submit, a retry, two colleagues on the same card — each put a `pending_approval`
+    source into the client's review queue, while only the last `kb_source_id` was kept.
+    The first draft was then ORPHANED: in the queue, attached to no gap, and indisting-
+    uishable to the reviewer from a source somebody meant to add. A dismiss racing a
+    teach was the same shape one step worse — the row could come to rest `dismissed`
+    while `kb_source_id` still pointed at a live draft.
+
+    `open` is the ONE status a client may act on — `dismiss` and `teach` are the two ends
+    of the only transition this machine has, and the recompute never touches `status` (see
+    `KnowledgeGap`'s docstring) — so every caller spells `AND status = 'open'` in its own
+    statement. Spelled rather than appended here because `scripts/check_raw_sql` proves
+    every statement literal-derived from the AST, and a clause this function concatenated
+    onto a parameter is exactly the shape that proof cannot follow.
+
+    The guard is in the WHERE clause, which is what makes it a guard at all: the second
+    transaction blocks on the row lock, re-evaluates the predicate against the winner's
+    committed row, and matches nothing. Its whole transaction — the draft included —
+    rolls back with the refusal (`core/deps.db`), so the duplicate is never visible to
+    anyone. A check read before the write would not have done this: it would have passed
+    in both transactions.
+
+    THE STATUS IN THE MESSAGE IS RE-READ RATHER THAN REMEMBERED. The row the CALLER
+    loaded for its 404 said `open` in the case that matters — that is what made it
+    try — so reporting it would tell the client "a knowledge gap cannot go from open to
+    taught", which is both false and unactionable. READ COMMITTED takes a fresh snapshot
+    per statement, so the SELECT after the refusal sees whoever won.
+    """
+    result = await session.execute(text(statement), params)
+    if rowcount_of(result):
+        return
+    current = await _load_gap(session, gap_id)
+    raise InvalidStatusTransitionError(
+        "knowledge gap",
+        str(current.status),  # type: ignore[attr-defined]
+        to,
+    )
+
+
 async def dismiss_gap(
     session: AsyncSession, gap_id: UUID, *, principal: Principal, reason: str | None
 ) -> KnowledgeGapOut:
@@ -431,12 +477,16 @@ async def dismiss_gap(
     them (`compliance/audit.py::write_audit`). Storing the operator's id here would be an
     id-space mixture the FK would refuse anyway."""
     await _load_gap(session, gap_id)  # 404s if not this tenant's, before we write
-    await session.execute(
-        text(
+    await _claim_gap(
+        session,
+        gap_id,
+        statement=(
             "UPDATE knowledge_gaps SET status = 'dismissed', resolution = :reason, "
-            "  resolved_by = :by, resolved_at = now(), updated_at = now() WHERE id = :id"
+            "  resolved_by = :by, resolved_at = now(), updated_at = now() "
+            "WHERE id = :id AND status = 'open'"
         ),
-        {"id": gap_id, "reason": reason, "by": principal.client_user_id},
+        params={"id": gap_id, "reason": reason, "by": principal.client_user_id},
+        to="dismissed",
     )
     return await get_gap(session, gap_id)
 
@@ -472,18 +522,25 @@ async def teach_gap(
             submitted_by=principal.user_id,
         )
         kb_source_id = UUID(str(created["id"]))
-    await session.execute(
-        text(
+    # THE DRAFT ABOVE IS WRITTEN BEFORE THIS CLAIM AND THAT IS SAFE ONLY BECAUSE THE CLAIM
+    # CAN REFUSE: both are statements of one transaction, so a teach that loses the race
+    # takes its own draft down with it rather than leaving an orphan in the review queue.
+    # See `_claim_gap`.
+    await _claim_gap(
+        session,
+        gap_id,
+        statement=(
             "UPDATE knowledge_gaps SET status = 'taught', resolution = :answer, "
             "  resolved_by = :by, resolved_at = now(), kb_source_id = :kb, updated_at = now() "
-            "WHERE id = :id"
+            "WHERE id = :id AND status = 'open'"
         ),
-        {
+        params={
             "id": gap_id,
             "answer": payload.answer,
             "by": principal.client_user_id,
             "kb": kb_source_id,
         },
+        to="taught",
     )
     return await get_gap(session, gap_id)
 
