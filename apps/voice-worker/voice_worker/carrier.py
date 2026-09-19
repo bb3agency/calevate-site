@@ -38,13 +38,19 @@ the shipped client of that protocol, read in this session at
    module does NOT route a call by the number that was dialled. See `route_of` for what it
    routes on instead, which is a design that does not need the answer.
 
-   ⚠ **AND THAT IS NOW A NAMED STATE RATHER THAN A `None` (this change).** "We asked the
-   carrier and it did not say" and "nobody has looked yet" were the same `None`, which is
-   how `calls.from_e164` came to be NULL on every call with nothing anywhere saying why.
+   ⚠ **AND THAT IS NOW A NAMED STATE RATHER THAN A `None`.** "We asked the carrier and it
+   did not say" and "nobody has looked yet" were the same `None`, which is how
+   `calls.from_e164` came to be NULL on every call with nothing anywhere saying why.
    `CallerIdentity` and `CALLER_IDENTITY_PARSE` below answer the question per CARRIER, with
-   a state an operator and a compliance path can both read. THE NUMBER IS STILL ABSENT ON
-   PLIVO — this does not conjure one, and §STEP-4 of `docs/evidence/carrier-caller-identity.md`
-   names exactly what closes that.
+   a state an operator and a compliance path can both read.
+
+   ⚠ **AND THE STREAM IS NO LONGER THE ONLY LEG THAT CAN ANSWER IT (this change).** The
+   carrier's request for the ANSWER DOCUMENT reaches a process we control, and
+   `apps/voice-runtime/carrier_routes.py` now reads a calling party off it and mints it onto
+   the stream URL as an explicit claim. `claim_from_stream_url` and `fold_caller_identity`
+   below are this side of that seam. THE NUMBER IS STILL ABSENT ON PLIVO — this conjures
+   none: what is missing is one cell of that module's `CARRIER_ANSWER_CONTRACT`, and §5(d)
+   of `docs/evidence/carrier-caller-identity.md` is the reading that fills it.
 2. **Whether Plivo signs the HTTP request that fetches the answer document.** That leg
    is not here — see the next section — and nothing in the installed Pipecat tree
    verifies a Plivo request signature.
@@ -75,19 +81,25 @@ cannot reach `assemble_call` except through that read.
 HARD RULE 6
 ===========
 A phone number is PII and never reaches a log line here. What is logged is the call id, the
-tenant and agent ids, the carrier's own stream id, and words.
+tenant and agent ids, the carrier's own stream id, and words. That now includes a number
+that arrived on the stream URL's query rather than the handshake: `claim_from_stream_url`
+normalises it onto `CallerIdentity.e164` and no logging path in this module reads that
+field. `apps/voice-runtime/carrier_routes.plivo_stream_url` argues what putting it in a URL
+at all costs, and what would remove it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from typing import Any, Final, Literal
+from dataclasses import dataclass, field, replace
+from typing import Any, Final, cast
+from urllib.parse import parse_qsl
 from uuid import UUID
 
 from calevate_shared.engine import parse_owned_runtime_agent_ref
 from calevate_shared.events import CallDirection
 from calevate_shared.extraction import normalize_phone
+from calevate_shared.worker_api import CallerIdentityState
 from loguru import logger
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.plivo import PlivoFrameSerializer
@@ -175,18 +187,14 @@ class PlivoCredentials:
 
 #: WHY WE DO OR DO NOT KNOW WHO IS ON THE CALL. Four states, and the fourth is the defect.
 #:
-#: * ``known`` — a number came off the handshake and is carried on `CallerIdentity.e164`.
-#: * ``withheld_by_carrier`` — the pinned client DOES map this carrier's `from` field and
-#:   the carrier put nothing in it. A real carrier answer: caller ID was withheld, or the
-#:   leg has no calling party. Nothing further we write can recover it from the stream.
-#: * ``unparsed_by_client`` — the pinned client maps no `from` field for this carrier at
-#:   all, so NOBODY CAN SAY whether the carrier sent one. This is Plivo today and it is an
-#:   UNKNOWN in hard rule 11's sense, not a finding: see `CALLER_IDENTITY_PARSE`.
-#: * ``not_read`` — nobody has looked. The DEFAULT, and the only state that may ever mean
-#:   "unasked". Separating it from the three above is the whole point of this type: a NULL
-#:   `calls.from_e164` said all four things at once, so no reader could tell a carrier that
-#:   withheld a number from a code path that never asked.
-CallerIdentityState = Literal["known", "withheld_by_carrier", "unparsed_by_client", "not_read"]
+#: ⚠ **THIS WAS A SECOND DECLARATION OF THE SAME FOUR WORDS AND IS NOW AN IMPORT.** The
+#: states travel on the wire — `calevate_shared.worker_api` carries them in the in-call
+#: tool bodies, and `apps/api/worker/tools.py:150` answers an opt-out with
+#: `caller_number_unknown:<state>` — so the shared contract package is the one home, and a
+#: word spelled differently in the two deployables would be a tool refusal nobody could
+#: read. Re-exported here because every caller in this deployable names it from this
+#: module, and the authority on what the four words MEAN is the comment above the literal
+#: in `worker_api.py`.
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,6 +354,188 @@ def caller_identity_of(transport_type: str, call_data: Any) -> CallerIdentity:
     )
 
 
+# ======================================================================================
+# THE CONTROL PLANE'S EXPLICIT CLAIM — the fifth source of truth (issue 3).
+# ======================================================================================
+
+#: The query parameters `apps/voice-runtime/carrier_routes.plivo_stream_url` mints.
+#:
+#: DECLARED TWICE ACROSS TWO DEPLOYABLES, exactly like `TELEPHONY_SAMPLE_RATE_HZ`, because
+#: neither module may import the other (hard rule 3 forbids the heavy import there, and
+#: this container serves no HTTP). `tests/carrier_answer_identity_test.py` asserts the two
+#: spellings equal, which is the only place that agreement can be checked.
+CLAIM_CARRIER_PARAM: Final = "carrier"
+CLAIM_CALLER_PARAM: Final = "caller"
+CLAIM_CALLER_STATE_PARAM: Final = "caller_state"
+
+#: How informative each state is, when two sources disagree about an ABSENCE.
+#:
+#: `withheld_by_carrier` outranks `unparsed_by_client` because it is a statement about the
+#: CARRIER (it was asked and it said nothing) where the other is a statement about US
+#: (nobody could ask). `not_read` is last because it is the only word that means "unasked".
+_STATE_INFORMATIVENESS: Final[Mapping[CallerIdentityState, int]] = {
+    "known": 3,
+    "withheld_by_carrier": 2,
+    "unparsed_by_client": 1,
+    "not_read": 0,
+}
+
+
+class CarrierClaimMismatchError(UnroutableCallError):
+    """The control plane said one carrier and the socket speaks another. The call is refused.
+
+    SEPARATE FROM ITS PARENT because the two mean different things to whoever is paged.
+    `UnroutableCallError` from `route_of` is a provisioning fault — a number pointed
+    somewhere wrong. This one means the answer URL we minted for carrier A was answered by
+    a socket speaking carrier B, which is either a number bound to the wrong answer URL or
+    somebody connecting to our stream endpoint while pretending to be a carrier. Refusing
+    is the only safe direction: `build_plivo_transport` would otherwise hand the wrong
+    serializer to the wrong protocol, which is a connected call with silence on it.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class ControlPlaneClaim:
+    """What OUR OWN control plane says about a call, read off the stream URL it minted.
+
+    **THIS IS AN EXPLICIT CLAIM AND NOT A DETECTION, WHICH IS THE POINT.** The carrier a
+    number is on is a fact of our configuration: the answer route is `/carrier/v1/plivo/
+    answer/{ref}`, one carrier per path, minted by us. Sniffing for it — which is what
+    `parse_telephony_websocket` does — is a fallback designed for a multi-tenant gateway
+    that really does not know, and it breaks silently when a vendor renames a handshake
+    key. That is precisely how the calling-party gap arose.
+
+    **THE DETECTION IS NOT DELETED AND MUST NOT BE**, and `read_plivo_handshake` says what
+    still depends on it: it is the ONLY source of `start.streamId` and `start.callId`,
+    without which nothing can be hung up; it is what VALIDATES this claim rather than being
+    replaced by it; and it is the only source of a calling party on the three carriers
+    whose `from` the pinned client does read (`CALLER_IDENTITY_PARSE`).
+
+    `present` is False for a socket that carried no claim at all — an older answer route, a
+    test fixture, or a Pipecat Cloud front door that strips the query (the UNKNOWN recorded
+    at `bot._route_token`). Absent is not the same as disagreeing, and neither is a refusal
+    on its own.
+
+    HARD RULE 6: `caller.e164` is PII, carried and never logged.
+    """
+
+    present: bool
+    carrier: str | None = None
+    caller: CallerIdentity | None = None
+
+
+def claim_from_stream_url(url: str) -> ControlPlaneClaim:
+    """Read the control plane's claim off the stream URL a carrier connected to.
+
+    Takes the whole URL (or a bare query string) rather than a parsed object, because the
+    caller has a websocket and what a websocket exposes differs across servers — a string
+    is the one shape every one of them can produce.
+
+    **A MALFORMED CLAIM IS NO CLAIM, NEVER A GUESSED ONE.** Anything can connect to a
+    WebSocket URL, so every value here is attacker-controlled: an unrecognised state word
+    is dropped rather than coerced, a `caller` with no `caller_state` is ignored (the state
+    is the verdict; the number is only meaningful under it), and a `caller_state` of
+    `known` with no number is downgraded to `unparsed_by_client` — because
+    `apps/api/worker/tools.py:150` lets an agent tell a caller their number was suppressed
+    only on `known`, and a `known` with nothing behind it is exactly the sentence that must
+    never be said.
+    """
+    query = url.split("?", 1)[1] if "?" in url else url
+    params = dict(parse_qsl(query, keep_blank_values=True))
+    if not params:
+        return ControlPlaneClaim(present=False)
+    carrier = params.get(CLAIM_CARRIER_PARAM) or None
+    raw_state = params.get(CLAIM_CALLER_STATE_PARAM) or None
+    caller: CallerIdentity | None = None
+    if raw_state in _STATE_INFORMATIVENESS:
+        state = cast(CallerIdentityState, raw_state)
+        raw_number = (params.get(CLAIM_CALLER_PARAM) or "").strip()
+        if state == "known" and not raw_number:
+            caller = CallerIdentity(
+                state="unparsed_by_client",
+                ground=(
+                    "the control plane claimed a known caller and carried no number, so "
+                    "the claim is not usable (a state nothing backs may not authorise a "
+                    "suppression)"
+                ),
+            )
+        else:
+            caller = CallerIdentity(
+                state=state,
+                ground=f"the control plane's answer leg reported {state}",
+                e164=normalize_phone(raw_number) if raw_number and state == "known" else None,
+            )
+    if carrier is None and caller is None:
+        return ControlPlaneClaim(present=False)
+    return ControlPlaneClaim(present=True, carrier=carrier, caller=caller)
+
+
+def fold_caller_identity(
+    claimed: CallerIdentity | None, detected: CallerIdentity
+) -> CallerIdentity:
+    """One verdict from two sources, with the disagreement recorded rather than silently won.
+
+    **WHY A FOLD RATHER THAN A PRECEDENCE RULE.** The claim and the detection are not rival
+    answers to one question — they are answers from two DIFFERENT LEGS of the same call
+    (the carrier's HTTP request, and the carrier's WebSocket handshake), and on today's
+    carrier only one of them can ever speak. The rules, in order:
+
+    1. **No claim** → the detection stands, unchanged. This is every call until a stream URL
+       carries one.
+    2. **Both name a number and they agree** (after `normalize_phone`, so a cosmetic
+       difference is not a disagreement) → `known`, ground naming both legs.
+    3. **Both name a number and they DIFFER** → `unparsed_by_client`, and the number is
+       DROPPED. Two sources disagreeing about who is calling is not a tie to break: keying
+       a DNC suppression on the loser would suppress a stranger, and `is_known` being False
+       is what stops `apps/api/worker/tools.py` letting an agent say it did. The ground
+       names both legs; the numbers are not logged (hard rule 6) and are recoverable from
+       the carrier's CDR, which is the authority on the facts of a call (§1.2).
+       ⚠ **`unparsed_by_client` IS THE CLOSEST OF FOUR CLOSED WORDS AND IS NOT THE RIGHT
+       ONE.** The right word is a fifth — "two sources disagreed" — and
+       `CallerIdentityState` lives in `calevate_shared/worker_api.py` and travels on the
+       tool wire, outside this change's fence. Reported, not made. Until then the GROUND
+       carries the distinction and `is_known` carries the safety.
+    4. **Exactly one names a number** → that one wins, with both grounds. This is the case
+       that closes the gap: on Plivo the detection is structurally `unparsed_by_client`
+       (`CALLER_IDENTITY_PARSE`) and the claim is the only leg that can say anything.
+    5. **Neither names a number** → the more informative absence wins
+       (`_STATE_INFORMATIVENESS`), ground naming both. A carrier's own "withheld" outranks
+       our "we could not ask", which outranks "nobody asked".
+    """
+    if claimed is None:
+        return detected
+    if claimed.is_known and detected.is_known:
+        if claimed.e164 == detected.e164:
+            return CallerIdentity(
+                state="known",
+                ground="the control plane's answer leg and the carrier handshake agree",
+                e164=detected.e164,
+            )
+        return CallerIdentity(
+            state="unparsed_by_client",
+            ground=(
+                "the control plane's answer leg and the carrier handshake named DIFFERENT "
+                "calling parties, so neither may key a suppression; the carrier's CDR is "
+                "the authority (docs/evidence/carrier-caller-identity.md §1.2)"
+            ),
+        )
+    if claimed.is_known or detected.is_known:
+        winner = claimed if claimed.is_known else detected
+        other = detected if claimed.is_known else claimed
+        return CallerIdentity(
+            state="known",
+            ground=f"{winner.ground}; the other leg said: {other.ground}",
+            e164=winner.e164,
+        )
+    ranked = sorted(
+        (claimed, detected), key=lambda i: _STATE_INFORMATIVENESS[i.state], reverse=True
+    )
+    return CallerIdentity(
+        state=ranked[0].state,
+        ground=f"{ranked[0].ground}; the other leg said: {ranked[1].ground}",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PlivoHandshake:
     """What the carrier says at the top of a stream, as Pipecat parses it.
@@ -406,8 +596,23 @@ class PlivoHandshake:
         )
 
 
-async def read_plivo_handshake(websocket: Any) -> PlivoHandshake:
+async def read_plivo_handshake(
+    websocket: Any, *, claim: ControlPlaneClaim | None = None
+) -> PlivoHandshake:
     """The first two messages off a carrier socket, as OUR handshake — or a refusal.
+
+    **THE CARRIER IS NOW CLAIMED AND THEN CHECKED, RATHER THAN SNIFFED FOR (issue 3).**
+    `claim.carrier` is what our own control plane minted the answer URL for; the detection
+    still runs, and the two must agree or the call is refused
+    (`CarrierClaimMismatchError`). With no claim, the expected carrier falls back to this
+    deployment's constant, which is what every caller did before.
+
+    **WHAT STILL DEPENDS ON THE DETECTION, so that nobody deletes it as redundant.** It is
+    the ONLY source of `start.streamId` and `start.callId` — without them
+    `PlivoFrameSerializer` cannot hang the leg up (`serializers/plivo.py:80-92`). It is the
+    only source of a calling party on the three carriers whose `from` the pinned client
+    reads (`CALLER_IDENTITY_PARSE`). And it is what VALIDATES the claim: a claim nothing
+    checks is a claim an attacker writes.
 
     **IT REFUSES A CARRIER THAT IS NOT OURS RATHER THAN GUESSING WHAT IT MEANT.**
     `parse_telephony_websocket` auto-detects across four providers and will happily hand
@@ -422,13 +627,21 @@ async def read_plivo_handshake(websocket: Any) -> PlivoHandshake:
     library that ships them. The parse is cached on the websocket, so a caller may call
     this and then let the transport read the rest of the stream (`runner/utils.py:172-183`).
     """
+    expected = (claim.carrier if claim is not None else None) or PLIVO_TRANSPORT_TYPE
     transport_type, call_data = await parse_telephony_websocket(websocket)
-    if transport_type != PLIVO_TRANSPORT_TYPE:
+    if transport_type != expected:
+        if claim is not None and claim.carrier is not None:
+            raise CarrierClaimMismatchError(
+                f"the control plane minted this stream URL for carrier {expected!r} and "
+                f"the socket speaks {transport_type!r}: refusing rather than serialising "
+                "one protocol as the other"
+            )
         raise UnroutableCallError(
-            f"this socket speaks {transport_type!r}, and this deployment's carrier is "
-            f"{PLIVO_TRANSPORT_TYPE!r}"
+            f"this socket speaks {transport_type!r}, and this deployment's carrier is {expected!r}"
         )
-    return PlivoHandshake.from_call_data(call_data, transport_type=transport_type)
+    handshake = PlivoHandshake.from_call_data(call_data, transport_type=transport_type)
+    claimed = claim.caller if claim is not None else None
+    return replace(handshake, caller=fold_caller_identity(claimed, handshake.caller))
 
 
 def route_of(token: str) -> CallRoute:
@@ -589,17 +802,22 @@ async def start_carrier_call(
     armed first, a carrier that connected during the pack fetch would find a handler closing
     over a call that has not been assembled.
 
-    **`caller` IS OBSERVED HERE AND IS NOT YET CARRIED DOWNSTREAM, AND THAT IS STATED
-    RATHER THAN HIDDEN.** `read_plivo_handshake` now produces a `CallerIdentity` for every
-    call, and this function records its STATE at the moment the call starts — which is the
-    signal an operator has been missing, since `apps/api/worker/service.py::
-    _alert_if_nobody_was_on_the_call` can only notice the absence once the call has already
-    ended. What is NOT done here is putting the number into
-    `calevate_shared.worker_api.ObservationsIn.from_e164`, whose server half already exists
-    and waits for a producer (`worker_api.py:166`): that hop runs through `session.py`,
-    `pipeline.SessionConfig` and `sink.py`, none of which this change was permitted to
-    touch. Passing `None` means the same as passing `CallerIdentity.not_read()` and is the
-    honest default for a caller that has not read a handshake at all.
+    **`caller` IS NOW CARRIED INTO THE SESSION, AND THAT IS THE HOP THE FOUR IN-CALL TOOLS
+    WERE WAITING ON.** `assemble_call` takes `caller=None` by default and does NOT advertise
+    opt-out, book / cancel call-back or handoff to the model when it is absent — four tools
+    that could only fail waste a conversational turn — so until this argument was forwarded,
+    a caller on an owned_runtime call could not opt out at all. `apps/api/worker/tools.py:150`
+    then refuses to write, and refuses to let the agent claim success, unless
+    `state == "known"`, answering `caller_number_unknown:<state>` with the state spelled
+    out. That is why `fold_caller_identity`'s disagreement rule is not academic: it decides,
+    synchronously, what an agent is allowed to SAY to a person who has just asked not to be
+    called again, and the safe direction is always the one where `is_known` is False.
+
+    The verdict's STATE is also logged at call start, which is the signal an operator has
+    been missing: `apps/api/worker/service.py::_alert_if_nobody_was_on_the_call` can only
+    notice the absence once the call has already ended. Passing `None` means the same as
+    passing `CallerIdentity.not_read()` and is the honest default for a caller that has not
+    read a handshake at all.
     """
     caller = caller or CallerIdentity.not_read()
     route = route_of(token)
@@ -616,6 +834,7 @@ async def start_carrier_call(
         fetcher=fetcher,
         cache=cache,
         embedder=embedder,
+        caller=caller,
     )
     arm_first_turn(transport, call, call_id=call_id)
     # Ids and words (hard rule 6). `caller.state` and `caller.ground` are written in this
@@ -657,21 +876,28 @@ def place_outbound_call(*_args: Any, **_kwargs: Any) -> AssembledCall:
 
 __all__ = [
     "CALLER_IDENTITY_PARSE",
+    "CLAIM_CALLER_PARAM",
+    "CLAIM_CALLER_STATE_PARAM",
+    "CLAIM_CARRIER_PARAM",
     "CLIENT_CONNECTED_EVENT",
     "OUTBOUND_DIAL_UNKNOWN",
     "PLIVO_TRANSPORT_TYPE",
     "CallRoute",
     "CallerIdentity",
     "CallerIdentityState",
+    "CarrierClaimMismatchError",
     "CarrierIdentityParse",
     "CarrierNotWrittenError",
     "CarrierWiringError",
+    "ControlPlaneClaim",
     "PlivoCredentials",
     "PlivoHandshake",
     "UnroutableCallError",
     "arm_first_turn",
     "build_plivo_transport",
     "caller_identity_of",
+    "claim_from_stream_url",
+    "fold_caller_identity",
     "place_outbound_call",
     "read_plivo_handshake",
     "route_of",

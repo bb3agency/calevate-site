@@ -65,7 +65,7 @@ from voice_worker.boot import (
     load_worker_config,
     open_runtime,
 )
-from voice_worker.carrier import UnroutableCallError, route_of
+from voice_worker.carrier import UnroutableCallError, claim_from_stream_url, route_of
 from voice_worker.lifecycle import ReadinessFile, SessionRegistry, ShutdownSignal
 
 #: The transport parameter factories `create_transport` selects from by provider. Only the
@@ -150,6 +150,20 @@ async def _drain_on_signal() -> None:
         return
     report = await _registry.drain(_runtime.config.drain_grace_s)
     logger.info("voice worker drained", settled=report.settled, cut=len(report.cut))
+
+
+def _stream_url(runner_args: RunnerArguments) -> str:
+    """The whole URL the carrier connected to, query string included, or "".
+
+    Separate from `_route_token` because the two read different halves for different
+    reasons: the token is the PATH segment and a call with no token is unroutable, while
+    the query carries the control plane's caller claim and its absence is an ordinary
+    outcome (`not_read`). A helper that refused on a missing query would refuse every call
+    made before the answer leg learned to mint one.
+    """
+    websocket = getattr(runner_args, "websocket", None)
+    url = getattr(websocket, "url", None)
+    return "" if url is None else str(url)
 
 
 def _route_token(runner_args: RunnerArguments) -> str:
@@ -253,6 +267,17 @@ async def bot(runner_args: RunnerArguments) -> None:
             engine_agent_ref=engine_agent_ref,
             credentials_for=runtime.config.credentials_for,
             transport=transport,
+            # WHO IS CALLING, READ OFF THE URL THE CONTROL PLANE MINTED. Until this line the
+            # verdict stopped at the answer leg: `carrier_routes` put it on the stream URL
+            # and nothing here read it back, so every call assembled with `caller=None`,
+            # every `CallEvent` left `from_e164` NULL, and the in-call opt-out answered
+            # `caller_number_unknown` to every caller who asked not to be rung again.
+            #
+            # `claim_from_stream_url` treats the whole query as attacker-controlled —
+            # anything can open a WebSocket — so an unrecognised state is dropped rather
+            # than coerced and a `known` with no number is downgraded. A missing query is
+            # `not_read`, which is an honest answer and not a failure.
+            caller=claim_from_stream_url(_stream_url(runner_args)).caller,
             on_assembled=lambda call: registry.attach(call_id, call),
         )
     finally:

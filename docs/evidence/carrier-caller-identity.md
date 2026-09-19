@@ -188,7 +188,20 @@ original brief.
 > (casing matters) and confirm whether they are form-encoded POST fields or query
 > parameters.
 >
-> **Answer format:** for each of (a)–(d), give `URL + heading + verbatim quote`, then a
+> **(e)** Does Plivo publish the **source IP addresses or CIDR ranges** its servers use
+> when they make the HTTP request to an answer URL / webhook URL? Give the exact list and
+> the page it is on. If Plivo says the addresses are not fixed, or publishes no list, say
+> so explicitly — "no published egress range" is a usable answer and a guess is not.
+>
+> **(f)** Does Plivo **sign** the request it makes to the answer URL? If so: the exact
+> header name with its casing; the exact canonical string that is signed (which parts of
+> the URL, which parameters, in which order, with which separators); the digest and
+> encoding; and where the signing key comes from. Paste the vendor's own worked example
+> and any reference implementation they link. If any one of those five is not stated on
+> the page, say which — a signature verifier built from four of five is a verifier that
+> rejects every real call.
+>
+> **Answer format:** for each of (a)–(f), give `URL + heading + verbatim quote`, then a
 > one-line plain answer. If a page does not say, write **"the documentation does not
 > say"** — do not infer from another provider's behaviour.
 
@@ -307,3 +320,166 @@ screen and the caller both believe somebody was suppressed.
 | Model B — we hold no telephony credential | REPORTED (repo-internal, four corroborating places) | D-474 `docs/ROADMAP.md:716`; `agents/handoff.py:17-21`; `campaigns/provisioning.py:145`; absence of any per-tenant credential store |
 | D-05 picks Exotel | REPORTED | `docs/ROADMAP.md:348`, D-36 canonical stack |
 | Exotel blocks outgoing calls until KYC clears | VENDOR-PUBLISHED (relayed, not re-read here) | `apps/api/compliance/kyc.py:38-42`, citing Exotel support/docs |
+
+
+---
+
+## 10. What was built in the SECOND session (19 September 2026)
+
+Three defects were raised against the carrier leg and all three are addressed here. The
+fence for the change was `apps/voice-runtime/carrier_routes.py`,
+`apps/voice-worker/voice_worker/carrier.py`, their tests, and this page.
+
+### 10.1 The state drop (issue 1) — CLOSED as far as this container allows
+
+`apps/voice-runtime/carrier_routes.plivo_answer` took **only the path ref**. No `Request`
+was injected, so the carrier's own POST/GET parameters were **structurally unreachable**,
+not merely unread — and the stream URL was minted one line later with no identity on it.
+
+What exists now:
+
+- `plivo_answer(ref, request)` — the request is injected.
+- `CARRIER_ANSWER_CONTRACT: Mapping[str, CarrierAnswerContract]` — ONE per-carrier table,
+  every cell carrying **its own evidence class** (`VERIFIED-VENDOR-DOCS` /
+  `VENDOR-PUBLISHED` / `REPORTED` / `UNKNOWN`) and a `file:line` or a URL + date. It
+  follows the shape `voice_worker.carrier.CALLER_IDENTITY_PARSE` already set.
+- `caller_identity_from_answer_request(carrier, params)` — the calling party as a state
+  drawn from `calevate_shared.worker_api.CallerIdentityState`, never a `None`.
+- `plivo_stream_url(..., carrier=, caller=)` — mints the verdict, and the number when there
+  is one, onto the stream URL's **query** (never a second path segment: `bot._route_token`
+  reads `path.rsplit("/", 1)[-1]`, so a segment would have re-routed every call).
+- `voice_worker.carrier.claim_from_stream_url` + `fold_caller_identity` — the worker's half.
+
+**Every Plivo cell in that table is `UNKNOWN`, and that is a measurement.** Re-measured
+19 Sep 2026 from the build container: `curl https://www.plivo.com/docs/` →
+`curl: (56) CONNECT tunnel failed, response 403`, HTTP code **`000`**; `https://api.plivo.com/`
+identical. **No Plivo parameter name, egress range or signature header is written anywhere
+in our source**, and `tests/carrier_answer_identity_test.py::
+test_no_unverified_vendor_name_has_been_written_into_the_seam` asserts that the three names
+supplied in the brief — `From`, `CallUUID`, `X-Plivo-Signature-V2` — have not been
+hard-coded. They are plausible; none has been read; D-631 is the cost of the difference.
+
+**One founder reading of §5(d) fills `calling_party` and the whole path lights up.** The
+mechanism is driven end to end by test with the row filled by a FIXTURE
+(`caller_param_a` / `caller_param_b`, names chosen so nobody mistakes them for vendor
+facts), across GET query and form-encoded POST alike.
+
+### 10.2 Authenticity (issue 2) — a source-IP seam, and NO guessed signature
+
+| Option | Verdict |
+|---|---|
+| (a) MAC the ref | **REJECTED, and not merely out of fence.** The ref is `pipecat:<uuid7>:<uuid7>` (`calevate_shared.engine.owned_runtime_agent_ref`) — two 128-bit ids, so "guess a ref" is not an attack that works, and a MAC does not defeat the attack that does (a **harvested** ref is equally usable tagged or not). Minting also lives in `apps/api/engine/pipecat.py` and the grammar in `packages/shared`, so it would be a cross-cutting change for no security gain. |
+| (b) Source-IP allowlist | **ADOPTED as the seam.** `verify_answer_source` is the same shape as `engine_intake.verify_source`, and it is **data-driven, not flag-driven**: the day `source_ip_allowlist` holds an address, a request from anywhere else is refused, with no code change and no switch to remember. |
+| (c) Vendor signature | **SEAMED AND EXPLICITLY NOT IMPLEMENTED.** `signature_header is None` with its evidence. A guessed HMAC would reject every real call for a reason nobody could debug — strictly worse than none. §5(f) is the reading that closes it. |
+
+**Today the method is `"none"` and every served document logs that.** That is not a
+fail-open dressed up, and the reasoning is written at `verify_answer_source`:
+
+- Enforcing an **empty** allowlist would refuse every call with **no remedy available to an
+  operator** — the remedy is a vendor fact, not a setting (`calevate_shared/config.py:396`
+  makes the same argument: *"an empty allowlist is an outage"*).
+- What the route actually exposes to an unauthenticated stranger is bounded: the response
+  is a stream URL the requester could have built from the ref they already had; it holds no
+  secret; and **serving it warms nothing** — a Pipecat Cloud container is started by a
+  **WebSocket connection**, which a stranger can attempt with or without this route and
+  which `voice_worker.carrier.route_of` refuses when the token names no agent. The
+  "unauthorized compute spend" vector is the socket, not the document.
+- The refusal still comes **before** the stream URL is minted, so an unparseable ref learns
+  nothing, and an allowlist refusal is **outwardly identical** to an unknown-ref refusal so
+  a prober cannot confirm that the ref it holds is real.
+
+⚠ **A settings field for the allowlist could not be added**: `Settings` lives in
+`packages/shared/src/calevate_shared/config.py`, outside the fence. The addresses are
+therefore a cell of the vendor table rather than config — which is arguably where they
+belong (they are a vendor fact), but an operator cannot rotate them without a deploy. **If
+the rotation path matters, the one-line follow-up is a `plivo_answer_source_ips` Setting
+resolved through `parse_source_ip_allowlist`, exactly as `bolna_webhook_source_ips` is.**
+
+### 10.3 The explicit claim (issue 3) — and what happens on a disagreement
+
+The control plane knows the carrier: the answer route is `/carrier/v1/plivo/answer/{ref}`,
+one carrier per path, minted by us. It now **states** that on the stream URL, and the
+worker checks it.
+
+**The detection is NOT deleted, and what still depends on it is recorded at
+`read_plivo_handshake`:** it is the only source of `start.streamId` / `start.callId`
+(without which `PlivoFrameSerializer` cannot hang the leg up, `serializers/plivo.py:80-92`);
+it is the only source of a calling party on the three carriers whose `from` the pinned
+client reads; and it is **what validates the claim** — a claim nothing checks is a claim an
+attacker writes.
+
+**Carrier disagreement → the call is REFUSED** (`CarrierClaimMismatchError`, a subclass of
+`UnroutableCallError` so no existing caller stops catching it). Serialising one protocol as
+another is a connected call with silence on it, and a mismatch means either a number bound
+to the wrong answer URL or somebody connecting while pretending to be a carrier. BLOCKER-1
+means fail-closed costs nothing today.
+
+**Caller disagreement → `fold_caller_identity`, and this is the rule that matters most**,
+because `apps/api/worker/tools.py:150` lets an agent tell a caller "you're off the list"
+**only** on `state == "known"`:
+
+1. No claim → the detection stands unchanged.
+2. Both name a number and they **agree** (after `normalize_phone`, so a cosmetic difference
+   is not a disagreement) → `known`.
+3. Both name a number and they **differ** → **the number is dropped and `is_known` goes
+   False.** Two sources disagreeing about who is calling is not a tie to break: keying a
+   DNC suppression on the loser suppresses a stranger. The ground names both legs; neither
+   number is logged (hard rule 6) and both are recoverable from the carrier's CDR.
+4. Exactly one names a number → that one wins, with both grounds recorded. **This is the
+   case that closes the gap on Plivo**, where the detection is structurally
+   `unparsed_by_client`.
+5. Neither names a number → the more informative absence wins: `withheld_by_carrier`
+   (the carrier's own answer) > `unparsed_by_client` (we could not ask) > `not_read`.
+
+⚠ **THE WORD FOR CASE 3 IS WRONG AND IS REPORTED RATHER THAN INVENTED.** It folds to
+`unparsed_by_client`, the closest of four CLOSED literals. The right word is a fifth —
+"two sources disagreed" — and `CallerIdentityState` lives in
+`packages/shared/src/calevate_shared/worker_api.py:123` and travels on the in-call tool
+wire, outside this change's fence. Until it exists, the GROUND carries the distinction and
+`is_known` carries the safety.
+
+### 10.4 Hard rule 6: a number in a URL is a number in an access log
+
+**It is, and the decision was made deliberately rather than by default.**
+
+*What was considered and rejected:* carrying only the STATE word and never the number. It
+is cheaper for logs and it is **unusable** — `known` is unreachable without a number, so
+`apps/api/worker/tools.py:150` would answer every in-call opt-out with
+`caller_number_unknown`, for ever. A caller who asks not to be called again would be told
+we cannot identify them on every call. That outweighs the logging cost.
+
+*What the cost actually is:* two parties see the URL — the **carrier**, whose own datum the
+number is, and **Pipecat Cloud**, which terminates the socket and already processes the
+entire audio of the call. Neither learns anything it does not hold. What changes is that
+the number lands in an **edge access log**, retained on a schedule that is not the media's
+and is not ours.
+
+*What bounds it, and is asserted by test:*
+
+- the `caller` parameter is **omitted entirely** when there is no number, so a URL never
+  carries an empty PII slot;
+- **no log line on either leg carries the number** — `state` and `ground` are written in
+  our own modules and never built from wire data, on both sides;
+- **our own answer-URL path carries no number at all**, so this service's access log is
+  clean;
+- `Cache-Control: no-store` on the answer document, so nothing between us and the carrier
+  keeps a copy.
+
+*What would remove even that:* the answer document's **BODY**. A carrier that echoes
+parameters we attach to `<Stream>` back inside the WebSocket `start` event carries the
+number off the URL entirely — the shape our pinned client **already reads for Twilio**
+(`pipecat/runner/utils.py:232,240-241`, VERIFIED-VENDOR-DOCS, read 19 Sep 2026). That is
+`CarrierAnswerContract.echoes_stream_parameters`, `UNKNOWN` for Plivo, and **§5(c) is the
+single highest-value question in the research prompt**. No `<Parameter>` element is emitted
+today, because its name and grammar would be a guess copied from a different vendor.
+
+### 10.5 Hard rule 3
+
+The answer route still performs **no IO**: no database, no Redis, no queue, no outbound
+call. It reads the request's **query**, which the ASGI server has already parsed out of the
+request line, and reads a **form-encoded body only once `CARRIER_ANSWER_CONTRACT` declares
+a parameter name to look in** — never today, and bounded to one `parse_qsl` over buffered
+bytes when it happens. `tests/carrier_answer_identity_test.py::
+test_the_body_is_not_read_while_no_parameter_name_is_declared` proves the gate by making
+the read explode. `parse_qsl` rather than `await request.form()` deliberately: the form
+helper reaches for `python-multipart`, which has no business on this path.

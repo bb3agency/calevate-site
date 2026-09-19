@@ -93,7 +93,7 @@ from voice_worker.carrier import arm_first_turn
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.meter import CallMeter, CarrierCdr, RateCard, RuntimeUsage
-from voice_worker.pipeline import SessionConfig, VendorCredentials
+from voice_worker.pipeline import CallerIdentityLike, SessionConfig, VendorCredentials
 from voice_worker.session import AssembledCall, open_session, pack_cache
 from voice_worker.sink import (
     DEFAULT_TURN_BATCH_SIZE,
@@ -214,6 +214,7 @@ class WorkerRuntime:
         engine_agent_ref: str,
         credentials_for: Callable[[str | None], VendorCredentials],
         transport: BaseTransport,
+        caller: CallerIdentityLike | None = None,
         carrier: CarrierCdr | None = None,
         runtime_usage: RuntimeUsage | None = None,
         greeting: Literal["required", "skip"] = "required",
@@ -287,6 +288,17 @@ class WorkerRuntime:
             cache=self._cache,
             embedder=self._embedder,
             observers=[observer],
+            # The two that make the in-call ACTS reachable. `assemble_call` advertises the
+            # opt-out, call-back, cancel and handoff tools only when it has an API to reach
+            # them through, and refuses to let an agent claim a suppression unless the
+            # caller verdict is `known` — so a `None` here is not a degraded call, it is a
+            # call on which nobody can ask to be taken off the list.
+            # The CONCRETE client, not the Protocol: `CallToolApi` is structural and not
+            # `runtime_checkable`, and a test that hands this runtime a plain
+            # `WorkerApiClient` must get `None` rather than a client with no tool methods
+            # on it — which would fail at the first act instead of at assembly.
+            tool_api=self._api if isinstance(self._api, CallToolApiClient) else None,
+            caller=caller,
         )
 
         # §1.1's ATTESTATION, POSTED AT SESSION START (D-626). `AssembledCall` has recomputed
