@@ -6,9 +6,8 @@ touches storage, the database, a route or the engine — the modules that do are
 `apps/workers/document_text.py` (DOCX / TXT / CSV / XLSX) and
 `apps/workers/document_ocr.py` (photographs, through a model leg we already hold).
 
-⚠ **THIS SEAM PRODUCES TEXT, NOT A PDF, AND THE BRIEF THAT ASKED FOR A PDF WAS WORKING
-FROM A PREMISE THIS REPOSITORY HAD ALREADY CLOSED.** The reasoning is recorded here
-rather than in a report because the next reader will re-derive it otherwise.
+⚠ **THIS SEAM PRODUCES TEXT, NOT A PDF**, and the reason is worth reading before
+"converting to PDF at ingest" is proposed again.
 
 The engine's knowledge-base API does accept exactly a PDF (max 20 MB) or a URL
 (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/knowledgebase/

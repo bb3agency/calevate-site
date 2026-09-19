@@ -25,167 +25,96 @@ interface RegisterRow {
 /**
  * The register rows, and the one place the vendor list exists.
  *
- * The DPA's Annex C does not restate it — it links here. Two copies of a sub-processor
- * list is exactly the drift that makes the DPA's change-notification clause unkeepable,
- * and it is the mechanism that once let a removed vendor (Clerk) and a replaced one
- * (Vertex → Microsoft/Azure) linger in client-facing copy after they left the register.
+ * The DPA's Annex C does not restate it — it links here. Two copies of a sub-processor list
+ * is exactly the drift that makes the DPA's change-notification clause unkeepable, and it is
+ * what once let a removed vendor (Clerk) and a replaced one (Vertex → Microsoft/Azure)
+ * linger in client-facing copy after they left the register.
  *
  * ## The `status` column is load-bearing and is not decoration
  *
  * Nothing in this system is deployed to production yet. A register that listed fourteen
- * vendors with no standing would tell a reader that fourteen companies hold their
- * callers' data today, which is false; one that listed only the live ones would be an
- * empty page, which is useless to a client evaluating the product. So each row says which
- * of four states it is in — the vendor is in the running path, it is configured but the
- * feature is off, it is selected only if the client themselves turns it on, or it is a
- * contingency nobody has selected. Every state traces to a config field or an adapter in
- * the tree, cited in `docs/LEGAL-SURFACE.md`.
+ * vendors with no standing would tell a reader that fourteen companies hold their callers'
+ * data today, which is false; one that listed only the live ones would be an empty page,
+ * which is useless to a client evaluating the product. So each row says which of four states
+ * it is in — in the running path, configured but off, selected only if the client turns it
+ * on, or a contingency nobody has selected. Every state traces to a config field or an
+ * adapter in the tree, cited in `docs/LEGAL-SURFACE.md`.
  *
- * ## The speech row's Location cell was WRONG, and it was corrected on 27 August 2026
+ * ## Evidence classes, per vendor
  *
- * It said "India." — one word, no qualification — and the vendor's own published privacy
- * policy contradicts it. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data
- * Transfers" and the retention/deletion tables; Sarvam Terms of Service v2.0, effective
- * 29 July 2026, ss.6.2 and 17.5 — read by the founder at `www.sarvam.ai/privacy-policy`
- * and `www.sarvam.ai/terms-of-service` on 27 Aug 2026 and relayed). ⚠ NOT read from this
- * container: `sarvam.ai` and `docs.sarvam.ai` are egress-blocked here, as several comments
- * in this tree already say, and that is still true — the evidence arrived by a different
- * route, so do not "re-verify" it with a fetch that will 403.
+ * **Sarvam** — VENDOR-PUBLISHED (Privacy Policy, "Cross-Border Data Transfers" and the
+ * retention/deletion tables; Terms of Service v2.0, eff. 29 July 2026, ss.6.2 and 17.5; read
+ * by the founder at `www.sarvam.ai` on 27 Aug 2026 and relayed). `sarvam.ai` and
+ * `docs.sarvam.ai` are egress-blocked from this container, so do not try to "re-verify" this
+ * with a fetch that will 403. Two facts from it drive the row: personal data may be
+ * transferred to and processed outside India (US cloud and analytics, EU model and security
+ * vendors), the India-storage carve-out covering only content-studio voice biometrics and
+ * payment data — so the AUDIO may leave India on the SPEECH leg, not only the transcript on
+ * the language leg; and s.17.5 permits training on inputs, outputs and usage data, not
+ * varying by tier, with s.6.2 making a signed order form the only instrument that can
+ * displace it. Section 3.4 states both to the client. The Location cell says India for the
+ * COMPANY and not for the data: a one-word country in the cell a buyer's counsel reads is
+ * the most expensive place in this tree to be imprecise.
  *
- * Two facts, and each one falsified a sentence a client would have relied on. (1) Personal
- * data "may be transferred to and processed in countries outside India", the policy naming
- * United States cloud infrastructure (AWS, GCP, Azure) and analytics providers, European
- * Union model and security vendors, and other jurisdictions as necessary; the India-storage
- * carve-out it does state covers voice BIOMETRIC data in the vendor's content-studio
- * product and payment data, not the Saaras/Bulbul API traffic our calls generate. So the
- * AUDIO may leave India on the SPEECH leg, not only the transcript on the language leg —
- * which is the half every other document in this tree had backwards. (2) s.17.5 permits the
- * vendor to use inputs, outputs and usage data for training its models, subject to its
- * privacy policy, applicable law and, where required, a declinable consent; it does not
- * vary by tier, and s.6.2 makes a signed order form the only instrument that can displace
- * it. Section 3.4 of this document is where both are stated to a client. The register's
- * Location cell now says India for the COMPANY and not for the data, because a one-word
- * country in the cell a buyer's counsel reads is the most expensive place in this tree to
- * be imprecise.
+ * **Cartesia** — VENDOR-PUBLISHED, RELAYED, and weaker than Sarvam's. Every data-handling
+ * fact in its row and in section 3.6 comes from
+ * `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, a research run over the
+ * vendor's pages delivered 6-7 Sep 2026; `cartesia.ai` and `docs.cartesia.ai` are
+ * egress-blocked here, so nobody in this repo has opened those pages and that file's own
+ * header says its VERIFIED labels are the research run's reading, not ours. Hence the
+ * wording throughout is what the vendor's documents SAY, never our finding about the world;
+ * the only two claims stated as ours ("nothing has been sent to it", "it receives only the
+ * words the agent speaks") are read off this tree's own code. It has TWO rows — same
+ * identity in `names`, different product, different status — because D-547 made it a live
+ * voice-quality vendor while it was already listed as a contingency engine
+ * (`engine/cartesia.py`, never adopted), and one row cannot carry two standings.
  *
- * ## The voice-synthesis vendors, and their evidence classes
- *
- * ⚠ **THERE ARE TWO OF THEM AND NEITHER IS THE SPEECH VENDOR ANY MORE (D-629,
- * 18 Sep 2026).** This heading said "the voice-synthesis vendor was added on
- * 7 September 2026" and the section below described one. Sarvam was removed from the
- * SYNTHESIS leg on 18 Sep 2026 and Gnani took the cheaper quality; Sarvam's row, its
- * Location cell, section 3.4 and everything either says about what it may do with the
- * AUDIO and the TRANSCRIPT it receives are untouched, because it still hears every call.
- * What changed is one clause of its `does` cell and the disappearance of the refuge
- * sentence that used to tell a client they could keep a caller away from an unplaceable
- * synthesiser by choosing the other voice quality — there is no such quality now.
- * Gnani's evidence class is the weakest on this page: NOTHING. All three of its sites are
+ * **Gnani** — NOTHING, the weakest class on this page. All three of its sites are
  * egress-blocked (measured 15 Sep 2026), so its row and section 3.6 say what we have not
  * established rather than borrowing Cartesia's answers for it.
  *
- * D-547 gives the product a SECOND voice quality, spoken by Cartesia, chosen per agent
- * and priced per credit lot. That makes Cartesia a sub-processor in a role it did not
- * have: it already appeared here as a CONTINGENCY alternative voice platform (the
- * `engine/cartesia.py` adapter, never adopted), and one row could not carry two standings
- * without one of them reading as the other. So it now has two rows, the way Google has
- * three — same identity in `names`, different product, different status — and the
- * contingency row keeps its own words.
+ * **Supermemory** — VERIFIED-IN-REPO for what it says about OUR behaviour, UNKNOWN for the
+ * vendor. `supermemory.ai` is egress-blocked (measured 14 Sep 2026, recorded in
+ * `apps/api/retrieval/supermemory.py`), so nobody here has read its terms, retention position
+ * or delete surface: the Location cell says NOT VERIFIED and the Status cell says the purge
+ * rests on our own reading rather than a documented route, repeating rather than smoothing
+ * over `supermemory_index.py`'s own recorded assumption.
  *
- * ⚠ EVIDENCE CLASS, and it is weaker than the speech vendor's: VENDOR-PUBLISHED, RELAYED.
- * Every data-handling fact in the row and in section 3.6 comes from
- * `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, which is a research run
- * over the vendor's own pages delivered on 6-7 September 2026. `cartesia.ai` and
- * `docs.cartesia.ai` are egress-blocked from this container (re-measured 6 Sep 2026), so
- * NOBODY HERE HAS OPENED THOSE PAGES, and that evidence file's own header says its
- * internal VERIFIED labels are the research run's reading and not ours. Hard rule 11 is
- * why the client-facing wording is framed throughout as what the vendor's published
- * documents SAY, never as our finding about the world: the two claims that are ours
- * ("nothing has been sent to it", "it receives only the words the agent speaks") are read
- * off this tree's own code, and everything else is attributed.
+ * ## What is deliberately NOT on the page — do not add it
  *
- * WHAT §A5 CARRIES THAT IS DELIBERATELY NOT ON THE PAGE, each because the evidence file
- * marks it UNKNOWN and an unknown may not be dressed as a fact on the one page whose job
- * is disclosure: where the vendor processes (no region, no residency commitment in any
- * document read); the retention periods that apply on a non-enterprise plan; whether the
- * vendor's data-processing agreement is self-serve signable; what rights it takes over a
- * cloned voice. The first three are stated AS gaps in section 3.6 rather than omitted
- * silently. The fourth is out of scope here: no cloned voice is offered.
+ * Cartesia's §A5 marks these UNKNOWN, and an unknown may not be dressed as a fact on the one
+ * page whose job is disclosure: where the vendor processes (no region or residency commitment
+ * in any document read), the retention periods on a non-enterprise plan, and whether its DPA
+ * is self-serve signable. Those three are stated AS gaps in section 3.6 rather than omitted
+ * silently. What rights it takes over a cloned voice is out of scope: no cloned voice is
+ * offered.
  *
- * ITS CERTIFICATION CLAIMS ARE ALSO OFF THE PAGE, for two reasons that agree. §A5 records
- * the vendor asserting GDPR / SOC 2 Type II / PCI-DSS / HIPAA compliance and records the
- * REPORT ITSELF as UNKNOWN — behind an access request to its trust centre that nobody has
- * made — so what we hold is a marketing line, not a certificate. And `legal.test.tsx`
- * ("claims no security certification anywhere") bans that vocabulary from these documents
- * outright; paraphrasing around the regex to get a vendor's unseen certificate onto a
- * legal page would satisfy the guard's words and defeat its purpose. A client who needs
- * one asks, and somebody makes the access request.
+ * Its certification claims are off the page for two reasons that agree. §A5 records the
+ * vendor asserting GDPR / SOC 2 Type II / PCI-DSS / HIPAA and records the REPORT ITSELF as
+ * UNKNOWN, behind an unmade access request — so what we hold is a marketing line, not a
+ * certificate. And `legal.test.tsx` ("claims no security certification anywhere") bans that
+ * vocabulary from these documents outright; paraphrasing around the regex to get a vendor's
+ * unseen certificate onto a legal page would satisfy the guard's words and defeat its
+ * purpose.
  *
- * ## Re-audited against the CODE on 26 August 2026, and three vendors were missing
+ * The LOCATION of the two WhatsApp BSPs (AiSensy, Interakt) is deliberately absent for the
+ * same reason: both hosts are egress-blocked (`apps/api/actions/whatsapp.py` marks its whole
+ * endpoint spec REPORTED), so a country here would be a guess — on the one page whose entire
+ * job is saying where data goes.
  *
- * F-11 in `docs/LEGAL-SURFACE.md` closed the copy that named vendors we do not use, and
- * left the MECHANISM open: nothing in the tree can notice when our actual vendors and this
- * list diverge. This pass walked the other direction — from the code outwards — rather
- * than re-reading the rows, and the omissions it found were all of the same shape: an
- * integration a CLIENT switches on, which nobody thinks of as ours because no data reaches
- * it until they do.
+ * ## Keeping this register true
  *
- * - **Google — Calendar API.** `apps/api/actions/calendar.py` + `actions/execution.py`
- *   (`_run_calendar`) read a client's free/busy and insert events; the router is mounted
- *   at `apps/api/main.py:208`. The event title is whatever the client mapped
- *   (`CalendarConfig.summary_param`), so a caller's name commonly goes to Google.
- * - **AiSensy · Interakt.** `apps/api/actions/whatsapp.py::build_aisensy` /
- *   `build_interakt`, selected in `actions/execution.py` by `tool.provider`. These are
- *   WhatsApp Business Solution Providers — separate companies from Meta — and a client
- *   picking one sends the caller's number through them.
- *
- * Their LOCATION is deliberately not stated. Both BSP hosts are egress-blocked from this
- * environment (`actions/whatsapp.py` says so at the top and marks its whole endpoint spec
- * REPORTED), so nobody here has read where either processes, and hard rule 11 forbids
- * writing a country we would be guessing at — on the one page whose entire job is saying
- * where data goes. An honest "we have not verified this" costs a client nothing they
- * cannot ask for; a wrong country in a register a buyer's counsel reads costs the whole
- * page its credibility.
- *
- * Checked and found ACCURATE in the same pass: `engine: EngineName = "fake"` is still the
- * shipped default (`packages/shared/src/calevate_shared/config.py:330`), so the Bolna row's
- * status stands; the three language-model providers are exactly `LlmProvider =
- * Literal["azure_openai", "openai", "google"]` (`calevate_shared/engine.py:567`); Sarvam is
- * still the first extraction pass (`GEMINI_EXTRACTION_DEFAULT: Final = False`,
- * `apps/workers/extraction.py:190`); Cohere appears nowhere in the code at all, which is
- * what "Contingency. Not selected." should look like.
- *
- * ## Re-audited against the CODE again on 18 September 2026, and one vendor was missing
- *
- * The August pass walked from the code outwards and found three client-switched
- * integrations. This pass asked a narrower question — which vendor can an OPERATOR switch
- * on, with no deploy and no client involved — and found **Supermemory**. Two complete
- * adapters exist (`apps/api/retrieval/supermemory.py` reads, `supermemory_index.py`
- * writes), and `apps/api/core/platform_config.py` marks `retrieval_provider`,
- * `supermemory_base_url`, `supermemory_api_key` and `supermemory_embedding_model` all
- * `LIVE` — so the ops console can select it and `retrieval/service.get_retriever`, which
- * runs per request and holds no state, serves the next question out of it. At that moment
- * it receives every published `kb_chunks` passage, which SECURITY-COMPLIANCE §4 describes
- * as "FAQs, price lists, staff names and contact numbers". It appeared nowhere on this
- * page.
- *
- * The shape of the miss is worth naming because it is new: not a client-switched
- * integration nobody thought of as ours (August's three), but an OPERATOR-switched one,
- * where the only thing between the register being true and being false is a dropdown.
- * `apps/web/tests/legal.test.tsx` could not have caught it — it checks this register
- * against itself and against the DPA, so a vendor absent from BOTH is consistent and
- * invisible. `scripts/check_subprocessor_coverage.py` is the direction that was missing:
- * it derives vendor identity from the code (adapter modules and `Settings` fields) and
- * fails when a vendor that can receive client data is not on this page.
- *
- * ⚠ EVIDENCE CLASS for the Supermemory row: VERIFIED-IN-REPO for everything it says about
- * OUR behaviour, and UNKNOWN for the vendor. `supermemory.ai` is egress-blocked from this
- * container (measured 14 Sep 2026, recorded in `apps/api/retrieval/supermemory.py`), so
- * nobody here has read its terms, its retention position or its delete surface — which is
- * why the Location cell says NOT VERIFIED and why the Status cell says the purge rests on
- * our own reading rather than on a documented route. `supermemory_index.py`'s own
- * docstring records that assumption ("the tag rests on an ASSUMED reading of their delete
- * surface; the ledger rests on what we recorded sending"), and it is repeated to the
- * client rather than smoothed over.
+ * Client-switched integrations are the easy ones to miss, because no data reaches them until
+ * the client turns them on: Google Calendar (`apps/api/actions/calendar.py`; the event title
+ * is whatever the client mapped, so a caller's name commonly goes to Google) and the two
+ * WhatsApp BSPs above (`apps/api/actions/whatsapp.py`, selected by `tool.provider`).
+ * OPERATOR-switched ones are harder still — Supermemory needs only a dropdown in the ops
+ * console for `retrieval/service.get_retriever` to start sending it every published
+ * `kb_chunks` passage. `apps/web/tests/legal.test.tsx` cannot catch either shape: it checks
+ * this register against itself and the DPA, so a vendor absent from BOTH is consistent and
+ * invisible. `scripts/check_subprocessor_coverage.py` is the guard that can — it derives
+ * vendor identity from adapter modules and `Settings` fields and fails when a vendor that can
+ * receive client data is not on this page.
  */
 export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
   {

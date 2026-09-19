@@ -71,9 +71,8 @@ def client_ip(peer_ip: str | None, headers: Mapping[str, str], *, app_env: str) 
     is a refusal (the engine receiver), a null column (an audit row) or a degraded
     shared bucket (a limiter). Never a guess.
 
-    WHAT WAS WRONG BEFORE. This function preferred `CF-Connecting-IP` and otherwise took
-    the LEFTMOST `X-Forwarded-For` entry. The leftmost entry is the one the ORIGINAL
-    CALLER wrote: every proxy in the chain appends, so position 0 is attacker input by
+    NEVER THE LEFTMOST `X-Forwarded-For` ENTRY. That entry is the one the ORIGINAL CALLER
+    wrote: every proxy in the chain appends, so position 0 is attacker input by
     construction. MDN states the rule plainly — "any security-related use of
     X-Forwarded-For (such as for rate limiting or IP-based access control) must only use
     IP addresses added by a trusted proxy" (developer.mozilla.org/en-US/docs/Web/HTTP/
@@ -84,9 +83,9 @@ def client_ip(peer_ip: str | None, headers: Mapping[str, str], *, app_env: str) 
     many trusted hops sit in front and count that many from the RIGHT (adam-p.ca's
     "The perils of the 'real' client IP" is the canonical write-up; express's
     `trust proxy` hop-count and nginx's `real_ip_recursive` are the same idea in two other
-    stacks). Leftmost-wins was safe here only because `CF-Connecting-IP` happened to
-    always be present — i.e. the entire authenticity control for an unsigned engine rested
-    on a fallback never being reached.
+    stacks). Preferring `CF-Connecting-IP` and falling back to leftmost-wins is safe only
+    while that header is always present — i.e. it rests the entire authenticity control for
+    an unsigned engine on a fallback never being reached.
 
     WHAT THIS DEPLOYMENT PROMISES, which is what is implemented (DEPLOYMENT §1, §5):
 

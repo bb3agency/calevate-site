@@ -25,8 +25,6 @@
  *   paise-level dispute starts. `TopUpDraft.amountInr` is therefore a `string` all the
  *   way to `fetch`, and nothing in this file or its screen calls `Number()` on it.
  * - **FOUR writes, four different confirmation rules, each copied from its own route.**
- *   ⚠ This said THREE until the grant landed (19 Sep 2026), which is the count-in-prose
- *   defect this repo has a rule about — the fourth is at the bottom of the file.
  *   `useRecordTopUp` sends no `X-Confirm-Action`, because the route accepts none — a
  *   header the API ignores is a confirmation of nothing. `useRecordAdjustment` sends one
  *   when the correction takes credit AWAY and none when it puts credit back, mirroring
@@ -51,6 +49,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { formatRupeeRate } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 import { apiRequest, type Session } from "./client";
@@ -633,7 +632,8 @@ export function grantCeilingProblem(raw: string): string | null {
   const paise = grantPaise(raw);
   if (paise < grantPaise(MIN_GRANT_INR) || paise > grantPaise(MAX_GRANT_INR)) {
     return (
-      `A grant is between ₹${MIN_GRANT_INR} and ₹${MAX_GRANT_INR}. If a larger gift really ` +
+      `A grant is between ${formatRupeeRate(MIN_GRANT_INR)} and ` +
+      `${formatRupeeRate(MAX_GRANT_INR)}. If a larger gift really ` +
       "is intended, grant it in parts — each part is separately confirmed and separately " +
       "audited, which is the trail a credit this size should leave anyway."
     );

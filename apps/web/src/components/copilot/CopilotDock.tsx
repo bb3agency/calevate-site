@@ -18,16 +18,14 @@ import { ViewAsPanel } from "./ViewAsPanel";
 /**
  * The floating launcher, and the panel it anchors — mounted once per realm shell.
  *
- * ## IT ALWAYS RENDERS, AND THIS PARAGRAPH USED TO ARGUE THE OPPOSITE (D-501)
+ * ## IT ALWAYS RENDERS, EVEN ON A SCREEN THAT DECLARED NOTHING (D-501)
  *
- * The old rule was that a screen becomes assistable by calling `useCopilotSurface`
- * (`lib/copilot/registry.ts`) and in no other way, so that a screen with no declaration
- * showed no launcher at all. The reason given was sound and is worth keeping in view: a
- * launcher that "opens onto an empty context" — an assistant that can see nothing and fill
- * nothing — teaches a person the feature is broken on the screen where they first tried it,
- * which is worse than no launcher.
+ * The alternative — a launcher only on screens that call `useCopilotSurface`
+ * (`lib/copilot/registry.ts`) — guards against a real failure worth keeping in view: a
+ * launcher that opens onto an empty context teaches a person the feature is broken on the
+ * screen where they first tried it, which is worse than no launcher.
  *
- * WHAT ANSWERS IT IS THAT THE CONTEXT IS NOT EMPTY. An undeclared screen still sends the
+ * IT DOES NOT APPLY, BECAUSE THE CONTEXT IS NOT EMPTY. An undeclared screen still sends the
  * ROUTE the person is on, a title derived from it, an explicit "this screen did not
  * describe itself" fact, and — the part that carries the feature — the assistant keeps all
  * of its read tools. `leads_search`, `business_snapshot`, `campaigns_list`, `agents_list`,

@@ -26,11 +26,9 @@ import { Band, Chapter, HOME } from "./band";
  *     per `apps/api/agents/business_hours.py`;
  *  2. outbound follow-up — `apps/api/campaigns/service.py` + the retry ladder in
  *     `apps/workers/campaign_dispatch.py:1147`; contacts are PASTED — the CAMPAIGN screens
- *     take no file. ⚠ THE REASON THIS GAVE IS DEAD: it said "there is no file input
- *     anywhere in this console, `grep 'type=\"file\"' apps/web/src` returns nothing", and
- *     that grep now returns `app/c/[slug]/knowledge/AddDocument.tsx:133` (D-534 shipped
- *     `POST /v1/kb/uploads`). The campaign claim still stands; the console-wide one does
- *     not, and a true claim resting on a false reason is the shape hard rule 11 exists for;
+ *     take no file. The ground is the CAMPAIGN screens specifically: the console does have
+ *     a file input (`app/c/[slug]/knowledge/AddDocument.tsx`, D-534), so "no file input
+ *     anywhere in this console" is not available as a reason;
  *  3. qualification — `apps/api/crm/schemas.py:29`, `apps/workers/pipeline.py:179`;
  *  4. appointments and callbacks — the `calendar` action kind
  *     (`apps/api/actions/models.py:53`, `apps/api/actions/calendar.py`, gated by

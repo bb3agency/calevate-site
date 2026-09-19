@@ -4,13 +4,12 @@
 agent — into the `SessionConfig` that `pipeline.assemble_call` takes, and it is the only
 place in this worker that knows where that configuration comes from.
 
-⚠ **IT USED TO KNOW WHICH TABLES IT LIVED IN, AND IT NO LONGER DOES.** `docs/DEPLOYMENT.md`
-§12.5 gate 6: this container runs on Pipecat Cloud and cannot reach our Postgres at all, so
-the three-table join that used to be here now runs in `apps/api/worker/service.load_session`
-and this presents an `engine_agent_ref` and reads the answer. The join did not change — it
-is the same statement against the same three tables, for the reason it always had: three
-round trips would let a publish land between them and produce a `SessionConfig` whose prompt
-came from one version and whose knowledge pack came from the next.
+⚠ **IT DOES NOT KNOW WHICH TABLES THE CONFIGURATION LIVES IN.** This container runs on
+Pipecat Cloud and cannot reach our Postgres at all (`docs/DEPLOYMENT.md` §12.5 gate 6), so
+it presents an `engine_agent_ref` and reads the answer; the three-table join runs in
+`apps/api/worker/service.load_session` and stays ONE statement, because three round trips
+would let a publish land between them and produce a `SessionConfig` whose prompt came from
+one version and whose knowledge pack came from the next.
 
 **IT READS A VERSION, NOT AN AGENT, AND THAT IS §1.1's WHOLE DESIGN.** `pipecat_agents`
 holds a pointer to the immutable `agent_config_versions` row the control plane last

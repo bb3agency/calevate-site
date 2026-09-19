@@ -16,9 +16,9 @@ import { publicPageMetadata } from "@/lib/seo/metadata";
 import { SITE_DESCRIPTION } from "@/lib/seo/structuredData";
 
 /**
- * ⚠ THE HOMEPAGE HAD NO `metadata` EXPORT AT ALL until 9 Sep 2026, which meant it
- * inherited the root layout's fallback — so `/` and `/signup` both went to search engines
- * titled "Calevate" with the description "AI phone agents for Indian businesses". Two
+ * THE HOMEPAGE MUST EXPORT ITS OWN `metadata`. Without it the page inherits the root
+ * layout's fallback, and `/` and `/signup` both reach search engines titled "Calevate" with
+ * the description "AI phone agents for Indian businesses". Two
  * public pages sharing a title and a description is a duplicate-content signal on the two
  * pages that matter most, and it was invisible because nothing renders a `<title>` where a
  * person doing the work would see it.

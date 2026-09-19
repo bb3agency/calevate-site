@@ -16,13 +16,13 @@ import { Band, Chapter, HOME } from "./band";
 /**
  * CHAPTER 7 — trust. COMPRESSED IN LAYOUT AND RANKING, NOT ONE WORD IN WORDING.
  *
- * ⚠ Every sentence rendered here comes from `lib/marketing/compliance.ts`, which forbids
+ * Every sentence rendered here comes from `lib/marketing/compliance.ts`, which forbids
  * rewording in its own header and is rendered by `/security` from the same constants so the
  * two surfaces cannot drift. `publicLanding.test.tsx` pins several of these substrings in
  * BOTH directions — the page must say the Indian half is Indian AND that the language model
  * is not, must keep "checked, not proved by a build", and must not claim a build proves
  * residency. Deleting any of those clauses is how the over-claim comes back looking like a
- * tidy-up, so the redesign MOVED this content and changed none of it.
+ * tidy-up, so this chapter may be moved but not reworded.
  *
  * ## Why this chapter is `quiet` and not `anchor`
  *

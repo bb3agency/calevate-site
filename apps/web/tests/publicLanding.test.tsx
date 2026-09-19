@@ -136,12 +136,9 @@ describe("the landing page's claims", () => {
     // external image is also a request to a host we do not control (the reason
     // `Avatar` replaced dicebear in ui.tsx).
     //
-    // THIS USED TO ASSERT ZERO IMAGES, which was the right intent behind the wrong
-    // proxy. The page now carries our OWN wordmark and lockup, which are neither a
-    // customer's logo nor a third-party request. What actually has to hold is that
-    // every image is first-party — a relative path to our own origin — so the check is
-    // now that, stated directly. It still fails on the two things it was written for: a
-    // logo wall would have to come from somewhere, and anything on another host has a
+    // The property is that every image is FIRST-PARTY, not that there are none: the page
+    // carries our own wordmark and lockup. It still fails on the two things it was written
+    // for — a logo wall has to come from somewhere, and anything on another host has a
     // scheme in its `src`.
     const sources = Array.from(container.querySelectorAll("img")).map(
       (img) => img.getAttribute("src") ?? "",
@@ -166,25 +163,20 @@ describe("the landing page's claims", () => {
   /**
    * THE RESIDENCY CLAIM, banned by SHAPE rather than corrected once.
    *
-   * The page used to say "It stays in India — calls, transcripts and recordings are
-   * processed and stored in Indian regions". Nothing in this repository supports it:
-   * DEPLOYMENT §0 hosts the site stack, Postgres included, on a general-purpose VPS with
-   * India co-location NOT required; §1 puts object storage on Cloudflare R2 at
-   * `AWS_REGION=auto`; SECURITY-COMPLIANCE §4 records Bolna recordings observed on S3
-   * `us-east-1` with the posture still to be pinned in a contract; Clerk, Resend and
-   * Sentry are all elsewhere; and no deploy has ever run, so the region is undecided
-   * rather than merely unwritten.
+   * NOTHING in this repository supports an India residency claim: DEPLOYMENT §0 hosts the
+   * site stack, Postgres included, on a general-purpose VPS with India co-location NOT
+   * required; §1 puts object storage on Cloudflare R2 at `AWS_REGION=auto`;
+   * SECURITY-COMPLIANCE §4 records Bolna recordings observed on S3 `us-east-1`; and no
+   * deploy has ever run, so the region is undecided rather than merely unwritten. The
+   * narrower model-endpoint claim went with D-449, which moved the declared region to Azure
+   * OpenAI `eastus2`.
    *
-   * The narrower claim that replaced it — model endpoints pinned to an Indian region —
-   * is GONE TOO as of D-449: on 22 August 2026 the declared model region moved to Azure
-   * OpenAI `eastus2`, so the page has no India residency claim left to make and says the
-   * language model is American in the same sentence that says the speech is Indian. What
-   * `scripts/check_model_residency.py` guards is the MECHANISM, not the country: one
-   * declared region, one endpoint builder, no setting able to carry a region. This test
-   * is the frontend half: residency is the claim a buyer in this market asks for FIRST,
-   * which is exactly why it grows back, and a softened verb over the same implication is
-   * the same misrepresentation. Certifications are in the same list because the company
-   * holds none.
+   * Banned by SHAPE rather than corrected once, because residency is the claim a buyer in
+   * this market asks for FIRST and is therefore the claim that grows back — and a softened
+   * verb over the same implication is the same misrepresentation.
+   * `scripts/check_model_residency.py` guards the MECHANISM (one declared region, one
+   * endpoint builder, no setting able to carry a region); this test is the frontend half.
+   * Certifications are in the same list because the company holds none.
    */
   it("claims no data residency, storage location or certification", async () => {
     const { container } = render(await Home());
@@ -210,29 +202,24 @@ describe("the landing page's claims", () => {
      * card is pinned in BOTH directions: it must still say the Indian half is Indian,
      * and it must say in as many words that the language model is not.
      *
-     * ⚠ 27 AUG 2026: "the Indian half is Indian" is now a claim about the VENDOR only.
-     * Sarvam's published privacy policy permits it to process personal data outside
-     * India (US cloud infrastructure, EU model and security vendors) — read by the
-     * founder at `www.sarvam.ai/privacy-policy` that day and relayed, since the host is
-     * egress-blocked here. The substring below is still pinned because deleting the
-     * sentence would restore the omission this test exists for; what follows it on the
-     * page now says the vendor being Indian is not a residency claim, and a future edit
-     * that drops THAT qualification is the defect to catch.
+     * "The Indian half is Indian" is a claim about the VENDOR only: Sarvam's published
+     * privacy policy permits it to process personal data outside India, naming US cloud
+     * infrastructure and EU model and security vendors (VENDOR-PUBLISHED, read by the
+     * founder at `www.sarvam.ai/privacy-policy` on 27 Aug 2026 and relayed; the host is
+     * egress-blocked here). The substring is pinned because deleting the sentence would
+     * restore the omission this test exists for — and the page qualifies it immediately,
+     * so an edit that drops THAT qualification is the defect to catch.
      */
     expect(text).toContain(
       "the first reading of that transcript, are " +
         "done by an Indian COMPANY on every call",
     );
     /*
-     * ⚠ **THE PINNED SUBSTRING USED TO READ "Speech and the first reading of your
-     * transcript are Indian", AND THAT SENTENCE BECAME FALSE ON 18 SEP 2026.** D-629 split
-     * the speech leg: transcription stayed with the Indian company, synthesis moved to
-     * Gnani or Cartesia, and Cartesia is not Indian. "Speech" reads as both halves, so the
-     * page was telling every Studio caller's client something untrue about where the voice
-     * is made — on a public page, which makes it a representation under the Consumer
-     * Protection Act 2019 rather than a wording preference. The guard pinned the false
-     * sentence, so it had to move with the copy; this clause is the replacement and the
-     * one below is new, because the omission this test exists for is now TWO omissions.
+     * Two substrings, because D-629 split the speech leg into two omissions: transcription
+     * stayed with the Indian company, synthesis went to Gnani or Cartesia, and Cartesia is
+     * not Indian. A page saying only "speech is Indian" reads as covering both halves and
+     * would be untrue about where the voice is made — on a public page that is a
+     * representation under the Consumer Protection Act 2019, not a wording preference.
      */
     expect(text).toContain(
       "The VOICE your caller hears is a different vendor again",
@@ -343,16 +330,11 @@ describe("the landing page's claims", () => {
   });
 
   it("makes exactly one request — the public rate card — and sends nobody with it", async () => {
-    // ⚠ THIS USED TO ASSERT ZERO REQUESTS, and the change is deliberate (D-545). The page
-    // is an async server component that awaits `GET /v1/public/rate-card`, because the
-    // alternative was a price typed into the bundle whose own comment admitted it would
-    // drift the day an operator changed the live rate.
-    //
-    // The invariant this test actually protects is INTACT and is now stated properly: the
-    // marketing page still tells no vendor anything about its reader. So the assertion is
-    // not "one call" — it is one call, to that path, carrying no identity. A second
-    // request appearing here, or a bearer token, or an org header, is the regression the
-    // original zero was standing in for.
+    // The invariant is not "no requests" but that the marketing page tells no vendor
+    // anything about its reader: one call, to the public rate-card path, carrying no
+    // identity. The page awaits that card rather than typing a price into the bundle
+    // (D-545), which would drift the day an operator changed the live rate. A second
+    // request here, or a bearer token, or an org header, is the regression.
     const calls = stubApi(RATE_CARD_ROUTES);
     render(await Home());
     expect(calls).toHaveLength(1);
@@ -523,12 +505,10 @@ describe("the qualification-layer section", () => {
     // Three cards, each a heading and a body — the same shape as every other card grid.
     const cards = [...(section?.querySelectorAll("h3") ?? [])];
     expect(cards).toHaveLength(3);
-    // The band's own eyebrow. It was "Where your team's time goes" when the section was
-    // about the calculator that followed it; the redesign made it the sales-team section
-    // and moved the calculator below it, so the label follows the subject.
+    // The band's eyebrow names its subject, which is the sales team rather than the
+    // calculator that now sits below it.
     expect(container.textContent).toContain("Your sales team");
-    // And the reframe the founder called strategically important: the fear this section
-    // exists to answer is "does this replace my staff".
+    // The fear this section exists to answer is "does this replace my staff".
     expect(text).toContain("not to automate your business");
   });
 });
@@ -537,29 +517,20 @@ describe("the qualification-layer section", () => {
  * THE KNOWLEDGE CLAIM — banned by SHAPE, because it is the claim this market's buyers
  * assume without being told.
  *
- * **The fact.** In-call retrieval is T0 and nothing else (`docs/TRD.md:948`): the facts a
- * person approves are compiled into the agent's own system prompt at publish time
- * (`apps/api/agents/t0.py`). The engine's built-in knowledge base is OFF
- * (`apps/api/engine/bolna.py:2484`, `knowledge_base=False`) and `attach_kb` refuses in as
- * many words — "The voice platform's knowledge base accepts documents, not text"
- * (`bolna.py:3536`). `POST /v1/kb/sources` takes TEXT: `kind="url"` and `kind="file"` are
- * declared on the wire and REFUSED by the service (`apps/api/kb/routes.py:44`). There is
- * no embedding path in `apps/`, and there is no file input anywhere in this console
- * (`grep 'type="file"' apps/web/src` returns nothing).
+ * **The facts, as the code stands.** `POST /v1/kb/sources` takes TEXT only: `kind="url"`
+ * and `kind="file"` are declared on the wire and REFUSED by the service
+ * (`apps/api/kb/service.py:77`). Everything else has moved: `BOLNA_CAPABILITIES.
+ * knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`), `attach_kb` uploads an
+ * approved document to the engine's own store (`bolna.py:5420`, D-488, reached from
+ * `kb/service.publish_source`), this console has a file input
+ * (`app/c/[slug]/knowledge/AddDocument.tsx:133`, behind `POST /v1/kb/uploads`, D-534), and
+ * `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an in-process pack search registered
+ * as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1). The COPY below is therefore
+ * CONSERVATIVE rather than false, and is left as it stands.
  *
- * ⚠ **EVERY GROUND IN THE PARAGRAPH ABOVE WAS RE-READ ON 15 SEP 2026 AND THREE OF THEM
- * HAD FLIPPED.** `BOLNA_CAPABILITIES.knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`),
- * `attach_kb` is BUILT and uploads the approved document to the engine's own store
- * (`bolna.py:5420`, D-488, reached from `kb/service.publish_source`), and this console DOES
- * have a file input (`apps/web/src/app/c/[slug]/knowledge/AddDocument.tsx:133`, behind
- * `POST /v1/kb/uploads` — D-534). `PIPECAT_CAPABILITIES.knowledge_base` is `True` too, with
- * an in-process pack search registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).
- * `POST /v1/kb/sources` is the one that held: still text-only
- * (`kb/service.py:77`). **The COPY below is therefore conservative rather than false** and
- * is left as it stands; what is corrected is the evidence, because a ground quoted from a
- * constant nobody re-read is hard rule 11's whole subject. `docs/TRD.md:802` still says
- * in-call retrieval is "T0 and nothing else" — that is a conflict with the code above, and
- * `docs/` wins, so it is FLAGGED here rather than silently resolved by a copy sweep.
+ * ⚠ UNRESOLVED CONFLICT: `docs/TRD.md:802` still says in-call retrieval is "T0 and nothing
+ * else", which the code above contradicts. `docs/` wins, so this is flagged here rather
+ * than silently resolved by a copy sweep.
  *
  * So a page that says "upload your price list" — which this one did, in the capability
  * card and in the FAQ — sends a buyer looking for a control that does not exist, and lets
@@ -774,22 +745,13 @@ describe("the page's structure asks for one thing, once", () => {
   /**
    * THE BANDS ARE RANKED, AND THE RANKING IS THE READING ORDER.
    *
-   * ⚠ **THIS REPLACED "numbers its bands in the order they are read" ON 9 SEP 2026, AND
-   * THE REPLACEMENT IS STRICTLY STRONGER — READ WHY BEFORE WEAKENING IT.**
+   * Asserted over the bands' DOM order and their `data-band-weight` ranking, NOT over a
+   * running `<Eyebrow index>`: the page carries no numbering (a running number tells the
+   * reader a landing page is a document to be read in order, and it is scanned), so an
+   * assertion over the indices would be `[] === []` — a guard that passes on an empty page.
    *
-   * That assertion read the running index out of thirteen `<Eyebrow index="01".."13">`s and
-   * required it to ascend. Its own comment said the index "is decoration until it disagrees
-   * with the order of the sections", which was true, and it was also the whole defect: a
-   * running number tells the reader the page is a DOCUMENT to be read in order, and a
-   * landing page is SCANNED. The numbering came off with the redesign, so an assertion over
-   * it would now be `[] === []` — a guard that passes on an empty page, which is the shape
-   * every premise check in this suite exists to refuse.
-   *
-   * What replaced the numbering is a real hierarchy, and that is what is asserted here
-   * instead: the ORDER of the bands (which the index was standing in for) and the RANKING
-   * between them (which nothing checked, because there was none). UX-DOCTRINE §10 asks for
-   * exactly this — "a test that fails if the hierarchy regresses, not only that the content
-   * renders" — and the regression it has to catch is the one that already happened once:
+   * UX-DOCTRINE §10 asks for "a test that fails if the hierarchy regresses, not only that
+   * the content renders", and the regression to catch is the one that already happened:
    * thirteen bands at one size, arrived at one reasonable-looking band at a time.
    */
   it("makes its argument in one order, and that order is the DOM order", async () => {
@@ -1005,13 +967,11 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
   /**
    * EVERY MARKETING SOURCE, WALKED — not a hand-written list of eight files.
    *
-   * ⚠ It WAS that list until 9 Sep 2026, and the homepage split is why it could not stay
-   * one. `app/page.tsx` was 1,258 lines and is now a route module plus eleven chapter
-   * components under `components/marketing/home/`; a hand-maintained array would have gone
-   * from covering the whole page to covering a fetch and ten imports, silently, on the day
-   * the file it named stopped holding any layout. A second enumeration of what to scan is
-   * the drift `routePaths` and the footer's `LEGAL_DOCUMENTS` derivation exist to refuse,
-   * and this is the same defect one directory along.
+   * A hand-maintained array silently stops covering anything the day a file it names is
+   * split — `app/page.tsx` is now a route module plus eleven chapter components under
+   * `components/marketing/home/`, so a fixed list would cover a fetch and ten imports. A
+   * second enumeration of what to scan is the drift `routePaths` and the footer's
+   * `LEGAL_DOCUMENTS` derivation exist to refuse.
    *
    * `tsSources` is the shared walk (`tests/copyScan.ts`). It takes a directory or a file,
    * so the homepage's route module is named directly and everything the marketing tree
@@ -1057,18 +1017,12 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
 /**
  * THE PAGE IS SET AT READING SIZE, NOT AT CONSOLE SIZE.
  *
- * ⚠ **THE 9 SEP 2026 REDESIGN LEFT THIS UNGUARDED AND THE FOUNDER CAUGHT IT.** That change
- * ranked the bands against each other — `data-band-weight`, asserted above — and barely
- * touched what happens INSIDE one, so the page still measured 14px in 58 paragraphs and
- * 12px in 51 against 23 at 16px, and it still read as dense beside a competitor's landing
- * page. Every test in this file was green through all of it, because none of them could
- * see type size below the `<h2>`.
- *
- * The band ranking has a guard and the body scale did not, which is why the ranking held
- * and the density came back. So these two assert the OTHER half of UX-DOCTRINE §10's "a
- * test that fails if the hierarchy regresses": the scale exists as named values, and no
- * chapter quietly sets its prose back to the console's density one section at a time —
- * which is precisely how thirteen equal bands accumulated the first time.
+ * The band ranking above is guarded and the BODY SCALE was not, and the density came back
+ * one reasonable-looking chapter at a time: 58 paragraphs at 14px and 51 at 12px against 23
+ * at 16px, with every test in this file green, because none could see type size below the
+ * `<h2>`. So these two assert the other half of UX-DOCTRINE §10's "a test that fails if the
+ * hierarchy regresses": the scale exists as named values, and no chapter quietly sets its
+ * prose back to console density.
  */
 describe("the landing page is set at reading size", () => {
   it("keeps its body copy on the named scale, well clear of console density", () => {
@@ -1357,14 +1311,11 @@ describe("the ROI calculator", () => {
 
   it("recomputes the Calevate monthly figure as inputs change", async () => {
     const { container } = render(await Home());
-    // Default 200 × 26 × 2 min × ₹7.00 = ₹72,800.00 — the STUDIO list rate, because that
-    // is the voice this opens on since D-629 (18 Sep 2026). ⚠ It was ₹4.00 → ₹41,600.00
-    // while the calculator opened on the Clear voice, and ₹5.00 → ₹52,000.00 before the
-    // founder's card of 14 Sep 2026. The rate is the founder's and `LIST_RATE` above is
-    // asserted against the fixture; what is asserted here is the arithmetic, and the move
-    // UP is the honest direction — no agent can be put on a Clear voice until somebody
-    // attests a Gnani price, so opening the comparison on Clear quoted a rate this buyer
-    // could not actually run at.
+    // Default 200 × 26 × 2 min × ₹7.00 = ₹72,800.00 — the STUDIO list rate, because that is
+    // the voice the calculator opens on (D-629): no agent can be put on a Clear voice until
+    // somebody attests a Gnani price, so opening on Clear would quote a rate this buyer
+    // cannot run at. `LIST_RATE` above is asserted against the fixture; what is asserted
+    // here is the arithmetic.
     expect(calc(container).textContent).toContain("₹72,800.00");
     fireEvent.change(screen.getByRole("spinbutton", { name: "Calls a day" }), {
       target: { value: "100" },
@@ -1391,8 +1342,7 @@ describe("the ROI calculator", () => {
     expect(disclosure!.querySelector("summary")?.textContent).toMatch(
       /assumptions/i,
     );
-    // The honesty note the brief requires: the benchmarks are framed as illustrative and
-    // adjustable, not asserted as fact.
+    // The benchmarks must read as illustrative and adjustable, not asserted as fact.
     expect(disclosure!.textContent).toMatch(
       /pre-filled with illustrative benchmarks/i,
     );
@@ -1494,16 +1444,9 @@ describe("the ROI calculator", () => {
     // … versus ₹72,800 of first calls (5,200 × 2 min × ₹7.00, the STUDIO list rate) plus
     // two salespeople at ₹64,000 = ₹1,36,800.
     //
-    // ⚠ **THE GAP NOW RUNS THE OTHER WAY, AND THAT IS THE POINT OF ASSERTING IT.** It has
-    // moved three times. It fell ₹22,000 → ₹12,000 when turnover and replacement cost left
-    // the model (5 Sep 2026) — what was removed sat on the people side, and a change that
-    // SHRINKS our own advantage is the safe direction. It rose to ₹22,400 when the founder
-    // cut the Clear rate from ₹5.00 to ₹4.00 (14 Sep 2026). And on 18 Sep 2026 (D-629) the
-    // calculator stopped opening on the Clear voice at all, because no agent can be put on
-    // one until somebody attests a Gnani price — so the default comparison runs at the
-    // Studio rate and the two-stage funnel costs ₹8,800 MORE than the team on the whole
-    // list. The page says so in those words rather than hiding it, which is the property
-    // the next assertion pins; a calculator that cannot lose is a brochure.
+    // At the Studio rate the two-stage funnel costs ₹8,800 MORE than the team on the whole
+    // list, and the page says so in those words rather than hiding it — the property the
+    // next assertion pins. A calculator that cannot lose is a brochure.
     expect(text).toContain("₹72,800.00");
     expect(text).toContain("₹64,000.00");
     expect(text).toContain("₹1,36,800.00");
@@ -1570,17 +1513,11 @@ describe("the ROI calculator", () => {
  * THE DECORATIVE GROUND — the grid, and the one property it has that a screenshot cannot
  * hold on to.
  *
- * ⚠ **THE TEXTURE THIS REPLACES WAS DEAD FOR ITS ENTIRE LIFE, AND NOTHING NOTICED.**
- * `.mk-grid-dots` and the hero's two glows lived in a `-z-10` wrapper inside a `relative`
- * section — and `position: relative` with `z-index: auto` does NOT open a stacking
- * context, so the whole layer escaped to the root and painted BEHIND the marketing root's
- * own `bg-app`. It type-checked, it linted, it rendered, it was in the DOM on every scan,
- * and it was invisible in every browser. That is the exact defect class UX-DOCTRINE calls
- * half-wired: a feature that looks finished on a screen because the screen is the one
- * place it does not have to work.
- *
- * A screenshot review would have caught it only if somebody happened to compare against a
- * build where it worked, and there has never been one. So the three properties that make
+ * The failure this guards is invisible: a `-z-10` decorative layer inside a `relative`
+ * section with `z-index: auto` opens NO stacking context, so the layer escapes to the root
+ * and paints behind the marketing root's own `bg-app`. It type-checks, lints, renders and
+ * sits in the DOM on every scan while being invisible in every browser, and a screenshot
+ * review only catches it against a build where it worked. So the three properties that make
  * the grid RENDER, rather than merely exist, are asserted here:
  *
  *  1. the hero opens a stacking context (`isolate`), so `-z-10` stays inside it;

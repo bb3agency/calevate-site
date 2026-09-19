@@ -11,6 +11,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   formatINR,
+  formatRupeeRate,
 } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import {
@@ -158,7 +159,7 @@ export function GrantPanel({
         <Field
           label="How much to give"
           id="grant-amount"
-          hint={`Digits only, in rupees — between ₹${MIN_GRANT_INR} and ₹${MAX_GRANT_INR} per grant. A larger gift is granted in parts, each separately confirmed and separately audited.`}
+          hint={`Digits only, in rupees — between ${formatRupeeRate(MIN_GRANT_INR)} and ${formatRupeeRate(MAX_GRANT_INR)} per grant. A larger gift is granted in parts, each separately confirmed and separately audited.`}
           error={amountProblem}
         >
           <input

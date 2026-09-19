@@ -51,13 +51,11 @@ log = get_logger(__name__)
 # consults, so "known" and "has an authenticity story" are provably one answer rather than
 # two that agree today (`tests/engine_name_drift_test.py` asserts the equality both ways).
 #
-# THIS FILE USED TO DEFINE THE SET ITSELF, and that is the defect D-103 closes. It was
-# `EngineName = Literal["bolna", "fake"]` here plus `Literal["fake", "bolna", "cartesia"]`
-# in `calevate_shared.config` — a second copy of a union, which drifted the moment
-# `cartesia` was added to the first and this one was not. Nothing could see it: the two
-# lived in different deployables, `check_wiring` looks at routers and migration heads, and
-# the receiver went on refusing every Cartesia delivery for the RIGHT reason (no signature
-# verifier, below) while labelling the refusals `unknown` — the one word that makes a
+# NOTHING HERE MAY RE-DECLARE THE SET (D-103). A second copy of the union lived here once
+# and drifted the moment an engine was added to the other one — invisibly, because the two
+# live in different deployables and `check_wiring` looks at routers and migration heads. The
+# receiver went on refusing that engine's deliveries for the RIGHT reason (no signature
+# verifier, below) while labelling the refusals `unknown`, the one word that makes a
 # self-inflicted refusal storm look exactly like a stranger probing the URL.
 #
 # `WEBHOOK_AUTH_BY_ENGINE` is the right source rather than `config.SELECTABLE_ENGINES`
@@ -199,24 +197,22 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
         # environment: on a prod box running ENGINE=bolna, `/hooks/v1/engine/fake` would
         # hand any stranger who found the URL an inbox claim, a forensic row and an ARQ job.
         #
-        # TWO GATES, AND THE SECOND ONE IS NEW (D-615). The first is that the engine IS this
-        # deployment's engine — matched against the declared method and the requested name
-        # rather than against the literal `"fake"`, which is what this used to do: a
-        # hard-coded vendor name in the latency-critical receiver is the thing D-93 removed
-        # from the branch above.
+        # TWO GATES (D-615). The first is that the engine IS this deployment's engine —
+        # matched against the declared method and the requested name rather than against
+        # the literal `"fake"`, because a hard-coded vendor name in the latency-critical
+        # receiver is what D-93 removed from the branch above.
         #
-        # ⚠ **THAT FIRST GATE WAS THE WHOLE ADMISSION RULE, AND IT STOPPED BEING ENOUGH THE
-        # DAY A PRODUCTION ENGINE DECLARED `none`.** `fake` earned the open door by being a
-        # DEV INSTRUMENT — it is how the whole pipeline runs offline (DEV-SETUP §3) — not by
-        # declaring `none`, and the rule was written when those two facts had one member
-        # between them. `pipecat` declares `none` for the opposite reason: NOTHING EXTERNAL
-        # CALLS IT (`PIPECAT-MIGRATION.md` §3D; the worker is inside our own trust boundary
-        # and writes to the database directly), so on a deployment running `ENGINE=pipecat`
-        # the first gate OPENED `/hooks/v1/engine/pipecat` to any stranger who found the URL
-        # — an engine with no deliverer at all admitting deliveries. `PipecatEngine.
-        # verify_webhook` and `WEBHOOK_AUTH_BY_ENGINE`'s `pipecat` entry both record that
-        # this is the receiver's to fix and not theirs to re-label: `hmac` there would fail
-        # closed by claiming this engine signs its webhooks, which is false.
+        # ⚠ **THE FIRST GATE ALONE IS NOT AN ADMISSION RULE, BECAUSE A PRODUCTION ENGINE
+        # CAN DECLARE `none`.** `fake` earns the open door by being a DEV INSTRUMENT — it is
+        # how the whole pipeline runs offline (DEV-SETUP §3) — not by declaring `none`.
+        # `pipecat` declares `none` for the opposite reason: NOTHING EXTERNAL CALLS IT
+        # (`PIPECAT-MIGRATION.md` §3D; the worker is inside our own trust boundary and
+        # writes to the database directly). On a deployment running `ENGINE=pipecat` the
+        # first gate alone would open `/hooks/v1/engine/pipecat` to any stranger who found
+        # the URL. `PipecatEngine.verify_webhook` and `WEBHOOK_AUTH_BY_ENGINE`'s `pipecat`
+        # entry both record that this is the receiver's to fix and not theirs to re-label:
+        # `hmac` there would fail closed by claiming this engine signs its webhooks, which
+        # is false.
         #
         # So the second gate is the ENVIRONMENT, which is what actually separates the two
         # cases and is the fact `fake`'s licence always rested on. `local` is this repo's
@@ -297,15 +293,14 @@ def _keyable(value: str) -> str | None:
 def scalar_hint(value: Any) -> str | None:
     """A payload field as text we are willing to carry, or None if it is not a scalar.
 
-    **NOT `str(value)`, WHICH IS WHAT EVERY CALLER USED TO DO.** `str()` is total: handed
-    a dict or a list it renders Python's repr, so a payload naming its status
-    `{"code": 3}` produced the raw_status `"{'code': 3}"` — a value that goes into a
-    dedupe key, an ARQ job id and `webhook_deliveries.event_type` — and the tool route's
-    `reason` field turned the same input into `"{'code': 3}"` as the words a caller used
-    to withdraw consent, in `consent_ledger`, which is append-only (hard rule 4) and is
-    the evidence this platform would show a regulator. A field we cannot read is not a
-    field with a funny value in it; it is an absent field, and saying so is honest where
-    a repr is a fabrication.
+    **NOT `str(value)`.** `str()` is total: handed a dict or a list it renders Python's
+    repr, so a payload naming its status `{"code": 3}` yields the raw_status
+    `"{'code': 3}"` — a value that goes into a dedupe key, an ARQ job id and
+    `webhook_deliveries.event_type`, and that on the tool route's `reason` field becomes
+    the words a caller used to withdraw consent, in `consent_ledger`, which is append-only
+    (hard rule 4) and is the evidence this platform would show a regulator. A field we
+    cannot read is not a field with a funny value in it; it is an absent field, and saying
+    so is honest where a repr is a fabrication.
 
     What is accepted is what an engine could plausibly send for a scalar: a string, or a
     number (an id or a status code arriving unquoted — `execution_key` accepts the quoted

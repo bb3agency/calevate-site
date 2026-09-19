@@ -31,14 +31,12 @@ import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
  * The column headings are the SERVER's names for the two qualities and the panel does not
  * render without them (`lots.ts`) — no client-facing surface names a vendor as a tier.
  *
- * ⚠ **THE HEADINGS AND THE CELLS USED TO COME FROM TWO DIFFERENT ARRAYS.** The `<th>`s
- * iterated `lots.tiers` — the server's order — and the `<td>`s iterated the browser
- * constant `VOICE_TIERS`, so the table was correct only while two independently declared
- * orderings happened to agree. The first person to reorder the server's tiers, or add a
- * third, would have put a Studio rate under a Clear heading with nothing failing anywhere:
- * a wrong per-minute price, on the screen a client checks their bill against, delivered
- * silently. One array drives both now, and each cell picks its rate BY THE HEADING'S OWN
- * `provider` through `lotRate`. A quality the server names but this browser cannot price
+ * ONE ARRAY DRIVES THE HEADINGS AND THE CELLS, and each cell picks its rate BY THE
+ * HEADING'S OWN `provider` through `lotRate`. Iterating `lots.tiers` for the `<th>`s and
+ * the browser constant `VOICE_TIERS` for the `<td>`s is two independently declared
+ * orderings that agree by coincidence: reorder the server's tiers, or add a third, and a
+ * Studio rate lands under a Clear heading with nothing failing anywhere — a wrong
+ * per-minute price on the screen a client checks their bill against. A quality the server names but this browser cannot price
  * gets a heading and an EMPTY cell — an absent figure renders as absent (D-458), never as
  * the other voice's rate. `tests/credits.test.tsx` feeds a reversed tier order.
  *
@@ -128,14 +126,12 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
 /**
  * The runway, as a figure per voice quality (plan §0 Q7) — for a wallet that HAS credit.
  *
- * ⚠ **A DAY-ONE WALLET USED TO READ "about 0 minutes on Clear", BESIDE A BANNER THAT HAD
- * ALREADY SAID THE ACCOUNT HAS NO CREDIT YET.** Two zeroes for one fact, and the second one
- * in the unit a client plans in — which is how a brand-new account's first screen came to
- * report its own emptiness twice. The decision: **no open lots, no runway lines.** This
- * component answers "how long does what you have last", and a wallet with nothing in it has
- * no answer to give; the hero above already says so once, in the register that belongs to
- * it (day one is not an outage). The same applies to a spent-out or overdrawn wallet, where
- * every lot is closed and there is no rate left to run down.
+ * **NO OPEN LOTS, NO RUNWAY LINES.** This component answers "how long does what you have
+ * last", and a wallet with nothing in it has no answer to give — "about 0 minutes on Clear"
+ * beside a banner that already said the account has no credit is one fact reported twice,
+ * the second time in the unit a client plans in. The hero above says it once, in the
+ * register that belongs to it (day one is not an outage). The same applies to a spent-out
+ * or overdrawn wallet, where every lot is closed and there is no rate left to run down.
  *
  * The condition is the LOTS, not the minutes being zero: a wallet with credit whose runway
  * the server declines to price sends `null`, which is filtered below and is a different

@@ -8,15 +8,14 @@
  *   PATCH /v1/ops/voices          `ops:manage`, realm ADMIN — move ONE voice's state
  *   POST  /v1/ops/voices/refresh  `ops:manage`, realm ADMIN — re-read the platform's list
  *
- * ## What this screen does, which changed on 11 Sep 2026
+ * ## What this screen does
  *
- * ⚠ **IT USED TO SAY A NEW VOICE COULD NOT BE ADDED FROM HERE.** The premise was right —
- * the voice platform's API is read-only, and nothing here can clone or import a voice ON
- * THAT PLATFORM — and the conclusion was wrong: adding a voice to THIS product's catalogue
- * needs only the operator's facts and one read to check them. So the primary action is now
- * the Add form, and the server verifies every field against the platform's own list before
- * the voice is accepted. `CLONE_FIRST` below is the sentence that says where the facts come
- * from; it is no longer a substitute for a button.
+ * A VOICE CAN BE ADDED FROM HERE. The voice platform's API is read-only and nothing here
+ * can clone or import a voice ON THAT PLATFORM, but adding one to THIS product's catalogue
+ * needs only the operator's facts and one read to check them — so the primary action is the
+ * Add form, and the server verifies every field against the platform's own list before
+ * accepting. `CLONE_FIRST` below says where the facts come from; it is not a substitute for
+ * the button.
  *
  * ## The refresh is a SECOND call, deliberately
  *

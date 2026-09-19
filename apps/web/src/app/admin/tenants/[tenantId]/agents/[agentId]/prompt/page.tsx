@@ -398,10 +398,8 @@ export default function AgentPromptPage({
               Save as new version
             </button>
           </form>
-          {/* This sentence used to say the opposite — "if the agent is live, this goes
-              to the voice platform immediately" — which was true until two-speed
-              publishing landed and is now the single most expensive thing this page
-              could get wrong. */}
+          {/* Under two-speed publishing a save STAGES, it does not go live — the single
+              most expensive thing this page could get wrong. */}
           <p className="mt-2 text-xs text-ink-muted">
             Saving stages the version. Callers keep hearing the live one until you press
             Apply above.
@@ -1107,8 +1105,8 @@ function CallCapPanel({
  * rendered as labelled data, side by side, exactly as `PendingRow` renders the two script
  * pointers on the client screen. The reasoning is the same and it has been earned twice:
  * a sentence can be read the wrong way round, two `dt`/`dd` pairs under "Callers hear
- * now" and "Configured" cannot. The panel used to say it could not report the voice in
- * force at all; the fix was not to start guessing but to make the server answer.
+ * now" and "Configured" cannot. Where the panel cannot report a fact, the fix is to make
+ * the server answer it rather than to guess.
  *
  * **The picker pre-selects `voice.configured`** and nothing else. Not `voice.live` (the
  * operator edits the configuration, not the past), not the first row of the catalogue

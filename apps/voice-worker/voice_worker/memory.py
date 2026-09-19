@@ -94,7 +94,7 @@ from loguru import logger
 #: How long session assembly may wait on the caller-memory read before the call is
 #: assembled without it.
 #:
-#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT, AND IT IS STATED AS ONE** —
+#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT** —
 #: `storage.PACK_FETCH_BUDGET_S`'s pattern, and the same gap: nobody has timed a request
 #: from a Pipecat Cloud `ap-south` container to our API, and that measurement
 #: (`docs/evidence/pre-build-blockers-2026-09-13.md` §3.6) is what replaces this comment.

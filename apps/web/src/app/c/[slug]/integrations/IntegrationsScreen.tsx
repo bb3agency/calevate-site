@@ -62,13 +62,10 @@ export function IntegrationsScreen() {
    * deliberately sit on `org:read` so support keeps them: "did my CRM get it?" is the
    * question this screen exists to answer, and it is the question support is asked.
    *
-   * ⚠ THIS SAID the writes are "refused while impersonating" and that turning an endpoint
-   * off is "where read-only earns its keep — an operator who did it wearing the client's
-   * face would leave an audit trail saying the client stopped their own integration".
-   * BOTH HALVES ARE WITHDRAWN (D-587): `org:manage` is writable in a view-as session, and
-   * the premise of the second was answered rather than accepted — `audit_log` now records
-   * the operator as the actor with the tenant and the grant's `jti`, so the trail says who
-   * really stopped it.
+   * `org:manage` IS writable in a view-as session (D-587). The worry that answers — an
+   * audit trail saying the client stopped their own integration — was fixed rather than
+   * accepted: `audit_log` records the operator as the actor with the tenant and the grant's
+   * `jti`, so the trail says who really stopped it.
    */
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
 
@@ -95,13 +92,10 @@ export function IntegrationsScreen() {
    *
    * `calls:read_raw` gates the offer, read off `/v1/me` — the SERVER's answer about this
    * session — and REFUSED while the answer is in flight so the screen never offers an
-   * action it is about to withdraw. It used to say more than that: `operator` held no raw
-   * permission at all, so an impersonating support user was never offered the payload by
-   * construction. The founder's correction to D-457 moved `calls:read_raw` into the
-   * normal admin tier, so BOTH tiers are now offered it inside a view-as session — which
-   * is the same answer this line already gave for a `superadmin`, and it is still the
-   * server's answer rather than this screen's guess. What stands behind the offer is
-   * unchanged: the API checks the permission, and the handler writes an `audit_log` row
+   * action it is about to withdraw. `calls:read_raw` sits in the normal admin tier
+   * (founder's correction to D-457), so BOTH admin tiers are offered it inside a view-as
+   * session — and it is still the server's answer rather than this screen's guess. Behind
+   * the offer: the API checks the permission, and the handler writes an `audit_log` row
    * before the body is fetched.
    *
    * Through `useWriteAccess` rather than inline, which is the whole of the fix: the line

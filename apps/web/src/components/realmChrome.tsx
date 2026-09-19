@@ -18,18 +18,15 @@
  * screen assistant that floats over every screen in both consoles wears the same dark in
  * this realm (`components/copilot/`).
  *
- * ## THE RAIL IS GONE (founder, 9 Sep 2026), AND THIS FILE USED TO EXPORT IT
+ * ## THERE IS NO REALM RAIL, DELIBERATELY
  *
- * There was a second half to the signal: `AdminRealmRail`, an `h-1.5` slate bar across the
- * top of the whole admin window, above the sidebar as well as the content — which is why
- * the admin shell was a COLUMN where the client shell is a row. The founder saw it, asked
- * what it was, was told it was the deliberate "you are in the admin realm" marker, and
- * chose to remove it entirely. His ground: the sidebar already says "Calevate admin /
- * Operator console" and the identity block already says who you are signed in as, so the
- * realm is stated twice in words before any chrome is read.
+ * `AdminRealmRail` was an `h-1.5` bar across the top of the whole admin window — the reason
+ * the admin shell was a COLUMN where the client shell is a row. It was removed because the
+ * sidebar already says "Calevate admin / Operator console" and the identity block already
+ * says who you are signed in as, so the realm is stated twice in words before any chrome is
+ * read.
  *
- * What that costs, said plainly rather than left implicit: the marker no longer covers the
- * top of the window, so an operator whose eye is on the header rather than on the sidebar
+ * The cost, said plainly: an operator whose eye is on the header rather than the sidebar
  * has one fewer place to catch it. What survives is the identity block below and the
  * assistant's launcher and panel — both of which sit where an operator's eye goes when the
  * question is actually "whose account is this", and both of which are on screen in every
@@ -54,16 +51,12 @@
  * signed in as, and, since the rail was removed, the shell's only realm marker that is not
  * a word.
  *
- * ⚠ **IT WAS A NEAR-BLACK SLAB (`bg-slate-900 text-white`) AND THE FOUNDER ASKED FOR THAT
- * COLOUR GONE.** The marker is kept, because the thing it guards against is real — an
- * operator who mistakes the admin shell for a client's is one click from changing the
- * wrong account — but a filled dark box was the heaviest possible way to say it, and it
- * was the only near-black surface in either console.
- *
- * What replaces it is the same signal at a lower weight: a TINTED, BORDERED row in the
- * brand green, on a surface that belongs to the palette rather than overriding it. The
- * realm is still legible at a glance and in both palettes, and the block no longer reads
- * as a different application pasted into the sidebar.
+ * The marker earns its place — an operator who mistakes the admin shell for a client's is
+ * one click from changing the wrong account — but it is carried at the LOWEST weight that
+ * still reads: a tinted, bordered row in the brand green, on a surface that belongs to the
+ * palette. A near-black filled slab (`bg-slate-900 text-white`) says the same thing and is
+ * the only such surface in either console, so it reads as a different application pasted
+ * into the sidebar.
  *
  * **Contrast is a gate here, not a preference** — `make web-check` runs axe over both
  * palettes and `color-contrast` is among its rules — so the foreground stays a token that

@@ -84,12 +84,10 @@ const READING: readonly { href: string; title: string; body: string }[] = [
   {
     href: "/pricing",
     title: "How the bill is put together",
-    // ⚠ THIS SAID "why no figure is printed on that page", WHICH STOPPED BEING TRUE (D-545,
-    // D-547). `/pricing` publishes the prepaid card — a per-minute rate on each of the two
-    // voices, on every rung — and sending a reader there to be told nothing is printed is
-    // the site contradicting itself one click apart. No figure appears HERE: this page is
-    // handed no rate card, and a rate typed into a link description is the drift
-    // `lib/api/rateCard.ts` exists to prevent.
+    // `/pricing` PUBLISHES the prepaid card, so this description may not promise a page
+    // with no figure on it — that is the site contradicting itself one click apart. No
+    // figure appears HERE either: this page is handed no rate card, and a rate typed into a
+    // link description is the drift `lib/api/rateCard.ts` exists to prevent.
     body:
       "What is metered, how a plan is shaped, the two spending ceilings, and the published " +
       "prepaid card — a per-minute rate on each of the two voices.",
@@ -193,8 +191,8 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
   },
   {
     /*
-     * ⚠ THIS ENTRY USED TO BE ONE SENTENCE ABOUT A BALANCE RUNNING OUT, and three things
-     * it did not say are the ones a buyer is most likely to be surprised by (D-547):
+     * THE THREE THINGS A BUYER IS MOST LIKELY TO BE SURPRISED BY, which an entry about a
+     * balance running out leaves out (D-547):
      * credit is bought in PACKS and each purchase freezes the two rates it was sold at for
      * the life of that credit (`apps/api/billing/lots.py`, rates with no UPDATE path),
      * spent oldest purchase first; it never expires (`credit_ledger` has no expiry column
@@ -232,12 +230,11 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
      */
     term: "Voice quality",
     detail:
-      // ⚠ THIS ENDED "and we set it: tell your account manager which one an agent should
-      // use", WHICH D-586 (11 Sep 2026) SUPERSEDED. `PATCH /v1/agents/{agent_id}/voice` is
-      // a client-realm door, `agents:write` is on `owner` and `staff`, and the picker is
-      // mounted at `app/c/[slug]/agents/panels/delivery.tsx:165`. This was the fifth copy
-      // of one sentence, and the last one found — `tests/voiceChoiceIsTheClients.test.ts`
-      // is the guard that now reads all five roots at once so there is no sixth.
+      // The client sets the voice themselves, never "tell your account manager":
+      // `PATCH /v1/agents/{agent_id}/voice` is a client-realm door with `agents:write` on
+      // `owner` and `staff` (D-586), and the picker is at
+      // `app/c/[slug]/agents/panels/delivery.tsx`. That sentence had five copies across the
+      // client-facing roots; `tests/voiceChoiceIsTheClients.test.ts` reads all five.
       "Which of two voices an agent speaks with. Neither is a cut-down version of the " +
       "other — what you hear in a demo is what a customer hears at three in the morning — " +
       "but one costs more a minute than the other, so it shows on your bill. It is set " +

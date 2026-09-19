@@ -103,14 +103,13 @@ export const INLINE_LINK =
 /**
  * The small editorial label above a band: an optional index, a hairline, a word.
  *
- * ⚠ **`index` BECAME OPTIONAL ON 9 SEP 2026, AND THE HOMEPAGE IS WHY.** A running number
- * on every band tells the reader the page is a DOCUMENT to be read in order. That is true
- * of the interior pages — `/roi` really is an argument in four steps, `/why-calevate`
- * really does answer three objections in sequence — and it was false of the landing page,
- * which is scanned. Thirteen numbered chapters of identical weight is the same "everything
- * equal means nothing primary" defect UX-DOCTRINE §1 names, expressed in typography.
+ * `index` is OPTIONAL because a running number tells the reader the page is a DOCUMENT to
+ * be read in order. That is true of the interior pages — `/roi` is an argument in four
+ * steps, `/why-calevate` answers three objections in sequence — and false of the landing
+ * page, which is scanned: numbered chapters of identical weight are the "everything equal
+ * means nothing primary" defect of UX-DOCTRINE §1, expressed in typography.
  *
- * So the four interior callers keep their indices and the homepage passes none. The
+ * So the four interior callers pass indices and the homepage passes none. The
  * primitive stays ONE primitive (§7): a variant is a prop, never a second component.
  */
 export function Eyebrow({

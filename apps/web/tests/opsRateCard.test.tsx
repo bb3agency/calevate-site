@@ -453,9 +453,9 @@ describe("the rate card an operator is about to date", () => {
     // The server's percentage, printed — never a division done in the browser from two
     // rounded figures.
     expect(container.textContent).toContain("17.60%");
-    // ⚠ THIS READ "27.27%" UNTIL D-556. Nothing was repriced — the Studio floor stopped
-    // being the plan's best possible minute (₹4.3639) and became the honest worst marginal
-    // cost (₹5.5899), so the same ₹6.00 rung now earns 6.84%.
+    // 6.84% because the Studio floor is the honest WORST marginal cost (₹5.5899) rather
+    // than the plan's best possible minute (₹4.3639, retired by D-556) — the same ₹6.00
+    // rung read 27.27% under the flattering yardstick.
     expect(container.textContent).toContain("6.84%");
     // The rate and the cost it was struck against, both as exact strings.
     expect(container.textContent).toContain("₹5.0000");
@@ -464,11 +464,10 @@ describe("the rate card an operator is about to date", () => {
   });
 
   it("leads the thin count with the honest one at this month's volume", async () => {
-    // ⚠ THE COUNT USED TO BE STRUCK AT THE STRUCTURAL FLOOR ALONE AND SO UNDERSTATED THE
-    // PROBLEM (founder, 9 Sep 2026). At a low monthly volume the subscription has not
-    // amortised, so more rungs are thin than the structural count admits. Both numbers are
-    // shown, the honest one first — the structural figure is still what the write refuses
-    // on, so dropping it would leave an operator unable to tell what blocks a save.
+    // BOTH COUNTS ARE SHOWN, the honest one first. The structural floor alone understates
+    // the problem: at a low monthly volume the subscription has not amortised, so more
+    // rungs are thin than it admits. The structural figure stays because it is what the
+    // WRITE refuses on — dropping it leaves an operator unable to tell what blocks a save.
     const { container } = renderOps(
       routes({
         // TWO STUDIO RUNGS, chosen so the two counts DIVERGE — which is the whole point.
@@ -533,10 +532,8 @@ describe("the rate card an operator is about to date", () => {
   it("shows a thin margin as a warning, never as a refusal, and leaves the write armed", async () => {
     const { container } = renderOps(routes());
 
-    // ⚠ THIS EXPECTED "1 of 2" UNTIL D-556. Both fixture rungs are thin now: the Studio
-    // cell is ₹6.00 against the honest ₹5.5899 floor (6.84%), where the retired ₹4.3639
-    // best case made it read 27.27%. Nothing was repriced — the yardstick stopped
-    // flattering us, which is precisely what the founder asked for.
+    // Both fixture rungs are thin: the Studio cell is ₹6.00 against the honest ₹5.5899
+    // floor (6.84%), where the retired ₹4.3639 best case read 27.27%.
     await screen.findByText(/2 of 2 rungs earn less than 20%/);
     expect(container.textContent).toContain("above the structural floor");
     expect(container.textContent).toContain("a decision, not a fault");
@@ -871,10 +868,9 @@ describe("what a margin verdict may say", () => {
     const thin = cellVerdict(card().cells[0], "20");
     expect(thin.tone).toBe("thin");
     expect(thin.sentence).toContain("deliberately");
-    // ⚠ THE SECOND FIXTURE CELL USED TO BE THE "healthy" ONE AT 27.27%, and it is not any
-    // more (D-556): ₹6.00 against the honest ₹5.5899 floor is 6.84%, thin. A cell that is
-    // genuinely at or above target is built explicitly rather than borrowed, so this
-    // assertion keeps testing the tone rather than the fixture.
+    // The healthy cell is BUILT rather than borrowed from the fixture, so this keeps
+    // testing the tone rather than whatever the fixture happens to price: every fixture
+    // rung is thin against the honest floor (D-556).
     const healthy = cellVerdict(
       cell({
         voice_tier: "studio",
@@ -918,9 +914,9 @@ describe("the volume every Studio cost figure is struck at", () => {
     await screen.findByText(/Rate card — six packs, two voices/);
     await screen.findByText("17.60%");
 
-    // ⚠ THE REGRESSION THIS GUARDS. The column headed "COSTS US" carried ₹4.3639 for every
-    // Studio rung with no volume anywhere near it. Every one of these assertions is a piece
-    // of the caveat that was missing, and dropping any of them puts the old screen back.
+    // THE REGRESSION THIS GUARDS: a column headed "COSTS US" carrying ₹4.3639 for every
+    // Studio rung with no volume anywhere near it. Each assertion below is one piece of the
+    // caveat that makes the figure readable; dropping any of them puts that screen back.
     expect(container.textContent).toContain(
       "Studio (Cartesia) is a monthly subscription",
     );

@@ -12,38 +12,27 @@ import type { LegalDocument } from "./types";
  *    `apps/workers/retention.py` actually enforces — NOT the numbers
  *    SECURITY-COMPLIANCE §4 quotes, which differ. Where the two disagree the notice
  *    states the enforced number and the disagreement is a finding, not a rounding.
- * 2. **The residency claim is the narrow one that is enforced, and as of D-449 it is no
- *    longer an India claim at all — and as of D-456 no longer a single-vendor one.**
+ * 2. **There is NO India residency claim left in this notice, and none may be added.**
  *    "Everything stays in India" was never available: object storage is Cloudflare R2 with
  *    no India-only jurisdiction, and the voice platform's own documentation puts the whole
- *    call on US infrastructure. On 22 August 2026 the default language model moved from
- *    Azure OpenAI in South India to Azure OpenAI in East US 2, so the one India claim this
- *    notice still made about model inference is WITHDRAWN; the product then began offering
- *    models from more than one provider (Azure OpenAI, OpenAI, Google), so the sentence
- *    that said every model ran with one vendor in one region is withdrawn too. What is
- *    still enforced — the SET of providers our code may reach for the language leg is
- *    pinned in the source, and `scripts/check_model_residency.py` fails the build
- *    otherwise — is stated as exactly that and no wider. ⚠ AND NO WIDER MEANS NOT "NO SETTING CAN MOVE IT", which is what
- *    §8 said until this audit: `Settings.azure_openai_resource` is a console field, the
- *    region is a property of the RESOURCE, and `platform_config.py` says in its own
- *    `AppliesRule` that "a resource in the wrong region is a residency change no code
- *    here can detect". That is exactly what OPERATIONS §2 gate 20 covers — a person
- *    reading the Location field of the resource that field names — so the notice now
- *    describes the setting and the person, not a guarantee neither of them gives.
- *    ⚠ AND SINCE 27 AUGUST 2026 THE SPEECH LEG IS NOT AN INDIA LEG EITHER. This item
- *    used to end "Speech, the first reading of the transcript and the application host
- *    (D-180, an Indian VPS) are the legs that remain Indian". The application host still
- *    is. The speech legs are with an INDIAN COMPANY, which is a different claim: the
- *    vendor's own privacy policy says personal data "may be transferred to and processed
- *    in countries outside India", naming United States cloud infrastructure (AWS, GCP,
- *    Azure) and European Union model and security vendors, under SCCs, adequacy decisions
- *    and DPAs, and its India-storage carve-out covers voice biometric data in its
- *    content-studio product and payment data rather than our API traffic. So the AUDIO may
- *    leave India as it is spoken, on the speech leg — not only the transcript on the
- *    language leg. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data Transfers"
- *    — read by the founder 27 Aug 2026 and relayed). ⚠ `sarvam.ai` and `docs.sarvam.ai`
- *    remain egress-blocked from this container; the evidence came by another route and a
- *    fetch from here will still fail.
+ *    call on US infrastructure. The language leg runs in Azure OpenAI East US 2 (D-449)
+ *    across three offered providers (D-456). The speech leg is with an INDIAN COMPANY,
+ *    which is a different claim from Indian data: that vendor's privacy policy says
+ *    personal data "may be transferred to and processed in countries outside India",
+ *    naming US cloud infrastructure and EU model and security vendors, and its
+ *    India-storage carve-out covers content-studio voice biometrics and payment data
+ *    rather than our API traffic — so the AUDIO may leave India as it is spoken
+ *    (VENDOR-PUBLISHED: Sarvam Privacy Policy, "Cross-Border Data Transfers", read by the
+ *    founder 27 Aug 2026 and relayed; `sarvam.ai` is egress-blocked here, so a re-fetch
+ *    will fail). The application host remains Indian (D-180).
+ *
+ *    What IS enforced is narrower than "no setting can move it": the SET of providers our
+ *    code may reach is pinned in source and `scripts/check_model_residency.py` fails the
+ *    build otherwise, but `Settings.azure_openai_resource` is a console field and the
+ *    region is a property of the RESOURCE — `platform_config.py`'s own `AppliesRule` says
+ *    "a resource in the wrong region is a residency change no code here can detect", which
+ *    is why OPERATIONS §2 gate 20 has a person read the resource's Location field. §8 must
+ *    describe the setting and the person, never a guarantee neither of them gives.
  * 3. **The training promise is NARROWED to what we can keep, not softened.** "We do not
  *    use client or caller data to train or fine-tune any model — ours or a vendor's" was
  *    a promise about other companies' conduct that one of them does not make. Sarvam ToS
@@ -54,13 +43,9 @@ import type { LegalDocument } from "./types";
  *    instrument that displaces it — we have none. So OUR undertaking stands unqualified
  *    and the VENDOR position is stated rather than promised away, in §6 here, clause 2 of
  *    the DPA and §3.4 of the sub-processor register.
- * 4. **§1 IDENTIFIES the Data Fiduciary and does not NARRATE it.** The notice once opened
- *    "Calevate is a product of X … mean that company", naming a corporate body that does
- *    not exist; the correction of 26 August 2026 replaced that with a paragraph about
- *    what kind of legal person the supplier is and what follows from it, and a callout
- *    headed "The Data Fiduciary here is a person, not a company". Both are gone (2 Sep
- *    2026, the founder's decision). A privacy notice's first job is to say WHO the reader
- *    is dealing with and where to reach them, and §1 does that with the three items the
+ * 4. **§1 IDENTIFIES the Data Fiduciary and does not NARRATE it.** A privacy notice's
+ *    first job is to say WHO the reader is dealing with and where to reach them, and §1
+ *    does that with the three items the
  *    Consumer Protection (E-Commerce) Rules 2020 actually require displayed — the name
  *    (`{{LEGAL_ENTITY_NAME}}`, which the Udyam certificate carries as the enterprise
  *    name), the registration number and the principal place of business. It makes no
@@ -795,27 +780,19 @@ export const PRIVACY_POLICY: LegalDocument = {
             "Processing Addendum is the operative text.",
         },
         {
-          // THE VOICE-SYNTHESIS VENDORS, WHICH ARE NO LONGER THE COMPANY ABOVE.
-          // ⚠ Until 18 September 2026 the cheaper voice quality was synthesised by the
-          // same Indian company that hears the call, and this paragraph and the one after
-          // it were written around that. D-629 removed that company from the synthesis
-          // leg entirely — it still transcribes every call and still reads the first pass
-          // over the transcript, so everything above about what it receives and what its
-          // terms permit is unchanged — and left BOTH voice qualities with companies we
-          // cannot place.
+          // THE VOICE-SYNTHESIS VENDORS, WHICH ARE NOT THE COMPANY ABOVE. Both voice
+          // qualities are synthesised by companies we cannot place (D-629).
           //
-          // What is said about the dearer quality's vendor is what its own published
-          // privacy policy says, read for us and relayed on 6-7 September 2026
-          // (`docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, evidence class
-          // VENDOR-PUBLISHED, RELAYED; its pages are egress-blocked from our build
-          // environment, so nobody here has opened them). For the cheaper quality's
-          // vendor we have read NOTHING — all three of its sites are egress-blocked
-          // (measured 15 September 2026) — and hard rule 11 makes the honest answer a
-          // stated gap rather than a borrowed one.
+          // Evidence classes differ and the wording must follow them. The dearer quality's
+          // vendor: VENDOR-PUBLISHED, RELAYED — its own privacy policy, read for us and
+          // relayed 6-7 Sep 2026 (`docs/evidence/cartesia-tts-verification-2026-09-06.md`
+          // §A5); its pages are egress-blocked here, so nobody in this repo has opened
+          // them. The cheaper quality's vendor: NOTHING read, all three of its sites
+          // egress-blocked (measured 15 Sep 2026), so hard rule 11 makes the honest answer
+          // a stated gap rather than one borrowed from the other vendor.
           //
-          // Neither is named here, because a voice quality is a product choice and a
-          // company name is a disclosure: the sub-processor register is where the names
-          // belong, and section 3.6 there is what this points at.
+          // Neither is NAMED here: a voice quality is a product choice and a company name
+          // is a disclosure, so the names belong in the sub-processor register, §3.6.
           kind: "para",
           text:
             "The two voice qualities an agent can speak in are synthesised by two other " +

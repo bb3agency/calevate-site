@@ -380,10 +380,8 @@ export function agentInForceSurcharge(
  * stated outcome and the screen says so rather than naming a model.
  *
  * `lib/api/llmDefaults.ts` (the ADMIN realm's half of this feature) imports this one
- * rather than keeping the copy it briefly had — one rule, one spelling, in the module
- * both realms already take their wire vocabulary from. This note used to say that copy
- * still existed and should be deleted; it was deleted in the same wave, and a comment
- * pointing at work already done is a comment that sends the next reader to redo it.
+ * rather than keeping its own copy — one rule, one spelling, in the module both realms
+ * already take their wire vocabulary from.
  */
 export function platformDefaultOption(
   options: readonly LlmModelOption[],

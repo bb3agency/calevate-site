@@ -127,12 +127,10 @@ import { asText } from "@/lib/copilot/types";
  * ## THERE IS NO UNDO — THERE IS A COMPENSATING ENTRY, AND IT IS ON THIS SCREEN
  *
  * `credit_ledger` is append-only (hard rule 4, enforced by a database trigger). A wrong
- * credit is corrected by APPENDING a compensating `adjustment` entry; the wrong row
- * stays, because it is the evidence. This console used to say that and then stop,
- * because no endpoint appended one — "escalate instead of improvising" was the whole
- * remedy for crediting the wrong client. `CorrectionPanel` is that endpoint's control,
- * and its shape follows from the act being MORE dangerous than the top-up above it, in
- * three ways the top-up does not need:
+ * credit is corrected by APPENDING a compensating `adjustment` entry; the wrong row stays,
+ * because it is the evidence. `CorrectionPanel` is that endpoint's control, and its shape
+ * follows from the act being MORE dangerous than the top-up above it, in three ways the
+ * top-up does not need:
  *
  * - **The target is CHOSEN, never typed.** A correction names a `credit_ledger` row, and
  *   the ids are uuids. Picking from the ledger this screen has already read removes a
@@ -410,13 +408,12 @@ function BalancePanel({ wallet }: { wallet: Credits }) {
           icon={<CircleAlert aria-hidden className="h-5 w-5" />}
           title={`Below the low-balance line of ${formatINR(wallet.low_balance_threshold_inr)}`}
         >
-          {/* ⚠ THIS USED TO SAY "stops outbound dialling for a self-serve or trial
-              client", and BOTH halves were wrong. The tier half omitted `prepaid`, which
-              is the DEFAULT every account is created on (`tenancy/models.py`) and is in
-              `billing/rates.PREPAID_TIERS` with the other two — so the sentence excused
-              almost every client on the platform. The other half was withdrawn by D-551:
-              an empty wallet stops INBOUND ANSWERING too. An operator reading the old
-              line concluded a payment was not urgent while it was holding a phone line
+          {/* EVERY tier but managed, and BOTH directions. `prepaid` is the DEFAULT every
+              account is created on (`tenancy/models.py`) and sits in
+              `billing/rates.PREPAID_TIERS` with the other two, so naming only self-serve
+              and trial excuses almost every client on the platform; and an empty wallet
+              stops INBOUND ANSWERING as well as dialling (D-551). Understating either
+              leaves an operator declining to chase a payment that is holding a phone line
               down. */}
           <p className="mt-1">
             An empty wallet stops this client calling and being called. Every account that
@@ -1070,10 +1067,9 @@ function CorrectionPanel({
                 cancels stays where it is, because it is the evidence, and correcting the
                 correction is another line again.
               </p>
-              {/* ⚠ THIS USED TO SAY "for a self-serve or trial client that stops outbound
-                  dialling", wrong in the same two ways as the low-balance notice above:
-                  it omitted `prepaid` (the default tier, and in `PREPAID_TIERS`), and it
-                  named only the outbound half that D-551 stopped being the whole story. */}
+              {/* Every tier but managed, and both directions — the same two traps as the
+                  low-balance notice above: `prepaid` is the default tier and is in
+                  `PREPAID_TIERS`, and inbound answering stops too (D-551). */}
               <p className="mt-1 text-ink-muted">
                 A correction may take the balance <span className="font-semibold">below
                 zero</span> — a wrong credit that has already been spent cannot be fully
@@ -1207,12 +1203,11 @@ function CorrectionOutcome({
           icon={<CircleAlert aria-hidden className="h-5 w-5" />}
           title={`${clientName} cannot place or answer calls until this wallet is topped up`}
         >
-          {/* ⚠ THIS USED TO SAY "Inbound calls are unaffected — their receptionist keeps
-              answering", which D-551 made false: at or below zero every answering agent is
-              silenced at the engine and callers hear a short apology
-              (`agents/service.py::reconcile_inbound_answering`). An operator reading the
-              old sentence would decline to chase a payment that is holding a client's
-              phone line down. */}
+          {/* Inbound is NOT unaffected: at or below zero every answering agent is silenced
+              at the engine and callers hear a short apology
+              (`agents/service.py::reconcile_inbound_answering`, D-551). An operator told
+              otherwise declines to chase a payment that is holding a client's phone line
+              down. */}
           <p className="mt-1 text-xs">
             The balance is at or below zero and this account pays from a wallet, so the
             compliance gate refuses every outbound call and their agents have stopped
@@ -1793,13 +1788,10 @@ function CorrectionCard() {
  * card moved, and they cannot connect that to the Cartesia invoice they attested unless the
  * vendor is on the row.
  *
- * ⚠ **THE CHEAPER RUNG IS NAMED GNANI AND WAS NAMED SARVAM UNTIL 18 SEP 2026 (D-629).**
- * Sarvam stopped synthesising on that date and no longer bills a rung on any card; it is
- * still the vendor that TRANSCRIBES every call, which is a different leg and a different
- * invoice. The rung's wire and column spelling (`clear_inr_per_min`) is unchanged, because
- * renaming a money column is a migration nobody has run — the KEY is history and the name
- * printed here is the vendor who will send the invoice. A lot opened before that date
- * carries the same frozen rate either way: the rate is the RUNG's, never the vendor's.
+ * The VENDOR printed on a rung is whoever will send the invoice, and it can change under
+ * the rung (the cheaper one went from Sarvam to Gnani, D-629) while the wire and column
+ * spelling (`clear_inr_per_min`) does not. A lot opened before such a change carries the
+ * same frozen rate either way: the rate is the RUNG's, never the vendor's.
  */
 function LotLine({ lot }: { lot: CreditLot }) {
   return (

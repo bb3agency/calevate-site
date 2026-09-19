@@ -113,12 +113,11 @@ ENGINE_NAME: Final[str] = "pipecat"
 #: one, while smart turn can end a turn EARLIER whenever it is confident. Three seconds
 #: would have made our worst case 4.6x the thing we are replacing.
 #:
-#: ⚠ **THIS IS A STARTING POINT TO BE MEASURED, NOT A MEASUREMENT.** Nobody has run Telugu
-#: PSTN audio through this analyzer — `docs/evidence/pre-build-blockers-2026-09-13.md`
-#: §3.6 M-1 (decision latency on 8 kHz Telugu), M-2 (false endpoints on అవును/సరే/హా/ఓకే),
-#: M-3 (code-switch false interruptions) and M-5 (whether the 650 ms actually falls) are
-#: all open. The number to change when they close is this one, and the measurement is what
-#: replaces this comment.
+#: ⚠ **A STARTING POINT TO BE MEASURED, NOT A MEASUREMENT.** No Telugu PSTN audio has been
+#: run through this analyzer: `docs/evidence/pre-build-blockers-2026-09-13.md` §3.6 M-1
+#: (decision latency on 8 kHz Telugu), M-2 (false endpoints on అవును/సరే/హా/ఓకే), M-3
+#: (code-switch false interruptions) and M-5 (whether the 650 ms actually falls) are all
+#: open, and this is the number they settle.
 #:
 #: The 0.5 decision threshold beside it is hardcoded — `probability > 0.5` at
 #: `pipecat/audio/turn/smart_turn/local_smart_turn_v3.py:174` — and is not a parameter;
@@ -158,14 +157,11 @@ TELEPHONY_SAMPLE_RATE_HZ: Final[int] = 8000
 #: which of Pipecat's two Sarvam STT classes we can use at all.
 STT_MODEL: Final[str] = "saaras:v4"
 
-#: ⚠ **THERE IS NO DEFAULT TTS MODEL CONSTANT ANY MORE (18 Sep 2026).** `TTS_MODEL` held
-#: `bulbul:v3` and was the model an agent that named none fell back to. The founder
-#: withdrew the Sarvam TEXT-TO-SPEECH leg, and neither survivor may be defaulted to: a
-#: Cartesia fallback is a silent upgrade to the dearer rung, and a Gnani one is a minute
-#: nobody has priced (hard rule 7). `_build_tts` below therefore refuses an agent whose
-#: config names no provider rather than picking one.
-#:
-#: `STT_MODEL` above is UNTOUCHED: Sarvam Saaras still transcribes every call.
+#: ⚠ **THERE IS DELIBERATELY NO DEFAULT TTS MODEL CONSTANT.** Neither survivor of the TTS
+#: leg may be defaulted to: a Cartesia fallback is a silent upgrade to the dearer rung, and
+#: a Gnani one is a minute nobody has priced (hard rule 7). `_build_tts` below refuses an
+#: agent whose config names no provider rather than picking one. `STT_MODEL` above is a
+#: different leg and does have one — Sarvam Saaras transcribes every call.
 
 
 # ---------------------------------------------------------------------------------------
@@ -430,10 +426,10 @@ class NormalizedEventBoundary:
     def _event(self, status: CallStatus, *, ended_at: datetime | None) -> CallEvent:
         """One normalized event. THE PARTIES RIDE HERE, AND UNTIL NOW NOTHING SET THEM.
 
-        ⚠ **`calls.from_e164` HAD NO PRODUCER ON THIS ENGINE AT ALL**, which is not a
-        missing screen field: `leads.phone_e164` is NOT NULL and is derived from it, caller
-        memory filters on `IS NOT NULL`, a DPDP erasure takes its subject from it, and an
-        opt-out is keyed on it. `carrier.CallerIdentity` now answers who is calling; this
+        ⚠ **`calls.from_e164` IS NOT A SCREEN FIELD**: `leads.phone_e164` is NOT NULL and
+        derived from it, caller memory filters on `IS NOT NULL`, a DPDP erasure takes its
+        subject from it, and an opt-out is keyed on it — so an engine with no producer for
+        it breaks all four silently. `carrier.CallerIdentity` answers who is calling; this
         is the hop that carries the answer to the only writer that can persist it
         (`worker/service.record_observations`, which reads it off these events when the
         batch names no party).
@@ -569,14 +565,13 @@ class NormalizedEventBoundary:
                 self._leg_failed = True
 
         async def _on_finished(_worker: Any, frame: Any) -> None:
-            # THE FRAME DECIDES THE STATUS, AND THIS USED TO DISCARD IT. Pipecat fires
+            # THE FRAME DECIDES THE STATUS AND MUST NOT BE DISCARDED. Pipecat fires
             # `on_pipeline_finished` for `StopFrame`, `EndFrame` AND `CancelFrame`
             # (`pipecat/pipeline/worker.py:223-231`, which is why the handler is handed the
-            # frame at all) — so every cancelled call was written to `calls.status` as a
-            # clean `completed`: a pipeline cut by an unusable processor, by `runner.cancel()`
-            # or by any non-drain path was indistinguishable from a conversation that ended
-            # of its own accord. The drain path escaped it only because `lifecycle.drain`
-            # writes `failed` first.
+            # frame at all). Ignoring it writes every cancelled call to `calls.status` as a
+            # clean `completed` — a pipeline cut by an unusable processor or by
+            # `runner.cancel()` becomes indistinguishable from a conversation that ended of
+            # its own accord.
             if isinstance(frame, CancelFrame) or self._leg_failed:
                 await self.call_ended(status="failed")
             else:
@@ -663,29 +658,23 @@ def _build_stt(config: SessionConfig, credentials: VendorCredentials) -> FramePr
 def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
     """Cartesia on the Studio tier; Gnani on the Clear tier. No default, and no Sarvam.
 
-    ⚠ **THE SARVAM TTS LEG IS WITHDRAWN (founder, 18 Sep 2026) AND SARVAM STILL HEARS
-    EVERY CALL.** `_build_stt` above is untouched: `saaras:v4`, `SARVAM_API_KEY`,
-    `SarvamSTTService`. What went is the SYNTHESIS half, and this function no longer has a
-    Sarvam arm, a default provider or a default model.
+    ⚠ **THERE IS NO SARVAM SYNTHESIS ARM AND SARVAM STILL HEARS EVERY CALL.** `_build_stt`
+    above is the untouched half: `saaras:v4`, `SARVAM_API_KEY`, `SarvamSTTService`.
 
-    The structural fact that made the withdrawal easy to accept is recorded here because it
-    outlives the decision: **`SarvamTTSSpeakerV3` (`pipecat/services/sarvam/tts.py:101`) IS
-    A CLOSED `StrEnum` OF 25 SPEAKER NAMES** (read in the pinned wheel, 18 Sep 2026). A
-    vendor whose speaker set is an enum has no place to put a voice cloned from a client's
-    own recording, so Sarvam could not have served a tier with cloned voices however good
-    its Telugu is. Gnani takes the value rung and Cartesia stays on Studio.
+    Why Sarvam could never have served this leg's top rung, which outlives the decision to
+    drop it: **`SarvamTTSSpeakerV3` (`pipecat/services/sarvam/tts.py:101`) IS A CLOSED
+    `StrEnum` OF 25 SPEAKER NAMES** (read in the pinned wheel, 18 Sep 2026). A vendor whose
+    speaker set is an enum has nowhere to put a voice cloned from a client's own recording.
 
     **NOTHING HERE MAKES A GNANI MINUTE SELLABLE.** A Gnani call happens only where an
     agent's own `ModelConfig.tts_provider` says so, and a Gnani voice is not OFFERABLE
-    until an operator attests its price (`agents/voice_offer.py`, hard rule 7); Gnani
-    publish none. This function is the leg, not the gate.
+    until an operator attests its price (`agents/voice_offer.py`, hard rule 7). This
+    function is the leg, not the gate.
 
-    **AN AGENT THAT NAMES NO PROVIDER IS REFUSED, and that is the change with teeth.** It
-    used to fall through to Sarvam, which was a real default with a real price. There is no
-    such default now — Cartesia would silently bill the dearer rung, Gnani would bill a rate
-    nobody struck — so a config with no provider raises here rather than choosing a vendor
-    on the caller's behalf. `agents/publishing.py` is what stops such a config reaching a
-    call; this is the backstop that makes it loud if one ever does.
+    **AN AGENT THAT NAMES NO PROVIDER IS REFUSED** rather than defaulted: Cartesia would
+    silently bill the dearer rung and Gnani would bill a rate nobody struck, so neither may
+    be chosen on the caller's behalf. `agents/publishing.py` is what stops such a config
+    reaching a call; this is the backstop that makes it loud if one ever does.
     """
     if config.models.tts_provider is None:
         raise ValueError(
@@ -1130,13 +1119,13 @@ def build_user_aggregator_params(
 class CallDurationCap:
     """The agent's `max_call_duration_s`, enforced on the leg that spends the money.
 
-    ⚠ **THIS ENGINE HAD NO CAP AT ALL AND THE CONSOLE SHOWED ONE.**
+    ⚠ **WITHOUT THIS THE CAP IS A CONSOLE FIELD THAT ENFORCES NOTHING HERE.**
     `agents/publishing_routes.py:403` writes it, `AgentConfig.max_call_duration_s` carries
-    it, and the rented engine pushes it as `call_terminate` (`engine/bolna.py:4106`). It
-    appeared NOWHERE in `engine/pipecat.py`, nowhere in the session payload and nowhere in
-    this container, and `assemble_call` sets `idle_timeout_secs=None` deliberately — so on
-    `owned_runtime` a call that never ended never ended, burning a client's credits against
-    a cap they had set and been shown. A money defect (hard rule 7) before a trust one.
+    it, and the rented engine pushes it as `call_terminate` (`engine/bolna.py:4106`) — but
+    on `owned_runtime` nothing else enforces it: `assemble_call` sets
+    `idle_timeout_secs=None` deliberately, so a call that never ends never ends, burning a
+    client's credits against a cap they set and were shown. A money defect (hard rule 7)
+    before a trust one.
 
     **IT PUSHES A FRAME. IT DOES NOT CALL A METHOD ON THE PIPELINE.** The vendor's own rule:
     *"change a running pipeline by pushing a frame, never by calling a method on an object
@@ -1392,9 +1381,9 @@ def assemble_call(
         # registers a schema's own handler when it sees the context
         # (`pipecat/services/llm_service.py:1256-1265`) — so nothing else has to be wired.
         #
-        # ⚠ **THIS LINE READ `tools=[build_knowledge_tool(...)]` AND THAT WAS THE WHOLE OF
-        # THE DEFECT.** One tool here against four on the rented engine meant a caller
-        # saying "stop calling me" reached nothing at all on this leg.
+        # ⚠ **THE FOUR IN-CALL ACTS MUST BE HERE, NOT ONLY THE SEARCH.** With the
+        # knowledge tool alone — one tool here against four on the rented engine — a caller
+        # saying "stop calling me" reaches nothing at all on this leg.
         tools=[
             build_knowledge_tool(knowledge, pack_configured=pack_configured, embedder=embedder),
             *build_call_tools(

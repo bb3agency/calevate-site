@@ -79,24 +79,18 @@ import type { LegalDocument } from "./types";
  * identification is not: `{{REGISTERED_ADDRESS}}` is still printed, because the display
  * obligations behind it do not stop applying because we decline the post.
  *
- * ⚠ WHAT IT NO LONGER SAYS, AND WHY THE SENTENCE AROUND IT CHANGED (4 Sep 2026). The
- * token used to render a street address and this section used to call it "where a legal
- * notice is served". Both are gone: the value is now the city, state and country (see
- * `placeholders.ts::REGISTERED_ADDRESS` for the founder's instruction and the statutory
- * reading), and a city cannot be served on — so a page that said it could was making a
- * promise the Terms already contradict, whose "Notices" clause routes service to email
- * and warns that a posted notice may not reach us. Do not re-add either the street lines
- * or the serving claim.
+ * ⚠ DO NOT RE-ADD THE STREET LINES OR CALL THIS "where a legal notice is served". The
+ * token renders city, state and country only (`placeholders.ts::REGISTERED_ADDRESS` carries
+ * the founder's instruction and the statutory reading), and a city cannot be served on — so
+ * a page claiming it can contradicts the Terms, whose "Notices" clause routes service to
+ * email and warns that a posted notice may not reach us.
  *
  * ## The name is published, and what it still lacks is a surname
  *
- * `docs/LEGAL-SURFACE.md` S-2 put it exactly while it was blank: "A placeholder is not a
- * designation — this is UNMET until a person is appointed", and F-9 recorded it as the
- * cheapest unmet obligation on the page. A person was appointed on 2 September 2026 and
- * the name is published. ⚠ It is a FIRST NAME ONLY, which is what the founder supplied:
- * rule 5(9) of the SPDI Rules 2011 and rule 4(6) of the Consumer Protection (E-Commerce)
- * Rules 2020 both require the NAME to be published, and a full name is a materially
- * stronger artefact than a first name. Nothing here may invent the rest of it
+ * The published name is a FIRST NAME ONLY, which is what the founder supplied. Rule 5(9)
+ * of the SPDI Rules 2011 and rule 4(6) of the Consumer Protection (E-Commerce) Rules 2020
+ * both require the NAME to be published, and a full name is a materially stronger artefact
+ * than a first name. Nothing here may invent the rest of it
  * (`placeholders.ts:1-14`); it goes in that file's `GRIEVANCE_OFFICER_NAME` entry when the
  * founder gives it, and reaches this page from there.
  */

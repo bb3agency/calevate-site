@@ -311,13 +311,11 @@ describe("the placeholders", () => {
 });
 
 /**
- * THE BANNER IS GONE, AND THIS IS THE ASSERTION THAT USED TO SAY IT MUST BE THERE.
- *
- * It is inverted rather than deleted, because the failure it guards against inverted with
- * it. While the set was a draft the risk was a document published without its warning;
- * now the set is in force, the risk is a draft banner left standing on a page a client,
- * a regulator or a payment gateway is reading — which says the documents cannot be relied
- * on, on the day they can.
+ * THE DRAFT BANNER MUST BE ON NO DOCUMENT, now that the set is in force. The risk inverted
+ * with the set: while it was a draft, the failure was a document published without its
+ * warning; now it is a draft banner left standing on a page a client, a regulator or a
+ * payment gateway is reading, telling them the documents cannot be relied on, on the day
+ * they can.
  *
  * `PendingReviewBanner` returns null off the same constant, so this passes by
  * construction today. What it catches is a hand-written banner, a stray marker copied
@@ -811,16 +809,13 @@ describe("what each document must contain", () => {
   /**
    * THE MODEL PICKER'S PRICE IS OUR COST, AND THE CONTRACT HAS TO SAY WHICH (F-15).
    *
-   * THIS TEST USED TO PIN THE OPPOSITE, AND THE REASON IT CHANGED IS THE POINT.
+   * Clause 6.1 may NOT say a model choice never changes the bill: `plans.
+   * llm_model_surcharge` exists (D-455), so that sentence is true only while every plan
+   * leaves the column NULL. A contract term whose truth depends on a column nobody has
+   * filled in yet is not a term, it is a countdown — the first operator to price a
+   * surcharge ships a false one without touching the document.
    *
-   * D-454 gave clients a model choice and clause 6.1 correctly said it moved nothing they
-   * were charged — because nothing could. D-455 built `plans.llm_model_surcharge`, and the
-   * old clause became a sentence that was true only while every plan left the column NULL.
-   * A contract term whose truth depends on a column nobody has filled in yet is not a
-   * term, it is a countdown: the first operator to price a surcharge would have shipped a
-   * false one without touching the document.
-   *
-   * So 6.1 is now true in BOTH states — no surcharge means nothing changes, a surcharge
+   * So 6.1 is true in BOTH states — no surcharge means nothing changes, a surcharge
    * means the order form quotes it — and this pins the properties that must survive
    * either way: only a commercial term can introduce it, and a model WE chose is never
    * surcharged (`CLIENT_CHOSEN_LLM_SOURCES` excludes `platform`, so flipping the platform
@@ -855,15 +850,11 @@ describe("what each document must contain", () => {
    * later edit that softened "does not change them" into "will not normally change" would
    * change an operative fee term, and this asserts the exact words that may not move.
    *
-   * ⚠ THIS USED TO SAY "because nothing else in this repository can", AND THAT IS NO
-   * LONGER TRUE. `tests/legalContentHash.test.ts` (7 September 2026) hashes every
-   * document's operative text against the revision that published it, so the softening
-   * above now fails a gate whether or not anybody thought to pin the sentence. The two do
-   * different jobs and both are worth having: the hash says THE WORDS MOVED AND THE
-   * REVISION DID NOT, and it is satisfied by bumping the revision — which is the right
-   * answer for most edits. This one says WHICH WORDS, and it is not satisfied by a bump at
-   * all: the promise stays or somebody argues with this test. Keep it for the clauses
-   * where a bump is not an acceptable outcome.
+   * `tests/legalContentHash.test.ts` also catches the edit, and the two do different jobs.
+   * The hash says THE WORDS MOVED AND THE REVISION DID NOT, and is satisfied by bumping the
+   * revision — the right answer for most edits. This one says WHICH WORDS, and a bump does
+   * not satisfy it at all: the promise stays or somebody argues with this test. Pin a
+   * clause here only when a revision bump is not an acceptable outcome for it.
    */
   it("states the credit-lot promise in the Terms, verbatim, and echoes it in the refunds policy", () => {
     const promise =
@@ -1020,9 +1011,8 @@ describe("what each document must contain", () => {
       ).toMatch(/(?:Not|never) (?:your own|the caller's) audio/);
       // Nothing has been sent yet — ours, read off the code, and the one claim here that
       // is stated flatly.
-      // ⚠ "to it" became "to either of them" in the Addendum on 18 Sep 2026 (D-629):
-      // there are two synthesis vendors and nothing has reached EITHER. Both spellings
-      // are accepted so the claim is pinned rather than its grammar.
+      // Both spellings are accepted ("to it" / "to either of them", the Addendum's, since
+      // there are two synthesis vendors) so the CLAIM is pinned rather than its grammar.
       expect(
         prose,
         `/legal/${slug} omits that nothing has been sent to it`,
@@ -1041,17 +1031,11 @@ describe("what each document must contain", () => {
     // shown exists.
     expect(dpa).toMatch(/we do not represent to you that one is in place/);
 
-    // ⚠ **THE WITHDRAWN SENTENCE, AND IT IS WITHDRAWN TWICE OVER NOW.** Until
-    // 7 September 2026 both documents put voice synthesis wholly on the Indian provider;
-    // D-547 narrowed that to the first of two voice qualities, and this test USED TO
-    // REQUIRE the narrowed sentence ("first of the two voice qualities") in both
-    // documents. **D-629 (18 Sep 2026) removed the Indian provider from the synthesis leg
-    // altogether** — it still hears every call and still reads the transcript first — so
-    // the narrowed sentence is itself withdrawn, and requiring it here would hold the
-    // published set to a claim that is no longer true. What is pinned instead is the
-    // property that matters and cannot be softened back: NEITHER quality is synthesised by
-    // that provider, and neither document offers a client a voice quality that keeps an
-    // unplaceable synthesiser away from their callers.
+    // NEITHER voice quality is synthesised by the Indian provider (D-629 removed it from
+    // the synthesis leg; it still hears every call and reads the transcript first), and
+    // neither document may offer a client a voice quality that keeps an unplaceable
+    // synthesiser away from their callers. That is the property pinned here, because it is
+    // the one that cannot be softened back.
     for (const [slug, prose] of [
       ["privacy", privacy],
       ["dpa", dpa],

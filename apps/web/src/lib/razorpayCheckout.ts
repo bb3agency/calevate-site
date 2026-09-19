@@ -47,14 +47,13 @@
  * So it is fetched from a click, once per document, and its failure is a sentence rather
  * than a dead button (`checkoutUnavailableProblem`).
  *
- * ## The Content-Security-Policy already covers this, and this line used to say there was
- * none
+ * ## The Content-Security-Policy already covers this
  *
- * `infra/nginx/snippets/calevate-headers.conf` sets no CSP — stated there as a decision,
- * because a nonce-based policy belongs in the tier that mints the nonce — and this comment
- * stopped one sentence short of the truth: the APP tier does serve one
- * (`lib/security/csp.ts`, emitted per request by `middleware.ts`), and it already names
- * this origin twice. `script-src` carries `https://checkout.razorpay.com` so the tag below
+ * `infra/nginx/snippets/calevate-headers.conf` sets no CSP — a decision recorded there,
+ * because a nonce-based policy belongs in the tier that mints the nonce — but the APP tier
+ * does serve one (`lib/security/csp.ts`, emitted per request by `middleware.ts`) and it
+ * already names this origin twice.
+ * `script-src` carries `https://checkout.razorpay.com` so the tag below
  * may execute, and `frame-src` carries it plus `https://api.razorpay.com` because Checkout
  * renders its own iframe inside our page. So adding the payment window needs NO change to
  * the policy, and nothing here is a reason to widen one.

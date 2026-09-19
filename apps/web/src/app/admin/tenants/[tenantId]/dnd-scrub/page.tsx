@@ -22,6 +22,7 @@ import {
 } from "@/components/ui";
 import { MonoValue, TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
 import { useAdminAccess } from "@/app/admin/access";
+import { Term } from "@/lib/glossary";
 import { useTenant } from "@/lib/api/admin";
 import {
   MAX_BLOCKED_NUMBERS,
@@ -118,9 +119,9 @@ export default function PreferenceScrubPage({
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-ink">National DND scrub</h1>
         <p className="text-sm text-ink-muted">
-          The national customer preference register. An access provider&apos;s DLT platform
-          scrubs a campaign&apos;s list against it and hands back a reference, a report and
-          a verdict good until midnight IST that day. Recording that run here is what lets
+          The national customer preference register. An access provider&apos;s{" "}
+          <Term id="dlt" /> platform scrubs a campaign&apos;s list against it and hands back
+          a reference, a report and a verdict good until midnight IST that day. Recording that run here is what lets
           a promotional campaign launch — and nothing else does.
         </p>
       </div>

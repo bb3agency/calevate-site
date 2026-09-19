@@ -24,8 +24,8 @@
  * The copy on this panel says both, in the client's words, once. It does not repeat them
  * per row, and it does not soften them.
  *
- * ⚠ **"THE PLATFORM THIS PRODUCT RUNS ON" IS NOW A VARIABLE, AND THIS PANEL CANNOT READ
- * IT (D-592).** Both sentences above are true of `bolna`, whose `in_call_handoff` is
+ * ⚠ **THE ENGINE IS A VARIABLE AND THIS PANEL CANNOT READ IT (D-592).** Both sentences
+ * above are true of `bolna`, whose `in_call_handoff` is
  * `True` (`apps/api/engine/bolna.py`). On the runtime we host ourselves it is `False`
  * (`PIPECAT_CAPABILITIES`, `apps/api/engine/pipecat.py:234`), and the capability's own
  * authored remediation says what that means for this screen in as many words:
@@ -360,16 +360,12 @@ export function Handover({ agent }: { agent: Agent }) {
                 </div>
                 <p className="mt-1 text-ink-muted">{attempt.explanation}</p>
                 {attempt.second_recording_at_platform && (
-                  /* ⚠ THIS USED TO SAY CALEVATE DID NOT HOLD THE RECORDING AND THAT THE
-                     CLIENT HAD TO ASK US ABOUT DELETING IT. True when written, and not any
-                     more (D-533, the founder's decision of 5 Sep 2026): the second
-                     recording is fetched into our own storage, expires on this account's
-                     own retention policy, and is destroyed by the same erasure as every
-                     other recording. The row still says the second recording EXISTS —
-                     a client answering a deletion request is entitled to know what a call
-                     actually produced — but what it tells them to DO has changed, and
-                     leaving the old sentence would have them route a request we already
-                     handle. */
+                  /* The second recording is fetched into OUR storage, expires on this
+                     account's own retention policy and is destroyed by the same erasure as
+                     every other recording (D-533) — so never tell the client to ask us
+                     about deleting it; that routes a request we already handle. The row
+                     still says the recording EXISTS, because a client answering a deletion
+                     request is entitled to know what a call actually produced. */
                   <p className="mt-1 text-xs text-ink-faint">
                     This part of the call was recorded separately. It is kept and deleted on
                     the same terms as the rest of the call.

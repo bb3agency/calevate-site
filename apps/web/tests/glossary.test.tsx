@@ -208,6 +208,25 @@ describe("every screen that uses a term explains it", () => {
       "The FAQ answer under it is the gloss, at length. A prospect reading a question " +
       "gets the explanation by reading on, which is what an FAQ is.",
     "src/components/marketing/faq.tsx:tm": "Same answer, same reason.",
+    "src/app/admin/tenants/[tenantId]/dnd-scrub/page.tsx:dnd":
+      "This screen IS the explanation of the term. Its subtitle is the gloss, at length " +
+      "and in plain language — 'the national customer preference register … scrubs a " +
+      "campaign's list against it and hands back a reference, a report and a verdict good " +
+      "until midnight IST that day'. A tooltip repeating the sentence directly above it " +
+      "is the noise this mechanism exists to prevent, same case as `security/page.tsx:tm`.",
+    "src/app/admin/tenants/[tenantId]/dnd-scrub/page.tsx:dnc":
+      "The term appears only as the LABEL of a link to `ops · DNC`, inside a sentence " +
+      "whose whole job is telling the two apart — 'It is not the platform-wide " +
+      "do-not-call list (that is ops · DNC)'. The sentence glosses it better than a box " +
+      "could, and the screen it links to carries the full `<Term id=\"dnc\">`.",
+    "src/app/admin/tenants/[tenantId]/TenantNav.tsx:dnd":
+      "A NAV LABEL, not screen copy. The destination glosses the term in its own subtitle " +
+      "and a tooltip inside a sidebar item is a tooltip nobody opens; same class as the " +
+      "`OpsSurface.tsx:tm` entries above.",
+    "src/app/admin/tenants/[tenantId]/CampaignSetup.tsx:dnd":
+      "Operator realm, and the sentence is a POINTER rather than an explanation — it says " +
+      "a promotional campaign needs a national DND scrub and links to the screen that " +
+      "defines it. Glossing here would explain the term twice, one click apart.",
   };
 
   const ROOTS = ["src/app", "src/components"];

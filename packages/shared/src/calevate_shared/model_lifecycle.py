@@ -31,16 +31,13 @@ announcement, and their own page says these details are *"subject to change"*. A
 copied here without its read-date is a fact with no shelf life, and the direction of drift
 is not always favourable.
 
-**WHERE THESE READINGS CAME FROM, because it is a better evidence class than this
-repository usually gets and the next reader should know why.** Microsoft's documentation
-HOST is egress-blocked from this environment (`learn.microsoft.com` → 403 on CONNECT,
-measured 22 Aug 2026), which is what forced D-410's own pricing note to fall back on the
-decision's record. But Microsoft publishes those pages from a PUBLIC GIT REPOSITORY,
-`github.com/MicrosoftDocs/azure-ai-docs`, and this session's git proxy serves anonymous
-reads of it. So these are not search summaries and not a tracker's table: they are the
-vendor's own source files, at a named commit, with the commit's date and the page's own
-`ms.date`. That is a stronger class than VERIFIED-VENDOR-DOCS usually means here, and it
-is reproducible — `git clone --depth 1 https://github.com/MicrosoftDocs/azure-ai-docs`.
+**WHERE THE AZURE READINGS COME FROM.** `learn.microsoft.com` is egress-blocked here
+(403 on CONNECT), but Microsoft publishes those pages from a PUBLIC GIT REPOSITORY,
+`github.com/MicrosoftDocs/azure-ai-docs`, which the git proxy serves anonymously. So the
+Azure citations are the vendor's own source files at a named commit, with the commit's
+date and the page's own `ms.date` — reproducible with
+`git clone --depth 1 https://github.com/MicrosoftDocs/azure-ai-docs`, and a stronger class
+than a search summary or a tracker's table.
 
 **IT IS STILL NOT THE PORTAL, AND THE GAP IS THE POINT.** A doc says what the vendor
 publishes about a region; only the subscription says what OUR subscription can deploy, at
@@ -50,26 +47,20 @@ what quota, on which SKU. Azure exposes that machine-readably — the Models API
 now asks a human to read and file. `ATTESTATION_PATH` is where it lands, and
 `scripts/check_model_lifecycle.py` prefers it over everything written here.
 
-**THIS FILE'S FIRST READING REVERSED D-410's PREMISE, AND D-449 IS WHAT THAT READING
-CAUSED.** D-410 chose `gpt-4o-mini` as the default because it was *"documented available
-in South India"* while `gpt-4.1-mini`'s Indian availability was *"NOT confirmed"*.
-Microsoft's Standard (regional) availability matrix said the opposite for `southindia`:
-`gpt-4.1-mini` listed, `gpt-4o-mini` **not** — the shipped default appeared for that
-region only on the GLOBAL Standard matrix, and Global is the deployment type OPERATIONS §2
-gate 20c exists to forbid because it processes worldwide. So the only permitted region and
-the only permitted SKU had no documented way to run the shipped default at all.
-
-That contradiction is now RESOLVED, and it was resolved by moving the REGION rather than
-the model: D-449 withdrew the India residency claim and pinned `AZURE_LOCATION` to
+**A REGION/MODEL CONTRADICTION IS ANSWERED BY MOVING THE REGION, NOT THE MODEL.** Under
+`southindia`, Microsoft's Standard (regional) matrix listed `gpt-4.1-mini` and NOT the
+shipped default `gpt-4o-mini`, which appeared for that region only on the GLOBAL Standard
+matrix — the deployment type gate 20c forbids because it processes worldwide. D-449
+resolved it by withdrawing the India residency claim and pinning `AZURE_LOCATION` to
 `eastus2`, where the same matrix marks both allow-listed models available on the mandated
-SKU (`standard-models.md:23`). Recording which of the two moved matters, because "we
-changed the default model" and "we stopped claiming Indian residency" are answers to the
-same build warning with entirely different consequences for a client's DPA.
+SKU (`standard-models.md:23`). Which of the two moves matters: "we changed the default
+model" and "we stopped claiming Indian residency" answer the same build warning with
+entirely different consequences for a client's DPA.
 
-⚠ THE STALENESS CAVEAT SURVIVES THE MOVE UNCHANGED. That matrix's own `ms.date` is
-08/12/2025, so both `availability` entries below stay `verified=False` and print
-`[UNVERIFIED]` on every run. A green region is still a vendor publication about a region,
-not a statement about OUR subscription; only OPERATIONS §2 gate 20b closes it.
+⚠ THE STALENESS CAVEAT. That matrix's own `ms.date` is 08/12/2025, so both `availability`
+entries below stay `verified=False` and print `[UNVERIFIED]` on every run. A green region
+is a vendor publication about a region, not a statement about OUR subscription; only
+OPERATIONS §2 gate 20b closes it.
 """
 
 from __future__ import annotations
@@ -104,8 +95,8 @@ DEPLOYMENT_TYPES: Final[frozenset[str]] = frozenset(get_args(DeploymentType))
 #: including `scripts/check_model_residency.py`, which cannot see a SKU — and breaks the
 #: DPA. OPERATIONS §2 gate 20c is the human reading that settles it.
 #:
-#: D-449 DID NOT RELAX THIS, and the temptation to think it did is worth naming: withdrawing
-#: the India residency claim does not make "processes anywhere in the world" acceptable.
+#: D-449 DID NOT RELAX THIS: withdrawing the India residency claim does not make
+#: "processes anywhere in the world" acceptable.
 #: What we still owe a client is a NAMED region they were told about, `eastus2`, and Global
 #: is the deployment type that silently makes that untrue.
 MANDATED_DEPLOYMENT_TYPE: Final[DeploymentType] = "standard-regional"
@@ -125,14 +116,12 @@ MANDATED_DEPLOYMENT_TYPE: Final[DeploymentType] = "standard-regional"
 #:     nobody can act on — and a warning nobody can act on is how a build teaches its
 #:     readers to ignore warnings.
 #:
-#:     ⚠ THIS CITATION WAS WRONG UNTIL IT WAS RE-READ (22 Aug 2026, A2 audit). It pointed
-#:     at `concepts-model-retirement-SCHEDULE-content.md:20`, which is the heading
-#:     `## Foundry Models sold by Azure` — a different FILE, not merely a slipped line.
-#:     The two filenames differ by one word and both are in the same directory. Worth
-#:     leaving recorded because `WARN_LEAD` is the one constant here whose value is
-#:     argued entirely from a vendor sentence: a citation that resolves to a heading is
-#:     indistinguishable, to a reader who does not open it, from one that resolves to the
-#:     claim.
+#:     ⚠ CHECK THE FILENAME WHEN RE-READING THIS. `concepts-model-retirements-content.md`
+#:     and `concepts-model-retirement-schedule-content.md` differ by one word, sit in the
+#:     same directory, and the second one's `:20` is a heading. `WARN_LEAD` is the one
+#:     constant here argued entirely from a vendor sentence, and a citation that lands on
+#:     a heading is indistinguishable — to a reader who does not open it — from one that
+#:     lands on the claim.
 #:   * The vendor's own notice is *"at least 60 days"* for a GA model
 #:     (`concepts-model-retirements-content.md:150`), delivered by email to SUBSCRIPTION
 #:     OWNERS. That is one person's inbox, and it is not this build.
@@ -172,18 +161,16 @@ RetirementStance = Literal["dated", "none-announced", "unread"]
 #: the app (the direction `LlmProvider` already takes for the LLM legs);
 #: `voices.VoiceProvider` is this type, not a second spelling of it.
 #:
-#: ⚠ **THIS USED TO SAY "THE TWO … AND, BY D-547 §2.3 INVARIANT 7, THE TWO VOICE TIERS AN
-#: AGENT CAN BE ON", AND D-618 SPLIT THE SECOND HALF OFF.** A provider is NOT a tier: a
-#: tier is a PRICE (`billing/rates.VoiceTier`, its label, its cost floor and the two rates
-#: frozen on every credit lot), and a provider is who synthesises. `voices.voice_tier()`
-#: maps the first to the second.
+#: ⚠ **A PROVIDER IS NOT A VOICE TIER.** A tier is a PRICE (`billing/rates.VoiceTier`, its
+#: label, its cost floor and the two rates frozen on every credit lot); a provider is who
+#: synthesises. `voices.voice_tier()` maps the first to the second, and the two sets share
+#: no member (D-618).
 #:
-#: ⚠ **`sarvam` IS GONE FROM THIS LINE AND SARVAM HAS NOT LEFT THE PRODUCT (18 Sep 2026).**
-#: This Literal names the TEXT-TO-SPEECH providers only. Sarvam is still the STT vendor on
-#: every call — `calevate_shared.engine.SARVAM_STT_PROVIDER`, `saaras`, `SARVAM_API_KEY`
-#: and the `stt` half of `languages.VERIFIED_VENDOR_LEGS` are all untouched — and it is still a
-#: sub-processor. What was withdrawn is the Bulbul TTS leg and nothing else. A reader who
-#: takes this line as "Sarvam is out" will delete the transcription vendor.
+#: ⚠ **SARVAM'S ABSENCE FROM THIS LINE IS NOT SARVAM LEAVING THE PRODUCT.** This Literal
+#: names TEXT-TO-SPEECH providers only. Sarvam is still the STT vendor on every call —
+#: `calevate_shared.engine.SARVAM_STT_PROVIDER`, `saaras`, `SARVAM_API_KEY` and the `stt`
+#: half of `languages.VERIFIED_VENDOR_LEGS` — and still a sub-processor. Reading this line
+#: as "Sarvam is out" deletes the transcription vendor.
 TtsProvider = Literal["cartesia", "gnani"]
 
 
@@ -432,16 +419,12 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
     ),
     # --- THE OPENAI-DIRECT LEG: ONE MODEL READ AT THE VENDOR, ONE STILL UNREAD --------
     #
-    # THIS BLOCK USED TO SAY BOTH ENTRIES WERE UNDATED AND THAT THE ABSENCE WAS THE FINDING.
-    # Half of that is now closed and the way it closed is the point: the pages are still
-    # egress-blocked from this container and from CI, so nothing here re-fetched them — the
-    # FOUNDER opened them in a browser and relayed the reading. That is VENDOR-PUBLISHED
-    # evidence (a vendor page, read, with a URL and a date) obtained through a human rather
-    # than through our toolchain, which is stronger than the third-party trackers it
-    # corroborates and weaker than something CI could re-check. It is filed `verified=True`
-    # on the RETIREMENT axis because a page was genuinely read; the PRICE axis stays
-    # unverified in `LLM_MODELS` for the separate reason that a price reaches money and is
-    # settled by an operator attestation rather than by any figure in source.
+    # OpenAI's pages are egress-blocked from this container and from CI, so these readings
+    # are VENDOR-PUBLISHED and founder-relayed: a vendor page with a URL and a date, read by
+    # a human rather than by our toolchain. Stronger than the third-party trackers it
+    # corroborates, weaker than something CI could re-check. Filed `verified=True` on the
+    # RETIREMENT axis because a page was genuinely read; the PRICE axis stays unverified in
+    # `LLM_MODELS` because a price reaches money and is settled by an operator attestation.
     "gpt-5.4-mini": ModelLifecycle(
         model="gpt-5.4-mini",
         provider="openai",
@@ -535,15 +518,12 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
     ),
     # --- THE GOOGLE LEG: TWO DURABLE AND SAFE, TWO REFUSED ON A TRAP ------------------
     #
-    # ⚠ **THE ENTRIES BELOW ARE THE CORRECTION HARD RULE 11 WAS WRITTEN ABOUT.** Until this
-    # revision both GA rows carried `retires_on=date(2026, 10, 16)` on REPORTED evidence, and
-    # that date was WRONG: Google's own deprecations page lists the GA identifiers with no
-    # shutdown date at all, and 16 Oct belonged to a dated PREVIEW snapshot
-    # (`gemini-2.5-flash-preview-09-25`) this repository has never shipped. The wrong date did
-    # not stay here. It was read back out of this file by a later session, restated as fact in
-    # `docs/evidence/`, and passed into a lane brief as the premise for withdrawing the whole
-    # Google leg — which is precisely the laundering-by-repetition the rule now forbids. The
-    # correction is filed rather than quietly applied because the failure mode is the finding.
+    # ⚠ **NEITHER GA ROW CARRIES 2026-10-16, AND NOTHING MAY PUT IT BACK.** That date is a
+    # dated PREVIEW snapshot's (`gemini-2.5-flash-preview-09-25`), never the GA identifier's;
+    # Google's deprecations page lists both GA ids with no shutdown date. It sat here once on
+    # REPORTED evidence, was read back out of this file as if it were fact, and reached an
+    # evidence doc and a lane brief as the premise for withdrawing the whole Google leg —
+    # the laundering-by-repetition hard rule 11 forbids.
     "gemini-2.5-flash": ModelLifecycle(
         model="gemini-2.5-flash",
         provider="google",
@@ -551,14 +531,12 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         retires_on=None,
         retirement_stance="none-announced",
         stage="GA",
-        # NO REPLACEMENT IS NAMED, AND NAMING ONE WOULD BE THE SAME MISTAKE AGAIN. This row
-        # used to point at `gemini-3.6-flash`, which is not on the engine's published
-        # supported-model list at all — it exists only in the engine's OSS thinking map — so
-        # it was a migration target nothing could actually be configured onto. There is no
-        # successor to name: every gemini-3.* model is refused in `LLM_MODELS` because the
-        # vendor states in its own words that they "do not support full thinking-off". A
-        # `None` here means the honest thing: this model needs no replacement, and if it ever
-        # does, none exists today.
+        # NO REPLACEMENT IS NAMED, because there is no successor anything could be
+        # configured onto: every `gemini-3.*` model is refused in `LLM_MODELS` on the
+        # vendor's own "do not support full thinking-off", and `gemini-3.6-flash` — the
+        # obvious candidate — is not on the engine's published supported-model list at all,
+        # only in its OSS thinking map. `None` means this model needs no replacement and
+        # none exists today.
         replacement=None,
         offered_in_region=frozenset(),
         retirement=Evidence(
@@ -747,25 +725,17 @@ _GNANI_READ_ON: Final = date(2026, 9, 15)
 #: reading can be re-made by anyone with the tree.
 _TTS_READ_ON: Final = date(2026, 9, 7)
 
-#: ⚠ THE TWO ROWS BELOW REST ON TWO DIFFERENT READINGS, AND THE DIFFERENCE IS THE POINT.
+#: THIS TABLE HOLDS EXACTLY `agents/voices.TtsModel`'s MEMBERS — `scripts/
+#: check_model_lifecycle.py` enforces the equality — so a model outside the TTS catalogue
+#: has no row here. That is why `sonic-3` is absent (its dated sunset is recorded in
+#: `sonic-3.5`'s note, and the decision not to offer it lives in `apps/api/agents/
+#: voices.py`), and why Sarvam has none: `saaras` is a TRANSCRIBER, and Sarvam's presence on
+#: the STT leg is untouched by anything here.
 #:
-#: ⚠ **THE `bulbul:v3` ROW IS GONE (18 Sep 2026), WITH THE SARVAM TTS LEG IT DESCRIBED.**
-#: This table is held to exactly `agents/voices.TtsModel`'s members by
-#: `scripts/check_model_lifecycle.py`, and `bulbul:v3` is no longer one of them. **Sarvam
-#: STT is untouched** — it has never had a row here, because this registry is the TTS
-#: catalogue's lifecycle table and `saaras` is not in that catalogue.
-#: * **`sonic-3.5` — the MODEL VENDOR's own page, relayed.** Cartesia's API-changes page was
-#:   read at the named URL on 7 Sep 2026 by the research run and relayed through
-#:   `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` ADDENDUM 1 (`docs.cartesia.ai` is
-#:   egress-blocked here, so it was not opened from this tree). It dates the models it is
-#:   retiring — `sonic-3`, `sonic-2`, `sonic-turbo` all sunset **20 Oct 2026** — and leaves
-#:   `sonic-3.5` undated. A page that announces four retirements and not this one is the
-#:   strongest "none-announced" available anywhere in this file.
-#:
-#: **`sonic-3` IS NOT A ROW HERE BECAUSE IT IS NOT IN THE CATALOGUE** (`TtsModel`), and the
-#: checker holds this table to exactly the catalogue's members. Its dated sunset is recorded
-#: in `sonic-3.5`'s note and in `apps/api/agents/voices.py`, which is where the decision not
-#: to offer it lives.
+#: THE TWO ROWS REST ON DIFFERENT READINGS. `sonic-3.5` has the MODEL VENDOR's own page:
+#: Cartesia's API-changes page dates four retirements — `sonic-3`, `sonic-2` and
+#: `sonic-turbo` all sunset 20 Oct 2026 — and leaves `sonic-3.5` undated, which is the
+#: strongest "none-announced" in this file. `timbre-v2.5` has no lifecycle page at all.
 TTS_MODEL_LIFECYCLE: Final[dict[str, TtsModelLifecycle]] = {
     "sonic-3.5": TtsModelLifecycle(
         model="sonic-3.5",

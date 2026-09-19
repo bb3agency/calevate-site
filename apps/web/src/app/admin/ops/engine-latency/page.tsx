@@ -477,10 +477,9 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
         here so the parts can be read against the whole.
       </p>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {/* THE STAGE THIS PANEL USED TO HAVE NO LINE FOR. The caller stops speaking and
-            something has to decide that they have — before any of the stages below start.
-            It is first because it happens first, and it has no row in the tables: the
-            engine reports no figure for it. */}
+        {/* FIRST BECAUSE IT HAPPENS FIRST: the caller stops speaking and something has to
+            decide that they have, before any stage below starts. It has no row in the
+            tables because the engine reports no figure for it. */}
         <BudgetItem
           label="Noticing the caller stopped"
           value={budget.endpointing_ms}
@@ -504,17 +503,14 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
         <BudgetItem
           label="Looking something up"
           value={budget.retrieval_ms}
-          /* ⚠ THIS SAID "nothing PERFORMS it" AND CITED A CONSTANT THAT HAS FLIPPED.
-             The ground was `apps/api/engine/bolna.py:2484`, `knowledge_base=False`; that
-             capability is `True` on every engine this deployment can select today (D-488
-             built Bolna's real `attach_kb`, and `PIPECAT_CAPABILITIES.knowledge_base` is
-             True with an in-process pack search registered as a call tool —
-             `docs/PIPECAT-MIGRATION.md` §8.1 and §6 step 11). So a mid-reply lookup CAN
-             happen now. What has not changed is that NOTHING TIMES IT: `LatencyLeg` has no
-             `retrieval` member, the rented engine publishes no block for it and the
-             owned runtime reports no per-turn timings at all, so there is a target here
-             and no distribution anywhere on this screen. The target is still shown,
-             because the sum below is cut from it. */
+          /* A mid-reply lookup CAN happen — `knowledge_base` is `True` on every engine
+             this deployment can select (D-488 built Bolna's `attach_kb`, and
+             `PIPECAT_CAPABILITIES.knowledge_base` is True with an in-process pack search
+             registered as a call tool, `docs/PIPECAT-MIGRATION.md` §8.1). What nothing does
+             is TIME it: `LatencyLeg` has no `retrieval` member, the rented engine publishes
+             no block for it and the owned runtime reports no per-turn timings, so this
+             stage has a target here and no distribution anywhere on the screen. The target
+             is still shown, because the sum below is cut from it. */
           note="Our goal for looking something up in the middle of a reply. Nothing times this stage — neither the rented platform nor the runtime we host reports a figure for it — so it has a goal here and no row below, and an empty row would have read as fast."
         />
         <BudgetItem

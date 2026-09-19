@@ -3,13 +3,10 @@
  *
  * ## Why this module exists
  *
- * The site used to hold a typed `500` paise in `lib/roi.ts` whose own comment admitted it
- * would drift the day `self_serve_inr_per_min` moved on the server. The founder's pricing
- * decision of 5 Sep 2026 — keep the list rate at ₹5.00 and lead with the effective rate
- * the ₹50,000 pack already delivers — needed the PACK LADDER on the site too, and typing
- * five more numbers beside the first would have been the same defect five times over.
+ * A typed rate on the site drifts the day the server's moves, and the site needs the whole
+ * PACK LADDER, so typing the figures would be that defect six times over.
  *
- * So the API publishes the card at `GET /v1/public/rate-card`, unauthenticated, built by
+ * The API publishes the card at `GET /v1/public/rate-card`, unauthenticated, built by
  * the same function as the signed-in `/v1/billing/topups/packs` read and pinned against
  * the margin guard's own arithmetic (`tests/public_rate_card_test.py`). This module reads
  * it and nothing else. **No figure on the public site is typed any more**: every rupee
@@ -87,12 +84,9 @@ export type RateCardPack = Schemas["CreditPackOut"];
  * a name the API chose (`billing/rates.VOICE_TIER_LABELS`) and this module only ever
  * passes through.
  *
- * ⚠ **THEY WERE `"sarvam" | "cartesia"` UNTIL 19 SEP 2026, AND THE ARGUMENT FOR THAT WAS
- * THAT A VENDOR MAY BE REPLACED UNDER A RUNG WITHOUT RENAMING WHAT A CLIENT SEES.** That
- * is true and is exactly what happened on 18 Sep 2026, when Sarvam stopped speaking on
- * this product — which left a money column named after a vendor that no longer served it.
- * Naming the rungs after the rungs keeps the property the old argument wanted and drops
- * the part that aged.
+ * Named after the RUNG and never after a vendor: a vendor may be replaced under a rung
+ * (Sarvam stopped speaking on this product on 18 Sep 2026), and a money column named after
+ * a departed vendor is the drift this spelling refuses.
  */
 export type VoiceTier = "clear" | "studio";
 
@@ -114,14 +108,11 @@ export const VOICE_TIERS = [
  * A rung this build cannot price, refused rather than guessed. THE ONE COPY — the client
  * console's lot table imports it from here rather than keeping its own.
  *
- * ⚠ **EVERY PER-RUNG ACCESSOR IN THIS FILE WAS `voice === "clear" ? clear : studio` UNTIL
- * 19 SEP 2026, AND THAT TERNARY IS TOTAL OVER `string`.** The compiler was happy and any
- * rung that was not the value one resolved to the STUDIO figure — the dearer one. With two
- * rungs that is merely fragile; the day a third is added it is a price shown wrong on the
- * PUBLIC pricing page, in the direction that overcharges, with nothing failing to say so.
- * The same defect was fixed on the billing side (`billing/lots.py::OpenLot.rate_for`) and
- * in the console's own lot table on 19 Sep 2026, and this file — the one a stranger reads
- * before they are a client — was missed by that sweep.
+ * Every per-rung accessor below SWITCHES rather than using `voice === "clear" ? … : …`:
+ * that ternary is total over `string`, so a third rung would silently resolve to the STUDIO
+ * figure — a price shown wrong on the PUBLIC pricing page, in the direction that
+ * overcharges, with nothing failing to say so. The same defect was fixed on the billing
+ * side (`billing/lots.py::OpenLot.rate_for`).
  *
  * `never` is the point: a third member of `VoiceTier` makes each call below a TYPE ERROR,
  * so the next rung cannot be added without every accessor being taught about it. The throw
@@ -172,13 +163,12 @@ export function cardFromRate(card: PublicRateCard, voice: VoiceTier): string {
  * DOES THIS VOICE'S LADDER ACTUALLY FALL? — the guard every sentence that narrates the
  * ladder has to pass before it promises a discount.
  *
- * ⚠ **A CARD IS NOT REQUIRED TO FALL ON BOTH VOICES, AND THE NEXT ONE DOES NOT.** The
- * founder's 14 Sep 2026 decision (`docs/PIPECAT-MIGRATION.md` §12) prices the cheaper
- * voice FLAT — ₹4.00 at every rung from ₹2,000 to ₹50,000 — while the dearer one still
- * falls ₹7.00 → ₹5.50. `credit_packs.py::card_refusals` permits it: invariant 6 refuses a
- * bigger pack that buys a DEARER minute (`>`), so equal rungs are a legal card and always
- * were. The server therefore cannot be relied on to keep the ladder sloping, and every
- * surface that says "down to X on the largest pack" has to ask first.
+ * A CARD IS NOT REQUIRED TO FALL ON BOTH VOICES, AND THE NEXT ONE DOES NOT: the next card
+ * prices the cheaper voice FLAT at ₹4.00 on every rung while the dearer one still falls
+ * ₹7.00 → ₹5.50 (`docs/PIPECAT-MIGRATION.md` §12). `credit_packs.py::card_refusals`
+ * invariant 6 refuses only a bigger pack that buys a DEARER minute, so equal rungs are a
+ * legal card. The server cannot be relied on to keep the ladder sloping, and every surface
+ * that says "down to X on the largest pack" has to ask first.
  *
  * Said in one place because the sentence is written in four (`/pricing`'s band, the rate
  * table's cheapest-rung chip, the ROI calculator's voice captions, and the console's
@@ -219,16 +209,12 @@ export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
  * figure. The rung therefore EXISTS, has a vendor, prices minutes on every credit lot — and
  * cannot be chosen.
  *
- * ⚠ **THIS PARAGRAPH SAID "Gnani publish no price of any kind" UNTIL 19 SEP 2026 AND THAT
- * WAS A NOT-FINDING WRITTEN DOWN AS A VENDOR FACT** (D-631, the failure hard rule 11
- * exists for). Their console publishes ₹27.00 / 10,000 characters
- * (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed;
- * VENDOR-PUBLISHED). The notice below does not change, because it never rested on that
- * claim: what it tells a client is that we have not established what a minute COSTS, and a
- * catalogue rate is not an invoice. The provenance half of the old paragraph also survives
- * — the one figure already in the wild was a RESELLER's for their own platform
- * (`docs/PIPECAT-MIGRATION.md` §7), refusing it was right, and a number that later turns
- * out to match is still not a source.
+ * Gnani DO publish a catalogue rate — ₹27.00 / 10,000 characters
+ * (`app.gnani.ai/voice/pricing`, VENDOR-PUBLISHED, read by the founder 19 Sep 2026 and
+ * relayed; D-631) — and it changes nothing here, because the notice rests on our not having
+ * established what a MINUTE costs and a catalogue rate is not an invoice. The other figure
+ * in the wild is a RESELLER's for their own platform (`docs/PIPECAT-MIGRATION.md` §7); a
+ * number that turns out to match is still not a source.
  *
  * A public page that goes on leading with its rate, and a client screen that goes on saying
  * a new agent starts on it, would both be advertising a voice nobody can be put on. This is

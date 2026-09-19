@@ -50,7 +50,7 @@
  * 36px box draws 36x30. The numbers passed by callers are canvas sizes; the comments
  * beside them say what ink that yields.
  *
- * ⚠ THE TWO LOCKUPS ARE NOT THE SAME CANVAS ANY MORE. The new without-tagline master is
+ * THE TWO LOCKUPS ARE NOT THE SAME CANVAS. The without-tagline master is
  * 2171 wide against the with-tagline's 2172 — one pixel, 0.05%, invisible — but it means
  * `wordmark.png` and `lockup.png` are both emitted at exactly 720x240 from canvases whose
  * ratios differ in the fourth decimal. That is deliberate: a shared output size keeps the
@@ -59,11 +59,10 @@
  *
  * ## The size is stated ONCE
  *
- * The first spelling of these call sites passed `height={40}` AND `className="h-10"` —
- * the same number twice, in two languages, with nothing keeping them equal. An `<img>`
- * carrying `width` and `height` attributes and no CSS already renders at exactly that
- * size, so the attributes do the whole job and the classes are gone. A caller that
- * genuinely needs responsive sizing can still pass `className`; none does.
+ * Never `height={40}` AND `className="h-10"` — the same number twice, in two languages,
+ * with nothing keeping them equal. An `<img>` carrying `width` and `height` and no CSS
+ * renders at exactly that size, so the attributes do the whole job. A caller that genuinely
+ * needs responsive sizing can still pass `className`; none does.
  */
 
 const BRAND = "/brand";

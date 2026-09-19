@@ -351,11 +351,10 @@ const LIST_RATE = "list";
  * render selected) resolves to the list rate rather than to nothing, so a stale choice can
  * never price the comparison at `NaN`.
  *
- * ⚠ **THE VOICE IS NOT OPTIONAL AND HAS NO DEFAULT HERE.** It used to read
- * `effective_rate_inr_per_min`, a single rate per pack; since D-547 a pack has one rate per
- * voice and the deprecated field holds the CHEAPER of the two. A voice-less reader would
- * therefore have quoted the cheaper voice for both — an under-quote on a public page, which
- * is the direction that gets somebody a bill they were not shown.
+ * THE VOICE IS NOT OPTIONAL AND HAS NO DEFAULT. A pack has one rate per voice (D-547) and
+ * the deprecated `effective_rate_inr_per_min` holds the CHEAPER of the two, so any
+ * voice-less reader quotes the cheaper voice for both — an under-quote on a public page,
+ * the direction that gets somebody a bill they were not shown.
  */
 function rateFor(
   card: PublicRateCard,
@@ -389,13 +388,11 @@ function voiceOptions(
   card: PublicRateCard,
 ): readonly { id: VoiceTier; label: string; caption: string }[] {
   return VOICE_TIERS.map((voice) => {
-    // ⚠ THE PACK SENTENCE WAS UNCONDITIONAL AND ADVERTISED A DISCOUNT THE CARD MAY NOT
-    // GRANT. On a voice priced flat it rendered "₹4.00/min … Down to ₹4.00/min on the
-    // deepest pack" — the label and the caption quoting one figure as if either were a
-    // saving on the other. The next card prices the cheaper voice exactly that way
-    // (`docs/PIPECAT-MIGRATION.md` §12), and `card_refusals` has always permitted it.
-    // `ladderFalls` is the guard `/pricing`'s `bandSentence` already applied; this is the
-    // same question asked once more rather than a second way of asking it.
+    // The pack sentence is CONDITIONAL: a card may price a voice flat (`card_refusals`
+    // permits equal rungs, and the next card prices the cheaper voice that way —
+    // `docs/PIPECAT-MIGRATION.md` §12), and unguarded this renders "₹4.00/min … Down to
+    // ₹4.00/min on the deepest pack" — one figure quoted as a saving on itself.
+    // `ladderFalls` is the same guard `/pricing`'s `bandSentence` applies.
     const pack = ladderFalls(card, voice)
       ? ` Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`
       : "";
@@ -403,27 +400,18 @@ function voiceOptions(
       id: voice,
       label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption:
-        // ⚠ THIS ARM SAID "The everyday voice, and where every agent starts." AND BOTH
-        // HALVES STOPPED BEING TRUE ON 18 SEP 2026 (D-629). Sarvam was removed from the
-        // synthesis leg; the rung is Gnani's, and hard rule 7 keeps every voice in it out
-        // of what anyone can be put on until an operator attests an INVOICE figure — Gnani
-        // do publish a catalogue rate (D-631, corrected 19 Sep 2026; this comment said they
-        // published none), and a catalogue rate is not an invoice. No agent
-        // starts here and none can be moved here. The rate is REAL and stays on the label,
-        // because it is frozen on any credit bought today — what changed is that it is not
-        // a voice on offer, and the notice is the one place that sentence is written.
+        // No agent can start on or be moved to this rung: hard rule 7 wants an operator's
+        // attested INVOICE figure and Gnani publish only a catalogue rate (D-631), which is
+        // not one. The RATE is real and stays on the label — it is frozen on any credit
+        // bought today — so what the caption has to say is that the voice is not on offer,
+        // and the notice is the one place that sentence is written.
         voice === UNPRICED_TIER
           ? UNPRICED_TIER_NOTICE
-          : // ⚠ THIS COMMENT SAID "the voice picker is mounted in the admin realm only and
-            // changing a voice is ours (D-21)", AND D-586 (11 Sep 2026) SUPERSEDED THAT
-            // for the `live` lane: the client-realm door `PATCH /v1/agents/{agent_id}/voice`
-            // carries `agents:write` for `owner` and `staff`, and the picker is mounted at
-            // `app/c/[slug]/agents/panels/delivery.tsx:165`. The RENDERED sentence was
-            // never wrong — it claims per-agent and no more — but a false premise sitting
-            // above true copy is how the next author "restores consistency" in the wrong
-            // direction, which is what happened to `/pricing` and to two console screens.
-            // Per-agent is the true and load-bearing half — it is why this calculator
-            // prices one voice at a time — so it stays said as the property it is.
+          : // Per-agent is the load-bearing half — it is why this calculator prices one
+            // voice at a time — and the client sets it themselves: `PATCH /v1/agents/
+            // {agent_id}/voice` is a client-realm door carrying `agents:write` for `owner`
+            // and `staff` (D-586), with the picker at
+            // `app/c/[slug]/agents/panels/delivery.tsx`.
             `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account.${pack}`,
     };
   });
@@ -434,10 +422,8 @@ function voiceOptions(
  * first option is where a keyboard user lands), then every pack with its rate and talk time
  * ON THE CHOSEN VOICE — the two numbers a buyer reasons about, both from the response.
  *
- * ⚠ The caption used to end with "N% bonus credit". No pack grants one since D-547 — the
- * discount IS the falling rate — so the sentence would have advertised a benefit that no
- * longer exists, from a field (`bonus_pct`) that is zero on every rung and leaves the wire
- * next release.
+ * No caption mentions bonus credit: no pack grants any since D-547 — the discount IS the
+ * falling rate — and `bonus_pct` is zero on every rung and leaves the wire next release.
  */
 function rateOptions(
   card: PublicRateCard,
@@ -497,15 +483,12 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // DEFAULTS TO THE LIST RATE. See the header: pre-selecting the cheapest pack would be
   // the one thing this tool promises not to do.
   const [rateChoice, setRateChoice] = useState<string>(LIST_RATE);
-  // ⚠ **IT DEFAULTED TO THE CHEAPER VOICE UNTIL 18 SEP 2026, ON A REASON D-629 REVERSED.**
-  // That default was "it is what a new agent gets" — and since D-629 no agent can get it:
-  // the cheaper rung is Gnani's and no voice in it is offerable (hard rule 7 wants an
-  // attested invoice figure; Gnani's published catalogue rate is not one — see D-631, which
-  // corrected this comment's "Gnani publish no price" on 19 Sep 2026). Opening on it would price the whole comparison at a rate no agent this
-  // buyer signs up for can actually run at, which is an UNDER-quote on a public page — the
-  // same direction `rateFor`'s own warning above is about. So it opens on the voice an
-  // agent can be put on, and the cheaper one keeps its rate, its radio and the notice
-  // saying why it cannot be chosen. Flip this back the day the Gnani price is attested.
+  // OPENS ON THE VOICE AN AGENT CAN ACTUALLY BE PUT ON. No voice in the cheaper rung is
+  // offerable (hard rule 7 wants an attested invoice figure; Gnani's catalogue rate is not
+  // one, D-631), so opening there would price the whole comparison at a rate this buyer
+  // cannot run at — an UNDER-quote on a public page, the direction `rateFor`'s warning
+  // above is about. The cheaper voice keeps its rate, its radio and the notice saying why
+  // it cannot be chosen. Flip this back the day the Gnani price is attested.
   const [voice, setVoice] = useState<VoiceTier>("studio");
   const { rate: selectedRate, pack: selectedPack } = rateFor(
     card,
@@ -1243,14 +1226,10 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 <span className="font-medium text-ink">Calevate</span> = calls a
                 day × average length × {formatRateINR(selectedRate)}/min ×
                 working days.{" "}
-                {/* ⚠ THIS BULLET LED WITH THE CHEAPER VOICE'S LIST RATE — `card
-                    .list_rate_inr_per_min`, which is the Clear column — while the
-                    arithmetic above it ran at whatever voice was selected. That was
-                    survivable while the two agreed on the default; since D-629 the default
-                    is Studio and the Clear voice cannot be chosen at all, so leading with
-                    its figure would have explained a sum with a rate the sum did not use.
-                    The order is now: the voice this opened on, then the other one with why
-                    it is not selectable. */}
+                {/* The bullet leads with the voice this opened on, then the other with why
+                    it is not selectable. Leading with `card.list_rate_inr_per_min` (the
+                    Clear column) would explain the sum above with a rate the sum did not
+                    use, since the arithmetic runs at whatever voice is selected. */}
                 {formatRateINR(rateFor(card, "studio", LIST_RATE).rate)}/min is
                 our published self-serve list rate on the{" "}
                 {tierLabel(card, "studio")} voice, read from our own rate card

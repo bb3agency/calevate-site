@@ -16,7 +16,7 @@ import { publicPageMetadata } from "@/lib/seo/metadata";
  * because a legal page that depends on a running API is a legal page that 500s during an
  * incident.
  *
- * ⚠ THESE ARE NOT PRERENDERED, AND THIS COMMENT SAID THEY WERE (corrected 7 Sep 2026). The
+ * ⚠ THESE ARE NOT PRERENDERED, whatever this function looks like. The
  * root layout is `force-dynamic` because a CSP nonce suppresses `'self'` for inline scripts
  * and a prerendered route ships its RSC payload tags bare — which was a total white screen
  * in production once. `force-dynamic` at the root overrides this segment, so
@@ -32,7 +32,7 @@ export function generateStaticParams(): { slug: string }[] {
 }
 
 /**
- * ⚠ THE NOT-FOUND BRANCH IS `noindex`, AND THAT IS THE POINT OF IT BEING SEPARATE.
+ * THE NOT-FOUND BRANCH IS `noindex`, which is why it is a separate branch at all.
  *
  * `/legal/gdpr` renders the 404 screen (`notFound()` below) but Next has already resolved
  * this function, and a soft-404 that carries a canonical URL is how a nonexistent page

@@ -27,16 +27,16 @@ VARIABLE NAMES. Every credential below is spelled exactly as its `Settings` fiel
 spelled, so the founder installs one value under one name in the ops console and in the
 Pipecat Cloud secret set, and `scripts/check_env_parity.py` can still see every name this
 module reads (the two that are not `Settings` fields are registered there with their
-reason). ⚠ **THAT COUNT WAS FOUR UNTIL D-614**: the carrier pair below are `Settings`
-fields now — classified `ENV_ONLY`, so the ops console SHOWS them with the reason they can
-only come from this container's environment and refuses to store a value nothing here
-could read. Nothing about how this module reads them changed.
+reason).
 
-⚠ **AND THE COUNT MOVED AGAIN WITH D-621**: `PIPECAT_WORKER_API_BASE_URL` is a `Settings`
-field classified `ENV_ONLY` (nothing on the VPS reads it), while `PIPECAT_WORKER_API_TOKEN` is
-CONSOLE-MANAGED — `apps/api/worker/service.authorized` verifies the header against it, so it
-has a reader on that host and belongs in the credential store. Same value, two homes, one
-human putting it in both.
+⚠ **`ENV_ONLY` AND CONSOLE-MANAGED ARE DIFFERENT CLASSIFICATIONS AND BOTH APPEAR HERE.**
+The carrier pair and `PIPECAT_WORKER_API_BASE_URL` are `Settings` fields classified
+`ENV_ONLY`: the ops console SHOWS them with the reason they can only come from this
+container's environment and refuses to store a value nothing on the VPS reads.
+`PIPECAT_WORKER_API_TOKEN` is CONSOLE-MANAGED instead, because
+`apps/api/worker/service.authorized` verifies the header against it — a real reader on that
+host, so it belongs in the credential store. Same value, two homes, one human putting it in
+both.
 
 **WHERE EACH VALUE COMES FROM.** There is no `.env` in this container and no ops console
 to read: the console's `platform_secrets` rows are sealed with `PLATFORM_KEK`, and
@@ -85,14 +85,13 @@ from voice_worker.vendor_logging import install_vendor_log_guard
 
 #: WHERE `apps/api` IS, AND THE CREDENTIAL THIS CONTAINER PRESENTS TO IT (D-621).
 #:
-#: ⚠ **`DATABASE_URL` USED TO BE HERE AND IS GONE.** This process cannot reach our Postgres
-#: at all: the database is on the VPS host behind the Docker bridge and this container runs
-#: on Pipecat Cloud, a different network (`docs/DEPLOYMENT.md` §12.5 gate 6, found by running
-#: `pipecat-worker-setup.sh sources` on the real host, where `psql` could not translate
-#: `host.docker.internal`). A DSN in this secret set was a value that could never have
-#: connected — which is worse than a missing one, because it looks configured. The published
-#: configuration is now READ over HTTP and the call's events are POSTED over HTTP, so what
-#: this container needs is an address and a token.
+#: ⚠ **NO `DATABASE_URL` BELONGS IN THIS SECRET SET.** This process cannot reach our
+#: Postgres at all: the database is on the VPS host behind the Docker bridge and this
+#: container runs on Pipecat Cloud, a different network (`docs/DEPLOYMENT.md` §12.5 gate 6 —
+#: `psql` on the real host cannot translate `host.docker.internal`). A DSN here is a value
+#: that could never connect, which is worse than a missing one because it looks configured.
+#: The published configuration is READ over HTTP and the call's events are POSTED over HTTP,
+#: so what this container needs is an address and a token.
 #:
 #: NEITHER IS OPTIONAL. A worker with no API to talk to can read no agent and record no
 #: call, which is the same class of failure `EventSinkNotBuiltError` used to refuse at boot:
@@ -460,12 +459,6 @@ def build_event_sink(
 ) -> NormalizedEventSink:
     """The normalized event writer for ONE call.
 
-    ⚠ **THIS USED TO RAISE `EventSinkNotBuiltError` AND TAKE AN `AsyncEngine`**, on the
-    honest ground that the writer did not exist and a container with nowhere to write a
-    transcript must not answer a phone. Both halves of that are settled: the writer exists
-    (`sink.HttpEventSink`, posting to `apps/api/worker`), and the engine it took is gone with
-    the database connection (D-621, §12.5 gate 6).
-
     **PER CALL AND NOT PER CONTAINER**, which is the one shape decision here and is
     `HttpEventSink`'s own: a sink holds the four ids of one session, and that is what makes
     the identity refusal possible at all. A process-wide sink would have to infer a turn's
@@ -491,14 +484,9 @@ class WorkerRuntime:
     sized against ONE workload", and `session.py` keeps the pack cache at module scope for
     the same reason. This is the module those two were deferring to.
 
-    ⚠ **THERE IS A SHARED HTTP CLIENT HERE NOW, AND THIS DOCSTRING USED TO SAY THERE WAS
-    NOT** (D-621). The reason it said so was sound and has simply expired: the only
-    candidate consumer was `embedding.py`'s dense arm, which nothing in this container can
-    construct (hard rule 7's pre-flight for it is a question this deployable deliberately
-    cannot ask), so a client opened here would have been "a connection pool nobody uses and
-    a field nobody reads". Every call now makes at least three requests to `apps/api` — the
-    session read, the observation flushes and the settlement — because this container cannot
-    reach our Postgres at all (§12.5 gate 6). The pool has a reader, and one client per
+    **THE SHARED HTTP CLIENT EARNS ITS PLACE** (D-621): every call makes at least three
+    requests to `apps/api` — the session read, the observation flushes and the settlement —
+    because this container cannot reach our Postgres at all (§12.5 gate 6). One client per
     process is what stops each of those re-doing DNS, TCP and TLS.
 
     **THE EMBEDDER STILL BRINGS ITS OWN**, and that is not an oversight either: it takes its

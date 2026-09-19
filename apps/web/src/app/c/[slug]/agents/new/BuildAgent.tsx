@@ -78,12 +78,10 @@ export function BuildAgent({ slug }: { slug: string }) {
    * neither client role holds it, so gating on it would disable this button for exactly
    * the person it was built for.
    *
-   * ⚠ THIS COMMENT SAID "an operator who followed view as client holds every read on this
-   * screen and no write" AND THAT IS NO LONGER TRUE (D-587): `org:manage` is writable in a
-   * view-as session and no named act covers creating an agent, so `/v1/me` sends the
-   * permission through and this form is live for an operator — which is the support job
-   * the reversal exists for. The gate stays because `staff` still does not hold it, and a
-   * failed `/v1/me` must still close the button WITH a sentence rather than silently.
+   * An operator in a view-as session CAN use this form: `org:manage` is writable there and
+   * no named act covers creating an agent (D-587), so `/v1/me` sends the permission
+   * through. The gate stays because `staff` does not hold it, and a failed `/v1/me` must
+   * close the button WITH a sentence rather than silently.
    */
   const write = useWriteAccess(session, "org:manage", "create an agent");
 
@@ -107,17 +105,15 @@ export function BuildAgent({ slug }: { slug: string }) {
    * string into a closed union, so a model naming a language this build does not ship
    * changes nothing instead of putting an unsubmittable value in the control.
    *
-   * ## ONCE THE AGENT EXISTS THIS DECLARES THE SUCCESS PANEL, AND IT USED TO DECLARE
-   * `null`
+   * ## ONCE THE AGENT EXISTS THIS DECLARES THE SUCCESS PANEL, NOT `null`
    *
-   * The old reasoning was that "a launcher over a screen with nothing to fill in is the
-   * failure the dock refuses to ship". That is right about a launcher over a screen the
-   * assistant cannot SEE, and wrong about this one: the success panel is precisely where
-   * a first-time owner asks "so what happens now" — the gap between "created" and "able
-   * to take calls" is the thing this component's own docstring says needs explaining —
-   * and the copilot answers that from its read tools plus the facts below. A button that
-   * vanishes at the moment of a person's first question teaches the same "it is broken"
-   * lesson the dock was avoiding, from the other end.
+   * "A launcher over a screen with nothing to fill in is the failure the dock refuses to
+   * ship" is right about a screen the assistant cannot SEE, and wrong here: the success
+   * panel is exactly where a first-time owner asks "so what happens now" — the gap between
+   * "created" and "able to take calls" that this component exists to explain — and the
+   * copilot answers it from its read tools plus the facts below. A button that vanishes at
+   * the moment of a person's first question teaches the same "it is broken" lesson from the
+   * other end.
    *
    * The FIELDS still go away with the form, which is the half that was actually load
    * bearing: nothing is offered to fill, because there is nothing on screen to fill.

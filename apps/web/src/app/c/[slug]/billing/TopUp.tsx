@@ -278,23 +278,18 @@ export function TopUp({ session }: { session: Session }) {
               intent.mutate({ packId }, { onSuccess: onIntent });
             }}
           />
-          {/* ONE LINE UNDER THE PRICES. It used to say every pack buys the same voice, which
-              was true of a one-quality catalogue and is now false: a pack quotes TWO rates
-              and which one prices a call depends on the voice the agent that took it speaks
-              with. What survives is the sentence that has to be read next to the numbers —
-              the price you buy at is fixed on the purchase, so a rate change later leaves
-              credit you already own alone. `WhatCallsCost` argues both properly on the same
-              screen. Only rendered with the names, for `labels`' reason above. */}
+          {/* ONE LINE UNDER THE PRICES: a pack quotes TWO rates and which one prices a
+              call depends on the voice the agent that took it speaks with, and the price
+              you buy at is fixed on the purchase. `WhatCallsCost` argues both properly on
+              the same screen. Only rendered with the names, for `labels`' reason above. */}
           {labels && (
             <p className="text-sm text-ink-muted">
-              {/* ⚠ THIS SAID "TELL YOUR ACCOUNT MANAGER WHICH VOICE YOU WANT EACH AGENT TO
-                  SPEAK WITH", WHICH WAS WRITTEN AGAINST D-21 AND IS FALSE UNDER D-586
-                  (11 Sep 2026): the client-realm door `PATCH /v1/agents/{agent_id}/voice`
-                  carries `agents:write` for `owner` and `staff`, and the picker sits on
-                  the client's own agent screen
-                  (`app/c/[slug]/agents/panels/delivery.tsx:165`). Same sentence as
-                  `WhatCallsCost`, in the same register, because two wordings of one rule is
-                  how a client comes to believe the more generous one. */}
+              {/* The client sets the voice themselves, never "tell your account manager":
+                  `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for `owner` and
+                  `staff` (D-586), with the picker on their own agent screen
+                  (`app/c/[slug]/agents/panels/delivery.tsx`). Word for word the same as
+                  `WhatCallsCost`, because two wordings of one rule is how a client comes to
+                  believe the more generous one. */}
               Every pack buys both voice qualities, and which one prices a call is set per
               agent — you choose that on each agent&rsquo;s own screen. A bigger pack makes
               each minute cheaper, and the rates on the pack you buy stay with that credit

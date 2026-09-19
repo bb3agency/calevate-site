@@ -44,10 +44,10 @@ function blockedRemedy(rule: string | null | undefined): ReactNode {
   // named here on purpose — a client who lands on the screen sees the balance and the
   // limit without being told which tab to press, and a tab name is one more thing that
   // goes stale on a screen this sentence cannot see.
-  // ⚠ THIS USED TO OPEN "People ringing you still get through", which D-551 made false:
-  // an empty wallet now silences answering as well as dialling. The server's own sentence
-  // (`compliance.service.NO_CREDITS_REASON`) already says both halves stopped, so this
-  // adds only what it cannot know — where the button is, and that one payment undoes both.
+  // NEVER "people ringing you still get through": an empty wallet silences answering as
+  // well as dialling (D-551). The server's own sentence
+  // (`compliance.service.NO_CREDITS_REASON`) already says both halves stopped, so this adds
+  // only what it cannot know — where the button is, and that one payment undoes both.
   if (rule === "no_credits") {
     return (
       <>
@@ -91,15 +91,13 @@ export function CallControl({
         <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
           {result.blocked_reason ?? "This call was not allowed."}
-          {/* THE RULE NAME USED TO BE PRINTED HERE, in brackets, to the client: a refused
-              dial read "This account has no calling credit left. (no_credits)". That is
-              the platform's own vocabulary handed to the person it refused, and it tells
-              them nothing they can act on — the founder's standard for client-facing copy
-              bans it, and `tests/plainLanguageGuard.test.ts` now enforces the literal
-              half of that rule (this one was a variable, which is why it survived).
-              What replaces it is the thing the name was standing in for: WHERE the two
-              money refusals are fixed. Everything else keeps the server's sentence
-              alone, which already names its own remedy. */}
+          {/* NEVER PRINT THE RULE NAME to the client — "This account has no calling credit
+              left. (no_credits)" hands the platform's own vocabulary to the person it
+              refused and tells them nothing they can act on.
+              `tests/plainLanguageGuard.test.ts` enforces the literal half of that rule; a
+              rule name in a variable slips past it. What goes here instead is what the
+              name was standing in for: WHERE the two money refusals are fixed. Every other
+              rule keeps the server's sentence alone, which names its own remedy. */}
           {blockedRemedy(result.blocked_rule)}
         </span>
       </span>

@@ -1,12 +1,11 @@
 """The four in-call tools an `owned_runtime` agent may call, and the client behind them.
 
-**WHAT WAS WRONG.** `pipeline.assemble_call` advertised ONE tool — the knowledge search —
-while `apps/voice-runtime/tool_routes.py` serves FOUR on the rented engine. So an agent on
-this engine could not honour a caller's opt-out, could not book or cancel a call-back, and
-could not ask for a person. "Which tools does an agent have" had two answers depending on
-which engine it happened to run on, which is the two-ways-of-doing-one-thing the quality
-bar refuses — and the opt-out half of it was a compliance defect (hard rule 5,
-SEC-COMP §2.3): no path existed by which "stop calling me" reached the DNC list at all.
+**FOUR, BECAUSE `apps/voice-runtime/tool_routes.py` SERVES FOUR ON THE RENTED ENGINE.**
+"Which tools does an agent have" must not have two answers depending on which engine it
+happens to run on. Advertising only the knowledge search here leaves an agent unable to
+honour a caller's opt-out, book or cancel a call-back, or ask for a person — and the
+opt-out half is a compliance defect (hard rule 5, SEC-COMP §2.3): no path by which "stop
+calling me" reaches the DNC list at all.
 
 **THE BEHAVIOUR IS THE SERVER'S AND THIS MODULE HOLDS NONE OF IT.** Every decision — what
 an opt-out does, whether a time is lawful to dial, whether a booking was confirmed, what
@@ -77,7 +76,7 @@ _ToolOut = TypeVar("_ToolOut", bound=BaseModel)
 #: model would see "the function failed and returned no result" and say something it made
 #: up, on a turn where the caller has just asked not to be called again.
 #:
-#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT, AND IT IS STATED AS ONE.** Nobody has timed a
+#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT.** Nobody has timed a
 #: request from a Pipecat Cloud `ap-south` container to our API
 #: (`docs/evidence/pre-build-blockers-2026-09-13.md` §3.6), which is the same gap
 #: `api_client.SESSION_FETCH_BUDGET_S` carries and says so. What does not depend on the

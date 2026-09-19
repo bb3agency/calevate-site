@@ -74,11 +74,10 @@ export function preferenceScrubPath(tenantId: string, campaignId: string): strin
 /**
  * The step-up string, spelled ONCE here.
  *
- * It mirrors `national_dnd_routes.preference_scrub_confirmation` exactly. ⚠ It is
- * `record_preference_scrub:<id>` and NOT `preference_scrub:<id>` — the shorter spelling
- * was what a previous reading of this route recorded from memory, and a console sending
- * it would have every scrub refused with a header the operator could not debug. Read the
- * function, not the route's prose.
+ * It mirrors `national_dnd_routes.preference_scrub_confirmation` exactly, and it is
+ * `record_preference_scrub:<id>` and NOT `preference_scrub:<id>`: the shorter spelling has
+ * every scrub refused with a header the operator cannot debug. Read the function, not the
+ * route's prose.
  */
 export function preferenceScrubConfirmation(campaignId: string): string {
   return `record_preference_scrub:${campaignId}`;

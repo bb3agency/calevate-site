@@ -10,13 +10,11 @@
  * answer even when the product does not have one — so the two questions with no settled
  * answer are answered with the SHAPE of the arrangement and no figure:
  *
- * - **Cost.** ⚠ **D-34's self-serve tier HAS a published number now** (D-545/D-547: a
- *   static pack card served at `GET /v1/public/rate-card`), and this bullet said it did
- *   not. So the answer separates the two: the prepaid card is published and lives on
- *   `/pricing`, while D-11's managed pricing is negotiated per client and still has no
- *   publishable figure — every money column on `plans` is nullable with no default. No
- *   number appears HERE either way, because this component is handed no card and a typed
- *   one would be a quote nobody can honour.
+ * - **Cost.** Two answers: the prepaid card IS published (D-545/D-547, served at
+ *   `GET /v1/public/rate-card`) and lives on `/pricing`, while D-11's managed pricing is
+ *   negotiated per client and has no publishable figure — every money column on `plans` is
+ *   nullable with no default. No number appears HERE either way, because this component is
+ *   handed no card and a typed one would be a quote nobody can honour.
  * - **Getting started.** Written so it is true on both sides of
  *   `self_serve_signup_enabled` — the flag-dependent sentence belongs to the doors
  *   section, which reads the flag, and duplicating it here would be a second place to
@@ -66,32 +64,23 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "What does it cost?",
     /*
-     * ⚠ THIS ANSWER USED TO SAY THE PRICE IS NEVER PUBLISHED, AND HALF OF IT IS (D-545,
-     * D-547). There are two ways to buy and they have opposite answers: prepaid credit is
-     * a published card — a per-minute rate on each of the two voices, falling as the pack
-     * gets bigger, served from `GET /v1/public/rate-card` and printed on `/pricing` — while
-     * a MANAGED plan is negotiated per client (D-11) and genuinely has no publishable
-     * figure. Saying only the second, on a site that prints the first, reads as a refusal
-     * to say what anything costs.
+     * BOTH WAYS TO BUY GET AN ANSWER: prepaid credit is a published card served from
+     * `GET /v1/public/rate-card` and printed on `/pricing`, and a MANAGED plan is negotiated
+     * per client (D-11) with no publishable figure. Saying only the second, on a site that
+     * prints the first, reads as a refusal to say what anything costs.
      *
-     * NO FIGURE HERE, and there cannot be one: this is a static client component with no
-     * card in hand, and a rate typed into it would be the drift `lib/api/rateCard.ts`
-     * exists to prevent. It points at the page that holds the live numbers instead — and
-     * it does so without the words "per minute" or "pricing", because this block renders
-     * on the HOMEPAGE, where `tests/publicLanding.test.tsx` bans a price, a fee and the
+     * NO FIGURE AND NO LADDER-SHAPE CLAIM HERE, and there cannot be either: this is a
+     * `"use client"` component holding no card, so a typed rate is the drift
+     * `lib/api/rateCard.ts` exists to prevent, and "the rate comes down the more you buy"
+     * is false of a card that prices a voice flat — which the next one does for the cheaper
+     * voice (`docs/PIPECAT-MIGRATION.md` §12). Every other surface asks
+     * `rateCard.ladderFalls` first; this one cannot, so it may only write what is true of
+     * every card. If it ever needs a shape claim it needs the card, and then it is not this
+     * file.
+     *
+     * The link is worded without "per minute" or "pricing" because this block renders on
+     * the HOMEPAGE, where `tests/publicLanding.test.tsx` bans a price, a fee and the
      * vocabulary of one outside the ROI calculator.
-     */
-    /*
-     * ⚠ "COMING DOWN THE MORE CREDIT YOU BUY AT ONCE" WAS CUT ON 14 SEP 2026, AND IT WAS
-     * NOT A STYLE EDIT. It asserted the SHAPE of the ladder about BOTH voices, from a
-     * static component with no card in hand — and the next card does not have that shape:
-     * the founder's 14 Sep decision prices the cheaper voice FLAT at ₹4.00 on every rung
-     * while the dearer one still falls (`docs/PIPECAT-MIGRATION.md` §12). Every other
-     * surface that narrates the ladder now asks the card first (`rateCard.ladderFalls`);
-     * this one CANNOT — it is a `"use client"` component on the homepage, deliberately
-     * holding no figures — so the only sentence it may write is the one that is true of
-     * every card: the ladder is published, and the price list has it. Do not put a shape
-     * claim back here. If it needs one, it needs the card, and then it is not this file.
      */
     a:
       "Two answers, depending on how you buy. Prepaid calling credit is published: a " +
@@ -103,33 +92,23 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "Where does the agent get its answers from?",
     /*
-     * THIS ANSWER USED TO SAY "from the material you upload", AND IT WAS UNBACKED.
+     * THE ANSWER IS "approved facts compiled into the agent's prompt", never "the material
+     * you upload": the second sends a buyer looking for a control, and built-in facts also
+     * answer FASTER than a lookup, which is the sentence a buyer should get.
      *
-     * In-call retrieval is T0 and nothing else — the approved facts are compiled into
-     * the agent's own prompt at publish time (`docs/TRD.md:948`, `apps/api/agents/t0.py`).
-     * There is no document-backed retrieval and no upload: the engine's built-in KB is
-     * off (`apps/api/engine/bolna.py:2484`), `attach_kb` refuses outright
-     * (`bolna.py:3536`), `POST /v1/kb/sources` takes TEXT and refuses `url`/`file`
-     * (`apps/api/kb/routes.py:44`), and there is no file input anywhere in the console.
-     * A buyer who read "the material you upload" would look for a control that does not
-     * exist, which is a broken promise in the UI as well as a false sentence here.
+     * Grounds, as the code stands: `POST /v1/kb/sources` is text-only and refuses `url` and
+     * `file` (`apps/api/kb/service.py:77`). Everything else has moved and the copy below is
+     * therefore CONSERVATIVE rather than false —
+     * `BOLNA_CAPABILITIES.knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`),
+     * `attach_kb` uploads an approved document to the engine's own store (`bolna.py:5420`,
+     * D-488), this console has a file input
+     * (`app/c/[slug]/knowledge/AddDocument.tsx:133`, behind `POST /v1/kb/uploads`, D-534),
+     * and `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an in-process pack search
+     * registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).
      *
-     * ⚠ **EVERY GROUND IN THE PARAGRAPH ABOVE WAS RE-READ ON 15 SEP 2026 AND THREE OF THEM
-     * HAD FLIPPED.** `BOLNA_CAPABILITIES.knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`),
-     * `attach_kb` is BUILT and uploads the approved document to the engine's own store
-     * (`bolna.py:5420`, D-488, reached from `kb/service.publish_source`), and this console DOES
-     * have a file input (`apps/web/src/app/c/[slug]/knowledge/AddDocument.tsx:133`, behind
-     * `POST /v1/kb/uploads` — D-534). `PIPECAT_CAPABILITIES.knowledge_base` is `True` too, with
-     * an in-process pack search registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).
-     * `POST /v1/kb/sources` is the one that held: still text-only
-     * (`kb/service.py:77`). **The COPY below is therefore conservative rather than false** and
-     * is left as it stands; what is corrected is the evidence, because a ground quoted from a
-     * constant nobody re-read is hard rule 11's whole subject. `docs/TRD.md:802` still says
-     * in-call retrieval is "T0 and nothing else" — that is a conflict with the code above, and
-     * `docs/` wins, so it is FLAGGED here rather than silently resolved by a copy sweep.
-     *
-     * The replacement is not an apology. Built-in facts answer FASTER than a lookup, and
-     * that is the sentence a buyer should get.
+     * ⚠ UNRESOLVED CONFLICT: `docs/TRD.md:802` still says in-call retrieval is "T0 and
+     * nothing else", which the code above contradicts. `docs/` wins, so this is flagged
+     * rather than silently resolved by a copy sweep.
      */
     a:
       "From facts somebody has approved — your timings, your prices, the questions you " +

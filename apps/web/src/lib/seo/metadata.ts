@@ -44,7 +44,7 @@ export const SITE_NAME = "Calevate";
 /**
  * The locale these pages are written in.
  *
- * ⚠ `en_IN`, AND THERE ARE NO `hreflang` ALTERNATES, which is the part worth stating
+ * `en_IN`, AND THERE ARE NO `hreflang` ALTERNATES, which is the part worth stating
  * because this is a Telugu-first product and the temptation is to declare Telugu here.
  * Telugu-first describes what the AGENT SPEAKS ON A PHONE CALL. Every page of this website
  * is written in English and there is no Telugu translation of any of them —

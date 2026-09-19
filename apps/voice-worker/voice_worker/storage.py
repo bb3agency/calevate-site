@@ -35,7 +35,7 @@ from loguru import logger
 #: How long the session start may wait on object storage before the call is assembled
 #: without its knowledge base.
 #:
-#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT, AND IT IS STATED AS ONE.** This repository
+#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT.** This repository
 #: declares no PRE-ANSWER budget at all: `calevate_shared.engine.LATENCY_BUDGET` is
 #: endpointing + turn + retrieval, all of it INSIDE a connected call, and nobody has timed
 #: a pack fetch from a Pipecat Cloud `ap-south` container to our R2 bucket — that is a

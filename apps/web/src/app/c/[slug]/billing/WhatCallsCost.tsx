@@ -34,36 +34,19 @@ import {
  *
  * ## EVERY SENTENCE HERE IS A CLAIM ABOUT MONEY, SO EVERY SENTENCE HERE IS CITED
  *
- * Hard rule 11 does not stop at vendors: a figure in our own tree is a claim until
- * somebody opens the code that produces it. Each of these was read in the source before
- * being written down, and the citation is left beside the sentence so the next person
- * inherits the evidence instead of the conclusion.
+ * Hard rule 11 does not stop at vendors: a figure in our own tree is a claim until somebody
+ * opens the code that produces it, so the citation stays beside the sentence.
  *
- * 1. **TWO VOICE QUALITIES, CHOSEN PER AGENT.** ⚠ **THIS PANEL USED TO SAY THE OPPOSITE,
- *    AND THE OPPOSITE IS NOW FALSE.** It read "one voice, one rate, every call", cited to
- *    `billing/rates.py`'s note that the premium/value ladder had been deleted — true when
- *    it was written and superseded by D-547 (`docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md`
- *    §2.2, and the six-pack two-rate catalogue in `apps/api/billing/credit_packs.py`). The
- *    catalogue now carries two qualities at two per-minute rates, the choice is a property
- *    of the AGENT (plan §2.1, §3.3: the tier is derived from the chosen voice's provider,
- *    so an agent cannot hold one and be billed the other) — though the CHOICE is not the
- *    client's to make in this realm: the picker is admin-only and changing a voice is ours
- *    (D-21), so what this panel promises is that they tell us, not that they set it.
- *    ⚠ **"A NEW AGENT DEFAULTS TO THE CHEAPER ONE (§0 Q9)" WAS TRUE UNTIL 18 SEP 2026 AND
- *    THIS PANEL PRINTED IT TO PAYING CLIENTS.** D-629 removed Sarvam from the synthesis leg
- *    — it still transcribes every call and still reads the first pass over the transcript;
- *    it no longer speaks — and gave the cheaper rung to Gnani. ⚠ **THIS SAID "who publish
- *    no price at all" UNTIL 19 SEP 2026 AND IT WAS FALSE** (D-631): Gnani's console
- *    publishes ₹27.00 / 10,000 characters. Hard rule 7 keeps every voice in that rung off
- *    the picker all the same, on the ground that has always been the real one — a published
- *    catalogue price is not an invoice, and only an operator's attested invoice figure
- *    opens the offer seam — so no agent starts there and none can be moved there. The RUNG is
- *    untouched: it still prices minutes, its rate is still frozen on every purchase, and
- *    nothing a client already bought moved. What this panel says instead is
- *    `lib/api/rateCard.UNPRICED_TIER_NOTICE`, the one wording the public pages use.
- *    The rationale that survives is the one that made "one voice" a selling point:
- *    neither quality is a degraded tier, and what you hear in a demo is what a customer
- *    hears at three in the morning.
+ * 1. **TWO VOICE QUALITIES, CHOSEN PER AGENT.** The catalogue carries two qualities at two
+ *    per-minute rates (`apps/api/billing/credit_packs.py`; D-547,
+ *    `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` §2.2) and the choice is a property of the
+ *    AGENT (plan §2.1, §3.3 — the tier is derived from the chosen voice's provider, so an
+ *    agent cannot hold one and be billed the other). No agent can currently start on or be
+ *    moved to the cheaper rung: hard rule 7 keeps every voice in it off the picker until an
+ *    operator attests an invoice figure, a published catalogue price not being an invoice.
+ *    This panel says that in `lib/api/rateCard.UNPRICED_TIER_NOTICE`, the one wording the
+ *    public pages use. Neither quality is a degraded tier — what you hear in a demo is what
+ *    a customer hears at three in the morning.
  *
  * 2. **THE RATES ARE FIXED ON THE PURCHASE, AND CREDIT IS SPENT OLDEST FIRST.** Plan §2.1
  *    and §2.3 invariant 3: each purchase opens a LOT carrying the two rates it was sold at,
@@ -84,14 +67,11 @@ import {
  * 5. **Credits do not expire — but calls are not the only thing that spends them.**
  *    `credit_ledger` (migration `f170dbce6f47`) carries delta / reason / ref /
  *    balance_after / occurred_at / meta and NO expiry column; the balance is the sum of the
- *    deltas, and the only sweeping job in the tree sweeps idempotency records. ⚠ **THIS
- *    ENTRY USED TO END "nothing can take credit back except a refund", AND THE FACT BELOW
- *    IT USED TO SAY "nothing runs it down except your own calls".** Both were false in the
- *    same direction: a block of extra dashboard AI a person accepts is a `usage` debit on
- *    this wallet (`apps/api/billing/ai_quota.py`, one row, `ref = ai_assist:<YYYY-MM>`), and
- *    `WhereItWent` renders it as "Extra AI help" TWO CARDS BELOW this panel — with a
- *    "Corrections" row beside it. A claim contradicted by another panel on the same screen
- *    is the cheapest kind of wrong to find and the most expensive kind to be caught in.
+ *    deltas, and the only sweeping job in the tree sweeps idempotency records. CALLS ARE
+ *    NOT THE ONLY DRAWDOWN, and a claim that they are is contradicted two cards below on
+ *    this same screen: a block of extra dashboard AI a person accepts is a `usage` debit on
+ *    this wallet (`apps/api/billing/ai_quota.py`, one row, `ref = ai_assist:<YYYY-MM>`) and
+ *    `WhereItWent` renders it as "Extra AI help", with a "Corrections" row beside it.
  *
  * 6. **The GST position, stated as a benefit AND as a warning.** `billing/gst.py` is
  *    explicit: the legal person is a sole proprietor trading as Calevate, is NOT registered
@@ -148,15 +128,14 @@ export function WhatCallsCost({
           {VOICE_TIERS.map((tier) => (
             <div key={tier} className="flex flex-wrap items-baseline gap-x-2">
               <dt className="font-medium text-ink">{labels[tier]}</dt>
-              {/* ⚠ THE "down to X on the largest pack" HALF IS CONDITIONAL, AND WAS NOT.
-                  A card may price a voice FLAT — `credit_packs.py::card_refusals` refuses
-                  only a bigger pack that buys a DEARER minute, so equal rungs have always
-                  been a legal card, and the next one prices the cheaper voice at ₹4.00 on
-                  every rung (`docs/PIPECAT-MIGRATION.md` §12). Unguarded, this rendered
-                  "₹4.00 a minute, down to ₹4.00 on the largest pack" to a paying client:
-                  a discount offered where the card grants none, in their own billing
-                  screen. `/pricing`'s `bandSentence` already collapses this case and says
-                  why; this is the same guard, from the same helper. */}
+              {/* The "down to X on the largest pack" half is CONDITIONAL because a card
+                  may price a voice flat: `credit_packs.py::card_refusals` refuses only a
+                  bigger pack that buys a DEARER minute, so equal rungs are a legal card and
+                  the next one prices the cheaper voice at ₹4.00 on every rung
+                  (`docs/PIPECAT-MIGRATION.md` §12). Unguarded it renders "₹4.00 a minute,
+                  down to ₹4.00 on the largest pack" — a discount offered where the card
+                  grants none, in a paying client's own billing screen. Same guard as
+                  `/pricing`'s `bandSentence`, from the same helper. */}
               <dd className="tabular-nums text-ink-muted">
                 <strong className="font-semibold text-ink">
                   {formatRupeeRate(band[tier].dearest)}
@@ -186,20 +165,12 @@ export function WhatCallsCost({
               : "Two voice qualities, and each agent speaks with one of them"
           }
         >
-          {/* ⚠ THIS SAID "TELL YOUR ACCOUNT MANAGER WHICH VOICE YOU WANT AN AGENT TO
-              SPEAK WITH AND WE SET IT", AND THE CLIENT HAS HELD THAT CONTROL SINCE D-586.
-              The sentence was written against D-21, and D-586 (11 Sep 2026) supersedes it
-              for the `live` lane: `PATCH /v1/agents/{agent_id}/voice` is a CLIENT-realm
-              door, `agents:write` is on `owner` AND `staff`, and the picker is mounted on
-              the client&rsquo;s own agent screen
-              (`app/c/[slug]/agents/panels/delivery.tsx:165`). D-586 closed with "the
-              client console has no picker or cap field on these two doors yet"; that is
-              what this copy described, and it is no longer the case.
-
-              The direction matters: it sent a paying owner to a support queue for a
-              control two clicks away on a screen they already have. The per-agent half
-              was always true and is kept, and the card is NAMED so the sentence points at
-              something a reader can find rather than at a realm. */}
+          {/* The client holds this control themselves (D-586): `PATCH /v1/agents/
+              {agent_id}/voice` is a CLIENT-realm door, `agents:write` is on `owner` AND
+              `staff`, and the picker is on their own agent screen
+              (`app/c/[slug]/agents/panels/delivery.tsx`). Never send them to an account
+              manager for a control two clicks away on a screen they already have. The card
+              is NAMED so the sentence points at something a reader can find. */}
           The voice belongs to the agent, not to the account: a receptionist
           that answers all day and an outbound campaign can speak with different
           voices, and each call is charged at its own agent&rsquo;s rate. You
@@ -246,13 +217,11 @@ export function WhatCallsCost({
           icon={<InfinityIcon className="h-4 w-4" aria-hidden />}
           claim="Your credit never expires"
         >
-          {/* ⚠ THIS SAID "NOTHING RUNS IT DOWN EXCEPT YOUR OWN CALLS", TWO CARDS ABOVE A
-              PANEL THAT RENDERS "Extra AI help" AS ITS OWN DRAWDOWN ROW. A block of extra
-              dashboard AI, accepted by a person at a modal naming the figure, is one
-              `credit_ledger` debit against this wallet (`apps/api/billing/ai_quota.py`),
-              and a correction we post is another (`WhereItWent`&rsquo;s "Corrections" row).
-              Neither is a call, and both take credit off. What survives is the claim the
-              fact is actually about: nothing EXPIRES and nothing is swept. */}
+          {/* Calls are not the only drawdown: a block of extra dashboard AI is one
+              `credit_ledger` debit against this wallet (`apps/api/billing/ai_quota.py`) and
+              a correction we post is another (`WhereItWent`&rsquo;s "Corrections" row), and
+              that panel is two cards below this one. The claim this fact may make is only
+              that nothing EXPIRES and nothing is swept. */}
           Your calls run it down, and so does a block of extra dashboard AI if
           you accept one — nothing else does. It never expires and is never
           swept, so a large pack bought in a quiet month is still there in a

@@ -66,8 +66,7 @@ export type RecordTermsOut = Schemas["RecordTermsOut"];
 /**
  * The two states an operator may SET on an account.
  *
- * ⚠ **`churned` IS NOT HERE AND THIS UNION USED TO CARRY IT (D-546).** It is still a state
- * an account can BE in — every closed client holds it and `ClosureOut.status` reports it —
+ * **`churned` IS DELIBERATELY NOT HERE (D-546).** It is still a state an account can BE in — every closed client holds it and `ClosureOut.status` reports it —
  * but it is no longer one this console can move an account TO. Closing goes through
  * `lib/api/closure.ts`, which tells the client, sets an erasure date and can be undone;
  * the status flip did none of the three. Mirrors `LifecycleIn.status`, whose `Literal` the
@@ -200,13 +199,9 @@ export interface LifecycleCopy {
   needsReason: boolean;
 }
 
-// ⚠ `tone` WAS HERE AND WAS DELETED WITH THE MOVE IT DESCRIBED (D-546). It existed to
-// pick `DANGER_BUTTON` for the one irreversible entry (`churned`, tone `stop`); both
-// remaining moves are reversible, so every value it could take was `ok` or `warn` and
-// nothing read it. A field with one reader that loses its reader is a field to delete,
-// not to leave for the next person to wonder about — the same rule that put it here in
-// the first place (ux-audit F-3 found it authored and unread). The danger styling now
-// lives on the closure screen, where the irreversible act went.
+// No `tone` field: both remaining moves are reversible, so it could only ever be `ok` or
+// `warn` and nothing would read it. The danger styling lives on the closure screen, where
+// the irreversible act went (D-546).
 
 export const LIFECYCLE_COPY: Record<LifecycleStatus, LifecycleCopy> = {
   active: {

@@ -407,11 +407,10 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
 
     const alert = await screen.findByRole("alert");
     const text = alert.textContent ?? "";
-    // ⚠ THIS USED TO ASSERT THE REASSURANCE CAME FIRST ("people calling you still get
-    // through", before "Outgoing calls have stopped"). D-551 made that sentence false: at
-    // zero the agents are silenced at the engine, so an owner reading it would do nothing
-    // and their callers would be turned away all night. The banner now leads with the
-    // whole of what stopped.
+    // NO "people calling you still get through" REASSURANCE: at zero the agents are
+    // silenced at the engine too (D-551), so an owner reading that would do nothing and
+    // their callers would be turned away all night. The banner leads with the whole of
+    // what stopped.
     expect(text).not.toContain("still get through");
     expect(text).toContain(
       "outgoing calls have stopped and your agents are no longer answering incoming ones",
@@ -468,10 +467,9 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     const notice = (
       await screen.findByText(/Until there is credit on the account/)
     ).closest("[role=status]");
-    // ⚠ THIS USED TO ASSERT "already get through" led the sentence. D-551 withdrew that
-    // reassurance on day one too: an account with no credit has no answering agents
-    // either, so the day-one variant differs from the run-out one only in TENSE — it says
-    // what will not happen rather than what has stopped.
+    // The same withdrawal applies on day one (D-551): an account with no credit has no
+    // answering agents either, so this variant differs from the run-out one only in TENSE
+    // — what will not happen, rather than what has stopped.
     expect(notice?.textContent).toContain("will not answer incoming ones");
     expect(notice?.textContent).not.toContain("get through");
     // And the thing that did not happen is not reported as though it had: nothing "ran
@@ -631,12 +629,11 @@ describe("the credit itself: what is left, and at which rates", () => {
 
   it("takes the RATE COLUMNS from the server's own tier order, not from a constant here", async () => {
     /*
-     * ⚠ **THE SILENT ONE.** The headings iterated `lots.tiers` (the server's order) and the
-     * cells iterated the browser constant `VOICE_TIERS` — two independently declared
-     * orderings that agreed by coincidence. Reorder the server's tiers and every lot row
-     * puts the dearer voice's rate under the cheaper voice's heading: a wrong per-minute
-     * price on the screen a client checks their bill against, with nothing failing
-     * anywhere and no way for them to know.
+     * A SILENT FAILURE: headings iterating `lots.tiers` (the server's order) while cells
+     * iterate the browser constant `VOICE_TIERS` is two independently declared orderings
+     * agreeing by coincidence. Reorder the server's tiers and every lot row puts the dearer
+     * voice's rate under the cheaper voice's heading — a wrong per-minute price on the
+     * screen a client checks their bill against, with nothing failing anywhere.
      *
      * So the fixture REVERSES the tier order and nothing else. The rates are the same
      * strings; what is asserted is that each one lands in the column named for its own
@@ -1213,7 +1210,7 @@ describe("the states that are not a balance", () => {
  */
 describe("the explainer's claims about the money", () => {
   it("names extra AI help as something that draws the credit down", async () => {
-    // IT USED TO SAY "Nothing runs it down except your own calls" — TWO CARDS ABOVE
+    // "Nothing runs it down except your own calls" is contradicted two cards below by
     // "Extra AI help", which `WhereItWent` renders from `drawdown.ai_assist_inr` (₹300.00
     // on this fixture) because a block of dashboard AI a person accepts is a debit on this
     // wallet (`apps/api/billing/ai_quota.py`).
@@ -1248,13 +1245,10 @@ describe("the explainer's claims about the money", () => {
   });
 
   it("names the screen a client changes the voice on, rather than a person", async () => {
-    // ⚠ THIS ASSERTED `/tell your account manager/i` AND WAS PINNING AN EXPIRED CLAIM.
-    // It cited D-21; **D-586 (11 Sep 2026) supersedes D-21 for the `live` lane**: the
-    // client-realm door `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for
-    // `owner` and `staff`, and the picker is mounted on the client's own agent screen
-    // (`app/c/[slug]/agents/panels/delivery.tsx:165`, inside the card "How it sounds, and
-    // how long a call may run"). The explainer was sending a paying owner to a support
-    // queue for a control two clicks away.
+    // The client changes the voice themselves (D-586): `PATCH /v1/agents/{agent_id}/voice`
+    // carries `agents:write` for `owner` and `staff`, with the picker on their own agent
+    // screen (`app/c/[slug]/agents/panels/delivery.tsx`). "Tell your account manager" sends
+    // a paying owner to a support queue for a control two clicks away.
     //
     // The CARD is named rather than the realm, because a sentence that says where a
     // control is can be acted on and one that says whose it is cannot.

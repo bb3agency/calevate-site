@@ -131,11 +131,10 @@ export function HeroCallSim() {
               >
                 <div
                   /*
-                   * ⚠ THREE CONTRAST FIXES HERE, ALL FOUND BY AXE IN A REAL CHROMIUM ON
-                   * 9 SEP 2026 AND NONE OF THEM VISIBLE TO THE SUITE (jsdom has no layout,
-                   * so `tests/a11y.ts` disables `color-contrast` and says the palette is
-                   * where it is settled — which is true of a token on a token and not of a
-                   * token on a TRANSLUCENT ground, which is what these bubbles are):
+                   * THREE CONTRAST PAIRINGS THE UNIT SUITE CANNOT SEE — jsdom has no
+                   * layout, so `tests/a11y.ts` disables `color-contrast`, which is safe for
+                   * a token on a token and not for a token on a TRANSLUCENT ground, which
+                   * is what these bubbles are. Only axe in a real Chromium catches them:
                    *
                    * 1. the agent bubble kept `bg-brand-soft` (a light token, the same value
                    *    in both palettes) while its text went to `text-ink` under `dark:` —

@@ -35,7 +35,7 @@
  * and `/c/`. Every page in `PUBLIC_ROUTES` below is served on the apex and only on the
  * apex, so the apex is the canonical origin for all of them.
  *
- * ⚠ NOT AN ENVIRONMENT VARIABLE, and that is a decision rather than an omission. A
+ * NOT AN ENVIRONMENT VARIABLE, deliberately. A
  * `NEXT_PUBLIC_SITE_ORIGIN` would be inlined at build time and would ship as the empty
  * string wherever it was not set (`next.config.ts` opens with that failure mode), and the
  * symptom of an empty canonical origin is not a crash — it is a sitemap full of relative

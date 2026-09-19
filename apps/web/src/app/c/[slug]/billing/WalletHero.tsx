@@ -27,14 +27,11 @@ import type { WalletLots } from "./lots";
  * the tint is the third channel, not the only one (WCAG 1.4.1). The empty state is a
  * `role="alert"` because it names something that has already stopped happening.
  *
- * ⚠ **THE EMPTY-WALLET BANNER USED TO LEAD WITH A REASSURANCE, AND THE REASSURANCE IS
- * WITHDRAWN (8 Sep 2026).** It read "people calling you still get through — a low balance
- * never blocks an incoming call", on the reasoning that an owner who reads "your credit
- * has run out" wrongly concludes their phone has stopped being answered. Since D-551 that
- * conclusion is CORRECT: at zero the agents are silenced at the engine
- * (`agents/service.py::reconcile_inbound_answering`) and a caller hears a short apology.
- * A reassurance here would now be the single most expensive false sentence in the product
- * — the owner reads it, does nothing, and their callers are turned away all night.
+ * ⚠ **THE EMPTY-WALLET BANNER MAY NOT REASSURE ABOUT INCOMING CALLS.** At zero the agents
+ * are silenced at the engine (`agents/service.py::reconcile_inbound_answering`, D-551) and
+ * a caller hears a short apology, so "people calling you still get through" would be the
+ * most expensive false sentence in the product: the owner reads it, does nothing, and their
+ * callers are turned away all night.
  *
  * So the banner leads with what has actually happened, then with the two things the owner
  * will be asked about within the hour: what their own customers hear (an apology that
@@ -159,13 +156,12 @@ export function WalletHero({
           <p className="mt-2 text-xs text-ink-muted">
             Outgoing calls stop when this reaches zero. Incoming calls are never affected.
           </p>
-          {/* ⚠ "STOP WHEN THIS REACHES ZERO" SAT OVER A FIGURE THAT CAN BE NEGATIVE, and
-              the sentence that explains a negative balance lives in `LotsPanel`, which
-              only renders when the lot read SUCCEEDED — so a hero reading "−₹120.00" could
-              appear with nothing on the screen but a sentence about zero. A call already
-              running when the credit went is finished rather than cut off, which is the
-              only way a balance goes below zero, and the next top-up repays it first (plan
-              §0 Q5, ADDENDUM 2 §2.2).
+          {/* THE BALANCE CAN BE NEGATIVE and the sentence above it talks about zero, so
+              the explanation has to be here: `LotsPanel`'s copy only renders when the lot
+              read SUCCEEDED, leaving a hero reading "−₹120.00" beside nothing but a
+              sentence about zero. A call already running when the credit went is finished
+              rather than cut off — the only way a balance goes below zero — and the next
+              top-up repays it first (plan §0 Q5, ADDENDUM 2 §2.2).
 
               Read off the SIGN of the string the server sent — no arithmetic, no
               comparison against a parsed number (hard rule 7) — and rendered only when it

@@ -225,8 +225,8 @@ export function walletReasonLabel(reason: string): string {
  * here, because that comparison is tier-blind and would stop an invoiced client over a
  * wallet they never bought.
  *
- * ⚠ **`stopped` NOW MEANS BOTH DIRECTIONS (D-551, 8 Sep 2026), THOUGH THE WIRE FIELD KEEPS
- * ITS NAME.** The same verdict that refuses a dial also silences the agents' ANSWERING
+ * ⚠ **`stopped` MEANS BOTH DIRECTIONS (D-551), THOUGH THE WIRE FIELD IS NAMED
+ * `outbound_stopped`.** The same verdict that refuses a dial silences the agents' ANSWERING
  * (`agents/service.py::reconcile_inbound_answering`), so copy rendered under this state
  * must not tell a client that people ringing them still get through — it is the one thing
  * they will be asked within the hour, and `tests/credit_stop_copy_test.py` fails if any

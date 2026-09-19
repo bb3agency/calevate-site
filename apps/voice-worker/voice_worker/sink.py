@@ -1,14 +1,11 @@
 """`NormalizedEventSink`, over HTTP. The worker's record of what happened on a call.
 
-**WHAT THIS USED TO BE, AND WHY IT IS NOT THAT ANY MORE (D-621).** Until now this file held
-`DatabaseEventSink`: the same INSERTs `apps/workers/pipeline.py` issues, run from this
-container against our Postgres. `docs/DEPLOYMENT.md` §12.5 gate 6 is what ended that — the
-worker runs on Pipecat Cloud and **cannot reach that database at all**, because it lives on
-the VPS host behind the Docker bridge. So the rows still get written, by the same
-statements, under the same idempotency keys; they are written by `apps/api/worker/service.
-py` instead, and this posts to it. **There is exactly ONE sink, and this is it** — a
-database writer surviving beside an HTTP one would be two writers of one ledger, which is
-the drift this repository keeps guards for.
+**IT POSTS; IT DOES NOT WRITE (D-621).** This worker runs on Pipecat Cloud and cannot
+reach our Postgres at all — the database lives on the VPS host behind the Docker bridge
+(`docs/DEPLOYMENT.md` §12.5 gate 6). The rows are still written by the same statements
+under the same idempotency keys, by `apps/api/worker/service.py`, and this posts to it.
+**There is exactly ONE sink, and this is it** — a database writer surviving beside an HTTP
+one would be two writers of one ledger.
 
 **THE RULE THE SHAPE FOLLOWS, from `docs/evidence/worker-http-contract.md`:**
 
@@ -43,11 +40,9 @@ corrected by an UPDATE. That is why a leg whose quantity could not be read produ
 refusal instead of a zero, and why a RE-SETTLEMENT is answered `already_settled` by the
 server rather than writing the ledger twice.
 
-⚠ **THAT PARAGRAPH USED TO BEGIN "that is why `settle` is all-or-nothing", AND THE RULE IT
-CITED ARGUES THE OPPOSITE (D-625).** Append-only is exactly why a measurement must not be
-discarded: a settlement that answers is FINAL, so the STT seconds and TTS characters thrown
-away because the carrier leg had no CDR were not deferred, they were destroyed. The unit of
-all-or-nothing is the LEG (`meter.MeteredCall`).
+⚠ **THE UNIT OF ALL-OR-NOTHING IS THE LEG, NOT THE SETTLEMENT** (`meter.MeteredCall`,
+D-625). Append-only is why: a settlement that answers is FINAL, so STT seconds and TTS
+characters dropped because the carrier leg had no CDR are not deferred, they are destroyed.
 """
 
 from __future__ import annotations
@@ -85,11 +80,11 @@ from voice_worker.meter import CallMeter, CarrierCdr, LegNotMeterableError, Runt
 #: that dies with turns in memory loses them, where a per-turn write loses only the tail.
 #: The interval is what CAPS that loss — never "the call", only "the last few seconds".
 #:
-#: ⚠ NOTHING READS A TURN WHILE THE CALL IS RUNNING, WHICH IS WHAT MAKES THIS SAFE, and it
-#: was CHECKED rather than assumed (16 Sep 2026): every reader of `transcript_turns` is
-#: post-call (`crm/service.py`, `crm/assist.py`, `compliance/export_routes.py`,
-#: `compliance/tenant_erasure.py`), and no transcript surface in `apps/web` polls. If one is
-#: ever built, this buffer is what has to be reconsidered.
+#: ⚠ NOTHING READS A TURN WHILE THE CALL IS RUNNING, WHICH IS WHAT MAKES THIS SAFE: every
+#: reader of `transcript_turns` is post-call (`crm/service.py`, `crm/assist.py`,
+#: `compliance/export_routes.py`, `compliance/tenant_erasure.py`) and no transcript surface
+#: in `apps/web` polls. A live transcript surface is what would force this buffer to be
+#: reconsidered.
 DEFAULT_TURN_BATCH_SIZE: Final[int] = 8
 DEFAULT_TURN_FLUSH_SECONDS: Final[float] = 10.0
 
@@ -115,13 +110,12 @@ class SinkIdentityError(RuntimeError):
 class Settlement:
     """What one settlement attempt did. Returned so a caller can log the branch, not decide it.
 
-    ⚠ **`refusals` IS A LIST AND USED TO BE ONE OPTIONAL PAIR (D-625).** The branches are no
-    longer exclusive: a call now routinely settles three legs AND records a refusal for the
-    carrier leg nobody could witness, which is the whole of partial settlement. The three
-    cases that mattered still read off this object and a fourth joins them — rows and no
-    refusals is a fully settled call; refusals and no rows is a call nothing could be priced
-    on; zero of both is a call with nothing to meter at all (`meter.MeteredCall`); and rows
-    AND refusals is the ordinary shape of a call on this engine today.
+    ⚠ **`refusals` IS A LIST BECAUSE THE BRANCHES ARE NOT EXCLUSIVE (D-625).** A call
+    routinely settles three legs AND records a refusal for the carrier leg nobody could
+    witness — that is partial settlement. Four readable cases: rows and no refusals is a
+    fully settled call; refusals and no rows is a call nothing could be priced on; zero of
+    both is a call with nothing to meter (`meter.MeteredCall`); rows AND refusals is the
+    ordinary shape on this engine today.
     """
 
     rows: int
@@ -245,14 +239,13 @@ class HttpEventSink:
     async def on_transcript_turn(self, turn: TranscriptTurn) -> None:
         """One turn, buffered, and sent raw for the server to redact and store.
 
-        **`text_redacted` IS FILLED BY THE SERVER AND THIS PROCESS DOES NOT COMPUTE IT.**
-        ⚠ It used to, and the move is deliberate rather than a loss: that column is what
-        every CONTENT reader in this repository names (`crm/assist.py::_TURNS_SQL`,
-        `workers/caller_memory_distil.py::_TURNS_SQL`), i.e. it is what a client's dashboard,
-        the copilot and caller memory are allowed to see. Computing it in a container on a
-        vendor's infrastructure and storing the answer would put the least trusted party in
-        the system in charge of the redaction hard rule 5 promises. `apps/workers/redaction.
-        redact` is still the repository's one redactor; it now runs where the row is written.
+        **`text_redacted` IS FILLED BY THE SERVER AND THIS PROCESS MUST NOT COMPUTE IT.**
+        That column is what every CONTENT reader in this repository names
+        (`crm/assist.py::_TURNS_SQL`, `workers/caller_memory_distil.py::_TURNS_SQL`) — what
+        a client's dashboard, the copilot and caller memory are allowed to see. Computing it
+        in a container on a vendor's infrastructure would put the least trusted party in the
+        system in charge of the redaction hard rule 5 promises. `apps/workers/redaction.
+        redact` is the repository's one redactor, and it runs where the row is written.
         """
         self._check_identity(call_id=turn.call_id)
         logger.info(
@@ -395,21 +388,19 @@ class HttpEventSink:
         the third party in this system telling us what a call cost. Each records a refusal
         naming its leg.
 
-        ⚠ **AND THE OTHER THREE NOW SETTLE ANYWAY (D-625). THIS PARAGRAPH USED TO END "so
-        `metered_rows` raises `CarrierFactsMissingError` before anything is measured and the
-        call settles as ONE `call_metering_refusals` row, exactly as it did yesterday" — it
-        was accurate, and what it was describing is that this engine billed and costed
-        NOTHING, ever. `carrier` and `runtime` are `None` on every production call
-        (BLOCKER-1), which under all-or-nothing threw away the STT seconds, TTS characters
-        and LLM tokens this container really measured. It sends both halves now: the
+        ⚠ **THE OTHER THREE SETTLE ANYWAY (D-625), AND THAT IS WHY THIS IS NOT
+        ALL-OR-NOTHING.** `carrier` and `runtime` are `None` on every production call
+        (BLOCKER-1), so refusing the whole settlement on the two unwitnessed legs throws
+        away the STT seconds, TTS characters and LLM tokens this container really measured
+        — permanently, because `usage_events` is append-only. Both halves are sent: the
         quantities it could read, and a refusal per leg it could not.
 
         **CALLED AFTER THE PIPELINE HAS DRAINED, NEVER FROM INSIDE ITS TEARDOWN.**
         `CallMeter.attach` states the reason: usage reports arrive as their own tasks.
 
-        ⚠ **THE `at` ARGUMENT IS GONE, AND ITS ABSENCE IS THE SAME DECISION AS THE PRICE'S.**
+        ⚠ **NO `at` ARGUMENT, FOR THE SAME REASON THERE IS NO PRICE.**
         `usage_events.occurred_at` and `call_metering_refusals.occurred_at` are stamped by
-        the SERVER now. A ledger row's instant is a fact about when WE recorded it, and a
+        the SERVER. A ledger row's instant is a fact about when WE recorded it, and a
         container on a vendor's infrastructure with an unverified clock is not the authority
         for that — the same reason `_duration_s` is not the billable minute.
         """

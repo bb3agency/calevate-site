@@ -280,8 +280,12 @@ describe("the carrier compliance application panel", () => {
 
   it("prints a status this build cannot name, rather than blanking or guessing it", async () => {
     const { container } = await render({
-      // A state from a newer server. It must NOT resolve to one of the six we know.
-      [CARRIER_PATH]: application({ status: "under_appeal" as CarrierApplication["status"] }),
+      // A state from a newer server, handed over with NO assertion on it. The route map
+      // takes `unknown`, which is exactly what an unrecognised wire value is to this
+      // build — asserting it into `CarrierApplication["status"]` would be this test
+      // claiming the contract contains a state the contract does not contain, which is
+      // the defect `wireFixtureGuard` exists to catch.
+      [CARRIER_PATH]: { ...application(), status: "under_appeal" },
     });
 
     await screen.findByText("Application on file");

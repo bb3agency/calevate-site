@@ -64,12 +64,11 @@ export interface Benchmark {
  *   agent is fully productive. ~₹32,000 is a mid loaded figure; the whole point of the
  *   calculator is that the base hides this.
  *
- * ATTRITION AND REPLACEMENT COST USED TO BE HERE AND WERE REMOVED DELIBERATELY (founder,
- * 5 Sep 2026): in the Indian SMB market they are not a factor a buyer weighs when they are
- * being pitched, so a calculator that spends two of its inputs on them is arguing a case
- * the buyer is not making. Dropping them LOWERS the human side of the comparison — the
- * honest direction, and the reason it is safe to drop: the figure that remains is one the
- * buyer recognises as their own payroll.
+ * NO ATTRITION OR REPLACEMENT COST, deliberately (founder, 5 Sep 2026): in the Indian SMB
+ * market they are not a factor a buyer weighs while being pitched, so a calculator spending
+ * two inputs on them argues a case the buyer is not making. Leaving them out LOWERS the
+ * human side of the comparison, which is the honest direction, and what remains is a figure
+ * the buyer recognises as their own payroll.
  *
  * These are relayed benchmarks, not measurements Calevate has taken; the UI labels them
  * so and the buyer moves them.

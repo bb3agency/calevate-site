@@ -52,9 +52,9 @@ import { RoiCalculator } from "@/components/marketing/roiCalculator";
  * - **The one real price is ours**, and it is now a CARD rather than a number: the
  *   six-rung prepaid catalogue with a ₹/min for each of the two voices
  *   (`apps/api/billing/credit_packs.py::PACK_CATALOGUE`, D-547), fetched here at request
- *   time and used as the Calevate side of the comparison. ⚠ This bullet used to cite
- *   `self_serve_inr_per_min` as the price; that setting no longer prices this card. It is
- *   published because it is real, and it is a self-serve rate rather than a quote —
+ *   time and used as the Calevate side of the comparison. `self_serve_inr_per_min` no
+ *   longer prices it. It is published because it is real, and it is a self-serve rate
+ *   rather than a quote —
  *   `/pricing` explains why the managed number is a conversation.
  */
 export const metadata: Metadata = publicPageMetadata({

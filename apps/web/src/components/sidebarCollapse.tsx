@@ -227,15 +227,12 @@ export const sidebarNavClass = "custom-scrollbar relative flex-1 overflow-y-auto
  * `bg-brand-strong` chip: the artwork is dark green ink on transparency and would render
  * green-on-green (`components/brand.tsx`).
  *
- * ## THE COLLAPSE TOGGLE IS IN THIS ROW, AND IT USED TO BE A ROW OF ITS OWN
+ * ## THE COLLAPSE TOGGLE SHARES THIS ROW AND MUST NOT GET ONE OF ITS OWN
  *
- * `SidebarCollapseToggle` was a separate full-width `<div>` rendered between the brand and
- * the `<nav>` in both shells, holding one 16px icon right-aligned. So a single glyph
- * claimed an entire horizontal band of the panel: ~32px of empty space under the wordmark
- * with an icon floating at its right edge, and every nav item pushed down by a row that
- * contained nothing else. The founder read it as a layout mistake (9 Sep 2026), which is
- * what it was. Shrinking `pb-1`/`pr-[22px]` would have treated the symptom — the ROW is
- * the defect — so the control moved into the row that was already there.
+ * As a separate full-width `<div>` between the brand and the `<nav>`, one 16px icon claimed
+ * an entire horizontal band: ~32px of empty space under the wordmark with a glyph floating
+ * at its right edge, and every nav item pushed down by a row holding nothing else.
+ * Shrinking the padding treats the symptom; the ROW is the defect.
  *
  * Nesting it here is valid markup: this block is a `<div>`, not a link, and it already
  * holds the drawer's close `<button>`. The two never coexist — the close button is

@@ -28,16 +28,11 @@ the floor to INFO removes all five above. It does NOT remove:
 
 which is a WARNING and carries the agent's sentence.
 
-⚠ **THE SWEEP THAT PRODUCED THE ONE-ENTRY LIST WAS RUN ON 13 SEP 2026 AND THIS WORKER'S
-IMPORT GRAPH GREW AFTER IT (re-swept 19 Sep 2026).** The original reading covered the
-SERVICE modules (sarvam/stt.py, sarvam/tts.py, tts_service.py, stt_service.py,
-llm_service.py, openai/llm.py, azure/llm.py, aggregators/llm_response_universal.py) and
-concluded, correctly for that graph, that one entry was enough. It did not cover the
-TRANSPORT and SERIALIZER modules, because on 13 Sep there was no carrier: `carrier.py`
-(D-610, 15 Sep 2026) added `pipecat.serializers.plivo` and
-`pipecat.transports.websocket.fastapi` — and with the latter, transitively,
-`pipecat.transports.base_output`. Re-reading every INFO-or-above call site in the new
-modules found two more that interpolate CONTENT, and both are WARNINGs, so the level
+⚠ **THIS LIST IS ONLY AS COMPLETE AS THE LAST SWEEP OF THE WORKER'S IMPORT GRAPH** (swept
+13 Sep 2026 over the SERVICE modules, re-swept 19 Sep 2026 after `carrier.py` pulled in
+`pipecat.serializers.plivo`, `pipecat.transports.websocket.fastapi` and transitively
+`pipecat.transports.base_output`). A new vendor import is a new sweep: the second one found
+two more INFO-or-above call sites that interpolate CONTENT, both WARNINGs, so the level
 floor does not reach them either:
 
     pipecat/serializers/plivo.py:221

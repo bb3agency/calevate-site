@@ -208,7 +208,7 @@ function caption(card: PublicRateCard, voice: VoiceTier): string {
 /**
  * The one place the "this rung is the cheapest minute" treatment is spelled.
  *
- * ⚠ `marks` IS THE PER-VOICE HALF OF THE QUESTION AND THE CHIP USED TO SKIP IT.
+ * `marks` IS THE PER-VOICE HALF OF THE QUESTION, and the chip may not skip it.
  * `best_value` is the server's flag on ONE pack for the whole card; whether that pack
  * actually buys a cheaper minute is a property of the VOICE on screen. The next card
  * prices the cheaper voice flat at ₹4.00 (`docs/PIPECAT-MIGRATION.md` §12), and shading

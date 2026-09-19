@@ -3,11 +3,10 @@ import { BadgeCheck, Clock, Database, ShieldCheck } from "lucide-react";
 /**
  * THE LEGALLY LOAD-BEARING MARKETING COPY, HELD IN ONE PLACE SO IT CANNOT DIVERGE.
  *
- * ⚠ **DO NOT REWORD ANYTHING IN THIS FILE.** Every sentence here has been through at least
- * one correction round, two of them after the product changed underneath the claim, and one
- * after the fact itself turned out to be wrong. They may be re-laid-out, shortened by
- * MOVING them behind a disclosure, or linked to. They may not be paraphrased, summarised or
- * "tightened" — a paraphrase of a corrected sentence is a new claim nobody has checked.
+ * ⚠ **DO NOT REWORD ANYTHING IN THIS FILE.** These sentences may be re-laid-out, shortened
+ * by MOVING them behind a disclosure, or linked to. They may not be paraphrased, summarised
+ * or "tightened": each has been through a correction round, and a paraphrase of a corrected
+ * sentence is a new claim nobody has checked.
  *
  * ## Why a module and not two copies
  *
@@ -79,23 +78,19 @@ export const COMPLIANCE_INVARIANTS: readonly {
  * 22 Aug 2026): the declared model region is Azure OpenAI `eastus2`, still Regional and not
  * Global, speech and first extraction untouched and still Sarvam.
  *
- * ⚠ **"SPEECH … ARE INDIAN SERVICES" WAS FALSE FROM 18 SEP 2026 AND THIS IS A
- * CLIENT-FACING REPRESENTATION, NOT A DOC NIT (corrected 19 Sep 2026).** D-629 split the
- * speech leg in two and moved half of it: transcription stays with the Indian company,
- * but SYNTHESIS is now Gnani `timbre-v2.5` or Cartesia `sonic-3.5` — and Cartesia is not
- * Indian, with its own sub-processor row reading NOT VERIFIED on location. The old
- * sentence said "speech", which a reader takes as both halves, so for every Studio call it
- * asserted something untrue about where a caller’s voice is made. This text is rendered on
- * the public homepage and on /security, so it is a representation under the Consumer
- * Protection Act 2019 — the same class as a price. It now names the transcription leg
- * explicitly and says the voice leg is a different vendor that may be abroad.
+ * ⚠ NEVER WRITE "SPEECH … ARE INDIAN SERVICES" HERE. This text renders on the public
+ * homepage and on /security, so it is a representation under the Consumer Protection Act
+ * 2019 — the same class as a price — and "speech" reads as both halves of a leg D-629
+ * split: transcription stays with the Indian company, SYNTHESIS is Gnani `timbre-v2.5` or
+ * Cartesia `sonic-3.5`, and Cartesia is not Indian (its sub-processor row reads NOT
+ * VERIFIED on location). Name the transcription leg explicitly and say the voice leg is a
+ * different vendor that may be abroad.
  *
- * ⚠ AND ON 27 AUG 2026 THE
- * INDIAN HALF WAS NARROWED TOO: Sarvam is an Indian COMPANY, but its published privacy
- * policy ("Cross-Border Data Transfers", read by the founder 27 Aug 2026 and relayed —
- * `sarvam.ai` is egress-blocked from this container) says personal data may be processed
- * outside India, naming US cloud infrastructure and EU model/security vendors. So this text
- * may say the vendor is Indian and may NOT let a reader take that for residency.
+ * The Indian half is narrow too: Sarvam is an Indian COMPANY, and its published privacy
+ * policy ("Cross-Border Data Transfers", read by the founder 27 Aug 2026 and relayed;
+ * `sarvam.ai` is egress-blocked here) says personal data may be processed outside India,
+ * naming US cloud infrastructure and EU model/security vendors. So this text may say the
+ * vendor is Indian and may NOT let a reader take that for residency.
  *
  * `publicLanding.test.tsx` pins the exact substrings in BOTH directions — it must say the
  * Indian half is Indian AND that the language model is not, it must keep "checked, not

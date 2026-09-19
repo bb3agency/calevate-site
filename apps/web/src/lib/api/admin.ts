@@ -433,15 +433,12 @@ export function useRevokeTenantInvitation() {
  * mints the new one — which is why this is not "revoke, then invite again" and why the
  * list has to be refetched: `expires_at`, `last_sent_at` and `send_count` all moved.
  *
- * THE ADDRESS CORRECTION HALF IS NOW OFFERED (D-546), and this comment used to say it was
- * deliberately not. It was the founder's actual case — *"until that mail sets up their
- * business correctly"* is about a client who cannot receive the link at all — and leaving
- * it out meant a mistyped address had no repair anywhere in the console: every self-service
- * recovery mails the mailbox that does not work. What made it safe to leave out was never
- * the risk; it was that it needs its OWN ceremony, which the Invitations screen now gives
- * it — a separate control, a required note saying how the address was established, and the
- * server recording it as an operator ATTESTATION (`admin.invitation_readdressed`) rather
- * than as a verified mailbox. Sending `email` without `attestation` is a 422 by design.
+ * THE ADDRESS CORRECTION HALF IS OFFERED (D-546), because without it a mistyped address
+ * has no repair anywhere in the console — every self-service recovery mails the mailbox
+ * that does not work. It carries its OWN ceremony on the Invitations screen: a separate
+ * control, a required note saying how the address was established, and the server recording
+ * it as an operator ATTESTATION (`admin.invitation_readdressed`) rather than as a verified
+ * mailbox. Sending `email` without `attestation` is a 422 by design.
  */
 export function useResendTenantInvitation() {
   const client = useQueryClient();

@@ -47,18 +47,16 @@ import { PUBLIC_ROUTES } from "@/lib/site";
 /**
  * The site, in reading order — DERIVED, since 9 Sep 2026, from `lib/site.PUBLIC_ROUTES`.
  *
- * ⚠ THESE WERE ANCHORS INTO THE HOMEPAGE UNTIL THE SEVEN PAGES EXISTED, and that was
- * correct while they did not: a nav item pointing at a route nobody has built is the
- * "route nobody mounted" defect on the surface where a visitor trusts us most. The rule
- * that replaced it is the same rule stated the other way — **an item may only appear here
- * once its page renders**, and `publicLanding.test.tsx` proves every href against the
- * `page.tsx` files actually on disk rather than against a list somebody kept in their head.
+ * **An item may only appear here once its page renders** — a nav item pointing at a route
+ * nobody has built is the "route nobody mounted" defect on the surface where a visitor
+ * trusts us most, so `publicLanding.test.tsx` proves every href against the `page.tsx`
+ * files actually on disk.
  *
- * ⚠ AND IT USED TO BE A LITERAL LIST HERE, which made it the site's SECOND page list — the
- * browser accessibility gate kept a third and `sitemap.xml` would have been a fourth. They
- * are one table now (`lib/site.ts`), and the entries that carry a `navLabel` are the ones
- * a visitor is offered. Adding a public page therefore adds it to the navigation, the
- * sitemap and the axe gate together, or to none of them.
+ * DERIVED and not a literal list, because a list here would be the site's SECOND page list
+ * (the browser accessibility gate keeps a third and `sitemap.xml` a fourth). One table
+ * (`lib/site.ts`), whose entries carrying a `navLabel` are the ones a visitor is offered,
+ * so adding a public page adds it to the navigation, the sitemap and the axe gate together
+ * or to none of them.
  *
  * Seven is a lot for one row, which is why the horizontal nav waits for `xl` (1280px) and
  * the disclosure menu covers everything below it. Both render the SAME seven, never two
@@ -71,12 +69,10 @@ export const NAV_ROUTES: readonly { href: string; label: string }[] = PUBLIC_ROU
 /**
  * The header's call to action.
  *
- * ⚠ THIS WAS "See how it works" FOR HALF OF 5 SEP 2026 AND THE FOUNDER REVERSED IT THE
- * SAME DAY. The header carries Sign in + the signup door; "See how it works" survives as
- * the hero's lower-intent SECONDARY button, which is where a cold visitor who is not ready
- * to start an account still has somewhere to go. What both decisions agree on, and what
- * must not come back, is "Create a workspace": it is product vocabulary aimed at a reader
- * who does not yet know what we are.
+ * The header carries Sign in plus the signup door; the hero's lower-intent "See how it
+ * works" is where a cold visitor who is not ready to start an account goes. What must not
+ * come back is "Create a workspace": product vocabulary aimed at a reader who does not yet
+ * know what we are.
  *
  * The label is the same string every other link to `/signup` on this page carries — one
  * door, one name for it (`app/page.tsx::CTA_LABEL`, pinned by `publicLanding.test.tsx`).

@@ -57,12 +57,10 @@ function snapshot(): SurfaceHolder | null {
  * registration happens in an EFFECT, and effects do not run on the server, so `null` is
  * the truthful answer and the first client render agrees with it.
  *
- * ⚠ THE REASON USED TO BE "the dock renders nothing without a surface, so no screen
- * flashes a launcher before its own registration has run", AND THAT HALF IS GONE (D-501):
- * the dock now always renders, falling back to a route-only surface while the stack is
- * empty. What that costs is one render of the fallback TITLE before a declaring screen's
- * effect commits, on a launcher whose panel is closed — not a launcher appearing and
- * disappearing, which is what the old sentence was protecting against.
+ * The dock ALWAYS renders (D-501), falling back to a route-only surface while the stack is
+ * empty, so `null` here costs one render of the fallback TITLE before a declaring screen's
+ * effect commits, on a launcher whose panel is closed — never a launcher appearing and
+ * disappearing.
  */
 function serverSnapshot(): SurfaceHolder | null {
   return null;

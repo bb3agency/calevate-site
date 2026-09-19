@@ -250,12 +250,11 @@ export function cardRefusalSentences(error: unknown): string[] | null {
  * clobbers a half-read table buys nothing. The panel re-reads after a config write, which
  * is the only act that dates a new one.
  *
- * ⚠ **THE INTERVAL WENT FROM ONE MINUTE TO FIVE ON 9 SEP 2026, AND THE REASON IS ON THE
- * SERVER.** This read now also measures how many Studio call-minutes the whole platform
- * spoke this month, and `usage_events` is FORCE RLS'd — so the figure can only be had by
- * walking the client book one tenant session at a time (`billing/tts_volume.py`, the shape
- * the fleet spend board already uses). At sixty seconds an ops console left open on a desk
- * was a per-minute fleet walk for a number that moves with phone calls, not with the clock.
+ * **FIVE MINUTES, NOT ONE, AND THE REASON IS ON THE SERVER.** This read also measures how
+ * many Studio call-minutes the whole platform spoke this month, and `usage_events` is FORCE
+ * RLS'd — so the figure can only be had by walking the client book one tenant session at a
+ * time (`billing/tts_volume.py`). At sixty seconds an ops console left open on a desk is a
+ * per-minute fleet walk for a number that moves with phone calls, not with the clock.
  * Five minutes costs an operator nothing — the card itself changes when somebody records
  * one, and that path invalidates this query directly — and takes a fifth of the database
  * time. The real fix if the client book outgrows this is the materialized monthly rollup

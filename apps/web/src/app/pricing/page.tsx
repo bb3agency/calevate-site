@@ -35,49 +35,31 @@ import {
 /**
  * `/pricing` — what a minute costs, and the one figure that is still a conversation.
  *
- * ⚠ **THIS HEADER USED TO BE A LONG ARGUMENT FOR HAVING NO PRICE ON THE PRICING PAGE, AND
- * IT WAS ALREADY UNTRUE WHEN THE PAGE BELOW IT STARTED PRINTING ONE (D-545).** It said the
- * one published number lived on `/roi`; it cited `self_serve_inr_per_min` as the source of
- * that number, which D-547 then stopped being. A stale doc comment on a money surface is
- * not cosmetic: it is the next reader's brief, and this one would have sent them to delete
- * a rate card as a rule violation.
+ * Two price stories, and only one of them has a number:
  *
- * ## The two price stories, and why only one of them has a number
- *
- * - **Self-serve** is published, because it is real: a static six-rung credit-pack card
+ * - **Self-serve** is published: a static six-rung credit-pack card
  *   (`apps/api/billing/credit_packs.py::PACK_CATALOGUE`), whose every rate is checked in CI
  *   against its own voice's cost floor, served at `GET /v1/public/rate-card` and fetched
  *   here at request time. **Nothing on this page is typed** — every ₹ figure below is a
  *   string that arrived in that response, and `apps/web/tests/marketingPages.test.tsx`
  *   fails the build if one is not.
- * - **Managed** plans are negotiated per client (D-11) and genuinely have no publishable
- *   figure: every money column on `plans` is nullable with no default, and two of them
- *   record in their own comments that the number "is a founder decision" and that no
- *   default may be invented (`apps/api/billing/models.py:217-258`). A managed rate typed
- *   into this copy would be a quote nobody can honour — hard rule 11's exact failure, and
- *   worse here than anywhere, because a price is the one claim a buyer relies on before
- *   they have met anybody. That caveat is one paragraph, below the card, where the reader
- *   who needs it will look.
+ * - **Managed** plans are negotiated per client (D-11) and have no publishable figure:
+ *   every money column on `plans` is nullable with no default and the number is a founder
+ *   decision (`apps/api/billing/models.py:217-258`). A managed rate typed into this copy
+ *   would be a quote nobody can honour — worse here than anywhere, because a price is the
+ *   one claim a buyer relies on before they have met anybody. That caveat is one paragraph,
+ *   below the card, where the reader who needs it will look.
  *
- * ## Two voices, two rates, one per agent (D-547), ONE OF THEM ON SCREEN (D-559)
- *
- * A pack no longer buys "minutes" at one rate. It carries a ₹/min for each of the two
- * voices an agent can speak with, and which one prices a call is a property of the AGENT
- * that took it.
- *
- * ⚠ **THIS USED TO SAY "the table has two rate columns rather than one", AND THE TABLE
- * NOW HAS NEITHER SHAPE.** Six pack ROWS x (rate + talk time) x two voices was twelve
- * dense cells; the packs are COLUMNS now and a switch above the table picks the voice, so
- * one ladder is on screen at a time. `components/marketing/rateCard.tsx` is the whole of
- * it and carries the argument; this page keeps the prose and the two band sentences.
+ * A pack buys a ₹/min for each of the two voices an agent can speak with (D-547), and which
+ * one prices a call is a property of the AGENT that took it. The packs are COLUMNS and a
+ * switch above the table picks the voice, so one ladder is on screen at a time;
+ * `components/marketing/rateCard.tsx` is the whole of that and this page keeps the prose
+ * and the two band sentences.
  *
  * **The columns are named by the API, not here.** No client-facing surface names a vendor
- * as a product tier (founder, 7 Sep 2026): the names live once in
- * `apps/api/billing/rates.py::VOICE_TIER_LABELS` and travel on the card, so a client meets
- * one name for a voice and we can change the vendor under it without a rename. Never type
- * a tier name into this file.
- *
- * Every claim below cites the code that makes it true, at the point of use.
+ * as a product tier: the names live once in `apps/api/billing/rates.py::VOICE_TIER_LABELS`
+ * and travel on the card, so a client meets one name for a voice and we can change the
+ * vendor under it without a rename. Never type a tier name into this file.
  */
 export const metadata: Metadata = publicPageMetadata({
   path: "/pricing",
@@ -98,9 +80,8 @@ const METERED: readonly { title: string; body: string }[] = [
   {
     title: "The voice each agent uses",
     body:
-      // The per-agent fact and the "tell your account manager" register live once, in the
-      // self-serve paragraph above (§5: two spellings of one fact is a defect). What only
-      // this card says is that the METER reads the voice a call actually used.
+      // The per-agent fact lives once, in the self-serve paragraph above (UX-DOCTRINE §5).
+      // What only this card says is that the METER reads the voice a call actually used.
       "Each agent speaks with one of two voices, and the two are priced differently. " +
       "Every call is stamped with the voice it actually used, so a month is priced from " +
       "what happened rather than from what was configured at the end of it.",
@@ -133,14 +114,12 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
   },
   {
     term: "A rate for anything past the bundle",
-    // ⚠ THIS USED TO PROMISE A PER-VOICE OVERAGE RATE, AND A MANAGED PLAN CANNOT CARRY
-    // ONE. `plans` has exactly two overage columns (`overage_rate` and
-    // `overage_rate_second`, `apps/api/billing/models.py`) and the second is D-36's
-    // TTS ladder — premium/value — not one of the two VOICE QUALITIES the self-serve card
-    // prices; and every call is counted on the base rung anyway
-    // (`apps/workers/pipeline.py:2743-2745` passes `tts_tier=BASE_OVERAGE_RUNG`, "one voice
-    // quality, so the base rung on every call"). So the order form has one overage rate,
-    // and a sentence promising a column per voice is a quote nobody could honour.
+    // Never promise a PER-VOICE overage rate here: a managed plan carries one. `plans` has
+    // two overage columns (`overage_rate`, `overage_rate_second`,
+    // `apps/api/billing/models.py`) and the second is D-36's TTS ladder, not one of the two
+    // VOICE QUALITIES the self-serve card prices; every call is counted on the base rung
+    // anyway (`apps/workers/pipeline.py:2743-2745`). A column per voice is a quote nobody
+    // could honour.
     detail:
       "Per minute, applied to the minutes over the included allowance.",
   },
@@ -156,24 +135,20 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
  * THE DEAREST ₹/min the card quotes on one voice — the ENTRY rung of the ladder, and the
  * end of the band that describes somebody's FIRST purchase.
  *
- * ⚠ **THE PAGE USED TO QUOTE THREE DIFFERENT "THE PRICE" IN SIX LINES** (audit, 8 Sep
- * 2026): the h1 said the dearest Clear rung, the lede said "from" the cheapest, the h2 said
- * "start today from" the cheapest again and the paragraph under it said the dearest — four
- * consecutive elements, four figures, and the one a buyer would actually pay first is the
- * one none of them led with. Nobody's first purchase is the largest pack. So the page
- * quotes a BAND, once per voice, both ends from the card — the shape the console's own
- * explainer settled on (`app/c/[slug]/billing/WhatCallsCost.tsx::rateBand`).
+ * The page quotes a BAND, once per voice, both ends from the card, rather than one "from"
+ * figure: nobody's first purchase is the largest pack, so a single cheapest-rung price is
+ * the rung a buyer will not pay. Same shape as the console's explainer
+ * (`app/c/[slug]/billing/WhatCallsCost.tsx::rateBand`).
  *
  * The cheap end is a field the API publishes (`from_*_inr_per_min`, `cardFromRate`); this
  * end is not, so it is a COMPARISON across the rows the card sent. Nothing is computed:
  * `rateToTenThousandths` reads the digits into the API's own NUMERIC(12,4) scale and the
  * two are compared as integers, and what is rendered is the string the server sent.
  *
- * Its twin in the console (`billing/lots.ts::dearestRate`) is not imported and cannot be:
- * that module is `"use client"` and reads the SIGNED-IN card type, while this page is an
- * async server component reading `CreditPacksOut` off the public route. One accessor each,
- * both four lines, rather than a shared module that would drag a client hook into the
- * marketing tree.
+ * Its twin in the console (`billing/lots.ts::dearestRate`) cannot be imported: that module
+ * is `"use client"` and reads the SIGNED-IN card type, while this page is an async server
+ * component reading `CreditPacksOut` off the public route. One four-line accessor each,
+ * rather than a shared module that would drag a client hook into the marketing tree.
  */
 function cardDearestRate(card: PublicRateCard, voice: VoiceTier): string {
   // SEEDED WITH THE SERVER'S OWN PUBLISHED MINIMUM rather than with the first pack, so the
@@ -207,33 +182,26 @@ export default async function PricingPage() {
   // The one request this page makes. `fetchPublicRateCard` never throws — it logs and
   // returns null — so there is no `try` here and no figure to fall back to: a page that
   // fell back to a typed constant would look identical to a working one while quoting a
-  // rate nobody set. ⚠ The card is STATIC since D-547 (the catalogue, not the old
-  // `self_serve_inr_per_min` console setting), so it moves on a deploy rather than on an
-  // operator's save; the minute of edge cache on the route is now a cheap cache of a
-  // constant rather than a staleness window on a live price.
+  // rate nobody set. The card is static (D-547), so it moves on a deploy rather than on an
+  // operator's save and the route's minute of edge cache is a cache of a constant rather
+  // than a staleness window on a live price.
   const rateCard = await fetchPublicRateCard();
   return (
     <MarketingPage>
-      {/* THE PRICE IS THE HEADLINE, and this page used to bury it (6 Sep 2026).
-          It opened with a box titled "Why there is no price on this page" — an apology
-          served to somebody whose entire reason for arriving was to see a number, and
-          published while the self-serve rate WAS live and the deepest credit pack already
-          delivered a lower one. The managed-plan caveat is real and is kept, at the
-          bottom, in one line, where a reader who needs it will look for it.
-          `rateCard` is null only when the API cannot be reached; the fallback says so
-          rather than printing a figure we cannot stand behind. */}
+      {/* THE PRICE IS THE HEADLINE: a buyer's whole reason for arriving is the number, so
+          it leads and the managed-plan caveat sits at the bottom in one line. `rateCard` is
+          null only when the API cannot be reached; the fallback says so rather than printing
+          a figure we cannot stand behind. */}
       <PageIntro
         eyebrow="Pricing"
         title={
           rateCard === null
             ? "You are billed for the minutes your agents actually talk"
-            : /* ⚠ THE HEADLINE LED WITH THE CHEAPER VOICE UNTIL 18 SEP 2026 (D-629), AND
-                  THAT VOICE CAN NO LONGER BE CHOSEN — its vendor changed to one nobody has
-                  priced, so hard rule 7 keeps every voice in it off the picker. A price is
-                  the headline (6 Sep 2026) and it has to be a price somebody can be put on,
-                  so the headline is the voice that can be and the other is in the lede with
-                  the notice saying why. It moves the number UP, which is the only direction
-                  a correction to a public price may take on its own. */
+            : /* The headline quotes the STUDIO voice because it is the one that can be
+                  bought: the Clear rung has no attested vendor price, so hard rule 7 keeps
+                  every voice in it off the picker (`apps/api/agents/voice_offer.py`). A
+                  headline price must be one somebody can be put on; the other voice is in
+                  the lede, with the notice saying why. */
               `Talk time on the ${tierLabel(rateCard, "studio")} voice: ${bandSentence(rateCard, "studio")}`
         }
         lede={
@@ -248,24 +216,15 @@ export default async function PricingPage() {
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="00">Self-serve</Eyebrow>
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
-            {/* NO FIGURE HERE, DELIBERATELY. This heading used to say "Start today from
-                ₹4.50 a minute" — a third price in six lines, and the cheapest rung of the
-                ladder, which is the one nobody's first purchase is at. The band is
-                overhead in the h1 and every rung is in the table below; a heading that
-                re-quoted one end of it was the duplicate the audit found. */}
-            {/* ⚠ THIS WAS A TYPED PROMISE THAT THE RATE FALLS, ON A PAGE WHOSE WHOLE
-                DOCTRINE IS THAT NOTHING HERE IS TYPED. It is false the moment either
-                column goes flat, and the next card takes the cheaper voice flat at ₹4.00
-                (`docs/PIPECAT-MIGRATION.md` §12) — leaving a heading that sells a volume
-                discount directly above a table showing six identical figures. It now
-                asks the card, the same question `bandSentence` below already asks.
+            {/* NO FIGURE HERE, DELIBERATELY: the band is overhead in the h1 and every rung
+                is in the table below, so a heading re-quoting one end of the ladder is a
+                duplicate price.
 
-                `every` AND NOT `some`, WHICH IS THE WHOLE CARE HERE. This heading takes
-                no voice: it sits above the switch and speaks for both, and the table
-                under it OPENS ON THE CHEAPER ONE — precisely the column the next card
-                flattens. A claim that holds for one of two voices is not a claim this
-                heading may make, so it drops to the sentence true of every card: the
-                price is published and there is no minimum. */}
+                Whether the rate falls is ASKED OF THE CARD, never typed — it is false the
+                moment either column goes flat, and the next card takes the cheaper voice
+                flat at ₹4.00 (`docs/PIPECAT-MIGRATION.md` §12). `every` and not `some`:
+                this heading sits above the switch and speaks for both voices, so a claim
+                true of only one of them is not a claim it may make. */}
             {rateCard === null
               ? "Our self-serve rate"
               : VOICE_TIERS.every((voice) => ladderFalls(rateCard, voice))
@@ -281,45 +240,23 @@ export default async function PricingPage() {
           ) : (
             <>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                {/* THIS CARD IS PUBLISHED; A MANAGED PLAN IS QUOTED — and the page has to
-                    say which is which, because it says both. The figures below are the
-                    real ones and nobody has to ask for them; the negotiated arrangement
-                    lower down is the one with no publishable number. It says nothing
-                    about how an ACCOUNT is opened: `self_serve_signup_enabled` is a live
-                    switch and the door that reads it is the homepage's, so a second
-                    sentence about it here would be a second place to get it wrong (the
-                    argument `components/marketing/faq.tsx` already makes).
-
-                    ⚠ TWO CLAUSES WERE CUT ON 9 SEP 2026 AND NEITHER WAS REPLACED. "Buy
-                    credit in advance and the rate comes down" is what the heading above
-                    already says and what the table below now SHOWS as a falling row;
-                    "credit does not expire" is in the lede, at the top of this page, in
-                    those words. Two spellings of one fact is a defect even when both are
-                    true (UX-DOCTRINE §5), and on a page the founder is asking to make
-                    shorter the duplicate is the first thing to go. */}
+                {/* THIS CARD IS PUBLISHED; A MANAGED PLAN IS QUOTED — the page has to say
+                    which is which, because it says both. It says nothing about how an
+                    ACCOUNT is opened: `self_serve_signup_enabled` is a live switch and the
+                    door that reads it is the homepage's, so a second sentence here would be
+                    a second place to get it wrong. It also does not repeat the lede's
+                    "credit does not expire" or the heading's falling rate (UX-DOCTRINE §5:
+                    two spellings of one fact is a defect). */}
                 This is a published price, not a quote, and there is no minimum. The rates
                 you bought at stay with that credit until it is spent.
               </p>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                {/* ⚠ THIS SAID "TELL YOUR ACCOUNT MANAGER WHICH VOICE EACH AGENT SHOULD
-                    SPEAK WITH", AND THAT STOPPED BEING TRUE BEFORE IT WAS WRITTEN.
-                    D-586 (11 Sep 2026) SUPERSEDES D-21 for the `live` lane: `PATCH
-                    /v1/agents/{agent_id}/voice` is a CLIENT-realm door, `agents:write` is
-                    on `owner` AND `staff`, and the picker is mounted on the client's own
-                    agent screen (`app/c/[slug]/agents/panels/delivery.tsx:165`, the card
-                    "How it sounds, and how long a call may run"). D-586's own closing note
-                    — "the client console has no picker or cap field on these two doors
-                    yet" — is what this copy was written against, and it has since been
-                    closed.
-
-                    The direction of the error is what makes it a pricing-page defect
-                    rather than a nit: it sold a self-serve product as one with a support
-                    queue in front of a two-click control. The per-agent half was always
-                    true and is kept.
-
-                    ⚠ "EACH AGENT SPEAKS WITH ONE OF TWO VOICES" WAS CUT because the
-                    control immediately below is now two named voices with one selected —
-                    the sentence described what the reader is looking at. */}
+                {/* The client picks the voice themselves — `PATCH /v1/agents/{agent_id}/
+                    voice` is a CLIENT-realm door (`agents:write` on `owner` and `staff`,
+                    D-586) and the picker is on their own agent screen
+                    (`app/c/[slug]/agents/panels/delivery.tsx`). Never restore "tell your
+                    account manager": it sells a self-serve product as one with a support
+                    queue in front of a two-click control. */}
                 A voice is set per agent rather than for the whole account, and you choose
                 it yourself on each agent&rsquo;s own screen — moving an agent to the other
                 voice costs nothing and changes none of your credit.
@@ -339,11 +276,10 @@ export default async function PricingPage() {
         </div>
       </section>
 
-      {/* The caveat that used to open the page, in its right size and its right place:
-          after the reader has seen what things cost. Managed-plan figures genuinely are
-          not publishable — every money column on `plans` is nullable with no default and
-          two of them record in their own comments that the figure is a founder decision —
-          but that is a footnote to a price list, not a substitute for one. */}
+      {/* The managed-plan caveat, placed after the reader has seen what things cost.
+          Those figures genuinely are not publishable — every money column on `plans` is
+          nullable with no default — but that is a footnote to a price list, not a
+          substitute for one. */}
       <section className="border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <div className="flex items-start gap-3">
@@ -500,12 +436,6 @@ export default async function PricingPage() {
             price of a minute, not what a minute does.
           </p>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            {/* ⚠ THIS USED TO SAY THE PRICE IS A CONVERSATION, ON A PAGE THAT PUBLISHES
-                ONE. Both halves were true of DIFFERENT things and the page ran them
-                together: the self-serve card above is published, and it is the MANAGED
-                plan that is negotiated. It also asserted a deployment fact — that accounts
-                are opened by hand — which `self_serve_signup_enabled` decides at runtime
-                and the homepage door already reads. */}
             A managed plan is the part that is a conversation — the monthly fee, the talk
             time in it and the rate past it are agreed with you.{" "}
             <Link href="/roi" className={INLINE_LINK}>

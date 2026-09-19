@@ -236,39 +236,27 @@ describe("the why-calevate page's refusals", () => {
 /**
  * THE PRICING PAGE PUBLISHES NO MANAGED-PLAN NUMBER, AND THE BAN IS NOW SCOPED TO SAY SO.
  *
- * ⚠ THIS BAN USED TO COVER THE WHOLE PAGE. It was narrowed on 5 Sep 2026 (D-545), on
- * purpose and with the founder's decision behind it — not because a figure got past it.
- *
- * What has not changed: commercial terms for a MANAGED plan are negotiated per client
- * (D-11) and every money column on `plans` is nullable with no default, two of them saying
- * in their own comments that the figure "is a founder decision" and that no default may be
- * invented. A managed rate typed onto this page would be a quote nobody can honour,
- * invented by whoever was writing marketing copy — hard rule 11's exact failure, and worse
+ * Commercial terms for a MANAGED plan are negotiated per client (D-11) and every money
+ * column on `plans` is nullable with no default, so a managed rate typed onto this page is
+ * a quote nobody can honour — invented by whoever was writing marketing copy, and worse
  * here than anywhere, because a price is the one claim a buyer relies on before they have
  * met anybody.
  *
- * What changed: the SELF-SERVE rate card is not that. It is a live, operator-set price
- * (`self_serve_inr_per_min`) with a pack ladder whose effective rates are computed by the
- * same functions the margin guard uses, fetched at request time from
- * `GET /v1/public/rate-card` and never typed into the bundle. Refusing to print it was
- * making the page read as though we would not say what anything costs — while the ₹50,000
- * pack already delivered a rate below the list one.
- *
- * So the ban now runs against the page WITHOUT `#self-serve`, and a second test asserts
- * that the figures inside that section are the ones the API sent. A managed-plan figure
- * appearing anywhere still fails here, which is the property that was always worth having.
+ * The SELF-SERVE card is not that: it is fetched at request time from
+ * `GET /v1/public/rate-card` and never typed into the bundle. So the ban runs against the
+ * page WITHOUT `#self-serve` (D-545), and a second test asserts the figures inside that
+ * section are the ones the API sent. A managed-plan figure anywhere still fails here.
  */
 describe("the pricing page", () => {
   it("invents no figure — every rupee on the page came from the rate card", async () => {
-    // ⚠ THIS ASSERTION WAS A LOCATION BAN AND IS NOW A PROVENANCE ONE (6 Sep 2026).
+    // A PROVENANCE BAN, NOT A LOCATION ONE. Requiring that no "₹" appear outside
+    // `#self-serve` is the wrong shape twice over: it permits an invented figure INSIDE
+    // that section, and forbids the real self-serve rate anywhere else — which is how the
+    // page came to open with "Why there is no price on this page" while a published rate
+    // sat below the fold.
     //
-    // It used to require that no "₹" appeared outside `#self-serve`. That was the wrong
-    // shape twice over. It permitted an invented figure INSIDE that section, and it
-    // forbade the real self-serve rate anywhere else — which is how the page came to open
-    // with "Why there is no price on this page" while a published rate sat below the fold.
-    //
-    // What actually matters is provenance, so that is what is checked: collect every
-    // rupee figure the page renders and require each one to be a figure the API sent.
+    // So: collect every rupee figure the page renders and require each to be one the API
+    // sent.
     // A managed-plan rate typed into the copy fails this — there is no such figure in the
     // response and there cannot be, since every money column on `plans` is nullable with
     // no default. So does a hand-tuned "₹4.99" in the hero. And the real rate is free to
@@ -337,12 +325,11 @@ describe("the pricing page", () => {
     // which is why this counts the ladder against the fixture and then requires every one
     // of the twelve rates to be on screen.
     //
-    // ⚠ THIS USED TO COUNT `tbody tr` AND EQUATE IT TO THE PACK COUNT, WHICH THE
-    // TRANSPOSED CARD MAKES MEANINGLESS (D-559): a pack is a COLUMN from `md` up and a row
-    // only on the phone layout, so the count is now taken per layout and per voice — six
-    // column headings in each of the two comparison tables, six rows in each of the two
-    // stacked ones. A weaker assertion (">= 6 rows somewhere") would pass a card that
-    // rendered one voice twice.
+    // Counted PER LAYOUT AND PER VOICE, because a pack is a COLUMN from `md` up and a row
+    // only on the phone layout (D-559): six column headings in each of the two comparison
+    // tables, six rows in each of the two stacked ones. Counting `tbody tr` against the
+    // pack count is meaningless on a transposed card, and a weaker ">= 6 rows somewhere"
+    // would pass a card that rendered one voice twice.
     const columnHeadings = selfServe?.querySelectorAll(
       "[data-rate-layout='columns'] thead th[scope='col']",
     );
@@ -475,11 +462,10 @@ describe("the pricing page", () => {
     // And the band is BOTH ends of ONE voice's ladder, in one sentence: the entry rung a
     // first purchase is actually at, and the floor the largest pack reaches.
     //
-    // ⚠ **IT IS THE STUDIO LADDER AND IT WAS THE CLEAR ONE UNTIL D-629 (18 Sep 2026).** The
-    // headline has to be a price somebody can be put on, and no agent can be set to a Clear
-    // voice until a Gnani price is attested — a headline quoting it would be a rate no
-    // client of ours can run at, which is an under-quote on a public page. The Clear band is
-    // still on the page, in the lede, with the sentence saying why it cannot be chosen.
+    // The STUDIO ladder, because the headline has to be a price somebody can be put on: no
+    // agent can be set to a Clear voice until a Gnani price is attested, so a headline
+    // quoting it would be an under-quote on a public page. The Clear band stays in the
+    // lede, with the sentence saying why it cannot be chosen.
     const dearestStudio = formatRateForTest(
       RATE_CARD.packs
         .map((pack) => packRate(pack, "studio"))
@@ -539,23 +525,16 @@ describe("the pricing page", () => {
   });
 
   /**
-   * ⚠ THIS TEST USED TO ASSERT THE OPPOSITE, AND IT WAS PINNING A CLAIM THAT HAD EXPIRED.
+   * THE CLIENT HOLDS THE VOICE CONTROL, AND THE PAGE MAY NOT SAY OTHERWISE (D-586,
+   * superseding D-21 for the `live` lane): `PATCH /v1/agents/{agent_id}/voice` is a
+   * CLIENT-realm door, `agents:write` sits on `owner` AND `staff`, and the picker is on
+   * the client's own agent screen (`app/c/[slug]/agents/panels/delivery.tsx`).
    *
-   * It read "D-21 STANDS: the voice picker is mounted in the admin realm only" and
-   * REQUIRED `/account manager/i` on the page. **D-586 (11 Sep 2026) supersedes D-21 for
-   * the `live` lane**: `PATCH /v1/agents/{agent_id}/voice` is a CLIENT-realm door,
-   * `agents:write` sits on `owner` AND `staff`, and the picker is mounted at
-   * `app/c/[slug]/agents/panels/delivery.tsx:165` — inside the card "How it sounds, and
-   * how long a call may run" on the client's own agent screen (`AgentWorkspace.tsx:221`).
-   * D-586 shipped with the note "the client console has no picker or cap field on these
-   * two doors yet", which is the state this copy and this assertion were written against,
-   * and that note has since been closed.
+   * Sending the buyer to an account manager describes a self-serve product as one with a
+   * support queue in front of a control they will actually hold, and understating what is
+   * bought is still a misdescription — which is why it is a pricing-page defect.
    *
-   * The direction is why it is a PRICING-page defect and not a stale comment: it described
-   * a self-serve product as one with a support queue in front of a control the buyer will
-   * actually hold. Understating what is bought is still a misdescription.
-   *
-   * Asserted in BOTH directions, so neither the old sentence nor an over-claim returns.
+   * Asserted in BOTH directions, so neither that sentence nor an over-claim returns.
    * `tests/voiceChoiceIsTheClients.test.ts` holds the same rule across every client-facing
    * root at once; this one keeps it on the page the buyer reads first.
    */
@@ -815,13 +794,10 @@ describe("the resources page", () => {
   });
 
   it("says where the voice is changed, and keeps it out of the publish lane", () => {
-    // ⚠ THIS ASSERTED `expect(voice).toMatch(/account manager/i)` AND ITS NEGATION OF
-    // "you choose", AND BOTH WERE PINNING A CLAIM D-586 (11 Sep 2026) SUPERSEDED. The
-    // client-realm door `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for
-    // `owner` and `staff`, and the picker is mounted at
-    // `app/c/[slug]/agents/panels/delivery.tsx:165`. This glossary entry was the FIFTH
-    // copy of that one sentence and the last one found;
-    // `tests/voiceChoiceIsTheClients.test.ts` now reads all five roots at once.
+    // The client changes the voice themselves (D-586): `PATCH /v1/agents/{agent_id}/voice`
+    // carries `agents:write` for `owner` and `staff`, with the picker at
+    // `app/c/[slug]/agents/panels/delivery.tsx`. That sentence had five copies across the
+    // client-facing roots; `tests/voiceChoiceIsTheClients.test.ts` reads all five at once.
     //
     // WHAT DOES NOT CHANGE IS THE PUBLISHING HALF, and the two are easy to conflate. A
     // voice write re-publishes a live agent INSIDE its own transaction (D-586), so a voice

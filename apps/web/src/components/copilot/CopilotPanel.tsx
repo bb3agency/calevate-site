@@ -304,12 +304,11 @@ export function CopilotPanel({
         }}
         className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3 text-sm"
       >
-        {/* THE SECOND SENTENCE USED TO SAY "it never saves anything", AND THAT STOPPED
-            BEING TRUE when the write tools shipped: it can now offer to change a lead's
-            status, suppress a number or pause a campaign. It still cannot DO any of them
-            on its own — every one arrives as a suggestion with a Confirm button — and
-            that is the promise this copy has to make instead, because a person who was
-            told nothing can ever be saved will not read the card before clicking. */}
+        {/* NEVER "it never saves anything": the write tools can offer to change a lead's
+            status, suppress a number or pause a campaign. What is true, and what this copy
+            must promise instead, is that it cannot DO any of them on its own — every one
+            arrives as a suggestion with a Confirm button — because a person told nothing
+            can ever be saved will not read the card before clicking. */}
         {conversation.turns.length === 0 &&
           conversation.streaming === null &&
           (surface.undeclared === true ? (

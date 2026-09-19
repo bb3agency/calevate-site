@@ -99,7 +99,7 @@ different facts with the same shape, and only the first is safe to render as a �
 client's screen.
 
 * **CARTESIA (TTS, D-547's premium tier): UNVERIFIED here.** Cartesia's own SDK is not
-  installed in this tree, and its docs host was not read this session. `pipecat-ai`
+  installed in this tree, and nobody has read its docs host. `pipecat-ai`
   carries a 44-entry Cartesia map (`services/cartesia/tts.py:91-134`) — but that is
   PIPECAT's claim about Cartesia, one evidence class down from the vendor's own
   definition, and the whole point of the class system is that we do not launder the
@@ -118,8 +118,8 @@ covers. Rows for languages it does not cover are not touched.
 THE DISPLAY FIELDS ARE A WEAKER CLASS THAN THE WIRE FIELDS, DELIBERATELY
 --------------------------------------------------------------------------------------
 `endonym`, `english_name` and `script` are REFERENCE knowledge — ISO 15924 script codes
-and the Eighth Schedule's own names. **No primary source was read for them this session**
-and they are not labelled as though one had been. That is tolerable only because of how
+and the Eighth Schedule's own names. **No primary source has been read for them** and
+they are not labelled as though one had been. That is tolerable only because of how
 they are used: they are display strings, they reach a screen and never a wire, and the
 one field that DOES reach a wire (`wire_code`) comes from the vendor's own literal. A
 wrong endonym is a typo somebody reports; a wrong wire code is a dropped call. Where a

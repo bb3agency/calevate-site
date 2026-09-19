@@ -25,7 +25,7 @@
  * The token is never logged and never rendered. It goes from the URL into state into one
  * request body, and nowhere else.
  *
- * ## ⚠ WHAT THIS HOOK CANNOT DO, AND WHERE THAT HALF LIVES
+ * ## WHAT THIS HOOK CANNOT DO, AND WHERE THAT HALF LIVES
  *
  * It runs in a `useEffect`, so it runs AFTER the first paint. Every same-origin
  * subresource the document already asked for — `/_next/static/chunks/*`, the

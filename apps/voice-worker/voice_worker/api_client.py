@@ -53,7 +53,7 @@ _Wire = TypeVar("_Wire", bound=BaseModel)
 
 #: How long session assembly may wait on the configuration read before the call is refused.
 #:
-#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT, AND IT IS STATED AS ONE** — `memory.
+#: ⚠ **AN ASSUMPTION, NOT A MEASUREMENT** — `memory.
 #: MEMORY_FETCH_BUDGET_S` and `storage.PACK_FETCH_BUDGET_S` carry the same gap and the same
 #: note: nobody has timed a request from a Pipecat Cloud `ap-south` container to our API,
 #: and that measurement (`docs/evidence/pre-build-blockers-2026-09-13.md` §3.6) is what
@@ -224,20 +224,17 @@ class WorkerApiClient:
     async def probe(self) -> None:
         """Prove the API is reachable AND this container's token is good. Raises otherwise.
 
-        **THIS IS WHAT `SELECT 1` USED TO BE, AND IT PROVES STRICTLY MORE.** A pool that has
-        never connected is indistinguishable from a working one until the first checkout,
-        which on this deployable is the first caller; the same is true of a base URL and a
-        token nobody has presented. So the boot gate presents them, against a ref that
+        **A BASE URL AND A TOKEN NOBODY HAS PRESENTED ARE INDISTINGUISHABLE FROM WORKING
+        ONES UNTIL THE FIRST CALLER.** So the boot gate presents them, against a ref that
         cannot name any agent of any tenant.
 
         **404 IS THE PASS AND 401 IS THE FAILURE**, which is the whole design of the probe:
         the route checks the token BEFORE it parses the ref (`worker/routes._admit` is the
         first line of the handler), so "not found" can only be reached by a caller that
-        authenticated. ⚠ Since D-627 the guard also answers **409** on the
-        three WRITING routes when the deployment is not running this engine, and the session
-        read is deliberately exempt — so this probe still answers 404 there, and the engine
-        mismatch surfaces on the first write rather than at boot. That is a deliberate
-        narrowing and not an oversight: see `worker/routes._admit`.
+        authenticated. ⚠ The guard also answers **409** on the three WRITING routes when the
+        deployment is not running this engine (D-627); the session read is deliberately
+        exempt, so this probe answers 404 there and an engine mismatch surfaces on the first
+        write rather than at boot. See `worker/routes._admit`.
 
         Asking for a real agent would need an agent id this process does not have at boot,
         and would make readiness depend on somebody's published configuration.

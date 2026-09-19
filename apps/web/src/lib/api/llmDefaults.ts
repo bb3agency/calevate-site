@@ -38,12 +38,9 @@
  *
  * ## The wire types are the generated ones, and they are imported rather than restated
  *
- * This paragraph used to say `pnpm gen:api` had not run against the endpoint yet and that
- * the aliases would move to `llmModels.ts` when it did. It has run, they did, and this
- * file was already unchanged by it — which is what the arrangement was for. Nothing here
- * asserts onto a wire type (`as`), in `src/` or in `tests/`, so a generated shape that
- * differs from what was agreed fails the build rather than compiling over the difference
- * (`tests/wireFixtureGuard.test.ts`).
+ * Nothing here asserts onto a wire type (`as`), in `src/` or in `tests/`, so a generated
+ * shape that differs from what was agreed fails the build rather than compiling over the
+ * difference (`tests/wireFixtureGuard.test.ts`).
  *
  * ## Where the route landed, against the contract this was built to
  *

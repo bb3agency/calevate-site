@@ -12,18 +12,17 @@ import { Reveal } from "@/components/marketing/motion";
 import { Band, Chapter, HOME } from "./band";
 
 /**
- * CHAPTER 1 — the problem, then the promise. TWO BANDS THAT USED TO BE TWO CHAPTERS.
+ * CHAPTER 1 — the problem, then the promise, in ONE chapter.
  *
- * They were bands 01 and 02, each with its own hairline, its own 80px of padding either
- * side and its own identically-sized heading, which said to the reader that "the calls you
- * missed" and "what is different by next week" are two topics. They are one: the second is
- * the answer to the first, and a reader who has just agreed they are losing calls should
- * meet the resolution inside the same breath rather than after a rule and a colour change.
+ * As two chapters each got its own hairline, 80px of padding and an identically-sized
+ * heading, which tells the reader that "the calls you missed" and "what is different by
+ * next week" are two topics. They are one: the second is the answer to the first, and a
+ * reader who has just agreed they are losing calls should meet the resolution inside the
+ * same breath rather than after a rule and a colour change.
  *
- * The RANKING is the whole point of putting them together. The problem is `standard`; the
- * promise is one of the page's three `anchor` bands, because it is the sentence the buyer
- * is here to test. Under the old page they were the same size and the reader had no way to
- * tell which one was the offer.
+ * The RANKING is the point of putting them together. The problem is `standard`; the promise
+ * is one of the page's three `anchor` bands, because it is the sentence the buyer is here
+ * to test. At equal size the reader has no way to tell which one is the offer.
  *
  * ## The problems are not cards any more, and that is UX-DOCTRINE §1
  *

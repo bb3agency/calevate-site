@@ -155,10 +155,9 @@ const SOLUTIONS: readonly Solution[] = [
       // apps/api/core/alerting.py:632::record_speed_to_lead.
       "The gap between the form arriving and the dial going out is timed on every one.",
       // apps/api/campaigns/service.py; contacts are pasted — the CAMPAIGN screens take no
-      // file. ⚠ The reason this used to give — "there is no file input in this console,
-      // `grep 'type=\"file\"' apps/web/src` returns nothing" — is dead: that grep now
-      // returns `app/c/[slug]/knowledge/AddDocument.tsx:133` (D-534). The claim about
-      // campaigns is unchanged; the console-wide one was re-read and withdrawn.
+      // file. The ground is the CAMPAIGN screens specifically: the console does have a
+      // file input (`app/c/[slug]/knowledge/AddDocument.tsx`, D-534), so "no file input
+      // anywhere in this console" is not available as a reason.
       // Two dispatch ticks cannot double-dial a person: the claim commits before the
       // first dial and stamps `last_attempt_at` (`apps/workers/campaign_dispatch.py:39,222,
       // 352`). So this is a property of the design rather than a promise about care.

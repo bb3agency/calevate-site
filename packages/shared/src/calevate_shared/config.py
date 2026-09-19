@@ -510,16 +510,14 @@ class Settings(BaseSettings):
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
     # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     #
-    # ⚠ THIS IS NOW THE FALLBACK, NOT THE RATE, and this comment used to say the opposite
-    # ("a config row, not a live FX call: metering must be reproducible, not current").
-    # Both halves of that sentence survive, but they are answered by different things now:
-    # `apps/workers/fx_pull.py` pulls a PUBLISHED reference rate every five minutes into
-    # `fx_rate_observations` and `engine/bolna.py::_cost` converts at it, so metering is
-    # current; and it stays reproducible because the rate, its source and its publication
-    # date are stamped on every ledger row and the observation history is append-only.
-    # This value is what the conversion falls back to when nothing has been pulled or the
-    # published rate has aged past `core/fx.MAX_QUOTE_AGE` — which is why it is still a
-    # number a human owns, still bounded below, and still worth keeping accurate.
+    # ⚠ THIS IS THE FALLBACK, NOT THE RATE. `apps/workers/fx_pull.py` pulls a PUBLISHED
+    # reference rate every five minutes into `fx_rate_observations` and
+    # `engine/bolna.py::_cost` converts at that, so metering is current; it stays
+    # reproducible because the rate, its source and its publication date are stamped on
+    # every ledger row and the observation history is append-only. This value is used only
+    # when nothing has been pulled or the published rate has aged past
+    # `core/fx.MAX_QUOTE_AGE` — which is why it is still a number a human owns and still
+    # worth keeping accurate.
     #
     # BOUNDED BECAUSE IT IS MONEY AND IT IS CONSOLE-SETTABLE. `0` is type-valid and
     # makes every Bolna minute cost nothing — the platform bills zero and nobody
@@ -536,109 +534,59 @@ class Settings(BaseSettings):
     # raw PII reaching Google. `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form
     # of that sentence (`workers/extraction.py`).
     sarvam_api_key: str | None = None
-    # ⚠ THE AI STUDIO DEVELOPER API KEY. THIS COMMENT SAID "NO SURFACE IN THIS PRODUCT
-    # OPENS THAT DOOR" AND THAT HAS BEEN FALSE SINCE D-456 — the correction matters more
-    # than the sentence, because a reader trusting it would conclude an installed Gemini
-    # key is inert, and it is not.
+    # THE GOOGLE AI STUDIO (GEMINI DEVELOPER API) KEY. It is a LIVE credential with real
+    # readers: `ops/model_pricing.py` maps the `google` provider to it, the dashboard
+    # copilot (`copilot/service.py`), the KB pack encoder (`kb/pack_vectors.py`) and the
+    # OCR leg (`workers/document_ocr.py`) all read it, and a client on a Gemini agent runs
+    # the IN-CALL leg on it. Anyone reasoning that an installed Gemini key is inert is
+    # wrong.
     #
-    # THE REGION HALF IS VENDOR-PUBLISHED AND CONFIRMED. Google's own live Gemini discovery
-    # document (`generativelanguage.googleapis.com/$discovery/rest?version=v1beta`, revision
-    # `20260823`, read 27 Aug 2026) declares ONE global `rootUrl` and contains the string
-    # "region" zero times and "residen" zero times; Google's own SDK raises
+    # THERE IS NO REGION TO ASK FOR ON THIS API — VENDOR-PUBLISHED and confirmed. Google's
+    # live Gemini discovery document
+    # (`generativelanguage.googleapis.com/$discovery/rest?version=v1beta`, revision
+    # `20260823`, read 27 Aug 2026) declares ONE global `rootUrl` and contains "region" and
+    # "residen" zero times; their own SDK raises
     # `ValueError("Gemini API does not support project/location.")` before a packet leaves
-    # the machine (`googleapis/python-genai`, `google/genai/_api_client.py`, main, read
-    # 27 Aug 2026). There is no region to ask for on this API.
+    # the machine (`googleapis/python-genai`, `google/genai/_api_client.py`).
     #
-    # THE DATA-USE HALF IS **SECONDARY**, AND THIS COMMENT USED TO STATE IT FLATLY. Every
-    # Google-owned host that publishes those terms is egress-blocked from this environment
-    # (`ai.google.dev`, `policies.google.com`, `aistudio.google.com`, and `web.archive.org`
-    # too — re-measured 27 Aug 2026), so NOBODY IN THIS TREE HAS READ THEM ON A GOOGLE HOST.
-    # What is held is two independent third-party verbatim mirrors of the Gemini API
-    # Additional Terms — captured **May 2025 and March 2026**, ten months apart, by
-    # unrelated parties, and agreeing almost word for word, with a search-engine summary
-    # agreeing again. Two independent captures that far apart do not drift into agreement
-    # by accident, which is what makes this SECONDARY rather than hearsay; it is still not
-    # a page anybody here opened. They say: on the
-    # unpaid tier Google uses submitted content and responses "to provide, improve, and
-    # develop Google products and services and machine learning technologies", human
-    # reviewers "may read, annotate, and process your API input and output", and the terms
-    # instruct in as many words: "Do not submit sensitive, confidential, or personal
-    # information to the Unpaid Services." The EEA/Switzerland/UK carve-out that applies the
+    # THE DATA-USE HALF IS **SECONDARY**, and the label is load-bearing. Every Google host
+    # publishing those terms is egress-blocked here (`ai.google.dev`, `policies.google.com`,
+    # `aistudio.google.com`, and `web.archive.org` too), so nobody in this tree has read
+    # them on a Google host. What is held is two independent verbatim mirrors of the Gemini
+    # API Additional Terms, captured May 2025 and March 2026 by unrelated parties and
+    # agreeing almost word for word. They say: on the UNPAID tier Google uses submitted
+    # content and responses "to provide, improve, and develop Google products and services
+    # and machine learning technologies", human reviewers "may read, annotate, and process
+    # your API input and output", and "Do not submit sensitive, confidential, or personal
+    # information to the Unpaid Services". The EEA/Switzerland/UK carve-out applying the
     # paid terms to free usage does NOT include India. For a Processor holding an Indian
-    # SMB's callers' transcripts that is not a tradeoff, it is a disclosure we could not
-    # make — which is still why this key is barred from the two surfaces below. Read the
-    # label with the claim: SECONDARY is strong enough to keep a door SHUT and is not
-    # strong enough to open one (hard rule 11).
+    # SMB's callers' transcripts that is a disclosure we could not make. SECONDARY is strong
+    # enough to keep a door SHUT and not strong enough to open one (hard rule 11).
     #
-    # ⚠ **PAID DOES NOT MEAN UNLOGGED**, and a reader must not collapse the two. On the same
-    # SECONDARY evidence the paid terms log prompts and responses for a limited period for
-    # abuse detection, permit authorised employees to read flagged content, and state the
-    # data "may be stored transiently or cached in any country" — an explicit disclaimer of
-    # residency, not a residency claim. What an operator may attest is that the vendor does
-    # not TRAIN on submitted content (`ops/dashboard_data_use_routes.py`, D-477); that is one
-    # property and it is the only one the dashboard-eligibility gate turns on.
+    # ⚠ **PAID DOES NOT MEAN UNLOGGED.** On the same SECONDARY evidence the paid terms log
+    # prompts and responses for a limited period for abuse detection, permit authorised
+    # employees to read flagged content, and state the data "may be stored transiently or
+    # cached in any country" — an explicit disclaimer of residency, not a residency claim.
+    # What an operator may attest is that the vendor does not TRAIN on submitted content
+    # (`ops/dashboard_data_use_routes.py`, D-477); that is the one property the
+    # dashboard-eligibility gate turns on.
     #
-    # WHAT CHANGED: D-127 disqualified it for the DASHBOARD leg and D-410 moved both LLM
-    # surfaces to Azure — and then D-456/D-459 reopened the IN-CALL leg on two models the
-    # thinking-off trap does not break. `LlmProvider` carries `"google"`,
-    # `gemini-2.5-flash` and `-flash-lite` are in `SELECTABLE_LLM_MODELS`, and
-    # `ops/model_pricing.py:65` maps the `google` provider to THIS field. So a client who
-    # picks a Gemini agent runs on this credential, inside the engine, on the in-call leg.
-    #
-    # THE TWO BARS THAT DID NOT MOVE, which is the half a reader must not lose:
+    # THE TWO BARS THAT STAND:
     # * The DASHBOARD assist leg. D-127 G-2 is a rule about RAW PII, and the unpaid tier's
-    #   human-review disclosure is why this key is not an assist rung by default. **D-477
-    #   made that a MECHANISM rather than a sentence**: `agents/llm_models
-    #   .dashboard_leg_reason` bars the `google` leg until an operator attests, in the ops
-    #   console, that the Cloud project this key belongs to is on the paid tier AND has not
-    #   opted its logs back into the unpaid terms. Attesting does not on its own switch the
-    #   assistant onto Google — no dashboard chat leg is built for it — and the console says
-    #   so.
+    #   human-review disclosure is why this key is not an assist rung by default. D-477
+    #   made that a MECHANISM: `agents/llm_models.dashboard_leg_reason` bars the `google`
+    #   leg until an operator attests in the ops console that the Cloud project this key
+    #   belongs to is on the paid tier AND has not opted its logs back into the unpaid
+    #   terms. Attesting does not by itself switch the assistant onto Google — no dashboard
+    #   chat leg is built for it — and the console says so.
     # * The FIRST POST-CALL EXTRACTION, which reads the raw transcript.
-    #   `GEMINI_EXTRACTION_DEFAULT is False` (`workers/extraction.py`) is the greppable
-    #   form of that sentence and D-410 did not move it.
-    # `gemini-3.*` stays `selectable=False` on its own separate ground — the vendor's
-    # docs say 3.x does not support full thinking-off, and a candidate with no content is
-    # dead air on a phone call.
+    #   `GEMINI_EXTRACTION_DEFAULT is False` (`workers/extraction.py`) is the greppable form
+    #   of that sentence, and D-410 did not move it.
     #
-    # IT IS KEPT, AND THIS IS NOT A DEPRECATION — which is what this comment used to
-    # claim, in a paragraph that contradicted itself two sentences later. It said hard
-    # rule 8's two-step applied and that step one was done, "nothing in the tree [reads]
-    # it", and then said it is read in exactly one place. Both cannot be true, and the
-    # second one is: `assist_capability()` reads it on every call. A field that is READ
-    # has not had step one taken, so there is no step two to schedule and the sentence
-    # promising a later release was a schedule wearing a rule's clothes (CLAUDE.md: a
-    # deferral is a decision-log entry naming what closes it, or it is not a deferral).
-    #
-    # ⚠ THIS COMMENT USED TO CLAIM A JOB THIS FIELD NO LONGER HAS, and the correction is
-    # the point. It argued that the field was the one input separating "no AI credential"
-    # from "the WRONG KIND of AI credential", because `assist_capability()` read it to
-    # choose between two operator-facing sentences. **Nothing reads it any more.** D-410's
-    # extraction rewrite deleted `ai_studio_key_disqualified` on its own reasoning, and
-    # the two facts landed in different files by different hands — leaving a comment here
-    # that was readable, confident and false. Grepping the tree, the only readers left are
-    # `platform_config`'s metadata table and two tests, one of which tests this very claim.
-    #
-    # SO WHY IS IT STILL HERE? One reason, and it is the one previously recorded second:
-    # `Settings` is `extra="forbid"` over a dotenv, so deleting the field turns any `.env`
-    # still carrying `GEMINI_API_KEY` into a BOOT FAILURE. That is hard rule 8's two-step
-    # deprecation in its ordinary form — stop reading it in this release, remove it in a
-    # later one — and this is the release that stopped reading it.
-    #
-    # ⚠ **THE SAME QUESTION HANGS OVER THE IN-CALL LEG, AND NOTHING HERE GATES IT.** A
-    # client who picks a Gemini agent sends RAW CALLER SPEECH through this credential on
-    # every turn — strictly worse exposure than the dashboard leg's redacted screen text —
-    # and at least one tenant is on `gemini-2.5-flash-lite` today. That is the founder's
-    # question, not a column's: OPERATIONS §2 gate 41 owns it and names what closes it.
-    #
-    # WHAT CLOSES IT: deleting this field once no `.env` in use carries the key. That is a
-    # deferral naming what closes it rather than a schedule, per CLAUDE.md. It is NOT
-    # waiting on a decision, a vendor or a date.
-    #
-    # DO NOT restore the reader to make the old argument true again. An operator installing
-    # a Gemini key for a product with no Gemini leg is now an unlikely path, and a
-    # defensive branch that cannot realistically be reached is the coverage-ratchet
-    # liability the extraction rewrite deleted it to avoid.
+    # ⚠ **NOTHING HERE GATES THE IN-CALL LEG.** A client who picks a Gemini agent sends RAW
+    # CALLER SPEECH through this credential on every turn — strictly worse exposure than the
+    # dashboard leg's redacted screen text. That is the founder's question, not a column's:
+    # OPERATIONS §2 gate 41 owns it and names what closes it.
     gemini_api_key: str | None = None
 
     # OPENAI DIRECT — the `openai` leg's credential (D-456's third declared leg). ONE key,
@@ -650,16 +598,12 @@ class Settings(BaseSettings):
     # the Azure four in `engine/bolna.py`; this field carries only the value the platform
     # installs.
     #
-    # OFFERED TO NOBODY TODAY, and installable anyway — the same posture as `gemini_api_key`
-    # one field up (D-456: `azure_openai`, `openai`, `google` are all DECLARED, only Azure's
-    # two models are SELECTABLE). Every `openai`-leg model in `calevate_shared.engine
-    # .LLM_MODELS` carries `selectable=False` because its list price is REPORTED, not read
-    # (every OpenAI pricing host is egress-blocked here) — and `LlmModelSpec` refuses to make
-    # a model selectable on an unverified price. The founder's resolution is the ops panel's
-    # OPERATOR-ATTESTED price (`ops/model_pricing.py`): once the founder installs this key
-    # AND attests a price from their own OpenAI invoice, the model becomes offerable. So this
-    # credential is installed in anticipation of that attestation, exactly as an operator
-    # would install a vendor key before switching its leg on.
+    # INSTALLED BEFORE ITS LEG IS OFFERABLE, deliberately. A model is offerable only when
+    # `agents/llm_models.offerable_models()` finds it selectable AND its provider's
+    # credential installed AND its price attested, so a selectable `openai`-leg model
+    # (`gpt-5.4-mini`) still reaches no client until this key exists and the founder attests
+    # a price from their own OpenAI invoice (`ops/model_pricing.py`). Installing the
+    # credential first is the ordinary order of those two operator acts.
     #
     # SEALED OUT OF THE PLAINTEXT TABLE BY ITS NAME (`api_key` is one of
     # `platform_config._SECRET_NAME_FRAGMENTS`), so `manageable_secret_keys()` picks it up
@@ -760,14 +704,14 @@ class Settings(BaseSettings):
     # THAT name, so it cannot be derived from `azure_openai_model` and must not be guessed
     # from it. `ModelConfig.llm_model` is where this value lands on the wire.
     #
-    # ⚠ **THE ENGINE READS THIS NAME AND INFERS THINGS FROM IT, WHICH NOTHING HERE KNEW
-    # UNTIL THEIR DOCS WERE READ.** VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/
-    # providers/llm-model/azure-openai.md:69`: *"Azure deployment names are chosen freely,
-    # so `model` here is often not the model name. Keep the underlying model name inside
-    # the deployment name — `prod-gpt-5.4-mini` rather than `prod-voice-01`. Bolna resolves
-    # the deployment to the model it serves, and that resolution is what selects GPT-5
-    # handling and the right default `reasoning_effort`. A name it cannot resolve is
-    # treated as a non-GPT-5 model and gets the wrong defaults."*
+    # ⚠ **THE ENGINE READS THIS NAME AND INFERS THE MODEL FROM IT.** VERIFIED-VENDOR-DOCS,
+    # `bolna-findings/mirror/pages/providers/llm-model/azure-openai.md:69`: *"Azure
+    # deployment names are chosen freely, so `model` here is often not the model name.
+    # Keep the underlying model name inside the deployment name — `prod-gpt-5.4-mini`
+    # rather than `prod-voice-01`. Bolna resolves the deployment to the model it serves,
+    # and that resolution is what selects GPT-5 handling and the right default
+    # `reasoning_effort`. A name it cannot resolve is treated as a non-GPT-5 model and
+    # gets the wrong defaults."*
     #
     # HARMLESS FOR US TODAY AND A TRAP THE DAY IT IS NOT. `AzureOpenAIModel` is closed to
     # two GPT-4-class models, and "treated as a non-GPT-5 model" is the CORRECT handling
@@ -953,14 +897,12 @@ class Settings(BaseSettings):
     # WHAT AN ACCOUNT RUNS WHEN NEITHER IT NOR ITS AGENT CHOSE — the PLATFORM rung, across
     # all three declared legs.
     #
-    # **IT IS NOT `azure_openai_model`, AND THIS FIELD EXISTS BECAUSE IT USED TO BE.**
-    # `agents/llm_models.platform_default_model()` read the field above, which is typed
-    # `AzureOpenAIModel` — so the platform's own default could only ever be an Azure model,
-    # on a product that declares three legs and whose founder chose a Google one
-    # (`PLATFORM_DEFAULT_LLM_MODEL`). Two different facts had one field: which model the
-    # AZURE DEPLOYMENT was made from (read by the cost model, pushed to the engine's
-    # credential store as `AZURE_OPENAI_MODEL`) and which model everybody runs by default.
-    # They are separate now, and the field above keeps its one job.
+    # **IT IS NOT `azure_openai_model`, AND THE SEPARATION IS THE POINT.** That field is
+    # typed `AzureOpenAIModel` and answers which model the AZURE DEPLOYMENT was made from
+    # (read by the cost model, pushed to the engine's credential store as
+    # `AZURE_OPENAI_MODEL`). This one answers which model everybody runs by default, across
+    # all three declared legs — including the Google one the founder chose
+    # (`PLATFORM_DEFAULT_LLM_MODEL`), which the Azure Literal cannot hold.
     #
     # `applies: live` for the same reason the field above is: nothing publishes this value on
     # its own: `GET /v1/organization/llm-defaults` resolves it per request and `in_call_llm`
@@ -985,12 +927,11 @@ class Settings(BaseSettings):
     # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE LLM KEY (D-404, re-aimed by
     # D-410).
     #
-    # ⚠ **THE MARKED ASSUMPTION THIS FIELD CARRIED IS CLOSED, AND THE GUESS WAS WRONG.**
-    # It defaulted to `AZURE` — a DERIVATION, and the comment said so: their published
-    # provider matrix names credential entries after the provider in upper case (`OPENAI`,
-    # `GOOGLE`, `SARVAM`), so `azure` became `AZURE`. The vendor's own credential-store
-    # documentation is now readable and names FOUR keys for Azure OpenAI, none of them
-    # `AZURE`:
+    # ⚠ **IT IS NOT `AZURE`, WHICH IS WHAT DERIVING IT WOULD GIVE.** Their provider matrix
+    # names credential entries after the provider in upper case (`OPENAI`, `GOOGLE`,
+    # `SARVAM`), and that rule is real for single-key providers and does not hold here:
+    # the vendor's credential-store documentation names FOUR keys for Azure OpenAI, none of
+    # them `AZURE`:
     #
     #     | `AZURE_OPENAI_API_KEY`     | Your Azure API key           |
     #     | `AZURE_OPENAI_MODEL`       | Your Azure OpenAI model      |
@@ -1000,16 +941,13 @@ class Settings(BaseSettings):
     # VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers.md`, "LLMs" tab, "Azure
     # OpenAI" accordion, under *"All these keys **must** be added for the respective
     # provider."* (fetched 20 Aug 2026, sha256 63231b2b7a0c5a338dd1d6342dc65ea4ac055
-    # 46f7ddb6a28bc3c9a4ec24791b9). The derivation was not merely off by a spelling: the
-    # per-provider naming rule it generalised from is real for single-key providers and
-    # does not hold for this one, which needs a key, an endpoint, a model and a version.
+    # 46f7ddb6a28bc3c9a4ec24791b9). Azure needs a key, an endpoint, a model and a version.
     # `apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS` holds all four with the evidence,
     # because vendor field names are an ENGINE concern (hard rule 2); this field carries
     # only the one the platform must PUSH rather than an operator type.
     #
-    # A SETTING RATHER THAN A CONSTANT, STILL, AND THE REASON CHANGED. It used to be a
-    # setting because nobody had read the right value. Now it is a setting because a
-    # documented name and an account's actual name are different claims: the docs are a
+    # A SETTING RATHER THAN A CONSTANT, because a documented name and an account's actual
+    # name are different claims: the docs are a
     # snapshot, the store is a live system, and OPERATIONS §2 gate 16f is a `GET
     # /providers` against a real account that can still disagree with the page. If it
     # does, this is a console edit rather than a deploy — the difference between a
@@ -1022,16 +960,14 @@ class Settings(BaseSettings):
     # configured. The value it NAMES is `azure_openai_api_key`, which is held encrypted
     # and pushed to the engine, never echoed back.
     #
-    # ⚠ THAT DID NOT HOLD BY ITSELF, AND THE CORRECTION IS LOAD-BEARING FOR THE GATE
-    # ABOVE. This comment used to add "(whose sealing is keyed on `_json`/`_key` style
-    # names)", which is wrong: `platform_config._SECRET_NAME_FRAGMENTS` also carries the
-    # bare fragment `credential`, added for exactly the naming this field uses — so the
-    # field WAS sealed, write-only, `last_four` and nothing else. An operator working
-    # gate 16f is trying values against a leg that is down; "what is it set to right
-    # now" is the whole question they have. It also routed the `pattern` below around
-    # its only enforcement point, because the secrets write path validates non-emptiness
-    # and nothing else. The exemption is now explicit and checked at import:
-    # `platform_config._CREDENTIAL_REFERENCE_KEYS`.
+    # ⚠ **THAT NEEDS AN EXPLICIT EXEMPTION AND DOES NOT FALL OUT OF THE NAMING.**
+    # `platform_config._SECRET_NAME_FRAGMENTS` carries the bare fragment `credential`, so
+    # without the exemption this field seals itself: write-only, `last_four` and nothing
+    # else. That breaks gate 16f — an operator trying values against a leg that is down
+    # needs to see what it is set to right now — and it routes the `pattern` below around
+    # its only enforcement point, since the secrets write path validates non-emptiness and
+    # nothing else. The exemption is `platform_config._CREDENTIAL_REFERENCE_KEYS`, checked
+    # at import.
     #
     # Bounded to the shape a credential-store key can take: their examples are
     # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores. The documented
@@ -1064,15 +1000,13 @@ class Settings(BaseSettings):
     # Cartesia agents across every tenant has reached this; an operator raises it here, on
     # a screen, after choosing to. Default 2, the founder's rule; 0 switches the tier off.
     #
-    # ⚠ **THIS CEILING GOT MUCH SHARPER ON 18 Sep 2026 AND THE NUMBER WAS DELIBERATELY NOT
-    # TOUCHED.** It was struck while Sarvam served the value rung, so it capped the DEARER
-    # tier and every other agent went on Sarvam. The founder withdrew the Sarvam TTS leg,
-    # and the value rung's new occupant (Gnani) cannot be sold until somebody attests its
-    # price — so until that attestation lands, **this is the platform-wide ceiling on LIVE
-    # AGENTS, full stop**, and the third client cannot be onboarded without an operator
-    # raising it. That is a plan-cost decision and a founder's to make on a screen, which is
-    # exactly what this setting is; a number changed here by an engineer to make an
-    # onboarding work would be the vendor bill nobody decided to take on.
+    # ⚠ **WHILE THE CLEAR RUNG CANNOT BE SOLD, THIS IS THE PLATFORM-WIDE CEILING ON LIVE
+    # AGENTS, FULL STOP.** It was struck as a cap on the DEARER tier with Sarvam serving the
+    # value rung; the value rung's occupant (Gnani) cannot be sold until somebody attests
+    # its price (`agents/voice_offer.py`), so there is no cheaper tier to overflow into and
+    # the third client cannot be onboarded without an operator raising this. That is a
+    # plan-cost decision, a founder's to make on a screen — an engineer raising it to make
+    # an onboarding work is a vendor bill nobody decided to take on.
     cartesia_agent_cap: int = Field(default=2, ge=0, le=10_000)
     # WHICH SARVAM TRANSCRIBER EVERY AGENT IS PUBLISHED WITH (D-583).
     #
@@ -1596,8 +1530,8 @@ class Settings(BaseSettings):
     # It exists in config (rather than as a constant) so the runway framing ("about N
     # minutes left") and the top-up flow price from the SAME source and an operator can move
     # it without a deploy. Managed clients never see it: their price lives in their `plans`
-    # row. ⚠ This comment used to say "there is one voice quality now, so there is one client
-    # rate" — there have been TWO since D-547, and this key carries the CHEAPER one.
+    # row. ⚠ There are TWO client rates since D-547 (one per voice rung); this key carries
+    # the CHEAPER one.
     #
     # BOUNDED FOR THE SAME REASON `usd_inr_rate` IS, one surface closer to the client:
     # `0` is type-valid and would price every self-serve minute at nothing, so the

@@ -575,13 +575,11 @@ function identityHeaders(
   // NO SOURCE IS THE DEPLOYED CASE and it sends NO header rather than an empty one: the
   // session cookie below is the credential, and `Authorization: Bearer ` would be a
   // malformed credential the API is obliged to refuse before it looks at the cookie.
-  // ⚠ NOT AN `async` FUNCTION, AND THAT IS THE WHOLE POINT OF THE UNION RETURN TYPE.
-  // Marking it `async` would make every caller's `await` yield a microtask even when the
-  // body never awaits anything — which silently DEFEATS the property the paragraph above
-  // promises, and did: extracting this helper put a tick in front of every request in the
-  // app, and `tests/leadColumns.test.tsx` caught it as a request that had not been sent
-  // yet when the assertion ran. A test racing a click is the cheap version of that bug;
-  // the expensive version is a screen that reads its own state one tick stale.
+  // NOT AN `async` FUNCTION, which is the point of the union return type: marking it
+  // `async` makes every caller's `await` yield a microtask even when the body awaits
+  // nothing, silently defeating the property the paragraph above promises. It has happened
+  // — `tests/leadColumns.test.tsx` caught it as a request not yet sent when the assertion
+  // ran, and the expensive version is a screen reading its own state one tick stale.
   const requested = session.token?.();
   if (typeof requested !== "string" && requested !== undefined) {
     return requested.then((token) => withToken(session, token));

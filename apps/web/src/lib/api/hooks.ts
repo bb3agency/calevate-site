@@ -136,14 +136,12 @@ export interface WriteAccess {
  * view-as session may not exercise and adds what an owner's curation switch grants — so
  * this hook previews the server's ruling rather than re-deriving it.
  *
- * ⚠ **IT USED TO READ `impersonating` AS A SECOND FACT AND REFUSE EVERYTHING ON IT (D-22).
- * D-587 DELETED THAT BRANCH.** An operator in "view as client" may now fix the account they
- * are looking at, and every change is recorded against them (`audit_log.via_grant_id`), so
- * a browser-side rule saying "no" would have disabled the controls the reversal exists to
- * enable — and would have done it silently, since nothing in the API would have refused.
- * `impersonating` survives here for one job only: choosing which SENTENCE explains an
- * absent permission, because "only an account owner can" is false when the reader is an
- * operator rather than a member of the account.
+ * `impersonating` MUST NOT refuse a write here (D-587 reversing D-22): an operator in
+ * "view as client" may fix the account they are looking at, every change is recorded
+ * against them (`audit_log.via_grant_id`), and a browser-side "no" would silently disable
+ * the controls that reversal exists to enable, since nothing in the API refuses. It
+ * survives for one job: choosing which SENTENCE explains an absent permission, because
+ * "only an account owner can" is false when the reader is an operator.
  *
  * A preview, never a substitute: the endpoints still refuse, and every screen keeps its
  * ProblemNotice as the backstop.
@@ -168,11 +166,10 @@ export function useWriteAccess(
   // flashes an explanation and then retracts it teaches the reader to ignore the next one.
   if (!me.data) return { allowed: false, reason: null, unknown: true };
   if (!me.data.permissions.includes(permission)) {
-    // D-587 REMOVED THE BLANKET `if (me.data.impersonating) refuse` THAT USED TO STAND
-    // ABOVE THIS, and removing it is the point rather than a side effect: it was a copy of
-    // a server policy ("view-as is read-only") living in the browser, and the moment the
-    // server's answer became "these six mutations yes, those six no" the copy would have
-    // been wrong for every control an operator is now meant to use.
+    // NO BLANKET `if (me.data.impersonating) refuse` here (D-587). That was a copy of a
+    // server policy ("view-as is read-only") living in the browser, and once the server's
+    // answer became "these six mutations yes, those six no" the copy is wrong for every
+    // control an operator is meant to use.
     //
     // `/v1/me` already reports the EFFECTIVE permission set — it filters out what
     // `rbac.VIEW_AS_MUTATIONS` withholds from a view-as session, exactly as it already

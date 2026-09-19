@@ -1,30 +1,24 @@
 "use client";
 
 /**
- * The voice catalogue and the one write that uses it (one Bulbul v3 quality; personas).
+ * The voice catalogue and the writes that use it.
  *
  *   GET   /v1/agents/voices                                     `agents:read`, realm ANY
  *   PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice `agents:write`, realm ADMIN
  *
  *   PATCH /v1/agents/{agent_id}/voice                          `agents:write`, realm ANY
  *
- * ⚠ **THIS DOCSTRING USED TO SAY "there is deliberately no client-realm setter here"**,
- * on D-21's ground that only we may change a voice. D-586 withdrew that ground for this
- * setting: a voice is delivery on the client's own phone line, the account's owner and
- * their staff hold `agents:write` for it, and the write re-publishes a live agent in the
- * same transaction so the screen never claims a voice the platform is not speaking. The
- * admin route stays — it is the ONBOARDING door, used before a client has ever signed in,
- * and it calls the same server-side writer.
+ * THE CLIENT MAY SET THIS THEMSELVES (D-586, superseding D-21 for this setting): a voice
+ * is delivery on the client's own phone line, the owner and their staff hold `agents:write`
+ * for it, and the write re-publishes a live agent in the same transaction so the screen
+ * never claims a voice the platform is not speaking. The admin route stays as the
+ * ONBOARDING door, used before a client has ever signed in, and calls the same server-side
+ * writer.
  *
- * **The read half is not client-facing YET, and this docstring used to say it was.** It
- * justified the client-realm route as existing so "a client may HEAR what their agent
- * sounds like" — the right eventual reason (which voice speaks Telugu well is an EAR
- * TEST, not a spec fact: BRD §6 R-10, TRD §10.1, OPERATIONS §2 gate 3) attached to a
- * capability that is neither wired nor representable. No client screen reads the
- * catalogue, and `Voice` carries no sample or preview URL of any kind, so there is
- * nothing for a client to hear. Listening needs a field on the API's `Voice` model — a
- * signed sample URL — before it needs a screen, so the client-realm hook is NOT sitting
- * here unwired waiting for one (see below).
+ * A client cannot LISTEN to a voice: `Voice` carries no sample or preview URL, so that
+ * needs a signed-sample field on the API model before it needs a screen. Which voice speaks
+ * Telugu well is an EAR TEST rather than a spec fact (BRD §6 R-10, TRD §10.1, OPERATIONS §2
+ * gate 3), so this is the gap that matters most to close.
  *
  * ## The catalogue read needs a tenant even from the console
  *
@@ -150,12 +144,9 @@ function catalogueOptions(session: Session) {
 /**
  * The catalogue from a client's own session — every voice, each with its verdict.
  *
- * ⚠ **A HOOK OF THIS NAME WAS DELETED ONCE FOR BEING UNWIRED**, and the note that replaced
- * it said it would come back "when there is a screen and something to put on it". D-586 is
- * that screen: `c/[slug]/agents/panels/delivery.tsx` renders this list as a picker and
- * writes the choice with `useSetMyAgentVoice`. It is exported because it is called, and it
- * shares ONE options builder with the console's hook so the URL, the key and the stale
- * window cannot drift between the two realms.
+ * Rendered as a picker by `c/[slug]/agents/panels/delivery.tsx`, which writes the choice
+ * with `useSetMyAgentVoice`. It shares ONE options builder with the console's hook so the
+ * URL, the key and the stale window cannot drift between the two realms.
  *
  * `unavailable_reason` on a row arrives in the CLIENT's language on this session and in the
  * OPERATOR's on the console's — the server picks from the caller's realm
@@ -228,12 +219,9 @@ export function useSetMyAgentVoice(
  * on either path.
  *
  * The tenant is in the URL rather than inferred from a session because an admin principal
- * has no tenant of its own. It USED TO ride
- * in the body, on `PATCH /v1/agents/{agent_id}/voice`: the same tenant, named in the one
- * place the admin console does not name it anywhere else, on the only admin-realm route
- * that lived in the client path space. Moving it cost this module a template literal and
- * bought the route the `/v1/admin` rate-limit profile plus an audit trail readable from
- * the URL.
+ * has no tenant of its own, and in the URL rather than the body so the route sits in
+ * `/v1/admin` path space: that buys it the admin rate-limit profile and an audit trail
+ * readable from the URL.
  *
  * Breaking change with no alias, and this file is why that is safe: the endpoint is
  * admin-realm, so its only reachable caller is this console, which is generated from the

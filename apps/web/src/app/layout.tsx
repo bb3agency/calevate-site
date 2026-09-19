@@ -124,13 +124,11 @@ export const metadata: Metadata = {
  * framework's own types — `next/dist/lib/metadata/types/extra-types.d.ts:53` in next
  * 15.5.21, read 7 Sep 2026. The BEHAVIOUR (which of the three is the default, and what each
  * does to a fixed element) is MDN's description of the `interactive-widget` viewport key,
- * relayed through a web search on 7 Sep 2026 — ⚠ EVIDENCE CLASS: VENDOR-PUBLISHED, NOT
- * read at source: `developer.mozilla.org` is egress-blocked from this container, so nobody
- * here has opened the page. Support is reported as Chrome 108+ / Firefox 132+ on the same
- * footing. Nothing about the fix depends on that being exact: a browser that does not
- * implement the key ignores it and behaves exactly as it does today, so the downside of a
- * wrong reading is no change rather than a regression. What has NOT been verified is the
- * effect on a real handset — nobody in this session has loaded the console on a phone.
+ * VENDOR-PUBLISHED, RELAYED (7 Sep 2026): `developer.mozilla.org` is egress-blocked here,
+ * so the page has not been read at source. Support is reported as Chrome 108+ / Firefox
+ * 132+ on the same footing. Nothing depends on that being exact — a browser that does not
+ * implement the key ignores it — so a wrong reading costs no change rather than a
+ * regression. UNVERIFIED: the effect on a real handset.
  */
 export const viewport: Viewport = {
   width: "device-width",

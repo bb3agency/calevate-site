@@ -13,17 +13,14 @@ The contract this file must satisfy, in order:
    `measured()` is for; before it, those last two shipped with no header and no sample.
    And BOUNDED, not merely measured, because measuring a nine-second ack does not
    shorten it: the durable section runs under `_DURABLE_DEADLINE_S`, the body read under
-   `_BODY_DEADLINE_S`, and the Redis fast path under `_FAST_PATH_DEADLINE_S`. **THIS
-   LIST USED TO NAME TWO AND CALL THEM "the only waits on this path that can outlive the
-   caller's patience". IT WAS THREE.** The fast-path GET and the post-commit SET are
-   awaited with no deadline of ours at all; the only thing under them is the redis-py
-   client's `socket_timeout=2` plus `socket_connect_timeout=2` (`core/redis.py`), which
-   is not a bound this file chose and does not cover a server that accepts the
-   connection and then answers slowly. Driven against the receiver with a Redis that
-   sleeps five seconds: **202 with `X-Ack-Ms: 5001.9`**, ten times the budget, measured
-   correctly and bounded by nothing — the exact shape of the trickled-body defect one
-   paragraph down, in the layer that was supposed to be the CHEAP one. Each of the three
-   now has a designed answer on breach.
+   `_BODY_DEADLINE_S`, and the Redis fast path under `_FAST_PATH_DEADLINE_S`. **ALL
+   THREE, NOT TWO** — the Redis fast-path GET and post-commit SET look cheap and are a
+   socket: under them there is only redis-py's `socket_timeout=2` plus
+   `socket_connect_timeout=2` (`core/redis.py`), a client default this file never chose
+   which does not cover a server that accepts the connection and then answers slowly.
+   Against a Redis that sleeps five seconds the receiver answered **202 with
+   `X-Ack-Ms: 5001.9`** — ten times the budget, measured correctly and bounded by
+   nothing. Each of the three has a designed answer on breach.
 3. **Defer all real work to ARQ.** Nothing here fetches, parses costs, or writes a
    domain row.
 4. **No DB writes beyond the minimal event row** — the inbox claim (dedupe) and the
@@ -177,12 +174,11 @@ _MAX_BODY_BYTES = 1_048_576
 
 # How long the caller has to finish sending that body.
 #
-# THE SECOND UNBOUNDED WAIT, and the comment above `_DURABLE_DEADLINE_S` used to say
-# Postgres was the only one. It was not: `_read_bounded` iterates `request.stream()` with
-# no bound in TIME, only in BYTES, so a caller that dribbles the body holds this handler
-# for as long as it likes. Measured before the fix: a body delivered in seven chunks
-# 250ms apart was answered **202 with `X-Ack-Ms: 1506.1`** — the budget breached
-# threefold, correctly measured, correctly alerted, and not bounded by anything.
+# WITHOUT IT THE BODY READ IS UNBOUNDED IN TIME. `_read_bounded` iterates
+# `request.stream()` with a bound in BYTES only, so a caller that dribbles the body holds
+# this handler for as long as it likes: a body delivered in seven chunks 250ms apart was
+# answered **202 with `X-Ack-Ms: 1506.1`** — three times the budget, correctly measured,
+# correctly alerted, bounded by nothing.
 #
 # THE EDGE DOES NOT COVER THIS ONE, which is why it matters here rather than in nginx.
 # `hooks.` is the one vhost that sets `proxy_request_buffering off`
@@ -203,14 +199,13 @@ _BODY_DEADLINE_S = 2.0
 
 # How long the Redis fast path may take to answer, on the way in and on the way out.
 #
-# THE THIRD UNBOUNDED WAIT, and the two comments above used to say there were two. Both
-# `_fast_path_seen` and `_remember_fast_path` await a socket, and neither was inside a
-# deadline of ours: the only bound under them is redis-py's own `socket_timeout=2` and
-# `socket_connect_timeout=2` (`core/redis.py`), a client default this file never chose,
-# that says nothing about a server which accepts the connection and then takes its time,
-# and that applies TWICE on the accepted path — so the receiver's worst case was
-# 2s (body) + 2s (GET) + 2s (claim) + 2s (SET). Measured against a Redis that sleeps five
-# seconds on GET: 202 with `X-Ack-Ms: 5001.9`.
+# REDIS IS A SOCKET AND NEEDS A DEADLINE LIKE THE OTHER TWO. Both `_fast_path_seen` and
+# `_remember_fast_path` await one, and the only bound under them is redis-py's own
+# `socket_timeout=2` / `socket_connect_timeout=2` (`core/redis.py`) — a client default
+# this file never chose, which says nothing about a server that accepts the connection and
+# then takes its time, and which applies TWICE on the accepted path: worst case
+# 2s (body) + 2s (GET) + 2s (claim) + 2s (SET). Against a Redis that sleeps five seconds on
+# GET: 202 with `X-Ack-Ms: 5001.9`.
 #
 # WHY IT IS THE ALERT BUDGET AND NOT THE ABANDON BUDGET, which is the opposite of the
 # choice made for the durable section. The durable claim is the layer that CARRIES the

@@ -19,11 +19,10 @@
  * `agents.ts` and `kb.ts` already follow: a button that could only ever 403 is worse
  * than no button, and the client screen says who does apply it instead.
  *
- * ⚠ **THE CALL CAP IS NO LONGER ON THAT SIDE OF THE LINE (D-586) AND THIS LIST USED TO
- * SHOW ONLY ITS ADMIN PATH.** The apply argument never covered it: a cap is not a script,
- * it cannot change one word the agent says, and the money it bounds is the client's. It has
- * two doors onto one writer now — `useSetMyCallCap` for the account, `useSetCallCap` for
- * the onboarding console.
+ * **THE CALL CAP IS NOT ADMIN-ONLY (D-586).** The apply argument does not cover it: a cap
+ * is not a script, it cannot change one word the agent says, and the money it bounds is the
+ * client's. Two doors onto one writer — `useSetMyCallCap` for the account, `useSetCallCap`
+ * for the onboarding console.
  *
  * The admin console reads the two GETs through IMPERSONATION (`viewAsSession`) and
  * writes through its own admin session — the D-22 split `admin.ts::useTenantKbQueue`

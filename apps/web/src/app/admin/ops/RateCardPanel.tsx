@@ -208,12 +208,12 @@ function RateCardTable({ card }: { card: RateCard }) {
               <th className="py-2 pr-4 font-semibold">Pack</th>
               <th className="py-2 pr-4 font-semibold">Voice</th>
               <th className="py-2 pr-4 text-right font-semibold">₹ / min</th>
-              {/* ⚠ "COSTS US" USED TO BE ONE COLUMN AND IT PRINTED A BEST CASE (founder,
-                  9 Sep 2026). Cartesia is a monthly subscription, so a per-minute cost is a
-                  function of volume; the old single figure was the plan's cheapest possible
-                  minute at a volume this platform has never run. There are now two, each
-                  headed with what it is: the marginal cost of the NEXT minute, and what a
-                  minute ACTUALLY cost at this month's measured volume. */}
+              {/* TWO COST COLUMNS, NOT ONE. Cartesia is a monthly subscription, so a
+                  per-minute cost is a function of volume and any single figure is the
+                  plan's cheapest possible minute at a volume this platform has never run.
+                  Each column is headed with what it is: the marginal cost of the NEXT
+                  minute, and what a minute ACTUALLY cost at this month's measured
+                  volume. */}
               <th className="py-2 pr-4 text-right font-semibold">
                 Next min costs
                 <span className="block text-[10px] font-normal normal-case tracking-normal">
@@ -326,12 +326,11 @@ function RateCardTable({ card }: { card: RateCard }) {
               : `${thin.length} of ${card.cells.length} rungs earn less than ${card.target_gross_margin_pct}%`
           }
         >
-          {/* ⚠ THE HEADLINE COUNT USED TO BE THE STRUCTURAL ONE ALONE, AND IT UNDERSTATED
-              THE PROBLEM (founder, 9 Sep 2026). The structural floor is the cost of the
-              next minute at the margin; at a low monthly volume the subscription has not
-              amortised and the real cost is higher, so more rungs are thin than that count
-              admits. Both numbers are shown — the honest one first — because the structural
-              figure is still what the write path refuses on. */}
+          {/* BOTH COUNTS, honest one first. The structural floor is the cost of the next
+              minute at the margin; at a low monthly volume the subscription has not
+              amortised and the real cost is higher, so that count alone understates how
+              many rungs are thin. The structural figure stays because it is what the write
+              path refuses on. */}
           <p className="mt-1">
             Every one of them is still above the structural floor, so the card can be
             recorded and is what we sell today. Read the numbers before you commit a new
@@ -781,15 +780,13 @@ function voicesOf(card: RateCard): RateCardCell[] {
 /**
  * The break-even column for one cell — EXHAUSTIVE over the rungs, never a ternary.
  *
- * ⚠ **THIS WAS `cell.voice_tier !== "studio" ? "" : …` UNTIL 19 SEP 2026.** `voice_tier`
- * is a plain `string` on the wire (`RateCardCellOut`), so that shape is total over every
- * string there is: a third rung — and the ladder has gained and lost one twice this month
- * — would have rendered BLANK under a column headed "break-even", which reads as "this
- * rung's cost does not move with volume". That is a claim about a vendor's pricing model
- * made by a comparison that never looked at the vendor. Same defect, same day and same fix
- * as the per-rung accessors in `lib/api/rateCard.ts`, whose `unpricedTier` is the `never`
- * arm below: a rung this build cannot describe says so rather than resolving to one of the
- * two it knows.
+ * NEVER `cell.voice_tier !== "studio" ? "" : …`: `voice_tier` is a plain `string` on the
+ * wire (`RateCardCellOut`), so that shape is total over every string there is and a third
+ * rung renders BLANK under a column headed "break-even" — which reads as "this rung's cost
+ * does not move with volume", a claim about a vendor's pricing model made by a comparison
+ * that never looked at the vendor. `unpricedTier` is the `never` arm below, the same fix as
+ * the per-rung accessors in `lib/api/rateCard.ts`: a rung this build cannot describe says
+ * so rather than resolving to one of the two it knows.
  */
 export function breakevenText(cell: RateCardCell): string {
   const tier = cell.voice_tier;

@@ -30,12 +30,10 @@ Two consequences that look like omissions and are the design:
   not merely optional. Hard rule 7 says the figure that reaches `unit_cost_paid` is an
   attested one, and the server holds the rate card; the worker sends QUANTITIES.
 
-  ⚠ **THIS PARAGRAPH USED TO END "today the worker cannot price anything anyway — `CallMeter.
-  metered_rows` raises on a missing CDR before it reaches a rate", AND THAT SENTENCE WAS A
-  DESIGN DEFECT WEARING A CAVEAT (D-625).** It was true, and what it described was every
-  measured leg of every call on this engine being thrown away because ONE leg had no witness.
-  `metered_rows` now returns the legs it could measure AND a refusal per leg it could not;
-  this module carries both in one body. See `SettlementRequest`.
+  `metered_rows` returns the legs it could measure AND a refusal per leg it could not, and
+  this module carries both in one body (D-625) — refusing the whole settlement on one
+  unwitnessed leg would discard the measurements of the others permanently. See
+  `SettlementRequest`.
 """
 
 from __future__ import annotations
@@ -152,12 +150,11 @@ class WorkerSessionOut(BaseModel):
     #: (`agents/publishing_routes.py:403`) and the rented engine already pushes as
     #: `call_terminate` (`engine/bolna.py:4106`).
     #:
-    #: ⚠ **IT REACHED THIS ENGINE NOWHERE AT ALL UNTIL NOW.** `assemble_call` sets
-    #: `idle_timeout_secs=None` deliberately (a phone call has its own end), so on
-    #: `owned_runtime` a call that never ended never ended — burning a client's credits
-    #: against a cap they had set and been shown. That is a money defect under hard rule 7
-    #: before it is a trust one, and it is fixed on the leg the money is spent on rather
-    #: than by a screen note. The worker enforces it by pushing an `EndWorkerFrame`
+    #: ⚠ **NOTHING ELSE ENFORCES IT ON THIS ENGINE.** `assemble_call` sets
+    #: `idle_timeout_secs=None` deliberately (a phone call has its own end), so without this
+    #: a call that never ends never ends — burning a client's credits against a cap they set
+    #: and were shown, which is a money defect under hard rule 7 before it is a trust one.
+    #: The worker enforces it by pushing an `EndWorkerFrame`
     #: (`pipeline.CallDurationCap`), which DRAINS — the caller hears the end of the
     #: sentence in flight, not a dead line.
     max_call_duration_s: int = DEFAULT_CALL_CAP_S
@@ -174,15 +171,13 @@ class ObservationBatch(BaseModel):
     Empty lists are legal. A flush with nothing in it is a no-op the client is allowed to
     send rather than a condition it must check for.
 
-    ⚠ **`agent_id` AND `direction` ARE ON THE BATCH AND NOT ONLY ON THE EVENTS, AND THAT
-    WAS A CORRECTION RATHER THAN A CHOICE (16 Sep 2026).** `TranscriptTurn` carries neither
-    and `CallEvent` declares `agent_id` nullable, so the FIRST batch of a call — which is
-    routinely a flush of turns, because Pipecat dispatches every handler as its own task and
-    a turn can beat the event that opened the call — named nothing the server could mint a
-    `calls` row from. The in-process sink never had this problem: it held the session's four
-    ids. They are session facts, so they travel with the session's batch; deriving them from
-    whichever event happened to be in it would be a guess on a FORCE-RLS'd row's
-    `agent_id`.
+    ⚠ **`agent_id` AND `direction` ARE ON THE BATCH, NOT ONLY ON THE EVENTS.**
+    `TranscriptTurn` carries neither and `CallEvent` declares `agent_id` nullable, so the
+    FIRST batch of a call — routinely a flush of turns, because Pipecat dispatches every
+    handler as its own task and a turn can beat the event that opened the call — would name
+    nothing the server could mint a `calls` row from. They are session facts, so they travel
+    with the session's batch; deriving them from whichever event happened to be in it would
+    be a guess on a FORCE-RLS'd row's `agent_id`.
     """
 
     model_config = _STRICT
@@ -205,9 +200,7 @@ class ObservationBatch(BaseModel):
     #: Pipecat has no poller — this contract IS the snapshot — so they belong here, as
     #: session facts, beside `agent_id` and `direction` and for the same reason.
     #:
-    #: ⚠ **THE PRODUCER EXISTS NOW, AND THIS NOTE USED TO SAY IT DID NOT** (DEPLOYMENT
-    #: §12.5 gate 9; corrected 19 Sep 2026). It read that "`voice_worker/carrier.
-    #: PlivoHandshake` refuses to model what is always `None`" — it no longer refuses:
+    #: ⚠ **WHAT FILLS THEM, AND WHAT STILL CANNOT** (DEPLOYMENT §12.5 gate 9).
     #: `carrier.CallerIdentity` models the answer as a four-state verdict (`known`,
     #: `withheld_by_carrier`, `unparsed_by_client`, `not_read`), `pipeline.
     #: NormalizedEventBoundary` writes the number onto every `CallEvent` it emits when the
@@ -260,13 +253,11 @@ MAX_IDENTIFIER: Final = 64
 
 #: The five legs a call can be metered or refused on.
 #:
-#: ⚠ **THIS LIVES IN THE WIRE MODULE AND THE WORKER'S `MeteredLeg` IS DERIVED FROM IT
-#: (18 Sep 2026).** The docstring above used to say the vocabulary was "enforced where the
-#: legs are actually known — `worker/service`, against `MeteredLeg` itself", and no such
-#: check existed: the enum lived in `apps/voice-worker`, which `apps/api` cannot import, so
-#: any string the client sent was echoed into `call_metering_refusals.leg`. A shared
-#: contract belongs in the shared contract; a claim that two deployables agree has to be
-#: something one of them can actually check.
+#: ⚠ **THIS LIVES IN THE WIRE MODULE AND THE WORKER'S `MeteredLeg` IS DERIVED FROM IT.**
+#: `apps/api` cannot import `apps/voice-worker`, so a vocabulary declared only in the
+#: worker is one the server cannot check — every string a client sent would be echoed into
+#: `call_metering_refusals.leg`. A claim that two deployables agree has to be something one
+#: of them can actually check.
 MeteredLegName = Literal["carrier", "runtime", "stt", "tts", "llm"]
 
 #: The same five as a set, for a caller that needs membership rather than a type.
@@ -279,14 +270,13 @@ class MeteredQuantity(BaseModel):
     `unit_cost_inr` and `total_inr` are deliberately absent: see this module's docstring.
     The server multiplies, because the server is what holds an attested rate.
 
-    ⚠ **`qty` IS BOUNDED AND SIGNED, AND IT USED TO BE NEITHER (18 Sep 2026).** The server
-    refuses to take a PRICE from a worker — that was the whole point of the split — and then
-    multiplied whatever magnitude it was handed by an attested rate and INSERTed the product
-    into `usage_events`, which hard rule 4 makes INSERT-only. `qty: Decimal` with no `ge`
-    accepted `-99999999`, so one holder of the worker token could mint a permanent
-    self-issued credit that nothing but a compensating entry could answer; `1e50` was an
-    unpayable charge by the same door. `allow_inf_nan=False` because a NaN in a NUMERIC
-    column poisons every SUM taken over that tenant's usage for ever.
+    ⚠ **`qty` MUST STAY BOUNDED AND NON-NEGATIVE.** Refusing a PRICE from the worker buys
+    nothing if the server then multiplies any magnitude it is handed by an attested rate and
+    INSERTs the product into `usage_events`, which hard rule 4 makes INSERT-only. An
+    unbounded `qty: Decimal` accepts `-99999999`, so one holder of the worker token could
+    mint a permanent self-issued credit that nothing but a compensating entry could answer,
+    and `1e50` is an unpayable charge by the same door. `allow_inf_nan=False` because a NaN
+    in a NUMERIC column poisons every SUM taken over that tenant's usage for ever.
 
     A refund is a compensating entry an operator makes. It is not a quantity a container on
     somebody else's infrastructure reports.
@@ -310,18 +300,15 @@ class SettlementRefusal(BaseModel):
     A refusal is a FACT the worker observed (it could not read a quantity), which is why it
     travels in the same direction as everything else here.
 
-    ⚠ **IT NAMES A LEG, AND SINCE D-625 THAT IS LOAD-BEARING RATHER THAN DESCRIPTIVE.** A
-    refusal used to be the whole settlement — one per call, mutually exclusive with every
-    quantity — so `leg` was a label on a verdict. It is now the KEY: a settlement carries a
-    refusal per leg nobody could price and a quantity per leg somebody could, and the server
-    refuses a body that names one leg in both places (`worker/service._check_settlement`).
+    ⚠ **`leg` IS THE KEY, NOT A LABEL (D-625).** A settlement carries a refusal per leg
+    nobody could price and a quantity per leg somebody could, and the server refuses a body
+    that names one leg in both places (`worker/service._check_settlement`).
     """
 
     model_config = _STRICT
 
-    #: ⚠ **BOUNDED SINCE 18 Sep 2026.** `worker/service` carried a comment calling these
-    #: "OUR OWN PROSE. Every refusal string is authored in this repository" — true of the
-    #: client we ship and not enforced of any client, while the strings arrive over HTTP and
+    #: ⚠ **BOUNDED BECAUSE THEY ARRIVE OVER HTTP.** "Every refusal string is authored in
+    #: this repository" is true of the client we ship and enforced of no client, and these
     #: land in an append-only table as `TEXT`.
     leg: MeteredLegName
     code: str = Field(max_length=MAX_IDENTIFIER)
@@ -332,28 +319,26 @@ class SettlementRefusal(BaseModel):
 class SettlementRequest(BaseModel):
     """The terminal write, and the one that carries D-607.
 
-    **A REFUSAL NAMES A LEG; QUANTITIES NAME OTHER LEGS (D-625).** ⚠ This model used to say
-    "A REFUSAL OR QUANTITIES, NEVER BOTH", and that exclusivity was the wire half of a
-    defect that made this engine bill nothing at all: `metered_rows` built the carrier row
-    first, no production call has a CDR (BLOCKER-1), so every call settled as one refusal
-    and the STT seconds, TTS characters and LLM tokens the worker genuinely measured were
-    discarded on the floor. The rejected alternative is the one that was shipped —
-    all-or-nothing — and it was rejected because "we could not witness the connected minute"
-    is not a reason to disown the three legs we DID witness, while an append-only ledger
-    makes those measurements unrecoverable once the settlement has answered.
+    **A REFUSAL NAMES A LEG; QUANTITIES NAME OTHER LEGS (D-625).** The rejected alternative
+    is "a refusal OR quantities, never both": under it, no production call having a CDR
+    (BLOCKER-1) means every call settles as one carrier refusal and the STT seconds, TTS
+    characters and LLM tokens the worker genuinely measured are discarded — unrecoverably,
+    because an append-only ledger cannot be corrected once the settlement has answered. "We
+    could not witness the connected minute" is not a reason to disown the three legs we DID
+    witness.
 
-    What the old rule was really protecting is unchanged and is now stated per leg: the
-    carrier's authority is untouched, nothing invents a connected minute or a charge, and a
-    leg nobody can price still becomes a `call_metering_refusals` row rather than a zero.
+    What that rule protects is stated per leg instead: the carrier's authority is untouched,
+    nothing invents a connected minute or a charge, and a leg nobody can price still becomes
+    a `call_metering_refusals` row rather than a zero.
 
     So the invariant the server checks is DISJOINTNESS, not exclusivity: no leg may be
     refused twice, and no leg may appear in `refusals` and in `quantities` at once. It is
     validated rather than trusted, because a client is a thing on somebody else's
     infrastructure.
 
-    ⚠ **BOTH EMPTY IS LEGAL AND THIS PARAGRAPH USED TO SAY IT WAS NOT.** It is the third
-    state `meter.py` distinguishes deliberately — a session that transcribed and synthesised
-    nothing has no leg to price, which is not a leg nobody can price — and it still has to
+    ⚠ **BOTH EMPTY IS LEGAL.** It is the third state `meter.py` distinguishes deliberately
+    — a session that transcribed and synthesised nothing has no leg to price, which is not
+    a leg nobody can price — and it still has to
     settle, because the outbox row that starts the post-call pipeline rides the settlement
     (D-607).
 
@@ -410,11 +395,11 @@ class AttestationIn(BaseModel):
     which is the `control_plane` defect `config_versions.py` exists to close. The server
     re-reads `agent_config_versions.prompt_sha256` and compares.
 
-    ⚠ **WITHOUT THIS ROUTE THE TABLE HAD NO PRODUCTION WRITER AT ALL (D-626).**
-    `record_attestation` was called only by tests, so `PipecatEngine.get_agent` answered
-    `system_prompt_readable=False` for every agent for ever and hard rule 5's engine-side
-    verification never ran once on this leg. The digest was computed in the worker and
-    reached nothing.
+    ⚠ **THIS ROUTE IS THE TABLE'S ONLY PRODUCTION WRITER (D-626).** Without it
+    `record_attestation` is called by tests alone, `PipecatEngine.get_agent` answers
+    `system_prompt_readable=False` for every agent for ever, and hard rule 5's engine-side
+    verification never runs on this leg — the digest is computed in the worker and reaches
+    nothing.
 
     `agent_id` is on the body as well as in the ref the route is posted to, and the server
     refuses a disagreement rather than reconciling it — `ObservationBatch`'s posture, for

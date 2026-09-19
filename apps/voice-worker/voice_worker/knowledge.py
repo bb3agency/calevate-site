@@ -245,7 +245,7 @@ BM25_B: Final[float] = 0.75
 #: The largest share of the corpus a query term may occur in and still count as evidence
 #: about WHICH entry to return. A term true of every entry says nothing about which one.
 #:
-#: ⚠ **A STARTING POINT TO BE MEASURED ON REAL CALLS, NOT A FINDING.** Nobody has run this
+#: ⚠ **A STARTING POINT TO BE MEASURED ON REAL CALLS.** Nobody has run this
 #: gate against a recorded Telugu call. Half is the round number that admits a term shared
 #: by a topical cluster and rejects one that is true of the whole pack; what replaces this
 #: comment is a number from call recordings, not a better argument.
@@ -264,7 +264,7 @@ DF_GATE_MIN_ENTRIES: Final[int] = 10
 #: How far clear of the runner-up the top entry must be, as a fraction of the top score,
 #: before we call it `found` rather than `ambiguous`.
 #:
-#: ⚠ **A STARTING POINT TO BE MEASURED ON REAL CALLS, NOT A FINDING.** The reasoning it
+#: ⚠ **A STARTING POINT TO BE MEASURED ON REAL CALLS.** The reasoning it
 #: encodes is only this: two entries from DIFFERENT documents scoring within a few percent
 #: of each other is the shape of a question that named a category rather than a thing
 #: ("what are your charges?" against a pack with consultation, scan and procedure fees),
@@ -330,7 +330,7 @@ UnavailableReason = Literal["fetch_failed", "absent", "unsupported_format", "ide
 #: lookup key AND the detector: `unicodedata` is the standard library's copy of
 #: UnicodeData.txt, so nothing here is a range somebody remembered.
 #:
-#: The list is derived from the VENDOR's own tables, read this session in the installed
+#: The list is derived from the VENDOR's own tables in the installed
 #: pipecat 1.10.0 (`pipecat-ai==1.10.0`, `.venv/lib/python3.12/site-packages/pipecat/`):
 #:
 #:   * STT, `services/sarvam/stt.py:801-826` — `SUPPORTED_LANGUAGES` for
@@ -339,11 +339,11 @@ UnavailableReason = Literal["fetch_failed", "absent", "unsupported_format", "ide
 #:   * TTS, `services/sarvam/tts.py:218-242` — 11 India locales, a SUBSET of the above.
 #:
 #: ⚠ **THE LANGUAGE LIST IS THE VENDOR FACT; WHICH SCRIPT EACH LANGUAGE IS WRITTEN IN IS
-#: NOT** — the per-entry comments below are general knowledge, not something read from a
-#: source this session (hard rule 11). Nothing here depends on that mapping being right or
-#: exhaustive: detection reads the SCRIPT of the text in front of it, so a language written
-#: in a script this set does not name simply scores its Latin tokens and is answered
-#: honestly. The comments are a reader's aid; the set is the contract.
+#: NOT** — the per-entry comments below are general knowledge, read from no source (hard
+#: rule 11). Nothing depends on that mapping being right or exhaustive: detection reads the
+#: SCRIPT of the text in front of it, so a language written in a script this set does not
+#: name simply scores its Latin tokens and is answered honestly. The comments are a
+#: reader's aid; the set is the contract.
 #:
 #: ⚠ **THE TWO FILES SPELL ODIA DIFFERENTLY AND NEITHER SPELLING IS A SCRIPT NAME.** STT's
 #: `SUPPORTED_LANGUAGES` says `or-IN` (`stt.py:809`) while both its own enum map
@@ -480,15 +480,15 @@ def _nukta_compositions() -> dict[str, str]:
     dot under a consonant that makes it a DIFFERENT consonant — Devanagari `ज`+nukta is
     `ज़` /z/, `फ`+nukta is `फ़` /f/, `ड`+nukta is `ड़` /ɽ/ — and Unicode spells each of
     those two ways: one precomposed codepoint (U+095B ZA) and the base-plus-mark sequence.
-    The walk in `transliterate_indic` used to skip past the mark and keep the BASE's
-    romanisation, so `दफ़्तर` came out `daphtara` rather than `daftara` and `काग़ज़` came
-    out `kāgaja` rather than `kāgaza` — while the PRECOMPOSED spelling of the same word
-    romanised correctly all along. One character, two Unicode spellings, two answers.
+    A walk that skips past the mark and keeps the BASE's romanisation gives `दफ़्तर` →
+    `daphtara` instead of `daftara` and `काग़ज़` → `kāgaja` instead of `kāgaza`, while the
+    PRECOMPOSED spelling of the same word romanises correctly — one character, two Unicode
+    spellings, two answers.
 
-    ⚠ **AND THE SPELLING THAT WAS WRONG IS THE ONE REAL TEXT CARRIES.** U+0958..U+095F are
-    on Unicode's composition-exclusion list, so NFC does NOT compose them: normalising
-    Hindi leaves the base-plus-mark sequence standing, and `query_forms` NFKC-normalises
-    before it tokenises. The branch that happened to be correct was the rare one.
+    ⚠ **THE SEQUENCE SPELLING IS THE ONE REAL TEXT CARRIES.** U+0958..U+095F are on
+    Unicode's composition-exclusion list, so NFC does NOT compose them: normalising Hindi
+    leaves the base-plus-mark sequence standing, and `query_forms` NFKC-normalises before it
+    tokenises. Handling only the precomposed branch gets the rare case right.
 
     Telugu has no nukta, which is why a Telugu-only corpus never touched this. The scripts
     that do — Devanagari, Bengali, Gurmukhi, Oriya — are four of the ten in
@@ -766,8 +766,7 @@ _TOKEN_RE: Final[re.Pattern[str]] = re.compile(
 #: calls the trade correct. Dropping the pronoun is the right side of this list's bias
 #: anyway: "us" is never a topic word, and a query carrying it loses nothing.
 #:
-#: ⚠ **IT IS STILL ENGLISH + TENGLISH ONLY, AND THAT IS A DELIBERATE NON-DECISION, NOT AN
-#: OVERSIGHT LEFT BY THE SCRIPT GENERALISATION.** Romanised Hindi `hai`/`kya`, Tamil `enna`
+#: ⚠ **IT IS ENGLISH + TENGLISH ONLY, DELIBERATELY.** Romanised Hindi `hai`/`kya`, Tamil `enna`
 #: and their nine cousins are absent, so they reach the gate as content words. That is the
 #: SAFE side of this list's own stated bias: an unlisted function word can only fail to
 #: match a corpus that does not contain it, while a wrongly listed one deletes a question
@@ -1407,17 +1406,15 @@ class SessionKnowledge:
             # `chunk_id` order. `kb/pack.read_entries` returns
             # `sorted(entries, key=lambda e: str(e.chunk_id))` (`kb/pack.py:171`) and
             # `KnowledgePack.digest` hashes the same sort (`knowledge_pack.py:330`), so on
-            # every pack this worker can load the two keys produce the IDENTICAL ranking —
-            # this is not a change of behaviour, it is the two arms of one search stopping
-            # spelling one rule two ways, one `str()` per comparison cheaper.
+            # every pack this worker can load the two keys produce the IDENTICAL ranking,
+            # one `str()` per comparison cheaper.
             #
-            # ⚠ AND IT IS THE DIFFERENCE BETWEEN A MEASUREMENT AND A COIN FLIP. The two keys
+            # ⚠ IT IS THE DIFFERENCE BETWEEN A MEASUREMENT AND A COIN FLIP. The two keys
             # diverge only on a pack whose entries are NOT in chunk_id order, which is what a
-            # harness builds; `tests/in_call_retrieval_recall_test.py` derived its chunk ids
-            # from a fixture label, so a tie ranked one way or the other by an incidental
-            # string and the SAME corpus reported recall@1 of 0.583 or 0.625 depending on it.
-            # A tie-break cannot make a tie meaningful, but it must not make a published
-            # number depend on something nobody declared.
+            # harness builds: `tests/in_call_retrieval_recall_test.py` derives its chunk ids
+            # from a fixture label, so an undeclared tie-break made the SAME corpus report
+            # recall@1 of 0.583 or 0.625. A tie-break cannot make a tie meaningful, but it
+            # must not make a published number depend on something nobody declared.
             key=lambda item: (-item[1].score, item[0]),
         )
         if not ranked:
