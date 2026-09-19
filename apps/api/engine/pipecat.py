@@ -734,9 +734,45 @@ class SqlControlPlane:
         had it. This one is the DISCOVERY question, "which calls happened that you have not
         heard about", and answering it from the table that holds what we have heard about is
         the tautology D-31 warns of. It stays empty until the runtime keeps a record of its
-        own that is independent of `calls` — or, more likely, until §1.2's other half lands
-        and the reconciliation reads the CARRIER's CDR, which is a genuinely independent
-        authority and is the one this engine is entitled to.
+        own that is independent of `calls`.
+
+        ⚠ **THIS USED TO CONTINUE "or, more likely, until §1.2's other half lands and the
+        reconciliation reads the CARRIER's CDR, which is a genuinely independent authority
+        and is the one this engine is entitled to". THE CDR IS STILL THE RIGHT AUTHORITY AND
+        WE ARE NOT ENTITLED TO IT** (verified 19 Sep 2026, on a founder audit asking for
+        exactly that poller). It is not deferred work; it is work this product cannot do, and
+        the difference matters because a plan may not wait for it:
+
+        * **Model B (D-474, `docs/ROADMAP.md:716`)** — *"the client buys the connection on
+          their own Exotel/Plivo/Vobiz account, passes that carrier's KYC, remains the
+          subscriber of record and issues us revocable API credentials."* A CDR is a record
+          inside THE CLIENT'S OWN carrier account, and reading it needs a key against that
+          account.
+        * **There is no per-tenant carrier-credential store in this tree.** The only carrier
+          secrets that exist are `Settings.plivo_auth_id` / `plivo_auth_token` — ONE
+          deployment-wide pair in the `calevate-pipecat-worker` secret set, whose stated
+          purpose is hanging the leg up at `EndFrame` (`apps/api/core/settings.py:255-268`,
+          `voice_worker/boot.py:132-144`). One pair cannot authenticate a lookup against N
+          clients' accounts, and `campaigns/provisioning.PROVISIONING_IMPLEMENTED` is False
+          because the capability is REFUSED rather than unbuilt — flipping it is adopting
+          Model A, a legal decision and not a config change (`agents/handoff.py:17-21` states
+          the same fact for the whisper).
+        * **The API shape is UNKNOWN from here in any case.** `www.plivo.com/docs/` and
+          `api.plivo.com` both answer `curl: (56) CONNECT tunnel failed, response 403` →
+          HTTP 000, re-measured from this container 19 Sep 2026. Our pinned Pipecat contains
+          exactly one Plivo REST endpoint (the hangup), so every other method, path and body
+          would be invented — which hard rule 11 forbids more firmly than it forbids a gap.
+
+        **THE RECONCILIATION THAT IS OURS IS A DIFFERENT ONE, AND IT IS WIRED.** Noticing
+        that a call started and never settled needs no independent authority:
+        `pipeline.reconcile_outstanding_calls` alarms `calls_never_finished` on a call left
+        non-terminal, `dispatcher.report_stalled_pipeline` alarms `postcall_pipeline_stalled`
+        on a terminal call whose pipeline never ran, and `admin/health.calls_unmetered` stops
+        the account board for a completed call with no `usage_events` row. What none of them
+        may do is INVENT the minutes — a call whose content we never received cannot be
+        metered from nothing, and a fabricated quantity on an append-only ledger is worse
+        than a call we failed to bill. Detect and alert are ours; the connected minute is the
+        carrier's and always was.
 
         No dial can have happened yet in any case: `start_outbound_call` refuses every one
         of them on this engine (BLOCKER-1).

@@ -159,6 +159,13 @@ from apps.workers.rate_card_notice import (
     fan_out_rate_card_notice,
     notify_rate_card_change,
 )
+from apps.workers.remetering import (
+    SWEEP_MINUTE as REMETER_SWEEP_MINUTE,
+)
+from apps.workers.remetering import (
+    remeter_refused_leg,
+    remeter_refused_legs,
+)
 from apps.workers.retention import (
     apply_retention,
     execute_deletion_request,
@@ -303,6 +310,12 @@ FUNCTIONS: list[Any] = [
         # first a client heard of a planned outage would be their dashboard refusing to
         # load. The whole point of a PLANNED window is that nobody is surprised by it.
         notify_maintenance,
+        # ONE LEG OF ONE CALL WHOSE PRICE ARRIVED AFTER IT DID. Enqueued through the OUTBOX
+        # in the settlement's own transaction, so an unregistered name here is exactly
+        # `check_job_wiring` shape 3 on the money path: the demand row would read
+        # `published`, arq would drop the job with a warning nothing reads, and the leg
+        # would stay unbillable while every screen said the settlement was complete.
+        remeter_refused_leg,
     )
 ]
 
@@ -1063,6 +1076,27 @@ CRON_JOBS = [
         traced_job(sweep_topup_settlement),
         walk=fleet_wide("one tenant_session per organization, under a time budget"),
         minute=set(SETTLEMENT_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # UNBILLABLE DEBT, SWEPT HOURLY. A leg refused for want of an attested price is
+    # permanent on an append-only ledger, and the event that makes it settleable — an
+    # operator typing the price into the ops console — reaches this system through no
+    # channel at all. So the demands parked by `settle_call` are simply re-offered to the
+    # rate card, hourly, for the 90 days the outbox keeps them.
+    #
+    # `bounded` and not `fleet_wide`: the scan is ONE untenanted read capped at
+    # `SWEEP_BATCH`, and a session is opened only for a tenant that appears in that batch —
+    # so the cost is set by the number of unpriced legs, not by the client list.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. Re-running is
+    # free and safe — every verdict is idempotent and a second pass answers
+    # `already_metered` — and a money sweep that gave up on its first pool blip would leave
+    # the debt for another hour with nothing on a screen to say so.
+    _cron(
+        traced_job(remeter_refused_legs),
+        walk=bounded("one untenanted read of parked demands, then one session per tenant in it"),
+        minute={REMETER_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
 ]

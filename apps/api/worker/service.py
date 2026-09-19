@@ -47,7 +47,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Final
+from typing import Any, Final, cast
 from uuid import UUID
 
 from calevate_shared.engine import (
@@ -103,6 +103,29 @@ POSTCALL_JOB: Final = "run_post_call_pipeline"
 #: What makes the post-call promise idempotent, and — see `settle_call` — what tells a
 #: re-delivered settlement that it is one. The key names the SIDE EFFECT and not the row.
 POSTCALL_DEDUPE_PREFIX: Final = "post-call:"
+
+#: THE RE-METERING JOB, and the answer to "a leg refused for want of a price stays refused
+#: for ever" (founder audit, 19 Sep 2026). `apps/workers/remetering.py` defines it.
+REMETER_JOB: Final = "remeter_refused_leg"
+
+#: One demand per (call, leg), ever. `POSTCALL_DEDUPE_PREFIX`'s grammar and its guarantee:
+#: `enqueue_outbox_once` puts the row on the books exactly once, in the settlement's own
+#: transaction, so a re-delivered settlement cannot mint a second demand for one leg — and
+#: `_check_settlement` has already refused a body that names one leg twice.
+REMETER_DEDUPE_PREFIX: Final = "remeter:"
+
+#: The refusal codes a LATER OPERATOR ATTESTATION can answer, and the only ones a demand is
+#: recorded for.
+#:
+#: **THE OTHER TWO ARE DELIBERATELY ABSENT AND MUST STAY ABSENT.** `meter_llm_model_unnamed`
+#: is a leg that reported tokens without saying which model produced them — no attestation
+#: names a model that was never named, so a demand for it would be a work item nothing can
+#: ever close. `meter_leg_not_priceable_here` is the carrier's connected minute or Pipecat
+#: Cloud's active minute, and §1.2 gives the first to the CARRIER's CDR and §7 P-1 leaves the
+#: second an open vendor question: neither is a rate this rate card will ever hold, so
+#: re-running it against `billing/rates.py` is guaranteed to refuse again for ever. A worklist
+#: that accumulates items nothing can close is a worklist an operator stops reading.
+REMETERABLE_CODES: Final[frozenset[str]] = frozenset({"meter_rate_refused"})
 
 # --- the statements. Each is `voice_worker/sink.py`'s, unchanged. ----------------------
 
@@ -663,6 +686,22 @@ class _Priced:
     meta: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class _Unpriced:
+    """A leg we refused to price, WITH the measurement we refused to price.
+
+    The pair is the whole of the re-metering fix. `call_metering_refusals` records the
+    refusal and not the quantity — four columns, `leg`/`code`/`detail`/`remediation`
+    (migration `a3f1c6e82d47`) — and `SettlementRefusal` carries none on the wire either, so
+    once `settle_call` answered, the characters and the tokens the worker really counted
+    existed nowhere. That is what made "adding the price later does not bill the old calls"
+    true: not a missing worker, a missing number.
+    """
+
+    refusal: SettlementRefusal
+    quantity: MeteredQuantity
+
+
 class _LegNotPriceableError(Exception):
     """A leg with a quantity and no honest price. Carries the refusal row's four fields."""
 
@@ -738,11 +777,20 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
         # THE WORKER'S REFUSALS AND OURS, IN THAT ORDER. They are different kinds of
         # failure — the worker could not READ a quantity, we could not PRICE one — and both
         # belong on the record against the leg they happened to.
-        rows, priced_refusals = _price(request.quantities)
-        refusals = (*request.refusals, *priced_refusals)
+        rows, unpriced = _price(request.quantities)
+        refusals = (*request.refusals, *(one.refusal for one in unpriced))
         await _write_usage(session, tenant_id, call_row_id, rows, at=occurred_at)
         for refusal in refusals:
             await _write_refusal(session, tenant_id, call_row_id, refusal, at=occurred_at)
+        # ...and, for the legs an attestation can still answer, the MEASUREMENT, in the
+        # same transaction as the refusal that reports it. See `_record_remeter_demands`.
+        await _record_remeter_demands(
+            session,
+            tenant_id=tenant_id,
+            call_row_id=call_row_id,
+            unpriced=unpriced,
+            at=occurred_at,
+        )
 
     if refusals:
         # `error` and not `warning`: an unmetered leg is spend we absorbed and cannot bill,
@@ -893,7 +941,7 @@ def _refuse_settlement_shape(detail: str, remediation: str) -> ProblemError:
 
 def _price(
     quantities: tuple[MeteredQuantity, ...] | list[MeteredQuantity],
-) -> tuple[tuple[_Priced, ...], tuple[SettlementRefusal, ...]]:
+) -> tuple[tuple[_Priced, ...], tuple[_Unpriced, ...]]:
     """Every leg we hold a rate for, and a refusal for every leg we do not (D-625).
 
     ⚠ **IT USED TO BE "every leg, or the FIRST refusal — THERE IS NO PARTIAL SETTLEMENT",
@@ -921,13 +969,16 @@ def _price(
     with the reason on the row instead of in a container's memory.
     """
     priced: list[_Priced] = []
-    refusals: list[SettlementRefusal] = []
+    unpriced: list[_Unpriced] = []
     for quantity in quantities:
         try:
             priced.append(_price_one(quantity))
         except _LegNotPriceableError as unpriceable:
-            refusals.append(unpriceable.refusal)
-    return tuple(priced), tuple(refusals)
+            # THE QUANTITY TRAVELS WITH THE REFUSAL FROM HERE ON. It is the only place both
+            # are in scope, and everything downstream that could ever bill this leg needs
+            # the number rather than the verdict.
+            unpriced.append(_Unpriced(refusal=unpriceable.refusal, quantity=quantity))
+    return tuple(priced), tuple(unpriced)
 
 
 def _price_one(quantity: MeteredQuantity) -> _Priced:
@@ -1112,6 +1163,198 @@ async def _write_refusal(
     )
 
 
+# --- re-metering: the leg an attestation arrived too late for --------------------------
+
+
+async def _record_remeter_demands(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_row_id: UUID,
+    unpriced: tuple[_Unpriced, ...],
+    at: datetime,
+) -> int:
+    """Park the MEASUREMENT of every leg a later attestation could still price.
+
+    **THE PROBLEM THIS SOLVES IS NOT "THERE IS NO RE-METERING WORKER".** It is that there
+    was nothing for one to read. `call_metering_refusals` stores the VERDICT — leg, code,
+    detail, remediation (migration `a3f1c6e82d47`) — and the settlement request's
+    quantities are held nowhere else: `SettlementRequest` arrives over HTTP and is not
+    persisted, there is no inbox row for this route, and `usage_events` deliberately writes
+    nothing at all for a refused leg (a `qty` with a zero price meters real spend as free).
+    So an operator who attested the missing price a week later had no number to apply it to,
+    and the call stayed unbillable for ever.
+
+    **THE OUTBOX ROW IS THE STORE, AND THAT IS THIS MODULE'S OWN PRECEDENT RATHER THAN A
+    NEW MECHANISM.** `settle_call` already answers "have we settled this call?" out of an
+    outbox row and argues the choice in terms: *"with no new column, no new table and no
+    read-then-write"*. A metering demand is the same shape — a durable, tenant-attributable
+    fact written in the SAME transaction as the refusal it belongs to, deduped by the
+    database on a key naming the side effect. Either both rows commit or neither does, so
+    there is no crash that can leave a refusal whose measurement was lost, which is exactly
+    the window this fix exists for.
+
+    **THE REJECTED ALTERNATIVE IS THE BETTER ONE AND IT IS NOT THIS SESSION'S TO TAKE.**
+    `unit_type`/`qty`/`meta` as three nullable columns on `call_metering_refusals` puts the
+    measurement on the row that reports it, needs no second store, and is not bounded by the
+    outbox's retention. It also needs `apps/api/billing/models.py` (the ORM class) and
+    `apps/api/db/registry.py` — `scripts/check_metadata_columns.py` fails on a live column
+    with no model and `check_rls_coverage` on a table missing from `TENANT_TABLES` — and
+    both files were outside this change's remit. When it is taken, this function and
+    `apps/workers/remetering.py`'s sweep read the refusal row instead, and the demand rows
+    go: one way per problem.
+
+    **WHAT THE WINDOW IS, STATED RATHER THAN IMPLIED.** `retention.RELIABILITY_PRUNE_AFTER`
+    deletes a `published` outbox row 90 days after it was written, so a price attested more
+    than 90 days after the call finds no demand left. That is the same horizon the rest of
+    that file is chosen against (*"an invoice is issued monthly and disputed within the
+    month"*), it is two orders of magnitude past the console action it waits for, and it is
+    a property of the store rather than of the sweep — the column version above has no
+    such bound.
+
+    Returns how many demands this settlement newly put on the books.
+    """
+    recorded = 0
+    for one in unpriced:
+        if one.refusal.code not in REMETERABLE_CODES:
+            continue
+        message_id = await enqueue_outbox_once(
+            session,
+            job=REMETER_JOB,
+            payload={
+                "tenant_id": str(tenant_id),
+                "call_id": str(call_row_id),
+                "leg": one.quantity.leg,
+                "unit_type": one.quantity.unit_type,
+                # A STRING, never a float (hard rule 7). `json.dumps` renders a `Decimal`
+                # through no encoder this module installs, and a payload round-tripped as a
+                # JSON number would come back as a binary float and be multiplied by a rate.
+                "qty": str(one.quantity.qty),
+                # The quantity's meta VERBATIM, which is what `_price_one` read when it
+                # refused — `meta['model']` is how `_llm_rate` chooses a rate. It is NOT
+                # what gets persisted to the ledger: `_write_usage` still puts it through
+                # `_worker_meta`, so the allow-list that keeps a worker from asserting a
+                # rung or a model onto an append-only row is untouched by this path.
+                "meta": dict(one.quantity.meta),
+                # THE SETTLEMENT'S OWN INSTANT, and the whole of "priced in its own month"
+                # (D-250). A re-metered row is stamped `occurred_at = this`, so every
+                # month-window reader in `billing/service.py` — `_IST_MONTH`,
+                # `_IST_MONTH_WINDOW`, the plan in effect — files it against the month the
+                # call happened in and not the month the operator typed the price in.
+                "occurred_at": at.isoformat(),
+            },
+            dedupe_key=f"{REMETER_DEDUPE_PREFIX}{call_row_id}:{one.quantity.leg}",
+        )
+        if message_id is not None:
+            recorded += 1
+    return recorded
+
+
+@dataclass(frozen=True, slots=True)
+class RemeterDemand:
+    """One leg of one call that was measured, refused a price, and may yet get one."""
+
+    tenant_id: UUID
+    call_id: UUID
+    quantity: MeteredQuantity
+    occurred_at: datetime
+
+
+def parse_remeter_demand(payload: Mapping[str, Any]) -> RemeterDemand:
+    """An outbox payload back into a demand, or `ValueError`.
+
+    VALIDATED RATHER THAN TRUSTED, for `_check_settlement`'s reason one remove further out:
+    this row was written by us, but it has been round-tripped through `jsonb` and through
+    whatever a database restore or a hand-edited ops replay did to it in between, and what
+    comes out the other side is multiplied by a rate and INSERTed into an append-only
+    ledger. `MeteredQuantity` is the same model the wire is validated with — its `ge=0`,
+    `le=MAX_METERED_QTY` and `allow_inf_nan=False` bounds are the ones that stop a negative
+    quantity minting a self-issued credit — so the demand is rebuilt THROUGH it rather than
+    beside it.
+    """
+    quantity = MeteredQuantity(
+        leg=cast(Any, payload["leg"]),
+        unit_type=str(payload["unit_type"]),
+        # `Decimal(str(...))` and never `Decimal(float)`: the string is what was written.
+        qty=Decimal(str(payload["qty"])),
+        meta={str(key): str(value) for key, value in dict(payload.get("meta") or {}).items()},
+    )
+    occurred_at = datetime.fromisoformat(str(payload["occurred_at"]))
+    if occurred_at.tzinfo is None:  # pragma: no cover - `at` is always aware at the source
+        raise ValueError("a re-metering demand carried a naive instant")
+    return RemeterDemand(
+        tenant_id=UUID(str(payload["tenant_id"])),
+        call_id=UUID(str(payload["call_id"])),
+        quantity=quantity,
+        occurred_at=occurred_at,
+    )
+
+
+async def remeter(demand: RemeterDemand) -> str:
+    """Try once more to price one refused leg. Returns the verdict, never raises for one.
+
+    Three verdicts, and the caller counts them: `metered`, `already_metered`, `unpriceable`.
+
+    **WHAT STOPS A DOUBLE BILL IS THE DATABASE, NOT THIS FUNCTION.** `usage_events` carries
+    a unique index on `(tenant_id, call_id, unit_type)` for every unit type this path can
+    write — `ux_usage_events_tenant_call_unit` (`stt_s`, migration `b8d3f47c2a19`),
+    `ux_usage_events_tenant_call_ktok` (`llm_ktok_in`/`out`, `a3f1c6e82d47`) and
+    `ux_usage_events_tenant_call_kchars` (`tts_kchars`, `a3c62f8b4d19`) — and
+    `_INSERT_USAGE_SQL` ends `ON CONFLICT DO NOTHING`, with no conflict target, so it
+    catches all three. Two sweeps running at once, a sweep racing a late settlement of the
+    same leg, and a hand-replayed outbox row all converge on ONE row. That is the same
+    guarantee `_write_usage` has always had; this path adds no new way to bill twice and
+    needs no lock of its own to be safe.
+
+    **THE READ BELOW IS FOR THE VERDICT AND FOR NOTHING ELSE.** It is a check-then-write and
+    would be a defect if anything depended on it — it is there so an operator reading
+    `remetered=0 already=41` can tell "nothing could be priced" from "there was nothing left
+    to do", which are opposite situations with opposite remedies.
+
+    **A SECOND REFUSAL IS NOT WRITTEN, AND THAT IS DELIBERATE.** `call_metering_refusals` is
+    append-only and carries no unique index (`settle_call` says so), so a sweep that
+    recorded its verdict every hour would grow one row per unattested leg per tick for ever
+    and drown the evidence of the settlement that actually happened. The refusal on file is
+    already the record of this leg; what this sweep produces is either the `usage_events`
+    row that settles it or a counter that says it still cannot.
+    """
+    async with tenant_session(demand.tenant_id) as session:
+        already = (
+            await session.execute(
+                text("SELECT 1 FROM usage_events WHERE call_id = :cid AND unit_type = :unit"),
+                {"cid": demand.call_id, "unit": demand.quantity.unit_type},
+            )
+        ).first()
+        if already is not None:
+            return "already_metered"
+        try:
+            priced = _price_one(demand.quantity)
+        except _LegNotPriceableError:
+            # Still no attested price. Not an error and not a retry: the thing this is
+            # waiting on is an operator in the ops console, and the next tick is free.
+            return "unpriceable"
+        await _write_usage(
+            session,
+            demand.tenant_id,
+            demand.call_id,
+            (priced,),
+            # The SETTLEMENT's instant, never `now()`. `created_at` is `now()` inside the
+            # statement, so the row says both things: what month it belongs to and what day
+            # it was finally priced.
+            at=demand.occurred_at,
+        )
+    log.info(
+        "call_leg_remetered",
+        extra={
+            "tenant_id": str(demand.tenant_id),
+            "call_id": str(demand.call_id),
+            "leg": demand.quantity.leg,
+            "unit": demand.quantity.unit_type,
+        },
+    )
+    return "metered"
+
+
 # --- the call row, which every path passes through -------------------------------------
 
 
@@ -1207,11 +1450,17 @@ __all__ = [
     "ENGINE_NAME",
     "POSTCALL_DEDUPE_PREFIX",
     "POSTCALL_JOB",
+    "REMETERABLE_CODES",
+    "REMETER_DEDUPE_PREFIX",
+    "REMETER_JOB",
+    "RemeterDemand",
     "authorized",
     "engine_enabled",
     "load_session",
+    "parse_remeter_demand",
     "record_observations",
     "record_prompt_attestation",
     "refuse_wrong_engine",
+    "remeter",
     "settle_call",
 ]
