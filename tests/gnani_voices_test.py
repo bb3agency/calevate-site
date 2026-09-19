@@ -9,9 +9,10 @@ another, discovered on a client's phone. A TEST may import the SDK, so this file
 table against `gnani.tts.client.TIMBRE_V25_VOICES` in the installed `gnani-vachana` 0.7.9
 wheel (pinned in `uv.lock` by sha256), name for name.
 
-**THE POINT OF THE SECOND HALF IS THAT A PROVIDER IS NOT A TIER.** Gnani publish no price,
-so there is no rate to freeze on a credit lot and no floor to clear — and the type system
-was saying so before this file did (four `voice_tier_label` call sites stopped
+**THE POINT OF THE SECOND HALF IS THAT A PROVIDER IS NOT A TIER.** No Gnani INVOICE price
+is attested (⚠ this said "Gnani publish no price" until 19 Sep 2026, which was false — see
+D-631; a published catalogue rate is not an invoice), so no Gnani voice can be sold — and
+the type system was saying so before this file did (four `voice_tier_label` call sites stopped
 type-checking the moment `TtsProvider` grew a third member). The tests below pin the
 answer: a label to RENDER is total over providers, and a tier to CHARGE against refuses.
 """

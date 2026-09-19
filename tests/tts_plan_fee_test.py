@@ -19,8 +19,9 @@ ones that make that difference trustworthy rather than merely present:
    used to name SARVAM and its reason — the engine bought that synthesis and reported what
    it charged per call, so there was no invoice of ours to compare anything against. D-629
    (18 Sep 2026) took Sarvam off the TTS leg entirely and gave the Clear rung to GNANI, whose
-   ground is different and stronger: Gnani publish no price at all, so there is not even a
-   figure to pre-fill, let alone a monthly plan of ours to attest against (hard rule 7).
+   ground is different: we hold no Gnani INVOICE, and a published catalogue rate is not one,
+   so there is no monthly plan of ours to attest against (hard rule 7). ⚠ This read "Gnani
+   publish no price at all" until 19 Sep 2026 and that was false — D-631.
 3. **A correction is a later attestation, never an edit.** The trigger proves it at the
    database; the reader proves the newest belief wins and the older one survives.
 4. **Every figure is the SERVER's** — the subtraction included (D-458).
@@ -121,10 +122,10 @@ def test_the_second_voice_vendor_is_not_plan_billed() -> None:
 
     The property survives its example, which is why this is a rename and not a deletion:
     exactly one voice vendor is plan-billed, and the OTHER one must not be. Gnani is the
-    other one now, and its ground is different and stronger — Gnani publish no price at
-    all, so there is not even a figure to pre-fill, let alone a monthly plan of ours to
-    attest against (hard rule 7, and `agents/voice_offer` refuses the voice for the same
-    reason)."""
+    other one now, and its ground is different: we hold no Gnani INVOICE, and their
+    published catalogue rate is not one, so there is no monthly plan of ours to attest
+    against (hard rule 7, and `agents/voice_offer` refuses the voice for the same reason).
+    ⚠ This read "Gnani publish no price at all" until 19 Sep 2026; see D-631."""
     assert "gnani" not in PLAN_BILLED_TTS_PROVIDERS
     assert "gnani" in set(TTS_PROVIDERS), (
         "this clause is only meaningful while gnani is a KNOWN provider: an unknown one "

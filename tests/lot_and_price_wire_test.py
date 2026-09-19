@@ -171,9 +171,13 @@ async def test_the_model_price_panel_carries_every_voice_provider_with_its_verdi
     rows = {row["provider"]: row for row in read.json()["tts_prices"]}
     assert set(rows) == set(TTS_PROVIDERS)
 
-    # THE UNPRICED PROVIDER'S ROW IS THE ONE THAT CAN LIE, so it is pinned hardest. It
-    # carries NO reference figure (Gnani publish none, and the only number in the wild is a
-    # reseller's), and its credential is reported as held in another environment rather
+    # THE UNATTESTED PROVIDER'S ROW IS THE ONE THAT CAN LIE, so it is pinned hardest. It
+    # carries no reference PRE-FILL — not because Gnani publish nothing (they publish
+    # ₹27.00 / 10,000 chars; that claim was corrected by D-631 on 19 Sep 2026) but because
+    # `check_model_lifecycle.tts_choosable` still reads `reference_tts_price is not None`
+    # as "a client can be put on this model", and the two questions came apart when the
+    # page was read. The pair is closed by OPERATIONS §2 gate 56. Its credential is
+    # reported as held in another environment rather
     # than as missing — otherwise an operator who attests the price is told the tier is
     # still unofferable and sent to a box that can never be filled.
     gnani = rows["gnani"]

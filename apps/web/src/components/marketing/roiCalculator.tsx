@@ -86,13 +86,7 @@
 
 import Link from "next/link";
 import { useId, useMemo, useState } from "react";
-import {
-  Bot,
-  Filter,
-  Handshake,
-  TrendingDown,
-  UserRound,
-} from "lucide-react";
+import { Bot, Filter, Handshake, TrendingDown, UserRound } from "lucide-react";
 
 import {
   cardFromRate,
@@ -171,7 +165,11 @@ function Control({
         min={bounds.min}
         max={bounds.max}
         step={bounds.step}
-        value={Number.isFinite(value) ? Math.min(Math.max(value, bounds.min), bounds.max) : bounds.min}
+        value={
+          Number.isFinite(value)
+            ? Math.min(Math.max(value, bounds.min), bounds.max)
+            : bounds.min
+        }
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={label}
         aria-valuetext={unit ? `${value} ${unit}` : String(value)}
@@ -231,7 +229,9 @@ function RadioCards<T extends string | number>({
           // heights. Stacked below `sm` they are three full-width rows, which is also the
           // shape the two-option group above already uses.
           "mt-3 grid gap-2 " +
-          (columns === 3 ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2")
+          (columns === 3
+            ? "grid-cols-1 sm:grid-cols-3"
+            : "grid-cols-1 sm:grid-cols-2")
         }
       >
         {options.map((option) => {
@@ -250,8 +250,12 @@ function RadioCards<T extends string | number>({
                   : "border-line bg-app text-ink-muted hover:border-brand/50")
               }
             >
-              <span className="block text-base font-semibold text-ink">{option.label}</span>
-              <span className="mt-1 block text-sm text-ink-faint">{option.caption}</span>
+              <span className="block text-base font-semibold text-ink">
+                {option.label}
+              </span>
+              <span className="mt-1 block text-sm text-ink-faint">
+                {option.caption}
+              </span>
             </button>
           );
         })}
@@ -277,10 +281,15 @@ function CostLine({
         (strong ? "border-t border-line pt-3 text-ink" : "text-ink-muted")
       }
     >
-      <span className={strong ? "text-base font-semibold" : "text-base"}>{label}</span>
+      <span className={strong ? "text-base font-semibold" : "text-base"}>
+        {label}
+      </span>
       <span
         className={
-          "tabular-nums " + (strong ? "text-lg font-bold text-ink" : "text-base font-medium text-ink")
+          "tabular-nums " +
+          (strong
+            ? "text-lg font-bold text-ink"
+            : "text-base font-medium text-ink")
         }
       >
         {value}
@@ -305,9 +314,21 @@ function CostLine({
  * Two modes rather than one merged screen because they answer different questions and a
  * merged one would have to average them into a number that is true of neither.
  */
-const MODES: readonly { id: "answers" | "qualifies"; label: string; caption: string }[] = [
-  { id: "answers", label: "Calevate answers the calls", caption: "It handles the call end to end" },
-  { id: "qualifies", label: "Calevate calls first, your team closes", caption: "Triage, then a real conversation" },
+const MODES: readonly {
+  id: "answers" | "qualifies";
+  label: string;
+  caption: string;
+}[] = [
+  {
+    id: "answers",
+    label: "Calevate answers the calls",
+    caption: "It handles the call end to end",
+  },
+  {
+    id: "qualifies",
+    label: "Calevate calls first, your team closes",
+    caption: "Triage, then a real conversation",
+  },
 ];
 
 type Mode = (typeof MODES)[number]["id"];
@@ -341,7 +362,10 @@ function rateFor(
   voice: VoiceTier,
   choice: string,
 ): { rate: string; pack: RateCardPack | undefined } {
-  const pack = choice === LIST_RATE ? undefined : card.packs.find((p) => p.pack_id === choice);
+  const pack =
+    choice === LIST_RATE
+      ? undefined
+      : card.packs.find((p) => p.pack_id === choice);
   if (pack) return { rate: packRate(pack, voice), pack };
   // The LIST rate is the entry rung's rate. On the cheaper voice the card publishes it
   // directly (`list_rate_inr_per_min`, which is what "list rate" has always meant); on the
@@ -381,19 +405,21 @@ function voiceOptions(
       caption:
         // ⚠ THIS ARM SAID "The everyday voice, and where every agent starts." AND BOTH
         // HALVES STOPPED BEING TRUE ON 18 SEP 2026 (D-629). Sarvam was removed from the
-        // synthesis leg; the rung is Gnani's, Gnani publish no price, and hard rule 7
-        // therefore keeps every voice in it out of what anyone can be put on. No agent
+        // synthesis leg; the rung is Gnani's, and hard rule 7 keeps every voice in it out
+        // of what anyone can be put on until an operator attests an INVOICE figure — Gnani
+        // do publish a catalogue rate (D-631, corrected 19 Sep 2026; this comment said they
+        // published none), and a catalogue rate is not an invoice. No agent
         // starts here and none can be moved here. The rate is REAL and stays on the label,
         // because it is frozen on any credit bought today — what changed is that it is not
         // a voice on offer, and the notice is the one place that sentence is written.
         voice === UNPRICED_TIER
           ? UNPRICED_TIER_NOTICE
-          // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
-          // the voice picker is mounted in the admin realm only and changing a voice is
-          // ours (D-21). Per-agent is the true and load-bearing half — it is why this
-          // calculator prices one voice at a time — so it is said as the property it is,
-          // in the same register `/pricing` and the console now use.
-          : `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account.${pack}`,
+          : // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
+            // the voice picker is mounted in the admin realm only and changing a voice is
+            // ours (D-21). Per-agent is the true and load-bearing half — it is why this
+            // calculator prices one voice at a time — so it is said as the property it is,
+            // in the same register `/pricing` and the console now use.
+            `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account.${pack}`,
     };
   });
 }
@@ -426,7 +452,11 @@ function rateOptions(
   ];
 }
 
-export function RoiCalculator({ rateCard }: { rateCard: PublicRateCard | null }) {
+export function RoiCalculator({
+  rateCard,
+}: {
+  rateCard: PublicRateCard | null;
+}) {
   if (rateCard === null) {
     // THE HONEST STATE. The marker stays so `publicLanding.test.tsx` still scopes its
     // bans the same way, and there is no rupee figure anywhere in it to scope off.
@@ -436,12 +466,17 @@ export function RoiCalculator({ rateCard }: { rateCard: PublicRateCard | null })
         role="status"
         className="mt-10 rounded-2xl border border-line bg-surface p-5 sm:mt-12 sm:p-8"
       >
-        <h3 className="text-xl font-semibold text-ink sm:text-2xl">The comparison cannot run right now</h3>
+        <h3 className="text-xl font-semibold text-ink sm:text-2xl">
+          The comparison cannot run right now
+        </h3>
         <p className="mt-3 max-w-2xl text-base text-pretty text-ink-muted">
-          Our live rate card could not be loaded, so there is no honest per-minute figure to
-          price Calevate at — and we would rather show nothing than a figure that may be out
-          of date. Reload in a moment, or{" "}
-          <Link href="/pricing" className="font-medium text-brand-strong underline-offset-4 hover:underline dark:text-brand-bright">
+          Our live rate card could not be loaded, so there is no honest
+          per-minute figure to price Calevate at — and we would rather show
+          nothing than a figure that may be out of date. Reload in a moment, or{" "}
+          <Link
+            href="/pricing"
+            className="font-medium text-brand-strong underline-offset-4 hover:underline dark:text-brand-bright"
+          >
             read how the bill is shaped
           </Link>{" "}
           while you wait.
@@ -459,14 +494,19 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   const [rateChoice, setRateChoice] = useState<string>(LIST_RATE);
   // ⚠ **IT DEFAULTED TO THE CHEAPER VOICE UNTIL 18 SEP 2026, ON A REASON D-629 REVERSED.**
   // That default was "it is what a new agent gets" — and since D-629 no agent can get it:
-  // the cheaper rung is Gnani's, Gnani publish no price, and no voice in it is offerable
-  // (hard rule 7). Opening on it would price the whole comparison at a rate no agent this
+  // the cheaper rung is Gnani's and no voice in it is offerable (hard rule 7 wants an
+  // attested invoice figure; Gnani's published catalogue rate is not one — see D-631, which
+  // corrected this comment's "Gnani publish no price" on 19 Sep 2026). Opening on it would price the whole comparison at a rate no agent this
   // buyer signs up for can actually run at, which is an UNDER-quote on a public page — the
   // same direction `rateFor`'s own warning above is about. So it opens on the voice an
   // agent can be put on, and the cheaper one keeps its rate, its radio and the notice
   // saying why it cannot be chosen. Flip this back the day the Gnani price is attested.
   const [voice, setVoice] = useState<VoiceTier>("studio");
-  const { rate: selectedRate, pack: selectedPack } = rateFor(card, voice, rateChoice);
+  const { rate: selectedRate, pack: selectedPack } = rateFor(
+    card,
+    voice,
+    rateChoice,
+  );
   const calevatePaisePerMin = ratePaisePerMin(selectedRate);
   const cheapest = cheapestPack(card, voice);
   const [callsPerDay, setCallsPerDay] = useState(USAGE.callsPerDay.default);
@@ -480,16 +520,30 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   const [callsPerAgentPerDay, setCallsPerAgent] = useState(
     TELECALLER.callsPerAgentPerDay.default,
   );
-  const [talkHoursPerDay, setTalkHours] = useState(TELECALLER.talkHoursPerDay.default);
-  const [basePerAgentInr, setBase] = useState(TELECALLER.basePerAgentInr.default);
-  const [loadedPerAgentInr, setLoaded] = useState(TELECALLER.loadedPerAgentInr.default);
+  const [talkHoursPerDay, setTalkHours] = useState(
+    TELECALLER.talkHoursPerDay.default,
+  );
+  const [basePerAgentInr, setBase] = useState(
+    TELECALLER.basePerAgentInr.default,
+  );
+  const [loadedPerAgentInr, setLoaded] = useState(
+    TELECALLER.loadedPerAgentInr.default,
+  );
 
-  const [qualifiedPct, setQualifiedPct] = useState(TWO_STAGE.qualifiedPct.default);
-  const [qualifyMinutes, setQualifyMinutes] = useState(TWO_STAGE.qualifyMinutes.default);
+  const [qualifiedPct, setQualifiedPct] = useState(
+    TWO_STAGE.qualifiedPct.default,
+  );
+  const [qualifyMinutes, setQualifyMinutes] = useState(
+    TWO_STAGE.qualifyMinutes.default,
+  );
 
   const [leadOpen, setLeadOpen] = useState(false);
-  const [convertedLeadInr, setLeadInr] = useState(LEAD_VALUE.convertedLeadInr.default);
-  const [conversionPct, setConversion] = useState(LEAD_VALUE.conversionPct.default);
+  const [convertedLeadInr, setLeadInr] = useState(
+    LEAD_VALUE.convertedLeadInr.default,
+  );
+  const [conversionPct, setConversion] = useState(
+    LEAD_VALUE.conversionPct.default,
+  );
 
   const result = useMemo(
     () =>
@@ -559,13 +613,16 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // The verdict is computed off whichever comparison is on screen, so the honest-close and
   // honest-loss branches below are the same three branches in both modes rather than two
   // sets of rules that could disagree about what "close" means.
-  const baseline = twoStageMode ? twoStage.allHuman.humanTotalPaise : result.humanTotalPaise;
+  const baseline = twoStageMode
+    ? twoStage.allHuman.humanTotalPaise
+    : result.humanTotalPaise;
   const delta = twoStageMode ? twoStage.deltaPaise : result.deltaPaise;
   const cheaper = delta > 0;
   const close = baseline > 0 && Math.abs(delta) * 10 < baseline; // within ~10%
 
   const monthlyCalls = result.callsPerMonth.toLocaleString("en-IN");
-  const coverage = COVERAGE.find((c) => c.hours === coverageHours) ?? COVERAGE[0];
+  const coverage =
+    COVERAGE.find((c) => c.hours === coverageHours) ?? COVERAGE[0];
   const singleShift = result.shifts <= 1;
 
   // The nudge that fixes the thing this whole mode exists for: at four minutes and up the
@@ -573,7 +630,8 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // with a per-minute agent compares two things that were never alternatives. Shown only
   // while the buyer is in the head-to-head mode, so it points at the switch rather than
   // arguing with them.
-  const longCall = !twoStageMode && avgMinutes >= 4 && result.humanTotalPaise > 0;
+  const longCall =
+    !twoStageMode && avgMinutes >= 4 && result.humanTotalPaise > 0;
 
   return (
     // `data-roi-calculator`: the marker `publicLanding.test.tsx` uses to scope its
@@ -585,11 +643,13 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
     >
       {/* --- Inputs -------------------------------------------------------------- */}
       <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
-        <h3 className="text-xl font-semibold text-ink sm:text-2xl">Your numbers</h3>
+        <h3 className="text-xl font-semibold text-ink sm:text-2xl">
+          Your numbers
+        </h3>
         <p className="mt-2 text-base text-ink-muted">
-          Three numbers you already know. Every other assumption is pre-filled and sitting
-          under “Adjust assumptions” below — the same model either way, just not in your
-          face until you ask for it.
+          Three numbers you already know. Every other assumption is pre-filled
+          and sitting under “Adjust assumptions” below — the same model either
+          way, just not in your face until you ask for it.
         </p>
         <div className="mt-6 space-y-6">
           {/* Which comparison to run. First, because it changes what every number below
@@ -611,7 +671,11 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             unit="calls"
           />
           <Control
-            label={twoStageMode ? "How long a real sales conversation runs" : "Average call length"}
+            label={
+              twoStageMode
+                ? "How long a real sales conversation runs"
+                : "Average call length"
+            }
             bounds={USAGE.avgMinutes}
             value={avgMinutes}
             onChange={setAvgMinutes}
@@ -667,7 +731,8 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               landing tests assert across all of them. */}
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-semibold text-ink">
             <h3 className="text-base font-semibold text-ink sm:text-lg">
-              Adjust assumptions — how you pay, hours covered, working days, and the rest of the model
+              Adjust assumptions — how you pay, hours covered, working days, and
+              the rest of the model
             </h3>
             <span className="shrink-0 text-sm font-medium text-brand-strong group-open:hidden dark:text-brand-bright">
               Adjust
@@ -677,9 +742,9 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             </span>
           </summary>
           <p className="mt-3 text-base text-ink-muted">
-            Pre-filled with illustrative benchmarks for the role in Andhra Pradesh and
-            Telangana. You don&apos;t need to touch these — open them only to run the
-            comparison on your own numbers.
+            Pre-filled with illustrative benchmarks for the role in Andhra
+            Pradesh and Telangana. You don&apos;t need to touch these — open
+            them only to run the comparison on your own numbers.
           </p>
           <div className="mt-6 space-y-6">
             {/* How you pay — the ONE assumption on the Calevate side, and the reason it
@@ -738,30 +803,30 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               onChange={setWorkingDays}
               unit="days"
             />
-          <Control
-            label="Calls one telecaller handles a day"
-            bounds={TELECALLER.callsPerAgentPerDay}
-            value={callsPerAgentPerDay}
-            onChange={setCallsPerAgent}
-            unit="calls"
-            hint="The dial ceiling — a productive agent starts roughly 80–120 dials on a 5.5–6.5 hour shift. On longer calls, talk-time (below) is the real limit."
-          />
-          <Control
-            label="Productive talk hours a day"
-            bounds={TELECALLER.talkHoursPerDay}
-            value={talkHoursPerDay}
-            onChange={setTalkHours}
-            unit="hrs"
-            hint="Actual talk time in a shift, after dialling, ringing, no-answers and wrap-up — usually 3–5 hours. This is why a longer call means fewer calls per agent, and more agents."
-          />
-          <Control
-            label="Advertised base pay"
-            bounds={TELECALLER.basePerAgentInr}
-            value={basePerAgentInr}
-            onChange={setBase}
-            unit="/mo"
-            hint="The figure a job ad shows — around ₹18k–₹25k for the role."
-          />
+            <Control
+              label="Calls one telecaller handles a day"
+              bounds={TELECALLER.callsPerAgentPerDay}
+              value={callsPerAgentPerDay}
+              onChange={setCallsPerAgent}
+              unit="calls"
+              hint="The dial ceiling — a productive agent starts roughly 80–120 dials on a 5.5–6.5 hour shift. On longer calls, talk-time (below) is the real limit."
+            />
+            <Control
+              label="Productive talk hours a day"
+              bounds={TELECALLER.talkHoursPerDay}
+              value={talkHoursPerDay}
+              onChange={setTalkHours}
+              unit="hrs"
+              hint="Actual talk time in a shift, after dialling, ringing, no-answers and wrap-up — usually 3–5 hours. This is why a longer call means fewer calls per agent, and more agents."
+            />
+            <Control
+              label="Advertised base pay"
+              bounds={TELECALLER.basePerAgentInr}
+              value={basePerAgentInr}
+              onChange={setBase}
+              unit="/mo"
+              hint="The figure a job ad shows — around ₹18k–₹25k for the role."
+            />
           </div>
         </details>
       </div>
@@ -774,16 +839,22 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
               <p className="text-base text-ink-muted">
                 If your people work the whole list — all{" "}
-                <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>{" "}
+                <span className="font-semibold text-ink tabular-nums">
+                  {monthlyCalls}
+                </span>{" "}
                 conversations a month — you&apos;d hire
               </p>
               <p className="mt-2 flex items-center gap-2.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
                   <UserRound aria-hidden className="h-5 w-5" />
                 </span>
-                <span className="tabular-nums">{twoStage.allHuman.headcount}</span>
+                <span className="tabular-nums">
+                  {twoStage.allHuman.headcount}
+                </span>
                 <span className="text-xl font-semibold text-ink-muted sm:text-2xl">
-                  {twoStage.allHuman.headcount === 1 ? "salesperson" : "salespeople"}
+                  {twoStage.allHuman.headcount === 1
+                    ? "salesperson"
+                    : "salespeople"}
                 </span>
               </p>
               <p className="mt-2 text-base text-ink-muted">
@@ -791,8 +862,8 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 <span className="font-semibold text-ink tabular-nums">
                   {twoStage.allHuman.effectiveCallsPerAgentPerDay}
                 </span>{" "}
-                a day — every one a full conversation, whether or not the person turns out
-                to be interested.
+                a day — every one a full conversation, whether or not the person
+                turns out to be interested.
               </p>
               {!singleShift && (
                 <p className="mt-2 text-base text-ink-muted">
@@ -800,12 +871,16 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                   <span className="font-semibold text-ink tabular-nums">
                     {twoStage.allHuman.shifts}
                   </span>{" "}
-                  shifts, on both sides of this comparison — every shift needs somebody on
-                  the phone. Calevate&apos;s first call costs the same at every hour.
+                  shifts, on both sides of this comparison — every shift needs
+                  somebody on the phone. Calevate&apos;s first call costs the
+                  same at every hour.
                 </p>
               )}
               <div className="mt-6 space-y-3">
-                <CostLine label="Base pay" value={formatPaiseINR(twoStage.allHuman.humanBasePaise)} />
+                <CostLine
+                  label="Base pay"
+                  value={formatPaiseINR(twoStage.allHuman.humanBasePaise)}
+                />
                 <CostLine
                   label="Incentives, PF/ESI, supervisor, desk & overhead"
                   value={formatPaiseINR(twoStage.allHuman.humanUpliftPaise)}
@@ -830,14 +905,19 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 {formatPaiseINR(twoStage.blendedTotalPaise)}
               </p>
               <p className="mt-2 text-base text-ink-muted">
-                Calevate holds a {qualifyMinutes}-min first call with every one of the{" "}
-                <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>, sorts
-                them, and writes each one down. Your{" "}
+                Calevate holds a {qualifyMinutes}-min first call with every one
+                of the{" "}
+                <span className="font-semibold text-ink tabular-nums">
+                  {monthlyCalls}
+                </span>
+                , sorts them, and writes each one down. Your{" "}
                 <span className="font-semibold text-ink tabular-nums">
                   {twoStage.humans.headcount}
                 </span>{" "}
-                {twoStage.humans.headcount === 1 ? "salesperson" : "salespeople"} then hold
-                the{" "}
+                {twoStage.humans.headcount === 1
+                  ? "salesperson"
+                  : "salespeople"}{" "}
+                then hold the{" "}
                 <span className="font-semibold text-ink tabular-nums">
                   {twoStage.qualifiedCallsPerMonth.toLocaleString("en-IN")}
                 </span>{" "}
@@ -865,7 +945,9 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
               <p className="text-base text-ink-muted">
                 To take{" "}
-                <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>{" "}
+                <span className="font-semibold text-ink tabular-nums">
+                  {monthlyCalls}
+                </span>{" "}
                 calls a month you&apos;d hire
               </p>
               <p className="mt-2 flex items-center gap-2.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
@@ -882,15 +964,19 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 <span className="font-semibold text-ink tabular-nums">
                   {result.effectiveCallsPerAgentPerDay}
                 </span>{" "}
-                a day — talk-time, not dialling, is the limit once calls run long.
+                a day — talk-time, not dialling, is the limit once calls run
+                long.
               </p>
               {!singleShift && (
                 <p className="mt-2 text-base text-ink-muted">
                   To answer {coverage.label.toLowerCase()} you staff{" "}
-                  <span className="font-semibold text-ink tabular-nums">{result.shifts}</span>{" "}
-                  shifts — every shift needs someone on the phone even when it is quiet. Calevate
-                  answers all {coverageHours === 24 ? "24 hours" : `${coverageHours} hours`} at
-                  the very same per-minute price.
+                  <span className="font-semibold text-ink tabular-nums">
+                    {result.shifts}
+                  </span>{" "}
+                  shifts — every shift needs someone on the phone even when it
+                  is quiet. Calevate answers all{" "}
+                  {coverageHours === 24 ? "24 hours" : `${coverageHours} hours`}{" "}
+                  at the very same per-minute price.
                 </p>
               )}
 
@@ -922,13 +1008,13 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 {formatPaiseINR(result.calevatePaise)}
               </p>
               <p className="mt-2 text-base text-ink-muted">
-                Variable and pay-as-you-go at {formatRateINR(selectedRate)}/min on the{" "}
-                {tierLabel(card, voice)} voice
+                Variable and pay-as-you-go at {formatRateINR(selectedRate)}/min
+                on the {tierLabel(card, voice)} voice
                 {selectedPack
                   ? `, ${formatAmountINR(selectedPack.amount_inr)} pack`
                   : ", at the list rate"}{" "}
-                — it rises with your calls and falls to zero on a quiet day. No headcount to
-                carry between the busy months.
+                — it rises with your calls and falls to zero on a quiet day. No
+                headcount to carry between the busy months.
               </p>
               {cheapest && !selectedPack && (
                 // `-muted`: this panel has its own brand tint, and `--text-faint` is only
@@ -936,9 +1022,12 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 // axe in a real Chromium, 9 Sep 2026.
                 <p className="mt-3 text-sm text-ink-muted">
                   From {formatRateINR(cardFromRate(card, voice))}/min with the{" "}
-                  {formatAmountINR(cheapest.amount_inr)} pack — pick one under “Adjust
-                  assumptions”, or see the{" "}
-                  <Link href="/pricing#self-serve" className="font-medium text-brand-strong underline-offset-4 hover:underline dark:text-brand-bright">
+                  {formatAmountINR(cheapest.amount_inr)} pack — pick one under
+                  “Adjust assumptions”, or see the{" "}
+                  <Link
+                    href="/pricing#self-serve"
+                    className="font-medium text-brand-strong underline-offset-4 hover:underline dark:text-brand-bright"
+                  >
                     full rate card
                   </Link>
                   .
@@ -965,7 +1054,10 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             </p>
           ) : cheaper && !close ? (
             <p className="flex flex-wrap items-baseline gap-x-2 text-lg text-ink">
-              <TrendingDown aria-hidden className="h-5 w-5 text-brand-strong dark:text-brand-bright" />
+              <TrendingDown
+                aria-hidden
+                className="h-5 w-5 text-brand-strong dark:text-brand-bright"
+              />
               <span className="font-semibold">
                 About {formatPaiseINR(delta)} less a month
               </span>
@@ -978,7 +1070,9 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           ) : cheaper ? (
             <p className="text-base text-ink-muted">
               At this volume the running costs come out close (about{" "}
-              <span className="font-semibold text-ink">{formatPaiseINR(delta)}</span>{" "}
+              <span className="font-semibold text-ink">
+                {formatPaiseINR(delta)}
+              </span>{" "}
               a month apart).{" "}
               {twoStageMode
                 ? "The difference that matters is below — the same team, spending its hours on people who are actually interested."
@@ -987,15 +1081,19 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           ) : twoStageMode ? (
             <p className="text-base text-ink-muted">
               On these assumptions the two-stage funnel costs{" "}
-              <span className="font-semibold text-ink">{formatPaiseINR(-delta)}</span> more a
-              month, not less — at this share of qualified leads there is little for a first
-              call to filter out, so it is mostly an extra call on top. Said plainly rather
-              than hidden: if that is really your list, your team should keep calling it.
+              <span className="font-semibold text-ink">
+                {formatPaiseINR(-delta)}
+              </span>{" "}
+              more a month, not less — at this share of qualified leads there is
+              little for a first call to filter out, so it is mostly an extra
+              call on top. Said plainly rather than hidden: if that is really
+              your list, your team should keep calling it.
             </p>
           ) : (
             <p className="text-base text-ink-muted">
-              At this volume a small team can match the running cost. What it cannot match is
-              the row below — so the comparison is honestly about capability here, not price.
+              At this volume a small team can match the running cost. What it
+              cannot match is the row below — so the comparison is honestly
+              about capability here, not price.
             </p>
           )}
 
@@ -1005,17 +1103,23 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               ones in circulation could be verified to a primary source. */}
           {twoStageMode && baseline > 0 && twoStage.triagedAwayPerMonth > 0 && (
             <p className="mt-4 flex flex-wrap items-baseline gap-x-2 border-t border-line pt-4 text-base text-ink-muted">
-              <Handshake aria-hidden className="h-5 w-5 text-brand-strong dark:text-brand-bright" />
+              <Handshake
+                aria-hidden
+                className="h-5 w-5 text-brand-strong dark:text-brand-bright"
+              />
               <span>
                 <span className="font-semibold text-ink tabular-nums">
                   {twoStage.triagedAwayPerMonth.toLocaleString("en-IN")}
                 </span>{" "}
                 of those calls never reach a person — about{" "}
                 <span className="font-semibold text-ink tabular-nums">
-                  {hoursFromMinutes(twoStage.humanMinutesReleased).toLocaleString("en-IN")}
+                  {hoursFromMinutes(
+                    twoStage.humanMinutesReleased,
+                  ).toLocaleString("en-IN")}
                 </span>{" "}
-                hours a month your team is not spending on someone who was never going to
-                buy. Each of them still lands as a filled-in row you can read.
+                hours a month your team is not spending on someone who was never
+                going to buy. Each of them still lands as a filled-in row you
+                can read.
               </span>
             </p>
           )}
@@ -1024,11 +1128,13 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           {longCall && (
             <p className="mt-4 border-t border-line pt-4 text-base text-ink-muted">
               A {avgMinutes}-minute call is a{" "}
-              <span className="font-medium text-ink">sales conversation</span>, not an enquiry
-              being written down — and the answer to an expensive conversation is not a
-              cheaper one, it is having fewer of them with the wrong people. Switch the
-              choice above to{" "}
-              <span className="font-medium text-ink">Calevate calls first, your team closes</span>{" "}
+              <span className="font-medium text-ink">sales conversation</span>,
+              not an enquiry being written down — and the answer to an expensive
+              conversation is not a cheaper one, it is having fewer of them with
+              the wrong people. Switch the choice above to{" "}
+              <span className="font-medium text-ink">
+                Calevate calls first, your team closes
+              </span>{" "}
               to compare that instead.
             </p>
           )}
@@ -1037,25 +1143,30 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               and the running costs are close, the honest lever is the hours themselves —
               a human team is priced per shift, Calevate is not. This nudges without faking
               a gap; extend the hours above and the numbers move on their own. */}
-          {!twoStageMode && result.humanTotalPaise > 0 && singleShift && !(cheaper && !close) && (
-            <p className="mt-4 border-t border-line pt-4 text-base text-ink-muted">
-              This is a{" "}
-              <span className="font-medium text-ink">business-hours</span> comparison — one
-              human shift. If your line should be answered into the evening or overnight,
-              set the hours above: a human team is paid per shift, so the cost climbs, while
-              Calevate answers around the clock at the same rate.
-            </p>
-          )}
+          {!twoStageMode &&
+            result.humanTotalPaise > 0 &&
+            singleShift &&
+            !(cheaper && !close) && (
+              <p className="mt-4 border-t border-line pt-4 text-base text-ink-muted">
+                This is a{" "}
+                <span className="font-medium text-ink">business-hours</span>{" "}
+                comparison — one human shift. If your line should be answered
+                into the evening or overnight, set the hours above: a human team
+                is paid per shift, so the cost climbs, while Calevate answers
+                around the clock at the same rate.
+              </p>
+            )}
 
           {leadOpen && result.pipelineValuePaise !== null && (
             <p className="mt-4 border-t border-line pt-4 text-sm text-ink-faint">
-              For context, at your conversion assumptions these calls carry about{" "}
+              For context, at your conversion assumptions these calls carry
+              about{" "}
               <span className="font-semibold text-ink">
                 {formatPaiseINR(result.pipelineValuePaise)}
               </span>{" "}
-              of converted-lead value a month. A line that is always answered and never
-              queued is how more of that value is actually reached — it is not credited to
-              either option above.
+              of converted-lead value a month. A line that is always answered
+              and never queued is how more of that value is actually reached —
+              it is not credited to either option above.
             </p>
           )}
         </div>
@@ -1114,15 +1225,19 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           </summary>
           <div className="mt-5 space-y-3.5 text-base text-ink-muted">
             <p>
-              These figures are <span className="font-semibold text-ink">illustrative and
-              fully adjustable</span> — the defaults are relayed industry benchmarks for the
-              telecalling role, not measurements we have taken or promises we make. Move any
+              These figures are{" "}
+              <span className="font-semibold text-ink">
+                illustrative and fully adjustable
+              </span>{" "}
+              — the defaults are relayed industry benchmarks for the telecalling
+              role, not measurements we have taken or promises we make. Move any
               slider to your own numbers and everything recalculates.
             </p>
             <ul className="list-disc space-y-2 pl-5">
               <li>
-                <span className="font-medium text-ink">Calevate</span> = calls a day ×
-                average length × {formatRateINR(selectedRate)}/min × working days.{" "}
+                <span className="font-medium text-ink">Calevate</span> = calls a
+                day × average length × {formatRateINR(selectedRate)}/min ×
+                working days.{" "}
                 {/* ⚠ THIS BULLET LED WITH THE CHEAPER VOICE'S LIST RATE — `card
                     .list_rate_inr_per_min`, which is the Clear column — while the
                     arithmetic above it ran at whatever voice was selected. That was
@@ -1131,9 +1246,10 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                     its figure would have explained a sum with a rate the sum did not use.
                     The order is now: the voice this opened on, then the other one with why
                     it is not selectable. */}
-                {formatRateINR(rateFor(card, "studio", LIST_RATE).rate)}/min is our
-                published self-serve list rate on the {tierLabel(card, "studio")} voice,
-                read from our own rate card when this page loaded
+                {formatRateINR(rateFor(card, "studio", LIST_RATE).rate)}/min is
+                our published self-serve list rate on the{" "}
+                {tierLabel(card, "studio")} voice, read from our own rate card
+                when this page loaded
                 {/* The pack clause is CONDITIONAL for the same reason the voice captions'
                     is: on a flat column "a prepaid pack brings it down to ₹4.00/min"
                     quotes the list rate straight back as a discount. */}
@@ -1144,57 +1260,70 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                   </>
                 )}
                 . The {tierLabel(card, "clear")} voice is{" "}
-                {formatRateINR(card.list_rate_inr_per_min)}/min on the same card and cannot
-                be chosen at the moment, for the reason printed beside it above — which is
-                why the comparison opens on the {tierLabel(card, "studio")} voice, and at
-                the list rate rather than at the cheapest pack, on purpose.
+                {formatRateINR(card.list_rate_inr_per_min)}/min on the same card
+                and cannot be chosen at the moment, for the reason printed
+                beside it above — which is why the comparison opens on the{" "}
+                {tierLabel(card, "studio")} voice, and at the list rate rather
+                than at the cheapest pack, on purpose.
               </li>
               <li>
-                <span className="font-medium text-ink">Telecallers needed</span> = calls a
-                day ÷ calls one agent handles a day, rounded up. The ~100/day default assumes
-                80–120 dials on a 5.5–6.5 hour productive shift.
+                <span className="font-medium text-ink">Telecallers needed</span>{" "}
+                = calls a day ÷ calls one agent handles a day, rounded up. The
+                ~100/day default assumes 80–120 dials on a 5.5–6.5 hour
+                productive shift.
               </li>
               <li>
-                <span className="font-medium text-ink">Hours covered</span>: a person works
-                one ~9-hour shift, so answering into the evening (≈15h) or around the clock
-                (24h) means staffing two or three shifts — and every staffed shift needs at
-                least one person on the phone, even a quiet night one. We spread your call
-                volume evenly across the shifts you choose, which is the assumption kindest
-                to the human side. Calevate answers at every hour for the same per-minute
-                rate, so widening the hours never changes its figure.
+                <span className="font-medium text-ink">Hours covered</span>: a
+                person works one ~9-hour shift, so answering into the evening
+                (≈15h) or around the clock (24h) means staffing two or three
+                shifts — and every staffed shift needs at least one person on
+                the phone, even a quiet night one. We spread your call volume
+                evenly across the shifts you choose, which is the assumption
+                kindest to the human side. Calevate answers at every hour for
+                the same per-minute rate, so widening the hours never changes
+                its figure.
               </li>
               <li>
-                <span className="font-medium text-ink">Calevate calls first, your team
-                closes</span>: the other comparison. One side is your people working the
-                whole list, every lead at the full conversation length. The other is Calevate
-                holding a short first call with everyone, and your people holding the full
-                conversation only with the share that came back interested — so headcount
-                follows the qualified list, not the raw one. The two figures you set for it —
-                how much of your list is worth a real conversation, and how long the first
-                call runs — are assumptions about YOUR list, not benchmarks. Nobody can tell
-                you those from outside, which is exactly why they are sliders. Set the
-                qualified share to everyone and the arithmetic turns against us; the verdict
-                says so.
+                <span className="font-medium text-ink">
+                  Calevate calls first, your team closes
+                </span>
+                : the other comparison. One side is your people working the
+                whole list, every lead at the full conversation length. The
+                other is Calevate holding a short first call with everyone, and
+                your people holding the full conversation only with the share
+                that came back interested — so headcount follows the qualified
+                list, not the raw one. The two figures you set for it — how much
+                of your list is worth a real conversation, and how long the
+                first call runs — are assumptions about YOUR list, not
+                benchmarks. Nobody can tell you those from outside, which is
+                exactly why they are sliders. Set the qualified share to
+                everyone and the arithmetic turns against us; the verdict says
+                so.
               </li>
               <li>
-                <span className="font-medium text-ink">Loaded vs. base</span>: the advertised
-                base (~₹21,240) is what an ad shows; the loaded figure (~₹32,000 default) adds
-                PF/ESI, on-target incentives (often 30–80% of base), a share of a supervisor,
-                desk/power/phone/software, and ramp-up. The whole point is that the base hides
-                the real cost.
+                <span className="font-medium text-ink">Loaded vs. base</span>:
+                the advertised base (~₹21,240) is what an ad shows; the loaded
+                figure (~₹32,000 default) adds PF/ESI, on-target incentives
+                (often 30–80% of base), a share of a supervisor,
+                desk/power/phone/software, and ramp-up. The whole point is that
+                the base hides the real cost.
               </li>
               <li>
-                <span className="font-medium text-ink">What this deliberately leaves out</span>
-                : turnover and the cost of replacing someone. Both are real, and neither is
-                what a business owner here is weighing while deciding — so counting them
-                would be arguing a case you are not making. Leaving them out makes the human
-                side of this comparison smaller, not larger.
+                <span className="font-medium text-ink">
+                  What this deliberately leaves out
+                </span>
+                : turnover and the cost of replacing someone. Both are real, and
+                neither is what a business owner here is weighing while deciding
+                — so counting them would be arguing a case you are not making.
+                Leaving them out makes the human side of this comparison
+                smaller, not larger.
               </li>
             </ul>
             <p>
-              All amounts are computed in whole paise and rounded once, so the rupee figures
-              add up exactly. This is a planning estimate, not a quote — your actual Calevate
-              cost is simply your minutes used at the rate above.
+              All amounts are computed in whole paise and rounded once, so the
+              rupee figures add up exactly. This is a planning estimate, not a
+              quote — your actual Calevate cost is simply your minutes used at
+              the rate above.
             </p>
           </div>
         </details>

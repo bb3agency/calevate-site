@@ -54,13 +54,22 @@ would have been a second place for the doctrine to drift.
 
 ⚠ **THAT LAST CLAUSE USED TO READ "since every TTS model is selectable by construction —
 no `unread` at all", AND D-618 MADE THE PREMISE FALSE.** `timbre-v2.5` is in the catalogue
-and is on a provider that publishes NO PRICE (Gnani publish none and nobody has attested
-one), so hard rule 7 refuses it before offerability is even asked: there is no path by
-which a client is put on it today. ⚠ The PREDICATE that says so moved on 18 Sep 2026 —
-`tts_choosable` carries why. `tts_refusals` derives "choosable" rather than assuming it,
-which is the SAME distinction the LLM half has always made with `selectable` — and it arms
-itself rather than forgiving anything: the moment a Gnani figure is recorded, the
-model becomes choosable and this gate goes red until somebody reads a Gnani lifecycle page.
+and nobody has attested a per-character price for its provider, so hard rule 7 refuses it
+before offerability is even asked: there is no path by which a client is put on it today.
+⚠ The PREDICATE that says so moved on 18 Sep 2026 — `tts_choosable` carries why.
+`tts_refusals` derives "choosable" rather than assuming it, which is the SAME distinction
+the LLM half has always made with `selectable` — and it arms itself rather than forgiving
+anything: the moment a Gnani figure is recorded, the model becomes choosable and this gate
+goes red until somebody reads a Gnani lifecycle page.
+
+⚠ **THIS PARAGRAPH SAID "a provider that publishes NO PRICE (Gnani publish none)" UNTIL
+19 SEP 2026, AND THAT WAS A FALSE VENDOR FACT** (D-631; hard rule 11's own failure mode).
+Gnani's console publishes ₹27.00 / 10,000 characters (`app.gnani.ai/voice/pricing`,
+founder-read and relayed, VENDOR-PUBLISHED). What refuses the model is not the vendor's
+silence — it never was — but the absence of an operator's ATTESTED INVOICE figure, which is
+the only thing `agents/voice_offer.tts_price_is_billable` opens on. The proxy this checker
+uses is discussed in `tts_choosable`, and correcting it is a PAIR whose other half is
+`ops/model_pricing.reference_tts_price`.
 
 Run: `uv run python -m scripts.check_model_lifecycle`   (also in `make guardrails`)
 """
@@ -453,14 +462,32 @@ def tts_choosable(models: frozenset[str]) -> frozenset[str]:
     with no database, so it would read the cold snapshot, get `False` for everything and
     pass trivially. A gate that answers "nothing is choosable" is not a gate.
 
-    So it asks the STATIC half of hard rule 7 instead: **does this provider publish a
-    per-character figure at all** (`ops/model_pricing.reference_tts_price`, the same
-    function that decides whether the attestation form has a pre-fill to render). Cartesia
-    does; Gnani publish nothing, and the only number in the wild is a reseller's. That is a
-    fact about a VENDOR rather than about a deployment, which is what a static checker can
-    hold — and it stays DERIVED and self-arming: the day somebody records a Gnani vendor
-    figure, `timbre-v2.5` enters this set and this gate demands its lifecycle reading, with
-    no edit here.
+    So it asks a STATIC stand-in instead: **does this tree hold a reference per-character
+    figure for the provider** (`ops/model_pricing.reference_tts_price`, the same function
+    that decides whether the attestation form has a pre-fill to render). Cartesia has one;
+    Gnani does not. It stays DERIVED and self-arming: the day a Gnani reference figure is
+    recorded, `timbre-v2.5` enters this set and this gate demands its lifecycle reading,
+    with no edit here.
+
+    ⚠ **THIS PARAGRAPH SAID THE STAND-IN WAS "does this provider publish a per-character
+    figure at all … Gnani publish nothing", AND THAT IS FALSE** (D-631, 19 Sep 2026): Gnani's
+    console publishes ₹27.00 / 10,000 characters. The stand-in is therefore weaker than it
+    described itself as — it is a fact about what THIS TREE holds, not about what a vendor
+    published — and the two questions came apart the moment the page was read. **The
+    CONCLUSION it reaches is still correct and now rests on the right ground**: no client can
+    be put on `timbre-v2.5`, because `voice_offer.tts_price_is_billable` opens only on an
+    operator's attested INVOICE figure and nobody has recorded one.
+
+    ⚠ **WHAT IS STILL OPEN, AND WHAT CLOSES IT.** `reference_tts_price` should pre-fill the
+    ops attestation form with Gnani's published ₹2.70 / 1,000 chars — that is a real help to
+    the operator who has the invoice in front of them — and it cannot until this predicate
+    stops reading it, because arming this gate would fail CI with a sentence that is untrue
+    ("a voice model a client can be put on") over a lifecycle page nobody in this container
+    can open. The blocker is EXTERNAL and named: OPERATIONS §2 gate 56, a reading of Gnani's
+    own model-lifecycle page (`docs.gnani.ai`, egress-blocked here). When that reading lands,
+    `timbre-v2.5` stops being `unread`, this predicate can be re-aimed at offerability and
+    the Gnani arm of `reference_tts_price` can return its figure — in one change, because
+    either half alone turns CI red. D-632 records the pair.
 
     It is deliberately WEAKER than the runtime gate and never stronger: every model it calls
     choosable must still clear `tts_price_is_billable` before a client sees it.

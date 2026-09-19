@@ -333,11 +333,15 @@ def test_a_gnani_rate_appearing_in_the_card_is_named() -> None:
     """THE HARD-RULE-7 TRIPWIRE (D-629, 18 Sep 2026), and it is the reason
     `_TTS_PRODUCT` is deliberately wider than the rungs the biller prices.
 
-    Gnani publish no price of any kind. The only per-character figure anywhere in this
-    tree is a RESELLER's for their own platform, and a client-facing rate card is exactly
-    the surface it must never reach. `billing/rates.py` therefore holds no `timbre-v2.5`
-    rung — so the day §10.1 starts stating one, §4b fails naming the rung and the rupees,
-    rather than falling silent because the parser never learned the product's name.
+    ⚠ **THIS SAID "Gnani publish no price of any kind" UNTIL 19 SEP 2026 AND THAT WAS
+    FALSE** (D-631). What is still true is the provenance point this guard exists for: the
+    only per-character figure that was in this TREE came from a RESELLER's page for their
+    own platform, and a client-facing rate card is exactly the surface a figure of that
+    class must never reach — a number that later turns out to match a real one is still not
+    a source. The tripwire is why `_TTS_PRODUCT` is deliberately wider than the rungs the
+    biller prices: the day §10.1 states a rate the code does not hold, §4b fails naming the
+    rung and the rupees rather than falling silent because the parser never learned the
+    product's name.
 
     The mutation states the reseller figure on the Gnani row's SECOND cell, where the row
     currently reads `**none published**`. That is the shape the defect would really take.

@@ -61,7 +61,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "@/lib/api/client";
-import { rateToTenThousandths } from "@/lib/api/rateCard";
+import { rateToTenThousandths, unpricedTier } from "@/lib/api/rateCard";
 import { isMoneyString } from "@/lib/money";
 import type { CreditPack, CreditPacks } from "@/lib/api/billing";
 import type { UsagePanel } from "@/lib/api/hooks";
@@ -99,7 +99,10 @@ export const VOICE_TIERS: readonly VoiceTier[] = ["clear", "studio"];
  * wrong voice's rate.
  */
 export function isVoiceTier(value: unknown): value is VoiceTier {
-  return typeof value === "string" && (VOICE_TIERS as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    (VOICE_TIERS as readonly string[]).includes(value)
+  );
 }
 
 /** What a CLIENT calls each quality. Only ever read from a response. */
@@ -124,7 +127,9 @@ export type TierLabels = Readonly<Record<VoiceTier, string>>;
  *    token is the ledger's. So a card that cannot name its two qualities prices neither of
  *    them, which is what `TopUp` and the hub do.
  */
-export function tierLabels(card: CreditPacks | undefined): TierLabels | undefined {
+export function tierLabels(
+  card: CreditPacks | undefined,
+): TierLabels | undefined {
   if (card === undefined) return undefined;
   const clear = card.clear_tier_label;
   const studio = card.studio_tier_label;
@@ -146,25 +151,6 @@ export type WalletLots = Schemas["WalletLotsOut"];
  * by hand. The sibling of `packRate` below, and the reason the flat wire shape does not
  * leak into the table that renders it.
  */
-/**
- * A rung this build cannot price, refused rather than guessed.
- *
- * ⚠ **THE THREE ACCESSORS BELOW WERE `tier === "clear" ? clear : studio` UNTIL
- * 19 SEP 2026, AND THAT TERNARY IS TOTAL OVER `string`.** So the compiler was happy, and
- * ANY tier that was not the value rung resolved to the STUDIO figure — the dearer one.
- * With two rungs that is merely fragile; the day a third is added it is a client shown
- * the wrong price, in the direction that overcharges, with nothing failing to say so.
- * The same defect was live in `billing/lots.py::OpenLot.rate_for` on the BILLING side and
- * is fixed there in the same change.
- *
- * `never` is the point: a third member of `VoiceTier` makes this call a TYPE ERROR, so the
- * next rung cannot be added without every accessor being taught about it. The throw is the
- * runtime half, for a value that reached here as a cast or off the wire — `undefined` would
- * be a blank price and a blank price is read as free.
- */
-function unpricedTier(tier: never): never {
-  throw new Error(`no rate for voice tier ${String(tier)}`);
-}
 
 export function lotRate(lot: WalletLot, tier: VoiceTier): string {
   switch (tier) {
@@ -186,7 +172,10 @@ export function lotRate(lot: WalletLot, tier: VoiceTier): string {
  * how to price. A quality the server did not send simply has no row, and a screen prints
  * no name for it rather than inventing one.
  */
-export function tierRunway(lots: WalletLots, tier: VoiceTier): TierRunway | undefined {
+export function tierRunway(
+  lots: WalletLots,
+  tier: VoiceTier,
+): TierRunway | undefined {
   return lots.tiers.find((row) => row.voice_tier === tier);
 }
 
@@ -234,7 +223,9 @@ export type VoiceUsageRow = {
  * so what is left is the projection into the rows the panel iterates — the vendor-keyed
  * fields picked by quality in ONE place, never in the JSX.
  */
-export function voiceUsage(usage: UsagePanel | undefined): readonly VoiceUsageRow[] | undefined {
+export function voiceUsage(
+  usage: UsagePanel | undefined,
+): readonly VoiceUsageRow[] | undefined {
   if (usage === undefined) return undefined;
   return [
     {
@@ -297,13 +288,19 @@ export function readLotSplits(entry: unknown): readonly LotSplit[] | undefined {
   for (const item of raw) {
     if (typeof item !== "object" || item === null) return undefined;
     const row = item as Record<string, unknown>;
-    if (!isFilledString(row.lot_id) || !isMoneyString(row.credits)) return undefined;
+    if (!isFilledString(row.lot_id) || !isMoneyString(row.credits))
+      return undefined;
     if (row.kind === "ai_assist") {
-      splits.push({ kind: "ai_assist", lot_id: row.lot_id, credits: row.credits });
+      splits.push({
+        kind: "ai_assist",
+        lot_id: row.lot_id,
+        credits: row.credits,
+      });
       continue;
     }
     if (row.kind !== "call") return undefined;
-    if (!isMoneyString(row.minutes) || !isMoneyString(row.inr_per_min)) return undefined;
+    if (!isMoneyString(row.minutes) || !isMoneyString(row.inr_per_min))
+      return undefined;
     if (!isVoiceTier(row.voice_tier)) return undefined;
     splits.push({
       kind: "call",
@@ -367,11 +364,15 @@ export function packForAmount(
   for (const pack of packs) {
     if (!isMoneyString(pack.amount_inr)) continue;
     const price = rateToTenThousandths(pack.amount_inr);
-    if (smallest === undefined || price < rateToTenThousandths(smallest.amount_inr)) {
+    if (
+      smallest === undefined ||
+      price < rateToTenThousandths(smallest.amount_inr)
+    ) {
       smallest = pack;
     }
     if (price > wanted) continue;
-    if (best === undefined || price > rateToTenThousandths(best.amount_inr)) best = pack;
+    if (best === undefined || price > rateToTenThousandths(best.amount_inr))
+      best = pack;
   }
   return best ?? smallest;
 }
@@ -383,12 +384,18 @@ export function packForAmount(
  * this end is not, and the explainer needs both to say "between X and Y". A comparison
  * between two figures the catalogue sent, computing no price of its own.
  */
-export function dearestRate(card: CreditPacks, tier: VoiceTier): string | undefined {
+export function dearestRate(
+  card: CreditPacks,
+  tier: VoiceTier,
+): string | undefined {
   let dearest: string | undefined;
   for (const pack of card.packs) {
     const rate = packRate(pack, tier);
     if (!isMoneyString(rate)) continue;
-    if (dearest === undefined || rateToTenThousandths(rate) > rateToTenThousandths(dearest)) {
+    if (
+      dearest === undefined ||
+      rateToTenThousandths(rate) > rateToTenThousandths(dearest)
+    ) {
       dearest = rate;
     }
   }
@@ -396,9 +403,24 @@ export function dearestRate(card: CreditPacks, tier: VoiceTier): string | undefi
 }
 
 /** The cheapest ₹/min the card delivers on a quality — the server's own "from" figure. */
-export function cheapestRate(card: CreditPacks, tier: VoiceTier): string | undefined {
-  const from =
-    tier === "clear" ? card.from_clear_inr_per_min : card.from_studio_inr_per_min;
+export function cheapestRate(
+  card: CreditPacks,
+  tier: VoiceTier,
+): string | undefined {
+  // THE FOURTH ACCESSOR, and it kept the ternary when the other three lost it on
+  // 19 Sep 2026 — it reads `from_*` rather than a per-lot rate, so a scan for
+  // `lot.`/`pack.` did not find it. Same defect, same direction: any rung that was not
+  // the value one resolved to the dearer "from" figure.
+  const from = ((): string | null | undefined => {
+    switch (tier) {
+      case "clear":
+        return card.from_clear_inr_per_min;
+      case "studio":
+        return card.from_studio_inr_per_min;
+      default:
+        return unpricedTier(tier);
+    }
+  })();
   return isMoneyString(from) ? from : undefined;
 }
 

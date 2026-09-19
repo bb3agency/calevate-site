@@ -356,10 +356,16 @@ class TtsPriceOut(BaseModel):
     #: and Cartesia's is the vendor's marginal overage rate, which is why hard rule 7
     #: keeps both out of `unit_cost_paid` (`ops/model_pricing.reference_tts_price`).
     #:
-    #: ⚠ **`null` WHEN THE VENDOR PUBLISHES NOTHING (D-618).** Gnani publish no figure at
-    #: all, so there is no pre-fill to render — and the alternative this field used to
-    #: force, a non-null string, could only have been another vendor's number wearing
-    #: Gnani's name.
+    #: ⚠ **`null` WHEN THIS TREE HOLDS NO REFERENCE FIGURE FOR THE PROVIDER (D-618).**
+    #: ⚠ **THIS SAID "Gnani publish no figure at all" AND THAT WAS FALSE (D-631,
+    #: 19 Sep 2026)** — their console publishes ₹27.00 / 10,000 characters
+    #: (`app.gnani.ai/voice/pricing`, founder-read and relayed; VENDOR-PUBLISHED). The
+    #: nullability stays, because what it models is whether THIS deployment can pre-fill a
+    #: figure, not whether a vendor published one: the alternative it exists to refuse — a
+    #: forced non-null string — could only ever have been another vendor's number wearing
+    #: this one's name. Whether the Gnani arm returns a figure is
+    #: `ops/model_pricing.reference_tts_price`'s to decide, and it is held back by
+    #: `check_model_lifecycle.tts_choosable`, not by anything about the vendor.
     reference_inr_per_1k_chars: str | None
     #: True when the credential for this provider is held in ANOTHER deployment's
     #: environment, so `credential_installed` is structurally False here and says nothing

@@ -131,10 +131,13 @@ def test_the_catalogue_names_one_model_per_provider() -> None:
     TEXT-TO-SPEECH leg. Sarvam still transcribes every call and has never been in this set:
     it is the TTS catalogue, and `saaras` is not in it.
 
-    `timbre-v2.5` is in the catalogue while being on offer to NOBODY: Gnani publish no
-    price, so no Gnani price is attested and every offer path refuses it before a client
-    sees it (`tests/gnani_voices_test.py` holds that half). Catalogue membership and
-    offerability are different questions.
+    `timbre-v2.5` is in the catalogue while being on offer to NOBODY: no operator has
+    attested a Gnani INVOICE figure, so every offer path refuses it before a client sees it
+    (`tests/gnani_voices_test.py` holds that half). ⚠ This said "Gnani publish no price"
+    until 19 Sep 2026 and that was false (D-631) — their console publishes ₹27.00 / 10,000
+    chars; a published catalogue price is not an invoice, which is the ground hard rule 7
+    has always actually used. Catalogue membership and offerability are different
+    questions.
     """
     assert set(get_args(TtsModel)) == {"sonic-3.5", "timbre-v2.5"}
     assert "bulbul:v3" not in get_args(TtsModel)

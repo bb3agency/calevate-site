@@ -1,13 +1,25 @@
 "use client";
 
-import { Clock3, Infinity as InfinityIcon, Lock, PhoneMissed, ReceiptText, Waves } from "lucide-react";
+import {
+  Clock3,
+  Infinity as InfinityIcon,
+  Lock,
+  PhoneMissed,
+  ReceiptText,
+  Waves,
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Card, Disclosure, formatRupeeRate } from "@/components/ui";
 import type { CreditPacks } from "@/lib/api/billing";
 import { UNPRICED_TIER_NOTICE, ladderFalls } from "@/lib/api/rateCard";
 
-import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots";
+import {
+  VOICE_TIERS,
+  cheapestRate,
+  dearestRate,
+  type TierLabels,
+} from "./lots";
 
 /**
  * WHAT CALLS COST — the plain-language explainer, and the only place this console makes
@@ -40,9 +52,12 @@ import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots"
  *    ⚠ **"A NEW AGENT DEFAULTS TO THE CHEAPER ONE (§0 Q9)" WAS TRUE UNTIL 18 SEP 2026 AND
  *    THIS PANEL PRINTED IT TO PAYING CLIENTS.** D-629 removed Sarvam from the synthesis leg
  *    — it still transcribes every call and still reads the first pass over the transcript;
- *    it no longer speaks — and gave the cheaper rung to Gnani, who publish no price at all
- *    (`docs/PIPECAT-MIGRATION.md` §7). Hard rule 7 therefore keeps every voice in that rung
- *    off the picker, so no agent starts there and none can be moved there. The RUNG is
+ *    it no longer speaks — and gave the cheaper rung to Gnani. ⚠ **THIS SAID "who publish
+ *    no price at all" UNTIL 19 SEP 2026 AND IT WAS FALSE** (D-631): Gnani's console
+ *    publishes ₹27.00 / 10,000 characters. Hard rule 7 keeps every voice in that rung off
+ *    the picker all the same, on the ground that has always been the real one — a published
+ *    catalogue price is not an invoice, and only an operator's attested invoice figure
+ *    opens the offer seam — so no agent starts there and none can be moved there. The RUNG is
  *    untouched: it still prices minutes, its rate is still frozen on every purchase, and
  *    nothing a client already bought moved. What this panel says instead is
  *    `lib/api/rateCard.UNPRICED_TIER_NOTICE`, the one wording the public pages use.
@@ -120,7 +135,8 @@ export function WhatCallsCost({
     <Card title="What calls cost">
       <p className="text-sm text-ink-muted">
         Calling is charged out of your credit as you use it, and 1 credit is ₹1.
-        {band && " What a minute costs depends on the voice the agent speaks with, and on"}
+        {band &&
+          " What a minute costs depends on the voice the agent speaks with, and on"}
         {band && " how big a pack you buy:"}
       </p>
       {/* A LIST rather than a sentence, because it is four figures in two pairs and a
@@ -176,43 +192,46 @@ export function WhatCallsCost({
               screen carries the fact and no control ("Your account manager can confirm
               it", `app/c/[slug]/agents/panels/publishing.tsx`). The per-agent part was
               true and is kept; the control was not. */}
-          The voice belongs to the agent, not to the account: a receptionist that answers
-          all day and an outbound campaign can speak with different voices, and each call is
-          charged at its own agent&rsquo;s rate. Tell your account manager which voice you
-          want an agent to speak with and we set it. Neither is a cut-down version of the
-          other — what you hear in a demo is what your customers hear at three in the
-          morning. {UNPRICED_TIER_NOTICE}
+          The voice belongs to the agent, not to the account: a receptionist
+          that answers all day and an outbound campaign can speak with different
+          voices, and each call is charged at its own agent&rsquo;s rate. Tell
+          your account manager which voice you want an agent to speak with and
+          we set it. Neither is a cut-down version of the other — what you hear
+          in a demo is what your customers hear at three in the morning.{" "}
+          {UNPRICED_TIER_NOTICE}
         </Fact>
 
         <Fact
           icon={<Lock className="h-4 w-4" aria-hidden />}
           claim="The rates you buy at are fixed on that purchase"
         >
-          Each time you add credit, the two per-minute rates shown for that purchase are
-          fixed on it and stay with that credit until you have spent it. If we change our
-          rate card later, credit you already own is untouched. Your calls are charged
-          against your oldest credit first, so when you top up at a better rate you finish
-          the older credit before you reach it — the list above shows exactly what is left
-          at each price. Moving an agent to the other voice costs you nothing and changes
-          none of your credit: the same purchase is drawn down, at the other rate that was
-          fixed on it when you bought it.
+          Each time you add credit, the two per-minute rates shown for that
+          purchase are fixed on it and stay with that credit until you have
+          spent it. If we change our rate card later, credit you already own is
+          untouched. Your calls are charged against your oldest credit first, so
+          when you top up at a better rate you finish the older credit before
+          you reach it — the list above shows exactly what is left at each
+          price. Moving an agent to the other voice costs you nothing and
+          changes none of your credit: the same purchase is drawn down, at the
+          other rate that was fixed on it when you bought it.
         </Fact>
 
         <Fact
           icon={<Clock3 className="h-4 w-4" aria-hidden />}
           claim="You pay for the seconds you actually talk"
         >
-          A call is charged on its real length, second by second. A 40-second call is
-          charged as 40 seconds — we do not round it up to a minute, or to a block of any
-          other size.
+          A call is charged on its real length, second by second. A 40-second
+          call is charged as 40 seconds — we do not round it up to a minute, or
+          to a block of any other size.
         </Fact>
 
         <Fact
           icon={<PhoneMissed className="h-4 w-4" aria-hidden />}
           claim="A call nobody answers costs nothing"
         >
-          Ringing out, engaged, or a number that never picks up: there is no talk time, so
-          there is nothing to charge and no entry appears in your history.
+          Ringing out, engaged, or a number that never picks up: there is no
+          talk time, so there is nothing to charge and no entry appears in your
+          history.
         </Fact>
 
         <Fact
@@ -226,20 +245,22 @@ export function WhatCallsCost({
               and a correction we post is another (`WhereItWent`&rsquo;s "Corrections" row).
               Neither is a call, and both take credit off. What survives is the claim the
               fact is actually about: nothing EXPIRES and nothing is swept. */}
-          Your calls run it down, and so does a block of extra dashboard AI if you accept
-          one — nothing else does. It never expires and is never swept, so a large pack
-          bought in a quiet month is still there in a busy one. If we ever billed you
-          wrongly, the correction is posted here too, where you can see it.
+          Your calls run it down, and so does a block of extra dashboard AI if
+          you accept one — nothing else does. It never expires and is never
+          swept, so a large pack bought in a quiet month is still there in a
+          busy one. If we ever billed you wrongly, the correction is posted here
+          too, where you can see it.
         </Fact>
 
         <Fact
           icon={<ReceiptText className="h-4 w-4" aria-hidden />}
           claim="No GST is added, and we cannot issue a tax invoice"
         >
-          Calevate is not registered for GST, so nothing is added on top — the price you
-          see is the price you pay. The other side of that is real and worth knowing
-          before you buy: what we can issue is a bill of supply, not a tax invoice, so a
-          business that needs to claim input tax credit on this spend will not be able to.
+          Calevate is not registered for GST, so nothing is added on top — the
+          price you see is the price you pay. The other side of that is real and
+          worth knowing before you buy: what we can issue is a bill of supply,
+          not a tax invoice, so a business that needs to claim input tax credit
+          on this spend will not be able to.
         </Fact>
       </div>
     </Card>
@@ -259,7 +280,10 @@ export function WhatCallsCost({
 function rateBand(
   card: CreditPacks,
 ):
-  | Record<"clear" | "studio", { cheapest: string; dearest: string; falls: boolean }>
+  | Record<
+      "clear" | "studio",
+      { cheapest: string; dearest: string; falls: boolean }
+    >
   | undefined {
   const clearLow = cheapestRate(card, "clear");
   const clearHigh = dearestRate(card, "clear");
@@ -267,7 +291,11 @@ function rateBand(
   const studioHigh = dearestRate(card, "studio");
   if (!clearLow || !clearHigh || !studioLow || !studioHigh) return undefined;
   return {
-    clear: { cheapest: clearLow, dearest: clearHigh, falls: ladderFalls(card, "clear") },
+    clear: {
+      cheapest: clearLow,
+      dearest: clearHigh,
+      falls: ladderFalls(card, "clear"),
+    },
     studio: {
       cheapest: studioLow,
       dearest: studioHigh,

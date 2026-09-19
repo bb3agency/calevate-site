@@ -105,21 +105,67 @@ export type VoiceTier = "clear" | "studio";
  * Tailwind scans source text and cannot generate a class it has not read, and a third
  * voice arriving would otherwise be priced in the document with no way to select it.
  */
-export const VOICE_TIERS = ["clear", "studio"] as const satisfies readonly VoiceTier[];
+export const VOICE_TIERS = [
+  "clear",
+  "studio",
+] as const satisfies readonly VoiceTier[];
+
+/**
+ * A rung this build cannot price, refused rather than guessed. THE ONE COPY — the client
+ * console's lot table imports it from here rather than keeping its own.
+ *
+ * ⚠ **EVERY PER-RUNG ACCESSOR IN THIS FILE WAS `voice === "clear" ? clear : studio` UNTIL
+ * 19 SEP 2026, AND THAT TERNARY IS TOTAL OVER `string`.** The compiler was happy and any
+ * rung that was not the value one resolved to the STUDIO figure — the dearer one. With two
+ * rungs that is merely fragile; the day a third is added it is a price shown wrong on the
+ * PUBLIC pricing page, in the direction that overcharges, with nothing failing to say so.
+ * The same defect was fixed on the billing side (`billing/lots.py::OpenLot.rate_for`) and
+ * in the console's own lot table on 19 Sep 2026, and this file — the one a stranger reads
+ * before they are a client — was missed by that sweep.
+ *
+ * `never` is the point: a third member of `VoiceTier` makes each call below a TYPE ERROR,
+ * so the next rung cannot be added without every accessor being taught about it. The throw
+ * is the runtime half, for a value that reached here as a cast or off the wire —
+ * `undefined` would be a blank price, and a blank price is read as free.
+ */
+export function unpricedTier(tier: never): never {
+  throw new Error(`no rate for voice tier ${String(tier)}`);
+}
 
 /** One pack's ₹/min on one voice, as the 4dp string the API sent. THE ONE DOOR. */
 export function packRate(pack: RateCardPack, voice: VoiceTier): string {
-  return voice === "clear" ? pack.clear_inr_per_min : pack.studio_inr_per_min;
+  switch (voice) {
+    case "clear":
+      return pack.clear_inr_per_min;
+    case "studio":
+      return pack.studio_inr_per_min;
+    default:
+      return unpricedTier(voice);
+  }
 }
 
 /** Whole minutes one pack's credits buy on one voice, as the API floored them. */
 export function packMinutes(pack: RateCardPack, voice: VoiceTier): number {
-  return voice === "clear" ? pack.clear_minutes : pack.studio_minutes;
+  switch (voice) {
+    case "clear":
+      return pack.clear_minutes;
+    case "studio":
+      return pack.studio_minutes;
+    default:
+      return unpricedTier(voice);
+  }
 }
 
 /** The lowest ₹/min any pack delivers on one voice — the site's "from" figure. */
 export function cardFromRate(card: PublicRateCard, voice: VoiceTier): string {
-  return voice === "clear" ? card.from_clear_inr_per_min : card.from_studio_inr_per_min;
+  switch (voice) {
+    case "clear":
+      return card.from_clear_inr_per_min;
+    case "studio":
+      return card.from_studio_inr_per_min;
+    default:
+      return unpricedTier(voice);
+  }
 }
 
 /**
@@ -144,7 +190,9 @@ export function cardFromRate(card: PublicRateCard, voice: VoiceTier): string {
  */
 export function ladderFalls(card: PublicRateCard, voice: VoiceTier): boolean {
   const cheapest = rateToTenThousandths(cardFromRate(card, voice));
-  return card.packs.some((pack) => rateToTenThousandths(packRate(pack, voice)) > cheapest);
+  return card.packs.some(
+    (pack) => rateToTenThousandths(packRate(pack, voice)) > cheapest,
+  );
 }
 
 /**
@@ -152,19 +200,35 @@ export function ladderFalls(card: PublicRateCard, voice: VoiceTier): boolean {
  * a name is how a client comes to meet both of them (founder, 7 Sep 2026).
  */
 export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
-  return voice === "clear" ? card.clear_tier_label : card.studio_tier_label;
+  switch (voice) {
+    case "clear":
+      return card.clear_tier_label;
+    case "studio":
+      return card.studio_tier_label;
+    default:
+      return unpricedTier(voice);
+  }
 }
 
 /**
  * **THE TIER NO AGENT CAN BE PUT ON RIGHT NOW, AND THE ONE SENTENCE THAT SAYS SO (D-629).**
  *
  * D-629 removed Sarvam from the TEXT-TO-SPEECH leg entirely — it still transcribes every
- * call, it no longer speaks on any — and gave the cheaper rung to Gnani. Gnani publish no
- * price of any kind, and the single figure in the wild is a RESELLER's for their own
- * platform (`docs/PIPECAT-MIGRATION.md` §7), so hard rule 7 keeps every Gnani voice out of
- * what anyone can select until an operator attests a real invoice figure. The rung
- * therefore EXISTS, has a vendor, prices minutes on every credit lot — and cannot be
- * chosen.
+ * call, it no longer speaks on any — and gave the cheaper rung to Gnani. Hard rule 7 keeps
+ * every Gnani voice out of what anyone can select until an operator attests a real INVOICE
+ * figure. The rung therefore EXISTS, has a vendor, prices minutes on every credit lot — and
+ * cannot be chosen.
+ *
+ * ⚠ **THIS PARAGRAPH SAID "Gnani publish no price of any kind" UNTIL 19 SEP 2026 AND THAT
+ * WAS A NOT-FINDING WRITTEN DOWN AS A VENDOR FACT** (D-631, the failure hard rule 11
+ * exists for). Their console publishes ₹27.00 / 10,000 characters
+ * (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed;
+ * VENDOR-PUBLISHED). The notice below does not change, because it never rested on that
+ * claim: what it tells a client is that we have not established what a minute COSTS, and a
+ * catalogue rate is not an invoice. The provenance half of the old paragraph also survives
+ * — the one figure already in the wild was a RESELLER's for their own platform
+ * (`docs/PIPECAT-MIGRATION.md` §7), refusing it was right, and a number that later turns
+ * out to match is still not a source.
  *
  * A public page that goes on leading with its rate, and a client screen that goes on saying
  * a new agent starts on it, would both be advertising a voice nobody can be put on. This is
@@ -206,7 +270,8 @@ const NOBODY: Session = { orgSlug: "" };
  * caller that has not should, loudly, rather than compute with `NaN`.
  */
 export function rateToTenThousandths(value: string): number {
-  if (!MONEY_STRING.test(value)) throw new Error(`not a money string: ${JSON.stringify(value)}`);
+  if (!MONEY_STRING.test(value))
+    throw new Error(`not a money string: ${JSON.stringify(value)}`);
   const [whole, fraction = ""] = value.split(".");
   return Number(whole) * 10_000 + Number(fraction.padEnd(4, "0"));
 }
@@ -249,9 +314,15 @@ export function formatAmountINR(amount: string): string {
  * Sarvam figure for unmigrated readers — which is exactly how a caller asking about the
  * dearer voice would have been handed the cheaper voice's pack and never noticed.
  */
-export function cheapestPack(card: PublicRateCard, voice: VoiceTier): RateCardPack | undefined {
+export function cheapestPack(
+  card: PublicRateCard,
+  voice: VoiceTier,
+): RateCardPack | undefined {
   const from = cardFromRate(card, voice);
-  return card.packs.find((pack) => packRate(pack, voice) === from) ?? card.packs.at(-1);
+  return (
+    card.packs.find((pack) => packRate(pack, voice) === from) ??
+    card.packs.at(-1)
+  );
 }
 
 /**
@@ -263,16 +334,29 @@ export function cheapestPack(card: PublicRateCard, voice: VoiceTier): RateCardPa
 export function isRateCard(body: unknown): body is PublicRateCard {
   if (typeof body !== "object" || body === null) return false;
   const card = body as Record<string, unknown>;
-  if (typeof card.list_rate_inr_per_min !== "string" || !MONEY_STRING.test(card.list_rate_inr_per_min))
+  if (
+    typeof card.list_rate_inr_per_min !== "string" ||
+    !MONEY_STRING.test(card.list_rate_inr_per_min)
+  )
     return false;
-  if (typeof card.from_inr_per_min !== "string" || !MONEY_STRING.test(card.from_inr_per_min))
+  if (
+    typeof card.from_inr_per_min !== "string" ||
+    !MONEY_STRING.test(card.from_inr_per_min)
+  )
     return false;
   // The two "from" rates and the two tier names, which are what the pages LEAD with: a
   // missing one is a heading with `undefined` in it, and a blank label is a voice with no
   // name beside its price. Checked before the rows because a card that cannot introduce
   // its columns cannot honestly print them.
-  for (const field of ["from_clear_inr_per_min", "from_studio_inr_per_min"] as const) {
-    if (typeof card[field] !== "string" || !MONEY_STRING.test(card[field] as string)) return false;
+  for (const field of [
+    "from_clear_inr_per_min",
+    "from_studio_inr_per_min",
+  ] as const) {
+    if (
+      typeof card[field] !== "string" ||
+      !MONEY_STRING.test(card[field] as string)
+    )
+      return false;
   }
   for (const field of ["clear_tier_label", "studio_tier_label"] as const) {
     const label = card[field];
@@ -318,11 +402,16 @@ export async function fetchPublicRateCard(): Promise<PublicRateCard | null> {
   } catch (error) {
     const status = (error as { status?: number }).status;
     const name = error instanceof Error ? error.name : typeof error;
-    console.error("public_rate_card_unavailable", { status: status ?? null, error: name });
+    console.error("public_rate_card_unavailable", {
+      status: status ?? null,
+      error: name,
+    });
     return null;
   }
   if (!isRateCard(body)) {
-    console.error("public_rate_card_malformed", { path: PUBLIC_RATE_CARD_PATH });
+    console.error("public_rate_card_malformed", {
+      path: PUBLIC_RATE_CARD_PATH,
+    });
     return null;
   }
   return body;
