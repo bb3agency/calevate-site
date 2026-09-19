@@ -39,7 +39,17 @@ import {
 // whether this client HAS a wallet, so the screen that shows one must re-read after it.
 import { creditsKey } from "./credits";
 import { HOLDS_PATH, HOLDS_QUERY_KEY, type HeldTenant } from "./holds";
-import { KYC_PATH, toRecordBody, type KycRecord, type KycRecordIn } from "./kyc";
+import {
+  KYC_PATH,
+  toCarrierDecisionBody,
+  toRecordBody,
+  type CarrierApplication,
+  type CarrierDecision,
+  type CarrierDecisionIn,
+  type CarrierDecisionOut,
+  type KycRecord,
+  type KycRecordIn,
+} from "./kyc";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -1204,6 +1214,83 @@ export function useSetPlanTier(tenantId: string) {
         client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
         client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
         client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+      ]),
+  });
+}
+
+/* --- The carrier compliance application (ops half) ---------------------------------
+ *
+ * `GET|POST /v1/admin/tenants/{id}/carrier-application` shipped with the client's own
+ * two surfaces and had NO caller in this console, so the state its own module docstring
+ * calls out was the live one: "a decision ops cannot record is a client stuck behind a
+ * carrier that has already said yes." A client could upload their registration documents
+ * and sit at `submitted` for ever, because the only people who can record the carrier's
+ * answer had nowhere to record it.
+ *
+ * Unlike KYC, this pair does NOT read through impersonation: there IS an admin-realm
+ * read here, and it is the one to use. It enters the tenant's own RLS session server-side
+ * and writes an `admin.tenant_read` audit row (SEC-COMP §5, D-482 L-1) — reading a
+ * business's registration paperwork from the console is a thing that has to leave a
+ * trail, and going in through a view-as grant would record the wrong act.
+ *
+ * Because every read is audited, nothing here polls and nothing refetches on focus.
+ */
+
+export function carrierApplicationPath(tenantId: string): string {
+  return `/v1/admin/tenants/${encodeURIComponent(tenantId)}/carrier-application`;
+}
+
+export function carrierApplicationKey(tenantId: string): readonly unknown[] {
+  return ["admin", "carrier-application", tenantId];
+}
+
+export function useTenantCarrierApplication(
+  tenantId: string,
+): UseQueryResult<CarrierApplication> {
+  return useQuery({
+    queryKey: carrierApplicationKey(tenantId),
+    queryFn: () =>
+      apiRequest<CarrierApplication>(adminSession(), carrierApplicationPath(tenantId)),
+    enabled: Boolean(tenantId),
+    // Every read of this route writes an audit row. A `refetchInterval` here would fill
+    // the audit log with reads nobody performed, and the answer changes when a human at
+    // the carrier does something — minutes to days, not seconds.
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Record what the carrier decided.
+ *
+ * NO STEP-UP AND NO TYPED CONFIRMATION, for `useSetPlanTier`'s reason and the API's own:
+ * `record_decision` accepts no `X-Confirm-Action`, and a header the API ignores is a
+ * confirmation of nothing (`credits.ts` states the same rule). Nothing here is destroyed
+ * either — the write is a CAS over an audited state machine, every state has a way back,
+ * and an acceptance recorded in error is corrected by recording `expired`. Ceremony on a
+ * reversible act is how operators learn to type past ceremony.
+ *
+ * What it invalidates, and why each:
+ *   * this application — the panel re-reads what is now STORED, because the response is
+ *     what was SENT (`carrier_application_id` echoes the request, not the row);
+ *   * the numbers screen's reads — an acceptance is what opens number provisioning;
+ *   * the directory and the holds queue, which compose their rows from the gates.
+ */
+export function useRecordCarrierDecision(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ decision, body }: { decision: CarrierDecision; body: CarrierDecisionIn }) =>
+      apiRequest<CarrierDecisionOut>(adminSession(), carrierApplicationPath(tenantId), {
+        method: "POST",
+        body: toCarrierDecisionBody(decision, body),
+      }),
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: carrierApplicationKey(tenantId) }),
+        client.invalidateQueries({ queryKey: ["admin", "numbers"] }),
+        client.invalidateQueries({ queryKey: ["admin", "number-costs", tenantId] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
+        client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
       ]),
   });
 }

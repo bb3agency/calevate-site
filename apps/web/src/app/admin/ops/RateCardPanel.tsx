@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { MonoValue, TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
+import { VOICE_TIERS, unpricedTier, type VoiceTier } from "@/lib/api/rateCard";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
 import {
@@ -298,11 +299,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                       "never" where no volume rescues the rate, which is a different fact
                       from a big number and is said as itself. */}
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-faint">
-                    {cell.voice_tier !== "studio"
-                      ? ""
-                      : cell.breakeven_call_minutes === null
-                        ? "never"
-                        : formatWholeCount(cell.breakeven_call_minutes)}
+                    {breakevenText(cell)}
                   </td>
                   <td className="py-2">
                     <CellBadge cell={cell} targetPct={card.target_gross_margin_pct} />
@@ -779,6 +776,52 @@ function voicesOf(card: RateCard): RateCardCell[] {
     if (!seen.some((held) => held.voice_tier === cell.voice_tier)) seen.push(cell);
   }
   return seen;
+}
+
+/**
+ * The break-even column for one cell — EXHAUSTIVE over the rungs, never a ternary.
+ *
+ * ⚠ **THIS WAS `cell.voice_tier !== "studio" ? "" : …` UNTIL 19 SEP 2026.** `voice_tier`
+ * is a plain `string` on the wire (`RateCardCellOut`), so that shape is total over every
+ * string there is: a third rung — and the ladder has gained and lost one twice this month
+ * — would have rendered BLANK under a column headed "break-even", which reads as "this
+ * rung's cost does not move with volume". That is a claim about a vendor's pricing model
+ * made by a comparison that never looked at the vendor. Same defect, same day and same fix
+ * as the per-rung accessors in `lib/api/rateCard.ts`, whose `unpricedTier` is the `never`
+ * arm below: a rung this build cannot describe says so rather than resolving to one of the
+ * two it knows.
+ */
+export function breakevenText(cell: RateCardCell): string {
+  const tier = cell.voice_tier;
+  if (!isVoiceTier(tier)) return "unknown rung";
+  switch (tier) {
+    // Clear is billed per character at a flat published rate, so no volume moves it and
+    // there is nothing to break even against.
+    case "clear":
+      return "";
+    // Studio is a monthly subscription with an included allotment, so its per-minute cost
+    // IS a function of volume. `null` means no volume rescues the rate — a different fact
+    // from a big number, and said as itself.
+    case "studio":
+      return cell.breakeven_call_minutes === null
+        ? "never"
+        : formatWholeCount(cell.breakeven_call_minutes);
+    default:
+      return unpricedTier(tier);
+  }
+}
+
+/**
+ * Is this wire string one of the rungs this build prices?
+ *
+ * The guard is what lets the switch above be exhaustive without THROWING on a value that
+ * merely arrived from a newer server: `unpricedTier` raises, which is right for an
+ * accessor that would otherwise return a wrong price, and wrong inside a render that would
+ * take the whole ops screen down with it. So an unknown rung fails VISIBLE in its own cell
+ * and the `never` arm stays as the compile-time half.
+ */
+function isVoiceTier(value: string): value is VoiceTier {
+  return (VOICE_TIERS as readonly string[]).includes(value);
 }
 
 /** The draft's key for one cell. One spelling, so the grid and the POST cannot disagree. */

@@ -62,6 +62,22 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
         Until a number, an approved template and an active entity registration exist,
         every campaign this client creates is blocked at launch.
       </p>
+      {/* THE FOURTH PREREQUISITE, WHICH IS NOT RECORDED HERE. A promotional campaign is
+          held by `national_dnd_blocker` on top of everything above, and it is per
+          CAMPAIGN rather than per client — so it cannot be a field on this panel, and an
+          operator reading three green prerequisites here would otherwise conclude the
+          launch gate was open. The pointer is the honest half of that. */}
+      <p className="mt-2 text-xs text-ink-muted">
+        A <span className="font-medium">promotional</span> campaign needs one thing more,
+        and it is recorded per campaign rather than per client: a national DND scrub, on{" "}
+        <Link
+          href={`/admin/tenants/${tenantId}/dnd-scrub`}
+          className="font-medium text-brand-strong hover:underline"
+        >
+          DND scrub
+        </Link>
+        . Without a current one it stays held whatever is green below.
+      </p>
       <div className="mt-4">
         <RestrictionNote reason={write.reason} />
       </div>

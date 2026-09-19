@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { useCopilotSurfaceHolder } from "@/lib/copilot/registry";
+
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
 import type { TenantSummary } from "@/lib/api/admin";
@@ -392,5 +394,57 @@ describe("the commercials screen", () => {
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByText(/record commercial terms/)).toBeDefined();
+  });
+});
+
+/**
+ * What the screen ASSISTANT is told about the terms in effect — and the one figure it was
+ * told wrong.
+ *
+ * ⚠ The fact string read `${inEffect.included_minutes ?? 0} minutes included`, twenty
+ * lines below a panel whose own comment says "an absent allowance and an allowance of zero
+ * are different terms". The panel was right and the fact was not, so an operator who asked
+ * the assistant instead of reading the table was told a client had a 0-minute allowance
+ * when nobody had agreed one — a commercial term asserted by a `??`.
+ */
+function CopilotProbe({ seen }: { seen: { facts: string[] } }) {
+  const holder = useCopilotSurfaceHolder();
+  if (holder) {
+    seen.facts = holder.read().facts?.map((fact) => String(fact.value)) ?? [];
+  }
+  return null;
+}
+
+async function renderWithProbe(seen: { facts: string[] }, over: Partial<CommercialTerms>) {
+  return renderAdminRoute(
+    <>
+      <CommercialsPage params={routeParams({ tenantId: TENANT })} />
+      <CopilotProbe seen={seen} />
+    </>,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: ME,
+      [TERMS_PATH]: terms(over),
+    },
+  );
+}
+
+describe("the terms the assistant is told about", () => {
+  it("does not report an unstated minute allowance as zero minutes", async () => {
+    const seen = { facts: [] as string[] };
+    await renderWithProbe(seen, { in_effect: plan({ included_minutes: null }) });
+
+    await waitFor(() => expect(seen.facts.length).toBeGreaterThan(0));
+    const fact = seen.facts.join(" ");
+    expect(fact).toContain("included minutes not stated");
+    expect(fact).not.toContain("0 minutes included");
+  });
+
+  it("reports a real allowance as the number it is", async () => {
+    const seen = { facts: [] as string[] };
+    await renderWithProbe(seen, { in_effect: plan({ included_minutes: 100 }) });
+
+    await waitFor(() => expect(seen.facts.length).toBeGreaterThan(0));
+    expect(seen.facts.join(" ")).toContain("100 minutes included");
   });
 });

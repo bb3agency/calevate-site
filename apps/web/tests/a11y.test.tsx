@@ -42,6 +42,7 @@ import LlmModelPage from "@/app/admin/tenants/[tenantId]/llm-model/page";
 import FirstCampaignReviewPage from "@/app/admin/tenants/[tenantId]/first-campaign-review/page";
 import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
+import PreferenceScrubPage from "@/app/admin/tenants/[tenantId]/dnd-scrub/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
@@ -1434,6 +1435,26 @@ const TENANT_ROUTES: Routes = {
   // refuse. It surfaced as an order-dependent failure the moment this file grew screens
   // ahead of it; the hole was always there.
   "/v1/compliance/kyc": KYC_RECORD,
+  // The CARRIER half of the same screen (19 Sep 2026). Admin-realm and audited on every
+  // read, so it is a different request from the KYC one above — and without it here the
+  // sweep scanned the panel's `ProblemNotice` branch rather than the panel: the decision
+  // form, its select, its conditional fields and its badge were never seen by axe, which
+  // is precisely the vacuous pass this table exists to prevent. `submitted` is the state
+  // that renders the MOST markup (a form with a required reference field and a live
+  // status badge), so it is the one swept.
+  "/v1/admin/tenants/t1/carrier-application": {
+    recorded: true,
+    carrier: "Plivo",
+    status: "submitted",
+    carrier_application_id: null,
+    document_kind: "gst_certificate",
+    document_filename: "gst-certificate.pdf",
+    signed_application_on_file: true,
+    rejection_reason: null,
+    submitted_at: "2026-09-10T06:30:00Z",
+    decided_at: null,
+    is_accepted: false,
+  },
   "/v1/admin/tenants/t1": TENANT_SUMMARY,
   "/v1/admin/tenants/t1/margin": {
     month: "2026-08",
@@ -3565,6 +3586,43 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       [`/v1/admin/spend?month=${IST_MONTH}`]: FLEET_SPEND,
       "/v1/admin/spend/tts-speaking-rate": TTS_SPEAKING_RATE,
+    },
+  },
+  {
+    // SWEPT IN ITS ENTRY STATE, which is what this table can express: `Screen` has no
+    // interaction hook, so the scan sees the campaign picker and not the form behind it —
+    // the five fields, the blocker notice and the confirmation input all mount only once a
+    // campaign is chosen. That half is scanned with the same axe helper from
+    // `tests/adminPreferenceScrub.test.tsx`, which can drive the select first. Saying so
+    // here rather than letting a green line imply the whole screen was covered.
+    file: "admin/tenants/[tenantId]/dnd-scrub/page.tsx",
+    realm: "admin",
+    element: () => <PreferenceScrubPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/campaigns": [
+        {
+          id: "camp-1",
+          name: "Diwali offer",
+          classification: "promotional",
+          status: "draft",
+          contacts: 1200,
+          connected: 0,
+          consent_provenance_blocker: null,
+          created_at: "2026-09-18T05:00:00Z",
+          launched_at: null,
+        },
+      ],
+      "/v1/campaigns/camp-1/launch-check": {
+        ready: false,
+        blockers: [
+          {
+            rule: "national_dnd_scrub_missing",
+            reason:
+              "This promotional campaign's list has not been scrubbed against the national customer preference register.",
+          },
+        ],
+      },
     },
   },
   {

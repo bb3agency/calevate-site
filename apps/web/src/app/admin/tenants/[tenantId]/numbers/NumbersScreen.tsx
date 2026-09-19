@@ -72,6 +72,23 @@ import { NumberRow } from "./NumberRow";
 
 type Series = "140" | "160" | "standard";
 
+/**
+ * A search result WITH a quoted monthly price — the only thing this screen will buy.
+ *
+ * ⚠ **THE PURCHASE USED TO SEND `monthly_price_usd ?? "0"`.** The button above is
+ * disabled without a price, so the fallback was unreachable — and it was a FABRICATED
+ * FIGURE on a money field sitting one edit away from being reached, which would have
+ * recorded a rental that bills every month at a cost of nothing. Hard rule 7 is about the
+ * numbers we record, and "the guard above happens to stop it" is the weakest form that
+ * rule can take. Narrowing the state instead makes the whole class a type error: there is
+ * no longer any value `buying` can hold for which a price has to be invented.
+ */
+type PricedNumber = AvailableNumber & { monthly_price_usd: string };
+
+function isPriced(offer: AvailableNumber): offer is PricedNumber {
+  return typeof offer.monthly_price_usd === "string" && offer.monthly_price_usd !== "";
+}
+
 export function NumbersScreen({ tenantId }: { tenantId: string }) {
   const tenant = useTenant(tenantId);
   const held = useTenantNumberCosts(tenantId);
@@ -97,7 +114,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
 
   const buy = useBuyNumber(tenantId);
   const release = useReleaseNumber(tenantId);
-  const [buying, setBuying] = useState<AvailableNumber | null>(null);
+  const [buying, setBuying] = useState<PricedNumber | null>(null);
   const [releasing, setReleasing] = useState<TenantNumberCost | null>(null);
 
   return (
@@ -290,7 +307,11 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
                         type="button"
                         className={PRIMARY_BUTTON}
                         disabled={!write.allowed || !offer.monthly_price_usd || buy.isPending}
-                        onClick={() => setBuying(offer)}
+                        onClick={() => {
+                          // The type, not the disabled attribute, is what keeps an
+                          // unpriced number out of the purchase — see `PricedNumber`.
+                          if (isPriced(offer)) setBuying(offer);
+                        }}
                       >
                         Buy
                       </button>
@@ -322,7 +343,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
                 e164: buying.e164,
                 country,
                 provider: buying.provider,
-                monthly_price_usd: buying.monthly_price_usd ?? "0",
+                monthly_price_usd: buying.monthly_price_usd,
               },
               { onSuccess: () => setBuying(null) },
             )

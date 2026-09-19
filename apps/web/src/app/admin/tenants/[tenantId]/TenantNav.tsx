@@ -12,6 +12,7 @@ import {
   KeyRound,
   Power,
   ReceiptIndianRupee,
+  ShieldAlert,
   ShieldCheck,
   Users,
   Wallet,
@@ -35,8 +36,13 @@ export function TenantNav({ tenantId, slug }: { tenantId: string; slug: string }
           gets its own screen rather than a panel here because it is an audited
           write with four fields an auditor will ask about, and because the current
           record has to be read from the tenant's own view of it. */}
+      {/* BOTH checks in front of a phone connection live behind this one entry — ours
+          (KYC) and the CARRIER's compliance application, which had no console caller at
+          all until 19 Sep 2026. Named for the question rather than for either record, so
+          an operator hunting "why can this client not have a number" finds one door
+          instead of looking for a screen that does not exist. */}
       <NavLink href={`/admin/tenants/${tenantId}/kyc`} icon={<ShieldCheck className="h-4 w-4" />}>
-        Identity (KYC)
+        Identity &amp; carrier
       </NavLink>
       {/* The other human-decision gate, and the only one that had no screen at all:
           `POST .../first-campaign-review` was reachable by curl and nothing else. It
@@ -48,6 +54,18 @@ export function TenantNav({ tenantId, slug }: { tenantId: string; slug: string }
         icon={<FileCheck2 className="h-4 w-4" />}
       >
         Campaign review
+      </NavLink>
+      {/* THE GATE THAT HELD EVERY PROMOTIONAL CAMPAIGN ON THE PLATFORM. Recording an
+          access provider's national-DND scrub is the only thing that satisfies
+          `national_dnd_blocker`, and its route had no caller anywhere until 19 Sep 2026 —
+          so the answer to "why will this campaign not launch" was a gate nobody could
+          open. Its own screen for this nav's stated reason: unsaved state, an audited
+          append-only write, and a per-campaign gate state read live. */}
+      <NavLink
+        href={`/admin/tenants/${tenantId}/dnd-scrub`}
+        icon={<ShieldAlert className="h-4 w-4" />}
+      >
+        DND scrub
       </NavLink>
       <NavLink
         href={`/admin/tenants/${tenantId}/invoice`}

@@ -61,6 +61,8 @@ import {
 } from "@/lib/api/creditLots";
 import { useAdminAccess } from "@/app/admin/access";
 import { Field, describedBy } from "./fields";
+import { GrantPanel } from "./GrantPanel";
+import { RefundPanel } from "./RefundPanel";
 import { TrialPanel } from "./TrialPanel";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -284,6 +286,30 @@ export default function CreditsPage({
             wallet={state.wallet}
             restate={restate}
             write={uprate}
+          />
+          {/* MONEY BACK OUT, and money given away — the two writes on this wallet that
+              had no caller at all until 19 Sep 2026.
+
+              Both are withheld with the three forms above and for the same reason: a
+              refund is measured against what a payment already credits, and a grant is
+              decided beside what this wallet has already been GIVEN, so a wallet nobody
+              can read is a figure nobody can measure from.
+
+              They are separate panels rather than options on the forms above because they
+              are separate ACTS: the refund is the only control here that moves money at
+              the payment provider, and the grant is the only credit with no payment
+              behind it — the founder's guardrail is that paid and given never blur. */}
+          <RefundPanel
+            clientName={tenant.name}
+            wallet={state.wallet}
+            tenantId={tenantId}
+            session={adminSession()}
+          />
+          <GrantPanel
+            clientName={tenant.name}
+            wallet={state.wallet}
+            tenantId={tenantId}
+            session={adminSession()}
           />
           <PaymentsTable wallet={state.wallet} />
           <LedgerTable wallet={state.wallet} />

@@ -24,14 +24,20 @@
  *   quietly rounding, because `2500.10` through a binary float and back is how a
  *   paise-level dispute starts. `TopUpDraft.amountInr` is therefore a `string` all the
  *   way to `fetch`, and nothing in this file or its screen calls `Number()` on it.
- * - **Three writes, three different confirmation rules, each copied from its own route.**
+ * - **FOUR writes, four different confirmation rules, each copied from its own route.**
+ *   ⚠ This said THREE until the grant landed (19 Sep 2026), which is the count-in-prose
+ *   defect this repo has a rule about — the fourth is at the bottom of the file.
  *   `useRecordTopUp` sends no `X-Confirm-Action`, because the route accepts none — a
  *   header the API ignores is a confirmation of nothing. `useRecordAdjustment` sends one
  *   when the correction takes credit AWAY and none when it puts credit back, mirroring
  *   the route's rule (bound to the dangerous direction, not to the endpoint).
  *   `useRecordRestatement` sends one ALWAYS, and it echoes the amount: that route has
- *   one direction, no ceiling above it, and it credits the client. Guessing any of the
- *   three would produce a request the API refuses or a ceremony that protects nobody.
+ *   one direction, no ceiling above it, and it credits the client. `useGrantCredits`
+ *   sends one ALWAYS and it echoes the AMOUNT, because that write has one direction and
+ *   nothing bounding it but `MAX_GRANT_INR` — so the danger scales with the number, and
+ *   a header captured while granting ₹5,000 must not be replayable to grant ₹50,000.
+ *   Guessing any of the four would produce a request the API refuses or a ceremony that
+ *   protects nobody.
  *   Both consoles' human confirmations are argued on the screen. Admin-realm MFA is
  *   enforced for every admin token in `core/auth.py::verify_token` (D-68), so this
  *   surface is already behind a second factor either way.
@@ -540,6 +546,181 @@ export function useRecordRestatement(session: Session, tenantId: string) {
     // The balance, the ledger and the payment's own total all moved — and the third is
     // what the NEXT restatement of this payment would be measured against, so a stale
     // one on screen is how somebody restates from a figure that is no longer true.
+    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+  });
+}
+
+/* --------------------------------------------------------------------------
+ * Grants (D-535) — CREDIT OUT OF NOTHING, which none of the three writes above can make.
+ *
+ * The founder's own words on the route: *"the admin should be able to add any no.of
+ * credits without any payments record to any client but it is audited"*. `/adjustments`
+ * must name a wrong entry and is bounded by it; `POST .../credits` would put a payment
+ * reference on the ledger for a bank transfer that never happened. So this is the fourth
+ * write, and it is the fourth CONFIRMATION RULE — the module header's "three writes,
+ * three different confirmation rules" is now four, and the count stays in one place
+ * because a count in prose is the defect class this repo already has rules about.
+ *
+ * `POST /v1/admin/tenants/{id}/credits/grants` shipped with a ceiling, a mandatory
+ * reason, an unconditional step-up and an append-only audit row written in the same
+ * transaction as the money — and NO caller in this console. So the one act the founder
+ * asked for by name could only be performed by hand against production.
+ * ----------------------------------------------------------------------- */
+
+export function grantsPath(tenantId: string): string {
+  return `${creditsPath(tenantId)}/grants`;
+}
+
+/** The request. `amount_inr` is a STRING here, always — see the module header. */
+export type GrantIn = Schemas["GrantIn"];
+/** The answer. `recorded: false` means that reference was already on the ledger. */
+export type GrantResult = Schemas["GrantOut"];
+
+/**
+ * The per-grant ceiling, mirrored from `billing/service.MAX_GRANT_INR` / `MIN_GRANT_INR`.
+ *
+ * ⚠ These are a REPORTED mirror of a server constant and are used for ONE thing: telling
+ * an operator, before the round trip, that a figure is outside the range. They never
+ * bound anything — `grant_credits` refuses `invalid_grant_amount` itself and is the
+ * enforcement — so a drift here costs a message, never a wrong grant.
+ */
+export const MIN_GRANT_INR = "1.00";
+export const MAX_GRANT_INR = "50000.00";
+
+/**
+ * The step-up string, mirroring `credit_routes.credit_grant_confirmation`.
+ *
+ * **BOUND TO THE AMOUNT AND UNCONDITIONAL**, which is `topupRestatementConfirmation`'s
+ * shape rather than the adjustment's: a header captured while granting ₹5,000 cannot be
+ * replayed to grant ₹50,000. The server quantizes through `to_paise`, so this sends the
+ * amount at two decimal places — a confirmation that disagreed with the request would
+ * refuse the calls it exists to permit.
+ */
+export function creditGrantConfirmation(amountInr: string): string {
+  return `grant_credits:${toTwoDecimals(amountInr)}`;
+}
+
+/** `"5000"` / `"5000.0"` → `"5000.00"`, from the DIGITS. Never `Number().toFixed()`. */
+export function toTwoDecimals(raw: string): string {
+  const [whole = "0", fraction = ""] = raw.trim().split(".");
+  return `${whole || "0"}.${`${fraction}00`.slice(0, 2)}`;
+}
+
+/** The same shape check as the other money fields, said for a GIFT. */
+export function grantAmountProblem(raw: string): string | null {
+  switch (rupeeFault(raw)) {
+    case "missing":
+      return "Enter how much credit to give this client.";
+    case "shape":
+      return `${DIGITS_ONLY} Never a minus sign — a grant only ever adds.`;
+    case "zero":
+      return "A grant has to give something. Enter the amount.";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Is this figure outside the per-grant ceiling? The message, or `null`.
+ *
+ * Asked BEFORE the confirmation is typed, mirroring the route's own ordering and its
+ * reason: an operator who typed ₹5,00,000 should be told the number is impossible, not
+ * told their confirmation is wrong — the second reading sends them to fix the ceremony
+ * and re-submit the typo.
+ */
+export function grantCeilingProblem(raw: string): string | null {
+  if (rupeeFault(raw) !== null) return null;
+  const paise = grantPaise(raw);
+  if (paise < grantPaise(MIN_GRANT_INR) || paise > grantPaise(MAX_GRANT_INR)) {
+    return (
+      `A grant is between ₹${MIN_GRANT_INR} and ₹${MAX_GRANT_INR}. If a larger gift really ` +
+      "is intended, grant it in parts — each part is separately confirmed and separately " +
+      "audited, which is the trail a credit this size should leave anyway."
+    );
+  }
+  return null;
+}
+
+/**
+ * Exact integer paise out of a money STRING's digits — never `Number("5000.10")`.
+ *
+ * `rupeeFault` has already refused anything that is not money-shaped, and `RUPEES` bounds
+ * the input at eight digits before the point, so every intermediate here is an integer
+ * far inside `Number.MAX_SAFE_INTEGER`. Same idiom as `rateCard.rateToTenThousandths`.
+ */
+function grantPaise(raw: string): number {
+  const [whole = "0", fraction = ""] = raw.trim().split(".");
+  return Number(whole || "0") * 100 + Number(`${fraction}00`.slice(0, 2));
+}
+
+/** What the operator submits to give credit away. Money is a string, as everywhere. */
+export interface GrantDraft {
+  /** The gift, as DIGITS (hard rule 7). */
+  amountInr: string;
+  /** Required. Reaches `meta` and the audit summary verbatim. */
+  reason: string;
+  /**
+   * THE IDEMPOTENCY KEY, and it is OURS to mint.
+   *
+   * A grant has no external identifier — no UTR, no entry it corrects — and the route
+   * refuses to content-address it, because two genuine gifts of ₹5,000 to one client two
+   * months apart are ordinary rather than a double click, and collapsing them would
+   * report the second as delivered when the client never received it. So the console
+   * mints ONE PER OPENED FORM: a second CLICK converges on it, a second DECISION (a form
+   * re-opened) gets a new one. `billing.service.grant_ref` argues it in full.
+   */
+  grantRef: string;
+}
+
+/**
+ * Mint a grant reference — one per opened form. `crypto.randomUUID` where it exists.
+ *
+ * The fallback is not security-sensitive: this value's only job is to be DIFFERENT for a
+ * different decision and the SAME across the clicks of one form, and it is never a
+ * credential. It is prefixed so a human reading the ledger can see what minted it.
+ */
+export function mintGrantRef(): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `console-${random}`;
+}
+
+/**
+ * Give this client credit out of nothing.
+ *
+ * `admin:tenants` on the ADMIN session with the tenant in the path, the same argument as
+ * the three writes above.
+ *
+ * **The step-up header goes on EVERY call and carries the AMOUNT**, which is the route's
+ * own rule: this write has one direction, it is bounded only by `MAX_GRANT_INR`, and it
+ * moves money towards the party who will not report an error in their favour. It is also
+ * standing in for a control we do not have — segregation of duties, waived by the founder
+ * while they are the only holder of `admin:tenants` — so the re-keying of the amount is
+ * doing more work here than ceremony usually does.
+ *
+ * No optimistic update and no `recorded` guess: both outcomes are 200, and the flag is
+ * the only thing separating "we have just given away ₹50,000" from "that gift was already
+ * made".
+ */
+export function useGrantCredits(session: Session, tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ amountInr, reason, grantRef }: GrantDraft) => {
+      const amount = amountInr.trim();
+      const body: GrantIn = {
+        // A string, always — the route refuses the JSON number (hard rule 7).
+        amount_inr: amount,
+        grant_ref: grantRef.trim(),
+        reason: reason.trim(),
+      };
+      return apiRequest<GrantResult>(session, grantsPath(tenantId), {
+        method: "POST",
+        body,
+        confirmAction: creditGrantConfirmation(amount),
+      });
+    },
     onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
   });
 }

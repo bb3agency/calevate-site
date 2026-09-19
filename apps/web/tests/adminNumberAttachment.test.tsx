@@ -292,3 +292,47 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     );
   });
 });
+
+/**
+ * A number the vendor quoted NO PRICE for cannot be bought, and the purchase never
+ * invents one.
+ *
+ * ⚠ The confirm dialog used to send `monthly_price_usd ?? "0"`. The Buy button beside the
+ * offer is disabled without a price, so the fallback was unreachable — and it was a
+ * FABRICATED figure on a money field one edit away from being reached, which would have
+ * recorded a monthly rental costing nothing and metered it that way for ever (hard rule
+ * 7). The state the dialog reads is now narrowed to priced offers, so there is no value it
+ * can hold for which a price has to be invented; this pins the half an operator sees.
+ */
+describe("an unpriced number is refused rather than bought at an invented price", () => {
+  it("disables the buy and says why, and no purchase is attempted", async () => {
+    const { calls } = await render({
+      ...healthy([]),
+      "/v1/admin/numbers/available?country=IN": [
+        {
+          e164: "+918040000001",
+          locality: "Bengaluru",
+          region: "KA",
+          provider: "plivo",
+          // The vendor's row carried no readable price.
+          monthly_price_usd: null,
+        },
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Search/ }));
+
+    const buy = (await screen.findByRole("button", { name: "Buy" })) as HTMLButtonElement;
+    expect(buy.disabled).toBe(true);
+    // The reason, where the operator is looking, rather than a dead control.
+    expect(
+      await screen.findByText(/A number with no quoted price cannot be bought/),
+    ).toBeTruthy();
+
+    fireEvent.click(buy);
+    await waitFor(() => expect(screen.queryByText(/Buy \+918040000001/)).toBeNull());
+    expect(
+      calls.some((call) => call.method === "POST" && call.path.endsWith("/buy")),
+    ).toBe(false);
+  });
+});

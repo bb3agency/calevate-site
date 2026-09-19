@@ -343,3 +343,210 @@ export function useKycRecord(session: Session): UseQueryResult<KycRecord> {
     queryFn: () => apiRequest<KycRecord>(session, KYC_PATH),
   });
 }
+
+/* ==================================================================================
+ * THE CARRIER COMPLIANCE APPLICATION — the OTHER gate in front of a phone connection
+ * ==================================================================================
+ *
+ * KYC above is OUR check on the subscriber. This is the CARRIER's check on the same
+ * business, and the two are not interchangeable: `assert_carrier_application_accepted`
+ * refuses a number purchase on `accepted` alone, whatever our own KYC says
+ * (`apps/api/compliance/carrier_application.py`).
+ *
+ * All four surfaces shipped together and the OPS HALF HAD NO CALLER anywhere in this
+ * console, which is the failure the route's own module docstring names — "a decision ops
+ * cannot record is a client stuck behind a carrier that has already said yes". The
+ * client could upload documents and watch them sit at `submitted` for ever, because the
+ * only person who can record what the carrier answered had no form to record it in.
+ *
+ * Three properties of the API that the console must not smooth over:
+ *
+ * - **An operator may record four states, not six.** `not_started` is where a row
+ *   begins and `submitted` is the CLIENT's act, so neither is a decision anybody makes;
+ *   `CarrierDecision` is the narrower union and the form is built from it.
+ * - **Each decision has its own legal source states** (`OPERATOR_DECISIONS`, derived
+ *   from the transition table). Recording one from the wrong state is a 409 out of the
+ *   CAS, so the source states are mirrored here as a PREVIEW — never as the enforcement.
+ * - **`is_accepted` is the SERVER's predicate.** "Is `submitted` good enough for a
+ *   number" is the question the purchase gate answers; a console that answered it for
+ *   itself would eventually disagree with the gate. Same rule `is_verified` follows.
+ */
+
+/** This client's application, as the ops read returns it. Absence is `recorded: false`. */
+export type CarrierApplication = Schemas["CarrierApplicationOut"];
+/** The operator's write — one decision, plus whatever that decision has to name. */
+export type CarrierDecisionIn = Schemas["CarrierDecisionIn"];
+export type CarrierDecisionOut = Schemas["CarrierDecisionOut"];
+/** The six states an application can be IN. */
+export type CarrierStatus = NonNullable<CarrierApplication["status"]>;
+/** The four an OPERATOR can move it into. */
+export type CarrierDecision = CarrierDecisionOut["status"];
+
+export interface CarrierStatusCopy {
+  label: string;
+  /** What this state means for the client, in the operator's reading of it. */
+  meaning: string;
+  tone: "ok" | "warn" | "stop" | "neutral";
+}
+
+/**
+ * The six states, as a `Record` over the GENERATED union — the same device, and for the
+ * same reason, as `KYC_STATUS_COPY`: a seventh member added by the API stops this file
+ * compiling instead of rendering a state nobody wrote copy for.
+ */
+export const CARRIER_STATUS_COPY: Record<CarrierStatus, CarrierStatusCopy> = {
+  not_started: {
+    label: "Not started",
+    meaning: "Nothing has been sent to the carrier. The client uploads first.",
+    tone: "neutral",
+  },
+  documents_required: {
+    label: "Documents required",
+    meaning: "The carrier asked for more paperwork. The client's move.",
+    tone: "warn",
+  },
+  submitted: {
+    label: "With the carrier",
+    meaning: "Sent and awaiting their answer. Recording that answer is our move.",
+    tone: "neutral",
+  },
+  accepted: {
+    label: "Accepted",
+    meaning: "The carrier approved this business. Number provisioning is open.",
+    tone: "ok",
+  },
+  rejected: {
+    label: "Rejected",
+    meaning: "The carrier refused it. The client is shown the reason and re-applies.",
+    tone: "stop",
+  },
+  expired: {
+    label: "Expired or suspended",
+    meaning: "An approval that has lapsed. The client must apply again.",
+    tone: "warn",
+  },
+};
+
+export interface CarrierDecisionCopy {
+  /** What the operator is choosing. */
+  label: string;
+  /** What recording it DOES — the blast radius, in the ops order. */
+  effect: string;
+  /** The states this decision may be recorded FROM (`OPERATOR_DECISIONS`). */
+  from: readonly CarrierStatus[];
+}
+
+/**
+ * The four decisions, with the states each may come from.
+ *
+ * Mirrored from `OPERATOR_DECISIONS`, which the API derives from
+ * `CARRIER_APPLICATION_TRANSITIONS` rather than retyping — and the mirror is a PREVIEW:
+ * the CAS in `record_carrier_decision` is the enforcement and answers 409 naming the
+ * state it found. It is here so an operator reads "this application is not with the
+ * carrier yet" beside the control instead of after a round trip.
+ */
+export const CARRIER_DECISIONS: Record<CarrierDecision, CarrierDecisionCopy> = {
+  accepted: {
+    label: "Accepted",
+    effect:
+      "Opens number provisioning for this client. Needs the carrier's own application " +
+      "reference, because a number purchase has to quote it.",
+    from: ["submitted"],
+  },
+  documents_required: {
+    label: "More documents needed",
+    effect: "Sends the client back for more paperwork. They can re-submit from their own screen.",
+    from: ["submitted"],
+  },
+  rejected: {
+    label: "Rejected",
+    effect: "Refused. The client is shown the reason you record and can apply again.",
+    from: ["submitted"],
+  },
+  expired: {
+    label: "Expired or suspended",
+    effect:
+      "Records an approval that has lapsed or been suspended. Number provisioning closes " +
+      "and the client re-applies.",
+    from: ["accepted"],
+  },
+};
+
+/** The stored status as a member of the union, or `null` when this build cannot name it. */
+export function asCarrierStatus(value: string | null | undefined): CarrierStatus | null {
+  return hasKey(CARRIER_STATUS_COPY, value) ? value : null;
+}
+
+/**
+ * The status as words. Fails VISIBLE — an unnameable status prints as the server sent
+ * it, because an unrecognised state on a compliance gate is exactly the one worth
+ * reading. Same direction as `documentKindLabel`.
+ */
+export function carrierStatusLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return lookup(CARRIER_STATUS_COPY, value)?.label ?? value;
+}
+
+/**
+ * Why this decision cannot be recorded against this application yet, or `null`.
+ *
+ * Three refusals, each naming what to do next rather than the rule it came from:
+ * the API's `carrier_application_id_required` and `carrier_rejection_reason_required`
+ * validations, and the CAS's own state check. A blank application (`recorded: false`,
+ * `status: null`) is treated as `not_started`, which is what the row would hold.
+ */
+export function carrierDecisionBlockReason(
+  application: CarrierApplication,
+  decision: CarrierDecision,
+  body: CarrierDecisionIn,
+): string | null {
+  const current = asCarrierStatus(application.status) ?? "not_started";
+  const spec = CARRIER_DECISIONS[decision];
+  if (!spec.from.includes(current)) {
+    const from = spec.from.map((state) => CARRIER_STATUS_COPY[state].label).join(" or ");
+    return (
+      `This application is "${carrierStatusLabel(current)}", and "${spec.label}" can only ` +
+      `be recorded while it is "${from}". If the carrier really has answered, check you ` +
+      `are on the right client — otherwise a colleague may have recorded this already.`
+    );
+  }
+  if (decision === "accepted" && !(body.carrier_application_id ?? "").trim()) {
+    return (
+      "An acceptance has to carry the carrier's own application reference — copy it from " +
+      "their console. A number purchase quotes it, so an acceptance without it cannot be used."
+    );
+  }
+  if (decision === "rejected" && !(body.rejection_reason ?? "").trim()) {
+    return (
+      "A rejection has to say why, in the carrier's own words where you have them. The " +
+      "client is shown this and is the only person who can fix it."
+    );
+  }
+  return null;
+}
+
+/**
+ * The decision as the API wants it: trimmed, blanks as `null`, and `carrier_status`
+ * never sent.
+ *
+ * The route accepts EITHER our word or the carrier's (`_resolved_status` refuses both or
+ * neither). This console sends ours, always, and deliberately offers no transcription
+ * box: the four decisions are named on screen with what each one does, so a second field
+ * that maps the carrier's vocabulary onto the same four would be a second way to do one
+ * thing — and the one that answers 422 when their console says something unmapped.
+ */
+export function toCarrierDecisionBody(
+  decision: CarrierDecision,
+  body: CarrierDecisionIn,
+): CarrierDecisionIn {
+  const text = (value: string | null | undefined) => {
+    const trimmed = (value ?? "").trim();
+    return trimmed === "" ? null : trimmed;
+  };
+  return {
+    status: decision,
+    carrier_status: null,
+    carrier_application_id: text(body.carrier_application_id),
+    rejection_reason: text(body.rejection_reason),
+  };
+}

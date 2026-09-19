@@ -33,6 +33,7 @@ import {
 } from "@/lib/api/kyc";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { CarrierApplicationPanel } from "./CarrierApplicationPanel";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { Term } from "@/lib/glossary";
@@ -165,7 +166,16 @@ export default function TenantKycPage({
           {save.data && (
             <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
               <p className="text-xs">
-                Recorded as <span className="font-medium">{save.data.status}</span>. The
+                Recorded as{" "}
+                <span className="font-medium">
+                  {/* The operator's word for the state, not the column's. `status` is a
+                      plain string on the wire, so an unnameable member prints as sent
+                      rather than blanking the confirmation. */}
+                  {isKnownKycStatus(save.data.status)
+                    ? KYC_STATUS_COPY[save.data.status].label
+                    : save.data.status}
+                </span>
+                . The
                 panel above has re-read what is now stored, and the client&apos;s own screen
                 and their dial gate reflect it from the next request.
               </p>
@@ -173,6 +183,16 @@ export default function TenantKycPage({
           )}
         </>
       )}
+
+      {/* THE CARRIER'S OWN CHECK, below ours and on the same screen.
+          Two records, two authorities, one operator question — "may this business have a
+          phone connection?". `assert_carrier_application_accepted` refuses a number
+          purchase on the carrier's state alone, so an operator who cleared the record
+          above and walked away would believe they had opened a gate that is still shut.
+          The panel is a component rather than more of this module because a route file
+          may export only its `default` (D-196) and the tests mount it on its own. */}
+      <hr className="border-line" />
+      <CarrierApplicationPanel tenantId={tenantId} />
     </div>
   );
 }

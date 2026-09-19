@@ -408,7 +408,14 @@ function RecordForm({
             inEffect === null
               ? "none recorded"
               : `overage ${rate(inEffect.overage_rate_inr) ?? "none"}/min, ` +
-                `${inEffect.included_minutes ?? 0} minutes included`,
+                // `?? 0` HERE WOULD CONTRADICT THE PANEL TWENTY LINES UP, which says in
+                // as many words that an absent allowance and an allowance of zero are
+                // different terms. This string is read by the screen assistant and
+                // repeated to an operator, so "0 minutes included" would be the product
+                // asserting a term nobody agreed.
+                (inEffect.included_minutes === null
+                  ? "included minutes not stated"
+                  : `${inEffect.included_minutes} minutes included`),
         },
       ],
     ),
