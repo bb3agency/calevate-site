@@ -146,8 +146,35 @@ export type WalletLots = Schemas["WalletLotsOut"];
  * by hand. The sibling of `packRate` below, and the reason the flat wire shape does not
  * leak into the table that renders it.
  */
+/**
+ * A rung this build cannot price, refused rather than guessed.
+ *
+ * ⚠ **THE THREE ACCESSORS BELOW WERE `tier === "clear" ? clear : studio` UNTIL
+ * 19 SEP 2026, AND THAT TERNARY IS TOTAL OVER `string`.** So the compiler was happy, and
+ * ANY tier that was not the value rung resolved to the STUDIO figure — the dearer one.
+ * With two rungs that is merely fragile; the day a third is added it is a client shown
+ * the wrong price, in the direction that overcharges, with nothing failing to say so.
+ * The same defect was live in `billing/lots.py::OpenLot.rate_for` on the BILLING side and
+ * is fixed there in the same change.
+ *
+ * `never` is the point: a third member of `VoiceTier` makes this call a TYPE ERROR, so the
+ * next rung cannot be added without every accessor being taught about it. The throw is the
+ * runtime half, for a value that reached here as a cast or off the wire — `undefined` would
+ * be a blank price and a blank price is read as free.
+ */
+function unpricedTier(tier: never): never {
+  throw new Error(`no rate for voice tier ${String(tier)}`);
+}
+
 export function lotRate(lot: WalletLot, tier: VoiceTier): string {
-  return tier === "clear" ? lot.clear_inr_per_min : lot.studio_inr_per_min;
+  switch (tier) {
+    case "clear":
+      return lot.clear_inr_per_min;
+    case "studio":
+      return lot.studio_inr_per_min;
+    default:
+      return unpricedTier(tier);
+  }
 }
 
 /**
@@ -292,12 +319,26 @@ export function readLotSplits(entry: unknown): readonly LotSplit[] | undefined {
 
 /** One pack's ₹/min on one quality — the ONE door, so no screen picks a field by hand. */
 export function packRate(pack: CreditPack, tier: VoiceTier): string {
-  return tier === "clear" ? pack.clear_inr_per_min : pack.studio_inr_per_min;
+  switch (tier) {
+    case "clear":
+      return pack.clear_inr_per_min;
+    case "studio":
+      return pack.studio_inr_per_min;
+    default:
+      return unpricedTier(tier);
+  }
 }
 
 /** Whole minutes a pack's credits buy on one quality, as the server floored them. */
 export function packMinutes(pack: CreditPack, tier: VoiceTier): number {
-  return tier === "clear" ? pack.clear_minutes : pack.studio_minutes;
+  switch (tier) {
+    case "clear":
+      return pack.clear_minutes;
+    case "studio":
+      return pack.studio_minutes;
+    default:
+      return unpricedTier(tier);
+  }
 }
 
 /**

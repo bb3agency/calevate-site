@@ -1333,10 +1333,19 @@ def _volume_cost(
     Studio's is unchanged: two independent counts of a month somebody ran
     (`cartesia_measured_cost_inr_per_call_minute`), which is a better figure than any
     speaking rate and must not be re-derived from one. `None` when there was no such month.
+
+    ⚠ **TOTAL OVER THE LITERAL SINCE 19 SEP 2026.** It was `if VALUE: clear` then an
+    unconditional `return measured`, so any unrecognised tier was costed at the STUDIO
+    measurement. On an operator's margin board that reads as a rung being far more
+    expensive than it is, which is the same class of silent wrong answer the billing-side
+    `OpenLot.rate_for` had — here it misleads a pricing decision rather than a client's
+    bill, and both are worth a raise rather than a guess.
     """
     if voice == VALUE_VOICE_TIER:
         return clear.inr_per_min
-    return measured
+    if voice == PREMIUM_VOICE_TIER:
+        return measured
+    raise ValueError(f"no cost figure for voice tier {voice!r}")
 
 
 def _cells_out(
