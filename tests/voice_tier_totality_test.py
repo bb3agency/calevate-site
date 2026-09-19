@@ -32,12 +32,15 @@ from apps.api.agents.voices import voice_tier
 from apps.api.billing.credit_packs import PACK_CATALOGUE
 from apps.api.billing.lots import OpenLot
 from apps.api.billing.rates import (
+    ASSUMED_SPEAKING_RATE,
     PREMIUM_VOICE_TIER,
     VALUE_VOICE_TIER,
     VOICE_TIERS,
+    clear_cost_floor_at,
     cost_floor_inr_per_min,
 )
 from apps.api.billing.service import LotRates
+from apps.api.ops.config_routes import _volume_cost
 
 #: Tokens that are NOT rungs of this build. `sarvam` and `cartesia` are the real hazard:
 #: they were the rung names until 19 Sep 2026, so they are exactly what a stale caller, an
@@ -95,6 +98,37 @@ def test_the_cost_floor_refuses_a_rung_it_does_not_have(token: str) -> None:
     how a card sells a minute below what it costs and the guard still says yes."""
     with pytest.raises(ValueError, match="no cost floor"):
         cost_floor_inr_per_min(token)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("token", _NOT_TIERS)
+def test_the_ops_preview_refuses_a_rung_it_has_no_cost_for(token: str) -> None:
+    """The SIXTH accessor, and the one this file missed on its first pass.
+
+    `ops/config_routes._volume_cost` answers "what did one minute of this rung really cost
+    us" for the rate-card preview an operator prices against. It had the same shape as the
+    two on the billing side — `if VALUE: clear` then an unconditional `return measured` —
+    so an unrecognised rung was costed at the STUDIO measurement. That misleads a PRICING
+    decision rather than a client's bill, which is why it is worth as much as the others:
+    a rung that reads far dearer than it is, is a rung the founder does not put on the card.
+
+    It was made total in the same change as the rest and had no clause here, which is
+    exactly the "asserting the instances rather than the property" failure this file's own
+    header warns about — the coverage ratchet found it before a reader did.
+    """
+    floor = clear_cost_floor_at(ASSUMED_SPEAKING_RATE)
+    with pytest.raises(ValueError, match="no cost figure"):
+        _volume_cost(token, Decimal("6.0000"), floor)  # type: ignore[arg-type]
+
+
+def test_the_ops_preview_costs_both_real_rungs_and_to_different_figures() -> None:
+    """The other half, for the accessor above: refusing everything would pass its clause."""
+    floor = clear_cost_floor_at(ASSUMED_SPEAKING_RATE)
+    measured = Decimal("6.0000")
+    assert _volume_cost(VALUE_VOICE_TIER, measured, floor) == floor.inr_per_min
+    assert _volume_cost(PREMIUM_VOICE_TIER, measured, floor) == measured
+    # `None` is a real answer on the premium rung — no month has been measured — and it
+    # must not be confused with the refusal above.
+    assert _volume_cost(PREMIUM_VOICE_TIER, None, floor) is None
 
 
 def test_every_real_rung_is_priced_by_every_accessor() -> None:

@@ -766,6 +766,105 @@ async def test_the_fleet_board_sums_the_clients_it_walked() -> None:
     assert Decimal(body["revenue_inr"]) - Decimal(body["cost_inr"]) == Decimal(body["margin_inr"])
 
 
+async def test_one_client_the_board_cannot_price_is_a_named_row_and_not_a_500() -> None:
+    """THE ISOLATION, proved with a real refusal rather than a patched one.
+
+    Before 19 Sep 2026 this walk had no `try`: `margin_for_tenant` was called per client
+    and one client's `ValueError` returned a 500 for the whole board — on the page an
+    operator opens BECAUSE one client is wrong. The refusal itself is right and is not
+    softened here; `voice_tier_usage` raises rather than dropping rupees it cannot place on
+    a rung, and the fix is that the board publishes the name and the reason instead of a
+    number it would have to invent.
+
+    THE FIXTURE IS A LEDGER ROW AND NOT A MONKEYPATCH, because the two differ in what they
+    prove. Patching `margin_for_tenant` would show the `except` arm runs; writing a `call`
+    split spelled `bulbul` shows that the real reader's real refusal reaches this row — the
+    path a stale spelling on an append-only ledger actually takes. The write is by hand
+    because it has to be: `CallDemand.voice_tier` is a `VoiceTier`, so the live path cannot
+    PRODUCE such a token. History can, and history arrives through the table.
+
+    The tenant is retired at the end. A shared development database is walked by this route
+    on every run of this file, so a fixture left live would fail every later fleet test for
+    a reason none of them is about.
+    """
+    tenant_id, reception = await _tenant(monthly_fee=None)
+    await _metered_call(tenant_id, reception, seconds=600, unit_cost="0.0100")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :i"),
+            {"i": tenant_id},
+        )
+        await billing.record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("500.00"),
+            reason="topup",
+            ref=f"seed:{uuid.uuid4().hex[:12]}",
+        )
+        call_id = (
+            await session.execute(
+                text("SELECT id FROM calls WHERE tenant_id = :t LIMIT 1"), {"t": tenant_id}
+            )
+        ).scalar_one()
+        await billing.record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("-60.00"),
+            reason="usage",
+            ref=str(call_id),
+            # `lots.split_meta`'s shape, with a rung spelled the way a pre-D-630 build
+            # would have written it and which this build cannot place. Digit STRINGS, not
+            # JSON numbers — a rupee amount crossing JSONB as a number comes back a binary
+            # float in whichever reader deserialises it next (hard rule 7).
+            meta={
+                "lots": [
+                    {
+                        "kind": "call",
+                        "voice_tier": "bulbul",
+                        "inr": "60.00",
+                        "minutes": "12.0000",
+                    }
+                ]
+            },
+        )
+        await session.commit()
+
+    token = await _make_admin()
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            # Lifted for this test for `test_the_fleet_board_sums_the_clients_it_walked`'s
+            # reason: the walk's cost is a property of somebody else's row count.
+            patch.setattr(spend_routes, "FLEET_BUDGET_S", 3600.0)
+            async with _client() as http:
+                response = await http.get(
+                    "/v1/admin/spend", headers={"Authorization": f"Bearer {token}"}
+                )
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+        named = next(row for row in body["undecidable"] if row["tenant_id"] == str(tenant_id))
+        # The READER's own sentence, carried verbatim so an operator is told which spelling
+        # and what to do about it — not a label this route invented.
+        assert "bulbul" in named["reason"]
+        assert named["slug"] and named["plan_tier"]
+
+        # It is in NEITHER the priced rows nor the count those rows total, so the board's
+        # arithmetic stays honest: this client is absent, not counted at zero.
+        assert all(row["tenant_id"] != str(tenant_id) for row in body["tenants"])
+        assert body["clients"] == len(body["tenants"])
+        # And the whole point: everyone else still got their figures.
+        assert Decimal(body["revenue_inr"]) - Decimal(body["cost_inr"]) == Decimal(
+            body["margin_inr"]
+        )
+    finally:
+        async with untenanted_session() as session:
+            await session.execute(
+                text("UPDATE organizations SET status = 'churned' WHERE id = :i"),
+                {"i": tenant_id},
+            )
+            await session.commit()
+
+
 # ------------------------------------------------- the arms an ordinary month never takes
 #
 # `apps/api/billing/*.py` is the `ledgers-and-money` ratchet surface and its budget is ONE
