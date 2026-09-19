@@ -284,6 +284,52 @@ describe("the usage panel", () => {
     expect(screen.queryByRole("link", { name: "AI model" })).toBeNull();
   });
 
+  /**
+   * A RATE WE DO NOT HAVE IS NOT A RATE OF ZERO.
+   *
+   * `llm_surcharge_rate_inr` is `string | null` on the wire and the null means the plan
+   * quotes NO surcharge rate (`billing/service.py:2883`). The panel used to render
+   * `formatRupeeRate(data.llm_surcharge_rate_inr ?? "0")` INSIDE the branch that only
+   * runs on a non-zero charge — so a month with a real rupee amount and no published rate
+   * printed "40.00 min × ₹0.00" beside it: a multiplication that does not multiply out,
+   * on the one screen a client checks their statement against.
+   *
+   * `billing/invoice.py:515` is the standard: it omits the line entirely unless
+   * `surcharge_rate is not None`. The panel cannot omit the line — the CHARGE is real and
+   * belongs in the total — so it omits the ARITHMETIC and keeps both figures a client can
+   * check. This asserts the ₹0.00 cannot come back, in both directions: no zero rate, and
+   * the minutes and the amount still on the screen.
+   */
+  it("states no rate rather than ₹0.00 when the server published none", async () => {
+    const { container } = await renderBillingHub(
+      routes({
+        "/v1/usage": usage({
+          llm_surcharge_rate_inr: null,
+          llm_surcharge_minutes: "40.00",
+          llm_surcharge_inr: "60.00",
+          llm_surcharge_models: ["gpt-4.1-mini"],
+          month_charges_inr: "15218.00",
+        }),
+      }),
+      "Usage",
+    );
+
+    await screen.findByText("Extra charges");
+    const text = container.textContent ?? "";
+    // The line is THERE — the charge is real and is in the total.
+    expect(text).toContain("AI model upgrade, gpt-4.1-mini (40.00 min)");
+    expect(text).toContain("₹60.00");
+    expect(text).toContain("₹15,218.00");
+    // And it states no rate rather than inventing one. Asserted on the UPGRADE LABEL and
+    // not on the whole panel: the overage line above it multiplies out legitimately
+    // ("1563.00 min × ₹6.5000"), so a document-wide `not.toContain("×")` would fail on
+    // correct copy and be deleted. `×` is the tell HERE — the multiplication is the thing
+    // that cannot be written when one of its factors is absent.
+    const upgrade = text.slice(text.indexOf("AI model upgrade")).slice(0, 80);
+    expect(upgrade).not.toContain("×");
+    expect(upgrade).not.toContain("₹0.00");
+  });
+
   it("prints no upgrade line on a month nothing was surcharged", async () => {
     // Every plan today quotes no surcharge, so this is the shipped shape: a ₹0.00 row
     // invites a question about nothing, and the total is what it always was.

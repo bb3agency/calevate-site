@@ -563,18 +563,24 @@ describe("the top-up panel", () => {
     expect(sent?.body).toBe(JSON.stringify({ pack_id: "max" }));
   });
 
-  it("does not tell a client they pick each agent's voice themselves", async () => {
-    // D-21: the voice picker is mounted in the admin realm only, which is why the client's
-    // agent screen carries the fact and no control ("Changing it is still ours … which is
-    // why there is no control here"). This line said "you choose which one each agent
-    // speaks with", on the screen where they are about to pay for the difference between
-    // the two. Per-agent is true and stays; the control is not ours to promise.
+  it("tells a client the voice is theirs to pick, on the screen they pay on", async () => {
+    // ⚠ THIS ASSERTED `/tell your account manager/i` AND WAS PINNING AN EXPIRED CLAIM.
+    // It cited D-21; **D-586 (11 Sep 2026) supersedes D-21 for the `live` lane** — `PATCH
+    // /v1/agents/{agent_id}/voice` is a client-realm door, `agents:write` is on `owner`
+    // and `staff`, and the picker is mounted at
+    // `app/c/[slug]/agents/panels/delivery.tsx:165`. D-586's own closing note ("the client
+    // console has no picker or cap field on these two doors yet") is the state this copy
+    // described, and it has since been closed.
+    //
+    // This screen is where the claim costs the most: a buyer is about to pay for the
+    // difference between the two voices, and was being told they must ask a person to
+    // exercise the choice they are paying for.
     const { container } = await renderBillingHub(routes(), "Credits");
     await screen.findByText(/Every pack buys both voice qualities/);
-    expect(container.textContent).not.toMatch(
-      /you choose which one each agent/i,
-    );
-    expect(container.textContent).toMatch(/tell your account manager/i);
+    // Per-agent is the load-bearing half and survives the correction.
+    expect(container.textContent).toMatch(/set per agent/i);
+    expect(container.textContent).toMatch(/you choose that on each agent/i);
+    expect(container.textContent).not.toMatch(/tell your account manager/i);
   });
 
   it("lands the reader on a pack from the minutes they call, without doing money arithmetic", async () => {

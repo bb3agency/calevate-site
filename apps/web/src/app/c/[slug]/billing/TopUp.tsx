@@ -287,16 +287,18 @@ export function TopUp({ session }: { session: Session }) {
               screen. Only rendered with the names, for `labels`' reason above. */}
           {labels && (
             <p className="text-sm text-ink-muted">
-              {/* "YOU CHOOSE WHICH ONE EACH AGENT SPEAKS WITH" WAS FALSE IN THIS REALM: the
-                  voice picker is mounted in admin only and changing a voice is ours (D-21),
-                  which is why the client's agent screen carries the fact and no control.
-                  Per-agent is true and stays; the control does not. Same sentence as
+              {/* ⚠ THIS SAID "TELL YOUR ACCOUNT MANAGER WHICH VOICE YOU WANT EACH AGENT TO
+                  SPEAK WITH", WHICH WAS WRITTEN AGAINST D-21 AND IS FALSE UNDER D-586
+                  (11 Sep 2026): the client-realm door `PATCH /v1/agents/{agent_id}/voice`
+                  carries `agents:write` for `owner` and `staff`, and the picker sits on
+                  the client's own agent screen
+                  (`app/c/[slug]/agents/panels/delivery.tsx:165`). Same sentence as
                   `WhatCallsCost`, in the same register, because two wordings of one rule is
                   how a client comes to believe the more generous one. */}
               Every pack buys both voice qualities, and which one prices a call is set per
-              agent — tell your account manager which voice you want each agent to speak
-              with. A bigger pack makes each minute cheaper, and the rates on the pack you
-              buy stay with that credit until you have spent it.
+              agent — you choose that on each agent&rsquo;s own screen. A bigger pack makes
+              each minute cheaper, and the rates on the pack you buy stay with that credit
+              until you have spent it.
             </p>
           )}
         </>

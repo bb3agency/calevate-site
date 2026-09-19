@@ -232,12 +232,17 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
      */
     term: "Voice quality",
     detail:
+      // ⚠ THIS ENDED "and we set it: tell your account manager which one an agent should
+      // use", WHICH D-586 (11 Sep 2026) SUPERSEDED. `PATCH /v1/agents/{agent_id}/voice` is
+      // a client-realm door, `agents:write` is on `owner` and `staff`, and the picker is
+      // mounted at `app/c/[slug]/agents/panels/delivery.tsx:165`. This was the fifth copy
+      // of one sentence, and the last one found — `tests/voiceChoiceIsTheClients.test.ts`
+      // is the guard that now reads all five roots at once so there is no sixth.
       "Which of two voices an agent speaks with. Neither is a cut-down version of the " +
       "other — what you hear in a demo is what a customer hears at three in the morning — " +
       "but one costs more a minute than the other, so it shows on your bill. It is set " +
-      "per agent rather than for the whole account, and we set it: tell your account " +
-      "manager which one an agent should use. Both are named, with their rates, on the " +
-      "price list.",
+      "per agent rather than for the whole account, and you choose it yourself on each " +
+      "agent's own screen. Both are named, with their rates, on the price list.",
   },
   {
     term: "Spend cap",

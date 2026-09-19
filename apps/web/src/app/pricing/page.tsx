@@ -301,19 +301,28 @@ export default async function PricingPage() {
                 you bought at stay with that credit until it is spent.
               </p>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                {/* "YOU CHOOSE IT AGENT BY AGENT" WAS FALSE IN THE CLIENT REALM, and this
-                    is the register both surfaces now use. The voice IS per agent, but
-                    changing it is ours (D-21) — the picker is mounted in the admin realm
-                    only, and the client's own agent screen says so in these words
-                    ("Your account manager can confirm it",
-                    `app/c/[slug]/agents/panels/publishing.tsx`). A page that told a buyer
-                    they would have the control would be selling one that is not there.
+                {/* ⚠ THIS SAID "TELL YOUR ACCOUNT MANAGER WHICH VOICE EACH AGENT SHOULD
+                    SPEAK WITH", AND THAT STOPPED BEING TRUE BEFORE IT WAS WRITTEN.
+                    D-586 (11 Sep 2026) SUPERSEDES D-21 for the `live` lane: `PATCH
+                    /v1/agents/{agent_id}/voice` is a CLIENT-realm door, `agents:write` is
+                    on `owner` AND `staff`, and the picker is mounted on the client's own
+                    agent screen (`app/c/[slug]/agents/panels/delivery.tsx:165`, the card
+                    "How it sounds, and how long a call may run"). D-586's own closing note
+                    — "the client console has no picker or cap field on these two doors
+                    yet" — is what this copy was written against, and it has since been
+                    closed.
+
+                    The direction of the error is what makes it a pricing-page defect
+                    rather than a nit: it sold a self-serve product as one with a support
+                    queue in front of a two-click control. The per-agent half was always
+                    true and is kept.
 
                     ⚠ "EACH AGENT SPEAKS WITH ONE OF TWO VOICES" WAS CUT because the
                     control immediately below is now two named voices with one selected —
                     the sentence described what the reader is looking at. */}
-                A voice is set per agent rather than for the whole account — tell your
-                account manager which voice each agent should speak with.
+                A voice is set per agent rather than for the whole account, and you choose
+                it yourself on each agent&rsquo;s own screen — moving an agent to the other
+                voice costs nothing and changes none of your credit.
               </p>
               {/* The rate card itself: the switch, and one voice's ladder at a time.
                   Extracted to `components/marketing/rateCard.tsx` (UX-DOCTRINE §6 —

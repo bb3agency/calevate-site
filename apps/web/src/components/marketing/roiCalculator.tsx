@@ -414,11 +414,16 @@ function voiceOptions(
         // a voice on offer, and the notice is the one place that sentence is written.
         voice === UNPRICED_TIER
           ? UNPRICED_TIER_NOTICE
-          : // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
-            // the voice picker is mounted in the admin realm only and changing a voice is
-            // ours (D-21). Per-agent is the true and load-bearing half — it is why this
-            // calculator prices one voice at a time — so it is said as the property it is,
-            // in the same register `/pricing` and the console now use.
+          : // ⚠ THIS COMMENT SAID "the voice picker is mounted in the admin realm only and
+            // changing a voice is ours (D-21)", AND D-586 (11 Sep 2026) SUPERSEDED THAT
+            // for the `live` lane: the client-realm door `PATCH /v1/agents/{agent_id}/voice`
+            // carries `agents:write` for `owner` and `staff`, and the picker is mounted at
+            // `app/c/[slug]/agents/panels/delivery.tsx:165`. The RENDERED sentence was
+            // never wrong — it claims per-agent and no more — but a false premise sitting
+            // above true copy is how the next author "restores consistency" in the wrong
+            // direction, which is what happened to `/pricing` and to two console screens.
+            // Per-agent is the true and load-bearing half — it is why this calculator
+            // prices one voice at a time — so it stays said as the property it is.
             `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account.${pack}`,
     };
   });

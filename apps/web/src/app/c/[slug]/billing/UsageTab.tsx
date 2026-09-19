@@ -232,9 +232,28 @@ export function UsageTab({
                     data.llm_surcharge_models.length > 0
                       ? `, ${data.llm_surcharge_models.join(", ")}`
                       : ""
-                  } (${data.llm_surcharge_minutes} min × ${formatRupeeRate(
-                    data.llm_surcharge_rate_inr ?? "0",
-                  )})`}
+                  }${
+                    /* ⚠ THIS WAS `formatRupeeRate(data.llm_surcharge_rate_inr ?? "0")`,
+                       WHICH PRINTED A RATE OF ₹0.00 BESIDE A NON-ZERO CHARGE. `?? "0"` is
+                       a manufactured money figure: `llm_surcharge_rate_inr` is `string |
+                       null` on the wire and the null means the plan quotes NO surcharge
+                       rate (`billing/service.py:2883`), not a rate of zero. Rendered
+                       inside this branch — which only runs on a non-zero charge — it
+                       produced the one line a client cannot reconcile: "40.00 min × ₹0.00"
+                       beside a real rupee amount, on the screen they check their statement
+                       against.
+
+                       `billing/invoice.py:515` is the standard this now matches: the
+                       invoice omits the multiplication unless `surcharge_rate is not
+                       None`. The minutes and the amount are both still shown, so nothing
+                       checkable is withheld — what is dropped is the arithmetic we cannot
+                       state. */
+                    data.llm_surcharge_rate_inr === null
+                      ? ` (${data.llm_surcharge_minutes} min)`
+                      : ` (${data.llm_surcharge_minutes} min × ${formatRupeeRate(
+                          data.llm_surcharge_rate_inr,
+                        )})`
+                  }`}
                   value={formatINR(data.llm_surcharge_inr)}
                 />
               )}

@@ -186,19 +186,27 @@ export function WhatCallsCost({
               : "Two voice qualities, and each agent speaks with one of them"
           }
         >
-          {/* ⚠ THIS SAID "YOU CHOOSE WHICH ONE EACH AGENT SPEAKS WITH", AND A CLIENT
-              CANNOT. The voice picker is mounted in the admin realm only; changing an
-              agent&rsquo;s voice is ours (D-21), which is why the client&rsquo;s own agent
-              screen carries the fact and no control ("Your account manager can confirm
-              it", `app/c/[slug]/agents/panels/publishing.tsx`). The per-agent part was
-              true and is kept; the control was not. */}
+          {/* ⚠ THIS SAID "TELL YOUR ACCOUNT MANAGER WHICH VOICE YOU WANT AN AGENT TO
+              SPEAK WITH AND WE SET IT", AND THE CLIENT HAS HELD THAT CONTROL SINCE D-586.
+              The sentence was written against D-21, and D-586 (11 Sep 2026) supersedes it
+              for the `live` lane: `PATCH /v1/agents/{agent_id}/voice` is a CLIENT-realm
+              door, `agents:write` is on `owner` AND `staff`, and the picker is mounted on
+              the client&rsquo;s own agent screen
+              (`app/c/[slug]/agents/panels/delivery.tsx:165`). D-586 closed with "the
+              client console has no picker or cap field on these two doors yet"; that is
+              what this copy described, and it is no longer the case.
+
+              The direction matters: it sent a paying owner to a support queue for a
+              control two clicks away on a screen they already have. The per-agent half
+              was always true and is kept, and the card is NAMED so the sentence points at
+              something a reader can find rather than at a realm. */}
           The voice belongs to the agent, not to the account: a receptionist
           that answers all day and an outbound campaign can speak with different
-          voices, and each call is charged at its own agent&rsquo;s rate. Tell
-          your account manager which voice you want an agent to speak with and
-          we set it. Neither is a cut-down version of the other — what you hear
-          in a demo is what your customers hear at three in the morning.{" "}
-          {UNPRICED_TIER_NOTICE}
+          voices, and each call is charged at its own agent&rsquo;s rate. You
+          choose it yourself on the agent&rsquo;s own screen, under &ldquo;How
+          it sounds, and how long a call may run&rdquo;. Neither is a cut-down
+          version of the other — what you hear in a demo is what your customers
+          hear at three in the morning. {UNPRICED_TIER_NOTICE}
         </Fact>
 
         <Fact

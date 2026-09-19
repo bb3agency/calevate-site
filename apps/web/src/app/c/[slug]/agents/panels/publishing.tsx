@@ -204,7 +204,12 @@ function VoiceFacts({
         icon={<Volume2 className="h-3.5 w-3.5" />}
         hint={
           state.live
-            ? "The voice the calling system is speaking in right now. Change it below."
+            ? /* "Below" is the `DeliverySettings` card, the next one on this screen
+                 (`AgentWorkspace.tsx:221`, "How it sounds, and how long a call may run"),
+                 which mounts the client-realm `VoicePicker` under D-586. A direction
+                 rather than a link, because a link to a sibling card reads as navigation
+                 away from the page the reader is already on. */
+              "The voice the calling system is speaking in right now. Change it below."
             : published
               ? "The calling system has a voice for this agent; we have no record of which one. Choosing one below will settle it."
               : "Nothing is on the calling system yet, so no caller hears a voice at all."

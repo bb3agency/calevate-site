@@ -1247,16 +1247,26 @@ describe("the explainer's claims about the money", () => {
     expect(explainer.textContent).toMatch(/the same purchase is drawn down/i);
   });
 
-  it("does not offer a client a voice control this realm does not have", async () => {
-    // D-21: the picker is mounted in admin only, which is why the client's agent screen
-    // carries the fact and no control. "You choose which one each agent speaks with" told
-    // them otherwise, on the screen where they are about to spend money on the difference.
+  it("names the screen a client changes the voice on, rather than a person", async () => {
+    // ⚠ THIS ASSERTED `/tell your account manager/i` AND WAS PINNING AN EXPIRED CLAIM.
+    // It cited D-21; **D-586 (11 Sep 2026) supersedes D-21 for the `live` lane**: the
+    // client-realm door `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for
+    // `owner` and `staff`, and the picker is mounted on the client's own agent screen
+    // (`app/c/[slug]/agents/panels/delivery.tsx:165`, inside the card "How it sounds, and
+    // how long a call may run"). The explainer was sending a paying owner to a support
+    // queue for a control two clicks away.
+    //
+    // The CARD is named rather than the realm, because a sentence that says where a
+    // control is can be acted on and one that says whose it is cannot.
     await renderBillingHub(routes());
     const explainer = (await screen.findByText("What calls cost")).closest(
       "section",
     ) as HTMLElement;
-    expect(explainer.textContent).not.toMatch(/you choose which one/i);
-    expect(explainer.textContent).toMatch(/tell your account manager/i);
+    expect(explainer.textContent).toMatch(/you choose it yourself/i);
+    expect(explainer.textContent).toMatch(
+      /How it sounds, and how long a call may run/,
+    );
+    expect(explainer.textContent).not.toMatch(/tell your account manager/i);
   });
 });
 

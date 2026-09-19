@@ -538,19 +538,39 @@ describe("the pricing page", () => {
     expect(plan).not.toMatch(/each voice|per voice|two-rate/i);
   });
 
-  it("does not offer the buyer a voice control the client realm does not have", async () => {
-    // D-21 STANDS: the voice picker is mounted in the admin realm only, and the client's
-    // own agent screen says so ("Changing it is still ours … which is why there is no
-    // control here"). A pricing page telling a buyer they choose it agent by agent sells a
-    // control that is not there, and the register that IS true — tell your account manager
-    // — is the one the console now uses on both of its own screens.
+  /**
+   * ⚠ THIS TEST USED TO ASSERT THE OPPOSITE, AND IT WAS PINNING A CLAIM THAT HAD EXPIRED.
+   *
+   * It read "D-21 STANDS: the voice picker is mounted in the admin realm only" and
+   * REQUIRED `/account manager/i` on the page. **D-586 (11 Sep 2026) supersedes D-21 for
+   * the `live` lane**: `PATCH /v1/agents/{agent_id}/voice` is a CLIENT-realm door,
+   * `agents:write` sits on `owner` AND `staff`, and the picker is mounted at
+   * `app/c/[slug]/agents/panels/delivery.tsx:165` — inside the card "How it sounds, and
+   * how long a call may run" on the client's own agent screen (`AgentWorkspace.tsx:221`).
+   * D-586 shipped with the note "the client console has no picker or cap field on these
+   * two doors yet", which is the state this copy and this assertion were written against,
+   * and that note has since been closed.
+   *
+   * The direction is why it is a PRICING-page defect and not a stale comment: it described
+   * a self-serve product as one with a support queue in front of a control the buyer will
+   * actually hold. Understating what is bought is still a misdescription.
+   *
+   * Asserted in BOTH directions, so neither the old sentence nor an over-claim returns.
+   * `tests/voiceChoiceIsTheClients.test.ts` holds the same rule across every client-facing
+   * root at once; this one keeps it on the page the buyer reads first.
+   */
+  it("says the buyer chooses the voice themselves, as D-586 made true", async () => {
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await PricingPage());
     const text = bodyText(container);
-    expect(text).toMatch(/account manager/i);
-    expect(text).not.toMatch(
-      /you choose it|choose it agent by agent|you choose which/i,
-    );
+    expect(text).toMatch(/you choose it yourself/i);
+    // The per-agent fact is the load-bearing half and must survive the correction.
+    expect(text).toMatch(/set per agent/i);
+    // And the withdrawn claim may not come back. `account manager` is the whole guard: it
+    // is the only phrase on this page that routes a buyer to a person, and a broader
+    // pattern (`/tell (your|us)/`) fails on the closing CTA's legitimate "Tell us what
+    // your callers ring about" — a guard that fires on correct copy gets deleted.
+    expect(text).not.toMatch(/account manager/i);
   });
 
   /**
@@ -794,18 +814,29 @@ describe("the resources page", () => {
     expect(text).toMatch(/two voices/i);
   });
 
-  it("offers no voice control, and says who moves it", () => {
+  it("says where the voice is changed, and keeps it out of the publish lane", () => {
+    // ⚠ THIS ASSERTED `expect(voice).toMatch(/account manager/i)` AND ITS NEGATION OF
+    // "you choose", AND BOTH WERE PINNING A CLAIM D-586 (11 Sep 2026) SUPERSEDED. The
+    // client-realm door `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for
+    // `owner` and `staff`, and the picker is mounted at
+    // `app/c/[slug]/agents/panels/delivery.tsx:165`. This glossary entry was the FIFTH
+    // copy of that one sentence and the last one found;
+    // `tests/voiceChoiceIsTheClients.test.ts` now reads all five roots at once.
+    //
+    // WHAT DOES NOT CHANGE IS THE PUBLISHING HALF, and the two are easy to conflate. A
+    // voice write re-publishes a live agent INSIDE its own transaction (D-586), so a voice
+    // is not one of the staged changes the publish button applies — listing it there would
+    // be a different wrong answer to the same question.
     stubApi({});
     const { container } = render(<ResourcesPage />);
     const entries = glossary(container);
     const publishing = entries.get("Publishing");
     expect(publishing, "the Publishing entry is gone").toBeDefined();
-    // The list of things a client changes and publishes may not contain a voice.
     expect(publishing).not.toMatch(/voice/i);
     const voice = entries.get("Voice quality");
     expect(voice, "the glossary defines no voice quality").toBeDefined();
-    expect(voice).toMatch(/account manager/i);
-    expect(voice).not.toMatch(/you (choose|pick|select)/i);
+    expect(voice).toMatch(/you choose it yourself/i);
+    expect(voice).not.toMatch(/account manager/i);
   });
 
   it("states the three promises the credit carries", () => {
