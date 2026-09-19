@@ -601,8 +601,14 @@ def test_the_pinned_content_bearing_log_line_is_still_that_line() -> None:
     root = Path(pipecat.__file__).parent.parent
     for (module, line), expected in vendor_logging.CONTENT_BEARING_SOURCE.items():
         path = root / (module.replace(".", "/") + ".py")
-        actual = path.read_text(encoding="utf-8").splitlines()[line - 1].strip()
+        lines = path.read_text(encoding="utf-8").splitlines()
+        actual = tuple(text.strip() for text in lines[line - 1 : line - 1 + len(expected)])
         assert actual == expected, f"{module}:{line} is no longer the pinned call"
+
+    # EVERY DENIED RECORD HAS A PIN. Without this the two lists could drift apart
+    # silently — an entry added to the denylist with no source pin is an entry a version
+    # bump can move out from under, which is the whole failure this pair exists to stop.
+    assert set(vendor_logging.CONTENT_BEARING_RECORDS) == set(vendor_logging.CONTENT_BEARING_SOURCE)
 
 
 def test_vendor_log_guard_drops_debug_and_the_content_bearing_warning() -> None:
@@ -610,8 +616,6 @@ def test_vendor_log_guard_drops_debug_and_the_content_bearing_warning() -> None:
     vendor_logging._reset_for_tests()
     try:
         vendor_logging.install_vendor_log_guard(sink=captured.append)
-        module, line = next(iter(vendor_logging.CONTENT_BEARING_RECORDS))
-
         # A DEBUG line from anywhere: dropped by the level floor.
         logger.debug("caller said something")
         assert not captured
@@ -620,14 +624,67 @@ def test_vendor_log_guard_drops_debug_and_the_content_bearing_warning() -> None:
         logger.info("session started")
         assert len(captured) == 1
 
-        # The pinned record: dropped even though it is a WARNING.
-        record = {"name": module, "line": line, "level": logger.level("WARNING")}
-        assert vendor_logging._guard(record) is False
-        neighbour = {"name": module, "line": line + 1, "level": logger.level("WARNING")}
-        assert vendor_logging._guard(neighbour)
+        # EVERY pinned record is dropped even though each is a WARNING — all three, not
+        # whichever one the frozenset iterated first, which is how the two added on
+        # 19 Sep 2026 (the Plivo raw frame and the output transport's `{frame}`) would
+        # have been able to arrive denied-in-name-only.
+        for module, line in vendor_logging.CONTENT_BEARING_RECORDS:
+            record = {"name": module, "line": line, "level": logger.level("WARNING")}
+            assert vendor_logging._guard(record) is False, f"{module}:{line} was not dropped"
+            neighbour = {"name": module, "line": line + 1, "level": logger.level("WARNING")}
+            assert vendor_logging._guard(neighbour), f"{module}:{line + 1} was over-blocked"
     finally:
         # Put the real guard back rather than a null sink: loguru is process-global, and a
         # test that leaves logging off would hide the next one's vendor output.
+        vendor_logging._reset_for_tests()
+        logger.remove()
+        vendor_logging.install_vendor_log_guard()
+
+
+async def test_a_malformed_carrier_frame_does_not_put_the_callers_audio_in_the_log() -> None:
+    """The Plivo pin, proved END TO END rather than by reading the vendor's source.
+
+    `PlivoFrameSerializer.deserialize` answers a frame it cannot parse with
+    `logger.warning(f"Failed to parse JSON message: {data}")`
+    (`pipecat/serializers/plivo.py:221`) — and on a media stream `data` is the raw frame,
+    whose `media.payload` is base64 PCM of the CALLER'S VOICE. One truncated frame on the
+    wire is all it takes, which is why this is a scenario and not a code reading.
+
+    The negative control is the half that matters: with the guard uninstalled the audio
+    DOES reach the sink, so this test fails if the denylist entry is removed rather than
+    passing for some other reason.
+    """
+    from pipecat.serializers.plivo import PlivoFrameSerializer
+
+    # A frame that is real Plivo media and is truncated mid-object, so `json.loads` raises
+    # with the whole payload still in `data`. The marker stands in for the audio.
+    audio = "QkFTRTY0QVVESU9PRlRIRUNBTExFUg"
+    truncated = f'{{"event": "media", "media": {{"payload": "{audio}"'
+
+    def _deserialize() -> Any:
+        serializer = PlivoFrameSerializer(
+            stream_id="scenario-stream",
+            params=PlivoFrameSerializer.InputParams(auto_hang_up=False),
+        )
+        return serializer.deserialize(truncated)
+
+    guarded: list[str] = []
+    unguarded: list[str] = []
+    vendor_logging._reset_for_tests()
+    try:
+        vendor_logging.install_vendor_log_guard(sink=guarded.append)
+        assert await _deserialize() is None
+        assert audio not in "".join(guarded), "the caller's audio reached the log"
+
+        # The control: loguru's own defaults, which is what an unguarded process runs.
+        logger.remove()
+        logger.add(unguarded.append, level="DEBUG")
+        assert await _deserialize() is None
+        assert audio in "".join(unguarded), (
+            "the vendor no longer logs the raw frame, so this pin proves nothing; "
+            "re-read pipecat/serializers/plivo.py before deleting it"
+        )
+    finally:
         vendor_logging._reset_for_tests()
         logger.remove()
         vendor_logging.install_vendor_log_guard()

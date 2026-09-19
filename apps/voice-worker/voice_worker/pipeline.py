@@ -40,8 +40,10 @@ open item, and the settings that need a measurement say so where they are set.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final, Protocol
@@ -54,12 +56,13 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
 )
 from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
+from calevate_shared.worker_api import DEFAULT_CALL_CAP_S
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import CancelFrame, LLMRunFrame
+from pipecat.frames.frames import CancelFrame, EndWorkerFrame, LLMRunFrame
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -80,6 +83,7 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
+from voice_worker.call_tools import CallToolApi, build_call_tools
 from voice_worker.knowledge import DEFAULT_TOP_K, QueryEmbedder, SessionKnowledge
 from voice_worker.vendor_logging import install_vendor_log_guard
 
@@ -236,6 +240,19 @@ class SessionConfig:
     #: advertised, still answers, and says which of the two silences it is (see
     #: `knowledge_tool_payload`: `no_knowledge_base` is not `temporarily_unavailable`).
     knowledge_pack_sha256: str | None = None
+    #: HOW LONG THIS CALL MAY RUN, IN SECONDS. The agent's own cap, resolved by the control
+    #: plane (`agents/service.effective_call_cap`) and served on `WorkerSessionOut`.
+    #:
+    #: ⚠ **IT IS CONFIGURATION AND NOT A SECRET, WHICH IS WHY IT MAY SIT HERE** beside the
+    #: prompt and the model config, unlike `caller_e164` — this structure is logged field by
+    #: field and a duration is an ordinary number.
+    #:
+    #: The default is `calevate_shared.worker_api.DEFAULT_CALL_CAP_S`, READ OFF
+    #: `AgentConfig.max_call_duration_s` rather than spelled again: a platform constant with
+    #: two spellings is hard rule 4's defect, and the version of it that matters here is a
+    #: console showing a client one cap while the container enforces another. Nothing in
+    #: production takes the default — the server always answers the agent's real value.
+    max_call_duration_s: int = DEFAULT_CALL_CAP_S
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +309,36 @@ class NormalizedEventSink(Protocol):
     async def on_transcript_turn(self, turn: TranscriptTurn) -> None: ...
 
 
+class CallerIdentityLike(Protocol):
+    """Who is on the far end, as `carrier.CallerIdentity` answers it.
+
+    ⚠ **A STRUCTURAL PROTOCOL AND NOT AN IMPORT, BECAUSE THE IMPORT WOULD BE A CYCLE.**
+    `carrier.py` imports THIS module (it builds the pipeline for a connection it just
+    accepted), so this module cannot import `carrier.py` back. A Protocol matches
+    `CallerIdentity` field for field with no edge in either direction, and no second
+    definition of the type: the authority on what these four states mean stays in
+    `carrier.py`, beside the handshake that produces them, and the wire spelling stays in
+    `calevate_shared.worker_api.CallerIdentityState` where `apps/api` can read it.
+
+    **WHY THE STATE TRAVELS AND NOT JUST THE NUMBER.** A `None` that means four unrelated
+    things cannot be triaged, which is exactly how `calls.from_e164` came to be empty on
+    every call of this engine with nothing anywhere saying why. `state` is authored in
+    `carrier.py` and never built from wire data, so it is safe to log; `e164` never is.
+    """
+
+    @property
+    def state(self) -> str: ...
+
+    @property
+    def ground(self) -> str: ...
+
+    @property
+    def e164(self) -> str | None: ...
+
+    @property
+    def is_known(self) -> bool: ...
+
+
 def recompute_prompt_sha256(prompt: str) -> str:
     """§1.1: the worker's own reading of what it loaded, not the value it was handed.
 
@@ -338,12 +385,24 @@ class NormalizedEventBoundary:
     latency-critical path.
     """
 
-    def __init__(self, *, config: SessionConfig, sink: NormalizedEventSink) -> None:
+    def __init__(
+        self,
+        *,
+        config: SessionConfig,
+        sink: NormalizedEventSink,
+        caller: CallerIdentityLike | None = None,
+    ) -> None:
         self._config = config
         self._sink = sink
+        #: WHO IS ON THE FAR END, OR THE NAMED REASON WE CANNOT SAY. `None` is the same as
+        #: `not_read` and is what a local run, a replay or a test gets.
+        self._caller = caller
         self._idx = 0
         self._started_at: datetime | None = None
         self._ended = False
+        #: Set when a vendor leg reported itself unable to do its job. See `_on_error` in
+        #: `attach` for why an EndFrame is not enough to call a call `completed`.
+        self._leg_failed = False
 
     # -- call lifecycle ------------------------------------------------------------------
 
@@ -369,6 +428,32 @@ class NormalizedEventBoundary:
         await self._sink.on_call_event(self._event(status, ended_at=datetime.now(UTC)))
 
     def _event(self, status: CallStatus, *, ended_at: datetime | None) -> CallEvent:
+        """One normalized event. THE PARTIES RIDE HERE, AND UNTIL NOW NOTHING SET THEM.
+
+        ⚠ **`calls.from_e164` HAD NO PRODUCER ON THIS ENGINE AT ALL**, which is not a
+        missing screen field: `leads.phone_e164` is NOT NULL and is derived from it, caller
+        memory filters on `IS NOT NULL`, a DPDP erasure takes its subject from it, and an
+        opt-out is keyed on it. `carrier.CallerIdentity` now answers who is calling; this
+        is the hop that carries the answer to the only writer that can persist it
+        (`worker/service.record_observations`, which reads it off these events when the
+        batch names no party).
+
+        **ONLY `known` PUTS A NUMBER ON THE WIRE.** The other three states mean we do not
+        have one, and each for a different reason — the carrier withheld it, our pinned
+        client maps no field for this carrier, nobody looked. None of them is a number, and
+        inventing one (our own header, the agent's line) would file a lead, a memory and an
+        erasure subject against the wrong person.
+
+        **THE DIRECTION DECIDES WHICH END THEY ARE.** On an inbound call the identity we
+        read off the handshake is the CALLING party (`from_e164`); on an outbound one the
+        same person is the one we dialled (`to_e164`). Putting it on the wrong end would
+        suppress, remember and erase against our own header.
+
+        HARD RULE 6: the number is carried into a field and never into a log line. What is
+        logged about the identity is its STATE, once, by `assemble_call`.
+        """
+        known = self._caller.e164 if self._caller is not None and self._caller.is_known else None
+        inbound = self._config.direction == "inbound"
         return CallEvent(
             call_id=self._config.call_id,
             tenant_id=self._config.tenant_id,
@@ -378,6 +463,8 @@ class NormalizedEventBoundary:
             started_at=self._started_at,
             ended_at=ended_at,
             engine=ENGINE_NAME,
+            from_e164=known if inbound else None,
+            to_e164=None if inbound else known,
         )
 
     # -- turns ---------------------------------------------------------------------------
@@ -447,6 +534,40 @@ class NormalizedEventBoundary:
         async def _on_started(_worker: Any, _frame: Any) -> None:
             await self.call_started()
 
+        async def _on_error(_worker: Any, frame: Any) -> None:
+            """Remember a vendor leg that has stopped being able to do its job.
+
+            **AN `EndFrame` IS NOT EVIDENCE THAT THE CALL WENT WELL, AND UNTIL THIS
+            HANDLER EXISTED IT WAS TREATED AS IF IT WERE.** The `_on_finished` comment
+            below closes the `CancelFrame` half of that defect and names
+            `ProcessorUnusablePolicy.END` in the same breath as `runner.cancel()` — but
+            the two take different exits. `assemble_call` chooses `END`, and END means
+            `stop_when_done()` (`pipecat/pipeline/worker.py:1523`), which drains and
+            fires `on_pipeline_finished` with an **`EndFrame`**. So the one failure this
+            worker is most likely to meet in production — Cartesia rejecting a key, Gnani's
+            socket dying permanently, Sarvam refusing the model, all mid-call — arrived at
+            `calls.status` as a clean `completed`, indistinguishable from a caller who said
+            goodbye and hung up. Silent, total, and on the column the CRM, the QA report
+            and every refund argument read.
+
+            **THE PREDICATE IS THE VENDOR'S OWN, NOT A SECOND OPINION.** Pipecat decides
+            whether to apply the policy at all with `frame.fatal` or `frame.processor and
+            not frame.processor.is_usable` (`worker.py:1496-1501`), and this asks exactly
+            that, so a transient error the pipeline shrugs off does not become a failed
+            call here. It runs BEFORE the policy does — `_call_event_handler(
+            "on_pipeline_error", ...)` is awaited at `:1493`, `_handle_unusable_processor`
+            at `:1500` — so the flag is always set before the `EndFrame` it explains.
+
+            Nothing about the error is logged here: the vendor already logs the processor
+            (`worker.py:1520`), and an `ErrorFrame`'s message can carry the text a service
+            was asked to speak (hard rule 6, `vendor_logging.py`).
+            """
+            processor = getattr(frame, "processor", None)
+            if getattr(frame, "fatal", False) or (
+                processor is not None and not processor.is_usable
+            ):
+                self._leg_failed = True
+
         async def _on_finished(_worker: Any, frame: Any) -> None:
             # THE FRAME DECIDES THE STATUS, AND THIS USED TO DISCARD IT. Pipecat fires
             # `on_pipeline_finished` for `StopFrame`, `EndFrame` AND `CancelFrame`
@@ -456,7 +577,7 @@ class NormalizedEventBoundary:
             # or by any non-drain path was indistinguishable from a conversation that ended
             # of its own accord. The drain path escaped it only because `lifecycle.drain`
             # writes `failed` first.
-            if isinstance(frame, CancelFrame):
+            if isinstance(frame, CancelFrame) or self._leg_failed:
                 await self.call_ended(status="failed")
             else:
                 await self.call_ended(status="completed")
@@ -464,6 +585,7 @@ class NormalizedEventBoundary:
         aggregators.user().add_event_handler("on_user_turn_stopped", _on_user)
         aggregators.assistant().add_event_handler("on_assistant_turn_stopped", _on_assistant)
         worker.add_event_handler("on_pipeline_started", _on_started)
+        worker.add_event_handler("on_pipeline_error", _on_error)
         worker.add_event_handler("on_pipeline_finished", _on_finished)
 
 
@@ -1005,6 +1127,101 @@ def build_user_aggregator_params(
     )
 
 
+class CallDurationCap:
+    """The agent's `max_call_duration_s`, enforced on the leg that spends the money.
+
+    ⚠ **THIS ENGINE HAD NO CAP AT ALL AND THE CONSOLE SHOWED ONE.**
+    `agents/publishing_routes.py:403` writes it, `AgentConfig.max_call_duration_s` carries
+    it, and the rented engine pushes it as `call_terminate` (`engine/bolna.py:4106`). It
+    appeared NOWHERE in `engine/pipecat.py`, nowhere in the session payload and nowhere in
+    this container, and `assemble_call` sets `idle_timeout_secs=None` deliberately — so on
+    `owned_runtime` a call that never ended never ended, burning a client's credits against
+    a cap they had set and been shown. A money defect (hard rule 7) before a trust one.
+
+    **IT PUSHES A FRAME. IT DOES NOT CALL A METHOD ON THE PIPELINE.** The vendor's own rule:
+    *"change a running pipeline by pushing a frame, never by calling a method on an object
+    in it"* (`AGENTS.md:153`) — reaching in jumps the queue ahead of frames already in
+    flight and causes ordering bugs that only appear under real timing.
+
+    **AND THE FRAME IS `EndWorkerFrame`, NOT A CANCEL.** Its own docstring
+    (`pipecat/frames/frames.py:1800-1810`, read 19 Sep 2026): *"the pipeline should be
+    closed nicely (flushing all the queued frames) by pushing an EndFrame downstream"*.
+    Cancelling would cut the caller off mid-word; ending drains, so they hear the end of
+    the sentence the agent was already speaking and then the line closes. This repo has
+    already paid for that distinction once — `handle_sigterm=True` was shipped believing it
+    drained, and it calls `cancel()` (`runner.py:347`).
+
+    **ARMED ON `on_pipeline_started`, DISARMED ON `on_pipeline_finished`.** The clock has to
+    start when the pipeline does, not when this object is constructed: `assemble_call` runs
+    while the phone is still ringing, and a cap that counted the knowledge-pack fetch would
+    be shorter than the one the client set. Disarming on finish is what stops a task
+    outliving the call it belongs to in a container Pipecat Cloud reuses across sessions.
+    """
+
+    __slots__ = ("_call_id", "_limit_s", "_task", "_worker")
+
+    def __init__(self, *, worker: PipelineWorker, limit_s: int, call_id: str) -> None:
+        self._worker = worker
+        self._limit_s = limit_s
+        self._call_id = call_id
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def armed(self) -> bool:
+        """Is the clock running? Read by tests and by nothing else."""
+        return self._task is not None and not self._task.done()
+
+    @property
+    def limit_s(self) -> int:
+        """The cap this call is held to, so a reader can prove it came from the agent."""
+        return self._limit_s
+
+    def attach(self, worker: PipelineWorker) -> None:
+        """Register the two handlers. Called by `assemble_call`; no reason to call it yourself."""
+
+        async def _on_started(_worker: Any, _frame: Any) -> None:
+            self.arm()
+
+        async def _on_finished(_worker: Any, _frame: Any) -> None:
+            await self.disarm()
+
+        worker.add_event_handler("on_pipeline_started", _on_started)
+        worker.add_event_handler("on_pipeline_finished", _on_finished)
+
+    def arm(self) -> None:
+        """Start the clock. Idempotent — a re-`StartFrame` must not start a second one."""
+        if self._task is not None:
+            return
+        self._task = asyncio.create_task(self._expire())
+
+    async def disarm(self) -> None:
+        """Stop the clock and wait for the task to actually be gone. Idempotent."""
+        task = self._task
+        self._task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        # SUPPRESSED, not propagated: this coroutine cancelled that task deliberately, and
+        # re-raising its `CancelledError` would cancel whoever is shutting the call down.
+        with suppress(asyncio.CancelledError):
+            await task
+
+    async def _expire(self) -> None:
+        """Wait out the cap, then end the call by pushing a frame."""
+        await asyncio.sleep(self._limit_s)
+        # Ids and a number that is a duration, never a party (hard rule 6). WARNING and not
+        # INFO: a call that ran to its cap is a conversation somebody was cut out of, and
+        # an operator reading a complaint needs to find it.
+        logger.warning(
+            "call duration cap reached; ending the call",
+            call_id=self._call_id,
+            max_call_duration_s=self._limit_s,
+        )
+        await self._worker.queue_frames(
+            [EndWorkerFrame(reason=f"call duration cap of {self._limit_s}s reached")]
+        )
+
+
 @dataclass(slots=True)
 class AssembledCall:
     """Everything one call needs, assembled and not yet running."""
@@ -1025,6 +1242,9 @@ class AssembledCall:
     #: Held so an entrypoint can log `knowledge.unavailable_reason` without re-deriving it,
     #: and so a test can assert which session the advertised tool closed over.
     knowledge: SessionKnowledge | None = field(default=None)
+    #: The agent's `max_call_duration_s`, armed when the pipeline starts. `None` only where
+    #: there is no cap to enforce, which nothing in production reaches.
+    cap: CallDurationCap | None = field(default=None)
 
     async def start_conversation(self) -> bool:
         """Make the agent speak first, if this agent does.
@@ -1065,6 +1285,8 @@ def assemble_call(
     caller_memory: Sequence[str] = (),
     observers: Sequence[BaseObserver] | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
+    tool_api: CallToolApi | None = None,
+    caller: CallerIdentityLike | None = None,
 ) -> AssembledCall:
     """Assemble the §4 pipeline for one call.
 
@@ -1089,6 +1311,22 @@ def assemble_call(
     hands the facts in. The default `()` is a first-time caller, an agent that does not
     remember its callers, and every test — one state, rendered one way, because that is
     exactly what `CALLER_MEMORY_GUIDANCE` already tells the model an empty block means.
+
+    **`tool_api` AND `caller` ARE ARGUMENTS FOR `transport`'s AND `sink`'s REASON, AND
+    THEY ARE WHAT MAKE THIS AGENT THE SAME AGENT ON BOTH ENGINES.** Until they existed this
+    assembler advertised ONE tool while `apps/voice-runtime/tool_routes.py` served four on
+    the rented engine — so an `owned_runtime` agent could not honour a caller's opt-out
+    (hard rule 5, SEC-COMP §2.3), could not book or cancel a call-back, and could not ask
+    for a person. `None` for either is a local run, a replay or a test: no tool is
+    advertised, and `build_call_tools` argues why that is the right empty state for ACTS
+    even though it is the wrong one for the knowledge SEARCH beside them.
+
+    `caller` is `carrier.CallerIdentity` — matched structurally (`CallerIdentityLike`)
+    because `carrier.py` imports this module and the reverse import would be a cycle. It
+    does two jobs and both need the STATE rather than a nullable number: it puts the party
+    on every `CallEvent` this call emits, and it lets the opt-out tool answer truthfully in
+    the moment instead of letting an ARQ job discover minutes later that nothing could be
+    attributed.
 
     **`embedder` IS AN ARGUMENT FOR A THIRD REASON ON TOP OF THOSE TWO: IT IS THE SWITCH
     THAT DECIDES WHETHER A TURN MAY SPEND MONEY.** `None` — the default, and what every test
@@ -1133,13 +1371,47 @@ def assemble_call(
     # has nothing to fill and must not acquire a memory section from a caller.
     spoken_prompt = fill_caller_memory_slot(config.system_prompt, caller_memory)
 
+    # WHO IS ON THE CALL, LOGGED ONCE AND AS A STATE. `caller.state` and `caller.ground`
+    # are written in `carrier.py` and never built from wire data, so neither can carry a
+    # number; `caller.e164` is deliberately absent from this line and from every other one
+    # in this module (hard rule 6). It is logged HERE, once, rather than per event, because
+    # an operator asking "why is this call's number NULL" wants one answer per call.
+    if caller is not None:
+        logger.info(
+            "caller identity for this call",
+            call_id=config.call_id,
+            caller_identity=caller.state,
+            caller_identity_ground=caller.ground,
+        )
+
     context = LLMContext(
         messages=[{"role": "system", "content": spoken_prompt}],
-        # ONE tool, always advertised. `LLMContext` normalises a plain list into a
-        # `ToolsSchema` itself (`pipecat/processors/aggregators/llm_context.py:493-499`),
-        # and the LLM service registers a schema's own handler when it sees the context
+        # THE KNOWLEDGE SEARCH, ALWAYS, PLUS THE FOUR IN-CALL ACTS WHEN THERE IS AN API TO
+        # PERFORM THEM. `LLMContext` normalises a plain list into a `ToolsSchema` itself
+        # (`pipecat/processors/aggregators/llm_context.py:493-499`), and the LLM service
+        # registers a schema's own handler when it sees the context
         # (`pipecat/services/llm_service.py:1256-1265`) — so nothing else has to be wired.
-        tools=[build_knowledge_tool(knowledge, pack_configured=pack_configured, embedder=embedder)],
+        #
+        # ⚠ **THIS LINE READ `tools=[build_knowledge_tool(...)]` AND THAT WAS THE WHOLE OF
+        # THE DEFECT.** One tool here against four on the rented engine meant a caller
+        # saying "stop calling me" reached nothing at all on this leg.
+        tools=[
+            build_knowledge_tool(knowledge, pack_configured=pack_configured, embedder=embedder),
+            *build_call_tools(
+                tool_api,
+                tenant_id=config.tenant_id,
+                call_id=config.call_id,
+                # THE IGNORE IS THE PRICE OF THE PROTOCOL AND IS THE CHEAPER SIDE OF THE
+                # TRADE. `CallerIdentityLike.state` is declared `str` because a structural
+                # Protocol is what avoids a `pipeline` -> `carrier` import cycle, while
+                # `build_call_tools` takes the closed `CallerIdentityState` so the wire
+                # vocabulary is checked everywhere else. Pydantic validates the value on
+                # the way into `CallerIdentityIn` either way, so a state neither module
+                # knows is refused rather than sent.
+                caller_state=caller.state if caller is not None else "not_read",  # type: ignore[arg-type]
+                caller_e164=caller.e164 if caller is not None else None,
+            ),
+        ],
     )
     aggregators = LLMContextAggregatorPair(
         context,
@@ -1195,8 +1467,16 @@ def assemble_call(
         conversation_id=config.call_id,
     )
 
-    boundary = NormalizedEventBoundary(config=config, sink=sink)
+    boundary = NormalizedEventBoundary(config=config, sink=sink, caller=caller)
     boundary.attach(worker=worker, aggregators=aggregators)
+
+    # THE CAP, ARMED BY THE PIPELINE'S OWN START EVENT. Built here rather than in the
+    # entrypoint for `NormalizedEventBoundary`'s reason: `PipelineWorker` takes its
+    # observers at construction and there is no adding a handler to a pipeline somebody
+    # else assembled, so the one function that builds the worker is the one that can arm
+    # anything against it.
+    cap = CallDurationCap(worker=worker, limit_s=config.max_call_duration_s, call_id=config.call_id)
+    cap.attach(worker)
 
     observed = recompute_prompt_sha256(config.system_prompt)
     return AssembledCall(
@@ -1209,6 +1489,7 @@ def assemble_call(
         prompt_matches_config_version=observed == config.prompt_sha256,
         greet_first=config.greet_first,
         knowledge=knowledge,
+        cap=cap,
     )
 
 
@@ -1223,6 +1504,8 @@ __all__ = [
     "STT_MODEL",
     "TELEPHONY_SAMPLE_RATE_HZ",
     "AssembledCall",
+    "CallDurationCap",
+    "CallerIdentityLike",
     "NormalizedEventBoundary",
     "NormalizedEventSink",
     "SessionConfig",

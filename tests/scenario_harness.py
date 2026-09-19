@@ -67,7 +67,7 @@ import asyncio
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID, uuid4
 
 from calevate_shared.engine import (
@@ -81,7 +81,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     compose_opening_line,
 )
-from calevate_shared.events import CallEvent, TranscriptTurn
+from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 from pipecat.frames.frames import (
     Frame,
     FunctionCallFromLLM,
@@ -220,6 +220,7 @@ def compose_agent_prompt(
     posture: DisclosurePosture = DEFAULT_POSTURE,
     client_script: str = DEFAULT_CLIENT_SCRIPT,
     call_is_recorded: bool = True,
+    direction: Literal["inbound", "outbound", "both"] = "inbound",
 ) -> str:
     """The system prompt a published agent actually carries, from the real composer.
 
@@ -231,7 +232,7 @@ def compose_agent_prompt(
         tenant_id=str(uuid4()),
         agent_id=str(uuid4()),
         name="Vaidya Clinic receptionist",
-        direction="inbound",
+        direction=direction,
         system_prompt=client_script,
         opening_line=compose_opening_line(posture),
         call_is_recorded=call_is_recorded,
@@ -242,6 +243,7 @@ def compose_agent_prompt(
 def make_session_config(
     *,
     system_prompt: str,
+    direction: CallDirection = "inbound",
     language: str = "te-IN",
     greet_first: bool = True,
     knowledge_pack_sha256: str | None = None,
@@ -253,7 +255,7 @@ def make_session_config(
         tenant_id=UUID("0199c0de-0002-7000-8000-000000000001"),
         agent_id=UUID("0199c0de-0002-7000-8000-000000000002"),
         agent_config_version_id=UUID("0199c0de-0002-7000-8000-000000000003"),
-        direction="inbound",
+        direction=direction,
         system_prompt=system_prompt,
         prompt_sha256=pipeline.recompute_prompt_sha256(system_prompt),
         models=ModelConfig(
@@ -901,6 +903,79 @@ async def run_scenario(
     return run
 
 
+async def run_until_vendor_leg_fails(
+    *,
+    config: pipeline.SessionConfig | None = None,
+    turns: Sequence[CallerTurn] = (),
+    timeout_s: float = 60.0,
+) -> ScenarioRun:
+    """Play `turns`, then have the SPEECH leg report itself unable to do its job.
+
+    **THE FAILURE IS STAGED THE WAY A REAL SERVICE STAGES IT.** Pipecat's own instruction
+    for an error that leaves its processor unable to work is
+    `push_error(..., force_treat_as_permanent=True)`
+    (`pipecat/processors/frame_processor.py:902-911`); the `fatal=True` flag a memory
+    would reach for is DEPRECATED since 1.8.0 and warns
+    (`frame_processor.py:885-894`). That is the shape a rejected Cartesia key, a
+    permanently dead Gnani socket or a refused Sarvam model arrives in, so it is the shape
+    this stages — `ProcessorUnusablePolicy.END` then applies, which is what
+    `assemble_call` chose.
+
+    Returns the run once the pipeline has finished of its own accord. The caller asserts
+    what the sink recorded; nothing is asserted here.
+    """
+    config = config or make_session_config(system_prompt=compose_agent_prompt())
+    transport = FakeTransport()
+    tts = InterruptibleTTS()
+    model = PromptFollowingModel()
+    sink = RecordingSink()
+    call = pipeline.assemble_call(
+        config=config,
+        legs=pipeline.VendorLegs(stt=SpyProcessor("fake-stt"), llm=model, tts=tts),
+        transport=transport,
+        sink=sink,
+    )
+    run = ScenarioRun(sink=sink, transport=transport, tts=tts, model=model, call=call)
+
+    started = asyncio.Event()
+
+    @call.worker.event_handler("on_pipeline_started")
+    async def _on_started(_worker: Any, _frame: Any) -> None:
+        started.set()
+
+    runner = WorkerRunner(handle_sigint=False)
+    await runner.add_workers(call.worker)
+    running = asyncio.create_task(runner.run())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=timeout_s)
+        await call.start_conversation()
+        await _await_utterances(run, at_least=1, timeout_s=timeout_s)
+
+        for turn in turns:
+            before = len(run.agent_utterances)
+            await call.worker.queue_frame(UserStartedSpeakingFrame())
+            await call.worker.queue_frame(
+                TranscriptionFrame(
+                    turn.text, user_id="caller", timestamp="2026-09-19T00:00:00.000+00:00"
+                )
+            )
+            await call.worker.queue_frame(UserStoppedSpeakingFrame())
+            await _await_utterances(run, at_least=before + 1, timeout_s=timeout_s)
+
+        await tts.push_error(
+            error_msg="the speech vendor rejected our credential",
+            force_treat_as_permanent=True,
+        )
+        # NOTHING IS ASKED OF THE PIPELINE AFTER THIS. The policy ends it; a
+        # `stop_when_done()` of ours would be a second ending and would make the scenario
+        # pass whether or not the policy did anything.
+        await asyncio.wait_for(running, timeout=timeout_s)
+    finally:
+        if not running.done():
+            running.cancel()
+    return run
+
+
 async def _await_utterances(run: ScenarioRun, *, at_least: int, timeout_s: float) -> None:
     """Wait for the agent's reply to land in the transcript, or give up loudly.
 
@@ -969,6 +1044,7 @@ __all__ = [
     "is_telugu",
     "make_session_config",
     "run_scenario",
+    "run_until_vendor_leg_fails",
     "undigited_numbers",
     "voice_safety_violations",
 ]

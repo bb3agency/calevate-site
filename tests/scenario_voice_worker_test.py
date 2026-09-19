@@ -25,6 +25,10 @@ WHAT EACH SCENARIO COVERS:
   5. spoken output: no markdown, bullets, asterisks, headings or emoji (`AGENTS.md:180`)
   6. numbers: a reference number is read digit by digit
   7. barge-in: the interruption reaches the speech leg and truncates the turn
+  8. OUTBOUND: the same two toggles, on the leg nothing in this suite used to exercise
+  9. a vendor leg failing mid-call, which must not be recorded as a completed call
+ 10. the retrieval leg being unreachable mid-call — `temporarily_unavailable`, the fourth
+     knowledge outcome and the only one a caller meets because something broke
 """
 
 from __future__ import annotations
@@ -48,6 +52,7 @@ from scenario_harness import (
     is_telugu,
     make_session_config,
     run_scenario,
+    run_until_vendor_leg_fails,
     undigited_numbers,
     voice_safety_violations,
 )
@@ -557,3 +562,138 @@ def test_the_scenario_prompt_is_the_real_composition_and_not_a_hand_written_one(
         opening_line=compose_opening_line(posture),
     )
     assert compose_agent_prompt(posture=posture) == compose_engine_prompt(cfg)
+
+
+# ======================================================================================
+# 8. OUTBOUND. D-163's two toggles are switchable "on inbound and outbound alike", and
+#    every scenario above this line runs one direction.
+# ======================================================================================
+
+
+@pytest.mark.parametrize(
+    ("ai_on", "recording_on"),
+    [(True, True), (True, False), (False, True), (False, False)],
+)
+async def test_an_outbound_agent_opens_with_exactly_the_notices_its_toggles_switched_on(
+    ai_on: bool, recording_on: bool
+) -> None:
+    """The four postures again, on the other direction.
+
+    **WHY THIS IS NOT A COPY OF SECTION 1.** `compose_engine_prompt` does not branch on
+    direction, so the prompt is the same — and that is precisely the claim worth pinning:
+    D-163 says the obligations are separate and separately switchable on BOTH legs, and
+    until this scenario existed nothing in the suite would have noticed a composer, a
+    worker or a boundary that treated an outbound call differently. It also asserts the
+    one thing that IS direction-dependent and had no scenario at all: what the normalized
+    `CallEvent` says the call's direction was. A worker that hardcoded `inbound` there
+    would file every outbound campaign call as an inbound one, in the CRM and in the
+    ledger, and nothing above would have gone red.
+    """
+    posture = DisclosurePosture(
+        ai_disclosure_line=DEFAULT_POSTURE.ai_disclosure_line,
+        ai_disclosure_enabled=ai_on,
+        recording_notice_line=DEFAULT_POSTURE.recording_notice_line,
+        recording_notice_enabled=recording_on,
+    )
+    config = make_session_config(
+        system_prompt=compose_agent_prompt(posture=posture, direction="outbound"),
+        direction="outbound",
+    )
+    run = await run_scenario([], config=config)
+
+    first = run.agent_utterances[0]
+    assert (DEFAULT_POSTURE.ai_disclosure_line in first) is ai_on
+    assert (DEFAULT_POSTURE.recording_notice_line in first) is recording_on
+    assert {event.direction for event in run.sink.events} == {"outbound"}
+
+
+async def test_an_outbound_agent_asked_whether_it_is_an_ai_still_says_it_is() -> None:
+    """Hard rule 5 is not a property of the inbound leg.
+
+    The dial gate refuses an outbound agent with no AI sentence
+    (`compliance/service.check_dispatch`), which is about VOLUNTEERING it. This is the
+    other half — the answer when a caller asks — and it is the half no configuration may
+    withdraw on either direction.
+    """
+    config = make_session_config(
+        system_prompt=compose_agent_prompt(
+            posture=DisclosurePosture(
+                ai_disclosure_line=DEFAULT_POSTURE.ai_disclosure_line,
+                ai_disclosure_enabled=False,
+                recording_notice_line=DEFAULT_POSTURE.recording_notice_line,
+                recording_notice_enabled=False,
+            ),
+            direction="outbound",
+        ),
+        direction="outbound",
+    )
+    run = await run_scenario([CallerTurn("are you an AI?")], config=config)
+    answer = run.agent_utterances[-1]
+    assert "AI" in answer or "ఏఐ" in answer
+    assert "real person" not in answer
+
+
+# ======================================================================================
+# 9. A VENDOR LEG FAILING MID-CALL. The failure this worker is most likely to meet in
+#    production, and the one the call row must not describe as a clean ending.
+# ======================================================================================
+
+
+async def test_a_speech_leg_that_dies_mid_call_ends_the_call_and_records_it_as_failed() -> None:
+    """A rejected key, a dead socket, a refused model — all arrive here.
+
+    **WHAT THIS CAUGHT.** `assemble_call` chooses `ProcessorUnusablePolicy.END`, and END
+    means `stop_when_done()` (`pipecat/pipeline/worker.py:1523`) — a graceful drain that
+    fires `on_pipeline_finished` with an **`EndFrame`**. The boundary read anything that
+    was not a `CancelFrame` as `completed`, so a call that died because Cartesia rejected
+    our credential was written to `calls.status` exactly like a caller who said goodbye.
+
+    Two assertions, because either alone would pass on a broken build: the pipeline must
+    END (the policy did something) and the status must be `failed` (the boundary knew
+    why).
+    """
+    run = await run_until_vendor_leg_fails(turns=[CallerTurn("are you an AI?")])
+
+    assert [event.status for event in run.sink.events] == ["in_progress", "failed"]
+    # The turns before the failure are still ours to keep: the caller said them and the
+    # agent answered, and a failed ending is not a reason to lose the transcript.
+    assert run.caller_utterances == ["are you an AI?"]
+    assert len(run.agent_utterances) >= 2
+
+
+async def test_a_call_nobody_interrupted_is_still_recorded_as_completed() -> None:
+    """The negative control for the scenario above.
+
+    Without it, a boundary that simply wrote `failed` for every call would pass — which is
+    the shape of over-correction this repo's own commentary keeps warning about.
+    """
+    run = await run_scenario([CallerTurn("are you an AI?")])
+    assert [event.status for event in run.sink.events] == ["in_progress", "completed"]
+
+
+# ======================================================================================
+# 10. THE RETRIEVAL LEG UNREACHABLE. The fourth knowledge outcome, and the only one that
+#     means "something broke" rather than "we do not publish that".
+# ======================================================================================
+
+
+async def test_a_pack_the_worker_could_not_load_is_an_apology_and_never_a_denial() -> None:
+    """`temporarily_unavailable`: the client PUBLISHED a pack and this process has none.
+
+    From the caller's seat an unloaded pack and an unreachable one are the same silence,
+    and the agent must say so as an apology — never "the clinic does not offer that",
+    which would be a false statement about a client's business made out of our own
+    outage. Section 3 covers the three outcomes a WORKING pack produces; this is the one
+    only a failure produces, and nothing exercised it end to end.
+    """
+    base = make_session_config(system_prompt=compose_agent_prompt())
+    _, digest = build_knowledge(base)
+    # The pack is CONFIGURED and NOT LOADED — `knowledge=None` with a digest on the config
+    # is exactly the wiring failure `assemble_call` logs as an operator-visible outage.
+    config = make_session_config(system_prompt=base.system_prompt, knowledge_pack_sha256=digest)
+    run = await run_scenario([CallerTurn("what are your timings?")], config=config)
+
+    assert run.model.tool_calls, "the agent did not even try to look the fact up"
+    spoken = run.agent_utterances[-1]
+    assert "do not offer" not in spoken
+    assert "?" in spoken, "an apology that offers no next step leaves the caller nowhere"

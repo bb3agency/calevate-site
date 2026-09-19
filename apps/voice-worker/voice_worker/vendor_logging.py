@@ -26,12 +26,47 @@ the floor to INFO removes all five above. It does NOT remove:
     pipecat/services/tts_service.py:1318
         logger.warning(f"{self}: service is no longer usable, not speaking [{prepared_text}]")
 
-which is a WARNING and carries the agent's sentence. Every other INFO-or-above call site
-in the modules this worker imports was read (sarvam/stt.py, sarvam/tts.py, tts_service.py,
-stt_service.py, llm_service.py, openai/llm.py, azure/llm.py,
-aggregators/llm_response_universal.py) and carries ids, model names, counts or our own
-configuration — never caller or agent content. That is why the denylist below has exactly
-one entry and is not a "belt and braces" list of everything that looked risky.
+which is a WARNING and carries the agent's sentence.
+
+⚠ **THE SWEEP THAT PRODUCED THE ONE-ENTRY LIST WAS RUN ON 13 SEP 2026 AND THIS WORKER'S
+IMPORT GRAPH GREW AFTER IT (re-swept 19 Sep 2026).** The original reading covered the
+SERVICE modules (sarvam/stt.py, sarvam/tts.py, tts_service.py, stt_service.py,
+llm_service.py, openai/llm.py, azure/llm.py, aggregators/llm_response_universal.py) and
+concluded, correctly for that graph, that one entry was enough. It did not cover the
+TRANSPORT and SERIALIZER modules, because on 13 Sep there was no carrier: `carrier.py`
+(D-610, 15 Sep 2026) added `pipecat.serializers.plivo` and
+`pipecat.transports.websocket.fastapi` — and with the latter, transitively,
+`pipecat.transports.base_output`. Re-reading every INFO-or-above call site in the new
+modules found two more that interpolate CONTENT, and both are WARNINGs, so the level
+floor does not reach them either:
+
+    pipecat/serializers/plivo.py:221
+        logger.warning(f"Failed to parse JSON message: {data}")
+
+    — `data` is the RAW websocket frame as the carrier sent it. On a Plivo media stream
+      that is `{"event": "media", "media": {"payload": "<base64 PCM>"}}`, so a single
+      truncated or half-delivered frame writes the CALLER'S AUDIO to stdout. It is worse
+      than the transcript leak this module was built for, on the one leg that carries
+      audio at all, and it is reachable by anything that corrupts one frame on the wire.
+
+    pipecat/transports/base_output.py:377
+        logger.warning(f"{self} destination [...] not registered for frame {frame}")
+
+    — `{frame}` renders through `Frame.__str__`, and `TextFrame.__str__` is
+      `f"{self.name}(pts: {pts}, text: [{self.text}])"` (`pipecat/frames/frames.py:337`),
+      which every spoken frame inherits. It fires only when a frame carries a
+      `transport_destination` the output transport has no sender for — rare, and a
+      misconfiguration rather than a routine event — but the rule is not "rarely log
+      transcript text".
+
+Everything else read in the new modules carries ids, sizes, exception types or our own
+configuration. `pipecat/transports/base_output.py:918` looks like the same defect and is
+not: it is guarded by `isinstance(frame, OutputAudioRawFrame)` (`:915`) and that frame's
+`__str__` prints a byte COUNT (`frames.py:213`). `pipecat/services/sarvam/stt.py:1228`
+does log a raw Sarvam message, but it lives in `SarvamRealtimeSTTService` (`stt.py:915`),
+which `_build_stt` deliberately does not construct — an entry for it would be a guess
+about a code path this worker cannot reach. Read 19 Sep 2026 against the installed
+`pipecat-ai==1.10.0`; the pins below are what keeps that reading honest across a bump.
 
 **WHY A PINNED (module, line) PAIR RATHER THAN A MESSAGE MATCH.** A substring match on
 "not speaking" is a guess about a string the vendor may reword; the record's own origin is
@@ -68,16 +103,34 @@ VENDOR_LOG_LEVEL: Final[str] = "INFO"
 CONTENT_BEARING_RECORDS: Final[frozenset[tuple[str, int]]] = frozenset(
     {
         ("pipecat.services.tts_service", 1318),
+        ("pipecat.serializers.plivo", 221),
+        ("pipecat.transports.base_output", 377),
     }
 )
 
 #: The source text each pinned record must still be, so a dependency bump cannot move the
 #: line out from under the denylist without failing a test. Read from the installed file.
-CONTENT_BEARING_SOURCE: Final[dict[tuple[str, int], str]] = {
-    (
-        "pipecat.services.tts_service",
-        1318,
-    ): 'logger.warning(f"{self}: service is no longer usable, not speaking [{prepared_text}]")',
+#:
+#: **A TUPLE OF LINES, NOT A LINE, BECAUSE ONE OF THE THREE CALLS IS WRAPPED.** loguru
+#: attributes a record to the line the CALL starts on — measured, not recalled: a
+#: `logger.warning(` whose message sits on the next line reports the `logger.warning(`
+#: line. So the key is that line, and pinning only its text would pin the string
+#: `logger.warning(`, which is true of a hundred call sites and would not notice the
+#: vendor rewording the very message that makes the entry necessary. Each value is the
+#: whole statement, stripped line by line; `tests/voice_worker_pipeline_test.py` compares
+#: it against the installed file.
+CONTENT_BEARING_SOURCE: Final[dict[tuple[str, int], tuple[str, ...]]] = {
+    ("pipecat.services.tts_service", 1318): (
+        'logger.warning(f"{self}: service is no longer usable, not speaking [{prepared_text}]")',
+    ),
+    ("pipecat.serializers.plivo", 221): (
+        'logger.warning(f"Failed to parse JSON message: {data}")',
+    ),
+    ("pipecat.transports.base_output", 377): (
+        "logger.warning(",
+        'f"{self} destination [{frame.transport_destination}] not registered for frame {frame}"',
+        ")",
+    ),
 }
 
 _installed = False

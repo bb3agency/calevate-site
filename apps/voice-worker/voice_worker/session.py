@@ -50,6 +50,7 @@ from pipecat.observers.base_observer import BaseObserver
 from pipecat.transports.base_transport import BaseTransport
 
 from voice_worker.api_client import WorkerApiClient
+from voice_worker.call_tools import CallToolApi
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import (
     PackCache,
@@ -62,6 +63,7 @@ from voice_worker.memory import CallerMemoryReader
 from voice_worker.pipeline import (
     SMART_TURN_STOP_SECS,
     AssembledCall,
+    CallerIdentityLike,
     NormalizedEventSink,
     SessionConfig,
     VendorCredentials,
@@ -187,8 +189,23 @@ async def open_session(
     caller_e164: str | None = None,
     observers: Sequence[BaseObserver] | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
+    tool_api: CallToolApi | None = None,
+    caller: CallerIdentityLike | None = None,
 ) -> AssembledCall:
     """One assembled call, with its knowledge already in memory.
+
+    **`tool_api` AND `caller` ARE WHAT MAKE THE FOUR IN-CALL TOOLS REACHABLE, AND THEY ARE
+    PASSED THROUGH RATHER THAN BUILT HERE.** `assemble_call` advertises the opt-out,
+    call-back, cancel and handoff tools only when it is handed an API to reach them
+    through — deliberately, because unlike the knowledge SEARCH these are ACTS, and four
+    tools that can only fail waste a conversational turn. Until this hop existed they were
+    built, tested and served with nothing passing either value, which is the half-wired
+    shape CLAUDE.md names: a caller on an `owned_runtime` call could not opt out at all.
+
+    `caller` rides beside it because the opt-out's honesty depends on it: the handler
+    refuses to write, and refuses to let the agent claim success, unless the identity state
+    is `known`. It is the same structural type `pipeline` matches (`CallerIdentityLike`),
+    not a second definition.
 
     The await happens BEFORE `assemble_call` and not inside it, which is the timing the
     whole design rests on: the fetch is bounded (`storage.PACK_FETCH_BUDGET_S`) and spent
@@ -247,6 +264,8 @@ async def open_session(
         caller_memory=caller_memory,
         observers=observers,
         stop_secs=stop_secs,
+        tool_api=tool_api,
+        caller=caller,
     )
 
 
@@ -267,6 +286,8 @@ async def start_session(
     memory_reader: CallerMemoryReader | None = None,
     caller_e164: str | None = None,
     observers: Sequence[BaseObserver] | None = None,
+    tool_api: CallToolApi | None = None,
+    caller: CallerIdentityLike | None = None,
 ) -> AssembledCall:
     """Ids in, a runnable call out. The whole path, in the order it must happen.
 
@@ -302,6 +323,8 @@ async def start_session(
         memory_reader=memory_reader,
         caller_e164=caller_e164,
         observers=observers,
+        tool_api=tool_api,
+        caller=caller,
     )
 
 

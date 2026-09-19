@@ -156,6 +156,13 @@ async def load_session_config(
         greet_first=answer.greet_first,
         knowledge_pack_sha256=answer.knowledge_pack_sha256,
         engine_agent_ref=answer.engine_agent_ref,
+        # THE AGENT'S CALL CAP, CARRIED LIKE EVERY OTHER PUBLISHED FIELD AND DECIDED BY
+        # NOBODY HERE. It reached this engine nowhere at all until now: the console writes
+        # it, the rented engine pushes it as `call_terminate`, and `assemble_call` sets
+        # `idle_timeout_secs=None` deliberately — so an `owned_runtime` call ran until
+        # somebody hung up, against a cap its owner had set and been shown (hard rule 7).
+        # `pipeline.CallDurationCap` is what enforces it.
+        max_call_duration_s=answer.max_call_duration_s,
     )
 
 

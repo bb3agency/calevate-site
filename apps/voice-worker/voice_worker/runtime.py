@@ -88,6 +88,7 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
 from voice_worker.api_client import WorkerApiClient, WorkerApiError
+from voice_worker.call_tools import CallToolApiClient
 from voice_worker.carrier import arm_first_turn
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
@@ -187,7 +188,13 @@ class WorkerRuntime:
         batch, flush = turn_buffer_bounds()
         config = load_worker_config()
         return cls(
-            WorkerApiClient.from_config(
+            # `CallToolApiClient`, NOT `WorkerApiClient`, and it is a drop-in subclass —
+            # same pool, same header, same error type. It is what makes the four in-call
+            # tools reachable: `assemble_call` advertises them only when handed an API to
+            # reach them through, so until this line the opt-out, call-back, cancel and
+            # handoff tools were built, tested and served with nothing able to call them.
+            # A caller on an `owned_runtime` call could not ask to be taken off the list.
+            CallToolApiClient.from_config(
                 base_url=config.pipecat_worker_api_base_url,
                 token=config.pipecat_worker_api_token,
             ),
