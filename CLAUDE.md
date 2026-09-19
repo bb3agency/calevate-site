@@ -532,6 +532,56 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
       Four "raghava-proven" claims in `docs/DEPLOYMENT.md` were false the whole time because
       nobody had read the source they cited. If you cite something, open it.
 
+13. **A comment explains the CODE. It is not a diary, a defence, or a changelog.**
+    This rule exists because the practice drifted badly and nobody stopped it: comments in
+    this tree had grown into session narration — what an agent measured today, what a brief
+    asked for, what a previous version of the same comment said and why that was wrong,
+    addressed to a reader arguing back. That is noise wearing the costume of rigour, it
+    buries the two or three lines that actually matter, and it is now the single most
+    common defect in this repository.
+
+    **The test is one question: does a competent reader who has never seen this session
+    need this sentence to work on this code?** If no, it does not go in a comment.
+
+    **WRITE:**
+    - WHY this and not the obvious alternative, naming the alternative. The single highest
+      value comment in this tree is "we do X rather than Y because Y does Z".
+    - A constraint the code cannot state itself: an ordering that is load-bearing, a lock
+      that must be taken first, a budget the line is inside, a legal or regulatory reason.
+    - The failure this line prevents, when it is not obvious from the line.
+    - For a vendor fact that reaches money, a wire value or a client-facing claim: the
+      figure, its source and its date, in ONE clause. Hard rule 11 requires the evidence to
+      travel with the claim — it does NOT require a paragraph about the act of checking.
+
+    **DO NOT WRITE:**
+    - **Session narration.** "Re-measured 19 Sep 2026", "I checked and", "the brief named",
+      "verified this session". The reader does not care who looked; they care what is true.
+      A date belongs beside a FACT THAT CAN EXPIRE, not beside your act of reading it.
+    - **Self-defence and self-congratulation.** "and that is a measurement, not a shrug",
+      "this is the stronger kind of absence", "deliberately, and the reason is the paragraph
+      above". If the code is right the comment does not need to win an argument.
+    - **Restating the line.** The `what` is already in the code.
+    - **Correction archaeology.** "⚠ THIS USED TO SAY X" is worth keeping ONLY while a
+      reader could still act on the old belief — a value that propagated, a claim other
+      files cite, an instruction somebody might follow. Once the wrong version is gone from
+      the tree and from every reader's head, the correction is history and belongs in the
+      decision log, not above the code. A ⚠ block whose subject no longer exists anywhere
+      is pure cost. **Corrections do not stack: never leave two or three generations of
+      "this said A, then B, and both were wrong" above one line.**
+    - **Shouting.** Bold and caps are for the one sentence in a module that is genuinely
+      load-bearing. When every paragraph shouts, none does.
+
+    **LENGTH IS THE SYMPTOM, NOT THE DISEASE — do not fix this by truncating.** A
+    twenty-line comment that records a hard-won design decision is correct. A four-line one
+    that narrates a measurement is not. Cutting the second is the job; cutting the first is
+    a different defect, and the more expensive one, because the reasoning cannot be
+    recovered from the code.
+
+    **WHAT THIS DOES NOT LICENSE.** Do not delete a rejected alternative, a regulatory
+    reason, an evidence class on a live vendor figure, or a warning that an instruction
+    below it is wrong. Hard rules 11 and 12 are unweakened: the evidence still travels with
+    the claim. What goes is the prose around it.
+
 
 ## Conventions
 
