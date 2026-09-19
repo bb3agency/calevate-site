@@ -174,21 +174,24 @@ class TestUngatedDial:
         """The hole the existing per-function name check cannot see. `check_dispatch`
         RETURNS a decision rather than raising (so a UI can explain the refusal), which
         means naming it is not obeying it — delete four lines and the call is placed
-        with the refusal sitting in a local variable."""
+        with the refusal sitting in a local variable.
+
+        THE ANCHOR IS THE `if` LINE ALONE, and that is deliberate rather than lazy. It used
+        to quote the whole refusal BRANCH — the `CallLeadOut(...)` construction and its
+        arguments — which made this control fail the day anything was added inside the
+        branch for a reason that has nothing to do with the rule: a `record_compliance_block`
+        call landed there and the mutation stopped matching, so the guard's own negative
+        control went red while the guard was working perfectly. What is being mutated is the
+        DECISION being read, and that is one line. `_edit` replaces the first occurrence, and
+        `call_lead` holds it (the eligibility GET and `call_back` come later in the file) —
+        which the offender assertion below names, so a future reordering fails loudly here
+        rather than quietly testing the wrong route."""
         root = _mirror(tmp_path, "apps/api/crm/routes.py")
         _edit(
             root,
             "apps/api/crm/routes.py",
-            "    if not decision.allowed:\n"
-            "        result = CallLeadOut(\n"
-            '            status="blocked", blocked_reason=decision.reason, '
-            "blocked_rule=decision.rule\n"
-            "        )",
-            "    if False:\n"
-            "        result = CallLeadOut(\n"
-            '            status="blocked", blocked_reason=decision.reason, '
-            "blocked_rule=decision.rule\n"
-            "        )",
+            "    if not decision.allowed:\n",
+            "    if False:\n",
         )
         offenders = guard.ungated_dials(roots=(root,))
         assert any("routes.py::call_lead" in o and "does not act on" in o for o in offenders), (

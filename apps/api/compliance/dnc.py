@@ -66,7 +66,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.export import subject_ref
-from apps.api.compliance.models import DNC_REMOVABLE_SOURCES
+from apps.api.compliance.models import CALLBACK_SUPPRESSED_REASON, DNC_REMOVABLE_SOURCES
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -74,15 +74,6 @@ from apps.api.db.result import rowcount_of
 from apps.api.ingest.service import normalize_phone
 
 log = get_logger(__name__)
-
-#: What a client reads on a call-back a suppression called off. It says what happened
-#: rather than naming the rule, for the reason every client-facing sentence in this tree
-#: does: "refused (dnc)" is our vocabulary and a person reads their screen, not our enum.
-#: The GATE writes its own DNC sentence on a call-back it refuses at fire time; this is the
-#: wording for the ones stopped days earlier, which never reach the gate at all.
-CALLBACK_SUPPRESSED_REASON = (
-    "This number was added to your do-not-call list, so we did not ring them back."
-)
 
 # Where a suppression came from. Free text in the column (no CHECK constraint), pinned
 # here so the list stays answerable when someone asks "why is this number blocked".

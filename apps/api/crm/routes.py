@@ -25,6 +25,7 @@ from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
+from apps.api.core.alerting import record_compliance_block
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -1365,6 +1366,15 @@ async def call_lead(
         session, tenant_id=principal.tenant_id, agent_id=payload.agent_id, phone_e164=phone
     )
     if not decision.allowed:
+        # COUNTED, like every other refusal of this gate. `assert_dispatch_allowed` records
+        # it for the paths that raise and `campaign_dispatch._refuse_contact` for the
+        # dispatcher's; the two client-initiated dial buttons took the DECISION form and so
+        # recorded nothing, which left `compliance_blocks{rule=...}` — the one metric that
+        # says WHICH desk a "we cannot call anybody" report belongs on — blind to the
+        # single-lead path entirely. Here and not inside `check_dispatch`, because the
+        # eligibility GET calls the same function to render a disabled button and a page
+        # load is not a blocked dial.
+        record_compliance_block(rule=decision.rule or "unknown")
         result = CallLeadOut(
             status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
         )
@@ -1611,6 +1621,10 @@ async def call_back(
         phone_e164=plan.phone_e164,
     )
     if not decision.allowed:
+        # Counted for `call_lead`'s reason, which this route shares: a client pressing
+        # "ring them back" and being refused is a blocked dial, and the eligibility GET
+        # above deliberately is not.
+        record_compliance_block(rule=decision.rule or "unknown")
         result = CallbackOut(
             status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
         )

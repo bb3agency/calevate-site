@@ -179,6 +179,20 @@ ALERT_OPTIN_OPERATOR = "operator_recorded"
 # `compliance.service` importing `dnc.py` would close a cycle. `dnc.REMOVABLE_SOURCES`
 # re-exports this name and stays the vocabulary the routes speak.
 DNC_REMOVABLE_SOURCES: tuple[str, ...] = ("manual",)
+# What a client reads on a call-back a suppression called off. It says what happened
+# rather than naming the rule, for the reason every client-facing sentence in this tree
+# does: "refused (dnc)" is our vocabulary and a person reads their screen, not our enum.
+# The GATE writes its own DNC sentence on a call-back it refuses at fire time; this is the
+# wording for the ones stopped days earlier, which never reach the gate at all.
+#
+# HERE rather than in `compliance/dnc.py` where it was written, for the reason stated
+# above `DNC_REMOVABLE_SOURCES`: both `dnc.add_numbers` and `compliance.service.add_to_dnc`
+# call the promise off now, and `compliance.service` cannot import `dnc.py` without closing
+# the `ingest.service` cycle. One sentence for both doors is the point — a client reading
+# their Call-backs screen must not be able to tell which writer suppressed the number.
+CALLBACK_SUPPRESSED_REASON = (
+    "This number was added to your do-not-call list, so we did not ring them back."
+)
 # The categories a tenant may set a retention period for. Mirrors
 # `ck_retention_policies_category_enum` — the CHECK is the source of truth and this
 # tuple must not drift from it (DATA-MODEL §9, §10).

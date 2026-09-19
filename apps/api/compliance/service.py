@@ -77,6 +77,7 @@ from apps.api.agents.service import agent_outbound_number_blocker
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
+from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.carrier_application import (
     CARRIER_APPLICATION_MISSING_REASON,
     carrier_application_not_accepted_reason,
@@ -89,7 +90,11 @@ from apps.api.compliance.first_campaign import (
     read_first_campaign_review,
 )
 from apps.api.compliance.kyc import KYC_MISSING_REASON, kyc_not_verified_reason, read_kyc
-from apps.api.compliance.models import CONSENT_STATUSES, DNC_REMOVABLE_SOURCES
+from apps.api.compliance.models import (
+    CALLBACK_SUPPRESSED_REASON,
+    CONSENT_STATUSES,
+    DNC_REMOVABLE_SOURCES,
+)
 from apps.api.compliance.registration import outbound_entity_blockers
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
@@ -849,7 +854,20 @@ async def check_dispatch(
         )
     ).first()
     if agent is None:
-        return DispatchDecision(allowed=False, rule="agent_missing", reason="Agent not found.")
+        # A SENTENCE, like every other refusal in this gate. `reason` is not an internal
+        # label: the CRM dial routes hand it straight to the browser as `blocked_reason`
+        # and the client reads it under a greyed-out button, so "Agent not found." left
+        # them with our word for a row and nothing to do about it. It says the same thing
+        # for a deleted agent and for one belonging to another account — deliberately, so
+        # this stays a refusal and not a way to ask whether an id exists.
+        return DispatchDecision(
+            allowed=False,
+            rule="agent_missing",
+            reason=(
+                "That agent is no longer on this account, so it cannot place calls. "
+                "Pick a different agent."
+            ),
+        )
     disclosure, status, direction = agent
     if not disclosure or not str(disclosure).strip():
         # Belt and braces: the column is NOT NULL with a length CHECK, so reaching this
@@ -1174,6 +1192,28 @@ async def add_to_dnc(
     # since. Skipping the case where the suppression is not new would skip exactly the
     # case where a second dial had time to appear.
     await enqueue_dnc_recall(session, tenant_id=tenant_id, phones=[phone_e164])
+    # D-514's SECOND door, which this writer never had. The gate at fire time is the
+    # enforcement and it covers this number already (`dnc` is in `PERSON_LEVEL_REFUSALS`,
+    # read uncached per number, so the promise settles `refused` on the very next tick).
+    # What was missing is the HONESTY half D-514 built for the console's bulk paste and
+    # for nothing else: until this line, a caller who said "stop calling me" mid-call had
+    # their number suppressed and their client's Call-backs screen went on naming a time
+    # we were going to ring them at. The path where the PERSON THEMSELVES asked was the
+    # one path still advertising the promise.
+    #
+    # Same transaction as the suppression, `dnc.add_numbers`' reason: a suppression that
+    # rolls back must not leave a call-back cancelled for something that never happened.
+    # A `dialing` row is deliberately left alone by `cancel_for_phones` — that dial may be
+    # ringing as we write.
+    cancelled = await cancel_for_phones(
+        session, phones=[phone_e164], reason=CALLBACK_SUPPRESSED_REASON
+    )
+    if cancelled:
+        # Ids and counts (hard rule 6).
+        log.info(
+            "dnc_cancelled_callbacks",
+            extra={"tenant_id": str(tenant_id), "cancelled": cancelled},
+        )
 
 
 __all__ = [
