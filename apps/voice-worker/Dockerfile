@@ -124,6 +124,41 @@ COPY apps/voice-worker/voice_worker voice_worker
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package calevate-pipecat-worker
 
+# NLTK'S `punkt_tab`, BUNDLED AT BUILD TIME BECAUSE THE ALTERNATIVE IS A DOWNLOAD ON THE
+# FIRST BOT TURN OF THE FIRST CALL.
+#
+# ⚠ THIS IS ON THE SPOKEN PATH, NOT A NICETY. `match_endofsentence` is what splits the
+# model's stream into sentences for the TTS leg
+# (`pipecat/utils/text/simple_text_aggregator.py:104`) and what the RTVI observer uses to
+# assemble the bot's transcription (`pipecat/processors/frameworks/rtvi/observer.py:777`).
+# It loads NLTK's `punkt_tab` on first use and DOWNLOADS it if it is not on disk
+# (`pipecat/utils/string.py:52-69`) — and the only failures it catches there are `OSError`
+# and `PermissionError`, so a container that cannot reach the download host raises
+# `LookupError` out of the first turn instead. Measured 19 Sep 2026: with the data absent,
+# a worker assembled by `voice_worker.pipeline` logs exactly that on its first bot turn and
+# the observer's task dies.
+#
+# The vendor says to do this, in these words: *"Deployments that build their own image
+# should bundle it at build time (`python -m nltk.downloader punkt_tab`) or point
+# `NLTK_DATA` at a directory that already has it, so that a slow or unavailable network
+# can't delay the first bot turn"* (`pipecat/utils/string.py:19-23`). This does both.
+#
+# `nltk` is a HARD dependency of `pipecat-ai` (`nltk<4,>=3.10.0`, read from the installed
+# metadata 19 Sep 2026), not an extra, so it is present in this image whatever extras the
+# worker pins. `-e` makes the downloader exit non-zero on failure, so a build that cannot
+# reach the data fails HERE, visibly, rather than shipping an image whose first call
+# discovers it. The three `uv run` flags are read from `uv run --help` (19 Sep 2026):
+# `--no-sync` because the environment is already synced two layers up and re-syncing here
+# would undo that layer's caching.
+#
+# ⚠ NOT BUILT FROM HERE: the registry is unreachable in this environment (see the base
+# image note above), so this step is written from the vendor's docstring and the
+# downloader's own `--help`, and has not been executed inside a build.
+ENV NLTK_DATA=/usr/share/nltk_data
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv run --frozen --no-sync --package calevate-pipecat-worker \
+    python -m nltk.downloader -d ${NLTK_DATA} -e punkt_tab
+
 # The entrypoint module, last, because it is the file that changes most often. The NAME is
 # the platform's convention, not ours — see `bot.py`'s docstring for the evidence and for
 # what about it is still unverified.
