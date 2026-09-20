@@ -143,7 +143,7 @@ async def test_the_ledger_refuses_an_update_and_a_delete() -> None:
             statement_version=SENDER_STATEMENT_VERSION,
         )
     async with tenant_session(tenant_id) as session:
-        with pytest.raises(Exception, match="(?i)append.only|immutable|not allowed"):
+        with pytest.raises(Exception, match=r"(?i)append.only|immutable|not allowed"):
             await session.execute(
                 text(
                     "UPDATE outbound_sender_attestations SET state = 'withdrawn' "
@@ -152,7 +152,7 @@ async def test_the_ledger_refuses_an_update_and_a_delete() -> None:
                 {"n": number_id},
             )
     async with tenant_session(tenant_id) as session:
-        with pytest.raises(Exception, match="(?i)append.only|immutable|not allowed"):
+        with pytest.raises(Exception, match=r"(?i)append.only|immutable|not allowed"):
             await session.execute(
                 text("DELETE FROM outbound_sender_attestations WHERE phone_number_id = :n"),
                 {"n": number_id},

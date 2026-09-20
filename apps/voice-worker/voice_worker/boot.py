@@ -61,12 +61,11 @@ from typing import Final
 from urllib.parse import urlparse
 from uuid import UUID
 
-import httpx
 from calevate_shared.events import CallDirection
 from loguru import logger
 
 from voice_worker.api_client import WorkerApiClient
-from voice_worker.embedding import EMBED_BUDGET_S, GeminiQueryEmbedder
+from voice_worker.embedding import EMBED_BUDGET_S, build_gemini_embedder
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
 
@@ -508,7 +507,6 @@ class WorkerRuntime:
     #: The embedder's connection pool, held here only so `aclose` can close it. `None`
     #: whenever `embedder` came from a caller rather than from `build_query_embedder`,
     #: because a pool this process did not open is not this process's to close.
-    embedder_client: httpx.AsyncClient | None
     #: The ONE thing that runs a call: `runtime.WorkerRuntime.run_call`. Held here so the
     #: entrypoint has nothing to assemble of its own — `bot.py` once carried a second,
     #: partial copy of that method and the copy was the one the container ran, shipping
@@ -521,13 +519,16 @@ class WorkerRuntime:
     async def aclose(self) -> None:
         """Release the connection pools. Safe to call twice."""
         await self.api.aclose()
-        if self.embedder_client is not None:
-            await self.embedder_client.aclose()
+        # The embedder owns its own pool; ask it to release rather than reaching into a
+        # transport this object never opened.
+        closer = getattr(self.embedder, "aclose", None)
+        if closer is not None:
+            await closer()
 
 
 def build_query_embedder(
     config: WorkerConfig,
-) -> tuple[QueryEmbedder | None, httpx.AsyncClient | None]:
+) -> QueryEmbedder | None:
     """The dense retrieval arm for this container, and the pool it speaks over.
 
     Both are `None` when `GEMINI_API_KEY` is absent, and that is the complete off state:
@@ -548,20 +549,15 @@ def build_query_embedder(
     `/embeddings` route with the same credential — so the dense arm adds no variable to the
     secret set and cannot be half-configured.
 
-    The client is built here rather than inside `GeminiQueryEmbedder` because that class takes
+    The pool is owned by `embedding.build_gemini_embedder` rather than opened here, because
     its transport as an argument so it owns no global, and it is returned rather than hidden
     because somebody has to close it: `WorkerRuntime.aclose`, which is the only object here
     that outlives a call.
     """
     api_key = config.llm_api_keys.get(GOOGLE_LLM_PROVIDER)
     if api_key is None:
-        return None, None
-    # ONE POOL FOR THE LIFE OF THE PROCESS: a client per request re-does DNS, TCP and TLS,
-    # which is roughly half a cold round trip and does not fit inside `EMBED_BUDGET_S`
-    # (that constant carries the measurement). Deliberately NOT the shared `WorkerApiClient`
-    # pool — that one is sized against our own API, and this budget is a model provider's.
-    client = httpx.AsyncClient(timeout=EMBED_BUDGET_S)
-    return GeminiQueryEmbedder(client=client, api_key=api_key), client
+        return None
+    return build_gemini_embedder(api_key=api_key, budget_s=EMBED_BUDGET_S)
 
 
 async def open_runtime(
@@ -591,9 +587,8 @@ async def open_runtime(
     is spent only on turns the lexical arm already lost.
     """
     install_vendor_log_guard()
-    embedder_client: httpx.AsyncClient | None = None
     if embedder is None:
-        embedder, embedder_client = build_query_embedder(config)
+        embedder = build_query_embedder(config)
     # ONE CLIENT PER CONTAINER, BUILT BY `api_client.WorkerApiClient` AND NOT HERE.
     # This module once built a second `create_async_engine` in parallel with `db.py`'s and
     # left off `hide_parameters=True`, so the container had two pools and the one `bot.py`
@@ -621,7 +616,6 @@ async def open_runtime(
         api=api,
         fetcher=fetcher,
         embedder=embedder,
-        embedder_client=embedder_client,
         calls=CallRunner(
             api,
             fetcher=fetcher,

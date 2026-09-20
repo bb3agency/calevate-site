@@ -419,6 +419,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/number-pricing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What a number-month currently costs a client, and what that figure came from */
+        get: operations["current_price_v1_admin_number_pricing_get"];
+        put?: never;
+        /**
+         * Attest what a number-month costs a client — a rate change is a new row
+         * @description Records the monthly price a client is charged for a phone number, in rupees, with the document it was read from. Until one is recorded no client can buy a number: a price nobody has read may not reach a bill. A rate change is a new attestation — numbers already bought keep the figure they were sold at, so editing the rate in place would leave those frozen figures unexplainable.
+         */
+        post: operations["attest_price_v1_admin_number_pricing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/numbers/available": {
         parameters: {
             query?: never;
@@ -5744,6 +5765,47 @@ export interface paths {
         patch: operations["set_member_role_v1_members__user_id__patch"];
         trace?: never;
     };
+    "/v1/numbers/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Indian numbers this account could buy, priced in rupees
+         * @description Searches the voice platform's inventory and prices each number at the rate an operator has attested. Read-only: nothing is reserved and nothing is charged. Refused with `number_purchase_is_operator_led` while this deployment may not supply numbers, and with `number_price_not_attested` until a monthly price has been set. Identity verification is NOT required to look.
+         */
+        get: operations["available_numbers_v1_numbers_available_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/numbers/holder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who this account's numbers are registered to — recorded once, then fixed */
+        get: operations["get_holder_v1_numbers_holder_get"];
+        put?: never;
+        /**
+         * Record who this account's numbers are registered to — once, and not editable
+         * @description Records the person or business every number on this account will be registered to. It is asked once and reused for every number after that, and it cannot be changed afterwards: the operator who issues the connection holds the same details, and a record of ours that no longer matches theirs would name the wrong owner. A second attempt is refused with `number_holder_already_recorded`.
+         */
+        post: operations["put_holder_v1_numbers_holder_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/numbers/purchase": {
         parameters: {
             query?: never;
@@ -5754,10 +5816,32 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask us for a phone number — always refused here; numbers are arranged by an operator
-         * @description Asks Calevate for a phone number, and is always refused from the client console: a number is arranged with the account manager as part of setting an agent up, never bought self-serve. Refused with `kyc_not_verified` until Calevate has verified the business's identity — Indian telecom rules require the subscriber of a connection to be identified, an operator will ask for the same documents, and it applies to every account on every plan. A verified account is then refused with `number_purchase_is_operator_led`, whose remediation names both routes forward: talk to us, or bring a connection taken in the client's own name with an Indian operator. Neither refusal writes anything.
+         * Buy one of the available numbers — idempotent, and not retryable at the vendor
+         * @description Buys the named number and records it against this account. **An `Idempotency-Key` header is required**: the voice platform's purchase endpoint takes no key of its own, so a repeat without one would buy a second number and start a second monthly rental. A repeat WITH the same key is answered with the first purchase.
+         *
+         *     Refused with `number_purchase_is_operator_led` while this deployment may not supply numbers, `number_holder_not_recorded` until the registrant's details are on file, `number_price_not_attested` until a monthly price is set, `number_insufficient_credit` when the wallet cannot cover the first month, and `number_taken` if the number has already gone. Identity verification is not required to buy: an unverified account's number arrives inactive and cannot be given to an agent until the verification clears.
          */
         post: operations["purchase_number_v1_numbers_purchase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/numbers/{number_id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose which agent answers this number — the binding every other gate needs
+         * @description Points a number at an agent, or at nothing, and tells the voice platform in the same request. This binding is what makes a number the caller ID a campaign dials from and the line an agent answers, so a campaign whose number is bound elsewhere is refused at launch. Refused with `number_not_activated` while the holder's identity is unverified — the number is held, not lost — and with `agent_does_not_answer_inbound` for an outbound-only agent. Detaching (`agent_id: null`) is always allowed. The counts say what the platform was told, so a binding that failed is not reported as one that worked.
+         */
+        post: operations["assign_number_v1_numbers__number_id__assign_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7422,6 +7506,41 @@ export interface components {
             engine_synced: boolean;
             /** Live Version */
             live_version: number;
+        };
+        /**
+         * AssignIn
+         * @description Which agent answers this number, and what the number is for.
+         *
+         *     `agent_id: null` DETACHES, which is the recovery path from a wrong assignment and is
+         *     deliberately not gated on activation.
+         */
+        AssignIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Direction */
+            direction?: ("inbound" | "outbound" | "both") | null;
+        };
+        /**
+         * AssignOut
+         * @description What the voice platform was actually told, so a failed binding is not reported as a
+         *     saved one.
+         */
+        AssignOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Bound */
+            bound: number;
+            /** Failed */
+            failed: number;
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /** Released */
+            released: number;
+            /** Unsupported */
+            unsupported: number;
         };
         /** AssistIn */
         AssistIn: {
@@ -11195,6 +11314,42 @@ export interface components {
              */
             tenant_id: string;
         };
+        /**
+         * HolderIn
+         * @description Who every number on this account will be registered to. Asked once, ever.
+         *
+         *     `holder_email` is an `EmailStr` because the operator sends the registration
+         *     confirmation to it: an address that does not parse is a registration that silently
+         *     never completes.
+         */
+        HolderIn: {
+            /**
+             * Holder Email
+             * Format: email
+             */
+            holder_email: string;
+            /** Holder Name */
+            holder_name: string;
+            /**
+             * Holder Type
+             * @enum {string}
+             */
+            holder_type: "individual" | "business";
+        };
+        /**
+         * HolderOut
+         * @description The recorded holder, or `recorded: false` before there is one.
+         */
+        HolderOut: {
+            /** Holder Email */
+            holder_email?: string | null;
+            /** Holder Name */
+            holder_name?: string | null;
+            /** Holder Type */
+            holder_type?: ("individual" | "business") | null;
+            /** Recorded */
+            recorded: boolean;
+        };
         /** ImpersonationGrantIn */
         ImpersonationGrantIn: {
             /** Renew */
@@ -13288,17 +13443,37 @@ export interface components {
          *     are opposite instructions, and a screen that cannot tell them apart gives the wrong
          *     one to somebody about to reconfigure their clinic's phone.
          *
-         *     NO COST FIELD, deliberately. What a number costs Calevate is on the admin-realm view
+         *     NO COST FIELD, deliberately. What a number costs CALEVATE is on the admin-realm view
          *     (`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed
          *     through or an add-on is a pricing decision nobody has taken (OPERATIONS §2 gate 26),
          *     and publishing our cost on a client's screen would take it for them.
+         *
+         *     `inr_per_month` IS NOT THAT, AND THE DISTINCTION IS THE WHOLE REASON IT MAY BE HERE.
+         *     It is what THIS client agreed to pay for THIS number, frozen on the row at purchase
+         *     (`phone_numbers.client_inr_per_month`) so a later change to the attested rate cannot
+         *     silently re-price a number somebody already bought. Showing someone the price they
+         *     agreed to is not publishing our margin, and a recurring charge a client cannot see on
+         *     the thing it is charged for is the defect the other direction.
          */
         NumberOut: {
+            /**
+             * Activated
+             * @default false
+             */
+            activated: boolean;
+            /** Agent Id */
+            agent_id?: string | null;
             /**
              * Answerable
              * @default false
              */
             answerable: boolean;
+            /**
+             * Direction
+             * @default inbound
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
             /** Dlt Status */
             dlt_status: string;
             /** E164 */
@@ -13308,6 +13483,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Inr Per Month */
+            inr_per_month?: string | null;
             /** Series */
             series: string;
             /**
@@ -13317,27 +13494,55 @@ export interface components {
             supplied_by_us: boolean;
         };
         /**
-         * NumberPurchaseIn
-         * @description What a purchase needs from the client, and nothing it does not.
+         * NumberPriceIn
+         * @description The rupee figure, and what it was read from.
          *
-         *     `series` is DLT's number-class distinction (DATA-MODEL §6): 140 dials promotions,
-         *     160/standard dials service and transactional. It is asked here rather than assigned
-         *     later because a number's series is fixed when the operator issues it and a mismatch
-         *     with the campaign's classification is a DLT violation the launch gate then has to
-         *     refuse (`number_series_mismatch`).
-         *
-         *     `city` is required because Exotel's own onboarding requires the KYC address proof to
-         *     reflect the city the number is issued in — a number taken against an address in
-         *     another city is one the operator will not issue, whoever asks for it.
+         *     `source` is required and is not decoration: hard rule 11 wants the evidence to travel
+         *     with the claim, and a bare number on a pricing screen is the figure a later session
+         *     repeats as though somebody had read an invoice. Name the document — the carrier's
+         *     order form, the invoice, the quote — and its date.
          */
-        NumberPurchaseIn: {
-            /** City */
-            city: string;
-            /**
-             * Series
-             * @enum {string}
-             */
-            series: "140" | "160" | "standard";
+        NumberPriceIn: {
+            /** Inr Per Month */
+            inr_per_month: number | string;
+            /** Source */
+            source: string;
+        };
+        /**
+         * NumberPriceOut
+         * @description The rate in force, or `attested: false` when a client cannot yet be quoted one.
+         */
+        NumberPriceOut: {
+            /** Attested */
+            attested: boolean;
+            /** Attested At */
+            attested_at?: string | null;
+            /** Inr Per Month */
+            inr_per_month?: string | null;
+            /** Source */
+            source?: string | null;
+        };
+        /**
+         * OfferedNumberOut
+         * @description One number a client could buy, at the price they would pay.
+         *
+         *     **RUPEES, AND NOT THE VENDOR'S DOLLARS.** What Calevate is charged is on the operator's
+         *     screen only (`/v1/admin/numbers/available`). This figure is the rate an operator
+         *     attested; a client's purchase screen carrying our cost would invite them to quote it
+         *     back as their price. A string rather than a float, like every other money field on this
+         *     API (hard rule 7).
+         */
+        OfferedNumberOut: {
+            /** E164 */
+            e164: string;
+            /** Inr Per Month */
+            inr_per_month: string;
+            /** Locality */
+            locality: string | null;
+            /** Region */
+            region: string | null;
+            /** Series */
+            series: string;
         };
         /**
          * OfferedVoiceOut
@@ -14048,6 +14253,61 @@ export interface components {
              * @enum {string}
              */
             series: "140" | "160" | "standard";
+        };
+        /**
+         * PurchaseIn
+         * @description Exactly the number the client picked, and what they want it for.
+         *
+         *     **NO PRICE FIELD.** The client does not tell us what Calevate pays; the vendor's quote
+         *     is looked up again at purchase time, which is also the freshest possible answer to
+         *     "is this still available".
+         *
+         *     **NO `series` FIELD EITHER, AND ITS ABSENCE IS A FIX.** It used to be asked and then
+         *     trusted; the series is derived from the number's own prefix by `series_for_e164`,
+         *     because an operator's typed word opened promotional dialling from a number that was
+         *     not a telemarketing header.
+         */
+        PurchaseIn: {
+            /**
+             * Country
+             * @default IN
+             * @constant
+             */
+            country: "IN";
+            /**
+             * Direction
+             * @default inbound
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
+            /** E164 */
+            e164: string;
+            /** Search Pattern */
+            search_pattern?: string | null;
+        };
+        /**
+         * PurchasedNumberOut
+         * @description What the client now holds, what it costs them, and whether it can be used yet.
+         */
+        PurchasedNumberOut: {
+            /** Activated */
+            activated: boolean;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
+            /** E164 */
+            e164: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inr Per Month */
+            inr_per_month: string;
+            /** Series */
+            series: string;
         };
         /**
          * QaReport
@@ -18396,6 +18656,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminMeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    current_price_v1_admin_number_pricing_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NumberPriceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_price_v1_admin_number_pricing_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NumberPriceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NumberPriceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -27431,6 +27753,100 @@ export interface operations {
             };
         };
     };
+    available_numbers_v1_numbers_available_get: {
+        parameters: {
+            query?: {
+                pattern?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferedNumberOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_holder_v1_numbers_holder_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_holder_v1_numbers_holder_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HolderIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     purchase_number_v1_numbers_purchase_post: {
         parameters: {
             query?: never;
@@ -27440,17 +27856,52 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["NumberPurchaseIn"];
+                "application/json": components["schemas"]["PurchaseIn"];
             };
         };
         responses: {
             /** @description Successful Response */
-            202: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PurchasedNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    assign_number_v1_numbers__number_id__assign_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

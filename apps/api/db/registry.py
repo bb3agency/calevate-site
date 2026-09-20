@@ -11,6 +11,7 @@ from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
 from apps.api.callbacks import models as callbacks_models
 from apps.api.campaigns import models as campaigns_models
+from apps.api.campaigns import number_models as campaigns_number_models
 from apps.api.compliance import models as compliance_models
 from apps.api.copilot import models as copilot_models
 from apps.api.crm import models as crm_models
@@ -36,6 +37,7 @@ __all__ = [
     "billing_models",
     "callbacks_models",
     "campaigns_models",
+    "campaigns_number_models",
     "compliance_models",
     "copilot_models",
     "crm_models",
@@ -88,6 +90,9 @@ TENANT_TABLES = [
     "extraction_schemas",
     "phone_numbers",
     "outbound_sender_attestations",
+    # Whose connection a bought number is: one identity per tenant, reused for every
+    # number after the first (`campaigns/number_models.py`).
+    "number_holders",
     "calls",
     "transcript_turns",
     "call_extractions",
@@ -825,6 +830,14 @@ APPEND_ONLY_TABLES = [
     # named person accepted on a date, so a withdrawal is a new row and an edit would
     # destroy the only record that the earlier state existed.
     "outbound_sender_attestations",
+    # Whose connection a bought number is. Immutable for the reason the table exists: a
+    # holder edited after a number was registered would leave the operator's record of who
+    # owns the connection and ours disagreeing, and only theirs counts.
+    "number_holders",
+    # What an operator attested a number-month costs a client, in INR. A rate change is a
+    # new row because `phone_numbers.client_inr_per_month` froze the figure a number was
+    # sold at, and editing the rate in place would make that frozen figure unexplainable.
+    "number_price_attestations",
     # Vendor credentials, versioned (PLATFORM-CONFIG §5). A new value is a new VERSION so
     # that "which key was live when this call was billed?" stays answerable a year later.
     # Its trigger is NOT the blanket `calevate_forbid_mutation` the others carry: a KEK

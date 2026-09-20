@@ -2438,6 +2438,34 @@ const CLIENT_SCREENS: Screen[] = [
         statement: SENDER_STATEMENT,
         statement_version: "2026-09-20",
       },
+      // BUYING A NUMBER, swept in the state that HAS controls: a deployment that may
+      // sell, an unverified account (so the activation notice and its link render), a
+      // registrant nobody has recorded yet (so the holder form is in the scan) and one
+      // number on offer. The refused state has no controls at all and is swept by
+      // `numberProvisioning.test.tsx`, where its copy is asserted too.
+      "/v1/agents": [AGENT],
+      "/v1/compliance/kyc": {
+        recorded: false,
+        is_verified: false,
+        number_purchase_available: false,
+        status: "not_started",
+      },
+      "/v1/billing/wallet": { prepaid: true, balance_inr: "2500.00" },
+      "/v1/numbers/available": [
+        {
+          e164: "+918041234500",
+          region: "Karnataka",
+          locality: "Bengaluru",
+          series: "standard",
+          inr_per_month: "499.00",
+        },
+      ],
+      "/v1/numbers/holder": {
+        recorded: false,
+        holder_type: null,
+        holder_name: null,
+        holder_email: null,
+      },
     },
   },
   {

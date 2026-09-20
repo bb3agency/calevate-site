@@ -110,6 +110,15 @@ class GeminiQueryEmbedder:
 
     __slots__ = ("_api_key", "_budget_s", "_client", "_dimensions", "_model")
 
+    async def aclose(self) -> None:
+        """Release the pool. Owned here because it is built here.
+
+        `boot` and `runtime` only ask for an embedder and later release it, so neither has
+        to name `httpx` — which is what keeps `tests/voice_worker_sink_test.py`'s one-door
+        rule honest: the modules that can reach the network are the ones that say so.
+        """
+        await self._client.aclose()
+
     def __init__(
         self,
         *,
@@ -224,3 +233,14 @@ __all__ = [
     "GeminiQueryEmbedder",
     "QueryVector",
 ]
+
+
+def build_gemini_embedder(*, api_key: str, budget_s: float) -> GeminiQueryEmbedder:
+    """The embedder and its own pool, in one place.
+
+    ONE POOL FOR THE LIFE OF THE PROCESS: a client per request re-does DNS, TCP and TLS,
+    roughly half a cold round trip, which does not fit inside the budget. Deliberately NOT
+    the shared `WorkerApiClient` pool — that one is sized against our own API and this
+    budget is a model provider's.
+    """
+    return GeminiQueryEmbedder(client=httpx.AsyncClient(timeout=budget_s), api_key=api_key)

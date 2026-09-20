@@ -304,18 +304,28 @@ async def test_a_managed_tenant_with_no_kyc_still_dials() -> None:
 
 
 async def test_buying_a_number_is_gated_for_a_managed_tenant_too() -> None:
-    """The PROVISIONING gate has no tier test at all, and that is the half that closes
-    the risk: the DoT business-connection obligation attaches to the connection and has
-    no managed-client exemption. Keying it on `plan_tier` — an admin-settable column —
-    would put a legal control one support ticket away from being switched off."""
+    """The identity obligation has no tier test, and that is the half that closes the
+    risk: the DoT business-connection obligation attaches to the connection and has no
+    managed-client exemption. Keying it on `plan_tier` — an admin-settable column — would
+    put a legal control one support ticket away from being switched off.
+
+    WHAT MOVED IS WHICH DOOR IT GUARDS. Verification now gates ACTIVATION rather than the
+    sale: a number may be bought before the holder is verified, and cannot be bound to an
+    agent until they are (`provisioning.assert_holder_verified_for_activation`, refusing
+    `number_not_activated`). Nothing reaches a handset except through
+    `phone_numbers.agent_id`, so the binding is the door that matters. This tenant is
+    therefore refused for the reason every tenant is refused today — the supply is
+    operator-led — and not for an unverified identity."""
     org = await _tenant("managed")
     async with _client() as http:
         response = await http.post(
-            PURCHASE_PATH, headers=await _headers(org), json={"series": "160", "city": "Hyderabad"}
+            PURCHASE_PATH,
+            headers=await _headers(org),
+            json={"e164": "+911140000001", "direction": "inbound"},
         )
 
     assert response.status_code == 422, response.text
-    assert response.json()["type"].rsplit("/", 1)[-1] == "kyc_not_verified"
+    assert response.json()["type"].rsplit("/", 1)[-1] == "number_purchase_is_operator_led"
 
 
 async def test_a_verified_tenant_is_refused_because_self_serve_is_not_the_shape() -> None:
@@ -342,7 +352,9 @@ async def test_a_verified_tenant_is_refused_because_self_serve_is_not_the_shape(
 
     async with _client() as http:
         response = await http.post(
-            PURCHASE_PATH, headers=await _headers(org), json={"series": "140", "city": "Hyderabad"}
+            PURCHASE_PATH,
+            headers=await _headers(org),
+            json={"e164": "+911140000002", "direction": "inbound"},
         )
 
     assert response.status_code == 422, response.text

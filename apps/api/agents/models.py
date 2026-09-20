@@ -94,6 +94,18 @@ ENGINES = tuple(sorted(SELECTABLE_ENGINES))
 NUMBER_SERIES = ("140", "160", "standard")
 DLT_STATUSES = ("pending", "registered", "blocked")
 
+#: WHICH LEGS A NUMBER IS BOUGHT FOR — what the client says it is FOR, never what it may
+#: lawfully carry. The same three words as `AgentDirection` on purpose: an agent that only
+#: dials out and a number bought only to dial out are the same distinction, and a second
+#: vocabulary for it would make the two comparable only by translation.
+#:
+#: **IT IS NOT A SECOND ANSWER TO THE SERIES QUESTION AND MAY NEVER BECOME ONE.**
+#: `campaigns.service.SERIES_FOR_CLASSIFICATION` decides which series may carry a
+#: promotional, service or transactional call, and `campaigns/sender_attestation.py` holds
+#: the client's own exception for an ordinary DID. Both read `series`, which is derived from
+#: the number's own prefix. This column is a purchase intent; it widens nothing.
+NUMBER_DIRECTIONS = ("inbound", "outbound", "both")
+
 #: The India country code, and the two regulated national prefixes the series names.
 #:
 #: VERIFIED THIS SESSION against the Department of Telecommunications' own press release
@@ -788,6 +800,7 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(f"series IN {NUMBER_SERIES!r}", name="series_enum"),
         CheckConstraint(f"dlt_status IN {DLT_STATUSES!r}", name="dlt_status_enum"),
+        CheckConstraint(f"direction IN {NUMBER_DIRECTIONS!r}", name="direction_enum"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -800,6 +813,20 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
     dlt_status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     purpose: Mapped[str | None] = mapped_column(Text)
+    #: Which legs this number was bought for (`NUMBER_DIRECTIONS`). Defaults to `inbound`
+    #: because that is the leg no regulation restricts: a receptionist answering a call the
+    #: customer placed is not a sender making one.
+    direction: Mapped[str] = mapped_column(String, nullable=False, server_default="inbound")
+    #: When this connection became usable — NULL until the holder's identity is verified.
+    #: A number can be BOUGHT before verification; it cannot be bound to an agent, and
+    #: therefore cannot reach a handset, until this is set (`campaigns/number_catalog.py`).
+    #: An instant rather than a flag because an operator asked "since when" needs an answer.
+    activated_at: Mapped[datetime | None]
+    #: WHAT THE CLIENT PAYS US each month for this number, in rupees, frozen at purchase
+    #: from the operator-attested rate. Distinct from `monthly_rental_usd`, which is what
+    #: the VENDOR charges Calevate: a price and a cost are different facts and the ledger
+    #: needs both. NUMERIC, never float (hard rule 7).
+    client_inr_per_month: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     # D-537, migration `d1e58c7a94f2`. Did WE buy this number from the voice engine, or is
     # it the client's own connection on their own carrier account? The one column that
     # separates the two commercial models, and the one every release path reads: releasing

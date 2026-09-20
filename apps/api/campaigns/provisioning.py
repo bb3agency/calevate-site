@@ -46,21 +46,22 @@ authorisation; whether the 2020 repeal of OSP registration leaves any obligation
 attaches to us; and what "shall not provide switched telephony" reaches. Gate 45 puts all
 three to the advocate, in those words. None of them is answered by this file.
 
-WHAT SELF-SERVE STILL IS: REFUSED
-----------------------------------
-`POST /v1/numbers/purchase` — the client-realm route — still refuses every request, and
-that is unchanged by the decision. Playbook §19 names "we provision the number for
-self-serve" as the unsafe shape specifically; what the founder adopted is an
-OPERATOR-LED supply, arranged as part of onboarding. So the refusal survives and only its
-COPY changed: it used to say we do not supply numbers at all, which is no longer true.
+WHAT THE CLIENT-REALM ROUTES DO TODAY: REFUSE
+----------------------------------------------
+`campaigns/provisioning_routes.py` lets a client browse, buy and assign a number, and
+every one of those refuses while gate 2 is closed — which is today, and every day until
+an operator records the instrument. `self_serve_purchase_refused()` is the one sentence
+they are given for either closed gate, so the shape of an error publishes nothing about
+which of our papers is missing.
 
-WHY KYC IS ASKED FIRST, AND FOR EVERY TIER
--------------------------------------------
-Unchanged, and it matters more under Model A rather than less. The KYC check runs BEFORE
-the capability check. Under Model B the refusal a client can act on is their own carrier's;
-under Model A the connection is taken in OUR name and the DoT business-connection
-obligation attaches to the subscriber of record — which is now us — so knowing who we are
-putting on it is not paperwork, it is the point. It is asked with **no plan-tier test at
+WHY THE HOLDER'S KYC GATES ACTIVATION RATHER THAN THE SALE
+-----------------------------------------------------------
+The registered owner of the connection is the CLIENT, not Calevate, and identity is what
+makes that true. What it does NOT have to block is the purchase: a number that is bought
+and unactivated cannot be bound to an agent, and the binding is the only thing that puts a
+number on a handset in either direction (D-420), so no call can be placed by an unverified
+holder either way. `assert_holder_verified_for_activation` is that gate and
+`campaigns/number_catalog.py` is its only caller. It is asked with **no plan-tier test at
 all**, unlike the dial-time gate: keying a legal control on `plan_tier`, an admin-settable
 column, would put it one support ticket away from being switched off, which is the "bypass
 for testing" hard rule 5 forbids. `apps/api/compliance/kyc.py` argues the whole
@@ -125,6 +126,10 @@ NO_ENGINE_SUPPLY_REASON: Final = "engine_supplies_no_numbers"
 #: may be bought however ready the code is. A LEGAL fact, and the one an operator clears
 #: deliberately by recording the instrument (`Settings.number_resale_authorization`).
 NOT_AUTHORIZED_REASON: Final = "number_resale_not_authorized"
+#: A number this tenant HOLDS but may not yet use: the holder's identity is unverified, so
+#: it cannot be bound to an agent and therefore cannot ring. Distinct from the dial gate's
+#: KYC blockers on purpose — `assert_holder_verified_for_activation` argues it.
+NOT_ACTIVATED_RULE: Final = "number_not_activated"
 
 # **STILL FALSE, AND D-537 DID NOT FLIP IT — READ WHAT IT MEANS BEFORE ASSUMING IT
 # SHOULD HAVE.** This constant marks whether a CARRIER-DIRECT provisioning adapter exists:
@@ -303,15 +308,21 @@ def self_serve_purchase_refused() -> ProblemError:
     )
 
 
-async def assert_kyc_verified_for_provisioning(session: AsyncSession, *, tenant_id: UUID) -> None:
+async def assert_holder_verified_for_activation(session: AsyncSession, *, tenant_id: UUID) -> None:
     """The client-side gate. Tier-blind (module docstring). Raises; writes nothing.
 
-    One machine code for both failures — `kyc_not_verified` — because the client's next
-    action is the same either way (send us the documents); the DETAIL distinguishes
-    "nothing on file" from "filed and not cleared", which is what
-    `GET /v1/compliance/kyc` then shows them in full. The dial-time gate splits them
-    into two rule names instead, because a launch screen lists blockers by rule and an
-    operator reading that list wants the two states apart.
+    **IT GATES ACTIVATION, NOT THE SALE.** A number may be bought before the holder is
+    verified — the constraint that matters is that no call is placed by an unverified
+    holder, and the only way a number reaches a handset is by being bound to an agent
+    (D-420), so refusing that one operation is the whole control. Refusing the PURCHASE
+    instead would turn away a client who is trying to pay us, for no extra safety.
+
+    **ITS OWN RULE NAME, `number_not_activated`, AND NOT THE DIAL GATE'S.** An operator
+    reading a refused dial has to be able to tell "this account has sent us no documents"
+    from "this particular number has not been activated yet": the first is the client's
+    next action, the second may be ours. The DETAIL still distinguishes "nothing on file"
+    from "filed and not cleared", which is what `GET /v1/compliance/kyc` then shows them
+    in full.
     """
     record = await read_kyc(session, tenant_id=tenant_id)
     if record.is_verified:
@@ -320,18 +331,20 @@ async def assert_kyc_verified_for_provisioning(session: AsyncSession, *, tenant_
         KYC_MISSING_REASON if not record.recorded else kyc_not_verified_reason(str(record.status))
     )
     raise ProblemError.business_rule(
-        "kyc_not_verified",
-        detail,
+        NOT_ACTIVATED_RULE,
+        f"{detail} This number is yours and is being held; it cannot be given to an "
+        "agent until the verification clears.",
         remediation=(
-            "Send us your business registration details so we can verify the account. "
-            "Your operator will ask for the same documents when you take the connection "
-            "in your own name."
+            "Send us your business registration details so we can verify the account, "
+            "then give the number to an agent. Your operator will ask for the same "
+            "documents when you take a connection in your own name."
         ),
     )
 
 
 __all__ = [
     "KNOWN_PROVIDERS",
+    "NOT_ACTIVATED_RULE",
     "NOT_AUTHORIZED_REASON",
     "NO_ENGINE_SUPPLY_REASON",
     "NO_PROVIDER_REASON",
@@ -339,7 +352,7 @@ __all__ = [
     "PROVISIONING_IMPLEMENTED",
     "PURCHASABLE_SERIES",
     "NumberProvisioningCapability",
-    "assert_kyc_verified_for_provisioning",
+    "assert_holder_verified_for_activation",
     "assert_number_supply_authorized",
     "number_provisioning_capability",
     "number_purchase_available",

@@ -36,6 +36,8 @@ import { Card, EmptyState, MonoValue, ProblemNotice, Skeleton } from "@/componen
 import { useCampaignNumbers } from "@/lib/api/campaigns";
 import { useClientSession } from "@/lib/api/session";
 
+import { BuyNumber } from "./BuyNumber";
+import { NumberAssignment } from "./NumberAssignment";
 import { SenderAttestation } from "./SenderAttestation";
 
 export default function PhoneNumberPage() {
@@ -56,6 +58,8 @@ export default function PhoneNumberPage() {
         </p>
       </div>
 
+      <BuyNumber />
+
       {numbers.error && <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />}
 
       {numbers.isLoading || !rows ? (
@@ -68,7 +72,7 @@ export default function PhoneNumberPage() {
         <Card title="Your numbers">
           <EmptyState
             title="No number set up yet"
-            hint="Your account manager arranges this when your agent is being set up. Nothing is needed from you until then."
+            hint="If numbers are on offer above, you can take one yourself. Otherwise your account manager arranges it while your agent is being set up."
           />
         </Card>
       ) : (
@@ -106,6 +110,7 @@ export default function PhoneNumberPage() {
                           {number.answerable ? "Ready to answer" : "Not ready yet"}
                         </span>
                       </div>
+                      <NumberAssignment numberId={number.id} series={number.series} />
                       <SenderAttestation numberId={number.id} />
                     </li>
                   ))}
@@ -144,6 +149,7 @@ export default function PhoneNumberPage() {
                             : "Registration still in progress"}
                         </span>
                       </div>
+                      <NumberAssignment numberId={number.id} series={number.series} />
                       <SenderAttestation numberId={number.id} />
                     </li>
                   ))}

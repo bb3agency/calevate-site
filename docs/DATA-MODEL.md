@@ -198,7 +198,22 @@ extraction_schemas(id, tenant_id, agent_id, version INT, fields JSONB, published
 phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard],
   provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT,
   engine_owned BOOL NOT NULL DEFAULT false, purchase_price_usd NUMERIC(12,4),
-  monthly_rental_usd NUMERIC(12,4), released_at TIMESTAMPTZ)
+  monthly_rental_usd NUMERIC(12,4), released_at TIMESTAMPTZ,
+  direction ENUM[inbound,outbound,both] NOT NULL DEFAULT 'inbound',
+  activated_at TIMESTAMPTZ, client_inr_per_month NUMERIC(12,2))
+  -- The last three land with migration c9d41f7b2e08, the client's own browse/buy/assign
+  -- flow (`campaigns/number_catalog.py`).
+  -- `direction` is what the client bought the number FOR and AUTHORISES NOTHING: what it
+  -- may lawfully carry is still `campaigns.service.SERIES_FOR_CLASSIFICATION` plus, for an
+  -- ordinary DID, `outbound_sender_attestations` below. Two answers to one question is the
+  -- defect this column is written not to become.
+  -- `activated_at` NULL means the holder's identity is unverified, and the ONE thing such
+  -- a number cannot do is be bound to an agent — which, by D-420, is the only way any
+  -- number reaches a handset. So KYC gates activation rather than the sale: a client may
+  -- buy before verifying and still cannot place or take a call.
+  -- `client_inr_per_month` is what the CLIENT pays, frozen at purchase from
+  -- `number_price_attestations`; `monthly_rental_usd` is what the VENDOR charges US. A
+  -- price and a cost are different facts and hard rule 7 binds both (NUMERIC, never float).
   -- D-537, migration d1e58c7a94f2. `engine_owned` is the one column that separates the two
   -- commercial models: a number WE bought through the voice engine (Model A, the inbound
   -- leg) from a connection the CLIENT holds on their own carrier account (Model B, still
@@ -1130,6 +1145,32 @@ consent_ledger(id, tenant_id, call_id, phone_e164,
   -- UPDATE, and the read honours a validity window
   -- (`MESSAGING_CONSENT_VALIDITY_DAYS`) so a stale opt-in stops authorising messages
   -- while remaining in the ledger as evidence of what happened.
+number_holders(id, tenant_id → organizations ON DELETE RESTRICT UNIQUE,
+  holder_type ENUM[individual,business], holder_name TEXT, holder_email TEXT,
+  recorded_by → users ON DELETE RESTRICT, created_at)
+  -- WHOSE CONNECTION A BOUGHT NUMBER IS (migration c9d41f7b2e08). The registered owner is
+  -- the CLIENT, not Calevate, and that is what separates connecting a number for a business
+  -- from reselling numbers in our own name (LEGAL-OPS-PLAYBOOK stop-list, items 1 and 10).
+  -- ONE ROW PER TENANT, collected once and reused for every number after the first:
+  -- `tenant_id` is UNIQUE and the table carries `calevate_forbid_mutation` +
+  -- `calevate_forbid_truncate`, both ENABLE ALWAYS, so "cannot be changed later" is a
+  -- property. A holder edited after a number was registered would name an owner the
+  -- operator's own record does not, and only theirs decides who is liable.
+
+number_price_attestations(id, inr_per_month NUMERIC(12,2), source TEXT,
+  attested_by → users ON DELETE RESTRICT, created_at,
+  CHECK (inr_per_month > 0), CHECK (length(btrim(source)) > 0))
+  -- WHAT A NUMBER-MONTH COSTS A CLIENT, in rupees, attested by an operator with the
+  -- document they read it from — hard rule 7's standard, the one `billing/rates
+  -- .llm_inr_per_ktok` and `agents/voice_offer.tts_price_is_billable` already apply.
+  -- Until a row exists, no client can be quoted and no purchase proceeds; the vendor's own
+  -- USD quote is OUR cost and never becomes a client-facing figure.
+  -- PLATFORM-SCOPED (no tenant_id, no policy): one rate for every client. A per-tenant rate
+  -- is a pricing decision nobody has taken (OPERATIONS §2 gate 26) and a table shaped for
+  -- one would invite it to be taken by accident.
+  -- Append-only: a rate change is a NEW row, because `phone_numbers.client_inr_per_month`
+  -- froze what each number was sold at and editing the rate would leave those unexplainable.
+
 outbound_sender_attestations(id, tenant_id → organizations ON DELETE RESTRICT,
   phone_number_id → phone_numbers ON DELETE RESTRICT,
   state ENUM[attested,withdrawn], statement_version TEXT,

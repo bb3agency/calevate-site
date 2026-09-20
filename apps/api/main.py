@@ -133,6 +133,9 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.trial_routes import router as trials_admin_router
     from apps.api.billing.wallet_routes import router as wallet_router
     from apps.api.callbacks.routes import router as callbacks_router
+    from apps.api.campaigns.number_pricing_routes import (
+        router as number_pricing_router,
+    )
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.campaigns.sender_attestation_routes import (
@@ -279,10 +282,14 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(extraction_router)
     application.include_router(extraction_admin_router)
     application.include_router(campaigns_router)
-    # `/v1/numbers/purchase` — its own prefix, so nothing above can swallow it. It lives
-    # in the campaigns package because that module owns `phone_numbers`.
+    # `/v1/numbers` — its own prefix, so nothing above can swallow it. It lives in the
+    # campaigns package because that module owns `phone_numbers`.
     application.include_router(numbers_router)
     application.include_router(sender_attestation_router)
+    # What a number-month costs a client, attested by an operator. Admin realm, its own
+    # `/v1/admin/number-pricing` prefix rather than a path under `admin_router`, which owns
+    # `/v1/admin/tenants/{tenant_id}` and would swallow a literal segment beside it.
+    application.include_router(number_pricing_router)
     application.include_router(crm_router)
     # The call-backs an agent promised on a call (D-514). Its own literal `/v1/callbacks`
     # prefix, which collides with nothing above, so mount order is not load-bearing here.

@@ -111,7 +111,6 @@ async def test_a_container_without_one_is_cleanly_off(
     opened = await _open(monkeypatch, ENV_WITHOUT_GOOGLE)
     try:
         assert opened.embedder is None
-        assert opened.embedder_client is None
         assert opened.calls._embedder is None
     finally:
         await opened.aclose()
@@ -124,14 +123,17 @@ async def test_closing_the_container_releases_the_encoder_pool(
 
     The embedder deliberately does not share `WorkerApiClient`'s pool (that one is sized
     against our own API and this budget is a model provider's), so it is the one connection
-    pool that would otherwise leak past a container's last call.
+    pool that would otherwise leak past a container's last call. It OWNS that pool, so the
+    container asks it to release rather than reaching into a transport it never opened —
+    which is also what keeps `httpx` out of `boot` and `runtime` and the one-door rule in
+    `voice_worker_sink_test` honest.
     """
     opened = await _open(monkeypatch, ENV_WITH_GOOGLE)
-    client = opened.embedder_client
-    assert client is not None
+    embedder = opened.embedder
+    assert isinstance(embedder, GeminiQueryEmbedder)
     await opened.aclose()
 
-    assert client.is_closed
+    assert embedder._client.is_closed
 
 
 def test_both_production_constructors_agree(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -142,7 +144,6 @@ def test_both_production_constructors_agree(monkeypatch: pytest.MonkeyPatch) -> 
     built = runtime.WorkerRuntime.from_env()
 
     assert isinstance(built._embedder, GeminiQueryEmbedder)
-    assert built._embedder_client is not None
 
 
 def test_the_off_state_is_the_absent_credential_and_not_a_silent_default() -> None:
@@ -155,10 +156,10 @@ def test_the_off_state_is_the_absent_credential_and_not_a_silent_default() -> No
     assert boot.LLM_KEY_ENV_BY_PROVIDER[boot.GOOGLE_LLM_PROVIDER] == "GEMINI_API_KEY"
 
     config = boot.load_worker_config(ENV_WITHOUT_GOOGLE)
-    assert boot.build_query_embedder(config) == (None, None)
+    assert boot.build_query_embedder(config) is None
 
-    embedder, client = boot.build_query_embedder(boot.load_worker_config(ENV_WITH_GOOGLE))
-    assert embedder is not None and client is not None
+    embedder = boot.build_query_embedder(boot.load_worker_config(ENV_WITH_GOOGLE))
+    assert isinstance(embedder, GeminiQueryEmbedder)
 
 
 class _NullFetcher:

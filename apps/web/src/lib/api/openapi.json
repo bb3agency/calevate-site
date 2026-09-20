@@ -1594,6 +1594,91 @@
         "title": "ApplyScriptOut",
         "type": "object"
       },
+      "AssignIn": {
+        "additionalProperties": false,
+        "description": "Which agent answers this number, and what the number is for.\n\n`agent_id: null` DETACHES, which is the recovery path from a wrong assignment and is\ndeliberately not gated on activation.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inbound",
+                  "outbound",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          }
+        },
+        "title": "AssignIn",
+        "type": "object"
+      },
+      "AssignOut": {
+        "additionalProperties": false,
+        "description": "What the voice platform was actually told, so a failed binding is not reported as a\nsaved one.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "bound": {
+            "title": "Bound",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "released": {
+            "title": "Released",
+            "type": "integer"
+          },
+          "unsupported": {
+            "title": "Unsupported",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number_id",
+          "agent_id",
+          "bound",
+          "released",
+          "failed",
+          "unsupported"
+        ],
+        "title": "AssignOut",
+        "type": "object"
+      },
       "AssistIn": {
         "additionalProperties": false,
         "properties": {
@@ -10333,6 +10418,90 @@
         "title": "HeldTenantOut",
         "type": "object"
       },
+      "HolderIn": {
+        "additionalProperties": false,
+        "description": "Who every number on this account will be registered to. Asked once, ever.\n\n`holder_email` is an `EmailStr` because the operator sends the registration\nconfirmation to it: an address that does not parse is a registration that silently\nnever completes.",
+        "properties": {
+          "holder_email": {
+            "format": "email",
+            "title": "Holder Email",
+            "type": "string"
+          },
+          "holder_name": {
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Holder Name",
+            "type": "string"
+          },
+          "holder_type": {
+            "enum": [
+              "individual",
+              "business"
+            ],
+            "title": "Holder Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "holder_type",
+          "holder_name",
+          "holder_email"
+        ],
+        "title": "HolderIn",
+        "type": "object"
+      },
+      "HolderOut": {
+        "additionalProperties": false,
+        "description": "The recorded holder, or `recorded: false` before there is one.",
+        "properties": {
+          "holder_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Email"
+          },
+          "holder_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Name"
+          },
+          "holder_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "individual",
+                  "business"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Type"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "title": "HolderOut",
+        "type": "object"
+      },
       "ImpersonationGrantIn": {
         "additionalProperties": false,
         "properties": {
@@ -15047,12 +15216,39 @@
       },
       "NumberOut": {
         "additionalProperties": false,
-        "description": "One number this account may dial from, or be answered on.\n\n**`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-537).** A number we\nbought for them is one they FORWARD their published number to \u2014 \"point your existing\nphone at this number\" \u2014 and their own connection is one they already publish. Those\nare opposite instructions, and a screen that cannot tell them apart gives the wrong\none to somebody about to reconfigure their clinic's phone.\n\nNO COST FIELD, deliberately. What a number costs Calevate is on the admin-realm view\n(`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed\nthrough or an add-on is a pricing decision nobody has taken (OPERATIONS \u00a72 gate 26),\nand publishing our cost on a client's screen would take it for them.",
+        "description": "One number this account may dial from, or be answered on.\n\n**`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-537).** A number we\nbought for them is one they FORWARD their published number to \u2014 \"point your existing\nphone at this number\" \u2014 and their own connection is one they already publish. Those\nare opposite instructions, and a screen that cannot tell them apart gives the wrong\none to somebody about to reconfigure their clinic's phone.\n\nNO COST FIELD, deliberately. What a number costs CALEVATE is on the admin-realm view\n(`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed\nthrough or an add-on is a pricing decision nobody has taken (OPERATIONS \u00a72 gate 26),\nand publishing our cost on a client's screen would take it for them.\n\n`inr_per_month` IS NOT THAT, AND THE DISTINCTION IS THE WHOLE REASON IT MAY BE HERE.\nIt is what THIS client agreed to pay for THIS number, frozen on the row at purchase\n(`phone_numbers.client_inr_per_month`) so a later change to the attested rate cannot\nsilently re-price a number somebody already bought. Showing someone the price they\nagreed to is not publishing our margin, and a recurring charge a client cannot see on\nthe thing it is charged for is the defect the other direction.",
         "properties": {
+          "activated": {
+            "default": false,
+            "title": "Activated",
+            "type": "boolean"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
           "answerable": {
             "default": false,
             "title": "Answerable",
             "type": "boolean"
+          },
+          "direction": {
+            "default": "inbound",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
           },
           "dlt_status": {
             "title": "Dlt Status",
@@ -15066,6 +15262,18 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "inr_per_month": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Month"
           },
           "series": {
             "title": "Series",
@@ -15086,31 +15294,133 @@
         "title": "NumberOut",
         "type": "object"
       },
-      "NumberPurchaseIn": {
+      "NumberPriceIn": {
         "additionalProperties": false,
-        "description": "What a purchase needs from the client, and nothing it does not.\n\n`series` is DLT's number-class distinction (DATA-MODEL \u00a76): 140 dials promotions,\n160/standard dials service and transactional. It is asked here rather than assigned\nlater because a number's series is fixed when the operator issues it and a mismatch\nwith the campaign's classification is a DLT violation the launch gate then has to\nrefuse (`number_series_mismatch`).\n\n`city` is required because Exotel's own onboarding requires the KYC address proof to\nreflect the city the number is issued in \u2014 a number taken against an address in\nanother city is one the operator will not issue, whoever asks for it.",
+        "description": "The rupee figure, and what it was read from.\n\n`source` is required and is not decoration: hard rule 11 wants the evidence to travel\nwith the claim, and a bare number on a pricing screen is the figure a later session\nrepeats as though somebody had read an invoice. Name the document \u2014 the carrier's\norder form, the invoice, the quote \u2014 and its date.",
         "properties": {
-          "city": {
-            "maxLength": 64,
-            "minLength": 2,
-            "title": "City",
+          "inr_per_month": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Inr Per Month"
+          },
+          "source": {
+            "maxLength": 400,
+            "minLength": 4,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inr_per_month",
+          "source"
+        ],
+        "title": "NumberPriceIn",
+        "type": "object"
+      },
+      "NumberPriceOut": {
+        "additionalProperties": false,
+        "description": "The rate in force, or `attested: false` when a client cannot yet be quoted one.",
+        "properties": {
+          "attested": {
+            "title": "Attested",
+            "type": "boolean"
+          },
+          "attested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Month"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "attested"
+        ],
+        "title": "NumberPriceOut",
+        "type": "object"
+      },
+      "OfferedNumberOut": {
+        "additionalProperties": false,
+        "description": "One number a client could buy, at the price they would pay.\n\n**RUPEES, AND NOT THE VENDOR'S DOLLARS.** What Calevate is charged is on the operator's\nscreen only (`/v1/admin/numbers/available`). This figure is the rate an operator\nattested; a client's purchase screen carrying our cost would invite them to quote it\nback as their price. A string rather than a float, like every other money field on this\nAPI (hard rule 7).",
+        "properties": {
+          "e164": {
+            "title": "E164",
             "type": "string"
           },
-          "series": {
-            "enum": [
-              "140",
-              "160",
-              "standard"
+          "inr_per_month": {
+            "title": "Inr Per Month",
+            "type": "string"
+          },
+          "locality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
+            "title": "Locality"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "series": {
             "title": "Series",
             "type": "string"
           }
         },
         "required": [
+          "e164",
+          "region",
+          "locality",
           "series",
-          "city"
+          "inr_per_month"
         ],
-        "title": "NumberPurchaseIn",
+        "title": "OfferedNumberOut",
         "type": "object"
       },
       "OfferedVoiceOut": {
@@ -16918,6 +17228,99 @@
           "series"
         ],
         "title": "ProvisionNumberIn",
+        "type": "object"
+      },
+      "PurchaseIn": {
+        "additionalProperties": false,
+        "description": "Exactly the number the client picked, and what they want it for.\n\n**NO PRICE FIELD.** The client does not tell us what Calevate pays; the vendor's quote\nis looked up again at purchase time, which is also the freshest possible answer to\n\"is this still available\".\n\n**NO `series` FIELD EITHER, AND ITS ABSENCE IS A FIX.** It used to be asked and then\ntrusted; the series is derived from the number's own prefix by `series_for_e164`,\nbecause an operator's typed word opened promotional dialling from a number that was\nnot a telemarketing header.",
+        "properties": {
+          "country": {
+            "const": "IN",
+            "default": "IN",
+            "title": "Country",
+            "type": "string"
+          },
+          "direction": {
+            "default": "inbound",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "e164": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "E164",
+            "type": "string"
+          },
+          "search_pattern": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Pattern"
+          }
+        },
+        "required": [
+          "e164"
+        ],
+        "title": "PurchaseIn",
+        "type": "object"
+      },
+      "PurchasedNumberOut": {
+        "additionalProperties": false,
+        "description": "What the client now holds, what it costs them, and whether it can be used yet.",
+        "properties": {
+          "activated": {
+            "title": "Activated",
+            "type": "boolean"
+          },
+          "direction": {
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inr_per_month": {
+            "title": "Inr Per Month",
+            "type": "string"
+          },
+          "series": {
+            "title": "Series",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "series",
+          "direction",
+          "inr_per_month",
+          "activated"
+        ],
+        "title": "PurchasedNumberOut",
         "type": "object"
       },
       "QaReport": {
@@ -26366,6 +26769,71 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/number-pricing": {
+      "get": {
+        "operationId": "current_price_v1_admin_number_pricing_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NumberPriceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What a number-month currently costs a client, and what that figure came from",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "post": {
+        "description": "Records the monthly price a client is charged for a phone number, in rupees, with the document it was read from. Until one is recorded no client can buy a number: a price nobody has read may not reach a bill. A rate change is a new attestation \u2014 numbers already bought keep the figure they were sold at, so editing the rate in place would leave those frozen figures unexplainable.",
+        "operationId": "attest_price_v1_admin_number_pricing_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NumberPriceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NumberPriceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest what a number-month costs a client \u2014 a rate change is a new row",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/numbers/available": {
@@ -39126,25 +39594,53 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/numbers/purchase": {
-      "post": {
-        "description": "Asks Calevate for a phone number, and is always refused from the client console: a number is arranged with the account manager as part of setting an agent up, never bought self-serve. Refused with `kyc_not_verified` until Calevate has verified the business's identity \u2014 Indian telecom rules require the subscriber of a connection to be identified, an operator will ask for the same documents, and it applies to every account on every plan. A verified account is then refused with `number_purchase_is_operator_led`, whose remediation names both routes forward: talk to us, or bring a connection taken in the client's own name with an Indian operator. Neither refusal writes anything.",
-        "operationId": "purchase_number_v1_numbers_purchase_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NumberPurchaseIn"
-              }
+    "/v1/numbers/available": {
+      "get": {
+        "description": "Searches the voice platform's inventory and prices each number at the rate an operator has attested. Read-only: nothing is reserved and nothing is charged. Refused with `number_purchase_is_operator_led` while this deployment may not supply numbers, and with `number_price_not_attested` until a monthly price has been set. Identity verification is NOT required to look.",
+        "operationId": "available_numbers_v1_numbers_available_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "pattern",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 3,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pattern"
             }
           },
-          "required": true
-        },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
-          "202": {
+          "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OfferedNumberOut"
+                  },
+                  "title": "Response Available Numbers V1 Numbers Available Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -39156,7 +39652,162 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Ask us for a phone number \u2014 always refused here; numbers are arranged by an operator",
+        "summary": "Indian numbers this account could buy, priced in rupees",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/numbers/holder": {
+      "get": {
+        "operationId": "get_holder_v1_numbers_holder_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who this account's numbers are registered to \u2014 recorded once, then fixed",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "post": {
+        "description": "Records the person or business every number on this account will be registered to. It is asked once and reused for every number after that, and it cannot be changed afterwards: the operator who issues the connection holds the same details, and a record of ours that no longer matches theirs would name the wrong owner. A second attempt is refused with `number_holder_already_recorded`.",
+        "operationId": "put_holder_v1_numbers_holder_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HolderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record who this account's numbers are registered to \u2014 once, and not editable",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/numbers/purchase": {
+      "post": {
+        "description": "Buys the named number and records it against this account. **An `Idempotency-Key` header is required**: the voice platform's purchase endpoint takes no key of its own, so a repeat without one would buy a second number and start a second monthly rental. A repeat WITH the same key is answered with the first purchase.\n\nRefused with `number_purchase_is_operator_led` while this deployment may not supply numbers, `number_holder_not_recorded` until the registrant's details are on file, `number_price_not_attested` until a monthly price is set, `number_insufficient_credit` when the wallet cannot cover the first month, and `number_taken` if the number has already gone. Identity verification is not required to buy: an unverified account's number arrives inactive and cannot be given to an agent until the verification clears.",
+        "operationId": "purchase_number_v1_numbers_purchase_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchasedNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Buy one of the available numbers \u2014 idempotent, and not retryable at the vendor",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/numbers/{number_id}/assign": {
+      "post": {
+        "description": "Points a number at an agent, or at nothing, and tells the voice platform in the same request. This binding is what makes a number the caller ID a campaign dials from and the line an agent answers, so a campaign whose number is bound elsewhere is refused at launch. Refused with `number_not_activated` while the holder's identity is unverified \u2014 the number is held, not lost \u2014 and with `agent_does_not_answer_inbound` for an outbound-only agent. Detaching (`agent_id: null`) is always allowed. The counts say what the platform was told, so a binding that failed is not reported as one that worked.",
+        "operationId": "assign_number_v1_numbers__number_id__assign_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose which agent answers this number \u2014 the binding every other gate needs",
         "tags": [
           "campaigns"
         ],

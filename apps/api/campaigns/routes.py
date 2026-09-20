@@ -17,6 +17,7 @@ asserted over the whole route table in tests/impersonation_reads_test.py.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -353,10 +354,17 @@ class NumberOut(Strict):
     are opposite instructions, and a screen that cannot tell them apart gives the wrong
     one to somebody about to reconfigure their clinic's phone.
 
-    NO COST FIELD, deliberately. What a number costs Calevate is on the admin-realm view
+    NO COST FIELD, deliberately. What a number costs CALEVATE is on the admin-realm view
     (`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed
     through or an add-on is a pricing decision nobody has taken (OPERATIONS §2 gate 26),
     and publishing our cost on a client's screen would take it for them.
+
+    `inr_per_month` IS NOT THAT, AND THE DISTINCTION IS THE WHOLE REASON IT MAY BE HERE.
+    It is what THIS client agreed to pay for THIS number, frozen on the row at purchase
+    (`phone_numbers.client_inr_per_month`) so a later change to the attested rate cannot
+    silently re-price a number somebody already bought. Showing someone the price they
+    agreed to is not publishing our margin, and a recurring charge a client cannot see on
+    the thing it is charged for is the defect the other direction.
     """
 
     id: UUID
@@ -368,6 +376,23 @@ class NumberOut(Strict):
     #: Can the voice platform actually route calls on this number to an agent? False means
     #: an agent set to answer it will not — the state GAP-1 left every number in.
     answerable: bool = False
+    #: WHICH AGENT IS ON IT (`phone_numbers.agent_id`). Null means nothing rings: the
+    #: outbound caller ID and the inbound answer are both resolved from this binding
+    #: (D-420), so a panel that cannot show it can only report its own last action.
+    agent_id: UUID | None = None
+    #: What the number is FOR (`phone_numbers.direction`). It records an intent and
+    #: authorises nothing — which series may carry which campaign is still
+    #: `SERIES_FOR_CLASSIFICATION` plus, for an ordinary DID, the sender attestation.
+    direction: Literal["inbound", "outbound", "both"] = "inbound"
+    #: What this client pays for this number each month, frozen at purchase. None for a
+    #: connection they brought themselves — we charge nothing for a line we did not supply.
+    inr_per_month: Decimal | None = None
+    #: Is the connection usable? `phone_numbers.activated_at IS NOT NULL` — the column,
+    #: not a re-derivation of the holder's KYC state, so this screen and the assign route
+    #: cannot disagree about one number. False means bought and held: it cannot be given
+    #: to an agent until the holder's identity is verified
+    #: (`campaigns/number_catalog.assign_number_to_agent`).
+    activated: bool = False
 
 
 class TemplateOut(Strict):
@@ -412,7 +437,8 @@ async def list_numbers(
         await session.execute(
             text(
                 "SELECT id, e164, series, dlt_status, engine_owned, "
-                "engine_number_ref IS NOT NULL FROM phone_numbers "
+                "engine_number_ref IS NOT NULL, agent_id, direction, client_inr_per_month, "
+                "activated_at IS NOT NULL FROM phone_numbers "
                 # A released number is not one this account may dial from or be answered
                 # on: the vendor has it back. The ROW survives because a closed month's
                 # costs still refer to it, which is exactly why this list has to exclude
@@ -429,6 +455,10 @@ async def list_numbers(
             dlt_status=r[3],
             supplied_by_us=r[4],
             answerable=r[5],
+            agent_id=r[6],
+            direction=r[7],
+            inr_per_month=r[8],
+            activated=r[9],
         )
         for r in rows
     ]
