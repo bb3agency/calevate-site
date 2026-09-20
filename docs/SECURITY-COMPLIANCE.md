@@ -124,11 +124,36 @@ cite the same string:
   the only sequential pair in the function: a TM link to an entity that is not registered
   cannot be active either, and telling a client to chase an authorisation for a
   registration they do not yet have sends them to the wrong desk.
-- `campaigns.classification` set; number series matches (promotional⇔140; transactional/
-  service⇔160/standard — `number_series_mismatch`, `number_missing`); the number's own DLT
-  header registered (`number_not_registered`); voice `dlt_templates.status='approved'` and
-  linked, for this classification (`dlt_template_missing`, `dlt_template_not_approved`,
+- `campaigns.classification` set; number series matches (promotional⇔140;
+  transactional/service⇔160 — `number_series_mismatch`, `number_missing`); the number's own
+  DLT header registered (`number_not_registered`); voice `dlt_templates.status='approved'`
+  and linked, for this classification (`dlt_template_missing`, `dlt_template_not_approved`,
   `dlt_template_mismatch`). Three registrations, and none implies another.
+  - **`standard` IS NO LONGER IN THE ALLOWED SET, AND THIS BULLET USED TO SAY
+    `160/standard`.** TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024: *"Senders
+    shall not use any other 10-digit fixed line/ mobile number for making Promotional/
+    Service/ Transactional voice calls to their customers, either directly or through their
+    employees or channel partners, DSAs, BPO partner, in-house or outsourced Call Centre,
+    etc."* (verbatim, with section numbers, in
+    `docs/evidence/primary-legal-findings-2026-09-20.md` §1). An ordinary DID is refused by
+    default: `campaigns.service.SERIES_FOR_CLASSIFICATION` allows only `140` and `160`.
+  - **The one exception is the CLIENT's, not ours.** The direction binds the SENDER and
+    names the delegation chain, so it cannot be handed to a vendor; under Model B (D-474)
+    the client holds the carrier account and is that sender. A `standard` number carries a
+    `service` or `transactional` campaign only where a named person at the client has been
+    shown the obligation and accepted it — one append-only row per decision in
+    `outbound_sender_attestations` (DATA-MODEL §9), recorded and withdrawn through
+    `GET`/`POST`/`DELETE /v1/numbers/{number_id}/sender-attestation` (`org:manage`,
+    audited, client realm only). There is deliberately NO admin route: an attestation
+    Calevate recorded would evidence nothing about what the client accepted, and the act is
+    withheld from a view-as session by name
+    (`rbac.VIEW_AS_WITHHELD_ACTS["compliance.outbound_sender_attestation"]`).
+    The row records WHICH WORDING was accepted; when the wording changes the client is
+    asked again, and the gate reads an older version as not attested.
+  - **Promotional is not reachable through that exception and must not become so.** 140 is
+    the only series that may carry a marketing call; `ATTESTABLE_CLASSIFICATIONS` is
+    `{service, transactional}`, and `number_series_mismatch` names both ways out — attach a
+    140/160 number, or confirm — only where the second one is genuinely open.
 - Contact list DNC-scrubbed (national DND + tenant `dnc_list`) with scrub timestamp; a
   list with nothing left after the scrub is `all_contacts_dnc`, an empty one
   `no_contacts`. **The two scrubs are separate facts and this bullet used to claim a

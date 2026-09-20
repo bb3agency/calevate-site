@@ -1130,6 +1130,44 @@ consent_ledger(id, tenant_id, call_id, phone_e164,
   -- UPDATE, and the read honours a validity window
   -- (`MESSAGING_CONSENT_VALIDITY_DAYS`) so a stale opt-in stops authorising messages
   -- while remaining in the ledger as evidence of what happened.
+outbound_sender_attestations(id, tenant_id → organizations ON DELETE RESTRICT,
+  phone_number_id → phone_numbers ON DELETE RESTRICT,
+  state ENUM[attested,withdrawn], statement_version TEXT,
+  attested_by → users ON DELETE RESTRICT, created_at,
+  CHECK (length(btrim(statement_version)) > 0))
+  -- The client's own exception to the ordinary-DID refusal (migration b7e4c02fa519).
+  -- TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024 forbids a SENDER from
+  -- making promotional/service/transactional voice calls from any other 10-digit fixed
+  -- line or mobile number, "either directly or through their employees or channel
+  -- partners, DSAs, BPO partner, in-house or outsourced Call Centre"
+  -- (docs/evidence/primary-legal-findings-2026-09-20.md §1). The direction names the
+  -- delegation chain, so the obligation cannot be handed to a vendor; under Model B
+  -- (D-474) the client holds the carrier account and IS the sender. So the refusal is the
+  -- DEFAULT (`campaigns.service.SERIES_FOR_CLASSIFICATION` allows only 140 and 160) and
+  -- this table is the client's recorded exception to it — never ours: there is no admin
+  -- route that writes a row here, because an attestation Calevate recorded would evidence
+  -- nothing about what the client accepted.
+  -- Read by `launch_blockers` as `number_series_mismatch`, whose reason then names both
+  -- ways out. PROMOTIONAL IS NOT REACHABLE THROUGH IT and must not become so: 140 is the
+  -- only series that may carry a marketing call, and `ATTESTABLE_CLASSIFICATIONS` is
+  -- {service, transactional} for that reason.
+  -- `statement_version` is which WORDING was accepted (`SENDER_STATEMENT_VERSION`), and it
+  -- is half the evidence: a row against an older version does NOT satisfy the gate, the
+  -- client is asked again, and a POST carrying a stale version is refused
+  -- (`sender_statement_not_current`) rather than recorded against words nobody showed.
+  -- `attested_by` is a `users.id` — the account's own person, never an admin (D-587), which
+  -- is what `rbac.VIEW_AS_WITHHELD_ACTS["compliance.outbound_sender_attestation"]` enforces
+  -- one layer up. WITHDRAWAL is exempt from the version check: refusing a retraction
+  -- because a page is stale would hold someone to an obligation they are leaving.
+  -- Append-only (hard rule 4, `APPEND_ONLY_TABLES` + the `calevate_forbid_mutation`
+  -- trigger): a withdrawal is a NEW row superseding the last, never an UPDATE or DELETE,
+  -- and the whole value of the record is that the earlier state cannot be erased.
+  -- The read is latest-row-wins, ordered `created_at DESC, id DESC` — two rows written in
+  -- one transaction share `now()`, and a withdrawal sorting before the attestation it
+  -- revokes would report the opposite of the truth; uuid_v7 keeps the tiebreak
+  -- chronological. INDEX ix_outbound_sender_attestations_latest_for_number
+  --   (phone_number_id, created_at DESC) serves exactly that lookup.
+  -- Standard §1 RLS, FORCEd, created with the table.
 retention_policies(id, tenant_id,
   data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,copilot_memory,
                      caller_memory],

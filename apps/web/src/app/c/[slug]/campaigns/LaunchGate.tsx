@@ -100,6 +100,14 @@ export function LaunchGate({
      chose and may not want to move. */
   const blockedOnCredits = clientBlockers.some((b) => b.rule === "no_credits");
   const blockedOnSpendCap = clientBlockers.some((b) => b.rule === "spend_cap");
+  /* The series refusal has a destination too, and it is the one blocker whose second way
+     out the client can only take on another screen: an ordinary number carries service
+     and reminder campaigns once the business confirms it is the sender of them
+     (`campaigns/sender_attestation.py`). Without the link the bullet names a page nobody
+     can find. */
+  const blockedOnNumberSeries = clientBlockers.some(
+    (b) => b.rule === "number_series_mismatch",
+  );
 
   return (
     <>
@@ -242,6 +250,21 @@ export function LaunchGate({
                       </Link>{" "}
                       <span className="text-ink-muted">
                         — it is your own setting, and you can raise it there.
+                      </span>
+                    </p>
+                  )}
+
+                  {blockedOnNumberSeries && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/phone-number`)}
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                      >
+                        Go to Your phone number
+                      </Link>{" "}
+                      <span className="text-ink-muted">
+                        — each number there says whether it can carry campaign calls,
+                        and what to confirm if it is an ordinary one.
                       </span>
                     </p>
                   )}

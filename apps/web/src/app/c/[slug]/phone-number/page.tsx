@@ -36,6 +36,8 @@ import { Card, EmptyState, MonoValue, ProblemNotice, Skeleton } from "@/componen
 import { useCampaignNumbers } from "@/lib/api/campaigns";
 import { useClientSession } from "@/lib/api/session";
 
+import { SenderAttestation } from "./SenderAttestation";
+
 export default function PhoneNumberPage() {
   const session = useClientSession();
   const numbers = useCampaignNumbers(session);
@@ -85,23 +87,26 @@ export default function PhoneNumberPage() {
                   {ours.map((number) => (
                     <li
                       key={number.id}
-                      className="flex flex-wrap items-center gap-3 rounded-card border border-line p-3"
+                      className="rounded-card border border-line p-3"
                     >
-                      {/* The client's OWN destination number. Not a called party's, which
-                          is the number hard rule 6 is about. */}
-                      <span className="text-xs uppercase tracking-wide text-ink-muted">
-                        Forward to
-                      </span>
-                      <MonoValue className="text-ink">{number.e164}</MonoValue>
-                      <span
-                        className={
-                          number.answerable
-                            ? "rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong"
-                            : "rounded border border-line px-1.5 py-0.5 text-xs font-medium text-ink-muted"
-                        }
-                      >
-                        {number.answerable ? "Ready to answer" : "Not ready yet"}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-3">
+                        {/* The client's OWN destination number. Not a called party's, which
+                            is the number hard rule 6 is about. */}
+                        <span className="text-xs uppercase tracking-wide text-ink-muted">
+                          Forward to
+                        </span>
+                        <MonoValue className="text-ink">{number.e164}</MonoValue>
+                        <span
+                          className={
+                            number.answerable
+                              ? "rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong"
+                              : "rounded border border-line px-1.5 py-0.5 text-xs font-medium text-ink-muted"
+                          }
+                        >
+                          {number.answerable ? "Ready to answer" : "Not ready yet"}
+                        </span>
+                      </div>
+                      <SenderAttestation numberId={number.id} />
                     </li>
                   ))}
                 </ul>
@@ -129,14 +134,17 @@ export default function PhoneNumberPage() {
                   {theirs.map((number) => (
                     <li
                       key={number.id}
-                      className="flex flex-wrap items-center gap-3 rounded-card border border-line p-3"
+                      className="rounded-card border border-line p-3"
                     >
-                      <MonoValue className="text-ink">{number.e164}</MonoValue>
-                      <span className="text-xs text-ink-muted">
-                        {number.dlt_status === "registered"
-                          ? "Registered for calling out"
-                          : "Registration still in progress"}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <MonoValue className="text-ink">{number.e164}</MonoValue>
+                        <span className="text-xs text-ink-muted">
+                          {number.dlt_status === "registered"
+                            ? "Registered for calling out"
+                            : "Registration still in progress"}
+                        </span>
+                      </div>
+                      <SenderAttestation numberId={number.id} />
                     </li>
                   ))}
                 </ul>

@@ -241,7 +241,11 @@ describe("when the list itself does not load", () => {
       }),
     });
 
-    expect(await screen.findByRole("alert")).toBeTruthy();
+    // The refusal BY ITS OWN TEXT, not "an alert exists". A late-resolving alert from an
+    // earlier test in this file can still be mounted when this one renders, and
+    // `findByRole` throws on two matches — so the assertion was failing on the harness
+    // rather than on the page.
+    await screen.findByText(/could not read your suppression list/i);
     expect(container.textContent).not.toContain("Nobody is suppressed yet");
     // …and no rows either: a failed list renders no number at all.
     expect(container.textContent).not.toContain(PHONE);

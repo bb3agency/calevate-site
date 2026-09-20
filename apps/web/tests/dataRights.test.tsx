@@ -96,6 +96,7 @@ function completedRequest(): DeletionRequest {
         // server can actually send.
         recordings_destroyed: 0,
         recording_hold_until: "2026-11-12T06:04:00Z",
+        calls_without_an_identifiable_party: null,
         // D-179's ninth limitation: the knowledge base is SEARCHED and not erased, so the
         // proof carries how many documents matched rather than a count destroyed. Zero is
         // the ordinary answer and is not the same as `null` (not searched), which is why

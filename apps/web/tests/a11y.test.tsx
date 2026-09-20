@@ -238,6 +238,13 @@ const CREDIT_PACKS = {
   ],
 };
 
+/** `campaigns/sender_attestation.SENDER_STATEMENT` — rendered verbatim, never reworded. */
+const SENDER_STATEMENT =
+  "I confirm that my business is the sender of these calls, that I have been told TRAI " +
+  "requires promotional, service and transactional voice calls to be made only from a " +
+  "registered 140 or 160 series voice header, that this number is not one, and that my " +
+  "business accepts responsibility for calls made from it.";
+
 const ME = {
   user_id: "u1",
   realm: "client",
@@ -392,6 +399,7 @@ const TENANT_SPEND = {
   cost_inr: "2100.00",
   margin_inr: "4149.00",
   margin_pct: "66.40",
+  legs_unpriced: 0,
   cost_currency: "INR",
   cost_currency_stated: false,
   unattributed: { minutes: "0.0000", cost_inr: "120.00" },
@@ -474,6 +482,7 @@ const FLEET_SPEND = {
   cost_inr: "7100.00",
   margin_inr: "-851.00",
   margin_pct: null,
+  legs_unpriced: 0,
   tenants: [
     {
       tenant_id: "t2",
@@ -486,6 +495,7 @@ const FLEET_SPEND = {
       cost_inr: "5000.00",
       margin_inr: "-5000.00",
       margin_pct: null,
+      legs_unpriced: 0,
     },
     {
       tenant_id: "t1",
@@ -498,6 +508,7 @@ const FLEET_SPEND = {
       cost_inr: "2100.00",
       margin_inr: "4149.00",
       margin_pct: "66.40",
+      legs_unpriced: 0,
     },
   ],
 };
@@ -1464,6 +1475,7 @@ const TENANT_ROUTES: Routes = {
     cost_inr: "402350.50",
     margin_inr: "613549.50",
     margin_pct: "60.39",
+    legs_unpriced: 0,
     tiers: {
       // BOTH SPELLINGS, because that is what the wire carries for one release
       // (hard rule 8 step 1, D-558): `*_base_rung` / `*_second_rung` are the
@@ -2404,6 +2416,28 @@ const CLIENT_SCREENS: Screen[] = [
           answerable: true,
         },
       ],
+      // The outbound-sender confirmation, once per number and in all three of its
+      // states — unconfirmed (the statement, the checkbox and the button), confirmed
+      // (the withdraw control), and not applicable at all on a registered 160 header.
+      // A fixture with one state would sweep a third of the panel.
+      "/v1/numbers/num-1/sender-attestation": {
+        attested: false,
+        applicable: true,
+        statement: SENDER_STATEMENT,
+        statement_version: "2026-09-20",
+      },
+      "/v1/numbers/num-2/sender-attestation": {
+        attested: true,
+        applicable: true,
+        statement: SENDER_STATEMENT,
+        statement_version: "2026-09-20",
+      },
+      "/v1/numbers/num-3/sender-attestation": {
+        attested: false,
+        applicable: false,
+        statement: SENDER_STATEMENT,
+        statement_version: "2026-09-20",
+      },
     },
   },
   {

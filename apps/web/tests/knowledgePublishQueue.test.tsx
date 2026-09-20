@@ -130,6 +130,7 @@ function healthy(): Routes {
       cost_inr: "402350.50",
       margin_inr: "613549.50",
       margin_pct: "60.39",
+      legs_unpriced: 0,
       tiers: {
         // BOTH SPELLINGS, because that is what the wire carries for one release
         // (hard rule 8 step 1, D-558): `*_base_rung` / `*_second_rung` are the

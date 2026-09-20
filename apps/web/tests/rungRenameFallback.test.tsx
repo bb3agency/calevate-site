@@ -118,6 +118,7 @@ function legacyMargin(): Omit<Margin, "tiers"> & { tiers: LegacyTiers } {
     cost_inr: "402350.50",
     margin_inr: "613549.50",
     margin_pct: "60.39",
+    legs_unpriced: 0,
     tiers: {
       minutes_premium: "900.00",
       minutes_value: "280.00",

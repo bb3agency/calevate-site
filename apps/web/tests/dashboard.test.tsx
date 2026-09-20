@@ -285,9 +285,13 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
     expect(failed.container.textContent).toContain(
       "We could not check whether anything needs your attention",
     );
-    // Scoped to THIS render, same reason. findByRole throws if it is absent, so this IS
-    // the assertion.
-    await within(failed.container).findByRole("button", { name: "Try again" });
+    // `findAllByRole`, because a transport-level failure banner carries its own "Try
+    // again" and the singular query throws on two matches rather than on an absent one —
+    // which is how this assertion kept failing for a reason that was never about the page.
+    // What it asserts is unchanged: the refusal offers a retry.
+    expect(
+      (await within(failed.container).findAllByRole("button", { name: "Try again" })).length,
+    ).toBeGreaterThan(0);
   });
 });
 
