@@ -73,7 +73,7 @@ from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_ti
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, fund_wallet, record_autodialer_notice_for_tests
 from tests.national_dnd_test import record_test_scrub
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -185,6 +185,11 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     # default motion now, so an unfunded tenant is refused `no_credits` on every
     # outbound dial and this file would report that in place of what it is about.
     await fund_wallet(uuid.UUID(str(tenant_id)))
+    # Regulation 4's advance autodialler notice, supplied for the same reason as the DLT
+    # registration, the agreements and the credit above: every outbound dial now requires
+    # it, so a baseline without one makes this file report `autodialer_notice_missing` in
+    # place of the refusal each test is actually about.
+    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     _TENANTS.append(tenant_id)
     return tenant_id, agent_id
 

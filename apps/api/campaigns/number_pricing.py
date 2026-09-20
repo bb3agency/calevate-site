@@ -36,6 +36,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.rates import ROUNDING
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 
@@ -109,7 +110,11 @@ async def record_attested_price_inr(
     the evidence to travel with the claim: a rupee figure with nothing behind it is the
     figure a later session repeats as though somebody had read an invoice.
     """
-    amount = Decimal(inr_per_month).quantize(Decimal("0.01"))
+    # `rounding=` stated, never the process-global context: that default is
+    # ROUND_HALF_EVEN and any library in the image can mutate it, so an attested
+    # price could quantize differently between two deployments of the same code.
+    # `billing.rates.ROUNDING` is the one answer money uses here.
+    amount = Decimal(inr_per_month).quantize(Decimal("0.01"), rounding=ROUNDING)
     if amount <= 0:
         raise ProblemError.business_rule(
             "number_price_not_positive",

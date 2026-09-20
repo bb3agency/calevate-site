@@ -30,6 +30,13 @@ from apps.api.main import app
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/admin/tenants": "the client directory — admin console, never impersonated",
+    "/v1/admin/number-pricing": (
+        "the operator's own attested rupee price for a number the carrier supplies — a "
+        "PLATFORM fact about our cost and margin, not a view of any client's account, so "
+        "there is no client screen for impersonation to mirror. What a client sees is the "
+        "price on `GET /v1/numbers/available`, which is `org:read` and fully reachable in "
+        "a view-as session"
+    ),
     "/v1/admin/tenants/{tenant_id}": "one client's admin record, same surface",
     "/v1/admin/tenants/{tenant_id}/invoice": "an ops document about a client, not a client view",
     "/v1/admin/tenants/{tenant_id}/credits": "the credit ledger as ops reads it",

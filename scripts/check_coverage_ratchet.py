@@ -436,6 +436,11 @@ AREAS: tuple[Area, ...] = (
             # by the number meter, and a wrong one is a wrong `unit_cost_paid` on a
             # recurring charge — the same defect a wrong paise in `billing/` is.
             "apps/api/agents/models.py",
+            # The number catalogue and its purchases carry the rupee side of the same
+            # fact — a monthly rental and a purchase price a client is charged. Same
+            # area for the same reason: a wrong figure here is a wrong recurring charge,
+            # not a display bug.
+            "apps/api/campaigns/number_models.py",
         ),
         why=(
             "metering, credits, caps, rating and invoicing. Money arithmetic fails "

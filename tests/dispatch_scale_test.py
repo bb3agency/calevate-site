@@ -75,7 +75,11 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    fund_wallet,
+    record_autodialer_notice_for_tests,
+)
 from tests.national_dnd_test import record_test_scrub
 
 # The organizations this test provisions so the two candidate shapes are distinguishable
@@ -412,6 +416,9 @@ async def _tenant(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
     # default motion now, so an unfunded tenant is refused `no_credits` on every
     # outbound dial and this file would report that in place of what it is about.
     await fund_wallet(uuid.UUID(str(created["id"])))
+    # Regulation 4's advance autodialler notice: every outbound dial requires it, so a
+    # fixture without one reports `autodialer_notice_missing` instead of its own subject.
+    await record_autodialer_notice_for_tests(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     _TENANTS.append(tenant_id)
     if not published:

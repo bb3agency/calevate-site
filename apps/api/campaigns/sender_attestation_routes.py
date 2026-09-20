@@ -37,6 +37,10 @@ Session = Annotated[AsyncSession, Depends(db)]
 # on the business's behalf is not something a seat with agent-editing rights should do.
 NumberOwner = Annotated[Principal, Depends(requires("org:manage"))]
 
+# The GET is a read, and read-only impersonation must be able to reach it (D-22). The
+# POST that records the confirmation keeps `org:manage`.
+NumberViewer = Annotated[Principal, Depends(requires("org:read"))]
+
 
 class SenderAttestationOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -98,10 +102,10 @@ async def _series_of(session: AsyncSession, number_id: UUID) -> str:
 @router.get(
     "/{number_id}/sender-attestation",
     response_model=SenderAttestationOut,
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("org:read"),
     summary="Whether this number carries the outbound-sender confirmation",
 )
-async def read(number_id: UUID, session: Session, principal: NumberOwner) -> SenderAttestationOut:
+async def read(number_id: UUID, session: Session, principal: NumberViewer) -> SenderAttestationOut:
     """What this number's confirmation says today, and whether it is even needed."""
     await assert_visible(session, "phone_number", number_id)
     state = await latest_attestation(session, phone_number_id=number_id)

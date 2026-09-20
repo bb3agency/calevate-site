@@ -203,8 +203,35 @@ class TestWiring:
 
         A ninth `/v1/worker/*` route, or any route on this surface that took a tenant id or
         a phone number as an ARGUMENT rather than as an observation the server may refuse, is
-        the conversation this tripwire is for."""
-        assert len(exempt) <= 48, sorted(exempt)
+        the conversation this tripwire is for.
+
+        RAISED 48 -> 49 by `POST /hooks/v1/kyc/{provider}` (D-635), and this one is NOT the
+        same surface as the eight above it, so the argument is owed separately and is a
+        weaker one. It is a VENDOR callback like `/hooks/v1/razorpay`, not a first-party
+        worker route: the credential is an HMAC over the raw body rather than a Bearer
+        token we issued, and the caller is a licensed KYC aggregator.
+
+        WHAT IT WRITES IS THE UNCOMFORTABLE PART, and it is stated plainly rather than
+        argued away: a delivery this route accepts marks a client VERIFIED, which is the
+        gate on buying a number and on dialling at all. A forged one would hand an
+        unverified business a phone number. That is the whole reason
+        `kyc_webhook_bad_signature` exists and the reason its refusal may never be softened
+        to make a vendor's deliveries land.
+
+        WHAT KEEPS IT INSIDE THE PROPERTY THIS TRIPWIRE PROTECTS: **it takes no tenant id.**
+        The run is resolved from `(provider, provider_ref)` — a pair WE wrote before the
+        client could reach the provider — and the tenant is read off that row, never off the
+        body, so even a leaked signing secret cannot name an account to verify; it can only
+        report on a run that already exists. The signature is checked over the raw bytes
+        BEFORE anything is parsed. The write is idempotent (a unique `(provider,
+        provider_ref)` and a CAS out of `created`), so a redelivery changes nothing and a
+        replay cannot flip a verified account to failed. A deployment with no provider
+        configured answers 404 rather than confirming the endpoint exists. And it is bounded
+        by `webhook_verification` in `core/ratelimit.RULES` rather than by nginx alone.
+
+        A SECOND vendor-callback route, or any change that let this one take the tenant from
+        the payload, is the conversation this paragraph is for."""
+        assert len(exempt) <= 49, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

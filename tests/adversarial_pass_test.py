@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.campaigns.sender_attestation import SENDER_STATEMENT_VERSION
 from apps.api.core import ratelimit
 from apps.api.core.context import bearer_token
 from apps.api.core.ratelimit import LimitProfile
@@ -115,6 +116,13 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
         ids["agent_id"] = str(agent_id)
 
         rows: tuple[tuple[str, str, str, dict[str, object]], ...] = (
+            (
+                "number_id",
+                "phone_numbers",
+                "(id, tenant_id, agent_id, e164, series, dlt_status, direction) "
+                "VALUES (:i, :t, :a, :e164, 'standard', 'registered', 'outbound')",
+                {"e164": f"+9180{uuid.uuid4().int % 10**8:08d}"},
+            ),
             (
                 "lead_id",
                 "leads",
@@ -307,6 +315,20 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
 _SWEEP_VOICE_ID: str = TEST_VOICE_ID
 
 _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
+    # A NUMBER is the strongest handle in the client realm: it is the identity calls go
+    # out under. Reading a neighbour's attestation leaks who they told the regulator they
+    # are; WRITING one would attest on their behalf that they are the sender and accept
+    # the obligation, and `assign` would point one business's number at another's agent —
+    # a redirection of live calls, not an information leak.
+    ("GET", "/v1/numbers/{number_id}/sender-attestation", {}, {}),
+    (
+        "POST",
+        "/v1/numbers/{number_id}/sender-attestation",
+        {"statement_version": SENDER_STATEMENT_VERSION},
+        {},
+    ),
+    ("DELETE", "/v1/numbers/{number_id}/sender-attestation", {}, {}),
+    ("POST", "/v1/numbers/{number_id}/assign", {"agent_id": str(uuid.uuid4())}, {}),
     ("GET", "/v1/agents/{agent_id}", {}, {}),
     ("GET", "/v1/agents/{agent_id}/engine-state", {}, {}),
     ("GET", "/v1/agents/{agent_id}/experiment", {}, {}),

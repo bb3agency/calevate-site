@@ -130,6 +130,15 @@ PROFILES: dict[str, LimitProfile] = {
     # The payment provider's callback. Its own bucket because losing one of these means
     # a client paid and was not credited until the reconciliation sweep.
     "webhook_payment": LimitProfile("webhook_payment", per_client=300, per_tenant=None),
+    # A licensed KYC aggregator reporting one verification outcome. Its own profile and
+    # not `webhook_payment`'s, because the name is what an operator reads off a 429 and
+    # "payment" would send them to the wrong vendor. No tenant dimension: the tenant is
+    # what the delivery is being resolved to and is unknown until after the signature
+    # check, so a per-tenant bucket could not be chosen without trusting the body.
+    # 120/min per address absorbs a provider's retry burst — the real traffic is one
+    # delivery per verification attempt — while keeping an unauthenticated door bounded
+    # by something other than nginx.
+    "webhook_verification": LimitProfile("webhook_verification", per_client=120, per_tenant=None),
     # Browser-tier violation reports (D-541). Its own profile because the caller is a
     # BROWSER with no session and no tenant, and because the traffic shape is unlike every
     # other unauthenticated surface here: one page load that trips a policy can emit a
@@ -282,6 +291,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/auth/**", "auth"),
     Rule("/hooks/v1/ingest/**", "webhook_ingest"),
     Rule("/hooks/v1/razorpay", "webhook_payment"),
+    Rule("/hooks/v1/kyc/**", "webhook_verification"),
     # No method set, deliberately: this is a FAMILY rule (like `/hooks/v1/razorpay`
     # above) and not a cost weight over one. `tests/rate_limit_census_test` reads
     # `Rule.methods` as the structural difference between the two, and a cost weight is

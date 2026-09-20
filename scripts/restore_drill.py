@@ -201,6 +201,8 @@ AGENT_A = UUID("aaaaaaaa-0000-4000-8000-00000000a9e1")
 AGENT_B = UUID("bbbbbbbb-0000-4000-8000-00000000a9e2")
 USER_A = UUID("aaaaaaaa-0000-4000-8000-00000000c5e1")
 USER_B = UUID("bbbbbbbb-0000-4000-8000-00000000c5e2")
+#: One purchased number for TENANT_A, so the ledgers that hang off a number have a row.
+NUMBER_A = UUID("aaaaaaaa-0000-4000-8000-0000000000a1")
 ADMIN_ID = UUID("cccccccc-0000-4000-8000-0000000000ad")
 LEADS_PER_TENANT = 7
 AUDIT_ENTRIES = 6
@@ -228,6 +230,12 @@ _APPEND_ONLY_PROBE_SET = {
     # correct ledger reported UNPROTECTED. A real value change on `source_note`
     # is what the append-only trigger must refuse.
     "platform_model_prices": "source_note = source_note || 'x'",
+    # Not tenant-scoped either, for `platform_model_prices`' reason: it attests OUR cost
+    # for a number, which is a platform fact and carries no tenant. `source` is a real
+    # value change and NOT `inr_per_month`, which carries a positive CHECK — a probe that
+    # could fail on the constraint instead of on the trigger would report a protected
+    # ledger as protected for the wrong reason.
+    "number_price_attestations": "source = source || 'x'",
     # D-475: not tenant-scoped either, for `platform_model_prices`' reason. `source_url`
     # is a real value change the append-only trigger must refuse — and NOT `rate`, which
     # carries a CHECK constraint: a probe that could fail on the constraint instead of on
@@ -756,6 +764,26 @@ class RestoreDrill:
             "dek_nonce, kek_version, last_four, created_by) VALUES "
             "('DRILL_FIXTURE_KEY', 1, '\\x01'::bytea, '\\x02'::bytea, '\\x03'::bytea, "
             f"'\\x04'::bytea, 1, '0000', '{ADMIN_ID}')",
+            # The four ledgers the number-supply and autodialler rounds added, each for
+            # `platform_model_prices`' reason: a FOR EACH ROW trigger cannot fire on an
+            # empty table, so a ledger with no row here is reported protected without
+            # anything having been probed. Every value is a fixture.
+            "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, direction) "
+            f"VALUES ('{NUMBER_A}', '{TENANT_A}', '+918000000001', 'standard', "
+            "'registered', 'outbound')",
+            "INSERT INTO number_holders (id, tenant_id, holder_type, holder_name, "
+            f"holder_email, recorded_by) VALUES (gen_random_uuid(), '{TENANT_A}', "
+            f"'business', 'Drill Holder', 'drill-holder@example.invalid', '{USER_A}')",
+            "INSERT INTO outbound_sender_attestations (id, tenant_id, phone_number_id, "
+            "state, statement_version, attested_by) VALUES (gen_random_uuid(), "
+            f"'{TENANT_A}', '{NUMBER_A}', 'attested', 'restore-drill-fixture', '{USER_A}')",
+            "INSERT INTO autodialer_notices (id, tenant_id, state, access_provider, "
+            f"objective, notified_on, recorded_by) VALUES (gen_random_uuid(), '{TENANT_A}', "
+            "'notified', 'Drill Access Provider', 'restore-drill fixture', CURRENT_DATE, "
+            f"'{USER_A}')",
+            # PLATFORM-scoped, so no tenant: one attested rupee price per month.
+            "INSERT INTO number_price_attestations (id, inr_per_month, source, attested_by) "
+            f"VALUES (gen_random_uuid(), 499.00, 'restore-drill fixture', '{ADMIN_ID}')",
             # D-459: one attested price so `append_only_enforced` has a row to probe
             # on `platform_model_prices` (a FOR EACH ROW trigger cannot fire on an
             # empty table). `attested_by` is the ADMIN_ID seeded above; prices are

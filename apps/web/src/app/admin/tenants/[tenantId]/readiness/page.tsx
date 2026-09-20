@@ -90,6 +90,17 @@ const RULE_SCREENS: Record<string, { href: (tenantId: string) => string; cta: st
     href: (id) => `/admin/tenants/${id}`,
     cta: "Record registration",
   },
+  // The client's own notice to their access provider. Recorded from the record page,
+  // where the rest of their outbound paperwork lives.
+  autodialer_notice_missing: { href: (id) => `/admin/tenants/${id}`, cta: "Record the notice" },
+  autodialer_notice_withdrawn: {
+    href: (id) => `/admin/tenants/${id}`,
+    cta: "Record the notice",
+  },
+  // DELIBERATELY ABSENT: `autodialer_notice_not_yet_effective`. The paperwork is already
+  // correct and the only thing between the account and dialling is the date arriving —
+  // there is nothing for an operator to open, and a button would invite re-recording a
+  // notice that is fine.
   // OURS, not this client's: our telemarketer registration and the PE-TM chain are one
   // platform-wide fact, and the panel that records them is on the ops switchboard. The
   // link leaves the account deliberately — an operator hunting this on the client's

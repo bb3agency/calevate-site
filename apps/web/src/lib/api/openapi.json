@@ -40312,7 +40312,7 @@
         "tags": [
           "campaigns"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/numbers/holder": {
@@ -40340,7 +40340,7 @@
         "tags": [
           "campaigns"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "org:read"
       },
       "post": {
         "description": "Records the person or business every number on this account will be registered to. It is asked once and reused for every number after that, and it cannot be changed afterwards: the operator who issues the connection holds the same details, and a record of ours that no longer matches theirs would name the wrong owner. A second attempt is refused with `number_holder_already_recorded`.",
@@ -40547,7 +40547,7 @@
         "tags": [
           "campaigns"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "org:read"
       },
       "post": {
         "description": "Record that this business is the sender and accepts the obligation.\n\nRefused on a 140 or 160 number rather than stored harmlessly: a row against a number\nthat needs no exception would later read as though an exception had been needed, and the\nledger's value is that every row in it means the same thing.",

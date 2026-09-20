@@ -69,6 +69,12 @@ Session = Annotated[AsyncSession, Depends(db)]
 # `**/routes.py` and this module is `provisioning_routes.py`.
 NumberBuyer = Annotated[Principal, Depends(requires("org:manage"))]
 
+# READING the number screens is a READ. Support impersonating a client is deliberately
+# read-only (D-22), so a GET gated on a mutating permission is a screen that support
+# cannot see while the client is on the phone asking about it — which is the whole point
+# of impersonation. Buying and assigning still take `org:manage` below.
+NumberViewer = Annotated[Principal, Depends(requires("org:read"))]
+
 PURCHASE_ROUTE = "/v1/numbers/purchase"
 
 
@@ -206,10 +212,10 @@ class AssignOut(BaseModel):
 @router.get(
     "/holder",
     response_model=HolderOut,
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("org:read"),
     summary="Who this account's numbers are registered to — recorded once, then fixed",
 )
-async def get_holder(session: Session, _: NumberBuyer) -> HolderOut:
+async def get_holder(session: Session, _: NumberViewer) -> HolderOut:
     holder = await read_holder(session)
     if holder is None:
         return HolderOut(recorded=False)
@@ -274,7 +280,7 @@ async def put_holder(
 @router.get(
     "/available",
     response_model=list[OfferedNumberOut],
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("org:read"),
     summary="Indian numbers this account could buy, priced in rupees",
     description=(
         "Searches the voice platform's inventory and prices each number at the rate an "
@@ -286,7 +292,7 @@ async def put_holder(
 )
 async def available_numbers(
     session: Session,
-    _: NumberBuyer,
+    _: NumberViewer,
     pattern: str | None = Query(None, min_length=1, max_length=3),
     # BOUNDED HERE because the vendor's search declares no page size at all
     # (`bolna-findings/mirror/pages/api-reference/phone-numbers/search.md:38-70`), so the
@@ -360,7 +366,7 @@ async def purchase_number(
             kind="validation",
             status=400,
             code="idempotency_key_required",
-            title="This request has to carry an Idempotency-Key",
+            title="Buying a number needs an Idempotency-Key",
             detail=(
                 "Buying a number spends money and starts a monthly rental, so every "
                 "attempt names itself and a repeat of the same attempt is answered "

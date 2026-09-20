@@ -43,6 +43,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
 from apps.api.compliance.registration import outbound_entity_blockers
 from apps.api.compliance.service import (
@@ -144,6 +145,34 @@ ROW_COPY: dict[str, _Copy] = {
         next_step=(
             "The Verification screen says which state it is in and whether we owe you a "
             "review or you owe us a correction."
+        ),
+    ),
+    "autodialer_notice_missing": _Copy(
+        title="Your autodialler notice to your access provider",
+        actor="client",
+        next_step=(
+            "Tell the provider that supplies your outbound line, in writing, that these "
+            "calls are placed by an automated dialler and what they are for, then record "
+            "the date here. TRAI puts that notice on the sender of the calls, which is "
+            "your business rather than Calevate, so it is not something we can send for "
+            "you. Answering incoming calls is unaffected."
+        ),
+    ),
+    "autodialer_notice_withdrawn": _Copy(
+        title="Your autodialler notice has been withdrawn",
+        actor="client",
+        next_step=(
+            "Give the notice to your access provider again and record it here to resume "
+            "outbound campaigns. Answering incoming calls is unaffected."
+        ),
+    ),
+    "autodialer_notice_not_yet_effective": _Copy(
+        title="Your autodialler notice has not taken effect yet",
+        actor="client",
+        next_step=(
+            "Nothing is wrong with the paperwork — the date you recorded is in the "
+            "future. Outbound campaigns start once it arrives. Answering incoming calls "
+            "is unaffected."
         ),
     ),
     "tm_registration_missing": _Copy(
@@ -293,6 +322,14 @@ async def readiness_rows(
     rows.extend(
         _row(*pair) for pair in await outbound_entity_blockers(session, tenant_id=tenant_id)
     )
+
+    # THE SENDER'S OWN NOTICE, and it is here rather than only in `check_dispatch` because
+    # a gate that stops every outbound call and appears on no screen is a client staring at
+    # a dead campaign with nothing to act on. Same predicate, so the sentence they read
+    # here is the sentence the dial refused with.
+    notice = await autodialer_notice_blocker(session, tenant_id=tenant_id)
+    if notice is not None:
+        rows.append(_row(*notice))
 
     agreements = await legal_service.agreements_blocker(session, tenant_id=tenant_id)
     if agreements is not None:

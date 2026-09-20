@@ -180,7 +180,18 @@ def upgrade() -> None:
     op.add_column("kyc_records", sa.Column("verified_name", sa.Text(), nullable=True))
 
     # Before the constraint, not after: see THE BACKFILL IS LOAD-BEARING above.
+    #
+    # AND BRACKETED, or it backfills NOTHING and says it succeeded. `kyc_records` is FORCE
+    # ROW LEVEL SECURITY, which binds the table OWNER too, and `tenant_isolation` is
+    # fail-closed on an unset `app.tenant_id` — which a migration never sets. Unbracketed,
+    # this UPDATE matches zero rows on a deployment that holds any, reports success, and
+    # the constraint below is then added over rows the migration believes it fixed. The
+    # bracket lifts RLS for the owner only; `calevate_app` is NOSUPERUSER NOBYPASSRLS and
+    # keeps every policy throughout, and DDL is transactional so FORCE is restored before
+    # commit (the reasoning in full: `d3b71c9a5e08`).
+    op.execute("ALTER TABLE kyc_records NO FORCE ROW LEVEL SECURITY")
     op.execute("UPDATE kyc_records SET verification_source = 'operator'")
+    op.execute("ALTER TABLE kyc_records FORCE ROW LEVEL SECURITY")
 
     op.execute(f"ALTER TABLE kyc_records DROP CONSTRAINT {_EVIDENCE}")
     op.execute(
@@ -310,10 +321,14 @@ def downgrade() -> None:
     # stops dialling, which is the compliance consequence of the revert rather than a
     # detail of it. Leaving the row alone would instead fail the constraint add and abort
     # the downgrade halfway.
+    # Bracketed for the reason the upgrade's backfill is: unbracketed it matches zero
+    # rows, and the constraint restored below then fails on the rows it was meant to move.
+    op.execute("ALTER TABLE kyc_records NO FORCE ROW LEVEL SECURITY")
     op.execute(
         "UPDATE kyc_records SET status = 'submitted', verified_at = NULL "
         "WHERE status = 'verified' AND verification_source = 'aggregator'"
     )
+    op.execute("ALTER TABLE kyc_records FORCE ROW LEVEL SECURITY")
     for name in (
         "ck_kyc_records_verified_name_is_not_an_aadhaar",
         "ck_kyc_records_verification_reference_is_not_an_aadhaar",
