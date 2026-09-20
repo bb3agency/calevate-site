@@ -475,15 +475,46 @@ async def test_a_signed_body_that_is_not_an_outcome_is_refused() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_second_run_is_refused_while_one_is_already_open() -> None:
-    """One open run per account. Without this a client could hold several references at
-    a provider and choose which outcome to bring back."""
+async def test_a_deployment_with_no_aggregator_offers_no_self_verification() -> None:
+    """The SAME selector the read route reports, so a screen can never show a button this
+    refuses. Today every deployment is in this state — no provider's contract is verified
+    — so this is the arm a real client actually meets, not a defensive one.
+    """
     org = await _tenant()
-    await _start(org, "sole_proprietorship")
+    settings = get_settings()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "kyc_verification_provider", None, raising=False)
+        async with _client() as http:
+            response = await http.post(
+                START_PATH,
+                headers=await _headers(org),
+                json={"entity_type": "sole_proprietorship"},
+            )
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("self_verification_unavailable")
+
+
+@pytest.mark.asyncio
+async def test_an_already_verified_business_cannot_start_another_run() -> None:
+    """Verification is a state, not a thing to redo.
+
+    It matters beyond tidiness: a second run against an account that is already verified
+    could only ever end by REPLACING a good verification with whatever the second one
+    returned — including a failure — so the refusal protects the record the liability
+    case rests on.
+    """
+    org = await _tenant()
+    ref = await _start(org, "sole_proprietorship")
+    applied = await _deliver(
+        {"provider_ref": ref, "verified": True, "verified_name": "Ramesh Kumar"}
+    )
+    assert applied.status_code == 200, applied.text
+
     async with _client() as http:
         again = await http.post(
             START_PATH,
             headers=await _headers(org),
             json={"entity_type": "sole_proprietorship"},
         )
-    assert again.status_code in (200, 409), again.text
+    assert again.status_code == 422, again.text
+    assert again.json()["type"].endswith("kyc_already_verified")
