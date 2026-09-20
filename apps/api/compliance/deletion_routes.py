@@ -131,6 +131,13 @@ class ErasureScopeOut(Strict):
     # the client's manual step actionable, and which document is a question they answer on
     # their own knowledge screen.
     knowledge_base_documents_matched: int | None
+    # How many of this tenant's calls NO erasure can reach, because neither party was
+    # ever recorded on them. The one count on this document that is not about the
+    # subject, and it cannot be: a call attributable to them would have been erased.
+    # NULLABLE on the same reasoning as the counts above — `0` is the claim that the
+    # account holds none, `None` that the proof predates the count
+    # (`deletion_proof._unidentified_sentence`).
+    calls_without_an_identifiable_party: int | None
     # How many SEARCHABLE PROJECTIONS of this person's words this erasure destroyed, and
     # how many remembered facts about them (D-503). NULLABLE and required, on the reasoning
     # every count above uses: a recorded `0` is the claim "there were none", and `None`

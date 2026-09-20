@@ -71,6 +71,8 @@ from apps.api.compliance.deletion import (
     KB_MATCH_KEY,
     KB_OUTCOME,
     RECORDING_FLOOR_DAYS,
+    UNIDENTIFIED_COUNT_KEY,
+    UNIDENTIFIED_OUTCOME,
     ErasureLimitation,
 )
 
@@ -108,6 +110,19 @@ _KB_NO_MATCH = (
     "mentions it."
 )
 
+# The same three states for the calls that carry no caller number, and the first of them
+# is why this is a sentence rather than a bare count: a proof written before anything
+# counted them must not be rendered as "none", which is the exact overclaim the register
+# entry exists to remove.
+_UNIDENTIFIED_UNCOUNTED = (
+    "This erasure ran before such calls were counted, so this certificate does not say "
+    "whether this business holds any."
+)
+_UNIDENTIFIED_NONE = (
+    "This business holds no call with an unidentified caller, so nothing was missed for "
+    "this reason."
+)
+
 
 def notice_version(limitations: Sequence[str], exceptions: Sequence[ErasureLimitation]) -> str:
     """A version derived FROM the notice text, so it cannot drift from what it names.
@@ -143,6 +158,7 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
     destroyed = _optional_count(scope.get(DESTROYED_COUNT_KEY))
     hold_until = _optional_text(scope.get(HOLD_UNTIL_KEY))
     kb_matched = _optional_count(scope.get(KB_MATCH_KEY))
+    unidentified = _optional_count(scope.get(UNIDENTIFIED_COUNT_KEY))
     vectors = _optional_count(scope.get(CALLER_VECTOR_KEY))
     remembered = _optional_count(scope.get(CALLER_MEMORY_KEY))
 
@@ -161,6 +177,7 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             DESTROYED_COUNT_KEY: destroyed,
             HOLD_UNTIL_KEY: hold_until,
             KB_MATCH_KEY: kb_matched,
+            UNIDENTIFIED_COUNT_KEY: unidentified,
             CALLER_VECTOR_KEY: vectors,
             CALLER_MEMORY_KEY: remembered,
         },
@@ -175,7 +192,7 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             vectors=vectors,
             remembered=remembered,
         ),
-        "not_erased": _not_erased(floor, hold_until, kb_matched),
+        "not_erased": _not_erased(floor, hold_until, kb_matched, unidentified),
         "limitations": list(ERASURE_LIMITATIONS),
         "limitations_version": notice_version(ERASURE_LIMITATIONS, ERASURE_EXCEPTIONS),
     }
@@ -271,7 +288,10 @@ def _caller_sentences(vectors: int | None, remembered: int | None) -> list[str]:
 
 
 def _not_erased(
-    floor: int | None, hold_until: str | None, kb_matched: int | None
+    floor: int | None,
+    hold_until: str | None,
+    kb_matched: int | None,
+    unidentified: int | None,
 ) -> list[dict[str, Any]]:
     """The register, with each count attached to the one entry it speaks for.
 
@@ -279,10 +299,15 @@ def _not_erased(
     silently attach a number to the wrong statement — the same rule `FLOOR_OUTCOME`
     established, now that there are two entries carrying a count.
     """
-    counts: dict[str, int | None] = {FLOOR_OUTCOME: floor, KB_OUTCOME: kb_matched}
+    counts: dict[str, int | None] = {
+        FLOOR_OUTCOME: floor,
+        KB_OUTCOME: kb_matched,
+        UNIDENTIFIED_OUTCOME: unidentified,
+    }
     sentences = {
         FLOOR_OUTCOME: _floor_sentence(floor, hold_until),
         KB_OUTCOME: _kb_sentence(kb_matched),
+        UNIDENTIFIED_OUTCOME: _unidentified_sentence(unidentified),
     }
     entries: list[dict[str, Any]] = []
     for exception in ERASURE_EXCEPTIONS:
@@ -314,6 +339,25 @@ def _kb_sentence(matched: int | None) -> str:
         f"{_plural(matched, 'uploaded knowledge document')} mention this number. They "
         "were not changed by this request: removing the person from them is a manual "
         "step, in Calevate and on the voice platform's copy of the same source."
+    )
+
+
+def _unidentified_sentence(unidentified: int | None) -> str:
+    """How many calls no request can reach, or that nothing counted them.
+
+    Worded so the reader cannot mistake it for a statement about THEM: the number is the
+    business's, and which of those calls were this person's is the fact that does not
+    exist. Saying "some of these may be yours" would be the same overclaim in the other
+    direction — a suggestion we have no basis for either.
+    """
+    if unidentified is None:
+        return _UNIDENTIFIED_UNCOUNTED
+    if unidentified == 0:
+        return _UNIDENTIFIED_NONE
+    return (
+        f"This business holds {_plural(unidentified, 'call')} that arrived with no "
+        "caller number. This request could not reach them and cannot say whether any of "
+        "them were this person's."
     )
 
 

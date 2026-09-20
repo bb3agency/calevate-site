@@ -190,6 +190,15 @@ HOLD_UNTIL_KEY = "recording_hold_until"
 # certificate says the three states in three different sentences.
 KB_MATCH_KEY = "knowledge_base_documents_matched"
 
+# How many of this account's call records no erasure can reach, because the other party
+# was never recorded on them. Spelled the same in
+# `apps.api.compliance.deletion.UNIDENTIFIED_COUNT_KEY` and duplicated for the reason the
+# key above is; `tests/erasure_subjectless_call_test.py` pins the spellings.
+#
+# ABSENT IS NOT ZERO, as everywhere else on this proof: a rendered 0 on a proof written
+# before anything counted would tell a data principal the account holds no such calls.
+UNIDENTIFIED_COUNT_KEY = "calls_without_an_identifiable_party"
+
 # How many SEARCHABLE PROJECTIONS of this person's words this erasure destroyed, and how
 # many remembered facts about them went with them (D-503). Spelled the same in
 # `apps.api.compliance.deletion` and duplicated rather than imported, for the reason the
@@ -2432,6 +2441,60 @@ async def _search_knowledge_base(session: AsyncSession, *, phone: str) -> int:
     return int(matched or 0)
 
 
+#: Calls this account holds that NO erasure request can ever locate.
+#:
+#: The other party's column decides, exactly as it does everywhere else that has to name
+#: the human on a call (`workers/optout._subject`, `api/worker/tools._subject`): inbound
+#: means `from_e164`, outbound means `to_e164`. When that column is NULL there is nothing
+#: for any of `execute_deletion_request`'s three predicates to match.
+#:
+#: `erased_subject_ref IS NULL` excludes a call an erasure already discharged — the arm
+#: clears both numbers, so an erased call looks unidentified and would be reported as an
+#: exposure for ever after.
+#:
+#: The content test is what keeps the number meaningful rather than alarming: a call whose
+#: transcript the retention sweep already replaced with the marker and whose recording
+#: pointer is gone holds nothing left to erase, so counting it would tell a data principal
+#: about data that is not there.
+_UNIDENTIFIED_CALLS_SQL = """
+SELECT count(*) FROM calls c
+WHERE c.erased_subject_ref IS NULL
+  AND (CASE WHEN c.direction = 'inbound' THEN c.from_e164 ELSE c.to_e164 END) IS NULL
+  AND (
+        c.recording_url IS NOT NULL
+     OR c.transfer_recording_url IS NOT NULL
+     OR c.summary IS NOT NULL
+     OR EXISTS (
+          SELECT 1 FROM transcript_turns t
+          WHERE t.call_id = c.id AND t.text <> :mark
+        )
+  )
+"""
+
+
+async def _count_unidentified_calls(session: AsyncSession) -> int:
+    """How many calls this tenant holds that carry no party for a request to match.
+
+    Reads; never writes. RLS scopes it to the tenant (hard rule 1), and the count is all
+    that leaves — no call id — because it travels into a proof that is forwarded to
+    someone who is not entitled to other callers' records.
+
+    It is deliberately NOT restricted to the subject: a call that could be attributed to
+    them would have been erased, so "how many of these were theirs" is the fact that does
+    not exist. The certificate says that in words rather than implying otherwise with a
+    smaller number.
+
+    Unindexed by construction — `ix_calls_from_e164` is PARTIAL on `IS NOT NULL`, which is
+    the complement of this predicate — so it scans the tenant's calls. That is affordable
+    because it runs once per erasure request and never on a call path; an index whose only
+    reader is this count would cost an insertion on every call placed.
+    """
+    matched = (
+        await session.execute(text(_UNIDENTIFIED_CALLS_SQL), {"mark": REDACTED_MARK})
+    ).scalar()
+    return int(matched or 0)
+
+
 async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """DPDP erasure for one phone number, with a proof certificate (SEC-COMP §4).
 
@@ -2658,6 +2721,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # raised and the number is never reported on an erasure that then rolled back.
         kb_matches = await _search_knowledge_base(session, phone=phone)
 
+        # COUNTED AFTER the erasure ran, which is what makes the number the RESIDUE rather
+        # than the population: every call this request could reach has had its numbers
+        # cleared and its `erased_subject_ref` stamped by now, so the predicate excludes
+        # them and what remains is exactly the set no request can locate.
+        unidentified = await _count_unidentified_calls(session)
+
         proof = {
             "subject_hash": _hash(phone),
             "executed_at": datetime.now(UTC).isoformat(),
@@ -2701,6 +2770,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 # to the data principal, and an entry that carries a count needs the
                 # count in the part of the proof the renderer reads by name.
                 KB_MATCH_KEY: kb_matches,
+                # In `scope` for the reason the key above is: the certificate has an ENTRY
+                # that reports this number to the data principal, so the renderer must be
+                # able to read it by name. It is the one count on this proof that is NOT
+                # about the subject — see `_count_unidentified_calls`.
+                UNIDENTIFIED_COUNT_KEY: unidentified,
                 # IN `scope` AND NOT ONLY IN A SENTENCE, unlike the three counts below it.
                 # A vector is the one copy of a person's words that nobody can read and
                 # nobody will miss, so "we destroyed N of them" is exactly the claim a
@@ -3739,6 +3813,7 @@ __all__ = [
     "SWEEP_BATCH_ROWS",
     "TENANT_ERASURE_BATCH",
     "TENANT_ROW_BUDGET",
+    "UNIDENTIFIED_COUNT_KEY",
     "apply_retention",
     "execute_deletion_request",
     "execute_tenant_erasure",

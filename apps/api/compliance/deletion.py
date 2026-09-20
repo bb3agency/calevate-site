@@ -282,6 +282,36 @@ KB_MATCH_KEY: Final = "knowledge_base_documents_matched"
 CALLER_VECTOR_KEY: Final = "caller_vectors_erased"
 CALLER_MEMORY_KEY: Final = "caller_memories_erased"
 
+# HOW MANY OF THIS ACCOUNT'S CALL RECORDS NO ERASURE CAN EVER REACH, because the party
+# we would match a request against was never learned. `calls.from_e164` is nullable and
+# its index is PARTIAL on `IS NOT NULL`, so a call whose caller the carrier withheld or
+# whose calling party our client did not parse (`voice_worker/carrier.CallerIdentity`)
+# carries the transcript and the recording of a real person under no number at all — and
+# `execute_deletion_request`'s three predicates are all numbers.
+#
+# It is a TENANT-WIDE count and not this subject's, which is the only honest form it can
+# take: if we could tell which of those calls were theirs we would have erased them. So
+# the certificate reports the size of the unreachable set and names the manual step,
+# rather than reporting a zero it cannot stand behind.
+#
+# Duplicated in `apps.workers.retention` for the reason the five keys above are — neither
+# package may import the other — and pinned to it by `tests/erasure_subjectless_call_test`.
+#
+# ABSENT IS NOT ZERO. Every proof written before this count existed carries no key, and a
+# rendered `0` would tell a data principal the account holds no unattributable calls when
+# nothing counted them.
+UNIDENTIFIED_COUNT_KEY: Final = "calls_without_an_identifiable_party"
+
+#: Calls no phone number can match, because neither party was ever recorded on them.
+#:
+#: Its own outcome word rather than the `by name` entry's `not_reachable_without_the_number`
+#: — they are different failures and a reader must be able to tell them apart, and
+#: `deletion_proof` attaches counts BY OUTCOME so two entries sharing a value would hand
+#: one count to both. `by name` is about a SENTENCE inside a record we did reach; this is a
+#: whole call record — its transcript, its summary and the pointer to the audio — that no
+#: request can locate at all.
+UNIDENTIFIED_OUTCOME: Final = "unidentified_caller_not_matchable"
+
 #: What an erasure can and cannot do at a sub-processor, as the certificate words it.
 #:
 #: `unconfirmed_pending_vendor_api` — the value the PROOF still carries on the wire — was
@@ -433,6 +463,17 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "business closes its account. We do not search free text for a person's name because "
     "a name is not unique: matching one would delete other people's records belonging to "
     "everybody who shares it.",
+    "Some calls reach this account with NO caller number on them at all — the caller "
+    "withheld it, or the telephone network did not pass one we could read. Those calls "
+    "are still recorded and still transcribed, so a person's words and the sound of "
+    "their voice are on file under no number. This request cannot reach them, because "
+    "the only thing it has to match on is the number you gave: if one of those calls was "
+    "yours, nothing here can tell. The certificate states how many such calls this "
+    "business holds rather than reporting them as nothing. Identifying one is a manual "
+    "step — somebody at the business has to recognise the caller from the recording and "
+    "give us the number — and once they do, a second request for that number erases the "
+    "call like any other. They are not kept indefinitely: they expire on this business's "
+    "own retention clock and every one of them is destroyed if the account is closed.",
     "Anything a person at the client TYPED into Calevate's assistant about this caller "
     "is erased where it names their number, but not where it names them by NAME. The "
     "assistant stores what was typed with phone numbers already replaced by placeholders, "
@@ -603,6 +644,39 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "records of everyone who shares it. Widening this needs a way to establish "
             "that a named record really is this person's, which is a decision taken with "
             "our clients and our counsel rather than a setting."
+        ),
+    ),
+    ErasureLimitation(
+        what="Calls that arrived with no caller number on them at all.",
+        keyword="no caller number",
+        outcome=UNIDENTIFIED_OUTCOME,
+        why=(
+            "A caller can withhold their number, and a telephone network does not always "
+            "pass one this system can read. Such a call is recorded and transcribed like "
+            "any other, so what is held is a real person's words and the sound of their "
+            "voice with no number beside them — and this request has only a number to "
+            "match on, so it cannot reach them and cannot tell whether any of them were "
+            "yours. The count below is how many the business holds, not how many were "
+            "this person's: knowing which were theirs is exactly what is missing. "
+            "Identifying one is manual — recognising the caller from the recording and "
+            "supplying the number — after which a fresh request erases that call "
+            "normally. Nothing here is kept indefinitely: these calls run out their "
+            "retention period like every other call and are destroyed outright when the "
+            "account closes."
+        ),
+        # `voice_worker/carrier.CallerIdentity`'s four states are the distinction that
+        # would let this be narrowed — a number the carrier WITHHELD is a different legal
+        # position from one our own client failed to parse — and nothing persists that
+        # state API-side today. `tests/erasure_subjectless_call_test.py` holds the gap.
+        authority=(
+            "Calevate's erasure identifies a data principal by the telephone number the "
+            "request is made for, and a call that carries no number carries nothing for "
+            "it to identify. Deleting unattributable calls on receipt of somebody's "
+            "request would destroy other callers' records on a guess; keeping them "
+            "unreported would state a completeness this request does not have. So they "
+            "are counted and declared, and whether a call nobody can be matched to "
+            "should be retained at all is a question for this business and its own "
+            "retention policy."
         ),
     ),
     ErasureLimitation(
@@ -1177,6 +1251,8 @@ __all__ = [
     "STATUS_COMPLETED",
     "STATUS_PENDING",
     "TELEPHONY_OUTCOME",
+    "UNIDENTIFIED_COUNT_KEY",
+    "UNIDENTIFIED_OUTCOME",
     "DeletionRequestRecord",
     "DeletionRequestSummary",
     "ErasureLimitation",

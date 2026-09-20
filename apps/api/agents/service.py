@@ -136,7 +136,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
-from apps.api.db.session import tenant_session
+from apps.api.db.session import session_tenant, tenant_session
 from apps.api.engine import engine_capabilities, get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.engine.vendor_http import EngineRejectedError
@@ -2782,6 +2782,54 @@ async def _recall_for_dial(
     return facts
 
 
+async def _assert_dialling_tenant_owns_the_session(
+    session: AsyncSession, *, tenant_id: UUID
+) -> None:
+    """Refuse a dial whose reads and writes would belong to two different tenants.
+
+    `dispatch_call` is the one function in this tree that takes BOTH a tenant-scoped
+    session and a `tenant_id`, and it uses them for different halves of the same call:
+    the agent row, the caller ID and the caller memory are read under the SESSION's
+    `app.tenant_id`, while the `calls` intent row, the experiment assignment and the
+    unplaced-dial settlement are written under `tenant_session(tenant_id)`. RLS cannot
+    notice the difference — each half is individually legal — so a mismatch dials tenant
+    A's published agent, presents tenant A's DLT-registered header, and books the call,
+    its minutes and its wallet debit to tenant B. `calls.agent_id` is a plain foreign key
+    and PostgreSQL validates it with row security bypassed (`db/ownership.py`), so the
+    row lands rather than erroring, and the complaint trail then names the wrong
+    Principal Entity.
+
+    No caller does this today; the point is that nothing stopped one. Hard rule 1 wants
+    the boundary enforced rather than conventional, and this is the whole platform's
+    outbound chokepoint (`scripts/check_compliance_invariants.py` §1), so one assertion
+    here covers the campaign dispatcher, the lead-callback button and the ingest path.
+
+    Rejected: drop the `tenant_id` parameter and read the session's GUC instead, which is
+    the doctrine `db/session.session_tenant` states. It is the better shape and it is a
+    change to four callers in three packages plus the AST guardrail, none of which this
+    change owns; the assertion makes the drift detectable in the meantime and is what
+    that refactor would delete.
+
+    Costs one `current_setting` round trip on a path that already makes several queries
+    and a vendor HTTP call.
+    """
+    scoped_to = await session_tenant(session)
+    if scoped_to != tenant_id:
+        # Ids only (hard rule 6), and an operator-actionable line: the caller passed a
+        # tenant that is not the one its own session can read.
+        log.error(
+            "dial_tenant_binding_mismatch",
+            extra={
+                "session_tenant_id": str(scoped_to),
+                "requested_tenant_id": str(tenant_id),
+            },
+        )
+        raise RuntimeError(
+            "dispatch_call was given a tenant-scoped session for a different tenant "
+            "than the dial it was asked to place"
+        )
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -2853,6 +2901,8 @@ async def dispatch_call(
     ringing phone; the original `ProblemError` when the vendor refused before dialling
     (`DIAL_NOT_PLACED_CODES`), so those callers keep their retry ladder.
     """
+    await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
+
     agent = await _load_agent(session, tenant_id, agent_id)
     ref = agent["engine_agent_ref"]
     if not isinstance(ref, str) or not ref:
