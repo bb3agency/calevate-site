@@ -45,6 +45,7 @@ from uuid import UUID
 
 from calevate_shared.engine import awaits_caller_memory
 from calevate_shared.events import CallDirection
+from calevate_shared.worker_api import KnowledgeReport, KnowledgeState
 from loguru import logger
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.transports.base_transport import BaseTransport
@@ -132,6 +133,26 @@ async def load_knowledge(
         fetcher=fetcher,
         cache=pack_cache() if cache is None else cache,
     )
+
+
+def knowledge_report(knowledge: SessionKnowledge | None) -> KnowledgeReport:
+    """The one place the three-way state above becomes the word our records keep.
+
+    **WHY THIS IS A FUNCTION AND NOT A LINE IN `runtime.py`.** `load_knowledge` splits
+    "no pack configured" from "a pack that should have loaded and did not" by returning
+    `None` for the first, and `build_knowledge_tool` reads that split to decide what the
+    agent may SAY. Reconstructing it a second time at the reporting call site is two
+    authors of one distinction, and the day they disagree the agent tells a caller one
+    thing and our records tell an operator another.
+
+    `available` is reported as deliberately as a failure is. Without it a NULL column
+    would mean both "this call was fine" and "no worker ever said", and an operator
+    counting degraded calls cannot tell a healthy fleet from a silent one.
+    """
+    if knowledge is None:
+        return KnowledgeReport(state="no_pack")
+    state: KnowledgeState = knowledge.unavailable_reason or "available"
+    return KnowledgeReport(state=state, digest=knowledge.requested_digest)
 
 
 async def load_caller_memory(
@@ -330,6 +351,7 @@ async def start_session(
 
 __all__ = [
     "AssembledCall",
+    "knowledge_report",
     "load_caller_memory",
     "load_knowledge",
     "open_session",

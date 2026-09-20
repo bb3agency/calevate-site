@@ -158,6 +158,28 @@ NOT_A_SUBPROCESSOR: dict[str, str] = {
         "to vendors. Same shape and same reason as the entry above: an address we are "
         "reached AT is not a vendor we send to."
     ),
+    # ⚠ THIS ENTRY IS TRUE TODAY AND IS THE ONE HERE THAT CAN STOP BEING TRUE. Every other
+    # line above describes an address we are REACHED AT, which no configuration can turn
+    # into an outbound reach. This one describes a vendor seam with no vendor in it: the
+    # identity-aggregator adapter set (D-635) contains one declared-and-unimplemented
+    # provider and no other, `kyc_verification_provider` is unset on every deployment, and
+    # `kyc_providers.available_provider()` refuses on both counts — so no client's data
+    # reaches anybody through it, and the register would be naming a party that receives
+    # nothing.
+    #
+    # CONFIGURING A PROVIDER MAKES IT A SUB-PROCESSOR AND THIS ENTRY FALSE. The aggregator
+    # would be verifying an identity on our instruction, which is processing on our behalf
+    # however the data reaches them, and `/legal/subprocessors` must gain a row (with its
+    # own revision and hash) BEFORE `kyc_verification_provider` is ever set. Moving the
+    # token to VENDOR_OF is the second half of that same change.
+    "kyc_verification": (
+        "The client identity-verification aggregator seam (D-635) with no aggregator in "
+        "it: no provider is configured on any deployment, the one declared adapter is "
+        "unimplemented because its documentation is egress-blocked, and the selector "
+        "refuses on both counts — so nothing of a client's reaches anybody through it. "
+        "Configuring a provider makes this false and requires a register row first; see "
+        "the comment above this entry."
+    ),
 }
 
 #: Register identities with no signal in the tree, each with the argument for keeping them

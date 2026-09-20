@@ -95,6 +95,7 @@ install_error_handlers(app)
 def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
     from apps.api.actions.routes import router as actions_router
+    from apps.api.admin.account_routes import router as tenant_account_router
     from apps.api.admin.closure_routes import router as tenant_closure_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
@@ -159,6 +160,7 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.compliance.first_campaign_routes import router as first_campaign_router
     from apps.api.compliance.kyc_routes import router as kyc_router
+    from apps.api.compliance.kyc_routes import webhook_router as kyc_webhook_router
     from apps.api.compliance.national_dnd_routes import (
         campaign_router as preference_scrub_router,
     )
@@ -370,6 +372,12 @@ def _mount_routers(application: FastAPI) -> None:
     # the literal. Beside the closure router specifically because both are the operator's
     # half of the same subject — who holds this account, and when it ends.
     application.include_router(tenant_members_router)
+    # Readiness and the activity trail for one account. Mounted here for the reason the
+    # three above it are: `/v1/admin/tenants/{tenant_id}` lives on `admin_router`, and a
+    # router declaring a literal segment after that path parameter must be included AFTER
+    # it. Beside the members router because it is the same subject read a different way —
+    # what is holding this account, and what has been done to it.
+    application.include_router(tenant_account_router)
     application.include_router(dlt_registration_router)
     application.include_router(kyc_router)
     # The RESELLER stage: our carrier approves each client business separately before a
@@ -416,6 +424,10 @@ def _mount_routers(application: FastAPI) -> None:
     # the RBAC exemption is exactly this surface (`core/rbac.PUBLIC_PREFIXES`).
     application.include_router(public_rate_card_router)
     application.include_router(razorpay_router)
+    # The identity-aggregator receiver (D-635), under the `/hooks` public prefix so
+    # the RBAC exemption is exactly this surface. Signed over the raw bytes and
+    # declared in `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`.
+    application.include_router(kyc_webhook_router)
     application.include_router(refund_router)
     # The client's own invoice — the same `build_invoice` the admin route serves, in the
     # realm of the persona BRD §51 says pays it. Literal `/v1/billing/invoice`, declared

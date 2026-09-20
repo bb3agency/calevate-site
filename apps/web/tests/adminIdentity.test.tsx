@@ -50,6 +50,16 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
 const TENANTS_PATH = "/v1/admin/tenants";
 
 /**
+ * The directory answers a PAGE, not an array: `GET /v1/admin/tenants` carries `rows`
+ * beside the count of accounts that matched, because the roster is searched and paged
+ * server-side. Nothing in this file is about that — these fixtures only have to be the
+ * shape the screen reads.
+ */
+function directoryPage(rows = [tenant()]) {
+  return { rows, total: rows.length, limit: 25, offset: 0 };
+}
+
+/**
  * The widest the sidebar's identity line can be and still be READ.
  *
  * 255px panel (`sidebarPanelClass`), less the footer's `px-3` (24px), the identity row's
@@ -412,7 +422,7 @@ describe("the client directory's create gate", () => {
   it("offers New client to a session that holds admin:tenants", async () => {
     renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: OPERATOR,
-      [TENANTS_PATH]: [tenant()],
+      [TENANTS_PATH]: directoryPage(),
     });
 
     const link = await screen.findByRole("link", { name: /New client/ });
@@ -424,7 +434,7 @@ describe("the client directory's create gate", () => {
     // at all: it could only refuse once its OWN read had failed.
     const { container } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: me({ permissions: ["org:read", "agents:read"] }),
-      [TENANTS_PATH]: [tenant()],
+      [TENANTS_PATH]: directoryPage(),
     });
 
     await screen.findByText(/does not have permission to/);
@@ -454,7 +464,7 @@ describe("the client directory's create gate", () => {
   it("offers nothing and explains nothing until an answer is in hand", () => {
     const { container } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: OPERATOR,
-      [TENANTS_PATH]: [tenant()],
+      [TENANTS_PATH]: directoryPage(),
     });
 
     expect(screen.queryByRole("link", { name: /New client/ })).toBeNull();

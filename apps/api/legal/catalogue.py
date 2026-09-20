@@ -271,6 +271,19 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "to; and nobody here has been able to open a page the new company "
                 "publishes.",
             ),
+            Revision(
+                "9",
+                True,
+                "A client may now verify their own identity through DigiLocker with a "
+                "licensed intermediary (D-635). Section 4 states what that route "
+                "collects: the intermediary handles the Aadhaar, Calevate receives the "
+                "confirmation, the intermediary's reference, the name confirmed and the "
+                "date, and no Aadhaar number or identity document is received or stored "
+                "by either route. MATERIAL — an intermediary may now stand between the "
+                "client and us on this path, and a new party in a data flow is a new "
+                "disclosure rather than a clarification. The section 29 reasoning is "
+                "unchanged and the twelve-digit refusal now covers three more fields.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

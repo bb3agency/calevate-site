@@ -115,6 +115,17 @@ TRANSIENT_REFUSALS: dict[str, str] = {
         "the carrier accepts the application and an operator records it"
     ),
     "agreements_not_accepted": "the client accepts the current Terms/DPA/AUP",
+    # TCCCPR Regulation 4's advance autodialer notice. Transient for the carrier
+    # application's reason: it is the ACCOUNT's paperwork rather than a fact about the
+    # person being called, and each of the three is lifted by an act that happens while
+    # the campaign sits there. The third lifts by the CLOCK alone, like `calling_hours` —
+    # a notice dated next Monday starts covering calls on Monday — so settling on it would
+    # terminally retire contacts the client is about to be entitled to ring.
+    "autodialer_notice_missing": (
+        "the client tells its access provider, in writing, that it autodials, and records it"
+    ),
+    "autodialer_notice_withdrawn": "the client gives the notice again and records it",
+    "autodialer_notice_not_yet_effective": "the date the recorded notice bears arrives",
     "tm_registration_missing": "Calevate's telemarketer registration goes live again",
     "pe_registration_missing": "the client records their DLT Principal Entity registration",
     "pe_registration_not_active": "the registrar returns the PE registration to active",

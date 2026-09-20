@@ -289,11 +289,81 @@ export function viewAsSession(slug: string): Session {
   };
 }
 
-export function useTenants(): UseQueryResult<TenantSummary[]> {
+/** How the directory may be ordered. The server refuses anything else by name. */
+export type DirectorySort = "recent" | "oldest" | "name" | "name_desc";
+
+/** How many accounts one page of the directory holds. */
+export const DIRECTORY_PAGE_SIZE = 25;
+
+export interface TenantDirectoryQuery {
+  /** Substring of the business name or the slug. */
+  q?: string;
+  status?: string;
+  planTier?: string;
+  sort?: DirectorySort;
+  offset?: number;
+}
+
+/**
+ * One page of the roster, and the size of the set it is a page of.
+ *
+ * ⚠ HAND-WRITTEN UNTIL THE OPENAPI SNAPSHOT IS REGENERATED, and it mirrors
+ * `admin/routes.py::TenantDirectoryPage` field for field. `rows` carries the generated
+ * `TenantSummary`, which has not changed. Replace this with
+ * `Schemas["TenantDirectoryPage"]` when the snapshot is next generated.
+ */
+export interface TenantDirectoryPage {
+  rows: TenantSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/**
+ * The client directory — a PAGE of it, narrowed by whatever the operator asked for.
+ *
+ * This used to fetch every account on the platform and let the browser do the rest, which
+ * is the shape `admin/service.py::tenant_overview` describes as N+1 by construction: the
+ * server opened one tenant-scoped session per client to build a list nobody read past the
+ * first screen of. The search, the filters and the page are the server's now, so a request
+ * costs the accounts it asked for.
+ *
+ * **EVERY PARAMETER IS PART OF THE CACHE KEY.** A directory keyed only on "tenants" would
+ * serve the previous search's rows for a moment on each keystroke, which on this screen
+ * reads as the wrong client appearing under the right name.
+ *
+ * The poll survives the migration and keeps its reason: this is a shared screen, accounts
+ * are created and suspended by colleagues, and sixty seconds is the same interval the hold
+ * queue uses for the same reason.
+ */
+export function useTenants(query: TenantDirectoryQuery = {}): UseQueryResult<TenantDirectoryPage> {
+  const { q = "", status = "", planTier = "", sort = "recent", offset = 0 } = query;
+  // ONLY WHAT DIFFERS FROM THE DEFAULT goes on the wire, so an unnarrowed directory is
+  // the bare path. `DIRECTORY_PAGE_SIZE` and `sort` are omitted when they match what the
+  // route already applies (`admin/routes.py`: `limit=25`, `sort=recent`) — the two
+  // spellings agree, and sending them anyway would make every request carry three
+  // parameters that change nothing and make the commonest path unreadable in a log.
+  const search = new URLSearchParams();
+  if (q.trim()) search.set("q", q.trim());
+  if (status) search.set("status", status);
+  if (planTier) search.set("plan_tier", planTier);
+  if (sort !== "recent") search.set("sort", sort);
+  if (offset > 0) {
+    search.set("offset", String(offset));
+    // The page size travels with a non-zero offset and only there: the server derives the
+    // window from both, so an offset computed against 25 must not be sent to a route
+    // whose default has moved.
+    search.set("limit", String(DIRECTORY_PAGE_SIZE));
+  }
+  const suffix = search.toString();
+  const path = suffix ? `/v1/admin/tenants?${suffix}` : "/v1/admin/tenants";
   return useQuery({
-    queryKey: ["admin", "tenants"],
-    queryFn: () => apiRequest<TenantSummary[]>(adminSession(), "/v1/admin/tenants"),
+    queryKey: ["admin", "tenants", { q: q.trim(), status, planTier, sort, offset }],
+    queryFn: () => apiRequest<TenantDirectoryPage>(adminSession(), path),
     refetchInterval: 60_000,
+    // The rows of the previous page stay on screen while the next one loads, so paging
+    // and typing do not blank the table between answers.
+    placeholderData: (previous) => previous,
   });
 }
 

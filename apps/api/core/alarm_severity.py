@@ -596,6 +596,18 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # than self-healing — every later publish on that agent refuses the same way until
     # somebody prunes.
     "knowledge_pack_too_large": "attention",
+    # A CALL THAT ANSWERED NOTHING. The pack did not load, so the agent replied
+    # "I cannot verify that right now" to every question for the whole call — and, because
+    # Pipecat Cloud reuses a container, to every question on every call that landed on the
+    # same container after it. The alarm carries the count.
+    #
+    # `attention` and not `page`, deliberately: the call still ran, the caller was still
+    # told truthfully it was an AI, an opt-out still worked, nothing is mis-metered and
+    # nothing is destroyed — and the failure repeats per call, which is the exact shape
+    # D-591 says must not reach an inbox. Its neighbours sit on the same rung for the same
+    # reason (`engine_llm_ttft_degraded`, `call_settled_without_parties`). What makes it
+    # findable is not loudness but the count beside it on the console.
+    "call_ran_without_knowledge": "attention",
     # THE EXTERNAL SEARCH INDEX DISAGREES WITH THE PUBLISHED CORPUS: a publish or a
     # withdrawal committed and box 3 would not take the change. `attention` for the pack
     # alarm's reason exactly — bounded to one source, invisible to the client's agent (the

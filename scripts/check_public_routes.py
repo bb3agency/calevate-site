@@ -143,6 +143,16 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_signature",
     ),
+    "POST /hooks/v1/kyc/{provider}": PublicRoute(
+        why=(
+            "Client identity-verification outcome from a licensed aggregator (D-635). The "
+            "signature is verified over the raw bytes before anything is parsed, the "
+            "tenant is resolved from the run Calevate opened rather than from the "
+            "payload, and a deployment with no provider secret answers 404 — an "
+            "unverifiable feed here marks accounts verified on anyone's say-so."
+        ),
+        credential="available_provider",
+    ),
     "POST /v1/auth/signup": PublicRoute(
         why=(
             "Self-serve tenant creation (D-34). Authenticated but membership-LESS by "

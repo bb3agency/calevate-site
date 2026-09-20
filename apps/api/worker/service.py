@@ -58,8 +58,10 @@ from calevate_shared.engine import (
 )
 from calevate_shared.events import TERMINAL_STATUSES
 from calevate_shared.worker_api import (
+    DEGRADED_KNOWLEDGE_STATES,
     AttestationIn,
     AttestationOut,
+    KnowledgeReport,
     MeteredQuantity,
     ObservationBatch,
     ObservationsOut,
@@ -179,9 +181,10 @@ _AGENT_VISIBLE_SQL: Final = "SELECT 1 FROM agents WHERE id = :aid"
 #: added to `calevate_shared.events` must be terminal to every statement that asks.
 _UPSERT_CALL_SQL: Final = """
 INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status,
-                   started_at, ended_at, duration_s, from_e164, to_e164, created_at, updated_at)
+                   started_at, ended_at, duration_s, from_e164, to_e164, knowledge_state,
+                   created_at, updated_at)
 VALUES (:id, :tid, :aid, :ecid, :dir, :status, :started, :ended, :dur, :from_e, :to_e,
-        now(), now())
+        :kstate, now(), now())
 ON CONFLICT (engine_call_id) DO UPDATE SET
   status = EXCLUDED.status,
   started_at = COALESCE(calls.started_at, EXCLUDED.started_at),
@@ -203,6 +206,14 @@ ON CONFLICT (engine_call_id) DO UPDATE SET
   -- line is a COALESCE at all.)
   from_e164 = COALESCE(calls.from_e164, EXCLUDED.from_e164),
   to_e164 = COALESCE(calls.to_e164, EXCLUDED.to_e164),
+  -- THE INCOMING VALUE WINS HERE, WHICH IS THE PARTIES' ORDER REVERSED, and the reason is
+  -- that only ONE batch of a call ever carries this: the worker parks the report, the
+  -- first batch out takes it, and every batch after it sends NULL. So the stored value
+  -- must survive those NULLs, and the one batch that speaks must be able to fill the
+  -- column a settlement or an earlier turn-flush had already minted the row with.
+  -- A re-delivered batch restates the same word, so "the last one wins" and "the first
+  -- one wins" differ nowhere a real client can reach.
+  knowledge_state = COALESCE(EXCLUDED.knowledge_state, calls.knowledge_state),
   updated_at = now()
 WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed'
 RETURNING id, from_e164, to_e164
@@ -236,6 +247,26 @@ INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, unit_cost_paid
                           occurred_at, meta, created_at)
 VALUES (:id, :tid, :cid, :unit, :qty, :cost, :at, CAST(:meta AS jsonb), now())
 ON CONFLICT DO NOTHING
+"""
+
+#: HOW MANY OF THIS AGENT'S RECENT CALLS ALSO ANSWERED NOTHING — the warm-container half.
+#:
+#: A pack fetch that fails does not fail one call. Pipecat Cloud reuses a container across
+#: sessions, so whatever made the fetch fail (a store outage, a bucket policy, an object
+#: that was never written) goes on failing for every call that lands on that container, and
+#: an alarm that says "a call" when the answer is "every call this agent has taken for the
+#: last hour" is an alarm an operator mis-triages. The count is what makes the multiplier
+#: readable in the one place they are already looking.
+#:
+#: WINDOWED ON `created_at` AND NOT `started_at`, because `started_at` comes from a
+#: lifecycle event that may not have arrived yet on the very batch being counted.
+#: `ix_calls_knowledge_degraded` is this predicate, so a healthy platform reads an empty
+#: index rather than scanning calls.
+_DEGRADED_KNOWLEDGE_COUNT_SQL: Final = """
+SELECT count(*) FROM calls
+WHERE agent_id = :aid
+  AND knowledge_state = ANY(:states)
+  AND created_at >= now() - CAST(:window AS interval)
 """
 
 #: A leg we could not honestly price, recorded so that "why did this call meter nothing"
@@ -575,6 +606,10 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
                 # and no migration, and the day the sink sets it the batch simply wins.
                 from_e164=batch.from_e164 or _party(batch, "from_e164"),
                 to_e164=batch.to_e164 or _party(batch, "to_e164"),
+                # DID THIS CALL HAVE ITS CLIENT'S KNOWLEDGE? Sent on exactly one batch per
+                # call and NULL on the rest, which is why the upsert lets the incoming
+                # value win rather than the stored one.
+                knowledge_state=None if batch.knowledge is None else batch.knowledge.state,
             )
         ).id
         for turn in batch.turns:
@@ -602,6 +637,16 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
                 already += 1
             else:
                 written += 1
+        # INSIDE THE TRANSACTION THAT JUST WROTE THE STATE, so the count includes this
+        # call and cannot read a row this request has not committed yet.
+        if batch.knowledge is not None and batch.knowledge.state in DEGRADED_KNOWLEDGE_STATES:
+            await _alert_call_ran_without_knowledge(
+                session,
+                tenant_id=tenant_id,
+                call_id=call_row_id,
+                agent_id=batch.agent_id,
+                report=batch.knowledge,
+            )
     log.info(
         "worker_observations_recorded",
         extra={
@@ -611,9 +656,71 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
             "turns_written": written,
             "turns_already_present": already,
             "status": status,
+            "knowledge_state": None if batch.knowledge is None else batch.knowledge.state,
         },
     )
     return ObservationsOut(turns_written=written, turns_already_present=already, status=status)
+
+
+#: HOW FAR BACK THE MULTIPLIER IS COUNTED. One hour, and the number is a READING AID
+#: rather than a threshold: nothing branches on it, so it cannot be tuned wrong. It is long
+#: enough that a container degraded since its last replacement shows a real total, and short
+#: enough that yesterday's fixed outage does not inflate today's alarm.
+_KNOWLEDGE_DEGRADED_WINDOW: Final = "1 hour"
+
+
+async def _alert_call_ran_without_knowledge(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID,
+    agent_id: UUID,
+    report: KnowledgeReport,
+) -> None:
+    """A call that answered every question `temporarily_unavailable` is an operator event.
+
+    **WHAT THE CALLER ACTUALLY EXPERIENCED, WHICH IS WHY THIS IS NOT A DEBUG LOG.** The
+    agent greeted them, told them truthfully it is an AI, took an opt-out — and then could
+    not answer one question about the business they rang. `voice_worker/knowledge.py`
+    chooses that over dropping the call, correctly; what was missing until now is that the
+    choice reached nothing of ours. The row is written whether or not this fires.
+
+    **THE COUNT IS THE ALARM'S REAL CONTENT.** A fetch failure is not one bad call: Pipecat
+    Cloud reuses a container across sessions, so the same failure meets every call that
+    lands on that container until it is replaced. An operator who reads "a call" goes
+    looking for one caller; one who reads "the 7th in an hour" goes looking for the store.
+
+    **IT IS RAISED FROM THE REPORT, NOT FROM THE COLUMN**, so the forward-only clause
+    refusing a late upsert costs the durable count and never the alarm.
+
+    HARD RULE 6: three ids, a state word out of a closed set, and a content hash. No
+    question, no passage, no number.
+    """
+    same = (
+        await session.execute(
+            text(_DEGRADED_KNOWLEDGE_COUNT_SQL),
+            {
+                "aid": agent_id,
+                "states": sorted(DEGRADED_KNOWLEDGE_STATES),
+                "window": _KNOWLEDGE_DEGRADED_WINDOW,
+            },
+        )
+    ).scalar_one()
+    alert(
+        "CORE_LOGIC",
+        "call_ran_without_knowledge",
+        detail=(
+            f"This call answered every knowledge question 'temporarily unavailable' "
+            f"({report.state}). {same} of this agent's calls in the last "
+            f"{_KNOWLEDGE_DEGRADED_WINDOW} did the same."
+        ),
+        tenant_id=str(tenant_id),
+        call_id=str(call_id),
+        agent_id=str(agent_id),
+        state=report.state,
+        digest=report.digest,
+        calls_affected=str(same),
+    )
 
 
 def _check_batch_identity(tenant_id: UUID, batch: ObservationBatch) -> None:
@@ -1386,6 +1493,7 @@ async def _upsert_call(
     ended_at: datetime | None,
     from_e164: str | None,
     to_e164: str | None,
+    knowledge_state: str | None = None,
 ) -> _CallRow:
     """Write the call row and answer it. Status only ever moves forward.
 
@@ -1419,6 +1527,7 @@ async def _upsert_call(
                 "dur": _duration_s(started_at, ended_at),
                 "from_e": from_e164,
                 "to_e": to_e164,
+                "kstate": knowledge_state,
                 "terminal": sorted(TERMINAL_STATUSES),
             },
         )

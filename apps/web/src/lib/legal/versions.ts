@@ -165,6 +165,24 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash: "sha256:fd0560de83acd3a964437e33c4bf23ab6fe5ef6a7f8ee026a566edb87e47ceca",
       },
+      // D-635. A client may now verify their own identity through DigiLocker with a
+      // licensed intermediary, so §4's KYC entry says what that route collects: the
+      // intermediary handles the Aadhaar, we receive the confirmation, their reference,
+      // the name they confirmed and the date, and the difference between a sole
+      // proprietorship and a company is stated because the outcomes differ.
+      //
+      // MATERIAL, and the question is not whether the promise got weaker — it did not.
+      // We still hold no Aadhaar number and no identity document, the section 29
+      // reasoning is unchanged and the twelve-digit refusal now covers three more
+      // fields. What a reader of revision 8 could not have known is that an INTERMEDIARY
+      // may come to stand between them and us on this path, and a new party in a data
+      // flow is a new disclosure — the same class of change revisions 6 and 8 were
+      // material for, and the conservative reading is the right one on a notice.
+      {
+        revision: "9",
+        material: true,
+        contentHash: "sha256:7a16c3496d10e82c2eba428605eac34a21db1f27e4f1d53afe6d914028c9689b",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

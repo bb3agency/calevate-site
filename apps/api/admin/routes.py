@@ -76,6 +76,16 @@ TenantSession = Annotated[AsyncSession, Depends(db)]
 
 Vertical = Literal["clinic", "real_estate", "insurance", "education", "custom"]
 
+#: The two account columns the directory may be narrowed by, as the wire spells them.
+#:
+#: Written out rather than derived from `tenancy.models.ORG_STATUSES` / `PLAN_TIERS`
+#: because a `Literal` cannot be built from a runtime tuple and still be a type — the
+#: same trade `Vertical` above makes. `tests/admin_account_management_test.py` asserts each
+#: of these IS the corresponding tuple, so a status added to the check constraint and not
+#: to the filter fails a test rather than silently becoming unsearchable.
+OrgStatusFilter = Literal["prospect", "onboarding", "active", "suspended", "churned"]
+PlanTierFilter = Literal["managed", "prepaid", "self_serve", "trial"]
+
 
 # --- Identity: who the console is talking as ----------------------------------
 
@@ -266,9 +276,25 @@ class InviteOut(BaseModel):
     expires_in_hours: int
 
 
+class TenantDirectoryPage(BaseModel):
+    """One page of the client directory, and the size of the thing it is a page of.
+
+    `total` is the count of accounts MATCHING THE FILTERS, not the number of clients on
+    the platform: a console that showed the second while paging the first would tell an
+    operator their search found 312 results and then show them four.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[TenantSummary]
+    total: int
+    limit: int
+    offset: int
+
+
 @router.get(
     "/tenants",
-    response_model=list[TenantSummary],
+    response_model=TenantDirectoryPage,
     openapi_extra=permission_meta("admin:tenants"),
     # NOT "the client health overview" any more. This is the client DIRECTORY — the
     # roster, with the counters an operator wants beside a name — and it carried that
@@ -276,12 +302,54 @@ class InviteOut(BaseModel):
     # overview now (`admin/health.py`), and it answers a different question: not "who are
     # my clients" but "which of them is about to churn or break". Two surfaces sharing
     # one name is how a reader ends up on the wrong one.
-    summary="Client directory — every account, with the counters that sit beside a name",
+    summary="Client directory — search, filter and page the accounts",
+    description=(
+        "One page of the client roster. `q` matches the business name or the slug "
+        "(case-insensitive, substring; `%` and `_` are searched for literally), `status` "
+        "and `plan_tier` narrow to one value each, and `sort` orders by the account's own "
+        "columns. All four are applied to the `organizations` table BEFORE the per-account "
+        "counters are gathered, so a request costs one page of work rather than the whole "
+        "platform. `total` counts the accounts matching the filters. There is deliberately "
+        "no filter on `holds` or `capped`: those are computed per account inside a "
+        "tenant-scoped session and cannot be reached from the paging query without "
+        "widening tenant isolation — the ranked exception report at "
+        "`GET /v1/admin/client-health` is the surface that answers 'who is in trouble'."
+    ),
 )
 async def list_tenants(
-    session: AdminSession, _: Principal = Depends(requires("admin:tenants", realm="admin"))
-) -> list[TenantSummary]:
-    return [TenantSummary.model_validate(row) for row in await service.tenant_overview(session)]
+    session: AdminSession,
+    q: str | None = Query(
+        None,
+        max_length=200,
+        description="Substring of the business name or the slug.",
+    ),
+    status: OrgStatusFilter | None = Query(None),
+    plan_tier: PlanTierFilter | None = Query(None),
+    # A `Literal`, so an unknown order is a 422 naming the four that work rather than a
+    # silent fall back to "recent" — the refusal an operator (or a stale bookmark) can act
+    # on. The service keeps its own fallback anyway: the fragment is interpolated into SQL
+    # and that defence does not depend on a caller being well-behaved.
+    sort: service.DirectorySort = Query(service.DEFAULT_DIRECTORY_SORT),
+    limit: int = Query(25, ge=1, le=service.MAX_DIRECTORY_PAGE),
+    offset: int = Query(0, ge=0),
+    _: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> TenantDirectoryPage:
+    rows = await service.tenant_overview(
+        session,
+        q=q,
+        status=status,
+        plan_tier=plan_tier,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+    )
+    total = await service.tenant_directory_total(session, q=q, status=status, plan_tier=plan_tier)
+    return TenantDirectoryPage(
+        rows=[TenantSummary.model_validate(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(

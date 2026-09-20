@@ -102,6 +102,19 @@ KYC_ENTITY_TYPES = (
 # out of DPDP scope and out of hard rule 6's reach. Aadhaar and personal PAN are absent
 # on purpose and there is a CHECK constraint standing behind that absence.
 KYC_DOCUMENT_KINDS = ("cin", "llpin", "gstin", "udyam", "shop_establishment", "trade_licence")
+# WHO performed a verification (D-635). `operator` is D-47's path — a person at Calevate
+# against a public registry — and `aggregator` is the client authenticating themselves
+# with a licensed intermediary. It is the DISCRIMINANT of
+# `ck_kyc_records_verified_names_its_evidence`, not a label: each source has to name its
+# own evidence, so a row that cannot say which it is can never be `verified`.
+KYC_VERIFICATION_SOURCES = ("operator", "aggregator")
+# WHICH licensed aggregator attested an identity. Stored rather than assumed because a
+# reference is meaningless without knowing whose it is (`CARRIER_APPLICATION_CARRIERS`
+# makes the same argument). `fake` is the in-house adapter, present for the same reason
+# `engine/fake.py` is a shipped adapter: no vendor's DigiLocker contract is readable from
+# this environment, so it is the only thing that can exercise the seam end to end, and a
+# result it produces has to be storable or the test proves nothing about the write.
+KYC_PROVIDERS = ("setu", "digio", "cashfree", "sandbox", "fake")
 # The per-tenant CARRIER compliance application (migration c7a4f9e15b03). OUR state
 # machine for a stage the carrier owns: we are a RESELLER, so the carrier requires a
 # separate approved application for every customer before that customer's number can be
@@ -648,13 +661,35 @@ class KycRecord(PKMixin, TimestampMixin, Base):
             f"document_kind IS NULL OR document_kind IN {KYC_DOCUMENT_KINDS!r}",
             name="document_kind_enum",
         ),
-        # The four questions an auditor asks — what, against what, by whom, when — as a
-        # constraint rather than a convention. A `verified` row that cannot answer them
-        # is a claim, not evidence.
+        # "A verified row names whoever verified it" — a human or a licensed provider
+        # (D-635, migration `b6e41d9c3a72`). Two arms, each as strict as the single
+        # predicate it replaces: the operator arm still demands a document, a reference
+        # and an admin; the aggregator arm demands the provider, its reference and the
+        # name it attested. Relaxing to "admin may be null" would have deleted the
+        # guarantee for the operator path too.
         CheckConstraint(
-            "status <> 'verified' OR (document_kind IS NOT NULL AND document_ref IS NOT NULL "
-            "AND verified_by_admin_id IS NOT NULL AND verified_at IS NOT NULL)",
+            "status <> 'verified' OR (verified_at IS NOT NULL AND ("
+            "  (verification_source = 'operator'"
+            "     AND document_kind IS NOT NULL AND document_ref IS NOT NULL"
+            "     AND verified_by_admin_id IS NOT NULL)"
+            "  OR"
+            "  (verification_source = 'aggregator'"
+            "     AND verification_provider IS NOT NULL AND verification_reference IS NOT NULL"
+            "     AND verified_name IS NOT NULL)"
+            "))",
             name="verified_names_its_evidence",
+        ),
+        CheckConstraint(
+            "verification_source IS NULL OR verification_source IN ('operator', 'aggregator')",
+            name="verification_source_enum",
+        ),
+        CheckConstraint(
+            f"verification_provider IS NULL OR verification_provider IN {KYC_PROVIDERS!r}",
+            name="verification_provider_enum",
+        ),
+        CheckConstraint(
+            "(verification_provider IS NULL) = (verification_reference IS NULL)",
+            name="provider_and_reference_travel",
         ),
         # The question a support person asks. "Rejected, no reason recorded" is the
         # ticket nobody can close.
@@ -668,6 +703,16 @@ class KycRecord(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             "document_ref IS NULL OR document_ref !~ '^[0-9]{12}$'",
             name="document_ref_is_not_an_aadhaar",
+        ),
+        # The same backstop on the two columns an aggregator result writes. A NAME column
+        # is where a careless paste lands.
+        CheckConstraint(
+            "verification_reference IS NULL OR verification_reference !~ '^[0-9]{12}$'",
+            name="verification_reference_is_not_an_aadhaar",
+        ),
+        CheckConstraint(
+            "verified_name IS NULL OR verified_name !~ '^[0-9]{12}$'",
+            name="verified_name_is_not_an_aadhaar",
         ),
     )
 
@@ -695,6 +740,61 @@ class KycRecord(PKMixin, TimestampMixin, Base):
     )
     submitted_at: Mapped[datetime | None]
     verified_at: Mapped[datetime | None]
+    # WHO verified (D-635): `operator` or `aggregator`. The discriminant of the evidence
+    # constraint above, so a row that cannot say can never be `verified`.
+    verification_source: Mapped[str | None] = mapped_column(Text)
+    verification_provider: Mapped[str | None] = mapped_column(Text)
+    # The aggregator's own transaction id. The liability artefact — a licensed third
+    # party can be asked to corroborate it — and no identity document is derivable
+    # from it.
+    verification_reference: Mapped[str | None] = mapped_column(Text)
+    # The holder name the aggregator attested. A NAME, deliberately without the number
+    # it was read from, exactly as `signatory_name` is.
+    verified_name: Mapped[str | None] = mapped_column(Text)
+
+
+class KycVerificationRequest(PKMixin, TimestampMixin, Base):
+    """One client-initiated verification run (D-635; migration `b6e41d9c3a72`).
+
+    It exists so the unauthenticated webhook can learn WHOSE outcome it is holding
+    without trusting the payload: `(provider, provider_ref)` is unique, and it was
+    written by us before the client could reach the provider. That uniqueness is also
+    the idempotency key — a redelivery finds a run already terminal — which is why
+    there is no `webhook_inbox_events` claim beside it.
+
+    Separate from `KycRecord` because a tenant may attempt verification many times
+    (abandoned, expired, refused at the provider) while holding exactly one RESULT.
+    Squeezing attempts into the one-row-per-tenant record would lose every attempt but
+    the last, including the failed ones, which are the interesting ones.
+    """
+
+    __tablename__ = "kyc_verification_requests"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_ref"),
+        CheckConstraint(
+            "status IN ('created', 'completed', 'failed', 'expired')", name="status_enum"
+        ),
+        CheckConstraint(f"provider IN {KYC_PROVIDERS!r}", name="provider_enum"),
+        CheckConstraint(f"entity_type IN {KYC_ENTITY_TYPES!r}", name="entity_type_enum"),
+        CheckConstraint(
+            "status <> 'failed' OR failure_reason IS NOT NULL", name="failed_names_its_reason"
+        ),
+        CheckConstraint("provider_ref !~ '^[0-9]{12}$'", name="provider_ref_is_not_an_aadhaar"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="created")
+    # WHICH branch. A sole proprietor IS the entity; every other type verifies the
+    # authorised signatory and still needs an operator to check the registry entry.
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    # Our word for why it failed, never the vendor's raw payload — it is rendered to a
+    # client.
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None]
 
 
 class CarrierComplianceApplication(PKMixin, TimestampMixin, Base):

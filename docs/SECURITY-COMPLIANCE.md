@@ -154,6 +154,48 @@ cite the same string:
     the only series that may carry a marketing call; `ATTESTABLE_CLASSIFICATIONS` is
     `{service, transactional}`, and `number_series_mismatch` names both ways out — attach a
     140/160 number, or confirm — only where the second one is genuinely open.
+- The client has told its **Originating Access Provider, in advance and in writing, that
+  it uses an auto dialler and what for** — TCCCPR Regulation 4, relayed as *"Every Sender
+  shall notify the Originating Access Provider, in advance, about the use of Auto Dialer
+  or Robo-Calls as well as the intended objective of such calls in writing."* Every call
+  this product places is autodialled, so this is a precondition of outbound as such, and
+  the refusals are **`autodialer_notice_missing`**, **`autodialer_notice_withdrawn`** and
+  **`autodialer_notice_not_yet_effective`** (a notice dated in the future is recorded
+  honestly and starts covering calls on the day it bears).
+  - **EVIDENCE CLASS: REPORTED**, not primary. The text above is a research-agent reading
+    of TCCCPR 2018 and its Second Amendment, founder-relayed 13 Sep 2026
+    (`docs/evidence/number-series-inbound-vs-outbound-2026-09-13.md` §3.3); `trai.gov.in`
+    is egress-blocked from the build container (measured 20 Sep 2026), so nobody in this
+    repository has opened the regulation. **OPERATIONS §2 gate 59 is the address of that
+    gap**, and until it closes no client-facing surface may state that giving this notice
+    makes them compliant — only that their access provider requires it.
+  - **THE SAME SHAPE AS THE PE REGISTRATION: it is the CLIENT's act and our record.**
+    Regulation 4 binds the Sender, and under our operating model the client owns the
+    number, asserts the CLI and benefits from the calls. Calevate does not notify on their
+    behalf and no surface may imply that it does. One append-only row per decision in
+    `autodialer_notices` (tenant-scoped, FORCEd RLS), holding which provider was told,
+    the objective as notified, the date of the notice and the client's own reference; a
+    withdrawal is a new row and the latest one decides.
+  - **WHAT IS DELIBERATELY NOT MODELLED.** The evidence states in terms that whether the
+    obligation is per sender, per campaign, per number or per objective *is not stated*,
+    and no advance PERIOD is stated either. So the record is keyed on the SENDER, the gate
+    asks only whether this sender has given notice before today, and the recorded objective
+    is **not** matched against a campaign's purpose. Inventing either would be inventing
+    the shape of a legal obligation.
+  - **INBOUND IS UNAFFECTED.** Regulation 4 is about the *use of* an auto dialler; a
+    receptionist answering a call the customer placed dials nothing, and an inbound agent
+    is refused by `agent_inbound_only` long before this rule is reached.
+  - ⚠ **ENFORCED AT THE PER-DIAL GATE, NOT YET IN THE LAUNCH PREVIEW, AND THE DIFFERENCE
+    IS VISIBLE TO A CLIENT.** `compliance.service.check_dispatch` refuses every outbound
+    dial — campaign contact, "call this lead" and instant callback alike — so no call goes
+    out without the notice. `campaigns.service.launch_blockers` does not yet ASK, so a
+    campaign can still launch "ready" and then refuse on every contact, which is the shape
+    `kyc_blocker`'s docstring names as the reason a dial rule and a launch rule must be the
+    same predicate. Closing it is one call to `autodialer_notice_blocker` in
+    `campaigns.service._entity_blockers`, beside `outbound_entity_blockers`.
+  - **NO WRITE SURFACE YET.** Nothing in the client console or the ops console can create
+    one of these rows; the recording screen and its route are a separate change. Until they
+    ship, the gate is real and nobody can satisfy it.
 - Contact list DNC-scrubbed (national DND + tenant `dnc_list`) with scrub timestamp; a
   list with nothing left after the scrub is `all_contacts_dnc`, an empty one
   `no_contacts`. **The two scrubs are separate facts and this bullet used to claim a

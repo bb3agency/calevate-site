@@ -25,8 +25,55 @@ from botocore.exceptions import ClientError
 from sqlalchemy import text
 
 
+async def record_autodialer_notice_for_tests(tenant_id: uuid.UUID) -> None:
+    """Give a tenant the advance autodialer notice every OUTBOUND dial now requires.
+
+    TCCCPR Regulation 4: the Sender tells its Originating Access Provider, in writing and
+    in advance, that it uses an auto dialler and what for, so `check_dispatch` refuses
+    `autodialer_notice_missing` without one (`apps/api/compliance/autodialer.py`). Records
+    the same facts through the production writer; it does NOT soften the gate —
+    `tests/autodialer_notice_test.py` proves the refusal by leaving it out. Idempotent.
+    """
+    from apps.api.compliance.autodialer import read_autodialer_notice, record_autodialer_notice
+    from apps.api.db.base import uuid7
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        if (await read_autodialer_notice(session, tenant_id=tenant_id)).is_effective():
+            return
+        # `recorded_by` is NOT NULL and a fixture organisation has no member until somebody
+        # accepts an invitation, so one is made rather than looked up.
+        user_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :e, now(), now())"
+            ),
+            {"id": user_id, "e": f"armed-{user_id}@example.test"},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :t, :u, 'owner', now(), now())"
+            ),
+            {"id": uuid7(), "t": tenant_id, "u": user_id},
+        )
+        await record_autodialer_notice(
+            session,
+            tenant_id=tenant_id,
+            access_provider="Armed Test Telecom",
+            objective="Appointment reminders and confirmations for our own customers",
+            notified_on=(datetime.now(UTC) - timedelta(days=30)).date(),
+            recorded_by=user_id,
+        )
+
+
 async def arm_agent_for_outbound(
-    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, series: str = "140"
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    *,
+    series: str = "140",
+    autodialer_notice: bool = True,
 ) -> None:
     """Give a tenant+agent the DLT paperwork every OUTBOUND dial now requires.
 
@@ -82,6 +129,11 @@ async def arm_agent_for_outbound(
                     "series": series,
                 },
             )
+    # Regulation 4's advance notice, which is now part of "the paperwork every outbound
+    # dial requires". `autodialer_notice=False` leaves it out for the tests whose subject
+    # is that refusal.
+    if autodialer_notice:
+        await record_autodialer_notice_for_tests(tenant_id)
 
 
 async def accept_carrier_application(tenant_id: uuid.UUID) -> None:

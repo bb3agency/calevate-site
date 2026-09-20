@@ -779,6 +779,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "meta_page_access_tokens": AppliesRule(LIVE),
     "razorpay_webhook_secret": AppliesRule(LIVE),
     "razorpay_key_secret": AppliesRule(LIVE),
+    # Both read inline by `kyc_providers.available_provider()` on every start and every
+    # webhook — no adapter is cached — so a rotation applies to the next delivery.
+    "kyc_verification_provider": AppliesRule(LIVE),
+    "kyc_verification_webhook_secret": AppliesRule(LIVE),
     # Google OAuth client for Calendar actions. Read inline by `actions/calendar.py` on
     # each token exchange (no cached client), so a rotation is live on the next connect or
     # refresh.

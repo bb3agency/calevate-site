@@ -24,7 +24,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from scripts.seed import DEFAULT_RETENTION_POLICIES, VERTICAL_TEMPLATES
@@ -927,11 +927,121 @@ async def accept_invitation(session: AsyncSession, *, raw_token: str, user_id: U
     return UUID(str(tenant_id))
 
 
+#: How the directory may be ordered: wire value -> the `ORDER BY` fragment it means.
+#:
+#: A MAPPING rather than a string the caller supplies, because the fragment is
+#: interpolated into SQL and a sort read off the wire is an injection. Every column named
+#: here is on `organizations` and therefore orderable in the SAME statement that pages —
+#: which is why `calls_7d` and `last_call_at` are NOT offered: they are counted per tenant
+#: in the loop below, so ordering by one would mean counting every account before choosing
+#: a page, and the page would then be the thing the pre-filter exists to avoid.
+DirectorySort = Literal["recent", "oldest", "name", "name_desc"]
+
+DIRECTORY_SORTS: Final[Mapping[DirectorySort, str]] = {
+    "recent": "created_at DESC",
+    "oldest": "created_at ASC",
+    "name": "lower(name) ASC",
+    "name_desc": "lower(name) DESC",
+}
+
+#: What an unsorted request means. Newest first: an operator opening the console is
+#: usually looking for the account somebody just created.
+DEFAULT_DIRECTORY_SORT: Final[DirectorySort] = "recent"
+
+#: The largest page the directory will build. A bound on WORK rather than a display
+#: preference: every row on it opens a tenant-scoped session and asks that session several
+#: questions — `tenant_overview` below measures the whole block at ~3.3 ms per account.
+MAX_DIRECTORY_PAGE: Final = 100
+
+#: The predicate, spelled ONCE and used by both the page and its total. Two copies is how
+#: a count and a list come to disagree about how many accounts matched.
+#:
+#: Every parameter is CAST before the NULL test because these arrive as bound `None` and
+#: Postgres cannot infer a type for a bare parameter on its own.
+_DIRECTORY_WHERE = (
+    "WHERE deleted_at IS NULL "
+    "  AND (CAST(:tid AS uuid) IS NULL OR id = CAST(:tid AS uuid)) "
+    "  AND (CAST(:status AS text) IS NULL OR status = :status) "
+    "  AND (CAST(:plan_tier AS text) IS NULL OR plan_tier = :plan_tier) "
+    "  AND (CAST(:like AS text) IS NULL OR name ILIKE :like OR slug ILIKE :like)"
+)
+
+
+def _directory_params(
+    *,
+    tenant_id: UUID | None,
+    q: str | None,
+    status: str | None,
+    plan_tier: str | None,
+) -> dict[str, Any]:
+    """Bind values for `_DIRECTORY_WHERE`, with the search turned into a LIKE pattern.
+
+    `%` and `_` typed by the operator are escaped rather than honoured: a client called
+    `A_B` must find itself, and a search for `%` must not return the whole platform.
+    Postgres' default LIKE escape is the backslash, so no `ESCAPE` clause is needed.
+    """
+    needle = (q or "").strip()
+    like = None
+    if needle:
+        escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+    return {
+        "tid": tenant_id,
+        "status": status,
+        "plan_tier": plan_tier,
+        "like": like,
+    }
+
+
+async def tenant_directory_total(
+    session: AsyncSession,
+    *,
+    q: str | None = None,
+    status: str | None = None,
+    plan_tier: str | None = None,
+) -> int:
+    """How many accounts match — the number a page of them is a window onto.
+
+    Its own statement rather than a `count(*) OVER ()` on the page, because the page's
+    `LIMIT` is applied to `organizations` and the expensive part of a directory row is
+    what happens AFTER that (a tenant-scoped session per account). Counting is one index
+    scan over one table and costs nothing to ask separately.
+    """
+    return int(
+        (
+            await session.execute(
+                text(f"SELECT count(*) FROM organizations {_DIRECTORY_WHERE}"),
+                _directory_params(tenant_id=None, q=q, status=status, plan_tier=plan_tier),
+            )
+        ).scalar()
+        or 0
+    )
+
+
 async def tenant_overview(
-    session: AsyncSession, *, tenant_id: UUID | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID | None = None,
+    q: str | None = None,
+    status: str | None = None,
+    plan_tier: str | None = None,
+    sort: DirectorySort = DEFAULT_DIRECTORY_SORT,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     """The admin's client DIRECTORY — every account, with the counters that belong beside
     a name.
+
+    **THE SEARCH, THE FILTERS AND THE PAGE ARE APPLIED TO `organizations`, BEFORE THE
+    PER-TENANT LOOP** — which is what makes them worth having rather than cosmetic. The
+    N+1 described below is unchanged in SHAPE and now bounded in SIZE: a request pays for
+    the accounts it asked for, not for the platform. That is the "paging the response"
+    escape this docstring used to name as an admin-console contract change; the contract
+    changed (`GET /v1/admin/tenants` answers an envelope now), so the change is here.
+
+    `sort` is looked up in `DIRECTORY_SORTS` and an unknown value falls back to the
+    default rather than reaching the statement — the caller's route refuses it first, and
+    this is the second line of that defence because the fragment is interpolated.
 
     NOT the health overview: that is `admin/health.py`, and it answers the other question
     ("which client is about to churn or break") as a ranked exception report. This one is
@@ -985,6 +1095,16 @@ async def tenant_overview(
     # `tenant_id` narrows the SAME query to one client. The detail screen used to pull
     # the whole list and find its client in the browser, which pays the N+1 above once
     # per page view for a single row.
+    order_by = DIRECTORY_SORTS.get(sort, DIRECTORY_SORTS[DEFAULT_DIRECTORY_SORT])
+    # A SECOND ORDERING COLUMN, and it is not decoration: `created_at` and `lower(name)`
+    # are both non-unique, so a page boundary that fell inside a tie could show one
+    # account on page 1 and again on page 2 while hiding a third. The primary key breaks
+    # every tie the same way for every page.
+    params = _directory_params(tenant_id=tenant_id, q=q, status=status, plan_tier=plan_tier)
+    window = ""
+    if limit is not None:
+        window = " LIMIT :limit OFFSET :offset"
+        params |= {"limit": limit, "offset": offset}
     directory = (
         await session.execute(
             text(
@@ -992,12 +1112,10 @@ async def tenant_overview(
                 # the row this statement reads, so it costs nothing, and reading it here
                 # is what lets the loop decide without a round trip.
                 "SELECT id, name, slug, status, vertical_template, plan_tier "
-                "FROM organizations "
-                "WHERE deleted_at IS NULL "
-                "  AND (CAST(:tid AS uuid) IS NULL OR id = CAST(:tid AS uuid)) "
-                "ORDER BY created_at DESC"
+                f"FROM organizations {_DIRECTORY_WHERE} "
+                f"ORDER BY {order_by}, id DESC{window}"
             ),
-            {"tid": tenant_id},
+            params,
         )
     ).all()
 
@@ -1195,6 +1313,7 @@ __all__ = [
     "OPERATOR_SETTABLE_PLAN_TIERS",
     "RESEND_MAX_SENDS",
     "RESEND_MIN_INTERVAL",
+    "DirectorySort",
     "ResentInvitation",
     "TenantFieldEdit",
     "TenantRootHook",
@@ -1209,5 +1328,6 @@ __all__ = [
     "resend_invitation",
     "set_plan_tier",
     "slugify",
+    "tenant_directory_total",
     "tenant_overview",
 ]

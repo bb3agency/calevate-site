@@ -193,8 +193,11 @@ async def test_admin_can_list_tenants_with_health() -> None:
         response = await http.get("/v1/admin/tenants", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200, response.text
     body = response.json()
-    assert isinstance(body, list) and body
-    assert {"id", "name", "slug", "status", "calls_7d", "leads"} <= set(body[0])
+    # A PAGE of the roster, not the roster: the directory is searched, filtered and paged
+    # server-side, and `total` counts what matched rather than what is on this page.
+    assert {"rows", "total", "limit", "offset"} <= set(body)
+    assert body["rows"]
+    assert {"id", "name", "slug", "status", "calls_7d", "leads"} <= set(body["rows"][0])
 
 
 async def test_an_invitee_arrives_with_no_account_and_leaves_with_a_membership() -> None:

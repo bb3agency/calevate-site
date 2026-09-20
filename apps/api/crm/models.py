@@ -11,6 +11,7 @@ from uuid import UUID
 
 from calevate_shared.events import CallDirection, CallStatus, Speaker
 from calevate_shared.extraction import OutcomeTag, Sentiment
+from calevate_shared.worker_api import DEGRADED_KNOWLEDGE_STATES, KNOWLEDGE_STATES
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -21,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    column,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -91,6 +93,10 @@ class Call(PKMixin, TimestampMixin, Base):
             f"outcome_tag IS NULL OR outcome_tag IN {OUTCOME_TAGS!r}", name="outcome_enum"
         ),
         CheckConstraint(f"sentiment IS NULL OR sentiment IN {SENTIMENTS!r}", name="sentiment_enum"),
+        CheckConstraint(
+            f"knowledge_state IS NULL OR knowledge_state IN {tuple(sorted(KNOWLEDGE_STATES))!r}",
+            name="knowledge_state_enum",
+        ),
         # The complaint-spike check (`campaigns/complaint_spike.py`, OPERATIONS §4) is
         # the first thing in this repo to filter calls by campaign, and it runs once per
         # running campaign per 30-second dispatch tick. PARTIAL because inbound calls
@@ -123,6 +129,22 @@ class Call(PKMixin, TimestampMixin, Base):
             "ix_calls_to_e164",
             "to_e164",
             postgresql_where=text("to_e164 IS NOT NULL"),
+        ),
+        # HOW MANY OF THIS AGENT'S CALLS HAVE ANSWERED NOTHING LATELY (migration
+        # e2a91c7f45b8). One fetch failure is not one bad call: Pipecat Cloud reuses a
+        # container across sessions, so a store outage degrades every call that lands on
+        # it until it is replaced — and `worker/service` counts this window so the alarm
+        # reads "the 7th call in an hour" rather than "a call". PARTIAL over the four
+        # failure states, which is the count's own WHERE and which a healthy platform
+        # leaves empty.
+        Index(
+            "ix_calls_knowledge_degraded",
+            "agent_id",
+            "created_at",
+            # An EXPRESSION and not `text()`: the predicate names a set that lives in the
+            # wire vocabulary, and splicing it into a SQL string would be the untraceable
+            # fragment `check_raw_sql` refuses (D-172). `in_()` renders the members itself.
+            postgresql_where=column("knowledge_state").in_(sorted(DEGRADED_KNOWLEDGE_STATES)),
         ),
     )
 
@@ -183,6 +205,17 @@ class Call(PKMixin, TimestampMixin, Base):
     caller_memory_state: Mapped[str] = mapped_column(
         String, nullable=False, server_default="pending"
     )
+    #: DID THIS CALL HAVE ITS CLIENT'S KNOWLEDGE, AND IF NOT, WHY NOT (migration
+    #: e2a91c7f45b8)? `calevate_shared.worker_api.KnowledgeState` — `available`,
+    #: `no_pack`, or one of the four ways a configured pack fails to load.
+    #:
+    #: THE FOUR FAILURE STATES MEAN THE CALL ANSWERED NOTHING: `voice_worker/knowledge.py`
+    #: replies `temporarily_unavailable` to every question for the rest of the call. Before
+    #: this column the only trace was a log line inside a container a vendor operates.
+    #:
+    #: NULL means nobody reported — every call that predates the column, and every call of
+    #: the rented engine, which has no such report. It is deliberately NOT read as "fine".
+    knowledge_state: Mapped[str | None] = mapped_column(Text)
     campaign_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))  # FK lands M2
     lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     # D-21 M2: the call this one follows up. Bounds the callback chain — see migration

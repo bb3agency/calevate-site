@@ -45,6 +45,10 @@ Checks, in the order that fails cheapest-first:
    (`agent_outbound_number_blocker`). This is the layer the campaign gate always had and
    the single-lead / instant-callback paths did not until §10.8 made a requested callback
    regulated outbound. VOICE only — skipped for WhatsApp via `dlt_governed=False`.
+7b. **The sender's advance autodialer notice** — TCCCPR Regulation 4 requires the Sender
+   to tell its Originating Access Provider, in writing and in advance, that it uses an
+   auto dialler and what for (`autodialer_notice_blocker`). Every call this gate clears
+   is autodialled, so it is a precondition of outbound as such; inbound is untouched.
 
 Inbound calls never reach this function: the caller initiated them, which is the
 consent-clean property D-38 leads with.
@@ -78,6 +82,7 @@ from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
 from apps.api.callbacks.service import cancel_for_phones
+from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.carrier_application import (
     CARRIER_APPLICATION_MISSING_REASON,
     carrier_application_not_accepted_reason,
@@ -1092,6 +1097,25 @@ async def check_dispatch(
         number_block = await agent_outbound_number_blocker(session, agent_id=agent_id)
         if number_block is not None:
             rule, reason = number_block
+            return DispatchDecision(allowed=False, rule=rule, reason=reason)
+
+        # AND WHETHER THE SENDER TOLD THEIR ACCESS PROVIDER THAT IT AUTODIALS — TCCCPR
+        # Regulation 4, which requires the Sender to notify the Originating Access
+        # Provider in advance and in writing of the use of an auto dialler and the
+        # intended objective of the calls. Every call this gate clears is autodialled, so
+        # it is a precondition of outbound as such rather than of any one campaign;
+        # `compliance/autodialer.py` carries the evidence class (REPORTED) and states what
+        # the text does not say, including that the unit of the obligation is not stated.
+        #
+        # LAST INSIDE THIS BRANCH, which is the opposite of the general-before-specific
+        # order the rest of the gate takes, and deliberately: the two rules above name
+        # registrations a client can be part-way through, and a notice they cannot usefully
+        # send until they know which registered header the calls will come from. Reporting
+        # "tell your provider you autodial" to a client whose Principal Entity is still
+        # pending would be the wrong next action.
+        notice_block = await autodialer_notice_blocker(session, tenant_id=tenant_id)
+        if notice_block is not None:
+            rule, reason = notice_block
             return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
     # AND WHETHER THE CARRIER STILL APPROVES OF THIS BUSINESS — the reseller stage

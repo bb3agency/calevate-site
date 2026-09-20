@@ -56,6 +56,7 @@ from uuid import UUID
 from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 from calevate_shared.worker_api import (
+    KnowledgeReport,
     MeteredQuantity,
     ObservationBatch,
     SettlementRefusal,
@@ -200,6 +201,9 @@ class HttpEventSink:
         #: A TERMINAL event forces the flush (see `on_call_event`), so the one status that
         #: matters is never held.
         self._events: list[CallEvent] = []
+        #: WHAT THIS CALL'S KNOWLEDGE TURNED OUT TO BE, waiting for the next batch to carry
+        #: it. Set once, cleared once it has been accepted, `None` either side of that.
+        self._knowledge: KnowledgeReport | None = None
         self._batch_size = max(1, turn_batch_size)
         self._flush_seconds = turn_flush_seconds
         #: The timer arm. Started on the FIRST buffered turn rather than in `__init__`,
@@ -261,6 +265,27 @@ class HttpEventSink:
             if len(self._pending) >= self._batch_size:
                 await self._flush_locked()
 
+    def report_knowledge(self, report: KnowledgeReport) -> None:
+        """Record what this call's knowledge base turned out to be. **SYNCHRONOUS, ALWAYS.**
+
+        **IT DOES NOT AWAIT, DOES NOT SEND AND CANNOT FAIL, AND THAT IS THE WHOLE DESIGN.**
+        The caller is `runtime.run_call`, one line after the pack was resolved and one line
+        before the pipeline runs — the moment the caller is waiting to be greeted. Telling
+        our side that a call is degraded is REPORTING, not a gate: a `await` here would put
+        the platform API's latency (and its outages) in front of the first sentence of a
+        call that is already having a bad day. So the fact is parked, and the batch that
+        was leaving anyway takes it.
+
+        **AND IT DOES NOT ARM THE TIMER.** `_start_flusher` needs a running loop and this
+        is a plain synchronous method; every call emits lifecycle events and every call
+        settles, and both paths flush — so the report always leaves without this method
+        needing to create a task it might not be allowed to create.
+
+        A second report on one call REPLACES the first rather than queueing: the pack is
+        resolved once per session and there is no second answer to preserve.
+        """
+        self._knowledge = report
+
     # -- the buffer ----------------------------------------------------------------------
 
     async def flush(self) -> int:
@@ -285,18 +310,27 @@ class HttpEventSink:
         conversation on one bad connection — and a retry is safe because the server dedupes
         on `(call_id, idx)`, a constraint that already existed.
         """
-        if not self._pending and not self._events:
+        # A PENDING KNOWLEDGE REPORT IS ENOUGH ON ITS OWN. Without this clause a call whose
+        # turns and events had all already been sent would drop the one fact that says it
+        # answered nothing — `settle` flushes first, and an empty flush used to return here.
+        if not self._pending and not self._events and self._knowledge is None:
             return 0
         batch = ObservationBatch(
             agent_id=self._agent_id,
             direction=self._direction,
             events=list(self._events),
             turns=list(self._pending),
+            knowledge=self._knowledge,
         )
         answer = await self._api.post_observations(self._engine_call_id, batch)
         sent = len(batch.turns)
         del self._pending[:sent]
         del self._events[: len(batch.events)]
+        # Cleared only AFTER the request returned, exactly as the two buffers above are: a
+        # flush that failed leaves the report pending and the next one re-sends it. The
+        # server writes the column by the same rule, so a re-delivery restates one value.
+        if batch.knowledge is not None:
+            self._knowledge = None
         logger.info(
             "observations posted",
             call_id=self._call_id,
@@ -307,6 +341,9 @@ class HttpEventSink:
             # loss: a smaller `turns_written` is a retry meeting rows we already had.
             turns_written=answer.turns_written,
             turns_already_present=answer.turns_already_present,
+            # `None` on every batch but the one that carried the report. A word out of a
+            # closed set, never a key or a question (hard rule 6).
+            knowledge=None if batch.knowledge is None else batch.knowledge.state,
         )
         return sent
 

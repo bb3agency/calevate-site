@@ -8,8 +8,10 @@ import {
   Eye,
   FileCheck2,
   Flag,
+  History,
   IndianRupee,
   KeyRound,
+  ListChecks,
   Power,
   ReceiptIndianRupee,
   ShieldAlert,
@@ -156,6 +158,27 @@ export function TenantNav({ tenantId, slug }: { tenantId: string; slug: string }
         icon={<Users className="h-4 w-4" />}
       >
         Who holds this account
+      </NavLink>
+      {/* Everything between this client and their first call, in one place. Its own
+          screen rather than a panel on the record because the answer is a LIST that
+          changes as gates clear, and because it is the screen an operator opens with a
+          client on the phone — the five screens it replaces are all linked from its rows.
+          Read-only by design: each remedy stays behind its own audited write. */}
+      <NavLink
+        href={`/admin/tenants/${tenantId}/readiness`}
+        icon={<ListChecks className="h-4 w-4" />}
+      >
+        Before their first call
+      </NavLink>
+      {/* What has been done to this account, read from `audit_log` itself. Its own screen
+          because it is a paged history rather than a fact, and because it is the one
+          surface here that answers about US: who changed this client's plan, who entered
+          their console, and when. */}
+      <NavLink
+        href={`/admin/tenants/${tenantId}/activity`}
+        icon={<History className="h-4 w-4" />}
+      >
+        Activity
       </NavLink>
       {/* Suspend / reactivate. Separate from everything above because it is the one
           control here that stops a client's outbound dialling outright. */}

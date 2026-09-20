@@ -121,6 +121,75 @@ DEFAULT_CALL_CAP_S: Final[int] = int(AgentConfig.model_fields["max_call_duration
 CallerIdentityState = Literal["known", "withheld_by_carrier", "unparsed_by_client", "not_read"]
 
 
+#: WHETHER THIS CALL HAD ITS CLIENT'S KNOWLEDGE, OR THE NAMED REASON IT DID NOT.
+#:
+#: ⚠ **DECLARED HERE AND NOT IN THE WORKER, FOR `CallerIdentityState`'S REASON.**
+#: `apps/api` cannot import `apps/voice-worker`, so a vocabulary declared only over there
+#: is one the server can neither check nor constrain a column against — every string a
+#: client sent would land in `calls.knowledge_state`. `voice_worker/knowledge.
+#: UnavailableReason` IS the four-member type below, aliased rather than re-spelled, so the
+#: two deployables and the CHECK constraint cannot drift apart.
+#:
+#: A `None` that means several things cannot be triaged, so the report is a total answer
+#: and not only a failure:
+#:
+#: * ``available`` — the pack loaded and every question is answered out of it.
+#: * ``no_pack`` — this agent has published no knowledge base. Ordinary and permanent, not
+#:   a degradation: the agent says so rather than saying it cannot look right now.
+#: * the four below — a pack WAS configured and the call ran without it, so every question
+#:   for the whole call answered `temporarily_unavailable`.
+KnowledgeUnavailableReason = Literal[
+    "fetch_failed", "absent", "unsupported_format", "identity_mismatch"
+]
+KnowledgeState = Literal[
+    "available",
+    "no_pack",
+    "fetch_failed",
+    "absent",
+    "unsupported_format",
+    "identity_mismatch",
+]
+
+#: Every state, for the CHECK constraint and for a caller that needs membership.
+KNOWLEDGE_STATES: Final[frozenset[str]] = frozenset(get_args(KnowledgeState))
+
+#: The states that mean THE CALL ANSWERED NOTHING — what an alarm fires on and what an
+#: operator counts. `tests/worker_knowledge_report_test.py` asserts these are exactly the
+#: states `KnowledgeState` holds beyond `available` and `no_pack`, so the two declarations
+#: above cannot drift without a red test.
+DEGRADED_KNOWLEDGE_STATES: Final[frozenset[str]] = frozenset(get_args(KnowledgeUnavailableReason))
+
+
+class KnowledgeReport(BaseModel):
+    """What the container found when it went for this call's knowledge pack.
+
+    **IT IS AN OBSERVATION AND CARRIES NO VERDICT**, which is this module's rule: the
+    worker says what it saw, and `worker/service` decides whether that is worth an alarm,
+    which severity it is, and how many calls it has already happened to.
+
+    **ONE REPORT PER CALL, ON THE FIRST BATCH THAT LEAVES.** The pack is resolved once,
+    while the phone is ringing, and nothing changes it for the rest of the call — so this
+    is a session fact and rides beside `agent_id` and `direction` for their reason, rather
+    than being re-sent per turn.
+
+    HARD RULE 6: a state word and a content hash. The digest names an OBJECT, not a person,
+    and the four failure words are authored in this repository.
+    """
+
+    model_config = _STRICT
+
+    state: KnowledgeState
+    #: The pack digest the session asked for, `""` when none was configured. Present on the
+    #: failure path especially: it is the handle on the object that did not load, and it is
+    #: what makes one store outage legible as one cause behind many calls.
+    #:
+    #: PINNED TO THE SHAPE A DIGEST HAS, for `AttestationIn.observed_prompt_sha256`'s
+    #: reason: the only producer is `hashlib`, so a truncated or upper-cased value is a
+    #: client built wrong, and a 422 at the edge finds that on the first call rather than
+    #: leaving an unmatchable string in the alarm an operator is trying to triage with.
+    digest: str = Field(default="", pattern=r"^([0-9a-f]{64})?$")
+
+
 class WorkerSessionOut(BaseModel):
     """What one published agent is, answered for a worker about to take its call.
 
@@ -221,6 +290,16 @@ class ObservationBatch(BaseModel):
     to_e164: str | None = None
     events: list[CallEvent] = Field(default_factory=list, max_length=MAX_EVENTS_PER_BATCH)
     turns: list[TranscriptTurn] = Field(default_factory=list, max_length=MAX_TURNS_PER_BATCH)
+    #: WHETHER THIS CALL HAD ITS KNOWLEDGE, SENT ONCE AND THEN NOT AGAIN.
+    #:
+    #: It rides an observation batch rather than travelling as a request of its own because
+    #: it IS an observation — "what did this container witness?" — and because a fifth route
+    #: would be a second channel for the same fact, on a path whose whole point is that the
+    #: client is one door. It costs no extra round trip: the batch was going anyway.
+    #:
+    #: `None` on every batch after the first, and on every batch a client that predates this
+    #: field sends. The server leaves the column alone rather than clearing it.
+    knowledge: KnowledgeReport | None = None
 
 
 class ObservationsOut(BaseModel):
@@ -621,6 +700,8 @@ class HandoffToolOut(BaseModel):
 
 __all__ = [
     "DEFAULT_CALL_CAP_S",
+    "DEGRADED_KNOWLEDGE_STATES",
+    "KNOWLEDGE_STATES",
     "MAX_EVENTS_PER_BATCH",
     "MAX_IDENTIFIER",
     "MAX_METERED_QTY",
@@ -640,6 +721,9 @@ __all__ = [
     "CallerIdentityState",
     "HandoffToolIn",
     "HandoffToolOut",
+    "KnowledgeReport",
+    "KnowledgeState",
+    "KnowledgeUnavailableReason",
     "MeteredLegName",
     "MeteredQuantity",
     "ObservationBatch",

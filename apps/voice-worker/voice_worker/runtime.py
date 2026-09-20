@@ -94,7 +94,7 @@ from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.meter import CallMeter, CarrierCdr, RateCard, RuntimeUsage
 from voice_worker.pipeline import CallerIdentityLike, SessionConfig, VendorCredentials
-from voice_worker.session import AssembledCall, open_session, pack_cache
+from voice_worker.session import AssembledCall, knowledge_report, open_session, pack_cache
 from voice_worker.sink import (
     DEFAULT_TURN_BATCH_SIZE,
     DEFAULT_TURN_FLUSH_SECONDS,
@@ -309,6 +309,16 @@ class WorkerRuntime:
             tool_api=self._api if isinstance(self._api, CallToolApiClient) else None,
             caller=caller,
         )
+
+        # WHETHER THIS CALL HAS ITS CLIENT'S KNOWLEDGE, HANDED TO THE SINK AND NOT SENT.
+        #
+        # A pack that did not load makes the agent answer `temporarily_unavailable` to
+        # EVERY question for the whole call, and until this line the only trace was a
+        # loguru record inside a container Pipecat Cloud operates — so from the product
+        # nobody could tell afterwards that a call had answered nothing. `report_knowledge`
+        # is synchronous and cannot fail; the next batch carries it, and a batch that never
+        # gets through costs the report and never the call.
+        sink.report_knowledge(knowledge_report(call.knowledge))
 
         # §1.1's ATTESTATION, POSTED AT SESSION START (D-626). `AssembledCall` has recomputed
         # the digest of the prompt in this process's memory; until now it reached nothing, so

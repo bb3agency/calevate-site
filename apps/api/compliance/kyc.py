@@ -167,6 +167,17 @@ class KycRecord:
     rejection_reason: str | None
     submitted_at: datetime | None
     verified_at: datetime | None
+    # WHO verified (D-635): a person at Calevate, or the client themselves through a
+    # licensed aggregator. The discriminant of the widened evidence constraint, so a row
+    # that cannot say is a row that cannot be `verified`.
+    verification_source: str | None
+    verification_provider: str | None
+    # The aggregator's own transaction id for the run. This is the liability artefact —
+    # a third party can be asked to corroborate it — and it is not an identity document.
+    verification_reference: str | None
+    # The holder name the aggregator returned. A NAME, deliberately without the number it
+    # was read from, exactly as `signatory_name` is.
+    verified_name: str | None
 
     @property
     def is_verified(self) -> bool:
@@ -187,11 +198,16 @@ NOT_RECORDED = KycRecord(
     rejection_reason=None,
     submitted_at=None,
     verified_at=None,
+    verification_source=None,
+    verification_provider=None,
+    verification_reference=None,
+    verified_name=None,
 )
 
 _SELECT = (
     "SELECT status, entity_type, document_kind, document_ref, signatory_name, "
-    "evidence_ref, rejection_reason, submitted_at, verified_at "
+    "evidence_ref, rejection_reason, submitted_at, verified_at, "
+    "verification_source, verification_provider, verification_reference, verified_name "
     "FROM kyc_records WHERE tenant_id = :tid"
 )
 
@@ -220,6 +236,10 @@ async def read_kyc(session: AsyncSession, *, tenant_id: UUID) -> KycRecord:
         rejection_reason=row[6],
         submitted_at=row[7],
         verified_at=row[8],
+        verification_source=row[9],
+        verification_provider=row[10],
+        verification_reference=row[11],
+        verified_name=row[12],
     )
 
 
@@ -235,8 +255,18 @@ async def record_kyc(
     evidence_ref: str | None = None,
     rejection_reason: str | None = None,
     verified_by_admin_id: UUID | None = None,
+    verification_source: str = "operator",
+    verification_provider: str | None = None,
+    verification_reference: str | None = None,
+    verified_name: str | None = None,
 ) -> None:
-    """Upsert what ops verified. Re-recording is what happens on every re-verification.
+    """Upsert a verification. Re-recording is what happens on every re-verification.
+
+    Two writers, one row: an operator recording a registry check (D-47) and the webhook
+    absorbing an aggregator's result (D-635). `verification_source` is what tells them
+    apart, it defaults to `operator` so every existing caller is unchanged, and it is the
+    one field EXCLUDED wins outright on — a record re-verified by an operator must stop
+    claiming a provider verified it, and the reverse.
 
     `verified_at` is stamped by the DATABASE, in the same statement, and only when the
     status is `verified` — never passed in by a caller. An operator who could supply the
@@ -262,14 +292,21 @@ async def record_kyc(
         "evidence_ref": evidence_ref,
         "rejection_reason": rejection_reason,
         "admin_id": verified_by_admin_id if verified else None,
+        "source": verification_source,
+        "provider": verification_provider,
+        "reference": verification_reference,
+        "verified_name": verified_name,
     }
     await session.execute(
         text(
             "INSERT INTO kyc_records (id, tenant_id, status, entity_type, document_kind, "
             "  document_ref, signatory_name, evidence_ref, rejection_reason, "
-            "  verified_by_admin_id, submitted_at, verified_at, created_at, updated_at) "
+            "  verified_by_admin_id, verification_source, verification_provider, "
+            "  verification_reference, verified_name, submitted_at, verified_at, "
+            "  created_at, updated_at) "
             "VALUES (:id, :tid, :status, :entity_type, :document_kind, :document_ref, "
-            "  :signatory_name, :evidence_ref, :rejection_reason, :admin_id, now(), "
+            "  :signatory_name, :evidence_ref, :rejection_reason, :admin_id, :source, "
+            "  :provider, :reference, :verified_name, now(), "
             f"  {'now()' if verified else 'NULL'}, now(), now()) "
             "ON CONFLICT (tenant_id) DO UPDATE SET "
             "  status = EXCLUDED.status, "
@@ -280,6 +317,18 @@ async def record_kyc(
             "  evidence_ref = COALESCE(EXCLUDED.evidence_ref, kyc_records.evidence_ref), "
             "  rejection_reason = EXCLUDED.rejection_reason, "
             "  verified_by_admin_id = EXCLUDED.verified_by_admin_id, "
+            # The DISCRIMINANT of the evidence constraint, so EXCLUDED wins outright
+            # rather than COALESCEing: a record re-verified by an operator after an
+            # aggregator run must stop claiming the aggregator verified it, and the
+            # reverse. The three columns below it are COALESCEd like the other evidence
+            # fields, so an operator correcting a status does not erase which provider
+            # confirmed the signatory and under what reference.
+            "  verification_source = EXCLUDED.verification_source, "
+            "  verification_provider = COALESCE(EXCLUDED.verification_provider, "
+            "    kyc_records.verification_provider), "
+            "  verification_reference = COALESCE(EXCLUDED.verification_reference, "
+            "    kyc_records.verification_reference), "
+            "  verified_name = COALESCE(EXCLUDED.verified_name, kyc_records.verified_name), "
             "  submitted_at = COALESCE(kyc_records.submitted_at, EXCLUDED.submitted_at), "
             f"  verified_at = {'now()' if verified else 'NULL'}, "
             "  updated_at = now()"

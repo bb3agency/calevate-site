@@ -1674,6 +1674,20 @@ class Settings(BaseSettings):
     # `platform_secrets` path with no allowlist to edit.
     razorpay_key_secret: str | None = None
 
+    # WHICH licensed aggregator a client verifies themselves through (D-635). A member of
+    # `compliance.kyc_providers.KYC_PROVIDERS`, or unset — which is every deployment
+    # today, and makes `available_provider()` answer `no_provider_configured` so the
+    # client's screen says the self-service route is unavailable and the operator path
+    # (D-47) carries the whole load.
+    kyc_verification_provider: str | None = Field(default=None, max_length=32)
+    # The provider's webhook signing secret. Unset means the receiver FAILS CLOSED, and
+    # the reason is sharper than the payment one beside it: this endpoint marks a client
+    # VERIFIED, so an unverifiable feed grants identity on anyone's say-so — a forged
+    # payment costs money, a forged verification costs the defence the record exists to
+    # provide. Because the NAME contains `secret`, `platform_config.is_secret_key`
+    # classifies it into the encrypted `platform_secrets` path with no allowlist to edit.
+    kyc_verification_webhook_secret: str | None = None
+
     # WHO CALEVATE IS ON AN INVOICE (SLICE AL). Rule 46 of the CGST Rules makes the
     # supplier's legal name, registered address and GSTIN mandatory particulars of a tax
     # invoice, and Rule 46(g) makes the HSN/SAC of the supply one too. The LEGAL PERSON

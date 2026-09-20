@@ -145,3 +145,40 @@ Two more provisions that bear on retention design:
 places them eighteen months from Gazette publication. Our erasure obligation today is
 contractual, not statutory. That is a reason the design must be right before the duty
 arrives, not a reason to relax it.
+
+## 5. Cross-reference: the thirty-minute transactional window is NOT of this file's class
+
+A campaign classification gate landed on 20 Sep 2026 against the amended definition of a
+transactional voice call — **"in response to Customer initiated transaction within thirty
+minutes of the transaction"**, non-promotional with it (amended TCCCPR Regulation 2(bt)).
+It is recorded here so the next reader does not mistake it for one of the readings above.
+
+**Its class is REPORTED, one rung below the rest of this file.** The wording comes from
+`number-series-inbound-vs-outbound-2026-09-13.md` §3.1 — a research agent's reading of the
+Second Amendment Regulations 2025, founder-relayed on 13 Sep 2026 — not from a founder
+reading of the operative text on 20 Sep. Nobody in this repository has opened the gazette
+PDF; `trai.gov.in` is egress-blocked from this container. It may not reach a client-facing
+compliance CLAIM without a re-read, and the gate below is careful to be a refusal rather
+than a claim.
+
+**What it changed.** `campaigns/service.DIALABLE_CAMPAIGN_CLASSIFICATIONS` is
+`{promotional, service}`: a campaign filed as `transactional` is refused by
+`classification_not_campaignable`, at launch and again on every dispatch tick, and the
+refusal tells the client to file it as `service` (a non-promotional message to their own
+customers) or `promotional` (anything that offers or markets), and that a genuinely
+time-boxed call is placed by the instant-callback path instead. The reason it is a refusal
+and not a validation is that the thirty minutes are measured from EACH RECIPIENT's own
+action: a list dialled over hours or days cannot hold the property for its contacts, so the
+classification was false by construction rather than merely unchecked.
+
+**What it does NOT close, stated because the opposite is the natural assumption.** Every
+gate in `campaigns/service.py` treats `service` and `transactional` identically — the same
+160 series, the same absence from `preference_scrub.PREFERENCE_SCRUBBED_CLASSIFICATIONS`,
+the same membership of `ATTESTABLE_CLASSIFICATIONS`. So this removes no escape that
+`service` does not equally offer. What stands between a promotional list and the lighter
+obligations of either label is `dlt_template_mismatch`: a registrar-approved DLT template of
+the campaign's own class. Guard: `tests/transactional_campaign_classification_test.py`.
+
+**Neither instant path was widened.** `ingest/service.py` (form submission → dial in
+seconds) and `callbacks/service.py` (a callback the caller asked for mid-call) carry no
+classification at all, so neither claims a lighter obligation and neither was touched.

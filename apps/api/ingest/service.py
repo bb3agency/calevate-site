@@ -32,7 +32,7 @@ import re
 import secrets
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -61,13 +61,40 @@ _E164 = re.compile(r"^\+[1-9]\d{7,14}$")
 # The field names we read a number and a name out of when a source has no mapping
 # (docs/WEBHOOKS.md §2.2). They are consumed into their own columns, so they must not
 # also be copied into the free-form `data` blob.
-_CONSUMED_KEYS = frozenset({"phone", "phone_number", "name"})
+_CONSUMED_KEYS = frozenset({"phone", "phone_number", "name", "submitted_at"})
 
 # The blocked-rule name for a source that requires form consent and names no consent
 # field. Distinct from `no_form_consent` (the question WAS asked and was not affirmed)
 # because they are different support tickets: this one is fixed in the lead form, that
 # one is the person's own answer and must never be "fixed" at all.
 NO_CONSENT_FIELD_RULE = "no_consent_field_configured"
+
+#: How long after a customer's own action a call placed in response to it is still
+#: transactional. Amended TCCCPR Regulation 2(bt) defines the class as a non-promotional
+#: call made "in response to Customer initiated transaction within thirty minutes of the
+#: transaction". (REPORTED — a research agent's reading of the Second Amendment
+#: Regulations 2025, founder-relayed;
+#: `docs/evidence/number-series-inbound-vs-outbound-2026-09-13.md` §3.1. `trai.gov.in` is
+#: egress-blocked from this container, so nobody here has opened the gazette text.)
+TRANSACTIONAL_WINDOW = timedelta(minutes=30)
+
+#: Our name for the instant the customer acted. A source spells it however it likes and
+#: maps it here, which is why no vendor's own field name appears in this module.
+SUBMITTED_AT_KEY = "submitted_at"
+
+# WHY THIS PATH NEEDS THE WINDOW AND A CAMPAIGN CANNOT HAVE ONE.
+#
+# This is the only dial path whose legal ground is the clock: there is no campaign behind
+# it, no DLT template of its own and no series check — what makes ringing this person
+# lawful is that they themselves asked for it moments ago. A delivery that arrives late
+# still looks identical on the wire, so without this check a webhook RETRY or a source's
+# BACKFILL dials a cold list hours after the fact under a ground that expired, and every
+# metric we keep would report it as a lead answered in two seconds.
+#
+# We keep the lead and refuse the call, as every other refusal in this flow does: the
+# person's enquiry is real and belongs in the CRM; what lapsed is the permission to
+# telephone them about it without the paperwork an ordinary outbound call needs.
+STALE_SUBMISSION_RULE = "outside_transactional_window"
 
 
 def normalize_phone(raw: str) -> str | None:
@@ -248,6 +275,54 @@ def apply_mapping(mapping: dict[str, Any], payload: dict[str, Any]) -> dict[str,
     return fields
 
 
+def submission_instant(mapped: dict[str, Any], payload: dict[str, Any]) -> datetime | None:
+    """When the customer acted, if the source told us in a form we can trust.
+
+    Returns None for "not stated, or stated in a way we refuse to interpret" — which
+    leaves the window unenforced for that delivery rather than guessing at it.
+
+    A timestamp with NO UTC OFFSET is the case worth naming, because the tempting fix is
+    wrong in both directions. Assume UTC and an Indian form sending local wall-clock time
+    reads 5h30m stale, so every legitimate lead is refused; assume IST and a source that
+    really does send UTC gets a window five and a half hours wide. There is no third
+    reading available from the string itself, so an un-offset timestamp is treated as
+    absent and the delivery proceeds on the behaviour it had before this check existed.
+    """
+    raw = mapped.get(SUBMITTED_AT_KEY, payload.get(SUBMITTED_AT_KEY))
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        # Epoch seconds are unambiguous: the value names an instant, not a wall clock.
+        try:
+            return datetime.fromtimestamp(float(raw), UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.strip())
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def submission_is_stale(submitted: datetime | None, *, received_at: float) -> bool:
+    """Has the transactional window closed on this delivery?
+
+    Measured against the instant WE received it rather than `now()`, so a lead does not
+    become stale because our own queue was slow — the delay we are detecting is the
+    sender's, and holding them to our latency would refuse leads that arrived in time.
+
+    A timestamp in the FUTURE is the sender's clock running fast, and is treated as not
+    stale. The alternative — refusing it — turns a skewed clock on the client's own web
+    form into a silent outage on the path that matters most to them, to close a gap that
+    only a client forging timestamps against their own interest could use.
+    """
+    if submitted is None:
+        return False
+    return datetime.fromtimestamp(received_at, UTC) - submitted > TRANSACTIONAL_WINDOW
+
+
 async def ingest_lead(
     session: AsyncSession,
     *,
@@ -426,6 +501,22 @@ async def ingest_lead(
             consent_field=consent_field,
             source=config.source,
         )
+
+    # 2b. The transactional window (see STALE_SUBMISSION_RULE). Placed AFTER consent so
+    # that a person who declined is recorded as having declined rather than as a late
+    # delivery, and BEFORE the compliance gate because a call we will not place should
+    # not consume a DNC lookup.
+    submitted = submission_instant(mapped, payload)
+    if submission_is_stale(submitted, received_at=received_at):
+        await _timeline(
+            session, config.tenant_id, resolved_lead, "blocked", {"rule": STALE_SUBMISSION_RULE}
+        )
+        record_speed_to_lead(time.time() - received_at, outcome=f"blocked_{STALE_SUBMISSION_RULE}")
+        return {
+            "lead_id": resolved_lead,
+            "dispatched": False,
+            "blocked": STALE_SUBMISSION_RULE,
+        }
 
     # 3. The compliance gate — the same one every dispatch path calls (hard rule 5).
     decision = await check_dispatch(

@@ -1,21 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, Eye, Plus, Search } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import {
   Card,
   EmptyState,
+  FIELD_INLINE,
+  FIELD_INLINE_ICON,
+  FilterChip,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
   formatCount,
   formatIST,
 } from "@/components/ui";
-import { useTenants } from "@/lib/api/admin";
+import {
+  DIRECTORY_PAGE_SIZE,
+  useTenants,
+  type DirectorySort,
+  type TenantDirectoryQuery,
+} from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
@@ -101,9 +111,74 @@ function createAccess(
   return { allowed: true, reason: null };
 }
 
+/**
+ * The statuses and billing motions the directory may be narrowed by.
+ *
+ * Spelled here and sent as-is. The API declares the same two sets as `Literal`s, refuses
+ * anything else by name, and `tests/admin_account_management_test.py` holds THOSE against
+ * the database's own CHECK constraints — so the wire is guarded at both ends and a chip
+ * for a status the column cannot hold would be refused rather than silently matching
+ * nothing.
+ *
+ * ⚠ THIS PAIR IS THE UNGUARDED LINK, and it is unguarded only until the OpenAPI snapshot
+ * is regenerated: the generated `schema.d.ts` carries those `Literal`s as unions, and
+ * typing these as `TenantDirectoryQuery["status"]` is what closes it. Until then a value
+ * added to the API and not to this list is a filter an operator cannot reach.
+ */
+const STATUS_FILTERS = ["prospect", "onboarding", "active", "suspended", "churned"] as const;
+const PLAN_FILTERS = ["managed", "prepaid", "self_serve", "trial"] as const;
+
+const SORT_LABELS: Record<DirectorySort, string> = {
+  recent: "Newest first",
+  oldest: "Oldest first",
+  name: "Name A–Z",
+  name_desc: "Name Z–A",
+};
+
 export default function AdminClientsPage() {
-  const tenants = useTenants();
-  const rows = tenants.data;
+  const [q, setQ] = useState("");
+  /**
+   * What the SERVER is asked for, which lags what is typed by a short pause.
+   *
+   * The search box drives the query key, so an undebounced value is one request — and one
+   * server-side scan that opens a tenant session per matching account — per keystroke.
+   * The same 300ms the leads screen uses, and deliberately the same mechanism rather than
+   * a second one: the input itself stays instant, and only the request waits.
+   */
+  const [term, setTerm] = useState("");
+  const [status, setStatus] = useState("");
+  const [planTier, setPlanTier] = useState("");
+  const [sort, setSort] = useState<DirectorySort>("recent");
+  const [offset, setOffset] = useState(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTerm(q.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+
+  const query: TenantDirectoryQuery = { q: term, status, planTier, sort, offset };
+  const tenants = useTenants(query);
+  const page = tenants.data;
+  const rows = page?.rows;
+  // From the TERM, not the box: while a search is still settling the screen is showing
+  // the previous answer, and calling it "narrowed" would swap the empty state under the
+  // reader's cursor a beat before the rows arrive.
+  const narrowed = Boolean(term || status || planTier);
+
+  /**
+   * Every change to what is being ASKED sends the reader back to the first page.
+   *
+   * Without this, narrowing a nine-page list while on page four asks the server for rows
+   * 75-100 of a set that now has three, and the operator is shown an empty table over a
+   * count that says four matched. The one place the offset survives is the sort, which
+   * is why that is not routed through here — reordering a list you are paging is a
+   * request to see the same set differently, not a different set.
+   */
+  function narrow(apply: () => void) {
+    apply();
+    setOffset(0);
+  }
+
   const mayCreate = useAdminAccess("admin:tenants", "create clients");
   const create = createAccess(mayCreate, tenants);
 
@@ -127,22 +202,37 @@ export default function AdminClientsPage() {
     title: "Clients",
     realm: "admin",
     fields: [],
-    facts: rows
+    facts: rows && page
       ? [
-          { key: "accounts", label: "Client accounts listed", value: String(rows.length) },
+          {
+            key: "accounts",
+            // THE MATCHING TOTAL, and the label says which number this is. The screen
+            // shows one page now, so "accounts listed" would be the page size — and an
+            // assistant told there are 25 clients on a platform with 312 would answer
+            // questions about the platform from the size of a window onto it.
+            label: narrowed
+              ? "Client accounts matching the current search and filters"
+              : "Client accounts on the platform",
+            value: String(page.total),
+          },
+          {
+            key: "page",
+            label: "Accounts on the page being read",
+            value: String(rows.length),
+          },
           {
             key: "active",
-            label: "Accounts with status active",
+            label: "Accounts with status active, on this page",
             value: String(rows.filter((tenant) => tenant.status === "active").length),
           },
           {
             key: "capped",
-            label: "Accounts at their spend ceiling (outbound refused pre-dispatch)",
+            label: "Accounts at their spend ceiling on this page (outbound refused pre-dispatch)",
             value: String(rows.filter((tenant) => tenant.capped).length),
           },
           {
             key: "held",
-            label: "Accounts held for a human decision",
+            label: "Accounts held for a human decision, on this page",
             value: String(rows.filter((tenant) => tenant.holds.length > 0).length),
           },
           {
@@ -166,9 +256,13 @@ export default function AdminClientsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="text-sm text-ink-muted">
           Every client account, and anything currently holding one up.
-          {/* Only from a list that ARRIVED. A count is the most trusted thing on a
-              directory and the cheapest thing to get wrong. */}
-          {rows && ` ${formatCount(rows.length)} ${rows.length === 1 ? "account" : "accounts"}.`}
+          {/* Only from a page that ARRIVED, and it is the MATCHING total rather than the
+              number of rows on screen: a count is the most trusted thing on a directory
+              and the cheapest thing to get wrong. */}
+          {page &&
+            ` ${formatCount(page.total)} ${page.total === 1 ? "account" : "accounts"}${
+              narrowed ? " match" : ""
+            }.`}
         </p>
         {/* Gated on `admin:tenants` — the permission the route behind it requires — from
             the console's own identity read (see `createAccess`). A dead control rather
@@ -197,6 +291,64 @@ export default function AdminClientsPage() {
           button from a bug into an answer. Renders nothing while we do not yet know. */}
       <RestrictionNote reason={create.reason} />
 
+      {/* THE SEARCH AND THE FILTERS ARE THE SERVER'S. Every control here changes the
+          request, never a list held in the browser: the roster is paged, so a filter
+          applied to the loaded page would narrow 25 accounts and quietly claim to have
+          searched the platform. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="relative flex-1 sm:min-w-[220px]">
+          <span className="sr-only">Search clients by name or slug</span>
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
+          />
+          <input
+            type="search"
+            value={q}
+            onChange={(event) => narrow(() => setQ(event.target.value))}
+            placeholder="Search by business name or slug"
+            className={`${FIELD_INLINE_ICON} w-full`}
+          />
+        </label>
+        <label className="flex items-center gap-2 text-xs text-ink-muted">
+          <span>Sort</span>
+          <select
+            value={sort}
+            onChange={(event) => setSort(event.target.value as DirectorySort)}
+            className={FIELD_INLINE}
+          >
+            {(Object.keys(SORT_LABELS) as DirectorySort[]).map((value) => (
+              <option key={value} value={value}>
+                {SORT_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-ink-faint">State</span>
+        <FilterChip label="any" active={!status} onClick={() => narrow(() => setStatus(""))} />
+        {STATUS_FILTERS.map((value) => (
+          <FilterChip
+            key={value}
+            label={value}
+            active={status === value}
+            onClick={() => narrow(() => setStatus(status === value ? "" : value))}
+          />
+        ))}
+        <span className="ml-4 text-xs font-medium text-ink-faint">Billing</span>
+        <FilterChip label="any" active={!planTier} onClick={() => narrow(() => setPlanTier(""))} />
+        {PLAN_FILTERS.map((value) => (
+          <FilterChip
+            key={value}
+            label={value.replace(/_/g, " ")}
+            active={planTier === value}
+            onClick={() => narrow(() => setPlanTier(planTier === value ? "" : value))}
+          />
+        ))}
+      </div>
+
       {tenants.error && <ProblemNotice error={tenants.error} onRetry={() => void tenants.refetch()} />}
 
       <Card bodyClassName="p-0">
@@ -212,10 +364,21 @@ export default function AdminClientsPage() {
             The client directory could not be read, so this is not a list of your clients.
           </div>
         ) : !rows?.length ? (
-          <EmptyState
-            title="No clients yet"
-            hint="Create the first one and it appears here, along with anything left to finish setting it up."
-          />
+          /* TWO EMPTY STATES, because they are two different facts about the world.
+             "Nothing matched" is about the search the operator just typed and is fixed by
+             changing it; "no clients yet" is about the platform. Rendering the second when
+             a filter is on tells an operator with 300 clients that they have none. */
+          narrowed ? (
+            <EmptyState
+              title="No account matches this search"
+              hint="Clear the search box or the filters above to see the rest of the directory."
+            />
+          ) : (
+            <EmptyState
+              title="No clients yet"
+              hint="Create the first one and it appears here, along with anything left to finish setting it up."
+            />
+          )
         ) : (
           <ScrollRegion label="Client directory">
             <table className="w-full min-w-[880px] text-sm">
@@ -311,6 +474,39 @@ export default function AdminClientsPage() {
           </ScrollRegion>
         )}
       </Card>
+
+      {/* The pager renders only when there is a page to go to, and it says WHICH rows are
+          on screen rather than a page number: "26-50 of 312" is the sentence an operator
+          reads back on a support call, and it cannot be wrong by an off-by-one the way a
+          derived page index can. */}
+      {page && page.total > page.rows.length && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-ink-muted">
+          <span aria-live="polite">
+            Showing {formatCount(page.offset + 1)}–{formatCount(page.offset + page.rows.length)} of{" "}
+            {formatCount(page.total)}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              disabled={page.offset === 0}
+              onClick={() => setOffset(Math.max(0, page.offset - DIRECTORY_PAGE_SIZE))}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Previous
+            </button>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              disabled={page.offset + page.rows.length >= page.total}
+              onClick={() => setOffset(page.offset + DIRECTORY_PAGE_SIZE)}
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

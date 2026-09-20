@@ -368,16 +368,30 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "document you produced (CIN, LLPIN, GSTIN, Udyam, shop-and- " +
                     "establishment or trade licence), its reference number, the " +
                     "signatory's name, and a reference to where the verification pack is " +
-                    "filed. The schema deliberately refuses a twelve-digit bare number, " +
-                    "so an Aadhaar number cannot be stored in that field even by " +
-                    "mistake. That is on purpose and section 29 of the Aadhaar " +
-                    "(Targeted Delivery of Financial and Other Subsidies, Benefits and " +
-                    "Services) Act 2016 is why: it restricts what may be done with " +
-                    "Aadhaar information once you hold it — including a bar on " +
-                    "publishing, displaying or posting an Aadhaar number publicly, and " +
-                    "limits on using or passing on identity information collected for " +
-                    "authentication. Not holding one is the simplest way to stay outside " +
-                    "all of that, so we ask for a public-registry document instead.",
+                    "filed. There is a second way to do this, and you may be offered it: " +
+                    "verifying yourself through DigiLocker using a licensed " +
+                    "intermediary. If you take that route, the intermediary is who " +
+                    "handles your Aadhaar — you authenticate on their page, not on " +
+                    "ours — and what comes back to us is only the confirmation that it " +
+                    "succeeded, the intermediary's reference number for it, the name " +
+                    "they confirmed, and the date. We do not receive, see or store your " +
+                    "Aadhaar number, and we store no identity document or image by " +
+                    "either route. If your business is a sole proprietorship, that " +
+                    "completes your verification. For a company it confirms you as the " +
+                    "authorised signatory, and we still check the business itself " +
+                    "against its public registry entry. The schema deliberately refuses " +
+                    "a " +
+                    "twelve-digit bare number in every one of these fields, so an " +
+                    "Aadhaar number cannot be stored even by mistake. That is on purpose " +
+                    "and section 29 of the Aadhaar (Targeted Delivery of Financial and " +
+                    "Other Subsidies, Benefits and Services) Act 2016 is why: it " +
+                    "restricts what may be done with Aadhaar information once you hold " +
+                    "it — including a bar on publishing, displaying or posting an " +
+                    "Aadhaar number publicly, and limits on using or passing on identity " +
+                    "information collected for authentication. Not holding one is the " +
+                    "simplest way to stay outside all of that, which is why we ask for a " +
+                    "public-registry document and, where you verify yourself, take back " +
+                    "only the result and a reference.",
                 },
                 {
                   term: "Regulatory registrations",

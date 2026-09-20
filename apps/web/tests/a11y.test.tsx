@@ -90,6 +90,8 @@ import SolutionsPage from "@/app/solutions/page";
 import WhyCalevatePage from "@/app/why-calevate/page";
 import Home from "@/app/page";
 import ClientConsoleJunction from "@/app/c/page";
+import TenantActivityPage from "@/app/admin/tenants/[tenantId]/activity/page";
+import TenantReadinessPage from "@/app/admin/tenants/[tenantId]/readiness/page";
 import SignupPage from "@/app/signup/page";
 
 import {
@@ -2844,7 +2846,83 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/page.tsx",
     realm: "admin",
     element: () => <AdminClientsPage />,
-    routes: { "/v1/admin/me": ADMIN_ME, "/v1/admin/tenants": [TENANT_SUMMARY] },
+    routes: {
+      "/v1/admin/me": ADMIN_ME,
+      // A PAGE, not an array, and a total larger than the rows: the directory is searched
+      // and paged server-side, and the pager only renders when there is a page to go to —
+      // so a fixture whose total equals its rows would leave those controls unscanned.
+      "/v1/admin/tenants": { rows: [TENANT_SUMMARY], total: 90, limit: 25, offset: 0 },
+    },
+  },
+  {
+    file: "admin/tenants/[tenantId]/readiness/page.tsx",
+    realm: "admin",
+    element: () => <TenantReadinessPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      // Blocked, and blocked on BOTH sides, because that is the state with the most
+      // markup: two grouped cards, the summary notice and a remedy link.
+      "/v1/admin/tenants/t1/readiness": {
+        tenant_id: "t1",
+        may_operate: false,
+        blocked_on_calevate: 1,
+        rows: [
+          {
+            rule: "kyc_missing",
+            title: "Identity not verified",
+            reason: "This account has no verification on file.",
+            actor: "calevate",
+            next_step: "Record the verification on the Identity screen.",
+          },
+          {
+            rule: "agreements_not_accepted",
+            title: "Agreements not accepted",
+            reason: "The account owner has not accepted the agreements.",
+            actor: "client",
+            next_step: "The owner accepts them on their own readiness screen.",
+          },
+        ],
+      },
+    },
+  },
+  {
+    file: "admin/tenants/[tenantId]/activity/page.tsx",
+    realm: "admin",
+    element: () => <TenantActivityPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/activity?limit=25&offset=0": {
+        tenant_id: "t1",
+        total: 90,
+        limit: 25,
+        offset: 0,
+        entries: [
+          {
+            id: "a1",
+            at: "2026-09-19T06:30:00Z",
+            action: "admin.plan_tier_changed",
+            object_type: "organization",
+            object_id: "t1",
+            actor_type: "admin",
+            actor_id: "u1",
+            actor_label: "Ops Anand",
+            via_grant_id: null,
+          },
+          {
+            id: "a2",
+            at: "2026-09-18T06:30:00Z",
+            action: "leads.status_changed",
+            object_type: "lead",
+            object_id: "l1",
+            actor_type: "admin",
+            actor_id: "u1",
+            actor_label: "Ops Anand",
+            // The view-as pill, so axe sees it.
+            via_grant_id: "g1",
+          },
+        ],
+      },
+    },
   },
   {
     file: "admin/health/page.tsx",

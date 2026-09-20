@@ -227,6 +227,7 @@ from calevate_shared.knowledge_pack import (
     pack_object_key,
 )
 from calevate_shared.retrieval import Passage, Provenance
+from calevate_shared.worker_api import KnowledgeUnavailableReason
 from loguru import logger
 
 # ---------------------------------------------------------------------------------------
@@ -328,7 +329,13 @@ _DENSE_TRIGGERS: Final[frozenset[str]] = frozenset({"not_found", "ambiguous"})
 
 #: Why a pack could not be loaded. Each is an OPERATOR-facing word: the caller only ever
 #: hears the agent say it cannot verify something right now.
-UnavailableReason = Literal["fetch_failed", "absent", "unsupported_format", "identity_mismatch"]
+#:
+#: **THE ALIAS IS THE POINT: THE FOUR WORDS ARE DECLARED ON THE WIRE AND READ HERE.** They
+#: leave this container in `KnowledgeReport.state`, land in `calls.knowledge_state` and are
+#: named by that column's CHECK constraint, so a fifth reason invented here and spelled
+#: nowhere else would be a 422 on a live call. `apps/api` cannot import this package, so
+#: the one declaration both sides can see is the shared one.
+UnavailableReason = KnowledgeUnavailableReason
 
 
 # ---------------------------------------------------------------------------------------

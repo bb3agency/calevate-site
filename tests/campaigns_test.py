@@ -40,7 +40,7 @@ from apps.workers.campaign_dispatch import (
 )
 from pydantic import ValidationError
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, fund_wallet, record_autodialer_notice_for_tests
 from tests.national_dnd_test import record_test_scrub
 
 
@@ -134,6 +134,11 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             tm_link_status="active",
             registered_at=datetime.now(UTC) - timedelta(days=30),
         )
+    # And the Regulation 4 advance autodialer notice, for the same reason and in the same
+    # shape: `check_dispatch` refuses every outbound dial from a sender that has not told
+    # its access provider it autodials, so a dispatcher fixture without one reports
+    # `autodialer_notice_missing` in place of what it is about.
+    await record_autodialer_notice_for_tests(tenant_id)
     _TENANTS.append(tenant_id)
     return tenant_id, agent_id
 

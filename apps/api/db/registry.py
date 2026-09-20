@@ -171,6 +171,12 @@ TENANT_TABLES = [
     # the business's own registry identifiers — read by the number-provisioning gate and
     # by the dispatch gate for self-serve tenants.
     "kyc_records",
+    # One client-initiated verification run through a licensed aggregator (D-635,
+    # migration b6e41d9c3a72). Tenant data: whose run it is, which branch, and how it
+    # ended. The unauthenticated webhook reads it on an UNTENANTED session on purpose —
+    # it has no tenant yet, that is what it is looking up — and everything downstream of
+    # that lookup runs under `tenant_session`.
+    "kyc_verification_requests",
     # This tenant's own compliance application with the telephony carrier (the RESELLER
     # stage, migration c7a4f9e15b03). Tenant data — the business's own registration
     # paperwork and the carrier's decision on it — read by the number-acquisition gate

@@ -109,6 +109,48 @@ SERIES_FOR_CLASSIFICATION: dict[str, tuple[str, ...]] = {
     "service": ("160",),
 }
 
+# WHICH CLASSIFICATIONS A BULK CAMPAIGN MAY CARRY — `transactional` is deliberately absent.
+#
+# A campaign is a list dialled over hours or days. A transactional voice call is defined by a
+# clock that starts on one recipient's own action: amended TCCCPR Regulation 2(bt), "in
+# response to Customer initiated transaction within thirty minutes of the transaction", and
+# non-promotional with it. No campaign can hold that property, because the thirty minutes
+# belong to each contact separately and the scheduler knows nothing about them — so a
+# `transactional` campaign is a claim that is false by construction, not one that happens to
+# be false. (REPORTED — research-agent reading of the Second Amendment Regulations 2025,
+# founder-relayed; `docs/evidence/number-series-inbound-vs-outbound-2026-09-13.md` §3.1, which
+# also states the rule this constant implements: nothing in our vocabulary or our gate should
+# let "transactional" and "service" be used interchangeably. `trai.gov.in` is egress-blocked
+# from this container, so nobody here has opened the gazette text.)
+#
+# WHAT THIS DOES NOT DO, stated because the opposite is the tempting claim: it closes no
+# escape that `service` does not equally offer. Every gate in this module treats the two
+# identically — same 160 series above, same absence from
+# `preference_scrub.PREFERENCE_SCRUBBED_CLASSIFICATIONS`, same `ATTESTABLE_CLASSIFICATIONS`.
+# What stops a promotional list being filed under either is `dlt_template_mismatch`: the
+# attached template must be registrar-approved AND of the campaign's own class.
+#
+# The genuinely time-boxed call is not lost with it. `ingest/service.py` dials within seconds
+# of a customer's own form submission and `callbacks/service.py` dials a callback that caller
+# asked for mid-call; neither carries a classification, so neither is widened by this refusal
+# and neither claims the lighter obligations a classification would.
+DIALABLE_CAMPAIGN_CLASSIFICATIONS: frozenset[str] = frozenset({"promotional", "service"})
+
+TRANSACTIONAL_CAMPAIGN_REASON = (
+    "A campaign cannot be transactional. A transactional call is one placed within thirty "
+    "minutes of a transaction the customer themselves started, which a list dialled over "
+    "hours or days cannot be. File this as a service campaign if it is a non-promotional "
+    "message to your own customers — a reminder, a confirmation, a follow-up — or as "
+    "promotional if it offers, markets or sells anything. A call that really is within thirty "
+    "minutes of a customer's own action is placed by the instant-callback path, which is "
+    "triggered by that customer, not by a campaign."
+)
+#: The wording per refused classification. A classification with no entry still refuses —
+#: the verdict is the membership test above, so a fourth classification added to
+#: `campaigns.models.CAMPAIGN_CLASSIFICATIONS` is refused until somebody decides it belongs,
+#: which is the safe direction for a gate that governs who may be telephoned.
+CLASSIFICATION_REFUSALS: dict[str, str] = {"transactional": TRANSACTIONAL_CAMPAIGN_REASON}
+
 DEFAULT_RETRY_POLICY: dict[str, Any] = {"max_attempts": 3, "backoff_minutes": [30, 120]}
 
 # The client-facing wording of the two provenance refusals and the two DLT-entity ones,
@@ -372,6 +414,28 @@ async def _sender_attested(session: AsyncSession, *, facts: _CampaignFacts) -> b
     return (await latest_attestation(session, phone_number_id=facts.number_id)).current
 
 
+def _classification_blocker(classification: str) -> LaunchBlocker | None:
+    """Can this classification be TRUE of a campaign at all?
+
+    Asked before the two checks that are derived from it, because both of those give advice
+    premised on the classification holding: `dlt_template_mismatch` tells the client to attach
+    a template of this class, and `number_series_mismatch` tells them which series it dials
+    from. Emitting either beside a refusal of the class itself sends them to fix paperwork
+    for a campaign that cannot launch under any paperwork.
+    """
+    if classification in DIALABLE_CAMPAIGN_CLASSIFICATIONS:
+        return None
+    return LaunchBlocker(
+        "classification_not_campaignable",
+        CLASSIFICATION_REFUSALS.get(
+            classification,
+            f"A campaign cannot be {classification}. File it as a service campaign if it is "
+            "a non-promotional message to your own customers, or as promotional if it "
+            "offers, markets or sells anything.",
+        ),
+    )
+
+
 def _channel_blockers(
     facts: _CampaignFacts, *, sender_attested: bool = False
 ) -> list[LaunchBlocker]:
@@ -383,6 +447,10 @@ def _channel_blockers(
     decisions across two round trips.
     """
     blockers: list[LaunchBlocker] = []
+
+    misclassified = _classification_blocker(facts.classification)
+    if misclassified is not None:
+        blockers.append(misclassified)
 
     if facts.template_id is None:
         blockers.append(
@@ -403,7 +471,7 @@ def _channel_blockers(
                     _template_not_approved_reason(facts.template_status),
                 )
             )
-        if facts.template_cls != facts.classification:
+        if misclassified is None and facts.template_cls != facts.classification:
             blockers.append(
                 LaunchBlocker(
                     "dlt_template_mismatch",
@@ -416,7 +484,9 @@ def _channel_blockers(
         blockers.append(LaunchBlocker("number_missing", "Attach a calling number."))
     else:
         allowed_series = SERIES_FOR_CLASSIFICATION.get(facts.classification, ())
-        if facts.series not in allowed_series:
+        # `misclassified is None` guards only the SERIES advice, never the binding and
+        # registration rules below it: those hold whatever the campaign calls itself.
+        if misclassified is None and facts.series not in allowed_series:
             # The ordinary-DID case is the client's to decide, and only for service and
             # transactional — never promotional. `sender_attestation` holds the reasoning;
             # the short version is that TRAI binds the SENDER, the client is the sender, and
@@ -1780,10 +1850,13 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
 __all__ = [
     "CAMPAIGN_STOPPED_RULE",
     "CAMPAIGN_WINDOW_CLOSED_RULE",
+    "CLASSIFICATION_REFUSALS",
     "DEFAULT_RETRY_POLICY",
+    "DIALABLE_CAMPAIGN_CLASSIFICATIONS",
     "NO_PROVENANCE_REASON",
     "PURCHASED_LIST_REASON",
     "SERIES_FOR_CLASSIFICATION",
+    "TRANSACTIONAL_CAMPAIGN_REASON",
     "LaunchBlocker",
     "add_contacts",
     "assert_agent_still_assignable",
