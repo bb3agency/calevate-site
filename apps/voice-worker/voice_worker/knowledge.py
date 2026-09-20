@@ -272,6 +272,16 @@ DF_GATE_MIN_ENTRIES: Final[int] = 10
 #: the SAME document do not trigger it — they are two spans of one answer, not two answers.
 AMBIGUITY_MARGIN: Final[float] = 0.15
 
+#: How many competing entries an `ambiguous` answer hands back, and therefore how many
+#: alternatives the agent has to offer the caller.
+#:
+#: TWO, because the clarifying question has to be SPOKEN. An either/or a caller can hold in
+#: their head is a question; a third option makes it a list they have to remember while it
+#: is still being read, which is the shape `VOICE_STYLE_GUIDANCE` tells every agent not to
+#: speak. It is also all the state has: the margin rule that produces `ambiguous` compares
+#: the top entry against the runner-up and nothing further down.
+AMBIGUOUS_CANDIDATES: Final[int] = 2
+
 #: Passages returned on a `found`. TRD §6's in-call number, which is also
 #: `calevate_shared.retrieval.RetrievalRequest.k`'s default — the one k in this repo that
 #: was chosen rather than picked.
@@ -1365,7 +1375,10 @@ class SessionKnowledge:
             if different_document and margin < AMBIGUITY_MARGIN:
                 return KnowledgeAnswer(
                     "ambiguous",
-                    tuple(self._passage(entries[position], score) for position, score in top[:2]),
+                    tuple(
+                        self._passage(entries[position], score)
+                        for position, score in top[:AMBIGUOUS_CANDIDATES]
+                    ),
                     _elapsed_ms(started),
                     arm="dense",
                     embedding_tokens=query.tokens,
@@ -1432,7 +1445,8 @@ class SessionKnowledge:
                 return KnowledgeAnswer(
                     "ambiguous",
                     tuple(
-                        self._passage(entries[position], hit.score) for position, hit in ranked[:2]
+                        self._passage(entries[position], hit.score)
+                        for position, hit in ranked[:AMBIGUOUS_CANDIDATES]
                     ),
                     _elapsed_ms(started),
                 )
@@ -1627,6 +1641,7 @@ def _unavailable(
 
 __all__ = [
     "AMBIGUITY_MARGIN",
+    "AMBIGUOUS_CANDIDATES",
     "BM25_B",
     "BM25_K1",
     "DEFAULT_TOP_K",

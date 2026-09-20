@@ -884,8 +884,9 @@ KNOWLEDGE_TOOL_DESCRIPTION: Final[str] = (
     "the index is English-only and a non-English query will find nothing. "
     "Reply to the caller in the language the caller used. "
     "The result carries an 'outcome' you must respect: 'found' means answer only from the "
-    "passages given; 'ambiguous' means two different documents match, so ask the caller "
-    "one short clarifying question instead of guessing; 'not_found' means this business "
+    "passages given; 'ambiguous' means two different documents match and BOTH are given to "
+    "you, so ask the caller one short question offering those two rather than guessing or "
+    "saying you do not know; 'not_found' means this business "
     "has published nothing about it, so say you do not have that information and offer to "
     "take a message; 'temporarily_unavailable' and 'no_knowledge_base' mean you could not "
     "check at all, so say you cannot look it up right now — never say the business has no "
@@ -906,14 +907,27 @@ KNOWLEDGE_OUTCOME_NO_PACK: Final[str] = "no_knowledge_base"
 #: once when tools are advertised, the payload is read in the same breath as the result,
 #: and the failure being guarded against (an agent that invents an answer after a failed
 #: lookup) is a live compliance problem rather than a cosmetic one.
+#:
+#: **`ambiguous` IS WRITTEN AGAINST A COMPETING INSTRUCTION THE MODEL IS ALSO HOLDING.**
+#: Every agent's prompt carries `calevate_shared.engine.VOICE_STYLE_GUIDANCE`'s "if you do
+#: not know, offer to have someone call back rather than inventing an answer", and an
+#: `ambiguous` result reads to a model like not knowing — so it apologises and offers a
+#: callback, which is the one outcome this state exists to prevent. Hence the explicit "do
+#: not say you do not know", and hence naming `passages` as the source of the two options:
+#: the agent holds both documents' own words and may offer nothing else, so asking cannot
+#: become inventing.
 _KNOWLEDGE_GUIDANCE: Final[dict[str, str]] = {
     "found": (
         "Answer using only these passages. Do not add facts that are not in them. "
         "Reply in the caller's language."
     ),
     "ambiguous": (
-        "Two different published documents match this question about equally. Do not pick "
-        "one. Ask the caller one short question that tells them apart."
+        "Two different published documents match this question about equally, and both are "
+        "in 'passages'. Do not pick one, and do not say you do not know — you do know, you "
+        "only need to hear which one they mean. Ask one short spoken question that offers "
+        "the two and tells them apart, using only what those two passages themselves say. "
+        "Never offer an option that is not in them. When the caller answers, reply from "
+        "the passage they chose."
     ),
     "not_found": (
         "This business has published nothing about this. Say you do not have that "

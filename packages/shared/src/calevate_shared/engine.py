@@ -2721,6 +2721,12 @@ VOICE_STYLE_GUIDANCE: Final = (
     "guess at what they said.\n"
     "- Only say things the script and the facts in this prompt give you. If you do not "
     "know, offer to have someone call back rather than inventing an answer.\n"
+    # Qualifies the bullet above, which a model otherwise applies to an ambiguous lookup:
+    # two matching documents is knowing too much, not too little, and the callback offer is
+    # the wrong response to it.
+    "- If a lookup comes back with two possible answers, do not apologise and do not pick "
+    "one. Ask which of the two they meant, naming both, then answer from the one they "
+    "choose.\n"
     "- Do not think out loud or narrate your steps, and after a lookup or tool finishes "
     "just carry on the conversation — do not greet the caller again."
 )
