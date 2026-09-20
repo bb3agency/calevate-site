@@ -10332,6 +10332,8 @@ export interface components {
             caller_vectors_erased: number | null;
             /** Calls */
             calls: string[];
+            /** Calls Without An Identifiable Party */
+            calls_without_an_identifiable_party: number | null;
             /** Knowledge Base Documents Matched */
             knowledge_base_documents_matched: number | null;
             /** Leads */
@@ -12879,6 +12881,8 @@ export interface components {
             calls: number;
             /** Cost Inr */
             cost_inr: string;
+            /** Legs Unpriced */
+            legs_unpriced: number;
             /** Margin Inr */
             margin_inr: string;
             /** Margin Pct */

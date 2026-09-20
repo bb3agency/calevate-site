@@ -8304,6 +8304,17 @@
             "title": "Calls",
             "type": "array"
           },
+          "calls_without_an_identifiable_party": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calls Without An Identifiable Party"
+          },
           "knowledge_base_documents_matched": {
             "anyOf": [
               {
@@ -8369,6 +8380,7 @@
           "recordings_destroyed",
           "recording_hold_until",
           "knowledge_base_documents_matched",
+          "calls_without_an_identifiable_party",
           "caller_vectors_erased",
           "caller_memories_erased"
         ],
@@ -14169,6 +14181,10 @@
             "title": "Cost Inr",
             "type": "string"
           },
+          "legs_unpriced": {
+            "title": "Legs Unpriced",
+            "type": "integer"
+          },
           "margin_inr": {
             "title": "Margin Inr",
             "type": "string"
@@ -14208,6 +14224,7 @@
           "cost_inr",
           "margin_inr",
           "margin_pct",
+          "legs_unpriced",
           "tiers"
         ],
         "title": "MarginOut",

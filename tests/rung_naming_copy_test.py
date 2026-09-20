@@ -200,9 +200,12 @@ def test_the_dlt_number_class_still_says_standard() -> None:
         "name (CLAUDE.md's domain vocabulary), not one of the excluded rung names"
     )
 
-    from apps.api.campaigns.service import SERIES_FOR_CLASSIFICATION
+    # NUMBER_SERIES, not SERIES_FOR_CLASSIFICATION: `standard` is still one of the three
+    # series an operator may record, and is still the right word for an ordinary DID on the
+    # inbound leg. What it may no longer do is carry an OUTBOUND commercial campaign.
+    from apps.api.agents.models import NUMBER_SERIES
 
-    assert "standard" in SERIES_FOR_CLASSIFICATION["service"]
+    assert "standard" in NUMBER_SERIES
 
 
 def test_ordinary_english_value_and_premium_survive() -> None:

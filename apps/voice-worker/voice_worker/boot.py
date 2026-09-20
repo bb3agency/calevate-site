@@ -61,10 +61,12 @@ from typing import Final
 from urllib.parse import urlparse
 from uuid import UUID
 
+import httpx
 from calevate_shared.events import CallDirection
 from loguru import logger
 
 from voice_worker.api_client import WorkerApiClient
+from voice_worker.embedding import EMBED_BUDGET_S, GeminiQueryEmbedder
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
 
@@ -118,6 +120,11 @@ CARTESIA_KEY_ENV: Final[str] = "CARTESIA_API_KEY"
 #: env-only in the ops console and points an operator at this secret set.
 GNANI_KEY_ENV: Final[str] = "GNANI_API_KEY"
 
+#: Spelled once because two things key off it: which LLM leg a call may spend, and whether
+#: this container can buy a query vector for the dense retrieval arm — the encoder is on the
+#: Gemini Developer API and signs with the same key (`build_query_embedder`).
+GOOGLE_LLM_PROVIDER: Final[str] = "google"
+
 #: The three declared LLM legs (CLAUDE.md, the multi-provider paragraph). Which one a call
 #: needs is decided PER AGENT by `ModelConfig.llm_provider`, so the boot gate demands at
 #: least one and `credentials_for` refuses by name when a call arrives for a provider this
@@ -125,7 +132,7 @@ GNANI_KEY_ENV: Final[str] = "GNANI_API_KEY"
 LLM_KEY_ENV_BY_PROVIDER: Final[Mapping[str, str]] = {
     "azure_openai": "AZURE_OPENAI_API_KEY",
     "openai": "OPENAI_API_KEY",
-    "google": "GEMINI_API_KEY",
+    GOOGLE_LLM_PROVIDER: "GEMINI_API_KEY",
 }
 
 #: Read by PIPECAT, not by us: `runner.utils._create_telephony_transport` builds
@@ -498,6 +505,10 @@ class WorkerRuntime:
     api: WorkerApiClient
     fetcher: ObjectStorePackFetcher
     embedder: QueryEmbedder | None
+    #: The embedder's connection pool, held here only so `aclose` can close it. `None`
+    #: whenever `embedder` came from a caller rather than from `build_query_embedder`,
+    #: because a pool this process did not open is not this process's to close.
+    embedder_client: httpx.AsyncClient | None
     #: The ONE thing that runs a call: `runtime.WorkerRuntime.run_call`. Held here so the
     #: entrypoint has nothing to assemble of its own — `bot.py` once carried a second,
     #: partial copy of that method and the copy was the one the container ran, shipping
@@ -508,8 +519,49 @@ class WorkerRuntime:
     calls: CallRunner
 
     async def aclose(self) -> None:
-        """Release the connection pool. Safe to call twice."""
+        """Release the connection pools. Safe to call twice."""
         await self.api.aclose()
+        if self.embedder_client is not None:
+            await self.embedder_client.aclose()
+
+
+def build_query_embedder(
+    config: WorkerConfig,
+) -> tuple[QueryEmbedder | None, httpx.AsyncClient | None]:
+    """The dense retrieval arm for this container, and the pool it speaks over.
+
+    Both are `None` when `GEMINI_API_KEY` is absent, and that is the complete off state:
+    `SessionKnowledge.answer` with no embedder is exactly `search`, so every turn is the
+    lexical one it was and not a paisa is spent.
+
+    **WHY THE PRESENCE OF THE CREDENTIAL IS THE WHOLE GATE, WITH HARD RULE 7 UNWEAKENED.**
+    The encoder is money, and this container cannot reach `billing/rates` to ask whether its
+    price was attested (`voice_worker/embedding.py` argues why it must not). It does not need
+    to: the arm can only run against passage vectors, those are written at PUBLISH by
+    `apps/api/kb/pack_vectors.embed_entries`, which refuses to embed unless
+    `pack_embedding_is_billable()` — and `knowledge.DenseIndex.usable_with` returns False for
+    a pack with no vectors, so `_dense_pass` returns the lexical answer BEFORE the request. A
+    deployment that never attested a price therefore buys nothing however this is wired.
+
+    **THE KEY IS THE LLM LEG'S OWN.** `GEMINI_API_KEY` is already required-or-optional here as
+    one of the three declared LLM legs, and the Gemini Developer API signs its OpenAI-compat
+    `/embeddings` route with the same credential — so the dense arm adds no variable to the
+    secret set and cannot be half-configured.
+
+    The client is built here rather than inside `GeminiQueryEmbedder` because that class takes
+    its transport as an argument so it owns no global, and it is returned rather than hidden
+    because somebody has to close it: `WorkerRuntime.aclose`, which is the only object here
+    that outlives a call.
+    """
+    api_key = config.llm_api_keys.get(GOOGLE_LLM_PROVIDER)
+    if api_key is None:
+        return None, None
+    # ONE POOL FOR THE LIFE OF THE PROCESS: a client per request re-does DNS, TCP and TLS,
+    # which is roughly half a cold round trip and does not fit inside `EMBED_BUDGET_S`
+    # (that constant carries the measurement). Deliberately NOT the shared `WorkerApiClient`
+    # pool — that one is sized against our own API, and this budget is a model provider's.
+    client = httpx.AsyncClient(timeout=EMBED_BUDGET_S)
+    return GeminiQueryEmbedder(client=client, api_key=api_key), client
 
 
 async def open_runtime(
@@ -529,13 +581,19 @@ async def open_runtime(
     a pack fetch is bounded (`storage.PACK_FETCH_BUDGET_S`) and its failure is a degraded call
     rather than no call, so paying a round trip at boot would buy a signal nothing acts on.
 
-    **`embedder` DEFAULTS TO `None` AND THAT IS NOT AN OMISSION.** The dense retrieval arm
-    spends money per turn, and hard rule 7's pre-flight for it is a question this container
-    deliberately cannot ask (`voice_worker/embedding.py`). A bootstrap supplies one only
-    where that has been answered; until then the lexical arm answers, which is the
-    overwhelming majority of turns (`docs/PIPECAT-MIGRATION.md` §8.1a).
+    **THE DENSE RETRIEVAL ARM IS BUILT HERE, FROM THE CONTAINER'S OWN GOOGLE CREDENTIAL.**
+    `build_query_embedder` has the gate and why it is sufficient. `embedder` stays an
+    argument as an OVERRIDE — a test hands in a fake and buys nothing — and passing `None`
+    is not a request to turn the arm off: the off state is a container with no
+    `GEMINI_API_KEY`, because a deployment that has the key and gets the lexical arm anyway
+    is the half-wired shape this bootstrap exists to prevent. Telugu-script recall is
+    0.083 against 0.9583 on the same corpus (`tests/voice_worker_hybrid_test.py:17`), and it
+    is spent only on turns the lexical arm already lost.
     """
     install_vendor_log_guard()
+    embedder_client: httpx.AsyncClient | None = None
+    if embedder is None:
+        embedder, embedder_client = build_query_embedder(config)
     # ONE CLIENT PER CONTAINER, BUILT BY `api_client.WorkerApiClient` AND NOT HERE.
     # This module once built a second `create_async_engine` in parallel with `db.py`'s and
     # left off `hide_parameters=True`, so the container had two pools and the one `bot.py`
@@ -563,6 +621,7 @@ async def open_runtime(
         api=api,
         fetcher=fetcher,
         embedder=embedder,
+        embedder_client=embedder_client,
         calls=CallRunner(
             api,
             fetcher=fetcher,
@@ -582,6 +641,7 @@ __all__ = [
     "DEFAULT_DRAIN_GRACE_S",
     "DRAIN_GRACE_ENV",
     "GNANI_KEY_ENV",
+    "GOOGLE_LLM_PROVIDER",
     "LLM_KEY_ENV_BY_PROVIDER",
     "MAX_CONCURRENT_SESSIONS",
     "PLIVO_AUTH_ID_ENV",
@@ -592,6 +652,7 @@ __all__ = [
     "WorkerConfigError",
     "WorkerRuntime",
     "build_event_sink",
+    "build_query_embedder",
     "load_worker_config",
     "open_runtime",
 ]

@@ -119,8 +119,8 @@ def series_for_e164(e164: str) -> str | None:
 
     WHY THIS IS A FACT AND NOT A PREFERENCE. `phone_numbers.series` is what the campaign
     launch gate matches against the campaign's classification
-    (`campaigns.service.SERIES_FOR_CLASSIFICATION`: 140 dials promotions, 160/standard
-    dials service and transactional), so it decides whether a promotional campaign may
+    (`campaigns.service.SERIES_FOR_CLASSIFICATION`: 140 dials promotions, 160 dials
+    service and transactional), so it decides whether a promotional campaign may
     run — and it was an operator's typed word, never checked against the number sitting
     in the same INSERT. A `+91 98…` mobile typed `"140"` opened promotional dialling from
     a number that is not a telemarketing header, and a real 140 number typed

@@ -588,6 +588,14 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # not a page. What it is NOT is `record`: the client has been told the correction is
     # live, and on the one surface that talks to their callers it is not.
     "knowledge_pack_publish_failed": "attention",
+    # THE SAME OUTCOME AS THE LINE ABOVE WITH A DIFFERENT REMEDY, WHICH IS WHY IT IS ITS
+    # OWN CODE: this one is not a storage fault, so an operator sent to check the bucket
+    # finds it healthy and learns nothing. The agent's corpus has outgrown what the voice
+    # worker can fetch while the phone rings, and the fix is the client's sources.
+    # `attention` for the publish alarm's reasons exactly, plus one: it is PERMANENT rather
+    # than self-healing — every later publish on that agent refuses the same way until
+    # somebody prunes.
+    "knowledge_pack_too_large": "attention",
     # THE EXTERNAL SEARCH INDEX DISAGREES WITH THE PUBLISHED CORPUS: a publish or a
     # withdrawal committed and box 3 would not take the change. `attention` for the pack
     # alarm's reason exactly — bounded to one source, invisible to the client's agent (the

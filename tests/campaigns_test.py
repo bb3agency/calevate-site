@@ -483,14 +483,22 @@ async def test_a_promotional_campaign_cannot_dial_from_a_160_number() -> None:
     assert "140" in mismatch[0].reason and "160" in mismatch[0].reason
 
 
-async def test_a_service_campaign_may_use_either_160_or_standard() -> None:
-    for series in ("160", "standard"):
-        tenant_id, _, campaign_id = await _ready_campaign(classification="service", series=series)
-        async with tenant_session(tenant_id) as session:
-            blockers = await service.launch_blockers(
-                session, tenant_id=tenant_id, campaign_id=campaign_id
-            )
-        assert blockers == [], f"{series} should serve a service campaign: {blockers}"
+async def test_a_service_campaign_dials_from_160_and_never_from_an_ordinary_did() -> None:
+    """`standard` used to launch a service campaign and TRAI's 18 Jun 2024 voice direction
+    forbids it: a sender may not make promotional, service or transactional voice calls
+    from any other 10-digit fixed line or mobile number. See
+    `tests/outbound_voice_header_series_test.py` for the quoted text."""
+    tenant_id, _, allowed = await _ready_campaign(classification="service", series="160")
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=allowed)
+        ) == []
+
+    other, _, ordinary = await _ready_campaign(classification="service", series="standard")
+    async with tenant_session(other) as session:
+        blockers = await service.launch_blockers(session, tenant_id=other, campaign_id=ordinary)
+    assert [b.rule for b in blockers] == ["number_series_mismatch"]
+    assert "160" in blockers[0].reason
 
 
 async def test_an_unapproved_or_mismatched_dlt_template_blocks_launch() -> None:

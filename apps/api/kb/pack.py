@@ -101,6 +101,47 @@ from apps.api.kb.pack_vectors import declared_dimensions, embed_entries, pack_em
 
 log = get_logger(__name__)
 
+#: The largest pack this platform will publish, in bytes of the stored JSON.
+#:
+#: **WHAT A PACK THAT IS TOO BIG ACTUALLY DOES, WHICH IS WHY THERE IS A CEILING AT ALL.**
+#: The worker fetches the whole pack while the phone rings, under a fixed wall clock
+#: (`voice_worker/storage.PACK_FETCH_BUDGET_S`, 2.0 s). A pack that does not arrive inside it
+#: is not a slow pack: `load_session_knowledge` answers `fetch_failed`, and every question on
+#: every call to that agent for the life of the deploy comes back `temporarily_unavailable`
+#: — the agent answers the phone and then cannot say one thing about the client's business.
+#: Nothing on our side of the wire records that; it is a log line in a container a vendor
+#: operates. So the failure is caught HERE, where a human is standing at a publish screen and
+#: can prune, rather than there, where nobody is.
+#:
+#: ⚠ **A REFUSAL THRESHOLD, NOT A MEASURED TRANSFER LIMIT, AND THE DIFFERENCE MATTERS.**
+#: Nobody has timed a fetch from Pipecat Cloud `ap-south` to our bucket
+#: (`pre-build-blockers` §3.6, the same gap `PACK_FETCH_BUDGET_S` records), so no byte figure
+#: here can claim "this fits and that does not". What IS known is arithmetic and a
+#: measurement: a vectored entry is 16,382 B of serialised pack and a 300-entry pack weighs
+#: 5,003,292 B (`tests/in_call_lookup_latency_test.py`, against the bytes `publish_pack`
+#: uploads, 14 Sep 2026); 8 MiB inside 2.0 s demands better than 4 MiB/s sustained for the
+#: whole of a budget that also has to cover TLS and the first byte. Below this line the pack
+#: is merely unmeasured; above it the budget is arithmetically demanding, and a client is
+#: better served by a refusal they can act on than by an agent that has quietly lost its
+#: knowledge. The first `ap-south` measurement replaces this number.
+MAX_PACK_BYTES: Final[int] = 8 * 1024 * 1024
+
+
+class PackTooLargeError(RuntimeError):
+    """This agent's published knowledge does not fit in a pack the worker can load.
+
+    Raised at publish, caught by `refresh_published_pack`, which keeps the previous pointer
+    — so the agent goes on answering from the last pack that fits rather than from none.
+    """
+
+    def __init__(self, *, size: int, ceiling: int) -> None:
+        self.size = size
+        self.ceiling = ceiling
+        super().__init__(
+            f"the in-call knowledge pack is {size} bytes, over the {ceiling}-byte ceiling"
+        )
+
+
 #: **THE ONE SPELLING OF "LIVE", SHARED BY BOTH STATEMENTS BELOW.** `_ENTRIES_SQL` decides
 #: what goes INTO a pack; `_GLOSSED_AGENTS_SQL` decides whose pack is worth re-checking after
 #: a gloss lands. If the two ever disagreed about liveness the staleness scan would skip an
@@ -309,6 +350,11 @@ async def publish_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
     from apps.workers.storage import read_kb_object, store_knowledge_pack
 
     pack = await build_pack(session, tenant_id=tenant_id, agent_id=agent_id)
+    # BEFORE the existence check, so the refusal depends on the corpus and not on whether
+    # these bytes happen to be in the bucket already from an earlier deploy's ceiling.
+    data = pack.model_dump_json().encode()
+    if len(data) > MAX_PACK_BYTES:
+        raise PackTooLargeError(size=len(data), ceiling=MAX_PACK_BYTES)
     key = pack_object_key(tenant_id, agent_id, pack.content_sha256)
 
     # `read_kb_object` returns None for GONE and raises for UNREACHABLE, which is the
@@ -329,7 +375,7 @@ async def publish_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
         )
         return pack.content_sha256
 
-    await store_knowledge_pack(key=key, data=pack.model_dump_json().encode())
+    await store_knowledge_pack(key=key, data=data)
     log.info(
         "knowledge_pack_published",
         extra={
@@ -337,6 +383,11 @@ async def publish_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
             "agent_id": str(agent_id),
             "pack_id": pack.content_sha256,
             "entries": len(pack.entries),
+            # WHAT THE WORKER HAS TO PULL DOWN WHILE THE PHONE RINGS, against
+            # `MAX_PACK_BYTES`. The one number that says how close a client's corpus is to
+            # the ceiling, and it is not derivable from `entries`: a vectored entry is
+            # ~16 KB and an unvectored one is a few hundred bytes.
+            "bytes": len(data),
             # How much of the corpus carries a retrieval key a Tenglish question can reach
             # (`kb/gloss.py`). A count, so an operator can see a gloss sweep that never ran
             # without anybody reading a client's knowledge to find out.
@@ -427,6 +478,27 @@ async def refresh_published_pack(
         pack_id = await publish_pack(session, tenant_id=tenant_id, agent_id=agent_id)
     except SQLAlchemyError:
         raise
+    except PackTooLargeError as exc:
+        # ITS OWN ALERT, because the remedy is the client's corpus and not our storage: the
+        # generic sentence below sends an operator to look at a bucket that is working. The
+        # pointer stays where it is, which is the best available outcome — the agent answers
+        # from the last pack that FITS rather than from a pack that cannot be fetched in
+        # time, which would be `temporarily_unavailable` to every question on every call.
+        alert(
+            "CORE_LOGIC",
+            "knowledge_pack_too_large",
+            detail=(
+                f"this agent's published knowledge builds a {exc.size}-byte in-call pack, "
+                f"over the {exc.ceiling}-byte ceiling, so it was NOT stored and the agent "
+                "keeps answering from the pack it last loaded. The voice worker fetches the "
+                "whole pack while the phone rings under a fixed budget, so publishing this "
+                "one would cost the agent its knowledge on every call. Withdraw or prune "
+                "sources on this agent, or split the corpus across agents."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+        )
+        return None
     except Exception as exc:
         # Ids and OUR OWN sentence (hard rules 6 and the alerting contract): never the
         # store's body, which quotes the key, which names the tenant and the agent.
@@ -607,6 +679,8 @@ async def agents_with_stale_packs(
 
 
 __all__ = [
+    "MAX_PACK_BYTES",
+    "PackTooLargeError",
     "agents_with_stale_packs",
     "build_pack",
     "implied_digest",

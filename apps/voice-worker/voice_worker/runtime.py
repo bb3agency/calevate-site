@@ -80,6 +80,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
+import httpx
 from calevate_shared.events import CallDirection
 from calevate_shared.worker_api import AttestationIn
 from loguru import logger
@@ -141,6 +142,7 @@ class WorkerRuntime:
         rates: RateCard | None = None,
         cache: PackCache | None = None,
         embedder: QueryEmbedder | None = None,
+        embedder_client: httpx.AsyncClient | None = None,
         turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
         turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
     ) -> None:
@@ -149,6 +151,9 @@ class WorkerRuntime:
         self._rates = rates
         self._cache = cache if cache is not None else pack_cache()
         self._embedder = embedder
+        #: Passed only by `from_env`, which opens one. `aclose` closes what this object was
+        #: given; a caller that built its own embedder elsewhere keeps its own pool.
+        self._embedder_client = embedder_client
         #: Passed to every per-call sink. Defaulted here rather than required, so a test
         #: that only cares about the pipeline does not have to know the buffer exists.
         self._turn_batch_size = turn_batch_size
@@ -183,10 +188,18 @@ class WorkerRuntime:
         # top-level import back into `boot` makes the two modules uninitialisable. This is
         # the only direction the dependency actually runs at runtime — a bootstrap needs
         # the environment parser, nothing in the call path does.
-        from voice_worker.boot import load_worker_config, turn_buffer_bounds
+        from voice_worker.boot import (
+            build_query_embedder,
+            load_worker_config,
+            turn_buffer_bounds,
+        )
 
         batch, flush = turn_buffer_bounds()
         config = load_worker_config()
+        # THE SAME BUILDER `boot.open_runtime` USES, so the two constructors cannot disagree
+        # about whether this container has a dense retrieval arm. Its gate and the hard
+        # rule 7 argument live there.
+        embedder, embedder_client = build_query_embedder(config)
         return cls(
             # `CallToolApiClient`, NOT `WorkerApiClient`, and it is a drop-in subclass —
             # same pool, same header, same error type. It is what makes the four in-call
@@ -200,6 +213,8 @@ class WorkerRuntime:
             ),
             fetcher=ObjectStorePackFetcher.from_env(),
             rates=rates,
+            embedder=embedder,
+            embedder_client=embedder_client,
             turn_batch_size=batch,
             turn_flush_seconds=flush,
         )
@@ -424,8 +439,10 @@ class WorkerRuntime:
         )
 
     async def aclose(self) -> None:
-        """Release the client. LAST, after every call this container ran has settled."""
+        """Release the clients. LAST, after every call this container ran has settled."""
         await self._api.aclose()
+        if self._embedder_client is not None:
+            await self._embedder_client.aclose()
 
 
 __all__ = ["CallOutcome", "WorkerRuntime"]

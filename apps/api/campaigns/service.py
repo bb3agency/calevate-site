@@ -85,12 +85,23 @@ from apps.api.legal.service import agreements_blocker
 
 log = get_logger(__name__)
 
-# Series ⇔ classification (DATA-MODEL §6): 140 dials promotions, 160/standard dials
-# service and transactional. A mismatch is a DLT violation, not a preference.
+# Series <-> classification (DATA-MODEL §6): 140 dials promotions, 160 dials service and
+# transactional. A mismatch is a DLT violation, not a preference.
+#
+# `standard` USED TO BE ALLOWED HERE FOR SERVICE AND TRANSACTIONAL, AND TRAI'S OWN WORDS
+# FORBID IT: "Senders shall not use any other 10-digit fixed line/ mobile number for making
+# Promotional/ Service/ Transactional voice calls to their customers, either directly or
+# through their employees or channel partners, DSAs, BPO partner, in-house or outsourced
+# Call Centre, etc." (TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024, read
+# 20 Sep 2026). The same direction requires the sender to register a 140/160-series Voice
+# Header and to place commercial voice calls only on it.
+#
+# An ordinary DID stays legitimate for the INBOUND leg, which this map does not govern: a
+# receptionist answering a call the customer placed is not a sender making one.
 SERIES_FOR_CLASSIFICATION: dict[str, tuple[str, ...]] = {
     "promotional": ("140",),
-    "transactional": ("160", "standard"),
-    "service": ("160", "standard"),
+    "transactional": ("160",),
+    "service": ("160",),
 }
 
 DEFAULT_RETRY_POLICY: dict[str, Any] = {"max_attempts": 3, "backoff_minutes": [30, 120]}
