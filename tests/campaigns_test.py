@@ -1549,3 +1549,118 @@ def test_a_campaign_contacts_custom_variables_are_bounded() -> None:
         ContactIn(phone="+919876500000", custom={"k": "v" * (MAX_CONTACT_CUSTOM_VALUE_LEN + 1)})
     with pytest.raises(ValidationError):
         ContactIn(phone="+919876500000", custom={"k" * (MAX_CONTACT_CUSTOM_KEY_LEN + 1): "v"})
+
+
+async def test_an_attested_ordinary_did_launches_a_service_campaign() -> None:
+    """The client's recorded exception, end to end through the real launch gate.
+
+    TRAI binds the SENDER and names the delegation chain, so under Model B the client is
+    the party that may accept the obligation. The refusal stays the default; this proves
+    the exception reaches the gate, and the test below proves it stops at promotional.
+    """
+    from apps.api.campaigns.sender_attestation import (
+        SENDER_STATEMENT_VERSION,
+        record_attestation,
+    )
+    from apps.api.db.base import uuid7 as _uuid7
+    from sqlalchemy import text as _text
+
+    tenant_id, _, campaign_id = await _ready_campaign(classification="service", series="standard")
+    async with tenant_session(tenant_id) as session:
+        blockers = await service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+        assert [b.rule for b in blockers] == ["number_series_mismatch"]
+
+        number_id = (
+            await session.execute(
+                _text("SELECT number_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+        user_id = _uuid7()
+        await session.execute(
+            _text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :e, now(), now())"
+            ),
+            {"id": user_id, "e": f"owner-{user_id}@example.test"},
+        )
+        await session.execute(
+            _text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "
+                "updated_at) VALUES (:id, :t, :u, 'owner', now(), now())"
+            ),
+            {"id": _uuid7(), "t": tenant_id, "u": user_id},
+        )
+        await record_attestation(
+            session,
+            tenant_id=tenant_id,
+            phone_number_id=number_id,
+            user_id=user_id,
+            statement_version=SENDER_STATEMENT_VERSION,
+        )
+
+        assert (
+            await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        ) == []
+
+        await record_attestation(
+            session,
+            tenant_id=tenant_id,
+            phone_number_id=number_id,
+            user_id=user_id,
+            statement_version=SENDER_STATEMENT_VERSION,
+            withdraw=True,
+        )
+        after = await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
+    assert [b.rule for b in after] == ["number_series_mismatch"], (
+        "withdrawing must close the campaign again, not leave it launchable"
+    )
+
+
+async def test_no_attestation_opens_a_promotional_campaign_on_an_ordinary_number() -> None:
+    """140 is the only series that may carry a promotional call. A client declaration does
+    not make a promotional call from an ordinary number lawful, and this is the widening
+    the feature must never allow."""
+    from apps.api.campaigns.sender_attestation import (
+        SENDER_STATEMENT_VERSION,
+        record_attestation,
+    )
+    from apps.api.db.base import uuid7 as _uuid7
+    from sqlalchemy import text as _text
+
+    tenant_id, _, campaign_id = await _ready_campaign(
+        classification="promotional", series="standard"
+    )
+    async with tenant_session(tenant_id) as session:
+        number_id = (
+            await session.execute(
+                _text("SELECT number_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+        user_id = _uuid7()
+        await session.execute(
+            _text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :e, now(), now())"
+            ),
+            {"id": user_id, "e": f"owner-{user_id}@example.test"},
+        )
+        await session.execute(
+            _text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "
+                "updated_at) VALUES (:id, :t, :u, 'owner', now(), now())"
+            ),
+            {"id": _uuid7(), "t": tenant_id, "u": user_id},
+        )
+        await record_attestation(
+            session,
+            tenant_id=tenant_id,
+            phone_number_id=number_id,
+            user_id=user_id,
+            statement_version=SENDER_STATEMENT_VERSION,
+        )
+        blockers = await service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    assert "number_series_mismatch" in [b.rule for b in blockers]

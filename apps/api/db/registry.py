@@ -87,6 +87,7 @@ TENANT_TABLES = [
     "call_variant_assignments",
     "extraction_schemas",
     "phone_numbers",
+    "outbound_sender_attestations",
     "calls",
     "transcript_turns",
     "call_extractions",
@@ -819,6 +820,11 @@ APPEND_ONLY_TABLES = [
     # a DELETE would erase the basis for calls already placed; a correction is a new run
     # under the provider's new reference.
     "preference_scrub_runs",
+    # A client's recorded decision to dial outbound commercial calls from an ordinary DID
+    # (TRAI 18 Jun 2024). Append-only for consent_ledger's reason: it is evidence of what a
+    # named person accepted on a date, so a withdrawal is a new row and an edit would
+    # destroy the only record that the earlier state existed.
+    "outbound_sender_attestations",
     # Vendor credentials, versioned (PLATFORM-CONFIG §5). A new value is a new VERSION so
     # that "which key was live when this call was billed?" stays answerable a year later.
     # Its trigger is NOT the blanket `calevate_forbid_mutation` the others carry: a KEK

@@ -19542,6 +19542,49 @@
         "title": "SecretsOut",
         "type": "object"
       },
+      "SenderAttestationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "statement_version": {
+            "title": "Statement Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement_version"
+        ],
+        "title": "SenderAttestationIn",
+        "type": "object"
+      },
+      "SenderAttestationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "boolean"
+          },
+          "attested": {
+            "title": "Attested",
+            "type": "boolean"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "statement_version": {
+            "title": "Statement Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attested",
+          "applicable",
+          "statement",
+          "statement_version"
+        ],
+        "title": "SenderAttestationOut",
+        "type": "object"
+      },
       "ServiceItem": {
         "additionalProperties": false,
         "description": "`price_inr` is a STRING (hard rule 7): a price read aloud to a caller must be\nthe digits the client typed, and a JSON float cannot promise that. It is also\noptional \u2014 \"consultation: ask at reception\" is a real answer.",
@@ -39114,6 +39157,135 @@
           }
         },
         "summary": "Ask us for a phone number \u2014 always refused here; numbers are arranged by an operator",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/numbers/{number_id}/sender-attestation": {
+      "delete": {
+        "description": "Step back out of the obligation. A new row, never a deletion (hard rule 4).\n\nTakes no statement version: refusing a withdrawal because the page is stale would hold\nsomeone to an obligation they are trying to leave.",
+        "operationId": "withdraw_v1_numbers__number_id__sender_attestation_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SenderAttestationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Withdraw the outbound-sender confirmation for this number",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "get": {
+        "description": "What this number's confirmation says today, and whether it is even needed.",
+        "operationId": "read_v1_numbers__number_id__sender_attestation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SenderAttestationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this number carries the outbound-sender confirmation",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "post": {
+        "description": "Record that this business is the sender and accepts the obligation.\n\nRefused on a 140 or 160 number rather than stored harmlessly: a row against a number\nthat needs no exception would later read as though an exception had been needed, and the\nledger's value is that every row in it means the same thing.",
+        "operationId": "attest_v1_numbers__number_id__sender_attestation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SenderAttestationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SenderAttestationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Confirm this business is the sender and accepts the obligation",
         "tags": [
           "campaigns"
         ],

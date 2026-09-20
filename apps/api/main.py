@@ -135,6 +135,9 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.callbacks.routes import router as callbacks_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.campaigns.sender_attestation_routes import (
+        router as sender_attestation_router,
+    )
     from apps.api.compliance.caller_data_routes import router as caller_data_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.carrier_application_routes import (
@@ -279,6 +282,7 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/numbers/purchase` — its own prefix, so nothing above can swallow it. It lives
     # in the campaigns package because that module owns `phone_numbers`.
     application.include_router(numbers_router)
+    application.include_router(sender_attestation_router)
     application.include_router(crm_router)
     # The call-backs an agent promised on a call (D-514). Its own literal `/v1/callbacks`
     # prefix, which collides with nothing above, so mount order is not load-bearing here.

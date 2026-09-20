@@ -5764,6 +5764,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/numbers/{number_id}/sender-attestation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this number carries the outbound-sender confirmation
+         * @description What this number's confirmation says today, and whether it is even needed.
+         */
+        get: operations["read_v1_numbers__number_id__sender_attestation_get"];
+        put?: never;
+        /**
+         * Confirm this business is the sender and accepts the obligation
+         * @description Record that this business is the sender and accepts the obligation.
+         *
+         *     Refused on a 140 or 160 number rather than stored harmlessly: a row against a number
+         *     that needs no exception would later read as though an exception had been needed, and the
+         *     ledger's value is that every row in it means the same thing.
+         */
+        post: operations["attest_v1_numbers__number_id__sender_attestation_post"];
+        /**
+         * Withdraw the outbound-sender confirmation for this number
+         * @description Step back out of the obligation. A new row, never a deletion (hard rule 4).
+         *
+         *     Takes no statement version: refusing a withdrawal because the page is stale would hold
+         *     someone to an obligation they are trying to leave.
+         */
+        delete: operations["withdraw_v1_numbers__number_id__sender_attestation_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/alerts": {
         parameters: {
             query?: never;
@@ -15162,6 +15197,22 @@ export interface components {
         SecretsOut: {
             /** Secrets */
             secrets: components["schemas"]["SecretOut"][];
+        };
+        /** SenderAttestationIn */
+        SenderAttestationIn: {
+            /** Statement Version */
+            statement_version: string;
+        };
+        /** SenderAttestationOut */
+        SenderAttestationOut: {
+            /** Applicable */
+            applicable: boolean;
+            /** Attested */
+            attested: boolean;
+            /** Statement */
+            statement: string;
+            /** Statement Version */
+            statement_version: string;
         };
         /**
          * ServiceItem
@@ -27400,6 +27451,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_v1_numbers__number_id__sender_attestation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SenderAttestationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_v1_numbers__number_id__sender_attestation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SenderAttestationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SenderAttestationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    withdraw_v1_numbers__number_id__sender_attestation_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SenderAttestationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

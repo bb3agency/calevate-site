@@ -1139,3 +1139,62 @@ class PipecatAgent(PKMixin, TimestampMixin, Base):
     #: `ON CONFLICT DO NOTHING`, so a column not determined by those digests would make the
     #: kept row describe the earlier publish — and `handoff` is exactly such a column.
     resolved_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+#: The two states an outbound-sender attestation can be in. A withdrawal is a NEW row
+#: (hard rule 4), never an UPDATE, so the current state of a number is its latest row.
+SENDER_ATTESTATION_STATES = ("attested", "withdrawn")
+
+
+class OutboundSenderAttestation(PKMixin, Base):
+    """A client's recorded decision to run outbound commercial calls from an ordinary DID.
+
+    TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024: *"Senders shall not use any
+    other 10-digit fixed line/ mobile number for making Promotional/ Service/ Transactional
+    voice calls to their customers, either directly or through their employees or channel
+    partners, DSAs, BPO partner, in-house or outsourced Call Centre, etc."* The direction
+    binds the SENDER and names the delegation chain so the obligation cannot be handed to a
+    vendor. Under Model B the client holds the carrier account and is that sender.
+
+    So the refusal stays the default and this row is the client's own recorded exception to
+    it. Without one, `campaigns.service.SERIES_FOR_CLASSIFICATION` allows only 140 and 160
+    and a `standard` number cannot launch a campaign at all.
+
+    **PER NUMBER, NOT PER TENANT.** The declaration is about dialling from one ordinary DID.
+    A client with a registered 160 header and one ordinary line has made a decision about
+    the second and nothing about the first, and a tenant-wide flag would silently extend it
+    to every number they add later.
+
+    **`statement_version` IS HALF THE EVIDENCE.** What the person agreed to is the sentence
+    they were shown, so an attestation carries the version of that wording. When the wording
+    changes the old rows stop satisfying the gate and the client is asked again, which is the
+    same rule `legal.service.record_acceptance` applies to a document version.
+
+    Promotional is deliberately NOT reachable through this: 140 is the only series that may
+    carry it, no attestation widens that, and `SERIES_FOR_CLASSIFICATION["promotional"]`
+    stays a one-tuple. A promotional call from an ordinary number is the case the DLT trail
+    exists to catch, and no client declaration makes it lawful.
+    """
+
+    __tablename__ = "outbound_sender_attestations"
+    __table_args__ = (
+        CheckConstraint(f"state IN {SENDER_ATTESTATION_STATES!r}", name="state_enum"),
+        CheckConstraint("length(btrim(statement_version)) > 0", name="statement_version_present"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    phone_number_id: Mapped[UUID] = mapped_column(
+        ForeignKey("phone_numbers.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    state: Mapped[str] = mapped_column(String, nullable=False)
+    statement_version: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The owner who clicked. NOT NULL because an attestation nobody is named on evidences
+    #: nothing — the whole point is that a person at the client accepted the obligation.
+    attested_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

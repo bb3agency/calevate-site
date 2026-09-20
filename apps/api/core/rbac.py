@@ -598,6 +598,13 @@ def withheld_from_view_as(permission: Permission) -> str | None:
 # already what those four routes carry.
 VIEW_AS_WITHHELD_ACTS: Mapping[str, str] = MappingProxyType(
     {
+        "compliance.outbound_sender_attestation": (
+            "Confirming that this business is the sender of its outbound calls, and "
+            "accepts responsibility for calls from a number that is not a registered 140 "
+            "or 160 header, is a statement the account makes about itself under TRAI's "
+            "direction. Ask the client to confirm it from their own console — an operator "
+            "accepting it would evidence nothing about what they agreed to."
+        ),
         "compliance.caller_memory_attestation": (
             "Attesting to what this account's calls collect is a statement the account "
             "makes about its own callers, not a setting. Ask the client to switch caller "

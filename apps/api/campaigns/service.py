@@ -57,6 +57,11 @@ from apps.api.campaigns.models import (
     REFUSED_CONSENT_SOURCES,
     TEMPLATE_STATUSES,
 )
+from apps.api.campaigns.sender_attestation import (
+    ATTESTABLE_CLASSIFICATIONS,
+    attestation_reason,
+    latest_attestation,
+)
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
 from apps.api.compliance.registration import outbound_entity_blockers
@@ -152,6 +157,9 @@ class _CampaignFacts:
     template_status: str | None
     template_cls: str | None
     series: str | None
+    #: The number's own id, carried so the launch gate can read its sender attestation
+    #: without a second query for a row it already joined.
+    number_id: UUID | None
     number_dlt_status: str | None
     #: WHICH AGENT THIS NUMBER IS BOUND TO, and the campaign's own agent beside it —
     #: the pair `number_not_bound_to_agent` compares (D-420).
@@ -175,7 +183,8 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
             text(
                 "SELECT c.status, c.classification, c.dlt_template_id, "
                 "  t.status AS template_status, t.classification AS template_cls, "
-                "  n.series, n.dlt_status AS number_dlt_status, n.agent_id AS number_agent_id, "
+                "  n.series, n.id AS number_id, n.dlt_status AS number_dlt_status, "
+                "  n.agent_id AS number_agent_id, "
                 "  c.agent_id, "
                 # The AI sentence, not the legacy bundle (D-163) — the launch gate asks
                 # whether the agent HAS one on file, which is still mandatory. Whether it
@@ -202,15 +211,16 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         template_status=row[3],
         template_cls=row[4],
         series=row[5],
-        number_dlt_status=row[6],
-        number_agent_id=row[7],
-        agent_id=row[8],
-        agent_status=row[9],
-        disclosure=row[10],
-        agent_direction=row[11],
-        agent_deleted=row[12] is not None,
-        consent_source=row[13],
-        consent_collected_at=row[14],
+        number_id=row[6],
+        number_dlt_status=row[7],
+        number_agent_id=row[8],
+        agent_id=row[9],
+        agent_status=row[10],
+        disclosure=row[11],
+        agent_direction=row[12],
+        agent_deleted=row[13] is not None,
+        consent_source=row[14],
+        consent_collected_at=row[15],
     )
 
 
@@ -348,9 +358,30 @@ def _number_not_registered_reason(dlt_status: str | None) -> str:
     )
 
 
-def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
+async def _sender_attested(session: AsyncSession, *, facts: _CampaignFacts) -> bool:
+    """Whether this campaign's number carries a current ordinary-DID attestation.
+
+    Asked only where it could change an answer: every other series is allowed or refused on
+    the row alone, and a lookup for them would be a round trip per launch preview that can
+    only return False.
+    """
+    if facts.series != "standard" or facts.classification not in ATTESTABLE_CLASSIFICATIONS:
+        return False
+    if facts.number_id is None:
+        return False
+    return (await latest_attestation(session, phone_number_id=facts.number_id)).current
+
+
+def _channel_blockers(
+    facts: _CampaignFacts, *, sender_attested: bool = False
+) -> list[LaunchBlocker]:
     """WHAT this campaign may say, and from WHERE — SEC-COMP §3's second bullet. The
-    registered voice template and the registered header of the right series."""
+    registered voice template and the registered header of the right series.
+
+    `sender_attested` is read by the caller and passed in so this stays synchronous: every
+    other fact it judges came off one row, and a lookup in here would spread one gate's
+    decisions across two round trips.
+    """
     blockers: list[LaunchBlocker] = []
 
     if facts.template_id is None:
@@ -386,14 +417,22 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
     else:
         allowed_series = SERIES_FOR_CLASSIFICATION.get(facts.classification, ())
         if facts.series not in allowed_series:
-            allowed = "/".join(allowed_series)
-            blockers.append(
-                LaunchBlocker(
-                    "number_series_mismatch",
-                    f"A {facts.classification} campaign must dial from a {allowed} number, "
-                    f"not {facts.series}.",
-                )
+            # The ordinary-DID case is the client's to decide, and only for service and
+            # transactional — never promotional. `sender_attestation` holds the reasoning;
+            # the short version is that TRAI binds the SENDER, the client is the sender, and
+            # the refusal stays the default so the exception is on their record and not ours.
+            attestable = (
+                facts.series == "standard" and facts.classification in ATTESTABLE_CLASSIFICATIONS
             )
+            if not (attestable and sender_attested):
+                allowed = "/".join(allowed_series)
+                reason = (
+                    f"A {facts.classification} campaign must dial from a {allowed} "
+                    f"number, not {facts.series}."
+                )
+                if attestable:
+                    reason = attestation_reason(facts.series, facts.classification)
+                blockers.append(LaunchBlocker("number_series_mismatch", reason))
         # **THE RULE THAT MAKES EVERY OTHER CHECK IN THIS BLOCK MEAN SOMETHING** (D-420).
         #
         # Until this landed, the series check and the registration check below gated a
@@ -504,7 +543,7 @@ async def dispatch_blockers(
         *([LaunchBlocker(*held)] if held is not None else []),
         *([LaunchBlocker(*unaccepted)] if unaccepted is not None else []),
         *(await _entity_blockers(session, tenant_id=tenant_id, facts=facts)),
-        *_channel_blockers(facts),
+        *_channel_blockers(facts, sender_attested=await _sender_attested(session, facts=facts)),
         *([LaunchBlocker(*unscrubbed)] if unscrubbed is not None else []),
     ]
 
@@ -1174,7 +1213,9 @@ async def launch_blockers(
         blockers.append(LaunchBlocker("no_credits", NO_CREDITS_REASON))
 
     # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
-    blockers.extend(_channel_blockers(facts))
+    blockers.extend(
+        _channel_blockers(facts, sender_attested=await _sender_attested(session, facts=facts))
+    )
 
     # SEC-COMP §3, third bullet, NATIONAL half. Refused rather than warned about,
     # because the bullet is a legal claim: a promotional campaign dialled without a
