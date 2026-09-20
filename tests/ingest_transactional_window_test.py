@@ -18,13 +18,20 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
+from apps.api.db.session import tenant_session
 from apps.api.ingest.service import (
+    STALE_SUBMISSION_RULE,
     SUBMITTED_AT_KEY,
     TRANSACTIONAL_WINDOW,
     submission_instant,
     submission_is_stale,
 )
+from apps.api.main import app
+from sqlalchemy import text
+from tests.lead_ingest_test import SECRET as INGEST_SECRET
+from tests.lead_ingest_test import _tenant_with_ingest
 
 #: A fixed instant to measure against, so no test depends on when it runs.
 RECEIVED = datetime(2026, 9, 20, 10, 0, 0, tzinfo=UTC)
@@ -140,3 +147,60 @@ def test_a_clock_running_fast_does_not_refuse_the_lead() -> None:
     could use.
     """
     assert submission_is_stale(RECEIVED + timedelta(hours=3), received_at=RECEIVED_TS) is False
+
+
+# ------------------------------------------------------ the refusal on the real path
+
+
+@pytest.mark.asyncio
+async def test_a_late_delivery_keeps_the_lead_and_refuses_the_dial() -> None:
+    """THE WHOLE POINT, end to end rather than through the two helpers above.
+
+    A retried or backfilled webhook looks identical on the wire to a fresh submission, so
+    this is the only shape of test that can show the dial is actually stopped. The lead is
+    KEPT: the person's enquiry is real and belongs in the CRM. What lapsed is the ground
+    for telephoning them about it without the paperwork an ordinary outbound call needs.
+    """
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest(
+        mapping={"phone": "phone_number", "submitted_at": "filled_at"}
+    )
+    stale = (datetime.now(UTC) - TRANSACTIONAL_WINDOW - timedelta(minutes=5)).isoformat()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://api"
+    ) as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/{webhook_id}",
+            json={"phone_number": "9876598765", "filled_at": stale},
+            headers={"X-Ingest-Secret": INGEST_SECRET},
+        )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["dispatched"] is False
+    assert body["blocked"] == STALE_SUBMISSION_RULE
+
+    async with tenant_session(tenant_id) as session:
+        kept = (await session.execute(text("SELECT count(*) FROM leads"))).scalar_one()
+    assert kept == 1, "the enquiry is real and is kept; only the call is refused"
+
+
+@pytest.mark.asyncio
+async def test_a_punctual_delivery_through_the_same_door_is_not_refused() -> None:
+    """The other side of the branch, so the refusal above is the window and not the field.
+
+    Same route, same mapping, same shape of payload — only the timestamp differs — which
+    is what makes the pair evidence rather than two unrelated assertions.
+    """
+    _tenant_id, _agent_id, webhook_id = await _tenant_with_ingest(
+        mapping={"phone": "phone_number", "submitted_at": "filled_at"}
+    )
+    fresh = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://api"
+    ) as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/{webhook_id}",
+            json={"phone_number": "9876598766", "filled_at": fresh},
+            headers={"X-Ingest-Secret": INGEST_SECRET},
+        )
+    assert response.status_code == 202, response.text
+    assert response.json().get("blocked") != STALE_SUBMISSION_RULE

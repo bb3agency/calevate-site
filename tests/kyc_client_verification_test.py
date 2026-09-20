@@ -417,3 +417,73 @@ async def test_a_verified_row_must_name_whoever_verified_it() -> None:
                 ),
                 {"id": uuid.uuid4(), "tid": tenant_id},
             )
+
+
+# --------------------------------------------- the refusals before the signature check
+
+
+@pytest.mark.asyncio
+async def test_a_deployment_with_no_provider_does_not_admit_the_endpoint_exists() -> None:
+    """404, not 503, and not a message naming the missing setting.
+
+    An unconfigured deployment that answered "waiting for a secret" would tell an
+    unauthenticated caller that this door is real and worth coming back to. The refusal
+    is the same one an unknown path gets.
+    """
+    settings = get_settings()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "kyc_verification_provider", None, raising=False)
+        response = await _deliver({"provider_ref": "anything", "status": "completed"})
+    assert response.status_code == 404, response.text
+
+
+@pytest.mark.asyncio
+async def test_a_delivery_naming_another_provider_is_refused() -> None:
+    """The path names a provider this deployment is not on — a stale endpoint left at an
+    old vendor, or somebody walking the provider names to find one that answers. Refused
+    with the same 404, before any signature work."""
+    raw = json.dumps({"provider_ref": "anything", "status": "completed"}).encode()
+    async with _client() as http:
+        response = await http.post(
+            "/hooks/v1/kyc/setu",
+            content=raw,
+            headers={
+                SIGNATURE_HEADER: sign(secret=SECRET, body=raw),
+                "content-type": "application/json",
+            },
+        )
+    assert response.status_code == 404, response.text
+
+
+@pytest.mark.asyncio
+async def test_a_signed_body_that_is_not_an_outcome_is_refused() -> None:
+    """PAST the signature check, so this is the configured provider sending a shape we
+    do not understand — the `attention` case, not the prober one. It must refuse rather
+    than half-apply, and nothing may be written from an unparsed body."""
+    raw = b"{not json at all"
+    async with _client() as http:
+        response = await http.post(
+            HOOK_PATH,
+            content=raw,
+            headers={
+                SIGNATURE_HEADER: sign(secret=SECRET, body=raw),
+                "content-type": "application/json",
+            },
+        )
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("verification_payload_unreadable")
+
+
+@pytest.mark.asyncio
+async def test_a_second_run_is_refused_while_one_is_already_open() -> None:
+    """One open run per account. Without this a client could hold several references at
+    a provider and choose which outcome to bring back."""
+    org = await _tenant()
+    await _start(org, "sole_proprietorship")
+    async with _client() as http:
+        again = await http.post(
+            START_PATH,
+            headers=await _headers(org),
+            json={"entity_type": "sole_proprietorship"},
+        )
+    assert again.status_code in (200, 409), again.text

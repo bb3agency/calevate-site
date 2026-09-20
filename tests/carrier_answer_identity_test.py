@@ -736,3 +736,20 @@ async def test_a_call_with_no_verdict_carries_the_honest_default(
 
     assert seen["caller"].state == "not_read"
     assert not seen["caller"].is_known
+
+
+def test_a_carrier_we_have_no_contract_for_says_so_rather_than_guessing() -> None:
+    """The arm that runs when the answer request comes from a carrier nobody has written
+    a parameter contract for — a new provider, or a misrouted request.
+
+    It must return the `unparsed_by_client` STATE with its ground, not `None` and not a
+    guess at which parameter holds the calling party. Guessing here would put an
+    unverified number into the identity of a live call; returning a state keeps the call
+    explainable, which is the whole reason this function answers in states at all.
+    """
+    identity = carrier_routes.caller_identity_from_answer_request(
+        "a-carrier-that-does-not-exist", {"From": "+919876500001"}
+    )
+    assert identity.state == "unparsed_by_client"
+    assert identity.ground, "a state with no ground is not explainable"
+    assert "a-carrier-that-does-not-exist" not in str(identity.e164 or "")
