@@ -85,7 +85,7 @@ from alembic import op
 from calevate_shared.worker_api import DEGRADED_KNOWLEDGE_STATES, KNOWLEDGE_STATES
 
 revision: str = "e2a91c7f45b8"
-down_revision: str | None = "d8a05e4c7b13"
+down_revision: str | None = "b6e41d9c3a72"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

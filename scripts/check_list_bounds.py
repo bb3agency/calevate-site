@@ -499,11 +499,11 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "lists who can administer the platform."
     ),
     # --- bounded by the number of CLIENTS, which we provision -----------------------
-    "GET /v1/admin/tenants": BoundedByConstruction(
-        by="one row per signed client. Truncating the operator's directory would hide an "
-        "account from the only screen that lists them; the cost of the walk is watched "
-        "instead — `admin/health.py` logs `client_health_walk_over_budget` and names the "
-        "remedy (materialize `tenant_health`)."
+    "GET /v1/admin/tenants/{tenant_id}/readiness": BoundedByConstruction(
+        by="one row per account-level compliance gate, from a closed vocabulary the code "
+        "declares (`check_docs_drift` counts the same names in SEC-COMP \u00a73). It does not "
+        "grow with a client's data, and a page of it would be meaningless: the question "
+        "is 'what is blocking this account', which a truncated answer gets wrong."
     ),
     "GET /v1/admin/client-health": BoundedByConstruction(
         by="one row per signed client, ranked worst-first — a LIMIT would truncate BEFORE "

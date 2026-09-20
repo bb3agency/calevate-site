@@ -1027,7 +1027,11 @@ async def test_every_composed_blocker_reaches_the_screen(
     org = await _org(f"blk-{expected_rule.replace('_', '-')[:8]}")
     monkeypatch.setattr(readiness, attribute, lambda *a, **k: _async(value))
     async with tenant_session(org["tenant_id"]) as session:
-        rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+        rows = await readiness.readiness_rows(
+            session,
+            tenant_id=org["tenant_id"],
+            platform=SimpleNamespace(outbound_halted=False),
+        )
     assert expected_rule in {row.rule for row in rows}
 
 
@@ -1045,7 +1049,11 @@ async def test_the_spend_cap_and_an_empty_wallet_each_reach_the_screen() -> None
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(readiness, "spend_capped", lambda *a, **k: _async(True))
             patch.setattr(readiness, "credits_exhausted", lambda *a, **k: _async(True))
-            rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+            rows = await readiness.readiness_rows(
+                session,
+                tenant_id=org["tenant_id"],
+                platform=SimpleNamespace(outbound_halted=False),
+            )
 
     by_rule = {row.rule: row for row in rows}
     assert by_rule["spend_cap"].reason == readiness.SPEND_CAP_REASON
@@ -1072,7 +1080,11 @@ async def test_an_account_with_credit_is_not_told_it_has_none() -> None:
     org = await _org("funded")
     await fund_wallet(org["tenant_id"])
     async with tenant_session(org["tenant_id"]) as session:
-        rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+        rows = await readiness.readiness_rows(
+            session,
+            tenant_id=org["tenant_id"],
+            platform=SimpleNamespace(outbound_halted=False),
+        )
 
     assert "no_credits" not in {row.rule for row in rows}, (
         "a funded account was told its calling credit had run out"
@@ -1089,13 +1101,14 @@ async def test_a_platform_wide_halt_is_named_as_ours_rather_than_the_client_s() 
     """
     org = await _org("brs")
     async with tenant_session(org["tenant_id"]) as session:
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(
-                readiness,
-                "get_platform_status",
-                lambda *a, **k: _async(SimpleNamespace(outbound_halted=True)),
-            )
-            rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+        # PASSED, not patched: `readiness_rows` takes the platform status as an argument
+        # now, so the halt is stated here rather than by replacing a module attribute
+        # that no longer exists.
+        rows = await readiness.readiness_rows(
+            session,
+            tenant_id=org["tenant_id"],
+            platform=SimpleNamespace(outbound_halted=True),
+        )
 
     halted = next(row for row in rows if row.rule == "big_red_switch")
     assert halted.actor == "calevate", "a platform halt must never be the client's move"
@@ -1118,6 +1131,10 @@ async def test_campaigns_with_no_current_scrub_are_counted_and_pluralised() -> N
                     "campaigns_awaiting_scrub",
                     lambda *a, _n=count, **k: _async(_n),
                 )
-                rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+                rows = await readiness.readiness_rows(
+                    session,
+                    tenant_id=org["tenant_id"],
+                    platform=SimpleNamespace(outbound_halted=False),
+                )
         row = next(r for r in rows if r.rule == "national_dnd_scrub_missing")
         assert noun.strip() in row.reason and verb in row.reason

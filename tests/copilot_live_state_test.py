@@ -17,6 +17,7 @@ from apps.api.admin import service as admin_service
 from apps.api.copilot import context
 from apps.api.copilot.prompt import CLOSING_RULES, SCREEN_CLOSE, build_messages
 from apps.api.copilot.schemas import CopilotAskIn
+from apps.api.core.loadshed import get_platform_status
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.legal.readiness import readiness_rows
@@ -132,7 +133,12 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
     # is the drift `context.py` refuses to introduce. A brand-new organisation really is
     # blocked (no DLT Principal Entity, no accepted agreements), and the block says so.
     async with tenant_session(tenant_id) as session:
-        expected = tuple(row.rule for row in await readiness_rows(session, tenant_id=tenant_id))
+        expected = tuple(
+            row.rule
+            for row in await readiness_rows(
+                session, tenant_id=tenant_id, platform=await get_platform_status()
+            )
+        )
     assert state.blocker_rules == expected
     assert "pe_registration_missing" in expected, "a fresh org has not registered its PE"
     assert not state.partial

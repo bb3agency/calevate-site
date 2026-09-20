@@ -28,10 +28,10 @@
  * module here reads `Schemas[...]` from `./schema`, which is generated from the OpenAPI
  * document; these three routes are newer than the checked-in snapshot and regenerating it
  * is a separate step (it is one artefact several changes land in at once). The shapes
- * below mirror `TenantReadinessOut`, `ActivityEntryOut` and `TenantActivityOut` field for
- * field. Replace them with `Schemas["TenantReadinessOut"]` and the two others the moment
- * the snapshot is regenerated — a hand-written response type is exactly the drift the
- * generated client exists to stop.
+ * below mirror `TenantReadinessOut`, `TenantReadinessRowOut`, `ActivityEntryOut` and
+ * `TenantActivityOut` field for field. Replace them with `Schemas["TenantReadinessOut"]`
+ * and its siblings the moment the snapshot is regenerated — a hand-written response type
+ * is exactly the drift the generated client exists to stop.
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
@@ -93,22 +93,34 @@ export function readinessKey(tenantId: string) {
   return ["admin", "tenant", tenantId, "readiness"] as const;
 }
 
-export function activityKey(tenantId: string, offset: number, actorType: ActorType | "all") {
+export function activityKey(
+  tenantId: string,
+  offset: number,
+  actorType: ActorType | "all",
+) {
   return ["admin", "tenant", tenantId, "activity", offset, actorType] as const;
 }
 
-export function useTenantReadiness(tenantId: string): UseQueryResult<TenantReadiness> {
+export function useTenantReadiness(
+  tenantId: string,
+): UseQueryResult<TenantReadiness> {
   return useQuery({
     queryKey: readinessKey(tenantId),
     queryFn: () =>
-      apiRequest<TenantReadiness>(adminSession(), `/v1/admin/tenants/${tenantId}/readiness`),
+      apiRequest<TenantReadiness>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/readiness`,
+      ),
     enabled: Boolean(tenantId),
   });
 }
 
 export function useTenantActivity(
   tenantId: string,
-  { offset = 0, actorType = "all" }: { offset?: number; actorType?: ActorType | "all" } = {},
+  {
+    offset = 0,
+    actorType = "all",
+  }: { offset?: number; actorType?: ActorType | "all" } = {},
 ): UseQueryResult<TenantActivityPage> {
   const search = new URLSearchParams({
     limit: String(ACTIVITY_PAGE_SIZE),

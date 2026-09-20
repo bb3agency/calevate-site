@@ -83,6 +83,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.business_hours import BUSINESS_HOURS_TZ
 from apps.api.copilot.prompt import xml_attr
 from apps.api.copilot.screens import match_route, screens_closed_to, where_is
+from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import ROLE_PERMISSIONS
 from apps.api.crm.performance import IST_DAY_SQL, IST_TODAY_SQL
@@ -322,7 +323,10 @@ async def read_live_state(session: AsyncSession, *, tenant_id: UUID) -> LiveStat
 
     blockers: tuple[str, ...] | None = None
     try:
-        blockers = tuple(row.rule for row in await readiness_rows(session, tenant_id=tenant_id))
+        rows = await readiness_rows(
+            session, tenant_id=tenant_id, platform=await get_platform_status()
+        )
+        blockers = tuple(row.rule for row in rows)
     except (SQLAlchemyError, OSError) as failure:
         log.warning(
             "copilot_live_blockers_unavailable",

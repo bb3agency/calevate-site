@@ -48,6 +48,11 @@ const KYC: KycRecord = {
   signatory_name: "A Reddy",
   submitted_at: "2026-02-01T06:00:00Z",
   verified_at: "2026-03-01T06:00:00Z",
+  verification_source: "operator",
+  verification_provider: null,
+  verification_reference: null,
+  verified_name: null,
+  self_verification_available: false,
 };
 
 function registration(over: Partial<PeRegistration> = {}): PeRegistration {

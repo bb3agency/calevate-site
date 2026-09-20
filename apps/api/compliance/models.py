@@ -3,11 +3,12 @@
 evident hash chain (BACKEND-PATTERNS §7): prev_hash/entry_hash filled by the writer
 under a Redis lock; the chain head lives in Redis."""
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     ForeignKey,
     Index,
     Integer,
@@ -21,6 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from apps.api.compliance.autodialer import NOTICE_STATES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 CONSENT_PURPOSES = ("recording", "callback", "marketing", "messaging")
@@ -1373,3 +1375,42 @@ class ProcessorErasureTask(PKMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class AutodialerNotice(PKMixin, Base):
+    """This client's notice to their access provider that they operate an autodialer.
+
+    INSERT-only (hard rule 4). A withdrawal is a NEW row with `state='withdrawn'`, and
+    the current position is the LATEST row for the tenant — an UPDATE would destroy the
+    only evidence that the notice was live while last month's calls were placed, which
+    is the whole value of the record. `autodialer_notices_no_mutation` and
+    `_no_truncate` enforce that at the database.
+
+    The constraints below mirror migration `e5c1a70b93f4`, which is the source of truth
+    (DATA-MODEL §10).
+    """
+
+    __tablename__ = "autodialer_notices"
+    __table_args__ = (
+        CheckConstraint(f"state IN {NOTICE_STATES!r}", name="state_enum"),
+        CheckConstraint("length(btrim(access_provider)) > 0", name="access_provider_present"),
+        CheckConstraint("length(btrim(objective)) > 0", name="objective_present"),
+        Index("ix_autodialer_notices_latest_for_tenant", "tenant_id", text("created_at DESC")),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    state: Mapped[str] = mapped_column(String, nullable=False)
+    # The client's own carrier relationship, which Model B means we hold no account with
+    # and may never see — so free text, not a foreign key to anything of ours.
+    access_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    # A DATE: what a letter is dated, in the client's own calendar. An instant would
+    # invite a timezone question the evidence cannot answer.
+    notified_on: Mapped[date] = mapped_column(Date, nullable=False)
+    notice_reference: Mapped[str | None] = mapped_column(Text)
+    recorded_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

@@ -58,6 +58,7 @@ from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
+from apps.api.core.loadshed import get_platform_status
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.legal.readiness import readiness_rows
@@ -76,8 +77,17 @@ AccountReader = Annotated[Principal, Depends(requires("org:read", realm="admin")
 MAX_ACTIVITY_PAGE = 200
 
 
-class ReadinessRowOut(BaseModel):
-    """One condition holding this account, in the gate's own words."""
+class TenantReadinessRowOut(BaseModel):
+    """One condition holding this account, in the gate's own words.
+
+    NOT `ReadinessRowOut`: `legal/routes.py` already publishes a schema under that name
+    for the CLIENT's own screen, and two models sharing one name make FastAPI fully
+    qualify BOTH in the OpenAPI document — renaming the existing
+    `ReadinessRowOut` the generated web client already imports. The shapes are close
+    cousins rather than one type, so the answer is a distinct name here and not a shared
+    model: this one is an operator's row and is free to grow a field (a remedy screen, a
+    since-when) that has no business on a client's.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -103,7 +113,7 @@ class TenantReadinessOut(BaseModel):
     #: How many of the blockers are ours to clear. On screen this is the number that
     #: decides whether the operator closes the tab or opens a gate.
     blocked_on_calevate: int
-    rows: list[ReadinessRowOut]
+    rows: list[TenantReadinessRowOut]
 
 
 @router.get(
@@ -136,8 +146,14 @@ async def read_tenant_readiness(
     # `app.admin` widens `organizations` and nothing else — so asking on the admin session
     # would return zero rows and report a blocked account as ready. The pattern
     # `admin/holds.py` and `service.tenant_overview` both use, and for the same reason.
+    # READ BEFORE THE TENANT SESSION OPENS, not inside it. This request already holds the
+    # admin session for its whole life (`Depends(admin_db)`), so opening the tenant session
+    # is the second connection and anything the body opens is the third — against a pool of
+    # two. `get_platform_status` can fall back to its own session on a cache miss, so it is
+    # read here, while only one connection is held, and passed down.
+    platform = await get_platform_status()
     async with tenant_session(tenant_id) as scoped:
-        rows = await readiness_rows(scoped, tenant_id=tenant_id)
+        rows = await readiness_rows(scoped, tenant_id=tenant_id, platform=platform)
     await record_admin_tenant_read(
         session, request=request, principal=principal, tenant_id=tenant_id
     )
@@ -146,7 +162,7 @@ async def read_tenant_readiness(
         may_operate=not rows,
         blocked_on_calevate=sum(1 for row in rows if row.actor == "calevate"),
         rows=[
-            ReadinessRowOut(
+            TenantReadinessRowOut(
                 rule=row.rule,
                 title=row.title,
                 reason=row.reason,

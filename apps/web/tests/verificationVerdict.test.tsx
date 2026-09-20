@@ -45,6 +45,11 @@ function record(over: Partial<KycRecord> = {}): KycRecord {
     signatory_name: "A Reddy",
     submitted_at: "2026-01-04T06:00:00Z",
     verified_at: "2026-01-09T06:00:00Z",
+    verification_source: "operator",
+    verification_provider: null,
+    verification_reference: null,
+    verified_name: null,
+    self_verification_available: false,
     ...over,
   };
 }

@@ -1095,7 +1095,11 @@ async def tenant_overview(
     # `tenant_id` narrows the SAME query to one client. The detail screen used to pull
     # the whole list and find its client in the browser, which pays the N+1 above once
     # per page view for a single row.
-    order_by = DIRECTORY_SORTS.get(sort, DIRECTORY_SORTS[DEFAULT_DIRECTORY_SORT])
+    # SUBSCRIPT, not `.get()`: `check_raw_sql` resolves an index into a container of
+    # literals (every value of this mapping was typed here) and cannot trace a method
+    # call, so the traceable spelling is what lets this fragment be interpolated at all.
+    # The fallback is unchanged — an unknown sort takes the default.
+    order_by = DIRECTORY_SORTS[sort if sort in DIRECTORY_SORTS else DEFAULT_DIRECTORY_SORT]
     # A SECOND ORDERING COLUMN, and it is not decoration: `created_at` and `lower(name)`
     # are both non-unique, so a page boundary that fell inside a tie could show one
     # account on page 1 and again on page 2 while hiding a third. The primary key breaks

@@ -125,6 +125,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hooks/v1/kyc/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verification outcome from the configured identity aggregator
+         * @description Signed webhook. The signature is verified over the raw bytes before anything is parsed; the tenant is resolved from the run Calevate opened, never from the payload; and a redelivery is acknowledged without changing anything.
+         */
+        post: operations["receive_verification_outcome_hooks_v1_kyc__provider__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hooks/v1/razorpay": {
         parameters: {
             query?: never;
@@ -829,7 +849,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Client directory — every account, with the counters that sit beside a name */
+        /**
+         * Client directory — search, filter and page the accounts
+         * @description One page of the client roster. `q` matches the business name or the slug (case-insensitive, substring; `%` and `_` are searched for literally), `status` and `plan_tier` narrow to one value each, and `sort` orders by the account's own columns. All four are applied to the `organizations` table BEFORE the per-account counters are gathered, so a request costs one page of work rather than the whole platform. `total` counts the accounts matching the filters. There is deliberately no filter on `holds` or `capped`: those are computed per account inside a tenant-scoped session and cannot be reached from the paging query without widening tenant isolation — the ranked exception report at `GET /v1/admin/client-health` is the surface that answers 'who is in trouble'.
+         */
         get: operations["list_tenants_v1_admin_tenants_get"];
         put?: never;
         /**
@@ -873,6 +896,26 @@ export interface paths {
          * @description Edits the details that are the client's own: the business name, the billing address their notices are sent to, and the vertical template. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity — the credential is the member's own address and this grants nobody access — but it IS where the account's notices go, so changing it needs the header `X-Confirm-Action: change_notice_address:<tenant_id>`, the PREVIOUS address is told that it changed and given a way to object, and the response says how many already-queued notices will now be delivered to the new address. Refused for a client whose data has been erased. The slug cannot change (it is in every URL the client holds, and a database trigger refuses it); the business ADDRESS lives in the intake answer sheet; plan tier, credits, lifecycle state, closure, KYC and DLT registration each have their own screen, and this route deliberately cannot reach any of them.
          */
         patch: operations["edit_tenant_v1_admin_tenants__tenant_id__patch"];
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What has been done to this account, and by whom — read from the audit ledger
+         * @description This account's entries from `audit_log`, newest first: every audited act in either realm, with the Calevate operator named where one acted and the view-as grant named where the act came through one. It is a view of the existing tamper-evident ledger and not a second store, so nothing on it can be edited or removed. It carries no personal data: `audit_log` records an action, an object type and an object id, never a phone number, a transcript or a form payload. Filter by `actor_type` to separate what we did from what the client did. Reading this writes an `admin.tenant_read` audit row of its own.
+         */
+        get: operations["read_tenant_activity_v1_admin_tenants__tenant_id__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/apply": {
@@ -1882,6 +1925,26 @@ export interface paths {
          * @description The business name, the address this account's notices go to, the vertical template, the immutable slug and the verticals this client may be moved to. 404 for a client whose data has been erased, matching the PATCH exactly so the form and the save cannot disagree about which accounts exist.
          */
         get: operations["read_tenant_profile_v1_admin_tenants__tenant_id__profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everything between one client and their first call — the operator's copy
+         * @description Every organisation-level condition currently blocking this account's outgoing calls, each with the gate's own refusal sentence, whose move it is and what clears it. This is the same set the client sees on their Agreements & readiness screen, composed from the same gate predicates, for an account named in the path rather than for the caller's own — so a support call does not need a view-as session to answer 'why can't we dial yet'. Campaign-level blockers (a missing DLT template, an empty contact list) are not here: they belong to a campaign this account-level view cannot see. Reading this writes an `admin.tenant_read` audit row.
+         */
+        get: operations["read_tenant_readiness_v1_admin_tenants__tenant_id__readiness_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4310,6 +4373,26 @@ export interface paths {
         get: operations["read_kyc_record_v1_compliance_kyc_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/kyc/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin verifying this business's identity with a licensed aggregator
+         * @description Opens a verification run and returns the provider URL to send the signed-in user to. Calevate receives only whether it succeeded, the provider's reference and the verified name — never an Aadhaar number, a PAN or a document. A sole proprietorship is verified outright; for any other entity type this verifies the authorised signatory and Calevate operations still checks the business against its public registry entry.
+         */
+        post: operations["start_verification_v1_compliance_kyc_verification_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6810,6 +6893,39 @@ export interface components {
             calendar_available: boolean;
             /** Tools */
             tools: components["schemas"]["ToolOut"][];
+        };
+        /**
+         * ActivityEntryOut
+         * @description One thing that happened to this account, as the ledger recorded it.
+         */
+        ActivityEntryOut: {
+            /** Action */
+            action: string;
+            /** Actor Id */
+            actor_id: string | null;
+            /** Actor Label */
+            actor_label: string | null;
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "admin" | "user" | "system";
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Object Id */
+            object_id: string | null;
+            /** Object Type */
+            object_type: string | null;
+            /** Via Grant Id */
+            via_grant_id: string | null;
         };
         /** AddContactsIn */
         AddContactsIn: {
@@ -15903,6 +16019,31 @@ export interface components {
             variant_ids: string[];
         };
         /**
+         * StartVerificationIn
+         * @description How the business is constituted — the only thing the client tells us.
+         *
+         *     It decides the BRANCH, not the outcome: a sole proprietor's verification completes
+         *     the record, a company's verifies the authorised signatory and leaves the registry
+         *     check to an operator. It is not taken on trust in any way that matters, because a
+         *     company's row cannot reach `verified` on this path at all.
+         */
+        StartVerificationIn: {
+            /** Entity Type */
+            entity_type: string;
+        };
+        /**
+         * StartVerificationOut
+         * @description Where to send the client, and what we will know the run by.
+         */
+        StartVerificationOut: {
+            /** Provider */
+            provider: string;
+            /** Provider Ref */
+            provider_ref: string;
+            /** Redirect Url */
+            redirect_url: string;
+        };
+        /**
          * SubjectExportCallOut
          * @description One call, with the audio reported as a fact rather than as a link.
          *
@@ -16321,6 +16462,40 @@ export interface components {
              */
             status: "draft" | "submitted" | "approved" | "rejected";
         };
+        /** TenantActivityOut */
+        TenantActivityOut: {
+            /** Entries */
+            entries: components["schemas"]["ActivityEntryOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Total */
+            total: number;
+        };
+        /**
+         * TenantDirectoryPage
+         * @description One page of the client directory, and the size of the thing it is a page of.
+         *
+         *     `total` is the count of accounts MATCHING THE FILTERS, not the number of clients on
+         *     the platform: a console that showed the second while paging the first would tell an
+         *     operator their search found 312 results and then show them four.
+         */
+        TenantDirectoryPage: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Rows */
+            rows: components["schemas"]["TenantSummary"][];
+            /** Total */
+            total: number;
+        };
         /** TenantErasureAcceptedOut */
         TenantErasureAcceptedOut: {
             /** Already Open */
@@ -16540,6 +16715,47 @@ export interface components {
             vertical_template: string | null;
             /** Verticals */
             verticals: string[];
+        };
+        /** TenantReadinessOut */
+        TenantReadinessOut: {
+            /** Blocked On Calevate */
+            blocked_on_calevate: number;
+            /** May Operate */
+            may_operate: boolean;
+            /** Rows */
+            rows: components["schemas"]["TenantReadinessRowOut"][];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
+         * TenantReadinessRowOut
+         * @description One condition holding this account, in the gate's own words.
+         *
+         *     NOT `ReadinessRowOut`: `legal/routes.py` already publishes a schema under that name
+         *     for the CLIENT's own screen, and two models sharing one name make FastAPI fully
+         *     qualify BOTH in the OpenAPI document — renaming the existing
+         *     `ReadinessRowOut` the generated web client already imports. The shapes are close
+         *     cousins rather than one type, so the answer is a distinct name here and not a shared
+         *     model: this one is an operator's row and is free to grow a field (a remedy screen, a
+         *     since-when) that has no business on a client's.
+         */
+        TenantReadinessRowOut: {
+            /**
+             * Actor
+             * @enum {string}
+             */
+            actor: "client" | "calevate";
+            /** Next Step */
+            next_step: string;
+            /** Reason */
+            reason: string;
+            /** Rule */
+            rule: string;
+            /** Title */
+            title: string;
         };
         /**
          * TenantSpendOut
@@ -17613,6 +17829,15 @@ export interface components {
             weight_bp: number;
         };
         /**
+         * VerificationAck
+         * @description What the provider is told. Deliberately says nothing about the tenant or the
+         *     person — an ack is read by whoever can reach the endpoint, which is everyone.
+         */
+        VerificationAck: {
+            /** Status */
+            status: string;
+        };
+        /**
          * VerificationOut
          * @description What a read-back CONFIRMED at the last publish — never what we merely sent.
          *
@@ -18120,14 +18345,24 @@ export interface components {
             recorded: boolean;
             /** Rejection Reason */
             rejection_reason: string | null;
+            /** Self Verification Available */
+            self_verification_available: boolean;
             /** Signatory Name */
             signatory_name: string | null;
             /** Status */
             status: string | null;
             /** Submitted At */
             submitted_at: string | null;
+            /** Verification Provider */
+            verification_provider: string | null;
+            /** Verification Reference */
+            verification_reference: string | null;
+            /** Verification Source */
+            verification_source: string | null;
             /** Verified At */
             verified_at: string | null;
+            /** Verified Name */
+            verified_name: string | null;
         };
     };
     responses: never;
@@ -18315,6 +18550,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestAckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    receive_verification_outcome_hooks_v1_kyc__provider__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationAck"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -19333,7 +19599,15 @@ export interface operations {
     };
     list_tenants_v1_admin_tenants_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Substring of the business name or the slug. */
+                q?: string | null;
+                status?: ("prospect" | "onboarding" | "active" | "suspended" | "churned") | null;
+                plan_tier?: ("managed" | "prepaid" | "self_serve" | "trial") | null;
+                sort?: "recent" | "oldest" | "name" | "name_desc";
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19346,7 +19620,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TenantSummary"][];
+                    "application/json": components["schemas"]["TenantDirectoryPage"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -19448,6 +19722,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EditTenantOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_tenant_activity_v1_admin_tenants__tenant_id__activity_get: {
+        parameters: {
+            query?: {
+                actor_type?: ("admin" | "user" | "system") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantActivityOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -21349,6 +21658,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantProfileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_tenant_readiness_v1_admin_tenants__tenant_id__readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantReadinessOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -25280,6 +25620,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["apps__api__compliance__kyc_routes__KycRecordOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    start_verification_v1_compliance_kyc_verification_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartVerificationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartVerificationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -67,6 +67,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
+from apps.api.core.loadshed import get_platform_status
 from apps.api.core.rbac import permission_meta, role_has
 from apps.api.legal import catalogue, readiness, statements
 from apps.api.legal import service as legal_service
@@ -257,7 +258,9 @@ def _verdict(may_operate: bool, outstanding: int) -> str:
 async def read_readiness(session: Session, principal: Reader) -> LegalReadinessOut:
     assert principal.tenant_id is not None
     accepted = await legal_service.latest_acceptances(session, tenant_id=principal.tenant_id)
-    rows = await readiness.readiness_rows(session, tenant_id=principal.tenant_id)
+    rows = await readiness.readiness_rows(
+        session, tenant_id=principal.tenant_id, platform=await get_platform_status()
+    )
     outstanding = legal_service.outstanding_slugs(accepted)
 
     # WHY THE PERMISSION IS READ OFF THE PRINCIPAL RATHER THAN GUESSED FROM THE ROLE:

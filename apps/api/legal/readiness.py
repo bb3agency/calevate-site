@@ -54,7 +54,7 @@ from apps.api.compliance.service import (
     kyc_blocker,
     spend_capped,
 )
-from apps.api.core.loadshed import get_platform_status
+from apps.api.core.loadshed import PlatformStatus
 from apps.api.legal import service as legal_service
 
 #: Whose move it is. Two values and no third: an item is either something this client can
@@ -251,7 +251,9 @@ def _row(rule: str, reason: str) -> ReadinessRow:
     )
 
 
-async def readiness_rows(session: AsyncSession, *, tenant_id: UUID) -> list[ReadinessRow]:
+async def readiness_rows(
+    session: AsyncSession, *, tenant_id: UUID, platform: PlatformStatus
+) -> list[ReadinessRow]:
     """Every organisation-level condition currently stopping this client's outbound.
 
     ORDERED THE WAY THE GATES ORDER THEIR REFUSALS, and for their reason rather than for
@@ -265,7 +267,13 @@ async def readiness_rows(session: AsyncSession, *, tenant_id: UUID) -> list[Read
     """
     rows: list[ReadinessRow] = []
 
-    platform = await get_platform_status()
+    # THE PLATFORM HALT IS PASSED IN, NOT READ HERE, and the reason is the connection pool
+    # rather than tidiness. `get_platform_status` falls back to its own database session
+    # when the cache misses, so a caller that had already opened one — the admin console
+    # opens a tenant session to ask this on a client's behalf — held three at once against
+    # a pool of two, and every request at that depth waited for a connection only another
+    # request at that depth could release. A function handed a session should not open a
+    # second one behind the caller's back.
     if platform.outbound_halted:
         rows.append(
             _row(

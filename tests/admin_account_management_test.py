@@ -38,6 +38,7 @@ from apps.api.admin import routes as admin_routes
 from apps.api.admin import service as admin_service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.context import Principal
+from apps.api.core.loadshed import get_platform_status
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.legal.readiness import ROW_COPY, readiness_rows
 from apps.api.main import app
@@ -178,7 +179,9 @@ async def test_readiness_is_the_same_verdict_the_client_sees() -> None:
     _, headers = await _operator()
 
     async with tenant_session(tenant_id) as session:
-        expected = await readiness_rows(session, tenant_id=tenant_id)
+        expected = await readiness_rows(
+            session, tenant_id=tenant_id, platform=await get_platform_status()
+        )
 
     body = await _get(f"/v1/admin/tenants/{tenant_id}/readiness", headers=headers)
 

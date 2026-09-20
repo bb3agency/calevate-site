@@ -13,6 +13,7 @@ import {
 } from "@/components/ui";
 import { useTenant } from "@/lib/api/admin";
 import { useTenantReadiness, type ReadinessRow } from "@/lib/api/adminAccount";
+import { lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -93,19 +94,18 @@ const RULE_SCREENS: Record<string, { href: (tenantId: string) => string; cta: st
   // platform-wide fact, and the panel that records them is on the ops switchboard. The
   // link leaves the account deliberately — an operator hunting this on the client's
   // screens would not find it, because it is not about this client.
-  tm_registration_missing: { href: () => "/admin/ops", cta: "Open ops (TM registration)" },
-  tm_link_not_active: { href: () => "/admin/ops", cta: "Open ops (TM registration)" },
+  tm_registration_missing: { href: () => "/admin/ops", cta: "Open the ops switchboard" },
+  tm_link_not_active: { href: () => "/admin/ops", cta: "Open the ops switchboard" },
   big_red_switch: { href: () => "/admin/ops", cta: "Open the ops switchboard" },
   // DELIBERATELY ABSENT: `agreements_not_accepted`. Accepting is the account owner's own
   // act and there is no admin path to it — `VIEW_AS_WITHHELD_ACTS` withholds it from a
   // view-as session for the same reason. A button here would be a door around that.
 };
 function RowCard({ row, tenantId }: { row: ReadinessRow; tenantId: string }) {
-  // `Object.prototype` is reachable by a wire string, so this is a guarded read rather
-  // than an index: `constructor` would otherwise resolve to a function and render.
-  const screen = Object.prototype.hasOwnProperty.call(RULE_SCREENS, row.rule)
-    ? RULE_SCREENS[row.rule]
-    : undefined;
+  // `lookup`, never an index: `rule` is a bare wire string (the vocabulary grows with the
+  // gates), and indexing a table with one walks the prototype chain — `constructor`
+  // resolves to the `Object` function, which `??` does not treat as missing.
+  const screen = lookup(RULE_SCREENS, row.rule);
   return (
     <li className="px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">

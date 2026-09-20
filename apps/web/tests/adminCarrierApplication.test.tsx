@@ -86,6 +86,11 @@ function kyc(): KycRecord {
     verified_at: null,
     is_verified: false,
     number_purchase_available: false,
+    verification_source: null,
+    verification_provider: null,
+    verification_reference: null,
+    verified_name: null,
+    self_verification_available: false,
   };
 }
 

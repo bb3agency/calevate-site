@@ -90,6 +90,105 @@
         "title": "ActionsSettingsOut",
         "type": "object"
       },
+      "ActivityEntryOut": {
+        "additionalProperties": false,
+        "description": "One thing that happened to this account, as the ledger recorded it.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "actor_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Label"
+          },
+          "actor_type": {
+            "enum": [
+              "admin",
+              "user",
+              "system"
+            ],
+            "title": "Actor Type",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "object_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Id"
+          },
+          "object_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Type"
+          },
+          "via_grant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via Grant Id"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "action",
+          "object_type",
+          "object_id",
+          "actor_type",
+          "actor_id",
+          "actor_label",
+          "via_grant_id"
+        ],
+        "title": "ActivityEntryOut",
+        "type": "object"
+      },
       "AddContactsIn": {
         "additionalProperties": false,
         "properties": {
@@ -20902,6 +21001,46 @@
         "title": "StartExperimentOut",
         "type": "object"
       },
+      "StartVerificationIn": {
+        "additionalProperties": false,
+        "description": "How the business is constituted \u2014 the only thing the client tells us.\n\nIt decides the BRANCH, not the outcome: a sole proprietor's verification completes\nthe record, a company's verifies the authorised signatory and leaves the registry\ncheck to an operator. It is not taken on trust in any way that matters, because a\ncompany's row cannot reach `verified` on this path at all.",
+        "properties": {
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type"
+        ],
+        "title": "StartVerificationIn",
+        "type": "object"
+      },
+      "StartVerificationOut": {
+        "additionalProperties": false,
+        "description": "Where to send the client, and what we will know the run by.",
+        "properties": {
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_ref": {
+            "title": "Provider Ref",
+            "type": "string"
+          },
+          "redirect_url": {
+            "title": "Redirect Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "provider_ref",
+          "redirect_url"
+        ],
+        "title": "StartVerificationOut",
+        "type": "object"
+      },
       "SubjectExportCallOut": {
         "additionalProperties": false,
         "description": "One call, with the audio reported as a fact rather than as a link.\n\n`recording_available` is a boolean and never a URL (`export.py` decision 2): a\npresigned URL inside a document that gets emailed and forwarded is a bearer\ncredential travelling with it.",
@@ -21835,6 +21974,77 @@
         "title": "TemplateStatusOut",
         "type": "object"
       },
+      "TenantActivityOut": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "entries",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TenantActivityOut",
+        "type": "object"
+      },
+      "TenantDirectoryPage": {
+        "additionalProperties": false,
+        "description": "One page of the client directory, and the size of the thing it is a page of.\n\n`total` is the count of accounts MATCHING THE FILTERS, not the number of clients on\nthe platform: a console that showed the second while paging the first would tell an\noperator their search found 312 results and then show them four.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TenantSummary"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rows",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TenantDirectoryPage",
+        "type": "object"
+      },
       "TenantErasureAcceptedOut": {
         "additionalProperties": false,
         "properties": {
@@ -22402,6 +22612,78 @@
           "verticals"
         ],
         "title": "TenantProfileOut",
+        "type": "object"
+      },
+      "TenantReadinessOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_on_calevate": {
+            "title": "Blocked On Calevate",
+            "type": "integer"
+          },
+          "may_operate": {
+            "title": "May Operate",
+            "type": "boolean"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TenantReadinessRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "may_operate",
+          "blocked_on_calevate",
+          "rows"
+        ],
+        "title": "TenantReadinessOut",
+        "type": "object"
+      },
+      "TenantReadinessRowOut": {
+        "additionalProperties": false,
+        "description": "One condition holding this account, in the gate's own words.\n\nNOT `ReadinessRowOut`: `legal/routes.py` already publishes a schema under that name\nfor the CLIENT's own screen, and two models sharing one name make FastAPI fully\nqualify BOTH in the OpenAPI document \u2014 renaming the existing\n`ReadinessRowOut` the generated web client already imports. The shapes are close\ncousins rather than one type, so the answer is a distinct name here and not a shared\nmodel: this one is an operator's row and is free to grow a field (a remedy screen, a\nsince-when) that has no business on a client's.",
+        "properties": {
+          "actor": {
+            "enum": [
+              "client",
+              "calevate"
+            ],
+            "title": "Actor",
+            "type": "string"
+          },
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "title",
+          "reason",
+          "actor",
+          "next_step"
+        ],
+        "title": "TenantReadinessRowOut",
         "type": "object"
       },
       "TenantSpendOut": {
@@ -24971,6 +25253,21 @@
         "title": "VariantOut",
         "type": "object"
       },
+      "VerificationAck": {
+        "additionalProperties": false,
+        "description": "What the provider is told. Deliberately says nothing about the tenant or the\nperson \u2014 an ack is read by whoever can reach the endpoint, which is everyone.",
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "VerificationAck",
+        "type": "object"
+      },
       "VerificationOut": {
         "additionalProperties": false,
         "description": "What a read-back CONFIRMED at the last publish \u2014 never what we merely sent.\n\nThe third configured/live-shaped answer on this response, and the one the other two\nrest on: `voice.live` and the applied prompt version record what `publish_agent`\nHANDED the engine on the strength of a 2xx. This says whether anyone then looked.\n\n`state` is one of `unverified` (never read back \u2014 every agent published before\nmigration c1f6a94d2b07), `applied`, `unreadable` (the adapter could not find the\nproperty in the engine's answer) or `unreachable` (the read-back itself failed).\nThere is no `not_applied`: a proven mismatch refuses the publish, so no agent can be\ndisplayed as live while carrying one.\n\n`confirmed` is true only for `applied`. Rendering `state != \"unverified\"` as\nconfirmation is the exact rounding-up this field exists to stop.\n\nNo field here has a default, deliberately: a Pydantic default generates an OPTIONAL\nTypeScript property, and a screen that can compile without reading the verdict is a\nscreen that will eventually ship without rendering it.",
@@ -26006,6 +26303,10 @@
             ],
             "title": "Rejection Reason"
           },
+          "self_verification_available": {
+            "title": "Self Verification Available",
+            "type": "boolean"
+          },
           "signatory_name": {
             "anyOf": [
               {
@@ -26040,6 +26341,39 @@
             ],
             "title": "Submitted At"
           },
+          "verification_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Provider"
+          },
+          "verification_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Reference"
+          },
+          "verification_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Source"
+          },
           "verified_at": {
             "anyOf": [
               {
@@ -26051,6 +26385,17 @@
               }
             ],
             "title": "Verified At"
+          },
+          "verified_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Name"
           }
         },
         "required": [
@@ -26064,7 +26409,12 @@
           "rejection_reason",
           "submitted_at",
           "verified_at",
+          "verification_source",
+          "verification_provider",
+          "verification_reference",
+          "verified_name",
           "is_verified",
+          "self_verification_available",
           "number_purchase_available"
         ],
         "title": "KycRecordOut",
@@ -26329,6 +26679,45 @@
         "summary": "Per-client lead intake \u2192 compliance-gated instant callback (FLOWS \u00a74)",
         "tags": [
           "lead-ingest"
+        ]
+      }
+    },
+    "/hooks/v1/kyc/{provider}": {
+      "post": {
+        "description": "Signed webhook. The signature is verified over the raw bytes before anything is parsed; the tenant is resolved from the run Calevate opened, never from the payload; and a redelivery is acknowledged without changing anything.",
+        "operationId": "receive_verification_outcome_hooks_v1_kyc__provider__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Verification outcome from the configured identity aggregator",
+        "tags": [
+          "compliance"
         ]
       }
     },
@@ -27788,17 +28177,119 @@
     },
     "/v1/admin/tenants": {
       "get": {
+        "description": "One page of the client roster. `q` matches the business name or the slug (case-insensitive, substring; `%` and `_` are searched for literally), `status` and `plan_tier` narrow to one value each, and `sort` orders by the account's own columns. All four are applied to the `organizations` table BEFORE the per-account counters are gathered, so a request costs one page of work rather than the whole platform. `total` counts the accounts matching the filters. There is deliberately no filter on `holds` or `capped`: those are computed per account inside a tenant-scoped session and cannot be reached from the paging query without widening tenant isolation \u2014 the ranked exception report at `GET /v1/admin/client-health` is the surface that answers 'who is in trouble'.",
         "operationId": "list_tenants_v1_admin_tenants_get",
+        "parameters": [
+          {
+            "description": "Substring of the business name or the slug.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring of the business name or the slug.",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "prospect",
+                    "onboarding",
+                    "active",
+                    "suspended",
+                    "churned"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "plan_tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "managed",
+                    "prepaid",
+                    "self_serve",
+                    "trial"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Plan Tier"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "recent",
+              "enum": [
+                "recent",
+                "oldest",
+                "name",
+                "name_desc"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TenantSummary"
-                  },
-                  "title": "Response List Tenants V1 Admin Tenants Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/TenantDirectoryPage"
                 }
               }
             },
@@ -27811,7 +28302,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Client directory \u2014 every account, with the counters that sit beside a name",
+        "summary": "Client directory \u2014 search, filter and page the accounts",
         "tags": [
           "admin"
         ],
@@ -27958,6 +28449,91 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/activity": {
+      "get": {
+        "description": "This account's entries from `audit_log`, newest first: every audited act in either realm, with the Calevate operator named where one acted and the view-as grant named where the act came through one. It is a view of the existing tamper-evident ledger and not a second store, so nothing on it can be edited or removed. It carries no personal data: `audit_log` records an action, an object type and an object id, never a phone number, a transcript or a form payload. Filter by `actor_type` to separate what we did from what the client did. Reading this writes an `admin.tenant_read` audit row of its own.",
+        "operationId": "read_tenant_activity_v1_admin_tenants__tenant_id__activity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "admin",
+                    "user",
+                    "system"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantActivityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What has been done to this account, and by whom \u2014 read from the audit ledger",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/apply": {
@@ -31073,6 +31649,47 @@
           }
         },
         "summary": "The client's own business record \u2014 what the correction form edits",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/readiness": {
+      "get": {
+        "description": "Every organisation-level condition currently blocking this account's outgoing calls, each with the gate's own refusal sentence, whose move it is and what clears it. This is the same set the client sees on their Agreements & readiness screen, composed from the same gate predicates, for an account named in the path rather than for the caller's own \u2014 so a support call does not need a view-as session to answer 'why can't we dial yet'. Campaign-level blockers (a missing DLT template, an empty contact list) are not here: they belong to a campaign this account-level view cannot see. Reading this writes an `admin.tenant_read` audit row.",
+        "operationId": "read_tenant_readiness_v1_admin_tenants__tenant_id__readiness_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantReadinessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Everything between one client and their first call \u2014 the operator's copy",
         "tags": [
           "admin"
         ],
@@ -36087,6 +36704,45 @@
           "compliance"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/compliance/kyc/verification": {
+      "post": {
+        "description": "Opens a verification run and returns the provider URL to send the signed-in user to. Calevate receives only whether it succeeded, the provider's reference and the verified name \u2014 never an Aadhaar number, a PAN or a document. A sole proprietorship is verified outright; for any other entity type this verifies the authorised signatory and Calevate operations still checks the business against its public registry entry.",
+        "operationId": "start_verification_v1_compliance_kyc_verification_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartVerificationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartVerificationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Begin verifying this business's identity with a licensed aggregator",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/messaging-consent": {

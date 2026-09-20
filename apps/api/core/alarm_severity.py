@@ -132,6 +132,20 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "platform_maintenance": "record",
     "signup_disabled": "record",
     "signup_unavailable": "record",
+    # An unauthenticated endpoint, so ANY party can raise this by POSTing a provider name
+    # we are not on — which is exactly why it is not `attention`. The refusal already
+    # worked (404, the run untouched); classifying it higher would hand an outsider a
+    # switch that rings an operator, and a prober walking the five provider names would
+    # hold it down.
+    "kyc_webhook_wrong_provider": "record",
+    # The other two refusals on that endpoint that fire BEFORE the signature is checked,
+    # and so carry the same reasoning: an outsider chooses how often they happen.
+    # `bad_signature` is the security-relevant one and is still `record` for exactly that
+    # reason — per-event paging on an unauthenticated route lets the forger ring the
+    # operator at will. A BURST is the real signal, and a burst is a question for the
+    # alert stream, not for one delivery's severity.
+    "kyc_webhook_bad_signature": "record",
+    "kyc_webhook_unconfigured": "record",
     "ai_paused_platform_wide": "record",
     "admin_ai_paused_platform_wide": "record",
     "meta_lead_retrieval_deferred": "record",
@@ -155,6 +169,18 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_capability_absent": "attention",
     "engine_capability_unverified": "attention",
     "engine_not_configured": "attention",
+    # A number cannot be sold until an operator attests its monthly price (hard rule 7),
+    # so this is a sale stopped on a task only we can clear. `attention` and not `page`:
+    # nothing in flight breaks, no call is mis-metered, and the client is told plainly.
+    # Bounded per number and not reachable by an outsider, unlike the refusal above.
+    "number_price_not_attested": "attention",
+    # These two fire only AFTER `verify_webhook` has passed, which is what separates them
+    # from the three `record` entries on the same route: the delivery is genuinely from
+    # the provider we configured. So the payload we could not parse, or the run reference
+    # we do not hold, is a real disagreement with that vendor's contract — a client is
+    # stuck mid-verification and no outsider can manufacture it.
+    "kyc_webhook_unreadable_payload": "attention",
+    "kyc_webhook_unknown_reference": "attention",
     "engine_number_not_linked": "attention",
     "engine_number_purchase_unusable": "attention",
     "engine_caller_id_not_configured": "attention",
