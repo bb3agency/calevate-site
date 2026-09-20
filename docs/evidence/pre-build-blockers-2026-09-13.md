@@ -136,16 +136,33 @@ itself evidence of good faith** if anyone later questions it. Same question as c
 
 ### 3.6 Measurements only a real call can produce
 
-| # | Measurement |
-|---|---|
-| M-1 | `smart_turn` decision latency p50/p95 on **8 kHz Telugu** |
-| M-2 | False-endpoint rate on short acknowledgements — అవును, సరే, హా, ఓకే |
-| M-3 | Telugu-English **code-switch** false-interruption rate |
-| M-4 | Voice-to-voice p50/p95/p99 from Airtel, Jio and Vi handsets |
-| M-5 | Whether the 650 ms of inherited turn-detection latency actually falls, and by how much |
+| # | Measurement | State |
+|---|---|---|
+| M-1 | `smart_turn` decision latency p50/p95 on **8 kHz Telugu** | **CLOSED** — p50 58 ms, p95 74 ms |
+| M-2 | False-endpoint rate on short acknowledgements — అవును, సరే, హా, ఓకే | open, needs a corpus |
+| M-3 | Telugu-English **code-switch** false-interruption rate | open, needs a corpus |
+| M-4 | Voice-to-voice p50/p95/p99 from Airtel, Jio and Vi handsets | open, needs a real call |
+| M-5 | Whether the 650 ms of inherited turn-detection latency actually falls, and by how much | open, needs a corpus |
 
 M-5 is the one that justifies the whole migration. Everything else in this document is
 housekeeping beside it.
+
+**M-1 DID NOT NEED A REAL CALL, WHICH IS WHY IT IS NOW CLOSED.** The model pads or
+truncates every input to a fixed 8-second window before inference
+(`local_smart_turn_v3.py:139-150`), so the forward pass costs the same whatever the audio
+holds — the latency is a property of the model and the CPU, and Telugu speech cannot make
+it differ. `scripts/measure_turn_detection.py` runs the real analyzer against the ONNX
+weights that ship inside the wheel, needing no network and no account: **p50 58.4 ms,
+p95 73.6 ms, p99 157.6 ms over 60 inferences at 8 kHz** (development container, contended,
+20 Sep 2026). Inside the 100 ms budget, so smart turn has room to end a turn before the
+650 ms ceiling does.
+
+M-2, M-3 and M-5 are the opposite and the same script refuses to fake them: whether the
+model FIRES on a two-syllable Telugu affirmative is entirely a property of the content.
+`--corpus` takes real 8 kHz PSTN clips under `complete/` and `incomplete/`; synthesising
+them with a TTS would measure whether the endpointer agrees with the synthesiser, on audio
+with none of the disfluency, clipping or G.711 damage that makes real turns hard. Until
+that corpus exists `SMART_TURN_STOP_SECS` stays at its inherited 650 ms.
 
 ## 4. WHAT WE MUST NOT DO WHILE THESE ARE OPEN
 

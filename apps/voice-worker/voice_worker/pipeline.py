@@ -113,11 +113,14 @@ ENGINE_NAME: Final[str] = "pipecat"
 #: one, while smart turn can end a turn EARLIER whenever it is confident. Three seconds
 #: would have made our worst case 4.6x the thing we are replacing.
 #:
-#: ⚠ **A STARTING POINT TO BE MEASURED, NOT A MEASUREMENT.** No Telugu PSTN audio has been
-#: run through this analyzer: `docs/evidence/pre-build-blockers-2026-09-13.md` §3.6 M-1
-#: (decision latency on 8 kHz Telugu), M-2 (false endpoints on అవును/సరే/హా/ఓకే), M-3
-#: (code-switch false interruptions) and M-5 (whether the 650 ms actually falls) are all
-#: open, and this is the number they settle.
+#: ⚠ **A STARTING POINT TO BE MEASURED, NOT A MEASUREMENT.** `scripts/measure_turn_
+#: detection.py` answers M-1: one endpoint decision at 8 kHz costs p50 58 ms / p95 74 ms
+#: (60 inferences, development container, contended — re-run it rather than citing this).
+#: That is inside the 100 ms budget, so the model has room to end a turn before this ceiling
+#: does. What it CANNOT answer is whether the model is RIGHT: M-2 (false endpoints on
+#: అవును/సరే/హా/ఓకే) and M-3 (code-switch false interruptions) are content-dependent and
+#: need real Telugu PSTN clips, which nobody has recorded. Lowering this number waits on
+#: that corpus (`docs/evidence/pre-build-blockers-2026-09-13.md` §3.6).
 #:
 #: The 0.5 decision threshold beside it is hardcoded — `probability > 0.5` at
 #: `pipecat/audio/turn/smart_turn/local_smart_turn_v3.py:174` — and is not a parameter;

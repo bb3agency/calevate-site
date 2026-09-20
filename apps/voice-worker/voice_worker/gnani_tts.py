@@ -192,8 +192,16 @@ class CalevateGnaniTTSService(GnaniTTSService):  # type: ignore[misc]
         PER BARGE-IN.** Their protocol has no cancel, flush or stop message: the
         documentation's only interruption is that either side closes the connection. So
         every time a caller talks over the agent we throw away the TCP connection and the
-        TLS handshake and pay to open both again before the next sentence can start —
-        on a phone product, where barge-in happens constantly, several times a call.
+        TLS handshake and open both again — on a phone product, where barge-in happens
+        constantly, several times a call.
+
+        **WHAT IT DOES NOT COST IS DEAD AIR, AND THAT IS WORTH STATING BECAUSE THE SHAPE
+        INVITES THE OPPOSITE READING.** The interruption is broadcast when the user turn
+        STARTS, not when it ends (`llm_response_universal.py:1328-1329`), so this reconnect
+        runs while the caller is still talking and finishes concurrently with endpointing,
+        STT finalisation and the LLM's first token. The next `run_tts` cannot arrive until
+        all three have, so the handshake is off the voice-to-voice path rather than added
+        to it. `tests/voice_worker_gnani_tts_test.py` pins that ordering.
 
         Two things about that are UNKNOWN and are not guessed: whether closing the socket
         actually stops synthesis SERVER-SIDE, and whether we are billed for the text the

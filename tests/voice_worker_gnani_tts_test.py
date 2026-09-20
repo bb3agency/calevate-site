@@ -497,3 +497,26 @@ def test_the_ops_console_offers_the_key_where_it_is_actually_read() -> None:
     assert "GNANI_API_KEY" in ENV_ONLY_DISPLAY["gnani_api_key"]
     # A box the console would let an operator type into would store a value nothing reads.
     assert "gnani_api_key" not in manageable_secret_keys()
+
+
+def test_the_barge_in_reconnect_is_not_on_the_voice_to_voice_path() -> None:
+    """The reconnect starts when the caller STARTS talking, so it overlaps their utterance.
+
+    A latency audit read `_disconnect` as adding a TLS handshake between the caller
+    finishing and the agent's next word. It cannot: the frame that triggers it is broadcast
+    at user-turn start, and no `run_tts` can follow until endpointing, STT and the LLM have
+    all run. This pins the two upstream facts that make that true, so a Pipecat release
+    which moves the broadcast to turn END fails here rather than silently putting a
+    handshake on the call path.
+    """
+    import inspect as _inspect
+
+    from pipecat.processors.aggregators import llm_response_universal
+    from pipecat.services import tts_service
+
+    started = _inspect.getsource(llm_response_universal.LLMUserAggregator._on_user_turn_started)
+    assert "broadcast_interruption()" in started
+
+    handler = _inspect.getsource(tts_service.InterruptibleTTSService._handle_interruption)
+    assert "self._disconnect()" in handler
+    assert "self._connect()" in handler
