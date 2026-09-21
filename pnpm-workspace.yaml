@@ -49,7 +49,17 @@ overrides:
   "brace-expansion@>=4 <5.0.9": ">=5.0.9"
   postcss: ">=8.5.23"
   nanoid: ">=3.3.17"
-  sharp: ">=0.35.0"
+  # GHSA-rgj7-g3m4-5g8c (high): reached only as `next > sharp`, so the floor has to live
+  # here — bumping `next` alone does not move a transitive dependency's resolved version.
+  sharp: ">=0.35.4"
+  # GHSA-2883-xcg3-v3hh (high): `maxTotalMergeKeys` does not bound CPU when a merge
+  # source is empty, so a crafted document spins the event loop. Reached as
+  # `@eslint/eslintrc > js-yaml`.
+  #
+  # PINNED INSIDE MAJOR 4, for the reason the brace-expansion block above paid for: a
+  # bare `>=4.3.2` lets pnpm satisfy a `^3` consumer with 5.x, and a security override
+  # that silently crosses a major is a broken build wearing a patch's clothes.
+  "js-yaml@>=4 <4.3.2": "^4.3.2"
 
 # Build scripts are opt-in in pnpm 11. sharp = Next.js image optimization
 # (first-party toolchain dep). unrs-resolver was REMOVED here after the Jul 2026
