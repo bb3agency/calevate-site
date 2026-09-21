@@ -32,12 +32,10 @@ refuse-below-cost / warn-below-target posture `committed_plan_margin` already ap
 bundle (D-469). **A voice tier is never a bill**: what a Cartesia call actually COSTS us
 per character is Phase D's `TtsPriceAttestation`; everything here is the margin MODEL.
 
-⚠ **THE APPROVED CARD IS BELOW THE 20% TARGET ON ITS WHOLE SARVAM COLUMN AND ABOVE COST
-THROUGHOUT** — 17.2% at a flat ₹4.00 against a ₹3.3111 floor (it read 17.6% at ₹5.00 down
-to 8.4% at ₹4.50 against ₹4.1211 before D-592 moved the floor and D-601 the card). That is the
-founder's card (plan §2.2) read against a floor re-derived without telephony, and it is
-why the guard REFUSES below cost and only REPORTS below target. Do not "fix" a
-below-target row by moving the floor.
+**THE APPROVED CARD NOW CLEARS THE 20% TARGET ON BOTH COLUMNS** — 21.3% at a flat ₹4.00
+against the ₹3.1491 Clear floor, 21.5% on the deepest Studio rung against ₹4.7099. Every
+figure here is DERIVED; the guard still REFUSES below cost and only REPORTS below target,
+so do not "fix" a below-target row by moving the floor.
 
 The previous two-rung ladder (Bulbul v3 "premium" beside a Bulbul v2 "value" rung, with
 `billable_tier` billing the cheaper rung when a premium voice could not be proven) was
@@ -1246,11 +1244,11 @@ def stt_cost_inr(duration_s: int) -> Decimal:
 #                               three the doc publishes; the model is the one the plan
 #                               rate is frozen against (`BASE_RATE_LLM_MODEL` below is
 #                               this same constant — `tests/cost_floor_test.py` pins it).
-#   Sarvam TTS           ₹1.62  ESTIMATE over VENDOR-PUBLISHED — `TTS_INR_PER_10K_CHARS`
+#   TTS (Gnani)          ₹1.4580 ESTIMATE over VENDOR-PUBLISHED — `TTS_INR_PER_10K_CHARS`
 #                               at the TOP of `TTS_ASSUMED_CHARS_PER_CALL_MINUTE` (540
 #                               chars/min, itself unmeasured — pilot gate 12).
 #   ─────────────────────────
-#   Sarvam floor         ₹3.3111/min  (0.95 + 0.50 + 0.2411 + 1.62)
+#   Clear floor          ₹3.1491/min  (0.95 + 0.50 + 0.2411 + 1.4580)
 #
 # ⚠ **EVIDENCE CLASS OF THE SUM: ESTIMATE**, and it is now the SPEAKING RATE rather than the
 # fee that caps it — the fee was upgraded to VERIFIED-VENDOR-DOCS above, and the weakest
@@ -1907,17 +1905,15 @@ def cartesia_plan_marginal_cost_inr_per_min(plan: CartesiaPlan, *, usd_inr: Deci
 def cartesia_cost_floor_inr_per_min_at(usd_inr: Decimal) -> Decimal:
     """**THE CARTESIA COST FLOOR AT A NAMED USD→INR RATE** — the worst marginal cost.
 
-    ₹5.5899 at ₹88, ₹6.0120 at ₹95.66, ₹6.2511 at ₹100. The founder's second decision of
+    ₹4.7099 at ₹88, ₹5.0554 at ₹95.66, ₹5.2511 at ₹100. The founder's second decision of
     9 Sep 2026 lives here: Cartesia bills in dollars, this repository already pulls and
     publishes USD→INR every five minutes (`ops/fx_rates.py` → `core/fx.usd_inr_rate_now`),
     and a cost we actually pay in dollars must move with the rupee.
 
-    ⚠ **AT ₹95.66 THE ₹6.00 MAX RUNG IS UNDER WATER (-0.2%), AND AT ₹100 IT IS -4.2%.** Do
-    not quote that without its qualifier: it is the pure OVERAGE marginal rate and applies
-    only ABOVE the included allotment. At 200 call-minutes a month on Pro the BLENDED cost
-    is ~₹5.30 and the same rung earns ~12%. The exposed case is a high-volume client on the
-    ₹50,000 pack, and both figures belong on the console —
-    `cartesia_cost_inr_per_call_minute` is the blended one.
+    This is the pure OVERAGE marginal rate and applies only ABOVE the included allotment,
+    so it is the worst case rather than what a typical month costs; the BLENDED figure is
+    `cartesia_cost_inr_per_call_minute`, and both belong on the console. The ₹6.00 max rung
+    clears target against it (21.5% at ₹88) — it did NOT while the engine leg was $0.02.
 
     **THIS IS NOT THE REFUSAL THRESHOLD** — see `CARTESIA_COST_FLOOR_INR_PER_MIN`.
     """
@@ -2098,8 +2094,8 @@ def cartesia_rung_breakeven_call_minutes(
 
 
 #: **THE FROZEN STRUCTURAL BOUND `credit_packs.card_refusals` REFUSES BELOW**, struck at the
-#: evidence file's ₹88 = $1: the shared legs (₹2.5011) plus the worst marginal TTS cost
-#: (₹3.0888) = **₹5.5899/min**.
+#: evidence file's ₹88 = $1: the shared legs (₹1.6911) plus the worst marginal TTS cost
+#: (₹3.0888) = **₹4.7099/min**.
 #:
 #: ⚠ **THIS USED TO BE ₹4.3639 AND THAT NUMBER WAS A BEST CASE WEARING A FLOOR'S NAME.** It
 #: was the $49 Startup fee spread over the 2,315 call-minutes at which its allotment is
@@ -2119,8 +2115,9 @@ def cartesia_rung_breakeven_call_minutes(
 #: Both decisions of 9 Sep 2026 are honoured, in the two places they belong. This constant
 #: is the REFUSAL, and a refusal that moves with a currency feed would make a card
 #: recordable today and refused tomorrow on an FX tick alone — at ₹95.66 the live floor is
-#: ₹6.0120 and the founder's own ₹6.00 max rung is under it, so an operator re-recording
-#: today's live card would be told the card that is currently on sale may not be sold. That
+#: ₹5.0554, and while the engine leg was $0.02 it was ₹6.0120, above the founder's own
+#: ₹6.00 max rung, so an operator re-recording today's live card would have been told the
+#: card that is currently on sale may not be sold. That
 #: is the outcome the founder ruled out ("the rate card does not change"), so the hard veto
 #: stays on this fixed bound and the LIVE figure —
 #: `cartesia_cost_floor_inr_per_min_at(<published quote>)` — is published loudly beside the
@@ -2432,9 +2429,8 @@ class RateMargin:
     (D-547) and a verdict that does not say which one it was struck against is a verdict a
     reader has to guess at — the ops console's card preview renders twelve of these side by
     side, six against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and six against
-    `CARTESIA_COST_FLOOR_INR_PER_MIN` (₹3.3111 and ₹4.7099 since D-592 halved the engine
-    leg; ⚠ this named ₹4.1211 and ₹5.5899, and the second of those read ₹4.3639 until D-556
-    replaced a best case with the worst marginal cost).
+    `CARTESIA_COST_FLOOR_INR_PER_MIN` (₹3.1491 and ₹4.7099 — both DERIVED, so quote them
+    from the constants rather than from here).
     """
 
     rate: Decimal
