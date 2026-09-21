@@ -368,7 +368,11 @@ doctor_cmd() {
   else
     ok "mismatch is expected and harmless — the image is built on Pipecat Cloud, not here"
   fi
-  if [[ -r /proc/sys/fs/binfmt_misc ]] && ls /proc/sys/fs/binfmt_misc 2>/dev/null | grep -qi qemu; then
+  # A GLOB RATHER THAN `ls | grep` (SC2010): the shell matches the handler names
+  # directly, so a filename containing a newline or a space cannot be split into two
+  # apparent matches. An unmatched glob stays literal, which `-e` then reports as absent.
+  local -a qemu_handlers=(/proc/sys/fs/binfmt_misc/qemu-*)
+  if [[ -r /proc/sys/fs/binfmt_misc && -e "${qemu_handlers[0]}" ]]; then
     say "  (QEMU binfmt handlers are registered, so a local cross-build would also work)"
   fi
 
