@@ -49,9 +49,9 @@ both through this route and on the raw session.
 Hard rule 6: `document_ref` is a public business-registry identifier; `signatory_name`
 and `verified_name` are the names of the person who signed for the entity and the person
 a licensed aggregator attested, both of which that entity already knows. No
-identity-document number exists in the schema to leak, and three CHECK constraints refuse
-one being typed in. Names are returned to the account they belong to and appear in no log
-line and no audit summary.
+identity-document number exists in the schema to leak, and a CHECK on every reference and
+name column refuses one being typed in. Names are returned to the account they belong to
+and appear in no log line and no audit summary.
 """
 
 from __future__ import annotations
@@ -73,6 +73,7 @@ from apps.api.compliance.kyc_providers import available_provider
 from apps.api.compliance.kyc_verification import (
     VERIFICATION_UNAVAILABLE_REASON,
     apply_outcome,
+    expire_stale_runs,
     open_request,
     resolve_request,
 )
@@ -285,12 +286,28 @@ async def start_verification(
             "This business's identity is already verified.",
             remediation="Nothing further is needed.",
         )
+    if record.entity_type is not None and record.entity_type != body.entity_type:
+        # THE DECLARATION DOES NOT OVERRULE WHAT IS ON FILE. The entity type decides the
+        # BRANCH, and only `sole_proprietorship` reaches `verified` on one person's
+        # DigiLocker authentication — so a company declaring itself a proprietorship is
+        # the one input on this route that could verify a business nobody checked. Where
+        # an operator has already recorded how the business is constituted, a contradiction
+        # is refused rather than silently overwritten by `record_kyc`'s upsert.
+        raise ProblemError.business_rule(
+            "entity_type_on_file_differs",
+            "Our record of how this business is registered does not match what you "
+            "selected, so we cannot start a verification against it.",
+            remediation="Contact support to correct the registered entity type before verifying.",
+        )
 
     provider = capability.provider
     start = await provider.start(
         entity_type=body.entity_type,
         redirect_back_url=await _return_url(session, tenant_id=principal.tenant_id),
     )
+    # This tenant's abandoned runs, closed on the way past. One of the two writers of
+    # `expired` — the other is the webhook — which is why there is no sweep to schedule.
+    await expire_stale_runs(session, tenant_id=principal.tenant_id)
     # The row is committed BEFORE the client can possibly reach the provider, because the
     # webhook has no other way to learn whose run this is. `open_request` argues the
     # ordering in full.
@@ -417,6 +434,12 @@ async def receive_verification_outcome(provider: str, request: Request) -> Verif
 
     async with tenant_session(run.tenant_id) as session:
         result = await apply_outcome(session, request=run, provider=provider, outcome=outcome)
+    if result == "expired":
+        # Post-signature, so the provider is genuine and something is reporting on a run
+        # that outlived its window. Either their delivery is days late or somebody is
+        # spending an old reference; both are worth a person's attention, and neither
+        # verified anybody.
+        alert("ROUTE_HANDLER", "kyc_webhook_expired_run", provider=provider)
     return VerificationAck(status=result)
 
 

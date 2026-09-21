@@ -45,6 +45,8 @@ from apps.api.core.settings import get_settings
 NO_PROVIDER_CONFIGURED: Final = "no_provider_configured"
 NO_WEBHOOK_SECRET: Final = "no_webhook_secret"
 PROVIDER_CONTRACT_UNVERIFIED: Final = "provider_contract_unverified"
+#: The in-house adapter, named on a deployment that is not a developer's machine.
+PROVIDER_NOT_LICENSED: Final = "provider_not_licensed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +83,15 @@ def available_provider() -> ProviderCapability:
     name = settings.kyc_verification_provider
     if not name or name not in KYC_PROVIDERS:
         return ProviderCapability(None, NO_PROVIDER_CONFIGURED)
+    if name == "fake" and settings.app_env != "local":
+        # THE ONE PROVIDER THIS LADDER WOULD OTHERWISE ADMIT ON TWO CONFIG VALUES.
+        # `fake` signs with a secret WE hold, so selecting it outside a developer's
+        # machine would let a deployment mark its own clients verified and write a
+        # `kyc_records` row asserting that a provider attested an identity — the forged
+        # verification the signature check exists to prevent, arriving through the
+        # config instead of the wire. Refused here rather than by deleting the adapter,
+        # because it is what proves this seam works at all.
+        return ProviderCapability(None, PROVIDER_NOT_LICENSED)
     secret = settings.kyc_verification_webhook_secret
     if not secret:
         return ProviderCapability(None, NO_WEBHOOK_SECRET)
@@ -104,6 +115,7 @@ __all__ = [
     "NO_PROVIDER_CONFIGURED",
     "NO_WEBHOOK_SECRET",
     "PROVIDER_CONTRACT_UNVERIFIED",
+    "PROVIDER_NOT_LICENSED",
     "ProviderCapability",
     "available_provider",
 ]

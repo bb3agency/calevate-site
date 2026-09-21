@@ -101,12 +101,21 @@ async def test_an_objective_longer_than_the_column_is_refused() -> None:
 
 def test_a_run_is_open_only_while_it_is_created() -> None:
     """`is_open` is what the webhook uses to decide whether an outcome may still land, so
-    a terminal run reading as open would let a replay rewrite a settled verdict."""
+    a terminal run reading as open would let a replay rewrite a settled verdict — and a
+    run past `RUN_TTL` is terminal in every way but the column."""
     assert VerificationRequest(
         id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
         entity_type="sole_proprietorship",
         status=REQUEST_CREATED,
+        past_ttl=False,
+    ).is_open
+    assert not VerificationRequest(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        entity_type="sole_proprietorship",
+        status=REQUEST_CREATED,
+        past_ttl=True,
     ).is_open
     for settled in ("completed", "failed", "expired"):
         assert not VerificationRequest(
@@ -114,6 +123,7 @@ def test_a_run_is_open_only_while_it_is_created() -> None:
             tenant_id=uuid.uuid4(),
             entity_type="sole_proprietorship",
             status=settled,
+            past_ttl=False,
         ).is_open
 
 

@@ -227,6 +227,15 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "them to survive; and because a GST certificate and a signed application name people. "
     "If the file store cannot be reached this erasure FAILS, rather than reporting a "
     "destruction it did not perform.",
+    "The identity verification of this business is retained: how it was registered, the "
+    "registry document it was checked against, the name of the person who signed for it "
+    "or who a licensed aggregator attested, and the aggregator's reference. It is named "
+    "here rather than left to the counts because it names a natural person, and because "
+    "it is the one record that says who personally stood behind this account. We are "
+    "obliged to be able to say that: an authorised telecom entity has to identify the "
+    "users it serves, and the identification evidence for connections already used is "
+    "exactly the retention the erasure right leaves in place. No Aadhaar number, no "
+    "identity document and no image was ever held to retain.",
     "The people at this client — their user accounts, their memberships and who did "
     "what in the console — are retained. Their access ends the moment this erasure "
     "completes, because every membership resolution and every dial gate refuses an "
@@ -411,6 +420,29 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "disagreed with: under DPDP §8(7) personal data is to be erased once the "
             "purpose it was collected for is served, and the purpose these files were "
             "collected for ends with the engagement."
+        ),
+    ),
+    ErasureLimitation(
+        what="This business's identity verification, and the name it attests.",
+        keyword="identity verification",
+        outcome="retained_as_evidence",
+        why=(
+            "The record says how the business is registered, against which public "
+            "registry document, and the name of the natural person who signed for it or "
+            "whom a licensed aggregator attested. It is the only record that says who "
+            "personally stood behind this account, which is the question it was created "
+            "to answer. Nothing is destroyed by keeping it that the client can be "
+            "identified by elsewhere: no Aadhaar number, no identity document and no "
+            "image is held, by either verification route."
+        ),
+        authority=(
+            "Telecommunications Act 2023 s.3(7) obliges an authorised entity to identify "
+            "the users it serves, and the DoT business-connection instructions make the "
+            "entity's registration documents the evidence of it. DPDP §8(7) requires "
+            "erasure once the purpose is served 'unless retention … is necessary for "
+            "compliance with any law for the time being in force' — the identification "
+            "evidence for connections already used is that case, as it is for the "
+            "ledgers above."
         ),
     ),
     ErasureLimitation(

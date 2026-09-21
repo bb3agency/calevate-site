@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -358,7 +359,10 @@ async def test_tenant_b_cannot_see_tenant_as_verification_request() -> None:
 # ---------------------------------------------- the published promise, against the database
 
 
-@pytest.mark.parametrize("column", ["document_ref", "verification_reference", "verified_name"])
+@pytest.mark.parametrize(
+    "column",
+    ["document_ref", "verification_reference", "verified_name", "signatory_name", "evidence_ref"],
+)
 async def test_an_aadhaar_shaped_value_cannot_be_stored_on_the_record(column: str) -> None:
     """`/legal/privacy` tells clients this schema refuses a twelve-digit bare number and
     cites Aadhaar Act 2016 s.29 for why. Asserted against the real CHECK constraints,
@@ -518,3 +522,144 @@ async def test_an_already_verified_business_cannot_start_another_run() -> None:
         )
     assert again.status_code == 422, again.text
     assert again.json()["type"].endswith("kyc_already_verified")
+
+
+# ------------------------------------------- a verified record is not replaceable by a run
+
+
+async def test_a_run_opened_before_the_record_was_verified_cannot_downgrade_it() -> None:
+    """The hole the "already verified" refusal on the start route does not cover.
+
+    That refusal only sees runs opened AFTER the verification. A run opened BEFORE it —
+    a company's, which resolves to `submitted` — landed on `record_kyc`, whose upsert
+    takes `status` from EXCLUDED outright and clears `verified_at`. So a client with an
+    abandoned tab could be un-verified by finishing it, and their dialling stopped.
+    """
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    ref = await _start(org, "private_limited")
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO kyc_records (id, tenant_id, status, entity_type, document_kind, "
+                "  document_ref, verification_source, verified_by_admin_id, submitted_at, "
+                "  verified_at, created_at, updated_at) "
+                "VALUES (:id, :tid, 'verified', 'private_limited', 'cin', 'U72900KA2020PTC1', "
+                "  'operator', :admin, now(), now(), now(), now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "admin": await _an_admin_id()},
+        )
+
+    response = await _deliver({"provider_ref": ref, "verified": True, "verified_name": "R Kumar"})
+    assert response.status_code == 200, response.text
+
+    async with tenant_session(tenant_id) as session:
+        record = await read_kyc(session, tenant_id=tenant_id)
+    assert record.is_verified, "a completed run must never un-verify an account"
+    assert record.verification_source == "operator"
+    assert record.verified_at is not None
+
+
+async def _an_admin_id() -> uuid.UUID:
+    """A real `admin_users` row — `verified_by_admin_id` has an FK to it."""
+    admin_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
+            ),
+            {"id": admin_id, "email": f"{admin_id}@calevate.test"},
+        )
+    return admin_id
+
+
+async def test_a_business_on_file_as_a_company_cannot_self_declare_a_proprietorship() -> None:
+    """The branch is decided by the entity type, and the client supplies it. Where an
+    operator has already recorded how the business is constituted, THAT is the fact — a
+    declaration contradicting it would take a company down the branch that reaches
+    `verified` on one person's DigiLocker authentication."""
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO kyc_records (id, tenant_id, status, entity_type, "
+                "  verification_source, submitted_at, created_at, updated_at) "
+                "VALUES (:id, :tid, 'submitted', 'private_limited', 'operator', now(), "
+                "  now(), now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id},
+        )
+    async with _client() as http:
+        response = await http.post(
+            START_PATH,
+            headers=await _headers(org),
+            json={"entity_type": "sole_proprietorship"},
+        )
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("entity_type_on_file_differs")
+
+
+# ------------------------------------------------------------------ a run does not stay open
+
+
+async def _age_run(ref: str, *, tenant_id: uuid.UUID, days: int) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE kyc_verification_requests SET created_at = now() - :age "
+                "WHERE provider_ref = :ref"
+            ),
+            {"ref": ref, "age": timedelta(days=days)},
+        )
+
+
+async def test_an_outcome_for_a_run_past_its_window_verifies_nobody() -> None:
+    """A run is a capability: it is the one reference that lets an unauthenticated caller
+    move this tenant's record. Nothing expired one, so a delivery quoting a reference from
+    months ago still applied — which is the window a leaked signing secret would use."""
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    ref = await _start(org, "sole_proprietorship")
+    await _age_run(ref, tenant_id=tenant_id, days=30)
+
+    response = await _deliver({"provider_ref": ref, "verified": True, "verified_name": "R Kumar"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "expired"
+
+    async with tenant_session(tenant_id) as session:
+        assert not (await read_kyc(session, tenant_id=tenant_id)).recorded
+        row = (
+            await session.execute(
+                text("SELECT status FROM kyc_verification_requests WHERE provider_ref = :ref"),
+                {"ref": ref},
+            )
+        ).first()
+    assert row is not None and row[0] == "expired"
+
+
+async def test_starting_a_run_closes_this_tenants_abandoned_ones() -> None:
+    """`expired` is written by the two readers that exist — a late delivery and the next
+    run — so the state a row reports is the state it is in, with no sweep to schedule."""
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    stale = await _start(org, "sole_proprietorship")
+    await _age_run(stale, tenant_id=tenant_id, days=30)
+
+    fresh = await _start(org, "sole_proprietorship")
+    async with tenant_session(tenant_id) as session:
+        rows = dict(
+            (
+                await session.execute(
+                    text(
+                        "SELECT provider_ref, status FROM kyc_verification_requests "
+                        "WHERE tenant_id = :tid"
+                    ),
+                    {"tid": tenant_id},
+                )
+            ).all()
+        )
+    assert rows[stale] == "expired"
+    assert rows[fresh] == "created"

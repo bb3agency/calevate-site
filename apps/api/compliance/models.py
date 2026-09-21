@@ -706,6 +706,17 @@ class KycRecord(PKMixin, TimestampMixin, Base):
             "document_ref IS NULL OR document_ref !~ '^[0-9]{12}$'",
             name="document_ref_is_not_an_aadhaar",
         ),
+        # And on the two an OPERATOR types. `/legal/privacy` §4 lists the signatory's name
+        # and the evidence reference among the fields it promises refuse a twelve-digit
+        # bare number; they were the two the promise covered and the schema did not.
+        CheckConstraint(
+            "signatory_name IS NULL OR signatory_name !~ '^[0-9]{12}$'",
+            name="signatory_name_is_not_an_aadhaar",
+        ),
+        CheckConstraint(
+            "evidence_ref IS NULL OR evidence_ref !~ '^[0-9]{12}$'",
+            name="evidence_ref_is_not_an_aadhaar",
+        ),
         # The same backstop on the two columns an aggregator result writes. A NAME column
         # is where a careless paste lands.
         CheckConstraint(

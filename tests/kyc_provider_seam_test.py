@@ -30,6 +30,7 @@ from apps.api.compliance.kyc_providers.registry import (
     NO_PROVIDER_CONFIGURED,
     NO_WEBHOOK_SECRET,
     PROVIDER_CONTRACT_UNVERIFIED,
+    PROVIDER_NOT_LICENSED,
 )
 from apps.api.compliance.kyc_providers.setu import SetuDigiLocker
 from apps.api.compliance.models import KYC_ENTITY_TYPES, KycRecord, KycVerificationRequest
@@ -77,6 +78,19 @@ def test_a_provider_whose_contract_was_never_read_is_unavailable(monkeypatch) ->
     capability = available_provider()
     assert not capability.available
     assert capability.reason == PROVIDER_CONTRACT_UNVERIFIED
+
+
+def test_the_in_house_adapter_is_not_selectable_outside_local(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """`fake` signs with a secret WE hold, so selecting it anywhere real would let this
+    deployment mark its own clients verified and record that a provider attested it. Two
+    config values are all that stood between a production deployment and that row."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "kyc_verification_provider", "fake", raising=False)
+    monkeypatch.setattr(settings, "kyc_verification_webhook_secret", SECRET, raising=False)
+    monkeypatch.setattr(settings, "app_env", "prod", raising=False)
+    capability = available_provider()
+    assert not capability.available
+    assert capability.reason == PROVIDER_NOT_LICENSED
 
 
 def test_the_unimplemented_adapter_raises_rather_than_returning_false() -> None:
@@ -140,6 +154,8 @@ def test_only_a_sole_proprietorship_is_the_person_verified() -> None:
 #: fails this file rather than shipping.
 _GUARDED = {
     ("kyc_records", "document_ref"),
+    ("kyc_records", "signatory_name"),
+    ("kyc_records", "evidence_ref"),
     ("kyc_records", "verification_reference"),
     ("kyc_records", "verified_name"),
     ("kyc_verification_requests", "provider_ref"),

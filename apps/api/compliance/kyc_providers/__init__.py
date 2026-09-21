@@ -19,6 +19,7 @@ from apps.api.compliance.kyc_providers.registry import (
     NO_PROVIDER_CONFIGURED,
     NO_WEBHOOK_SECRET,
     PROVIDER_CONTRACT_UNVERIFIED,
+    PROVIDER_NOT_LICENSED,
     ProviderCapability,
     available_provider,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "NO_PROVIDER_CONFIGURED",
     "NO_WEBHOOK_SECRET",
     "PROVIDER_CONTRACT_UNVERIFIED",
+    "PROVIDER_NOT_LICENSED",
     "EntityBranch",
     "IdentityVerificationProvider",
     "ProviderCapability",

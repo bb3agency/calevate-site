@@ -181,6 +181,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # stuck mid-verification and no outsider can manufacture it.
     "kyc_webhook_unreadable_payload": "attention",
     "kyc_webhook_unknown_reference": "attention",
+    # Same class: post-signature, so it is the configured provider reporting on a run that
+    # outlived its window. Nobody was verified and the client can start another run, but a
+    # burst of them on old references is a signing-secret question.
+    "kyc_webhook_expired_run": "attention",
     "engine_number_not_linked": "attention",
     "engine_number_purchase_unusable": "attention",
     "engine_caller_id_not_configured": "attention",

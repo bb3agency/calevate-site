@@ -14,9 +14,10 @@ succeeded, which provider, that provider's transaction reference, and the verifi
 holder's NAME. We hold no Aadhaar number, no PAN of a natural person, no document, no
 scan and no reference to one. `/legal/privacy` states this to clients and cites Aadhaar
 Act 2016 s.29 for why, so the absence is a published promise and not merely a preference;
-`kyc_records` carries three CHECK constraints refusing a twelve-digit bare value in the
-columns this module writes, which is what makes the promise enforceable rather than
-aspirational.
+every `kyc_records` column that names a reference or a person carries a CHECK refusing a
+twelve-digit bare value, which is what makes the promise enforceable rather than
+aspirational; `tests/kyc_provider_seam_test.py` asserts the set from the mapping so a new
+column is covered the day it appears.
 
 THE TENANT COMES FROM OUR ROW, NEVER FROM THE PAYLOAD
 ------------------------------------------------------
@@ -47,6 +48,7 @@ everything an auditor needs and nothing a log aggregator should hold.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Final, Literal
 from uuid import UUID
 
@@ -54,7 +56,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
-from apps.api.compliance.kyc import record_kyc
+from apps.api.compliance.kyc import read_kyc, record_kyc
 from apps.api.compliance.kyc_providers import VerificationOutcome, entity_branch
 from apps.api.compliance.models import KYC_VERIFIED
 from apps.api.db.base import uuid7
@@ -64,9 +66,25 @@ from apps.api.db.result import rowcount_of
 #: applied to, which is what makes the webhook idempotent.
 REQUEST_CREATED: Final = "created"
 
+#: How long an open run may still absorb an outcome.
+#:
+#: A run is a CAPABILITY: its reference is the one thing that lets an unauthenticated
+#: caller move a tenant's verification record, and a capability with no expiry is one a
+#: leaked signing secret can still spend months after the client abandoned the tab. Seven
+#: days is OURS and is not a vendor fact — no aggregator's consent-request validity is
+#: readable from this environment (`kyc_providers/setu.py` records the measurement), so
+#: the window is set from the shape of the flow instead: a browser redirect the client
+#: either completes in that sitting or leaves, and a retry burst from any provider is
+#: bounded in hours. It is deliberately generous in the direction that is safe to be
+#: wrong in — a refused late outcome costs the client another run, and every one of them
+#: is free, while an unbounded one costs a forged verification.
+RUN_TTL: Final = timedelta(days=7)
+
 #: What `apply_outcome` did, for the route to turn into an ack. `replay` is a SUCCESS —
 #: the provider is retrying a delivery we already absorbed and must be told to stop.
-OutcomeResult = Literal["applied", "replay", "unknown_reference"]
+#: `expired` is a REFUSAL that still acks, because the run really is over and a provider
+#: retrying into a 500 forever helps nobody.
+OutcomeResult = Literal["applied", "replay", "expired", "unknown_reference"]
 
 #: Client-facing sentences for the states a verification run can end in. Defined here
 #: beside the record they describe, for the same reason `KYC_MISSING_REASON` is:
@@ -93,10 +111,14 @@ class VerificationRequest:
     tenant_id: UUID
     entity_type: str
     status: str
+    #: Computed by the DATABASE against `created_at`, not here: the row's age is measured
+    #: on the clock that stamped it, so an app server whose time has drifted cannot expire
+    #: a live run or revive a dead one.
+    past_ttl: bool
 
     @property
     def is_open(self) -> bool:
-        return self.status == REQUEST_CREATED
+        return self.status == REQUEST_CREATED and not self.past_ttl
 
 
 async def open_request(
@@ -146,17 +168,42 @@ async def resolve_request(
     row = (
         await session.execute(
             text(
-                "SELECT id, tenant_id, entity_type, status FROM kyc_verification_requests "
+                "SELECT id, tenant_id, entity_type, status, created_at < now() - :ttl "
+                "FROM kyc_verification_requests "
                 "WHERE provider = :provider AND provider_ref = :ref"
             ),
-            {"provider": provider, "ref": provider_ref},
+            {"provider": provider, "ref": provider_ref, "ttl": RUN_TTL},
         )
     ).first()
     if row is None:
         return None
     return VerificationRequest(
-        id=row[0], tenant_id=row[1], entity_type=str(row[2]), status=str(row[3])
+        id=row[0],
+        tenant_id=row[1],
+        entity_type=str(row[2]),
+        status=str(row[3]),
+        past_ttl=bool(row[4]),
     )
+
+
+async def expire_stale_runs(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """Close this tenant's runs that are past `RUN_TTL`. Returns how many.
+
+    Called when the client starts another run, which with the webhook's own check makes
+    two writers of `expired` and no third state anybody has to schedule. A background
+    sweep was the alternative and buys nothing here: the row has exactly two readers, both
+    of them evaluate the age themselves, and a fleet-wide cron over a table whose stale
+    rows nothing consults would be a deployable added for tidiness.
+    """
+    closed = await session.execute(
+        text(
+            "UPDATE kyc_verification_requests SET status = 'expired', completed_at = now(), "
+            "  updated_at = now() "
+            "WHERE tenant_id = :tid AND status = 'created' AND created_at < now() - :ttl"
+        ),
+        {"tid": tenant_id, "ttl": RUN_TTL},
+    )
+    return rowcount_of(closed)
 
 
 async def apply_outcome(
@@ -176,6 +223,30 @@ async def apply_outcome(
     optimistic locking against a concurrent operator — it is the provider's own retry,
     which is guaranteed rather than hypothetical.
     """
+    if request.past_ttl:
+        # The run outlived its window (`RUN_TTL`). Refused BEFORE the completion CAS, so a
+        # late outcome cannot verify anybody — and stamped `expired` in the same breath,
+        # because a row that refuses deliveries while still reading `created` is a state
+        # nobody can act on.
+        expired = await session.execute(
+            text(
+                "UPDATE kyc_verification_requests SET status = 'expired', "
+                "  completed_at = now(), updated_at = now() "
+                "WHERE id = :id AND status = 'created'"
+            ),
+            {"id": request.id},
+        )
+        if rowcount_of(expired) == 0:
+            return "replay"
+        await _audit(
+            session,
+            request=request,
+            provider=provider,
+            outcome=outcome,
+            action="kyc.self_verification_expired",
+        )
+        return "expired"
+
     closed = await session.execute(
         text(
             "UPDATE kyc_verification_requests SET status = :status, failure_reason = :reason, "
@@ -205,6 +276,24 @@ async def apply_outcome(
             provider=provider,
             outcome=outcome,
             action="kyc.self_verification_failed",
+        )
+        return "applied"
+
+    if (await read_kyc(session, tenant_id=request.tenant_id)).is_verified:
+        # ALREADY VERIFIED, BY WHATEVER ROUTE — so this outcome may not touch the record.
+        # `record_kyc` takes `status` from EXCLUDED outright and re-stamps `verified_at`,
+        # which on the signatory branch below means a company's completed run would move a
+        # verified account back to `submitted` and stop its dialling. The start route's
+        # "already verified" refusal cannot cover this: the run was opened BEFORE the
+        # verification existed. The run itself still closes — it genuinely completed at the
+        # provider — and the audit row says an attestation arrived for an account that had
+        # one already, which is what an auditor needs to see.
+        await _audit(
+            session,
+            request=request,
+            provider=provider,
+            outcome=outcome,
+            action="kyc.self_verification_superseded",
         )
         return "applied"
 
@@ -275,11 +364,13 @@ async def _audit(
 
 __all__ = [
     "REQUEST_CREATED",
+    "RUN_TTL",
     "SIGNATORY_VERIFIED_REASON",
     "VERIFICATION_UNAVAILABLE_REASON",
     "OutcomeResult",
     "VerificationRequest",
     "apply_outcome",
+    "expire_stale_runs",
     "open_request",
     "resolve_request",
 ]

@@ -910,7 +910,12 @@ class TestLegalContentHash:
         """DETECTION. One field removed from the real file, which is what "make CI green
         by deleting the guard's input" looks like in a diff."""
         versions = self._real_versions()
-        target = 'contentHash: "sha256:'
+        # A REGEX, NOT A LITERAL, and that is the whole reason this test was not guarding.
+        # It counted occurrences of `contentHash: "sha256:` on one line. Prettier wraps a
+        # long value onto the next one, so the literal occurred ZERO times while the file
+        # held twenty-two hashes — the assertion read `0 == 19` and the detection test had
+        # been reporting its own formatting rather than the hashes it exists to protect.
+        target = re.compile(r'contentHash:\s*"sha256:')
         # DERIVED, NOT TYPED. This used to assert `== 8`, and a legitimate new revision
         # made it 9 and turned a DETECTION test into a failing build — the count-in-prose
         # defect this repo names in hard rule 4. The mirror is the same file this test
@@ -924,7 +929,7 @@ class TestLegalContentHash:
             for hash_ in entry["content_hashes"]  # type: ignore[union-attr]
             if hash_ is not None
         )
-        assert versions.count(target) == expected, (
+        assert len(target.findall(versions)) == expected, (
             "the mirror and the raw file disagree about how many revisions carry a hash"
         )
         assert expected, "no hash to delete — this test would prove nothing"
@@ -940,9 +945,9 @@ class TestLegalContentHash:
             for entry in guard.web_legal_versions().values()
             if entry["content_hashes"][-1] is not None  # type: ignore[index,union-attr]
         )
-        start = versions.index(f'contentHash: "{current_hash}"')
-        end = versions.index("\n", start)
-        mutated = versions[:start] + versions[end + 1 :]
+        field = re.search(rf'contentHash:\s*"{re.escape(current_hash)}",?\n', versions)
+        assert field is not None, "the current hash is not in the raw file as a field"
+        mutated = versions[: field.start()] + versions[field.end() :]
         self._bundle(tmp_path, monkeypatch, mutated)
 
         failures = guard.legal_catalogue_drift()
