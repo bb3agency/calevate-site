@@ -24,24 +24,15 @@
  * The copy on this panel says both, in the client's words, once. It does not repeat them
  * per row, and it does not soften them.
  *
- * ⚠ **THE ENGINE IS A VARIABLE AND THIS PANEL CANNOT READ IT (D-592).** Both sentences
- * above are true of `bolna`, whose `in_call_handoff` is
- * `True` (`apps/api/engine/bolna.py`). On the runtime we host ourselves it is `False`
- * (`PIPECAT_CAPABILITIES`, `apps/api/engine/pipecat.py:234`), and the capability's own
- * authored remediation says what that means for this screen in as many words:
- * *"the people on this agent's handover list would never be rung"*
- * (`apps/api/engine/capabilities.py::_REMEDIATION["in_call_handoff"]`). So on that engine
- * the verdict above the list would read as working while nothing could ever happen.
- *
- * It is NOT fixable here and it is not fixable by rewording: `GET …/handoff` runs no
- * `require_capability` and `HandoffOut` carries no engine or capability field
- * (`apps/api/agents/handoff_routes.py` — `unavailable_reason` is about the DUTY ROSTER,
- * not about the platform), so nothing on the wire could drive the notice. The fix is the
- * route asking the capability and putting the refusal on the response, the way
- * `KbDriftOut.engine_supports_knowledge_base` and `VerificationOut.publishable` already
- * do. Recorded here rather than solved with a hardcoded sentence, because a panel that
- * guessed which engine was running would be wrong in exactly the direction that costs a
- * caller.
+ * **WHETHER A HANDOVER CAN HAPPEN AT ALL IS THE ENGINE'S ANSWER, NOT THIS PANEL'S
+ * (D-592).** Both sentences above describe an engine that CAN bridge a call;
+ * `in_call_handoff` is `False` on the runtime we host ourselves, where nobody on the list
+ * would ever be rung. So this screen must never compose its own verdict: `GET …/handoff`
+ * asks `transfer_blocked_reason(get_engine())` and returns it as `unavailable_reason` with
+ * its `remediation` (`apps/api/agents/handoff_routes.py`), the same shape
+ * `KbDriftOut.engine_supports_knowledge_base` and `VerificationOut.publishable` use.
+ * Render the server's sentence. A panel that guessed which engine was running would be
+ * wrong in exactly the direction that costs a caller.
  *
  * ## Why the whole list saves at once
  *

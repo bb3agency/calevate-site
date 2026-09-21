@@ -105,8 +105,8 @@ async def refresh_voice_catalogue(ctx: dict[str, Any]) -> str:
             SYNC_FAILED_CODE,
             detail=(
                 "The voice catalogue could not be refreshed from the voice platform. The "
-                "last synced catalogue (or the built-in seed) is still being offered, so "
-                "no client is blocked — but a voice cloned or withdrawn on the platform "
+                "last synced catalogue is still being offered, so no client is blocked — "
+                "but a voice cloned or withdrawn on the platform "
                 "will not appear or disappear until this succeeds. Check the engine "
                 "credential, then POST /v1/ops/voices/refresh."
             ),

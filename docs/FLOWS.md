@@ -39,17 +39,24 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
    answer when a caller ASKS is not switchable by anyone); extraction schema
    pre-filled from vertical template, edited per client; voice/language/model picks.
 5. **Knowledge**: paste text → chunk preview → admin approves → publish, which recompiles
-   T0 and, on an engine with a built-in knowledge base, attaches the new version and
-   detaches the superseded one. **On Bolna it REFUSES at the capability check before
-   anything is withdrawn** (`kb/service.py`, `require_capability("knowledge_base")`,
-   `BOLNA_CAPABILITIES.knowledge_base = False`, D-354): their create endpoint takes a PDF
-   or a URL and has no text field, which is the only shape our approved-prose pipeline
-   produces (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:31-80`).
-   Refusing before the detach is deliberate — the alternative takes a client's knowledge
-   down in order to report that we could not replace it. So T0 is what a client's
-   knowledge buys today (TRD §6.2). Same path and same limits as §7,
-   which is the one description of it — PDFs and URLs are refused by name until an
-   ingestion worker exists, and there is no embeddings job of ours (D-28/D-33).
+   T0 and, on an engine with a built-in knowledge base, ATTACHES the new version and only
+   then detaches the superseded one. **That ordering is the product of D-488 and it
+   reversed D-41's**: a real attach is an upload plus an indexing wait no vendor bounds, so
+   detaching first would leave the agent answering "I don't know" for the whole of it on
+   every republish. The window is therefore an OVERLAP, not a gap. D-488 also reversed
+   D-354, which had declared the capability absent because the vendor's create route takes
+   a PDF or a URL and our approved-prose pipeline produced only text
+   (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:31-80`): the
+   PUBLISHER now renders the approved prose into the document the route takes
+   (`KBSourceRef.document`, rendered in `apps/api/kb/` where the approval gate can see it),
+   and the agent linkage is written where it lives, on the agent. An adapter handed no
+   document still refuses by name rather than uploading something nobody approved. Same
+   path and same limits as §7, which is the one description of it — the PASTE box takes
+   text and nothing else (`kb/service.SUPPORTED_SUBMISSION_KINDS`), while files and links
+   come in through `POST /v1/kb/uploads` (D-534) and are embedded by
+   `apps/workers/kb_embeddings.py` into the `kb_chunks` pgvector store (D-502, which
+   reversed D-28) — a store that serves the dashboard copilot and the CRM paths and is
+   never on the audio path.
 6. **Number & compliance** (see §10 for the full model): **the CLIENT buys the DID on
    their own carrier account** and passes that carrier's KYC — Model B, and Calevate
    neither supplies nor resells it (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9;

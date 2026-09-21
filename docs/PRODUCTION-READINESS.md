@@ -147,17 +147,23 @@ because a reader should know how much of the adapter rests on a claim.
 adapter is a hand-maintained claim." That premise was false and it is retired (D-350):**
 the vendor publishes an OpenAPI 3.1 document in its own GitHub organisation, the adapter's
 shapes are read from it, and `docs/vendor/bolna/hosted-oas.md` holds the pin and checksum.
-Four of the six entries this list carried were answered by simply reading it, and are
-struck rather than restated — a marked assumption that has been settled is no longer one:
+Entries this list carried that were answered by simply reading it are struck rather than
+restated — a marked assumption that has been settled is no longer one. The ones still
+standing are marked as such:
 
 - ~~**Listing page size**~~ — published: `page_size` defaults 20, maximum 50.
   `_LISTING_PAGE_SIZES`, the round-number heuristic, is DELETED (D-353).
 - ~~**Pagination shape**~~ — published: `page_number`/`page_size`/`has_more`, on a PER-AGENT
   route. The old global `GET /executions` the adapter called does not exist (D-353).
-- ~~**`list_kb` agent linkage**~~ — answered, and the answer was no: a Bolna knowledge base
-  carries no agent field at all, so that filter matched nothing and every agent listed
-  empty forever. The capability is now declared absent and the methods refuse (D-354).
-- ~~**`DELETE /knowledgebase/{rag_id}`**~~ — moot for the same reason.
+- ~~**`list_kb` agent linkage**~~ — answered, and the answer was that the linkage is on the
+  AGENT: a Bolna knowledge base object carries no agent field at all, so the old filter
+  matched nothing and every agent listed empty forever. `list_kb` now reads the agent's own
+  `vector_ids`, which is where it always lived (D-488, which reversed D-354's declaration
+  that the capability was absent).
+- **`DELETE /knowledgebase/{rag_id}`** — STILL an open question, and no longer moot: the
+  delete page says nothing about clearing the agent's dangling `vector_ids` while the
+  *dispositions* delete page in the same API explicitly promises to remove the link. A
+  dangling vector id after an erasure is a DPDP finding. (OPERATIONS §2 gate 43, gate 8)
 - **Repeat `delete_agent`** — STILL an assumption: assumed 404, folded into idempotent
   success. The spec documents 200 and 400 for that route and says nothing about an agent
   that is already gone. (gate 2)

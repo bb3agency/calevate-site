@@ -781,9 +781,12 @@ scorecard — D-31]:
   retrieval across 100+ languages" (`knowledgebase/create.md:73-77`) and **no page
   enumerates Telugu — Telugu KB quality is a pilot gate**, and the mode is immutable at
   creation (*"cannot be switched … create a new one"*,
-  `getting-started/knowledge-base.md:120-122`). **THE BUILT-IN KB IS NOT
-  DRIVABLE THROUGH OUR PORT AND THE ENGINE DECLARES THE CAPABILITY ABSENT (D-354) — both
-  blockers were RE-CONFIRMED against the vendor's own docs on 20 Aug 2026.**
+  `getting-started/knowledge-base.md:120-122`). **THE BUILT-IN KB IS DRIVABLE THROUGH OUR
+  PORT AND THE ENGINE DECLARES THE CAPABILITY PRESENT (D-488, which reversed D-354).**
+  D-354's two blockers were real, were RE-CONFIRMED against the vendor's own docs on
+  20 Aug 2026, and are now HANDLED rather than avoided: the multipart upload carries a
+  document the PUBLISHER renders (`KBSourceRef.document`), and the linkage is written on
+  the AGENT, where it lives. The blockers as read:
   `POST /knowledgebase` is `multipart/form-data` taking a PDF (max 20 MB) OR a `url`,
   "not both" — never raw text, which is all `KBSourceRef` carries
   (`knowledgebase/create.md:31-80`) — and the created object has NO
@@ -793,16 +796,21 @@ scorecard — D-31]:
   this port returned and deleted by. Both of gate 8's questions are therefore answered
   (the list carries no agent linkage, so `list_kb` reported every agent empty forever).
   Two things the mirror ADDS: create does not return `vector_id`
-  (`create.md:86-127`), so any re-opening is create → GET → PATCH the agent, three calls;
+  (`create.md:86-127`), so the built path is create → wait for `processed` → GET the
+  `vector_id` → **PUT** the agent with it added — a PUT rather than a PATCH because
+  `PATCH /v2/agent/{id}` updates a closed attribute list and *"Any other field in the body
+  is ignored"* (`agent/v2/patch_update.md:9,20-31`), so a PATCH carrying `vector_store`
+  answers 200 and changes nothing (D-488);
   and `DELETE /knowledgebase/{rag_id}` says nothing about the agent's dangling
   `vector_ids` (`knowledgebase/delete.md:30-47`) where the *dispositions* delete page in
   the same API explicitly promises to "remove its link to any associated agents"
   (`dispositions/delete.md:39-41`) — a dangling vector id after an erasure is a DPDP
-  finding, and it is a gate 8 probe rather than an inference. **So in-call retrieval today
-  is T0 and nothing else** — §6.2 states that fork and neither arm is built (D-424; this
-  bullet used to end "in-call retrieval stays OURS — the D-28 managed vector service behind
-  the RAG tool endpoint", which names a provider nobody has selected and an endpoint that
-  does not exist). Custom functions follow
+  finding, and it is a gate 8 probe rather than an inference. **So in-call retrieval is T0
+  plus the engine's OWN store, which D-488 built and this port now drives** — it is not,
+  and must not become, a retrieval endpoint of ours on the audio path: the `kb_chunks`
+  pgvector store (D-502) serves the dashboard copilot and the CRM paths only, and
+  `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` holds
+  that arm shut by ROUTE INVENTORY. Custom functions follow
   the OpenAI function-calling schema (bearer/custom-header auth, pre_call_message
   filler line).
 - **BYOK key custody — where the keys actually live.** First, a terminology fix: in this
@@ -978,35 +986,37 @@ architectures, not different keys:
 | Billing | no KB line on the pricing page → **inferred included in the platform fee; confirm in writing** (gates 8 + 12) | provider unit cost ≈ ₹0.02–0.05/min at our volumes |
 | In-call latency | inside their pipeline, zero network hops from the orchestrator | two extra hops (engine → our endpoint → provider, and back): realistically **+150–400ms**, against a 100ms budget and an **undocumented tool-call timeout** |
 | Telugu | dashboard label for multilingual mode names Hindi/Tamil, the API claims "100+ languages", and **no page names Telugu**; mode is immutable at KB creation | ours — no constraint |
-| Ingestible shape | **PDF ≤ 20 MB or a URL, never prose** (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:31-80`) | anything we parse |
+| Ingestible shape | **PDF ≤ 20 MB or a URL, never prose** (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:31-80`) — so the PUBLISHER renders the approved prose into a PDF (D-488) | anything we parse |
 | Portability | engine-locked | portable |
 
 **Cost is not the deciding variable** (₹0.02–0.05 against ₹1.70–2.34/min of BYOK model
 cost is noise; D-410 moved that subtotal by pennies and did not move this conclusion).
-**Latency was going to be the decider and INGESTION got there first (D-424).** This section used
-to conclude "v1 keeps in-call retrieval on the built-in KB"; D-354 closed that route and
-the vendor's own pages re-confirmed both blockers on 20 Aug 2026 — the create endpoint
-takes a PDF or a URL and has no text field, so `KBSourceRef.text` (parsed, chunked and
-APPROVED prose, which is the whole point of our ingestion gate) has nothing to be posted
-to, and the knowledgebase object carries no agent id, so `list_kb` could never prove a
-detach. `BOLNA_CAPABILITIES.knowledge_base` is `False` and `attach_kb` is not wired.
-**So the honest statement of the shipped system is: in-call retrieval is T0 and nothing
-else** — hot facts compiled into the system prompt at publish time — and the two arms
-below are both UNBUILT, one foreclosed and one ungated. Neither is a plan with a date:
-re-opening the built-in arm needs `KBSourceRef` to carry a PDF or a public URL and
-`attach_kb` to become create → GET → PATCH the agent's `vector_ids` (D-354, D-41's
-question (b) and gate 8's erasure probe), and the external arm needs the D-28 bake-off
-plus gate 8's round-trip measurement. `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side`
-holds the second arm shut in the meantime, by ROUTE INVENTORY, so it cannot be opened by
-accident.
+**Latency was going to be the decider and INGESTION got there first (D-424) — then D-488
+ANSWERED the ingestion question and the built-in arm is what ships.** D-354 closed that
+route on two blockers the vendor's own pages re-confirmed on 20 Aug 2026 (the create
+endpoint takes a PDF or a URL and has no text field, so `KBSourceRef.text` had nothing to
+be posted to; the knowledgebase object carries no agent id, so `list_kb` could never prove
+a detach), and D-488 handled both rather than avoiding them: `KBSourceRef` gained
+`document` — the approved prose RENDERED by the publisher, on the side of hard rule 2's
+wall where the approval gate can see it — and the linkage is read and written on the
+AGENT's `vector_ids`, which is where it always lived. `BOLNA_CAPABILITIES.knowledge_base`
+is `True` and `attach_kb`/`detach_kb`/`list_kb` are wired.
+**So the honest statement of the shipped system is: in-call retrieval is T0 — hot facts
+compiled into the system prompt at publish time — PLUS the engine's own store, retrieved
+inside the engine's pipeline with zero network hops from the orchestrator.** The EXTERNAL
+arm stays UNBUILT and ungated, and nothing below is a plan with a date: it needs gate 8's
+round-trip measurement, and `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side`
+holds it shut in the meantime, by ROUTE INVENTORY, so it cannot be opened by
+accident. What D-488 does NOT settle is enumerated as OPERATIONS §2 gates 43a-43f: none of
+it has run against a live account.
 
 Latency doctrine (D-08's physics still binds — it now selects the provider REGION
 instead of forbidding external services):
-- **In-call retrieval (100ms budget)**: **T0 only today.** The built-in KB was the
-  intended v1 home — zero network hops from their pipeline — and D-354 closed it on
-  ingestion shape rather than on latency (above); Telugu multilingual quality remains a
-  pilot gate if it ever re-opens (D-31). The
-  managed service takes over in-call retrieval ONLY once its measured p95 from the
+- **In-call retrieval (100ms budget)**: **T0 plus the built-in KB.** The built-in KB was
+  the intended v1 home — zero network hops from their pipeline — D-354 closed it on
+  ingestion shape rather than on latency, and D-488 re-opened it by rendering the document
+  the route takes (above); Telugu multilingual quality remains a pilot gate (D-31, gate 8).
+  An external store takes over in-call retrieval ONLY once its measured p95 from the
   engine's region (US by default, `concepts/security.md:29`; their India residency is
   Enterprise-gated AND foreclosed by our BYOK posture — §5, D-415) fits the budget — wired either as an engine custom function calling the
   provider directly, or through a thin endpoint of ours; whichever the bake-off shows
@@ -1018,16 +1028,18 @@ instead of forbidding external services):
   compute actually runs — a gate 9 question the pages settle only for the default. Measure,
   don't assume; and note the trend is against the built-in arm anyway — not one of the 15
   agents in their own template library is Telugu (`agents-library.md`, Quick Reference).
-- **CRM/context paths (latency-tolerant)**: the managed service serves these from day
-  one — repeat-caller context injection (their webhook's ~5s budget), post-call
+- **CRM/context paths (latency-tolerant)**: the `kb_chunks` pgvector store serves these
+  (D-502, which reversed D-28: an extension in the Postgres this repo already runs, not a
+  managed service) — repeat-caller context injection (their webhook's ~5s budget), post-call
   memory writes, CRM semantic features, knowledge-gap analysis.
 
 **MEASURED, 15 Aug 2026 — the server half of the 100ms budget, which had never been
 measured despite CLAUDE.md saying to.** The budget names an in-call RAG tool endpoint that
-does not exist (D-33 kept T3 out of our layer, and D-354 then closed the engine's own
-route too, so today T3 has no home at all — above; and
+does not exist and must not: D-33 kept T3 out of our layer, D-488 put the engine's own
+route back, so T3 is served INSIDE the engine's pipeline and
 `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` fails
-the day one appears). What DOES sit on the audio path is the engine custom function
+the day an endpoint of ours appears on the audio path. What DOES sit on the audio path is
+the engine custom function
 `POST /tools/v1/{engine}/opt-out`, which shares every layer a retrieval endpoint would
 need before it retrieved anything — source verification, bounded read, JSON parse, ack
 accounting, ARQ hand-off. Measured against the real handler, real Redis, nothing stubbed

@@ -115,6 +115,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.kb.orphans import KbOrphanRow
 from apps.api.kb.reconciliation import read_kb_drift
 from apps.api.ops.alerts_service import (
     DEFAULT_LIMIT as ALERTS_DEFAULT_LIMIT,
@@ -145,6 +146,7 @@ from apps.api.ops.service import (
     set_tm_registration,
 )
 from apps.api.reliability.service import read_dead_letter_queue, replay_dead_letters
+from apps.workers.kb_orphans import account_kb_report
 
 router = APIRouter(prefix="/v1/ops", tags=["ops"])
 
@@ -325,8 +327,9 @@ class KbDriftOut(BaseModel):
     # `sweep_kb_drift` returns `checked=0 drifted=0` on its first line when the engine has
     # no built-in knowledge base, deliberately — asking anyway would record `unreachable`
     # for every live agent and paint a console red about a capability the platform never
-    # had. `BOLNA_CAPABILITIES.knowledge_base` is False (D-354 closed the plan that
-    # assumed otherwise), so on the primary engine that early return is EVERY run.
+    # had. Every selectable engine declares `knowledge_base=True` today (D-488 rebuilt the
+    # three methods on Bolna), so the early return is a fixture's state rather than a
+    # deployment's — which is exactly why the console must read this field and not assume.
     #
     # The console could not see that. It had counts and a null pulse, which is the same
     # shape a DEAD CRON produces, so it told an operator "if this persists past an hour the
@@ -1119,10 +1122,12 @@ class VoiceCatalogueRefreshOut(BaseModel):
     summary="Re-read the voice catalogue from the voice platform (audited)",
     description=(
         "Reads the voice platform account's own TTS voice list into the cache the admin "
-        "console's Voices page is built from. Use it after importing or cloning a voice in "
-        "the voice platform's Playground — the hourly job would otherwise take up to an "
-        "hour to notice. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that "
-        "page before anybody can be put on it (D-588), so this alone changes what nobody "
+        "console's Voices page is built from. Use it after importing or cloning a voice "
+        "with your TTS vendor, or after adding one with Add Voice — the hourly job would "
+        "otherwise take up to an hour to notice. Where the voice platform keeps no "
+        "catalogue of its own there is nothing to re-read, and the returned note says so. "
+        "A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before "
+        "anybody can be put on it (D-588), so this alone changes what nobody "
         "may choose. It changes no agent and no call either: an agent already speaking a "
         "voice keeps speaking it whatever this returns. A sync that reads nothing is "
         "refused rather than applied, so a bad credential cannot empty the catalogue."
@@ -1241,6 +1246,116 @@ async def verify_audit_chain(
     )
 
 
+class KbOrphanRowOut(BaseModel):
+    """One finding, in the shape an operator acts on."""
+
+    verdict: str
+    handle: str | None
+    source_id: UUID | None
+    tenant_id: UUID | None
+    created_at: datetime | None
+
+
+class KbOrphanReportOut(BaseModel):
+    """Counts that are always exact, plus a bounded list of findings."""
+
+    engine: str
+    #: False when this engine keeps no account-level knowledge store to walk. Everything
+    #: below is then zero because there was nothing to look at, which is a different
+    #: answer from "we looked and found nothing" — see `listing_complete`.
+    supported: bool
+    accounted: int
+    unrecorded: int
+    unclaimed: int
+    stranded: int
+    findings: int
+    #: `rows` was cut at `MAX_ORPHAN_ROWS`. The counts above are still exact.
+    truncated: bool
+    #: The adapter's verdict on its own listing, carried through UNCHANGED. A listing that
+    #: could not be finished cannot support `unclaimed` or `stranded` at all.
+    listing_complete: bool
+    listing_incomplete_reason: str | None
+    rows: list[KbOrphanRowOut]
+
+
+def _orphan_row_out(row: KbOrphanRow) -> KbOrphanRowOut:
+    return KbOrphanRowOut(
+        verdict=row.verdict,
+        handle=row.handle,
+        source_id=row.source_id,
+        tenant_id=row.tenant_id,
+        created_at=row.created_at,
+    )
+
+
+@router.get(
+    "/kb-orphans",
+    response_model=KbOrphanReportOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Knowledge the platform account holds that no client of ours claims (gate 43f)",
+)
+async def read_kb_orphans(
+    _: Principal = Depends(requires("ops:manage", realm="admin")),
+) -> KbOrphanReportOut:
+    """The account-level knowledge cross-check, on demand.
+
+    **THIS ROUTE WAS NAMED BY THREE ALARM REMEDIATIONS AND BY THE SWEEP ITSELF BEFORE IT
+    EXISTED.** `workers/kb_orphans.account_kb_report` is public with the stated reason that
+    "the ops route calls it too, and the two must not be two readings of the same account
+    that can disagree about what `unclaimed` means" — and there was no ops route, so an
+    operator following `engine_kb_orphans_detected` mid-incident reached a 404. This calls
+    that same function rather than re-deriving the answer, which is the whole of why it is
+    a two-line handler.
+
+    **IT RUNS THE VENDOR WALK, WHICH IS THE DEAREST READ THIS PRODUCT MAKES** (the sweep is
+    daily for that reason). Bounded by the adapter's own paging cap; an operator triggering
+    it repeatedly costs vendor calls and nothing else.
+
+    **NO STEP-UP AND NO AUDIT ROW**, this file's stated posture for a read: it writes
+    nothing, deletes nothing, and demanding a confirmation to run a read teaches operators
+    to type past confirmations. `tenant_id` appears where a CLAIM ROW attributes an object
+    — that is an id, not caller data, and it is the column that tells an operator whose
+    document they are looking at before they decide anything.
+
+    **NOTHING IS EVER DELETED FROM HERE.** The verdicts are advisory by construction: an
+    `unclaimed` object may be a hand-made upload from an incident, and adopting an
+    `unrecorded` one by writing a claim row would invent a digest and an agent linkage
+    nobody holds.
+    """
+    engine = get_engine()
+    report = await account_kb_report()
+    if report is None:
+        # NOT AN ERROR AND NOT A ZERO REPORT WEARING A FINDING'S CLOTHES. An engine with no
+        # account-level store has nothing to walk, and saying "0 orphans" would read as
+        # "we looked", which is the silence this sweep exists to break.
+        return KbOrphanReportOut(
+            engine=engine.name,
+            supported=False,
+            accounted=0,
+            unrecorded=0,
+            unclaimed=0,
+            stranded=0,
+            findings=0,
+            truncated=False,
+            listing_complete=False,
+            listing_incomplete_reason="engine_keeps_no_account_knowledge_store",
+            rows=[],
+        )
+    return KbOrphanReportOut(
+        engine=engine.name,
+        supported=True,
+        accounted=report.accounted,
+        unrecorded=report.unrecorded,
+        unclaimed=report.unclaimed,
+        stranded=report.stranded,
+        findings=report.findings,
+        truncated=report.truncated,
+        listing_complete=report.listing_complete,
+        listing_incomplete_reason=report.listing_incomplete_reason,
+        rows=[_orphan_row_out(row) for row in report.rows],
+    )
+
+
 @router.get(
     "/engine-latency",
     response_model=EngineLatencyReport,
@@ -1318,6 +1433,8 @@ async def read_alerts(
 
 __all__ = [
     "OUTBOX_REPLAY_CONFIRMATION",
+    "KbOrphanReportOut",
+    "KbOrphanRowOut",
     "outbox_replay_confirmation",
     "platform_confirmation",
     "router",

@@ -1172,8 +1172,8 @@ class PipecatEngine:
             title="This voice platform holds no LLM credential of ours",
             detail=(
                 "The voice platform in this deployment runs inside our own software and "
-                "reads its model keys from the secrets manager, so there is no separate "
-                "credential store to install one into."
+                "reads its model keys from its own container's secret set, so there is no "
+                "separate credential store to install one into."
             ),
             remediation=(
                 "Rotate the model key in TWO places, because the voice runtime cannot read "

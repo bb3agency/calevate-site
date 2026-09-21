@@ -81,6 +81,22 @@ class BoundedByConstruction:
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # --- bounded by a constant or a registry in this repo ---------------------------
+    "GET /v1/ops/kb-orphans": BoundedByConstruction(
+        by=(
+            "`kb/orphans.MAX_ORPHAN_ROWS` (200), applied inside `reconcile_account_kb` "
+            "where the findings are assembled — so the bound is the SWEEP's and the route "
+            "and the daily cron cannot come to disagree about how much of an answer they "
+            "each saw. It takes no `limit` DELIBERATELY: the COUNTS beside the rows "
+            "(`accounted`/`unrecorded`/`unclaimed`/`stranded`) are exact whatever the cut, "
+            "and `truncated` says when one happened, so a reader is never shown a subset "
+            "that could pass for the whole. A page size here would let an operator decide "
+            "what to do about a client's document having seen part of the account, which "
+            "is the one thing a list you are RECONCILING may never do — the same argument "
+            "the voices entry above makes for the curation table. The upstream bound is "
+            "the vendor's own paging cap, and `listing_complete` carries the adapter's "
+            "verdict on it unchanged rather than letting a truncated walk read as clean."
+        )
+    ),
     "GET /v1/ops/voices": BoundedByConstruction(
         by=(
             "the VOICE PLATFORM ACCOUNT's own voice list, cached whole in "

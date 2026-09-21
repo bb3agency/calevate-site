@@ -6245,6 +6245,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/kb-orphans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Knowledge the platform account holds that no client of ours claims (gate 43f)
+         * @description The account-level knowledge cross-check, on demand.
+         *
+         *     **THIS ROUTE WAS NAMED BY THREE ALARM REMEDIATIONS AND BY THE SWEEP ITSELF BEFORE IT
+         *     EXISTED.** `workers/kb_orphans.account_kb_report` is public with the stated reason that
+         *     "the ops route calls it too, and the two must not be two readings of the same account
+         *     that can disagree about what `unclaimed` means" — and there was no ops route, so an
+         *     operator following `engine_kb_orphans_detected` mid-incident reached a 404. This calls
+         *     that same function rather than re-deriving the answer, which is the whole of why it is
+         *     a two-line handler.
+         *
+         *     **IT RUNS THE VENDOR WALK, WHICH IS THE DEAREST READ THIS PRODUCT MAKES** (the sweep is
+         *     daily for that reason). Bounded by the adapter's own paging cap; an operator triggering
+         *     it repeatedly costs vendor calls and nothing else.
+         *
+         *     **NO STEP-UP AND NO AUDIT ROW**, this file's stated posture for a read: it writes
+         *     nothing, deletes nothing, and demanding a confirmation to run a read teaches operators
+         *     to type past confirmations. `tenant_id` appears where a CLAIM ROW attributes an object
+         *     — that is an id, not caller data, and it is the column that tells an operator whose
+         *     document they are looking at before they decide anything.
+         *
+         *     **NOTHING IS EVER DELETED FROM HERE.** The verdicts are advisory by construction: an
+         *     `unclaimed` object may be a hand-made upload from an incident, and adopting an
+         *     `unrecorded` one by writing a claim row would invent a digest and an agent linkage
+         *     nobody holds.
+         */
+        get: operations["read_kb_orphans_v1_ops_kb_orphans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/maintenance": {
         parameters: {
             query?: never;
@@ -6732,7 +6775,7 @@ export interface paths {
         put?: never;
         /**
          * Re-read the voice catalogue from the voice platform (audited)
-         * @description Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice in the voice platform's Playground — the hourly job would otherwise take up to an hour to notice. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.
+         * @description Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice with your TTS vendor, or after adding one with Add Voice — the hourly job would otherwise take up to an hour to notice. Where the voice platform keeps no catalogue of its own there is nothing to re-read, and the returned note says so. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.
          */
         post: operations["refresh_voice_catalogue_route_v1_ops_voices_refresh_post"];
         delete?: never;
@@ -12079,6 +12122,50 @@ export interface components {
             out_of_sync: number;
             /** Undetermined */
             undetermined: number;
+        };
+        /**
+         * KbOrphanReportOut
+         * @description Counts that are always exact, plus a bounded list of findings.
+         */
+        KbOrphanReportOut: {
+            /** Accounted */
+            accounted: number;
+            /** Engine */
+            engine: string;
+            /** Findings */
+            findings: number;
+            /** Listing Complete */
+            listing_complete: boolean;
+            /** Listing Incomplete Reason */
+            listing_incomplete_reason: string | null;
+            /** Rows */
+            rows: components["schemas"]["KbOrphanRowOut"][];
+            /** Stranded */
+            stranded: number;
+            /** Supported */
+            supported: boolean;
+            /** Truncated */
+            truncated: boolean;
+            /** Unclaimed */
+            unclaimed: number;
+            /** Unrecorded */
+            unrecorded: number;
+        };
+        /**
+         * KbOrphanRowOut
+         * @description One finding, in the shape an operator acts on.
+         */
+        KbOrphanRowOut: {
+            /** Created At */
+            created_at: string | null;
+            /** Handle */
+            handle: string | null;
+            /** Source Id */
+            source_id: string | null;
+            /** Tenant Id */
+            tenant_id: string | null;
+            /** Verdict */
+            verdict: string;
         };
         /**
          * KbReviewOut
@@ -28925,6 +29012,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FxRateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_kb_orphans_v1_ops_kb_orphans_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KbOrphanReportOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

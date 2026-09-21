@@ -1667,10 +1667,10 @@ describe("what the voice platform is answering from", () => {
   });
 
   it("says an engine with no knowledge base has nothing to watch, not that the job is dead", async () => {
-    /* THE PERMANENT FALSE ALARM, and it was live on the engine this product runs.
+    /* THE PERMANENT FALSE ALARM.
 
        `sweep_kb_drift` returns on its first line when the engine has no built-in
-       knowledge base, so on Bolna (`BOLNA_CAPABILITIES.knowledge_base` is False, D-354)
+       knowledge base, and on such an engine
        it records nothing on EVERY run, by design. The data it leaves behind — all zeroes,
        null pulse — is byte-identical to a cron that has died, so this panel told an
        operator "the knowledge reconciliation job is not running, and nobody is watching

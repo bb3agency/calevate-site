@@ -115,30 +115,33 @@ knowledge base.
    SELECT id, name, status, engine_agent_ref FROM agents WHERE id = :agent_id;
    ```
 
-   Then read the engine's own listing for that agent — **IF THE ENGINE HAS ONE. ON BOLNA
-   IT DOES NOT, AND THIS STEP IS NOT AVAILABLE (D-354).**
+   Then read the engine's own listing for that agent, with `list_kb(engine_agent_ref)` —
+   the same adapter call the drift sweep makes (`apps/api/kb/reconciliation.py`). Every
+   engine a deployment can select declares `knowledge_base` today, so this step is
+   available; an engine that did not would make `list_kb` REFUSE by name through
+   `require_capability` rather than answer `[]`, so you can never mistake "cannot look" for
+   "holds nothing".
 
-   This runbook used to send you to `GET /knowledgebase/all` filtered to rows whose
-   `agent_id` equals the agent's `engine_agent_ref`. **That procedure could never have
-   worked and would have told you the engine holds nothing, for every agent, always.** A
-   Bolna knowledge base object carries no agent field of any kind: an agent references a
-   knowledge base through its OWN config (`llm_agent.llm_config.vector_store.
-   provider_config.vector_ids`, keyed by `vector_id` — a different identifier from the
-   `rag_id` the listing returns). The filter therefore matched nothing, and "no rows" reads
-   identically to "this agent has no documents". That is the worst possible answer for
-   THIS runbook, whose entire job is deciding whether the engine and our records disagree.
+   **What the handle in that listing IS depends on the engine, and this is the one thing to
+   get right before you delete anything.** On Bolna it is the `vector_id` referenced from
+   the AGENT's own config (`llm_agent.llm_config.vector_store.provider_config.vector_ids`)
+   — NOT the `rag_id` that `GET /knowledgebase/all` returns, which is a different
+   identifier in a different namespace. Reading the account-wide listing and filtering it
+   on an `agent_id` field is the procedure this runbook used to give and it cannot work: a
+   knowledge base object carries no agent field of any kind, so the filter matches nothing
+   and "no rows" reads identically to "this agent has no documents" (D-488 moved the read
+   to where the linkage actually lives). On an engine we host ourselves the handle names a
+   row our own attach path wrote, and there is no vendor console behind it.
 
-   `BOLNA_CAPABILITIES.knowledge_base` is now `False` and `list_kb` REFUSES by name rather
-   than returning `[]`, precisely so this step fails loudly instead of lying to you.
+   Our single account holds every tenant's agents, so the adapter attributes strictly — a
+   row that does not name the agent is not counted.
 
-   **What to do instead, on Bolna:** identify from the vendor console, matching on the
-   document title — historically `attach_kb` sent `name = source.title`, which is
-   `kb_sources.name`. In-call retrieval is OURS regardless (the D-28 managed vector service
-   behind the RAG tool endpoint), so a Bolna-side knowledge base is not what a caller is
-   actually retrieving from — check `kb_sources` and the vector service first.
-
-   **On an engine that DOES list:** our single account holds every tenant's agents, so the
-   adapter attributes strictly — a row that does not name the agent is not counted.
+   **What a caller retrieves from is not this store.** In-call retrieval is T0 compiled
+   context plus, on an engine with a built-in knowledge base, that engine's own copy; the
+   `kb_chunks` pgvector store (D-502, in the Postgres this repo already runs, filled by
+   `apps/workers/kb_embeddings.py`) serves the dashboard copilot and the CRM paths and is
+   never on the audio path. So a stale engine-side copy IS what the caller hears, which is
+   why this step matters rather than being bookkeeping.
 
 2. **Match, and be sure.** The stale copy is the one whose title is this source's `name`
    and whose content is the version our tables show as live. Read the document on the
@@ -240,7 +243,8 @@ operations:
   removes the copy the publish just added so the agent is left exactly as it was. If that
   removal ALSO failed it is logged as `kb_left_attached`, and the leftover is the NEW
   version's document beside a previous version that is still correct and still recorded.
-- **Someone attached something by hand** in the vendor console.
+- **Someone attached something by hand** — in a vendor's console where the engine is a
+  vendor's, or straight into the engine-side store where the runtime is ours.
 
 Read the leftover document's content and match it against `kb_documents.content` for the
 candidate versions, exactly as in case A step 2. **The direction of the fix is not the
