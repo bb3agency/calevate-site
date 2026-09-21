@@ -37,6 +37,16 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "price on `GET /v1/numbers/available`, which is `org:read` and fully reachable in "
         "a view-as session"
     ),
+    "/v1/ops/kb-orphans": (
+        "the VOICE PLATFORM ACCOUNT's own knowledge objects, crossed against every claim "
+        "we hold — one shared vendor account across all tenants, so the answer is not any "
+        "one client's view and there is no client screen for impersonation to mirror. A "
+        "`tenant_id` appears on a row only where a claim of ours attributes an object, "
+        "which is what tells an operator whose document they are about to decide about; "
+        "it is an id and nothing from any call. The client-realm view of their own "
+        "knowledge is `GET /v1/kb/sources`, which is `org:read` and fully reachable in a "
+        "view-as session"
+    ),
     "/v1/admin/tenants/{tenant_id}": "one client's admin record, same surface",
     "/v1/admin/tenants/{tenant_id}/invoice": "an ops document about a client, not a client view",
     "/v1/admin/tenants/{tenant_id}/credits": "the credit ledger as ops reads it",
