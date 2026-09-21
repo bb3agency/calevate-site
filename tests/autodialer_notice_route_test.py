@@ -208,3 +208,51 @@ async def test_the_refusals_name_the_field_that_is_wrong() -> None:
         long_ref = await http.post(PATH, headers=headers, json=_body(notice_reference="x" * 400))
     assert blank.status_code == 422, blank.text
     assert long_ref.status_code == 422, long_ref.text
+
+
+@pytest.mark.asyncio
+async def test_an_operator_inside_a_view_as_session_cannot_give_this_notice() -> None:
+    """D-587's refusal, on the one surface where storing the operator would be worse than
+    an FK violation.
+
+    The notice is a LETTER between the client and their own access provider, so a record
+    with nobody at that business behind it is not evidence of anything — and `recorded_by`
+    is a `users.id`, which an operator's `admin_users.id` would either break or silently
+    pollute. `principal.client_user_id` answers `None` for the admin realm, and this is the
+    branch that turns that `None` into a refusal the operator can act on rather than a row.
+    """
+    from apps.api.compliance.autodialer_routes import AutodialerNoticeIn, record_notice
+    from apps.api.core.context import Principal
+    from apps.api.core.errors import ProblemError
+
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    operator = Principal(
+        realm="admin",
+        user_id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        role="operator",
+        impersonating=True,
+        impersonation_grant_id=uuid.uuid4(),
+    )
+    body = AutodialerNoticeIn(
+        access_provider="Airtel",
+        objective="appointment reminders",
+        notified_on=datetime.now(UTC).date(),
+    )
+
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as refused:
+            await record_notice(body, session, operator)
+
+    assert refused.value.code == "autodialer_notice_is_the_senders_own_act"
+    assert "your own account" in refused.value.remediation
+
+    async with tenant_session(tenant_id) as session:
+        written = (
+            await session.execute(
+                text("SELECT count(*) FROM autodialer_notices WHERE tenant_id = :t"),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+    assert written == 0, "a refused notice must leave no row behind"

@@ -663,3 +663,39 @@ async def test_starting_a_run_closes_this_tenants_abandoned_ones() -> None:
         )
     assert rows[stale] == "expired"
     assert rows[fresh] == "created"
+
+
+async def test_a_second_late_delivery_expires_nothing_and_is_a_replay() -> None:
+    """The CAS on the EXPIRY write, which is a different race from the completion CAS.
+
+    Every aggregator retries, so two late deliveries for one run are ordinary rather than
+    hypothetical. The first stamps the row `expired`; the second finds nothing in `created`
+    to stamp, and must report `replay` rather than `expired` — an `expired` ack is what
+    raises `kyc_webhook_expired_run` for a person to look at, and raising it once per
+    retry would turn one late delivery into an alert storm about an event that happened
+    once. Neither delivery may verify anybody.
+    """
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    ref = await _start(org, "sole_proprietorship")
+    await _age_run(ref, tenant_id=tenant_id, days=30)
+    body = {"provider_ref": ref, "verified": True, "verified_name": "R Kumar"}
+
+    first = await _deliver(body)
+    second = await _deliver(body)
+
+    assert first.json()["status"] == "expired", first.text
+    assert second.json()["status"] == "replay", second.text
+
+    async with tenant_session(tenant_id) as session:
+        assert not (await read_kyc(session, tenant_id=tenant_id)).recorded
+        stamped = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE tenant_id = :t "
+                    "AND action = 'kyc.self_verification_expired'"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+    assert stamped == 1, "the expiry is one event, however many times it is redelivered"

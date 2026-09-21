@@ -8,13 +8,28 @@ like that with industry standards."*
 
 **Answer in one paragraph.** The industry standard he is describing is a WARM (attended)
 transfer with a *call whisper* — the person answering hears a short summary while the caller
-still hears ringing, and presses a key to accept. It is a real, ordinary telephony feature
-and it is **not achievable on this deployment**, because performing it requires control of
-the caller's telephony leg and this repository holds no telephony credential of any kind.
-What ships instead is a **cold (blind) transfer to ONE number chosen by us before the call**,
-from an ordered roster, honouring business hours, with the handover recorded and a call-back
-booked when nobody answers. This document records why, at the evidence class each claim
-carries, so the next person does not re-derive it — or, worse, promise the whisper.
+still hears ringing, and presses a key to accept.
+
+⚠ **THIS PARAGRAPH SAID THE WHISPER WAS "NOT ACHIEVABLE ON THIS DEPLOYMENT" BECAUSE "THIS
+REPOSITORY HOLDS NO TELEPHONY CREDENTIAL OF ANY KIND", AND THE SECOND HALF HAS BEEN FALSE
+SINCE D-614.** `Settings.plivo_auth_id` / `plivo_auth_token` are declared fields carried in
+the `calevate-pipecat-worker` secret set. What is actually missing is narrower and is a
+READING, not a credential: no transfer grammar for that carrier can be read from here.
+`api.plivo.com` and `www.plivo.com` both answer `curl: (56) CONNECT tunnel failed,
+response 403` from this container (measured 21 Sep 2026), and a search of the whole pinned
+`pipecat-ai==1.10.0` tree for `api.plivo.com` returns exactly one line — the hangup at
+`serializers/plivo.py:184`. **UNKNOWN**, in those words: how a live leg is redirected, how a
+second leg is bridged, whether the carrier can whisper and require a keypress, and which
+parameter presents the second leg's CLI.
+
+So the whisper is now DECLARED AND UNIMPLEMENTED rather than impossible. The shape is built
+— `apps/api/agents/transfer_providers/` carries the contract, `handoff_execution.py` places
+and settles the attempt, and `transfer_providers/plivo.py` is the adapter that will hold the
+grammar, `contract_verified = False` and raising until somebody reads a page. What ships
+today is still a **cold (blind) transfer to ONE number chosen before the call**, from an
+ordered roster, honouring business hours, with the handover recorded and a call-back booked
+when nobody answers. This document records why, at the evidence class each claim carries, so
+the next person does not re-derive it — or, worse, promise the whisper.
 
 ---
 
