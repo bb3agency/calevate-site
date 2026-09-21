@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from tests.voice_worker_pipeline_test import (
     CREDENTIALS,
@@ -33,7 +34,22 @@ from tests.voice_worker_pipeline_test import (
     RecordingSink,
     make_config,
 )
-from voice_worker import runtime, session
+from voice_worker import boot, session
+
+#: The boot gate's full environment. Spelled here rather than imported so that a container
+#: variable added to the gate fails THIS test loudly instead of changing what it asserts.
+_CONTAINER_ENV: dict[str, str] = {
+    "PIPECAT_WORKER_API_BASE_URL": "https://api.calevate.tech",
+    "PIPECAT_WORKER_API_TOKEN": "a-token-this-deployment-issued-its-worker",
+    "OBJECT_STORE_BUCKET": "calevate-prod",
+    "OBJECT_STORE_ENDPOINT": "https://account.r2.cloudflarestorage.com",
+    "AWS_ACCESS_KEY_ID": "key",
+    "AWS_SECRET_ACCESS_KEY": "secret",
+    "SARVAM_API_KEY": "sarvam",
+    "PLIVO_AUTH_ID": "plivo-id",
+    "PLIVO_AUTH_TOKEN": "plivo-token",
+    "AZURE_OPENAI_API_KEY": "azure",
+}
 
 #: What `build_knowledge_tool` is called, so the two kinds of tool can be told apart
 #: without pinning the ACT tools' names here — those belong to `call_tools` and a second
@@ -102,25 +118,42 @@ async def test_a_session_handed_no_tool_api_advertises_only_the_search() -> None
     assert names == {_SEARCH_TOOL}
 
 
-def test_the_container_builds_a_client_that_can_reach_the_tool_routes() -> None:
-    """`runtime` built a plain `WorkerApiClient`, which has no method for any of the four
-    routes — so even with the threading above, every act would have failed at the client.
+async def test_the_container_builds_a_client_that_can_reach_the_tool_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE PRODUCTION DOOR, opened — not a string read out of a source file.
 
-    Asserted on the TYPE the module will construct rather than by booting a container:
-    `from_env` reads `load_worker_config()` and would need a full environment, which is a
-    different test's subject. `CallToolApiClient` is a drop-in subclass — same pool, same
-    header, same error type — so this is the whole of the change at that call site.
+    This asserted that `"CallToolApiClient.from_config("` appeared somewhere in
+    `runtime.py`'s TEXT. It did, inside `WorkerRuntime.from_env`, which nothing in
+    production calls: `bot.py` boots through `boot.open_runtime`, which built the base
+    class. So the assertion passed for eighteen days while every real call assembled a
+    pipeline with no opt-out, no callback, no cancel and no handoff — a caller asking to be
+    taken off the list reached nothing at all.
+
+    A test that reads source text asserts that somebody wrote a line, which is not the same
+    claim as that the line runs. This one boots the runtime the container boots and asks
+    the object what it is.
     """
     from voice_worker.api_client import WorkerApiClient
     from voice_worker.call_tools import CallToolApiClient
 
     assert issubclass(CallToolApiClient, WorkerApiClient), (
         "the tool client must remain a drop-in for the session client, or the swap in "
-        "`runtime` changes more than which methods exist"
+        "`boot.open_runtime` changes more than which methods exist"
     )
-    source = runtime.__file__
-    with open(source, encoding="utf-8") as handle:
-        body = handle.read()
-    assert "CallToolApiClient.from_config(" in body, (
+    # THE PRODUCTION ENVIRONMENT, installed, because `ObjectStorePackFetcher.from_env`
+    # reads `os.environ` rather than taking a mapping — a test that only built a
+    # `WorkerConfig` would describe a container the bootstrap cannot open
+    # (`voice_worker_dense_arm_wiring_test` carries the same argument at its `_install`).
+    for name, value in _CONTAINER_ENV.items():
+        monkeypatch.setenv(name, value)
+    # `verify=False` skips `api.probe()`, a round trip to a host no test may depend on, and
+    # skips nothing that decides what this container holds.
+    opened = await boot.open_runtime(boot.load_worker_config(), verify=False)
+    assert isinstance(opened.api, CallToolApiClient), (
         "the container is building the client that cannot reach the tool routes again"
+    )
+    assert isinstance(opened.calls._api, CallToolApiClient), (
+        "the call runner holds the container's client, and it is the isinstance check in "
+        "`CallRunner.run_call` that decides whether a call gets its tools at all"
     )

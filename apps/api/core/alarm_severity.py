@@ -249,6 +249,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # in daylight — the alternative cause (a row really disappearing from an append-only
     # table) would announce itself through the immutability guards, far louder than this.
     "agent_config_version_unreadable": "attention",
+    # `engine_agent_drift_detected`'s condition on the owned runtime, so it takes the same
+    # rung: a live agent is running a script this platform did not compose. It is one row
+    # and still a page because the evidence is content-addressed — a worker attests the
+    # version id it was served and the digest is taken over that version's own bytes, so
+    # there is no staleness reading under which one mismatch is benign and worth waiting
+    # for a second.
+    "agent_config_attestation_mismatch": "page",
     "engine_agent_drift_detected": "page",
     "handoff_destination_unknown": "attention",
     "handoff_brief_channel_absent": "attention",

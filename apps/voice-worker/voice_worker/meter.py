@@ -241,6 +241,15 @@ class CarrierFactsMissingError(LegNotMeterableError):
 
     The tempting fix — time the call with our own clock — is the one §1.2 rejects by name,
     so it is not offered here and the remediation says why.
+
+    **THE COST IS THE SMALLER HALF OF WHAT THIS REFUSAL COSTS, AND THE DETAIL NOW SAYS SO.**
+    `telephony_s` is not only a cost row: its `qty` is the unit every client-facing MINUTE
+    is billed off — `billing/models.CLIENT_BILLED_UNIT_TYPES[0]`, read by
+    `billing/service.usage_summary` for `minutes_used`, by `_tier_totals` for the overage
+    rungs and by `billing/attribution` for the per-call split. A refused carrier leg
+    therefore writes no minutes either, so the call consumes no plan allowance, earns no
+    overage and takes nothing off a prepaid wallet. An operator reading a refusal worded
+    only as unmetered spend would triage the wrong half.
     """
 
     def __init__(self) -> None:
@@ -249,13 +258,17 @@ class CarrierFactsMissingError(LegNotMeterableError):
             code="meter_carrier_cdr_missing",
             detail=(
                 "no carrier CDR was supplied, so the connected duration and the charge for "
-                "this call have no independent witness."
+                "this call have no independent witness. No telephony_s row is written, and "
+                "that is the unit client minutes are billed off: this call consumes no plan "
+                "allowance, earns no overage and debits no wallet."
             ),
             remediation=(
-                "Retrieve the CDR from the carrier and meter again. Do NOT substitute the "
-                "worker's own session duration: the carrier billed the minute and is the "
-                "authority for it (PIPECAT-MIGRATION.md §1.2), and our clock agrees with us "
-                "by construction."
+                "Nothing in this deployment can retrieve a CDR yet: the reader refuses by "
+                "name (voice_worker/carrier.fetch_call_detail_record) because the carrier "
+                "account is BLOCKER-1 and the vendor's CDR grammar has not been read. Do "
+                "NOT substitute the worker's own session duration: the carrier billed the "
+                "minute and is the authority for it (PIPECAT-MIGRATION.md §1.2), and our "
+                "clock agrees with us by construction."
             ),
         )
 

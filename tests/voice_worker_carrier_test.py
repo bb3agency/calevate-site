@@ -694,3 +694,36 @@ async def test_the_entrypoint_refuses_rather_than_guessing_whose_call_it_is(
 
     with pytest.raises(carrier.UnroutableCallError):
         await bot.resolve_call_identity(cast(Any, _RunnerArgsWithPath(websocket=websocket)))
+
+
+def test_no_cdr_read_is_invented_and_the_refusal_names_what_it_costs() -> None:
+    """The carrier leg's missing producer, refused by name rather than simply absent.
+
+    `meter.CarrierCdr` has no production constructor, so every call settles
+    `meter_carrier_cdr_missing`. The refusal has to say the expensive half — no
+    `telephony_s` row means the CLIENT is billed no minutes — or an operator reads it as
+    unmetered supplier spend and triages the wrong thing.
+    """
+    with pytest.raises(carrier.CarrierNotWrittenError) as refusal:
+        carrier.fetch_call_detail_record()
+
+    reason = str(refusal.value)
+    assert "not built" in reason
+    assert "serializers/plivo.py:184" in reason
+    assert "no minutes" in reason
+
+
+def test_the_cdr_refusal_enumerates_the_facts_that_would_close_it() -> None:
+    """Hard rule 11's shape for an unreadable vendor grammar: say what is needed, not a guess.
+
+    The precedent is `apps/api/agents/transfer_providers/plivo.py`, which carries the five
+    facts its own unbuilt seam needs. Without the ROUNDING rule and the BILLED-vs-connected
+    distinction a CDR reader produces a systematically wrong quantity that nobody can
+    reconcile against the carrier's invoice — and `usage_events` cannot be corrected in
+    place (hard rule 4).
+    """
+    doc = carrier.fetch_call_detail_record.__doc__ or ""
+
+    for fact in ("BILLED duration", "CHARGE", "rounding", "minimum billable unit"):
+        assert fact in doc, f"the CDR refusal does not say it needs: {fact}"
+    assert "egress-blocked" in doc

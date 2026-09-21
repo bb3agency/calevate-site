@@ -86,6 +86,7 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -176,12 +177,16 @@ class Attestation:
         """Does the process agree with the control plane about what it is running?
 
         **A FALSE HERE IS A FINDING, NOT AN ERROR.** It is the one thing this whole
-        arrangement exists to be able to say: a worker on a stale deploy, a version
-        published after the session started, a prompt truncated on the way into the
-        process. Nothing in this module raises on it, because the row is evidence either
-        way and suppressing the write would delete the evidence of the very condition the
-        table was built to catch. `agents/verification.py` and the drift sweep are what
-        score it.
+        arrangement exists to be able to say: a prompt truncated or re-encoded on the way
+        into the process, a worker image serving a text of its own, a session served from
+        somewhere other than the version row. A worker on a STALE DEPLOY is not among
+        them and cannot be — it attests the version id it was served, and this compares
+        against that version's own digest.
+
+        Nothing in this module raises on it, because the row is evidence either way and
+        suppressing the write would delete the evidence of the very condition the table
+        was built to catch. `record_attestation` alarms on it; `PipecatEngine.get_agent`
+        re-reads the same verdict to decide whether it may report what the worker holds.
         """
         return self.prompt_sha256 == self.expected_prompt_sha256
 
@@ -379,17 +384,33 @@ async def record_attestation(
         expected_prompt_sha256=version[0],
     )
     if not attestation.matches:
-        # WARNING and not `alert()`: the alarm ladder classifies every code
-        # (`core/alarm_severity.py`, enforced by `scripts/check_alarm_wiring.py`), and the
-        # component that decides whether one stale worker is a page is the drift sweep
-        # that can see how many there are — not the row writer, which sees one.
-        log.warning(
+        # ALARMED AT THE ONE PLACE THE VERDICT IS COMPUTED, rather than counted by a sweep
+        # and alarmed above a threshold. A count would be the right instrument only if a
+        # single mismatch could be benign, and on this wiring it cannot be: the session
+        # read serves the version id and the prompt bytes from ONE row
+        # (`worker/service._SESSION_SQL`), the worker digests exactly the string it was
+        # served (`voice_worker/pipeline.recompute_prompt_sha256`), and the comparison
+        # above is against the digest of THAT SAME version. A publish during the session
+        # mints a different version and cannot move it, so a mismatch is never staleness —
+        # it is evidence that a process on a live call holds a script this platform did
+        # not compose, which is `engine_agent_drift_detected`'s condition on the owned
+        # runtime and takes its rung.
+        #
+        # Repetition is the alert record's problem and not this call site's: one notice per
+        # code per window, one email per episode, occurrence counts on `/admin/ops/alerts`
+        # (`core/alerting.py`). What a batched sweep could not do is name the agent.
+        alert(
+            "CORE_LOGIC",
             "agent_config_attestation_mismatch",
-            extra={
-                "agent_id": str(agent_id),
-                "config_version_id": str(agent_config_version_id),
-                "attestation_id": str(attestation.id),
-            },
+            detail=(
+                "a voice worker is running a prompt that is not the one minted for the "
+                "configuration version it names, so what this agent says to a caller is "
+                "not what was published"
+            ),
+            agent_id=str(agent_id),
+            tenant_id=str(tenant_id),
+            config_version_id=str(agent_config_version_id),
+            attestation_id=str(attestation.id),
         )
     return attestation
 

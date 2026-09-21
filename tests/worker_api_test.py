@@ -1108,3 +1108,28 @@ async def test_the_writing_routes_refuse_a_deployment_running_another_engine(
             )
         ).scalar_one()
     assert minted == 0, "a refused write still minted the call row it would have written to"
+
+
+def test_an_unpriceable_leg_says_its_quantity_is_not_kept_anywhere() -> None:
+    """The dead end, named where the next person will be standing.
+
+    A `telephony_s` quantity is refused here AND its code is not in `REMETERABLE_CODES`, so
+    `_record_remeter_demands` parks no measurement for it either — the connected seconds a
+    future CDR reader fetches would arrive and be discarded into an append-only ledger that
+    can never take them later. That is deliberate (nothing will ever price the leg from a
+    rate card), but it makes the CDR reader and the price door ONE change rather than two,
+    and the refusal is the only place that says so.
+
+    Pure: no database, no route. `_price_one` is the whole decision.
+    """
+    from apps.api.worker.service import REMETERABLE_CODES, _LegNotPriceableError, _price_one
+
+    with pytest.raises(_LegNotPriceableError) as refused:
+        _price_one(MeteredQuantity(leg="carrier", unit_type="telephony_s", qty=Decimal("60")))
+
+    refusal = refused.value.refusal
+    assert refusal.code == "meter_leg_not_priceable_here"
+    assert refusal.code not in REMETERABLE_CODES
+    assert "recorded nowhere" in refusal.detail
+    assert refusal.remediation is not None
+    assert "fetch_call_detail_record" in refusal.remediation

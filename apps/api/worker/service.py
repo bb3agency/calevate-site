@@ -1129,13 +1129,18 @@ def _price_one(quantity: MeteredQuantity) -> _Priced:
             code="meter_leg_not_priceable_here",
             detail=(
                 f"the {quantity.leg} leg reported {unit!r}, which no rate card prices: this "
-                "leg's charge is a fact somebody else witnessed, not a rate we hold."
+                "leg's charge is a fact somebody else witnessed, not a rate we hold. The "
+                "quantity is recorded nowhere — this code is not remeterable, so it is not "
+                "parked as a demand either."
             ),
             remediation=(
                 "The carrier's connected minute comes from their CDR (PIPECAT-MIGRATION.md "
                 "§1.2) and the platform's active minute is an unanswered vendor question "
-                "(§7 P-1). Settle both from the reconciliation that reads them, never from "
-                "the worker's own clock."
+                "(§7 P-1). Neither reconciliation exists yet: the CDR reader refuses by "
+                "name (voice_worker/carrier.fetch_call_detail_record). Whoever builds one "
+                "must land the price door in the same change, or the quantity it fetches "
+                "arrives here and is discarded. Never price either leg from the worker's "
+                "own clock."
             ),
         )
     )

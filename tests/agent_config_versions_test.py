@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents import config_versions
 from apps.api.agents.config_versions import (
     latest_attestation,
     mint_config_version,
@@ -30,6 +31,7 @@ from apps.api.agents.config_versions import (
     prompt_digest,
     record_attestation,
 )
+from apps.api.core.alarm_severity import ALARM_SEVERITY
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
@@ -317,3 +319,83 @@ async def test_an_attestation_naming_another_agents_version_is_refused() -> None
                 prompt_sha256=hashlib.sha256(b"anything").hexdigest(),
             )
     assert raised.value.code == "agent_config_version_unknown"
+
+
+# ------------------------------------------------- the mismatch reaches somebody
+
+
+def _capture_alerts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, dict[str, str]]]:
+    """Every `alert()` this module fires, instead of the delivery path."""
+    fired: list[tuple[str, str, dict[str, str]]] = []
+
+    def record(stage: str, code: str, *, detail: str | None = None, **ids: str) -> None:
+        fired.append((stage, code, {**ids, "detail": detail or ""}))
+
+    monkeypatch.setattr(config_versions, "alert", record)
+    return fired
+
+
+async def test_a_disagreeing_worker_raises_an_alarm_that_names_the_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE HALF THAT REPLACED THE VENDOR READ-BACK IS ONLY A CONTROL IF IT REACHES A HUMAN.
+
+    The verdict was computed here and written to a log line, and the sweep that the
+    deferral pointed at reads `latest_attestation` through `get_agent`, where a mismatch
+    scores `unreadable` — a verdict `engine_reconciliation._sweep` deliberately holds out
+    of its alarm, and one that a never-dialled agent produces too. So a worker running a
+    prompt nobody composed was indistinguishable from an agent nobody had called yet.
+    """
+    tenant_id, agent_id = await _tenant()
+    cfg = _config(agent_id, tenant_id)
+    fired = _capture_alerts(monkeypatch)
+    async with tenant_session(tenant_id) as session:
+        version = await mint_config_version(session, tenant_id, cfg)
+        attestation = await record_attestation(
+            session,
+            tenant_id,
+            agent_id=agent_id,
+            agent_config_version_id=version.id,
+            prompt_sha256=hashlib.sha256(b"a script nobody published").hexdigest(),
+        )
+
+    assert attestation.matches is False
+    assert [(stage, code) for stage, code, _ in fired] == [
+        ("CORE_LOGIC", "agent_config_attestation_mismatch")
+    ], "a live agent is running an unapproved script and nothing alarmed"
+    ids = fired[0][2]
+    assert ids["agent_id"] == str(agent_id)
+    assert ids["tenant_id"] == str(tenant_id)
+    assert ids["config_version_id"] == str(version.id)
+    # Hard rule 6: ids and our own sentence, never the script either side is holding.
+    body = " ".join(ids.values())
+    assert cfg.system_prompt not in body
+    assert compose_engine_prompt(cfg) not in body
+
+
+async def test_an_agreeing_worker_raises_no_alarm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every session of every call attests. An alarm on the ordinary case is one that is
+    muted before the first real mismatch arrives."""
+    tenant_id, agent_id = await _tenant()
+    cfg = _config(agent_id, tenant_id)
+    fired = _capture_alerts(monkeypatch)
+    async with tenant_session(tenant_id) as session:
+        version = await mint_config_version(session, tenant_id, cfg)
+        await record_attestation(
+            session,
+            tenant_id,
+            agent_id=agent_id,
+            agent_config_version_id=version.id,
+            prompt_sha256=prompt_digest(cfg),
+        )
+    assert fired == []
+
+
+def test_the_mismatch_alarm_keeps_the_drift_rung() -> None:
+    """Pinned against a silent demotion: `severity_of` answers `page` for a code that is
+    merely ABSENT from the ladder, so nothing else in the tree can tell the two apart."""
+    assert ALARM_SEVERITY["agent_config_attestation_mismatch"] == "page"
+    assert (
+        ALARM_SEVERITY["agent_config_attestation_mismatch"]
+        == (ALARM_SEVERITY["engine_agent_drift_detected"])
+    ), "the owned runtime's drift alarm is quieter than the rented engine's, for one fleet"

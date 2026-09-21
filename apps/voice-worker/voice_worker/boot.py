@@ -65,6 +65,7 @@ from calevate_shared.events import CallDirection
 from loguru import logger
 
 from voice_worker.api_client import WorkerApiClient
+from voice_worker.call_tools import CallToolApiClient
 from voice_worker.embedding import EMBED_BUDGET_S, build_gemini_embedder
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
@@ -595,7 +596,15 @@ async def open_runtime(
     # actually used rendered bound parameters into every DBAPI error string — on this
     # deployable those parameters are transcript text (hard rule 6). The database is gone;
     # the lesson is not, which is why the client's construction has exactly one home.
-    api = WorkerApiClient.from_config(
+    # `CallToolApiClient`, NOT its base class. `CallRunner` decides whether a call gets the
+    # four in-call tools with `isinstance(self._api, CallToolApiClient)` (`runtime.py:309`)
+    # — the concrete class, because `CallToolApi` is structural and not `runtime_checkable`.
+    # A base-class client passes every type check here and silently assembles a pipeline
+    # advertising only the knowledge search: a caller saying "stop calling me" reaches
+    # nothing, no suppression row is written, and the model improvises a reassurance. It is
+    # a drop-in subclass sharing the pool, the Bearer header and the wall-clock bound, so
+    # this is the client every path should build.
+    api = CallToolApiClient.from_config(
         base_url=config.pipecat_worker_api_base_url, token=config.pipecat_worker_api_token
     )
     if verify:
