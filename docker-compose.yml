@@ -57,7 +57,13 @@ services:
   # Local stand-in for R2 / DO Spaces. Recordings are the system of record, so
   # local work still goes through an S3 API rather than the filesystem.
   minio:
-    image: minio/minio
+    # quay.io AND NOT Docker Hub: MinIO deleted `minio/minio` from Docker Hub in
+    # September 2026, so `docker compose up` answers "pull access denied ... repository
+    # does not exist" on a host without the old layers cached. quay.io is MinIO's own
+    # registry and serves the same images; it is a frozen snapshot rather than a
+    # maintained stream, which is acceptable for an S3 emulator that never leaves a
+    # developer's machine and is the reason this is not pinned to a moving tag.
+    image: quay.io/minio/minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: calevate

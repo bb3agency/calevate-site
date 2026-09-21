@@ -127,10 +127,21 @@ jobs:
         #
         # Credentials match `docker-compose.yml` so local and CI are the same shape; they
         # are the emulator's root user, not a secret.
+        #
+        # THE REGISTRY IS quay.io AND NOT DOCKER HUB, AND THAT IS WHY THIS JOB WENT RED.
+        # MinIO deleted `minio/minio` from Docker Hub in September 2026 (community edition
+        # went source-only in October 2025; the images stayed pullable for about eleven
+        # months, then were removed). The pull then failed in under a second with "pull
+        # access denied ... repository does not exist or may require 'docker login'", which
+        # aborted the step under `bash -e` BEFORE the health poll below could run — so the
+        # loop's careful "a failure to come up must fail the job" never got a chance to
+        # report, and every later step that needs Postgres or the store was skipped or
+        # failed with a cause that looked like ours. quay.io is MinIO's own registry and
+        # serves the same images.
         run: |
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=calevate -e MINIO_ROOT_PASSWORD=calevate123 \
-            minio/minio server /data
+            quay.io/minio/minio server /data
           # Poll rather than sleep: the image is pulled here, so a fixed wait is either
           # wrong on a cold cache or wasted on a warm one. A failure to come up must fail
           # the job — a silent timeout would put the skip back, which is the whole defect.
