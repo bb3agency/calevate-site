@@ -112,33 +112,30 @@ const SOLUTIONS: readonly Solution[] = [
       "It holds the call in Telugu, Hindi or English. Telugu is where a new agent starts.",
       // apps/api/crm/service.py:27 count_after_hours_calls -> after_hours_captured_7d.
       "Your dashboard counts how many enquiries arrived outside your own opening hours.",
-      // D-533. apps/api/agents/handoff.py::on_duty walks the roster in order and returns
-      // the first member active and inside their own hours; publishing.py:841 fixes that
-      // number at publish; bolna.py:1028 emits the tool. Outside everyone's hours
-      // `handoff=None` and the adapter emits no transfer tool at all, so the agent does
-      // not know the number — which is why the sentence can be this absolute.
-      "It puts a caller through to one of your team when you have set up a handover list, and never outside the hours that person gave you.",
+      // WHAT THE ROSTER BUYS ON THE ENGINE WE RUN, which is not a live transfer.
+      // `PIPECAT_CAPABILITIES.in_call_handoff` and `transfer` are both False
+      // (`apps/api/engine/pipecat.py:245-246`), so `agents/handoff.spec_for` sends no
+      // destination and the in-call tool answers `not_available`. The caller is told
+      // plainly and offered a call-back; the on-duty member chosen from the roster is who
+      // that call-back belongs to. A sentence promising "puts a caller through" stood here
+      // and was false on this engine.
+      "When a caller asks for a person, it says so plainly and takes a call-back instead — the enquiry reaches whoever is on duty, and never outside the hours that person gave you.",
     ],
     yours: [
       "Your opening hours, so the after-hours count means something.",
       "The sentence it opens with, and whether it volunteers the AI line at the start.",
       "The list of things it has to find out from a caller.",
-      "Who takes a call it hands over, in the order you want them tried, and the hours each of them is available.",
+      "Who a caller asking for a person is passed to, in the order you want them tried, and the hours each of them is available.",
     ],
     never: [
-      "It does not look anything up mid-call. What it can say is compiled into the agent before the call.",
-      // NOT "it cannot transfer a caller" — that WAS true and stopped being true. D-533
-      // built the escalation path (`apps/api/agents/handoff.py`), the router is mounted
-      // (`apps/api/main.py:218`), `publish_agent` resolves the on-duty member
-      // (`agents/publishing.py:841`) and the adapter emits the tool
-      // (`engine/bolna.py:1028 _handoff_tool`). The `transfer=False` capability constant
-      // reads like proof of the opposite and is not: its own file records that the alarm
-      // it fed "is now a feature" (`bolna.py:1390-1396`). What is genuinely unavailable is
-      // narrower and is what these two lines say.
-      "It does not whisper the background to your colleague before joining you up — the reason for the call reaches them as a message on their phone as it rings.",
-      // handoff.py:22-26, VERIFIED-OSS bolna-ai/bolna@cd2e192
-      // task_manager.py:3116-3126 — the engine latches after the first handover.
-      "It does not ring your team one after another during the call. The first person on duty is chosen before the call and is the only number it can reach; if they miss it, the caller becomes a call-back.",
+      // A BAN ON THE WORD "look up" WOULD BE A BAN ON THE TRUTH: the agent DOES search
+      // the approved knowledge pack during a call (`PIPECAT_CAPABILITIES.knowledge_base`
+      // is True, `apps/api/engine/pipecat.py:241`, and the worker registers the search as
+      // a call tool). The constraint that actually holds is about WHAT it may draw on, and
+      // that is what this line says. A sentence claiming it looks nothing up mid-call
+      // stood here and was false on both runnable engines.
+      "It does not answer from anything but the material you approved and published. It is not a search engine and it does not learn from your documents.",
+      "It does not put a caller through to a person while they are on the line. Asking for somebody books a call-back, and the caller is told that rather than being left holding.",
     ],
   },
   {
