@@ -28,17 +28,19 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
  * 1. **The Add form is the primary action, and it sends exactly the five facts the wire
  *    needs.** A screen that dropped one silently would produce a voice that saves and fails
  *    on a client's call — the failure this whole slice exists to move onto this screen.
- * 2. **ElevenLabs is VISIBLE and REFUSED with its reason.** The voice platform clones on
- *    ElevenLabs or Cartesia and this product has no ElevenLabs model. An operator who has
- *    just spent a voice sample there and finds the option missing concludes the console is
- *    broken; one who finds it disabled with a sentence re-clones on Cartesia.
+ * 2. **The provider radios are EXACTLY the server's list.** A provider compiled into the
+ *    browser is the copy that goes stale: it offers a choice the server has stopped
+ *    accepting, or hides a refusal the server wanted read. So the screen renders what
+ *    `form.providers` says and nothing else — including any option the server marks
+ *    unselectable, which is shown disabled with the server's own reason rather than
+ *    filtered away.
  * 3. **A refusal is the SERVER's sentence, printed verbatim.** Every check that matters
  *    happens against the platform's own list, so the browser must not paraphrase a verdict
  *    it did not reach.
  * 4. **The screen does not open with the vendor's whole catalogue.** That was the founder's
  *    actual complaint; the full list is one control away and says it is a reference.
  * 5. **Archiving a voice with live agents on it must be offered, with the count.** The write
- *    cannot break a call, and refusing would make a vendor's own withdrawal unfileable.
+ *    cannot break a call, and refusing would leave a voice nobody can file away.
  * 6. **A withdrawn voice must be visibly different from a disabled one.**
  * 7. **§52.** Loading is a skeleton, a failed read is a refusal, and neither is "no voices".
  * 8. **A refused session is told so and is not shown an outage.**
@@ -85,10 +87,9 @@ function voice(over: Partial<CuratedVoice> = {}): CuratedVoice {
 }
 
 /**
- * The form's options, AS THE SERVER SENDS THEM — including the provider it sends only so the
- * screen can refuse it. Composed on the server for one reason and asserted here for the
- * same one: which providers exist is a fact with a single source, and a browser-side copy
- * is the copy that goes stale.
+ * The form's options, AS THE SERVER SENDS THEM. Composed on the server for one reason and
+ * asserted here for the same one: which providers exist is a fact with a single source, and
+ * a browser-side copy is the copy that goes stale.
  */
 function form(over: Partial<AddVoiceForm> = {}): AddVoiceForm {
   return {
@@ -106,17 +107,6 @@ function form(over: Partial<AddVoiceForm> = {}): AddVoiceForm {
         models: ["sonic-3.5"],
         selectable: true,
         unavailable_reason: null,
-      },
-      {
-        provider: "elevenlabs",
-        tier_label: null,
-        models: [],
-        selectable: false,
-        unavailable_reason:
-          "elevenlabs is one of the two providers the voice platform will clone a voice " +
-          "on, but it is not a provider this product runs: there is no ElevenLabs TTS " +
-          "model in our catalogue, so a minute spoken on it has no voice tier and no " +
-          "price. Clone the voice again on Cartesia.",
       },
     ],
     languages: ["te-IN", "hi-IN", "en-IN"],
@@ -207,18 +197,50 @@ describe("the voices page", () => {
     });
   });
 
-  it("offers ElevenLabs and refuses it with the reason, rather than omitting it", async () => {
-    const { container } = renderAdminPage(<VoicesPage />, routes());
+  it("offers exactly the providers the server sent, and invents none of its own", async () => {
+    renderAdminPage(<VoicesPage />, routes());
     await screen.findByRole("table");
 
-    // PRESENT — an operator who cloned there must find it rather than conclude the console
-    // is broken and try again.
-    const option = screen.getByRole("radio", { name: /elevenlabs/i }) as HTMLInputElement;
+    // The whole list, in the server's order. A provider compiled into the browser — for a
+    // vendor this product once refused, or one it has stopped running — shows up here as a
+    // fourth radio nobody on the server knows about.
+    const group = screen.getByRole("group", { name: /Who you cloned it on/i });
+    expect(
+      within(group)
+        .getAllByRole("radio")
+        .map((radio) => (radio as HTMLInputElement).value),
+    ).toEqual(["gnani", "cartesia"]);
+  });
+
+  it("shows a provider the server refuses, disabled and with the server's own reason", async () => {
+    const { container } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [LIST_PATH]: catalogue({
+          form: form({
+            providers: [
+              ...form().providers,
+              {
+                provider: "some-clone-shop",
+                tier_label: null,
+                models: [],
+                selectable: false,
+                unavailable_reason:
+                  "This product runs no speech model on some-clone-shop, so a minute " +
+                  "spoken on it has no voice tier and no price.",
+              },
+            ],
+          }),
+        }),
+      }),
+    );
+    await screen.findByRole("table");
+
+    // NOT FILTERED AWAY. An operator who cloned a voice somewhere this product cannot bill
+    // must read why, on the screen where they would otherwise type it in and be refused.
+    const option = screen.getByRole("radio", { name: /some-clone-shop/i }) as HTMLInputElement;
     expect(option.disabled).toBe(true);
-    // AND THE REASON, from the server, beside it. A greyed line with no sentence teaches
-    // nothing and costs another voice sample.
-    expect(container.textContent).toMatch(/no ElevenLabs TTS model in our catalogue/i);
-    expect(container.textContent).toMatch(/Clone the voice again on Cartesia/i);
+    expect(container.textContent).toMatch(/no voice tier and no price/i);
   });
 
   it("prints the server's refusal verbatim when a voice id is not on the platform", async () => {
@@ -317,7 +339,7 @@ describe("the voices page", () => {
     expect(clone.textContent).toContain("cartesia");
   });
 
-  it("distinguishes a voice WE disabled from one the PLATFORM dropped", async () => {
+  it("distinguishes a voice WE disabled from one carrying a withdrawal stamp", async () => {
     renderAdminPage(
       <VoicesPage />,
       routes({
@@ -339,11 +361,16 @@ describe("the voices page", () => {
     );
 
     const withdrawn = await rowFor("Withdrawn One");
-    // The vendor's statement, said as one: nothing on this console restores it, so an
-    // operator must not read it as another toggle they have forgotten to flip.
-    expect(withdrawn.textContent).toMatch(/no longer lists this voice/i);
+    // The stamp OVERRIDES the state beside it, which is the whole reason the row says
+    // anything: this one reads `enabled` and is not offered.
+    expect(withdrawn.textContent).toMatch(/not offered whatever state is set here/i);
+    // AND IT CLAIMS NOTHING ELSE. Who withdrew the voice and what would un-withdraw it are
+    // engine-dependent facts the wire does not carry, so a console that names either sends
+    // an operator to a control that will not help them.
+    expect(withdrawn.textContent).not.toMatch(/no longer lists this voice/i);
+    expect(withdrawn.textContent).not.toMatch(/platform lists it again/i);
     const ours = await rowFor("Ashutosh");
-    expect(ours.textContent).not.toMatch(/no longer lists this voice/i);
+    expect(ours.textContent).not.toMatch(/whatever state is set here/i);
     expect(ours.textContent).toMatch(/Not offered/i);
   });
 

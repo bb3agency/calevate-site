@@ -120,7 +120,7 @@ export function useCuratedVoices(
  *
  * Every refusal it can return is a PROBLEM the page renders verbatim — an id the platform
  * does not list, a name that is not the platform's own, a language it is not listed under,
- * an ElevenLabs clone this product cannot price. Each names the field to fix, so nothing
+ * a provider this product runs no speech model on. Each names the field to fix, so nothing
  * here interprets them; `ProblemNotice` prints `detail` and `remediation` as written.
  *
  * It invalidates the CLIENT-REALM catalogue too, for `useSetVoiceCuration`'s reason: an
@@ -251,13 +251,17 @@ export const CURATION_MEANING: Record<string, string> = {
 };
 
 /**
- * The sentence beside a voice the platform has stopped listing.
+ * The sentence beside a voice carrying a withdrawal stamp.
  *
- * A different fact from any curation state and it must read as one: this is the VENDOR's
- * statement about their own account, nothing on this console restores it, and the row is
- * kept only so the operator's decision survives if the voice comes back.
+ * A different fact from any curation state and it must read as one: the stamp overrides the
+ * state beside it, so an operator must not read the row as a toggle they forgot to flip.
+ *
+ * IT SAYS ONLY WHAT THE ROW PROVES. Who withdrew the voice, and what would un-withdraw it,
+ * are engine-dependent — `agents/voice_sync.py` stamps and clears the column only where the
+ * engine keeps a catalogue of its own, and refuses to run at all where it does not — and
+ * the wire carries no field saying which of those this deployment is. Naming a cause or an
+ * action the browser cannot know sends an operator to a control that will not help them;
+ * when the server has a sentence to give, it belongs on the wire beside the stamp.
  */
 export const WITHDRAWN_MEANING =
-  "The voice platform no longer lists this voice on our account, so it cannot be offered " +
-  "whatever state it is in here. Nothing on this page restores it; it returns if the " +
-  "platform lists it again.";
+  "Withdrawn, so this voice is not offered whatever state is set here.";

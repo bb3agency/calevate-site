@@ -67,10 +67,12 @@ import { lookup } from "@/lib/lookup";
  * check that has to happen server-side anyway, and it would be the copy that disagreed.
  * `ProblemNotice` prints the server's sentence as written.
  *
- * The one thing the browser does render is the ELEVENLABS refusal, and it renders it from
- * the server's own `form.providers` list: an option that is present, disabled, and carries
- * the reason. An operator who has just spent a voice sample cloning on ElevenLabs must not
- * find the option missing and conclude the console is broken.
+ * The one thing the browser does render is a provider the server will not accept, and it
+ * renders it from the server's own `form.providers` list: an option that is present,
+ * disabled, and carrying the server's reason. Which providers exist, and which of them are
+ * refused, is a fact with one source; this screen neither composes that list nor filters
+ * it, so an operator is never shown a choice the server has not sanctioned and never has a
+ * refusal withheld from them.
  *
  * ## Three things this screen still refuses to compute
  *
@@ -145,7 +147,7 @@ export default function VoicesPage() {
             },
             {
               key: "withdrawn",
-              label: "Voices the platform has stopped listing",
+              label: "Voices marked withdrawn",
               value: String(data.voices.filter((row) => row.withdrawn_at !== null).length),
             },
             {
@@ -264,9 +266,9 @@ export default function VoicesPage() {
  *
  * The provider is RADIO BUTTONS rather than a `<select>`, and that is the one layout
  * decision here worth defending. A disabled `<option>` cannot be chosen and, on most
- * platforms, cannot be focused either — so the ElevenLabs refusal would be a greyed line
- * nobody could read the reason for. As radios, the unusable provider is visible, disabled,
- * and carries the server's sentence underneath it.
+ * platforms, cannot be focused either — so a refused provider would be a greyed line nobody
+ * could read the reason for. As radios, an unusable provider is visible, disabled, and
+ * carries the server's sentence underneath it.
  *
  * The model follows the provider because the server says which models belong to it; the
  * operator never has to know the pairing, and a provider with two models still renders a
@@ -362,8 +364,8 @@ function AddVoiceCard({
                     )}
                   </span>
                 </label>
-                {/* THE ELEVENLABS SENTENCE, from the server. It is the whole reason an
-                    unusable provider is rendered at all. */}
+                {/* The server's reason for a provider it will not accept — the whole point
+                    of rendering an unusable option rather than omitting it. */}
                 {option.unavailable_reason && (
                   <p className="ml-6 mt-0.5 text-xs text-amber-700 dark:text-amber-400">
                     {option.unavailable_reason}
@@ -499,11 +501,11 @@ function Catalogue({
           hint="Voices this platform has decided about — added here, or moved off the arrival state."
         />
         <StatTile
-          label="Dropped by the platform"
+          label="Withdrawn"
           value={formatCount(withdrawn)}
           tone={withdrawn > 0 ? "strong" : undefined}
           icon={withdrawn > 0 ? <TriangleAlert aria-hidden className="h-5 w-5" /> : undefined}
-          hint="Voices the platform has stopped listing on our account. They cannot be offered, and nothing here restores them."
+          hint="Voices carrying a withdrawal stamp. They are not offered, whatever state is set beside them."
         />
         <StatTile
           label="On the platform"

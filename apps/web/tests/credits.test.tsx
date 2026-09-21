@@ -675,7 +675,7 @@ describe("the credit itself: what is left, and at which rates", () => {
           ...LOTS,
           tiers: [
             { voice_tier: "clear", label: "Clear", minutes_left: "1080" },
-            { provider: "elevenlabs", label: "Theatre", minutes_left: "600" },
+            { provider: "some-voice-vendor", label: "Theatre", minutes_left: "600" },
           ],
         },
       }),
