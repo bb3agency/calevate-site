@@ -340,6 +340,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "are now two. MATERIAL — a new operative fee term changes what somebody "
                 "agreed to about what they pay.",
             ),
+            Revision(
+                "7",
+                True,
+                "Clause 5 gains two obligations the client did not have before: the "
+                "advance written notice to their own telecom access provider that these "
+                "calls are dialled automatically, and the per-number confirmation that "
+                "their business is the sender before an ordinary ten-digit line may "
+                "dial. Clause 4 widens to say a withdrawn notice stops outbound as a "
+                "lapsed registration does. MATERIAL — a client who accepted revision 6 "
+                "agreed to a document that never named the thing now refusing every "
+                "outbound call they make.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -357,6 +369,19 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "internal blocker names came out of the prose, and the pending-review "
                 "banner came off. Non-material — nothing anybody agreed to changed "
                 "meaning, and the review-state flip re-demands the set on its own.",
+            ),
+            Revision(
+                "3",
+                True,
+                "Section 2.9 adds a precondition to all outbound dialling the policy "
+                "never carried — the sender's own advance notice to their access "
+                "provider — and 2.10 adds the thirty-minute limit on a call placed off "
+                "a lead delivery. Section 2.2 now refuses a transactional campaign "
+                "outright, where it had described transactional as a classification a "
+                "client could pick, and conditions dialling from an ordinary ten-digit "
+                "number on a per-number sender confirmation. MATERIAL — each is a new "
+                "obligation rather than a clarification, and the old 2.2 told clients "
+                "to do something the product now refuses.",
             ),
         ),
         effective_date="2026-09-02",
@@ -429,6 +454,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "quality kept your callers' data away from an unplaceable vendor — there "
                 "is no longer a quality that does. MATERIAL — a narrowed warranty and a "
                 "withdrawn assurance both change what somebody agreed to.",
+            ),
+            Revision(
+                "8",
+                False,
+                "Three sentences said we had read nothing at all of the company that "
+                "speaks the cheaper voice quality. It does publish a price list and it "
+                "has now been read, so the claim narrows to what is true: a not-finding "
+                "had been written down as a fact about the vendor and had reached a "
+                "client-facing document. NON-MATERIAL — the operative words are "
+                "verbatim. We still represent nothing about whether it offers a "
+                "data-processing agreement, still name no country, and its training and "
+                "retention position is still not stated.",
             ),
         ),
         effective_date="2026-09-02",
@@ -517,6 +554,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "MATERIAL — re-assigning the most sensitive leg in the product from a "
                 "vendor whose terms are set out on this page to one whose pages cannot be "
                 "opened at all tells a client something new about who processes what.",
+            ),
+            Revision(
+                "8",
+                False,
+                "The register row and section 3.6 said that company publishes no price. "
+                "It does; the page had not been found, and the not-finding was written "
+                "down as a fact about the vendor. The correction is stated in the cell "
+                "itself, as this register states its other corrections, because a client "
+                "may have read revision 7, and the true reason the quality still cannot "
+                "be sold is restated: a list price is not an invoice. NON-MATERIAL — no "
+                "row is added or removed, nothing about who receives what changes, and "
+                "no assurance is withdrawn.",
             ),
         ),
         effective_date="2026-09-02",

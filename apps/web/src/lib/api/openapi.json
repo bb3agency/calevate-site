@@ -1922,6 +1922,133 @@
         "title": "AttentionOut",
         "type": "object"
       },
+      "AutodialerNoticeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "access_provider": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Access Provider",
+            "type": "string"
+          },
+          "notice_reference": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Reference"
+          },
+          "notified_on": {
+            "format": "date",
+            "title": "Notified On",
+            "type": "string"
+          },
+          "objective": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Objective",
+            "type": "string"
+          },
+          "withdraw": {
+            "default": false,
+            "title": "Withdraw",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "access_provider",
+          "objective",
+          "notified_on"
+        ],
+        "title": "AutodialerNoticeIn",
+        "type": "object"
+      },
+      "AutodialerNoticeOut": {
+        "additionalProperties": false,
+        "description": "What this account has on file, and whether it is carrying outbound today.",
+        "properties": {
+          "access_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Provider"
+          },
+          "effective": {
+            "title": "Effective",
+            "type": "boolean"
+          },
+          "notice_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Reference"
+          },
+          "notified_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notified On"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          }
+        },
+        "required": [
+          "recorded",
+          "state",
+          "access_provider",
+          "objective",
+          "notified_on",
+          "notice_reference",
+          "effective"
+        ],
+        "title": "AutodialerNoticeOut",
+        "type": "object"
+      },
       "AvailableNumberOut": {
         "additionalProperties": false,
         "description": "One number the voice platform says it could sell us, at the price it said.\n\n**THE PRICE IS PUBLISHED IN USD, NOT RUPEES, AND THAT IS DELIBERATE.** It is the\nvendor's own quote in the vendor's own currency; the rupee is struck once, monthly,\nwhen the rental is metered, at that month's rate (`billing/number_rental.py`).\nConverting here would put a second exchange rate on a screen that would not match the\nledger, and a screen that disagrees with the ledger about money is worse than one that\nshows the source figure.\n\n`monthly_price_usd` may be `None` \u2014 the vendor's row carried no readable price \u2014 and\nsuch a number CANNOT be bought: a number with no rental on file would never be metered.\nThe screen says so rather than offering a button that refuses.",
@@ -36293,6 +36420,72 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/compliance/autodialer-notice": {
+      "get": {
+        "description": "Every outbound call Calevate places for you is dialled automatically, and the rules put one duty on the sender of such calls: tell your own telecom access provider, in writing and in advance, that you use an automated dialler and what the calls are for. You are the sender, so the notice is yours to give and ours to record. Until this says `effective`, no outbound call goes out. Answering incoming calls is unaffected. An account with nothing on file gets `recorded: false` and a 200.",
+        "operationId": "read_notice_v1_compliance_autodialer_notice_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutodialerNoticeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The autodialler notice this account has on file",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Record the notice after you have sent it \u2014 this is where you tell us it exists, not where it is sent. Name the provider you sent it to, what the calls are for, and the date on the letter. If you dated it in the future, that is fine: it is recorded now and your outbound starts on that date. Withdrawing files a new record rather than deleting the old one, so the history still shows the notice was live while earlier calls were placed.",
+        "operationId": "record_notice_v1_compliance_autodialer_notice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutodialerNoticeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutodialerNoticeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record that you have given your access provider the notice, or withdraw it",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/call-consent": {

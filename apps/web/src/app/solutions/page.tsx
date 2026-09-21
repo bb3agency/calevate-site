@@ -170,11 +170,24 @@ const SOLUTIONS: readonly Solution[] = [
     yours: [
       "The list, and when it may run — inside the platform's own 9am–9pm window, never outside it.",
       "The registration paperwork, which the product refuses to dial without.",
+      // `compliance/autodialer.py`, read by `check_dispatch` item 7b: the notice binds the
+      // SENDER, so Calevate cannot give it on a client's behalf. Two limits on what this
+      // may claim — the obligation's evidence class is REPORTED (nobody here has read
+      // TCCCPR Reg 4), and `record_autodialer_notice` has no route or screen, so no client
+      // can lodge one today and the sentence may not offer it as a step they take.
+      "Written notice to your own telecom access provider, in advance, that these calls are placed by an automated dialler and what they are for. It has to come from you, and no outbound call goes out until you have recorded it on your agreements screen.",
     ],
     never: [
       "It does not dial outside 9am–9pm, and that is not a setting you can raise.",
       "It does not dial a number on your do-not-call list, which is scrubbed before every dispatch.",
       "It does not launch itself. A campaign is a draft until a person launches it.",
+      // `ingest/service.TRANSACTIONAL_WINDOW` — the lead is kept and shown, only the dial
+      // is refused, because what makes ringing that person lawful is that they asked
+      // moments ago. A page promising a call back on every form would outrun the gate.
+      "It does not call back on a web enquiry that reached us more than thirty minutes after the customer sent the form. The enquiry still lands on your list; the automatic call is what stops.",
+      // NOT "a campaign can be transactional": `campaigns/service.
+      // DIALABLE_CAMPAIGN_CLASSIFICATIONS` is promotional and service only.
+      "It does not run a campaign filed as transactional. A list worked through over hours is either promotional or a service message to your own customers, and it has to be filed as one of those.",
     ],
   },
   {
@@ -271,8 +284,7 @@ const SOLUTIONS: readonly Solution[] = [
     icon: Database,
     kicker: "Your answers",
     title: "It answers from what you approved, and nothing else",
-    lede:
-      "The question every owner asks second is “what if it says the wrong thing”.",
+    lede: "The question every owner asks second is “what if it says the wrong thing”.",
     does: [
       // T0 and nothing else (docs/TRD.md:948) — the approved facts are compiled into the
       // agent's own prompt at publish time (apps/api/agents/t0.py).
@@ -288,19 +300,32 @@ const SOLUTIONS: readonly Solution[] = [
       "Who is allowed to approve them.",
     ],
     never: [
-      "It does not read a PDF, a brochure or a price list. There is no document upload.",
+      // WAS "It does not read a PDF, a brochure or a price list. There is no document
+      // upload." That stopped being true with D-534: `POST /v1/kb/uploads` accepts a PDF
+      // (`kb/uploads.py:155`), the console has the door
+      // (`app/c/[slug]/knowledge/AddDocument.tsx`), and an approved upload reaches the
+      // agent by the same publish path as pasted text. What is still true, and is the
+      // half a buyer needs, is that a person approves the text first.
+      "It does not take a document's word for it. A price list or a brochure can be uploaded, and the text taken out of it waits for a person to approve it before any caller hears it.",
       "It does not search the open internet, and it does not answer from anything you have not approved.",
     ],
   },
 ];
 
-function SolutionSection({ solution, index }: { solution: Solution; index: number }) {
+function SolutionSection({
+  solution,
+  index,
+}: {
+  solution: Solution;
+  index: number;
+}) {
   const Icon = solution.icon;
   return (
     <section
       id={solution.id}
       className={
-        "scroll-mt-20 border-t border-line " + (index % 2 === 1 ? "bg-surface/40" : "")
+        "scroll-mt-20 border-t border-line " +
+        (index % 2 === 1 ? "bg-surface/40" : "")
       }
     >
       <div className={`${SHELL} ${SECTION}`}>
@@ -309,7 +334,9 @@ function SolutionSection({ solution, index }: { solution: Solution; index: numbe
             <Icon aria-hidden className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <Eyebrow index={String(index + 1).padStart(2, "0")}>{solution.kicker}</Eyebrow>
+            <Eyebrow index={String(index + 1).padStart(2, "0")}>
+              {solution.kicker}
+            </Eyebrow>
             <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
               {solution.title}
             </h2>
@@ -326,7 +353,10 @@ function SolutionSection({ solution, index }: { solution: Solution; index: numbe
             </h3>
             <ul className="mt-4 space-y-3">
               {solution.does.map((line) => (
-                <li key={line} className="flex items-start gap-2.5 text-[15px] text-pretty text-ink-muted">
+                <li
+                  key={line}
+                  className="flex items-start gap-2.5 text-[15px] text-pretty text-ink-muted"
+                >
                   <span
                     aria-hidden
                     className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
@@ -358,8 +388,14 @@ function SolutionSection({ solution, index }: { solution: Solution; index: numbe
               </h3>
               <ul className="mt-3 space-y-2.5">
                 {solution.never.map((line) => (
-                  <li key={line} className="flex items-start gap-2.5 text-sm text-pretty text-ink-muted">
-                    <X aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+                  <li
+                    key={line}
+                    className="flex items-start gap-2.5 text-sm text-pretty text-ink-muted"
+                  >
+                    <X
+                      aria-hidden
+                      className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint"
+                    />
                     {line}
                   </li>
                 ))}
@@ -406,9 +442,9 @@ export default function SolutionsPage() {
             The goal is not to automate your business
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            It is to automate the first layer of a call — the picking up, the asking, the
-            writing down, the chasing. The conversation where somebody decides is still
-            your salesperson&apos;s.
+            It is to automate the first layer of a call — the picking up, the
+            asking, the writing down, the chasing. The conversation where
+            somebody decides is still your salesperson&apos;s.
           </p>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             See{" "}

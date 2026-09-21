@@ -703,7 +703,11 @@ function SignupForm() {
             <p className="text-xs text-ink-faint">
               Creating a workspace does not start any calling. Your agent begins as a
               draft, the wallet starts empty, and outbound calls stay blocked until there
-              is credit and a verified number.
+              is credit, a verified number, your registrations, your business identity
+              checked, and your own written notice to your telecom access provider that
+              these calls are placed by an automated dialler — which is why outbound is
+              arranged with us rather than switched on here. Answering incoming calls is
+              not gated by any of that.
             </p>
           </div>
         </form>

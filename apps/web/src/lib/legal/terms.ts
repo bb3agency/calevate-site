@@ -226,8 +226,9 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "is charged under the wrong head and you cannot claim it. Clause 6.2 sets " +
               "out our own GST position.",
             "You must complete identity verification where the Acceptable Use Policy " +
-              "requires it, and keep your registrations current. A registration that " +
-              "lapses stops your outbound calling until it is restored.",
+              "requires it, and keep your registrations and your notices current. A " +
+              "registration that lapses, or a notice you withdraw, stops your outbound " +
+              "calling until it is restored.",
           ],
         },
       ],
@@ -258,6 +259,22 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "either stops being true — a call placed on a connection registered to " +
               "somebody else is a breach of the telecom rules before it is a breach of " +
               "this agreement.",
+            "Being the sender of every call your agents place, and accepting what that " +
+              "carries. Commercial voice calls to a customer are meant to come from a " +
+              "registered 140 or 160 series number. If you want a campaign to dial from " +
+              "an ordinary ten-digit number instead, somebody with owner access on your " +
+              "account must confirm first, on that number's settings page, that your " +
+              "business is the sender and accepts responsibility for those calls — and " +
+              "no such confirmation makes a promotional call from an ordinary number " +
+              "acceptable. We cannot give that confirmation for you, and nobody at " +
+              "Calevate can give it while helping you with your account.",
+            "Telling your own telecom access provider, in writing and before the calls " +
+              "start, that these calls are placed by an automated dialler and what they " +
+              "are for. The rules put that notice on the sender of the calls, which is " +
+              "your business and not Calevate, so it is not something we can send for " +
+              "you. Until your account records that you gave it, no outbound call goes " +
+              "out — your incoming calls are unaffected. Section 2.9 of the Acceptable " +
+              "Use Policy says what to record and what happens if you withdraw it.",
             "Having a lawful basis for every number you upload and every call you ask us " +
               "to place, and being able to evidence it — including what the person agreed " +
               "to, when, and for what. Consent obtained for one purpose does not " +

@@ -69,9 +69,15 @@ interface RegisterRow {
  * voice-quality vendor while it was already listed as a contingency engine
  * (`engine/cartesia.py`, never adopted), and one row cannot carry two standings.
  *
- * **Gnani** — NOTHING, the weakest class on this page. All three of its sites are
- * egress-blocked (measured 15 Sep 2026), so its row and section 3.6 say what we have not
- * established rather than borrowing Cartesia's answers for it.
+ * **Gnani** — the weakest class on this page: one published PRICE and nothing else. All
+ * three of its sites are egress-blocked (measured 15 Sep 2026); the price (₹27.00 per
+ * 10,000 characters, `app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and
+ * relayed — VENDOR-PUBLISHED) lives in `billing/rates.TTS_INR_PER_10K_CHARS` and is not
+ * restated here, because a rate card is not this page's subject. It answers nothing about
+ * training, retention or residency, so the row and section 3.6 still say what we have not
+ * established rather than borrowing Cartesia's answers for it. ⚠ Both said the vendor
+ * publishes NO price until 20 Sep 2026 — a page nobody had found, written down as a
+ * vendor fact — which is why they now name the correction rather than only the fact.
  *
  * **Supermemory** — VERIFIED-IN-REPO for what it says about OUR behaviour, UNKNOWN for the
  * vendor. `supermemory.ai` is egress-blocked (measured 14 Sep 2026, recorded in
@@ -566,11 +572,13 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "once about a different vendor, and section 3.4 is where it was corrected.",
     status:
       "Configured, not enabled, and TWO separate things hold it there rather than one. " +
-      "No credential for this vendor is installed on this deployment; and no price for " +
-      "it has been established anywhere — the vendor publishes none we could find — so " +
-      "the product refuses to offer any of its voices for selection at all until " +
-      "somebody records a price read off a real invoice. Nothing has ever been sent to " +
-      "it from this system.",
+      "No credential for this vendor is installed on this deployment; and nobody has " +
+      "established what a minute of it costs us. This cell said until 20 September 2026 " +
+      "that the vendor publishes no price, and that was our own failure to find the " +
+      "page rather than a fact about the vendor: it does publish one, and we have now " +
+      "read it. What we have not seen is a bill, so the product refuses to offer any of " +
+      "its voices for selection at all until somebody records a figure taken off one. " +
+      "Nothing has ever been sent to it from this system.",
   },
   {
     names: ["Cartesia"],
@@ -1085,7 +1093,7 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "callout",
               tone: "warning",
-              title: "One of them permits training on what it receives and sells its no-retention option only on a plan we cannot buy; of the other we have read nothing",
+              title: "One of them permits training on what it receives and sells its no-retention option only on a plan we cannot buy; of the other we have read nothing but a price list",
               text:
                 "Section 3 was headed \u201cfive things\u201d until 7 September 2026, and " +
                 "this is the sixth: the product gained a second voice quality, spoken by " +
@@ -1096,7 +1104,8 @@ export const SUBPROCESSORS: LegalDocument = {
                 "the call, whose terms section 3.4 sets out; it is now spoken by a third " +
                 "company, and that company's own sites cannot be reached from the " +
                 "environment we build in, so nobody here has read its position on " +
-                "training, on retention, on residency or on anything else. We state that " +
+                "training, on retention, on residency or on anything else it does with " +
+                "what it receives. We state that " +
                 "as the gap it is rather than assuming its answers match the vendor " +
                 "described next. The three things below are that other vendor's, all " +
                 "quoted from those documents rather than inferred from them. Its privacy " +
@@ -1131,11 +1140,17 @@ export const SUBPROCESSORS: LegalDocument = {
                 "an answer somebody can get, and none of them is a gap we would fill " +
                 "with a plausible sentence. For the company that speaks the cheaper " +
                 "quality the list is shorter and worse: we have established none of " +
-                "those things, because we have not been able to read one page it " +
-                "publishes. There is one more, and it is the reason no agent can be set " +
-                "to that quality at all today — nobody has established what one minute " +
-                "of it costs, that company publishes no price, and we will not put an " +
-                "agent on a leg we cannot price.",
+                "those things, because its site cannot be reached from the environment " +
+                "we build in and the one page of its own anybody here has read — its " +
+                "published price list, read on 19 September 2026 — answers none of " +
+                "them. There is one more, and it is the reason no agent can be set to " +
+                "that quality at all today: what that page gives is a list price and " +
+                "not a bill, so nobody has established what one minute of it actually " +
+                "costs us, and we will not put an agent on a leg we have only been " +
+                "quoted for. This paragraph said until 20 September 2026 that the " +
+                "company publishes no price at all, which was a page we had not found " +
+                "written down as a fact about the vendor, and we would rather correct " +
+                "it here than quietly.",
             },
             {
               kind: "para",

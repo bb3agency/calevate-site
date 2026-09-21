@@ -4154,6 +4154,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/autodialer-notice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The autodialler notice this account has on file
+         * @description Every outbound call Calevate places for you is dialled automatically, and the rules put one duty on the sender of such calls: tell your own telecom access provider, in writing and in advance, that you use an automated dialler and what the calls are for. You are the sender, so the notice is yours to give and ours to record. Until this says `effective`, no outbound call goes out. Answering incoming calls is unaffected. An account with nothing on file gets `recorded: false` and a 200.
+         */
+        get: operations["read_notice_v1_compliance_autodialer_notice_get"];
+        put?: never;
+        /**
+         * Record that you have given your access provider the notice, or withdraw it
+         * @description Record the notice after you have sent it — this is where you tell us it exists, not where it is sent. Name the provider you sent it to, what the calls are for, and the date on the letter. If you dated it in the future, that is fine: it is recorded now and your outbound starts on that date. Withdrawing files a new record rather than deleting the old one, so the history still shows the notice was live while earlier calls were placed.
+         */
+        post: operations["record_notice_v1_compliance_autodialer_notice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/call-consent": {
         parameters: {
             query?: never;
@@ -7724,6 +7748,45 @@ export interface components {
             items: components["schemas"]["AttentionItemOut"][];
             /** Total */
             total: number;
+        };
+        /** AutodialerNoticeIn */
+        AutodialerNoticeIn: {
+            /** Access Provider */
+            access_provider: string;
+            /** Notice Reference */
+            notice_reference?: string | null;
+            /**
+             * Notified On
+             * Format: date
+             */
+            notified_on: string;
+            /** Objective */
+            objective: string;
+            /**
+             * Withdraw
+             * @default false
+             */
+            withdraw: boolean;
+        };
+        /**
+         * AutodialerNoticeOut
+         * @description What this account has on file, and whether it is carrying outbound today.
+         */
+        AutodialerNoticeOut: {
+            /** Access Provider */
+            access_provider: string | null;
+            /** Effective */
+            effective: boolean;
+            /** Notice Reference */
+            notice_reference: string | null;
+            /** Notified On */
+            notified_on: string | null;
+            /** Objective */
+            objective: string | null;
+            /** Recorded */
+            recorded: boolean;
+            /** State */
+            state: string | null;
         };
         /**
          * AvailableNumberOut
@@ -25252,6 +25315,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleCancelledOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_notice_v1_compliance_autodialer_notice_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutodialerNoticeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_notice_v1_compliance_autodialer_notice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutodialerNoticeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutodialerNoticeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

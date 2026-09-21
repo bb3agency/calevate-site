@@ -121,7 +121,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "6",
         material: true,
-        contentHash: "sha256:468d870b16d23499b66f47ca14609601e99b9512b31a483012986df88ac12af0",
+        contentHash:
+          "sha256:468d870b16d23499b66f47ca14609601e99b9512b31a483012986df88ac12af0",
       },
       // §9 now publishes two retention periods this notice had never disclosed and one it
       // enforced in silence. `campaign_contacts` (an uploaded name and number for someone
@@ -143,7 +144,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "7",
         material: true,
-        contentHash: "sha256:9cf7f8394aa1e973e0f83ffcff3f796b4d321df30fc9fd56fca77a637f459e87",
+        contentHash:
+          "sha256:9cf7f8394aa1e973e0f83ffcff3f796b4d321df30fc9fd56fca77a637f459e87",
       },
       // D-629. SARVAM NO LONGER SYNTHESISES THE AGENT'S VOICE. It still hears every call
       // and still reads the first pass over the transcript, so nothing this notice says
@@ -163,7 +165,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "8",
         material: true,
-        contentHash: "sha256:fd0560de83acd3a964437e33c4bf23ab6fe5ef6a7f8ee026a566edb87e47ceca",
+        contentHash:
+          "sha256:fd0560de83acd3a964437e33c4bf23ab6fe5ef6a7f8ee026a566edb87e47ceca",
       },
       // D-635. A client may now verify their own identity through DigiLocker with a
       // licensed intermediary, so §4's KYC entry says what that route collects: the
@@ -181,7 +184,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "9",
         material: true,
-        contentHash: "sha256:7a16c3496d10e82c2eba428605eac34a21db1f27e4f1d53afe6d914028c9689b",
+        contentHash:
+          "sha256:7a16c3496d10e82c2eba428605eac34a21db1f27e4f1d53afe6d914028c9689b",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -203,7 +207,23 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "6",
         material: true,
-        contentHash: "sha256:370891051573708df7f01e26bce83cc4ae85fc09ce1a5cdd329b9769fea96573",
+        contentHash:
+          "sha256:370891051573708df7f01e26bce83cc4ae85fc09ce1a5cdd329b9769fea96573",
+      },
+      // Clause 5 now places two obligations on the client that revision 6 did not
+      // mention: the advance autodialler notice to their own access provider, and the
+      // per-number sender confirmation before an ordinary ten-digit line may dial. Both
+      // stop their outbound until met, and clause 4 widens to say a withdrawn notice
+      // stops it too.
+      //
+      // MATERIAL, and not a close call. A client who accepted revision 6 agreed to a
+      // document that never named the one thing that now refuses every outbound call
+      // they make — they could not have known what they were agreeing to.
+      {
+        revision: "7",
+        material: true,
+        contentHash:
+          "sha256:08da8ec4267eb694e62c808b635e0437124eee0907aa3f65f13202ca3edb47df",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -216,7 +236,24 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "2",
         material: false,
-        contentHash: "sha256:9d7c9cc2998214112f9c0f2e93f02e5e399fd541dccb2c8844356cddab901b26",
+        contentHash:
+          "sha256:9d7c9cc2998214112f9c0f2e93f02e5e399fd541dccb2c8844356cddab901b26",
+      },
+      // Section 2.9 adds a precondition to ALL outbound dialling that the policy never
+      // carried — the sender's own advance notice to their access provider. Section 2.10
+      // adds the thirty-minute limit on a call placed off a lead delivery. Section 2.2
+      // now refuses a transactional campaign outright, where it previously described
+      // transactional as a classification a client could choose, and conditions dialling
+      // from an ordinary ten-digit number on a per-number sender confirmation.
+      //
+      // MATERIAL: each is a new obligation on the client rather than a clarification of
+      // an old one, and 2.2's old wording told them to do something the product now
+      // refuses.
+      {
+        revision: "3",
+        material: true,
+        contentHash:
+          "sha256:116c73a400c7d37265f0371317b5bdb2c0b772383f95855e7f1136f3e6436dd8",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -238,7 +275,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "6",
         material: true,
-        contentHash: "sha256:a342c58ebf25971b113f7c5c2f0d22b5dd856c1a157cab7ab15d9d2a32222f9e",
+        contentHash:
+          "sha256:a342c58ebf25971b113f7c5c2f0d22b5dd856c1a157cab7ab15d9d2a32222f9e",
       },
       // D-629. Clause 2's voice-synthesis bullet no longer names the company that hears
       // the call: it was removed from the synthesis leg and the cheaper voice quality
@@ -256,7 +294,24 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "7",
         material: true,
-        contentHash: "sha256:ecc9cb2a327bc7d77345551267d67d7f87704e51afbbbb8ec20a2cb068d3f4cb",
+        contentHash:
+          "sha256:ecc9cb2a327bc7d77345551267d67d7f87704e51afbbbb8ec20a2cb068d3f4cb",
+      },
+      // Three sentences said we had read NOTHING AT ALL of the company that speaks the
+      // cheaper voice quality. It does publish a price list and it has now been read, so
+      // the claim narrows to what is true. This is a not-finding that had been written
+      // down as a vendor fact and had reached a client-facing document — the failure
+      // hard rule 11 exists for, corrected rather than quietly reworded.
+      //
+      // NOT material: no obligation, warranty or representation moves. The operative
+      // words are verbatim — we still represent nothing about a data-processing
+      // agreement, still name no country, and its training and retention position is
+      // still not stated. Nobody who accepted revision 7 is bound any differently.
+      {
+        revision: "8",
+        material: false,
+        contentHash:
+          "sha256:08efa002d942839ef344446454f00fcf426cfbea94bee96583138e63a00a5e75",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -276,7 +331,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "4",
         material: true,
-        contentHash: "sha256:a5f2af022ed41b32b8f51980dd49d51af7f5edc47e826df44788dc4f79f77bd8",
+        contentHash:
+          "sha256:a5f2af022ed41b32b8f51980dd49d51af7f5edc47e826df44788dc4f79f77bd8",
       },
       // D-615. THE PLATFORM THAT RUNS THE CALL WAS NOT IN THE REGISTER. D-592 moved the
       // conversation into a container of ours on Pipecat Cloud, which puts a new company
@@ -294,7 +350,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "5",
         material: true,
-        contentHash: "sha256:79ccad03ddd6d6819fd99939cc5e35b1e575a252236ec83fac4aa8a986d14470",
+        contentHash:
+          "sha256:79ccad03ddd6d6819fd99939cc5e35b1e575a252236ec83fac4aa8a986d14470",
       },
       // 18 Sep 2026. THREE RECIPIENTS THAT WERE IN THE CODE AND ON NO PAGE, found by
       // auditing from the tree outwards rather than by re-reading the rows —
@@ -312,7 +369,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "6",
         material: true,
-        contentHash: "sha256:1affe0b1386b062917def21846a17309e31a3b98fa18f09d7feccf96c2290ea3",
+        contentHash:
+          "sha256:1affe0b1386b062917def21846a17309e31a3b98fa18f09d7feccf96c2290ea3",
       },
       // D-629. No row is added and none is removed — what MOVED is which vendor does
       // what. The speech vendor's `does` cell loses "voice synthesis": it still hears
@@ -333,7 +391,24 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "7",
         material: true,
-        contentHash: "sha256:2c900be7085a14c8fea4aee922afa81775ecbb9064e3d33c3425f3d1a8394cbd",
+        contentHash:
+          "sha256:2c900be7085a14c8fea4aee922afa81775ecbb9064e3d33c3425f3d1a8394cbd",
+      },
+      // The Gnani row and section 3.6 said that company publishes no price. It does; the
+      // page had not been found, and the not-finding was written down as a fact about
+      // the vendor. The correction is stated in the cell itself, as this register states
+      // its other corrections, because a client may have read revision 7. The true
+      // reason the rung still cannot be sold is restated: a list price is not an invoice.
+      //
+      // NOT material: no row is added or removed, nothing about who receives what
+      // changes, no assurance is withdrawn, and there is nothing here for a client to
+      // object to under the notification clause. The page gets strictly more accurate
+      // about how much we have read.
+      {
+        revision: "8",
+        material: false,
+        contentHash:
+          "sha256:6faa2c4930308a89495a2269fe9f2d12e760fb1ae12f9e47c887d08bc8eae82d",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -353,7 +428,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "4",
         material: true,
-        contentHash: "sha256:d500936af9ef837489e89ff5bde191d2d6667361bfc0d7aed1b1f22499086cd2",
+        contentHash:
+          "sha256:d500936af9ef837489e89ff5bde191d2d6667361bfc0d7aed1b1f22499086cd2",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -367,7 +443,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "3",
         material: false,
-        contentHash: "sha256:a89df0e1ea88c1eb4bbfb00a285628857cd71a4a563ce61247fd5f6f9ef4d4d4",
+        contentHash:
+          "sha256:a89df0e1ea88c1eb4bbfb00a285628857cd71a4a563ce61247fd5f6f9ef4d4d4",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -385,7 +462,8 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       {
         revision: "3",
         material: false,
-        contentHash: "sha256:db63c997aedfa1276ee079ecac3eb539f0625fb8624ea5695ac92d5c87be176c",
+        contentHash:
+          "sha256:db63c997aedfa1276ee079ecac3eb539f0625fb8624ea5695ac92d5c87be176c",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -411,5 +489,7 @@ export function documentVersion(slug: string): string | null {
 export function documentVersionLabel(slug: string): string | null {
   const version = documentVersion(slug);
   if (version === null) return null;
-  return PENDING_LEGAL_REVIEW ? `${version} (draft, not yet reviewed)` : version;
+  return PENDING_LEGAL_REVIEW
+    ? `${version} (draft, not yet reviewed)`
+    : version;
 }

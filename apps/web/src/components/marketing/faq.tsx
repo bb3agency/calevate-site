@@ -155,11 +155,32 @@ const QUESTIONS: { q: string; a: string }[] = [
   },
   {
     q: "Do we need a DLT registration to make outbound calls?",
+    /*
+     * THREE REFUSALS, NOT ONE. `check_dispatch` gates outbound on the DLT chain (item 7),
+     * the sender's own advance autodialer notice (7b, `compliance/autodialer.py`) and the
+     * business identity check (2c, `compliance/kyc.py`). Naming only the first tells a
+     * buyer the paperwork is done when it is not, on the surface where that is a
+     * representation rather than a note.
+     *
+     * The notice is the CLIENT's to give and we may not imply otherwise — the access
+     * provider's counterparty is the sender. Its legal ground is REPORTED (nobody here has
+     * opened TCCCPR Reg 4), so this describes what the product refuses, not what the law
+     * says. And `record_autodialer_notice` has no route and no screen, so the answer may
+     * not read as "do these three things and you are dialling": the honest shape is that
+     * outbound is arranged with us, not switched on by a signup. No figure and no price
+     * vocabulary: this block renders on the homepage.
+     */
     a:
-      "Yes. Indian rules require the business whose calls they are to be registered, and " +
-      "the telemarketer placing them to be registered too. That paperwork is part of " +
-      "setting you up, and the product refuses to dial a campaign until it is in place. " +
-      "Inbound answering is not affected by any of it.",
+      "Yes, and two more things besides. Indian rules require the business whose calls " +
+      "they are to be registered, and the telemarketer placing them to be registered " +
+      "too. You must also tell your own telecom access provider, in writing and in " +
+      "advance, that the calls are placed by an automated dialler and what they are for " +
+      "— that notice has to come from you rather than from us. And we check the identity " +
+      "of the business behind the account. The product refuses to dial until every one " +
+      "of those is in place. You record your own notice on your agreements screen; the " +
+      "number your calls go out from is arranged with us, so " +
+      "outbound is something we set up with you rather than something an account " +
+      "switches on. Inbound answering is not affected by any of it.",
   },
   {
     q: "Can we stop it once it is running?",
@@ -189,16 +210,16 @@ export function Faq() {
     <div className="mt-8 divide-y divide-line border-y border-line">
       {QUESTIONS.map(({ q, a }) => (
         <details key={q} className="group" onToggle={handleToggle}>
-          <summary
-            className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-4 [&::-webkit-details-marker]:hidden"
-          >
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-4 [&::-webkit-details-marker]:hidden">
             <h3 className="text-lg font-medium text-ink sm:text-xl">{q}</h3>
             <ChevronDown
               aria-hidden
               className="h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
             />
           </summary>
-          <p className="max-w-3xl pb-6 text-base text-pretty text-ink-muted sm:text-lg">{a}</p>
+          <p className="max-w-3xl pb-6 text-base text-pretty text-ink-muted sm:text-lg">
+            {a}
+          </p>
         </details>
       ))}
     </div>

@@ -139,9 +139,15 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
   {
     term: "Compliance gate",
     detail:
+      // The refusals named here are `compliance/service.check_dispatch`'s own items, and
+      // the two added are 7b (`compliance/autodialer.py`) and 2c (`compliance/kyc.py`).
+      // A glossary entry that lists some of them reads as the whole list.
       "The check that runs before a campaign may start and before every dial. It is what " +
-      "refuses a call outside 9am–9pm, a number on your do-not-call list, or an account " +
-      "whose registrations are not in place. It is not a warning; the dial does not happen.",
+      "refuses a call outside 9am–9pm, a number on your do-not-call list, an account " +
+      "whose registrations are not in place, an account whose business identity we have " +
+      "not verified, and an account that has not recorded the advance written notice its " +
+      "own telecom access provider requires about automated dialling. It is not a " +
+      "warning; the dial does not happen.",
   },
   {
     term: "Do-not-call list",

@@ -142,6 +142,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.campaigns.sender_attestation_routes import (
         router as sender_attestation_router,
     )
+    from apps.api.compliance.autodialer_routes import router as autodialer_notice_router
     from apps.api.compliance.caller_data_routes import router as caller_data_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.carrier_application_routes import (
@@ -385,6 +386,7 @@ def _mount_routers(application: FastAPI) -> None:
     # pair because it is the same kind of thing — a gating record with a client-facing
     # read and an ops-facing write — and a client blocked on one is very often looking at
     # the other.
+    application.include_router(autodialer_notice_router)
     application.include_router(carrier_application_router)
     application.include_router(carrier_application_admin_router)
     # R-11's first-campaign hold: the client's view of it, and ops's release. The admin

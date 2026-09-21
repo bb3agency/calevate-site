@@ -162,8 +162,9 @@ export const DPA: LegalDocument = {
               "audio, the transcript, the recording or anything from your dashboard. " +
               "Nothing has been sent to either of them: no credential for either is " +
               "installed and no voice in either quality can be selected. Of the second " +
-              "we have read nothing whatever — its own sites refuse a connection from " +
-              "the environment we build in — so its position on training and retention " +
+              "we have read nothing but a price list — its own sites refuse a " +
+              "connection from the environment we build in — so its position on " +
+              "training and retention " +
               "is not stated here rather than assumed to match the first. ⚠ This bullet " +
               "used to tell you that keeping every agent of yours on the other voice " +
               "quality kept your callers' data away from this leg entirely; that is " +
@@ -292,9 +293,10 @@ export const DPA: LegalDocument = {
             "will be in place when somebody has established that it can be, and that is " +
             "part of what has to happen before that row stops reading as switched off. " +
             "The second was added on 15 September 2026 and took the cheaper voice " +
-            "quality from the speech vendor on 18 September 2026; we have not been able " +
-            "to read a single page it publishes, so we do not know whether it offers a " +
-            "data-processing agreement at all, and we represent nothing about one. " +
+            "quality from the speech vendor on 18 September 2026; the only page of its " +
+            "own we have read is its price list, and nothing it publishes that we can " +
+            "reach says whether it offers a data-processing agreement at all, so we " +
+            "represent nothing about one. " +
             "Section 3.6 of the sub-processor page states these gaps and the others " +
             "beside them.",
         },
@@ -562,8 +564,9 @@ export const DPA: LegalDocument = {
             "synthesised by other companies, and where either of them processes is a " +
             "thing we have not established — for one, its published documents as read to " +
             "us name no region and make no residency commitment; for the other, its own " +
-            "sites cannot be reached from the environment we build in at all, so nobody " +
-            "here has read a page of them — and rather than name a plausible country the " +
+            "sites cannot be reached from the environment we build in at all, so the " +
+            "only page of its own anybody here has read is its price list, which says " +
+            "nothing about where — and rather than name a plausible country the " +
             "register's location cells for both say so; nothing has been sent to either " +
             "of them, and the sentence this clause used to carry, that keeping your " +
             "agents on the first voice quality kept it that way, is WITHDRAWN because " +

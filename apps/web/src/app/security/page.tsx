@@ -93,25 +93,52 @@ export default function SecurityPage() {
                   </span>
                   {title}
                 </dt>
-                <dd className="mt-2 text-sm text-pretty text-ink-muted">{body}</dd>
+                <dd className="mt-2 text-sm text-pretty text-ink-muted">
+                  {body}
+                </dd>
               </div>
             ))}
           </dl>
           <p className="mt-8 max-w-2xl text-sm text-ink-faint">
-            Outbound calling also needs the registrations Indian rules require — the business
-            whose calls they are, and the telemarketer placing them. The product refuses to
-            dial a campaign until that is in place, and inbound answering is unaffected by
-            any of it. What those obligations are is set out in{" "}
+            Outbound calling also needs the registrations Indian rules require —
+            the business whose calls they are, and the telemarketer placing
+            them. The product refuses to dial a campaign until that is in place,
+            and inbound answering is unaffected by any of it. What those
+            obligations are is set out in{" "}
             <Link href="/legal/terms" className={INLINE_LINK}>
               the terms
             </Link>{" "}
             rather than summarised here.
           </p>
+          {/* `check_dispatch` items 7b (`compliance/autodialer.py`) and 2c
+              (`compliance/kyc.py`), both outbound-only. Two things this may not say:
+              that the client is compliant — the autodialer obligation's own evidence class
+              is REPORTED, nobody here has opened TCCCPR Reg 4 — and that the notice can be
+              lodged with us today: `record_autodialer_notice` has no route and no screen,
+              so the gate currently has no door, and a page implying otherwise sends a
+              prospect at an outbound product they cannot switch on. */}
+          <p className="mt-4 max-w-2xl text-sm text-ink-faint">
+            Two more things stand in front of a first outbound call, and until
+            both are in place every outbound dial is refused. You have to tell
+            your own telecom access provider, in writing and in advance, that
+            these calls are placed by an automated dialler and what they are for
+            — that notice is yours to give, because it is your business the
+            provider holds to it. And we verify the business behind the account:
+            an operator checks a public business-registry record before its
+            calls go out. You record that notice yourself, on your agreements
+            screen, once you have sent it. Outbound is still not something a new
+            account switches on alone — the number your calls go out from is
+            arranged with us — but every gate in front of it is one you can see
+            and clear. Answering incoming calls is unaffected by any of it.
+          </p>
         </div>
       </section>
 
       {/* --- 02 Where each part runs --------------------------------------------- */}
-      <section id="where-it-runs" className="scroll-mt-20 border-t border-line bg-surface/40">
+      <section
+        id="where-it-runs"
+        className="scroll-mt-20 border-t border-line bg-surface/40"
+      >
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="02">Where it runs</Eyebrow>
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
@@ -139,10 +166,10 @@ export default function SecurityPage() {
             </p>
           </div>
           <p className="mt-6 max-w-2xl text-sm text-ink-faint">
-            We hold no security certification — no SOC 2, no ISO 27001, no HIPAA — and this
-            page will not imply one. What we have instead is the list above, the documents
-            below, and a sub-processor page that names each vendor before you sign rather
-            than after.
+            We hold no security certification — no SOC 2, no ISO 27001, no HIPAA
+            — and this page will not imply one. What we have instead is the list
+            above, the documents below, and a sub-processor page that names each
+            vendor before you sign rather than after.
           </p>
         </div>
       </section>
@@ -163,7 +190,9 @@ export default function SecurityPage() {
                   </span>
                   {term}
                 </dt>
-                <dd className="mt-2 text-sm text-pretty text-ink-muted">{detail}</dd>
+                <dd className="mt-2 text-sm text-pretty text-ink-muted">
+                  {detail}
+                </dd>
               </div>
             ))}
           </dl>
@@ -172,32 +201,36 @@ export default function SecurityPage() {
               {/* Roles gate the CRM; the export is a separate permission and writes an
                   `audit_log` entry (hard rule 5, `apps/api/crm/routes.py`'s role-gated,
                   audited export). */}
-              Inside your own account it is your team who sees your callers, and which of
-              them is your choice: roles decide who reads the CRM at all, and downloading
-              the whole contact list is a separate permission that writes an audit entry
-              naming who took it.
+              Inside your own account it is your team who sees your callers, and
+              which of them is your choice: roles decide who reads the CRM at
+              all, and downloading the whole contact list is a separate
+              permission that writes an audit entry naming who took it.
             </p>
             <p>
               {/* apps/workers/retention.py — RECORDING_FLOOR_DAYS = 90 and the
                   `recording_ttl_floor` CHECK on `retention_policies`. */}
-              Recordings are held to a floor the database itself enforces, so a shorter
-              retention policy cannot be set by you or by us. Everything else about how long
-              we keep what we hold is in the privacy policy rather than paraphrased here.
+              Recordings are held to a floor the database itself enforces, so a
+              shorter retention policy cannot be set by you or by us. Everything
+              else about how long we keep what we hold is in the privacy policy
+              rather than paraphrased here.
             </p>
           </div>
         </div>
       </section>
 
       {/* --- 04 Before it takes a real call -------------------------------------- */}
-      <section id="testing" className="scroll-mt-20 border-t border-line bg-surface/40">
+      <section
+        id="testing"
+        className="scroll-mt-20 border-t border-line bg-surface/40"
+      >
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="04">Before it takes a real call</Eyebrow>
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             The awkward calls an agent is run against
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            The calls an agent is put through — a scripted transcript for each, scored on
-            whether the details reached the leads list correctly.
+            The calls an agent is put through — a scripted transcript for each,
+            scored on whether the details reached the leads list correctly.
           </p>
           <ul className="mt-10 grid gap-3 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
             {TESTED_SCENARIOS.map((scenario) => (
@@ -217,9 +250,9 @@ export default function SecurityPage() {
               product publishes a per-scenario result a client-facing page could read, and
               the tick above is a list bullet rather than a verdict. */}
           <p className="mt-8 max-w-2xl text-base text-pretty text-ink-muted">
-            We publish no score against that list, and no accuracy figure for any language.
-            How well the agent understands Telugu has not been measured properly enough to
-            publish.
+            We publish no score against that list, and no accuracy figure for
+            any language. How well the agent understands Telugu has not been
+            measured properly enough to publish.
           </p>
         </div>
       </section>
@@ -232,9 +265,10 @@ export default function SecurityPage() {
             The whole of it, in the documents themselves
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Everything above is a summary of behaviour; these are the instruments. Which of
-            them applies to you depends on whether you buy Calevate, work for a business that
-            does, or received a call from one — each page says so at the top.
+            Everything above is a summary of behaviour; these are the
+            instruments. Which of them applies to you depends on whether you buy
+            Calevate, work for a business that does, or received a call from one
+            — each page says so at the top.
           </p>
           <ul className="mt-10 grid gap-3 sm:mt-12 sm:grid-cols-2">
             {LEGAL_DOCUMENTS.map((doc) => (

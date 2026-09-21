@@ -24,6 +24,16 @@ import type { LegalDocument } from "./types";
  * went is the spelling. If a gate is renamed this page needs no edit, which is the second
  * thing the identifiers were costing. `tests/legalRegister.test.ts` is what stops them
  * coming back.
+ *
+ * ## A new rule is APPENDED to section 2, never inserted into it
+ *
+ * The subsection numbers are cited from outside this file — `dpa.ts` sends a reader to
+ * "section 2.6" for the recording and AI announcements — and a clause reference that
+ * resolves to the wrong clause is the defect `legal.test.tsx`'s reference resolver exists
+ * for. So 2.9 (the autodialler notice) and 2.10 (the thirty-minute window on a fresh
+ * enquiry) sit at the end of section 2 rather than beside the rules they are nearest in
+ * subject. Renumbering to improve the reading order would silently re-point every
+ * reference an adviser, a client or another document has already written down.
  */
 export const ACCEPTABLE_USE: LegalDocument = {
   slug: "acceptable-use",
@@ -88,8 +98,9 @@ export const ACCEPTABLE_USE: LegalDocument = {
                 "amended), made by the Telecom Regulatory Authority of India. It is " +
                 "what creates the Principal Entity and Telemarketer roles, the " +
                 "registration of headers and templates, the number series in section " +
-                "2.2, the preference registers in section 2.3 and the calling window in " +
-                "section 2.4. We name it once, here, so that your adviser can read our " +
+                "2.2, the preference registers in section 2.3, the calling window in " +
+                "section 2.4 and the advance notice about automated dialling in section " +
+                "2.9. We name it once, here, so that your adviser can read our " +
                 "obligations against the regulation rather than against our summary of " +
                 "it; the rest of this policy calls it the commercial-communications " +
                 "framework.",
@@ -156,19 +167,35 @@ export const ACCEPTABLE_USE: LegalDocument = {
             {
               kind: "para",
               text:
-                "Promotional calls go out on a 140-series number. Transactional and " +
-                "service calls go out on the 160 series or a standard number. You " +
-                "classify each campaign, and the product refuses a campaign with no " +
-                "number chosen or with a number whose series does not match what the " +
-                "campaign actually is.",
+                "Promotional calls go out on a 140-series number. Service calls go out " +
+                "on the 160 series, or from an ordinary ten-digit number if you have " +
+                "first confirmed that your business is the sender of calls from it — the " +
+                "last paragraph of this section says how. You classify each campaign, " +
+                "and the product refuses a campaign with no number chosen or with a " +
+                "number whose series does not match what the campaign actually is.",
+            },
+            {
+              kind: "para",
+              text:
+                "A campaign cannot be transactional. A transactional call is one placed " +
+                "within thirty minutes of a transaction the customer themselves started, " +
+                "which a list dialled over hours or days cannot be. File a campaign as a " +
+                "service campaign if it is a non-promotional message to your own " +
+                "customers — a reminder, a confirmation, a follow-up — or as promotional " +
+                "if it offers, markets or sells anything. A call that really is within " +
+                "thirty minutes of a customer's own action is placed by the " +
+                "instant-callback path, which is triggered by that customer, not by a " +
+                "campaign; section 2.10 explains that path and its limit. The product " +
+                "refuses a transactional campaign when you launch it and again on every " +
+                "dispatch tick.",
             },
             {
               kind: "callout",
               tone: "warning",
               title: "Misclassification is the most common way to lose a registration",
               text:
-                "Labelling a promotional campaign as transactional to reach people who " +
-                "have opted out of promotions is not a shortcut, it is the specific abuse " +
+                "Labelling a promotional campaign as a service campaign to reach people " +
+                "who have opted out of promotions is not a shortcut, it is the specific abuse " +
                 "the number series exists to prevent, and it is the failure mode " +
                 "registrations are revoked for. Do not do it. If you do it, we will stop " +
                 "your account.",
@@ -179,6 +206,21 @@ export const ACCEPTABLE_USE: LegalDocument = {
                 "Service calls may not carry a sales message. An agent on a service or " +
                 "160-series line is topic-fenced and the regression suite asserts that it " +
                 "refuses promotional turns. Do not configure around that.",
+            },
+            {
+              kind: "para",
+              text:
+                "Commercial voice calls to a customer are meant to come from a registered " +
+                "140 or 160 series number. An ordinary ten-digit number is not one, so a " +
+                "campaign that dials from an ordinary number is refused until somebody " +
+                "with owner access on your account confirms, on that number's own " +
+                "settings page, that your business is the sender of those calls and " +
+                "accepts responsibility for them. Nobody at Calevate can give that " +
+                "confirmation for you, even while helping you with your account, because " +
+                "the obligation is the sender's and you are the sender. It covers service " +
+                "campaigns only — no confirmation of any kind makes a promotional call " +
+                "from an ordinary number acceptable — and you may withdraw it whenever " +
+                "you like, which stops those campaigns from the moment you do.",
             },
           ],
         },
@@ -394,6 +436,100 @@ export const ACCEPTABLE_USE: LegalDocument = {
                 "person before it runs. Do not open a " +
                 "second account to get around a hold: the hold is on the account and a " +
                 "new one is a breach of the Terms.",
+            },
+          ],
+        },
+        {
+          id: "autodialler-notice",
+          heading: "2.9 Telling your access provider that these calls are dialled automatically",
+          blocks: [
+            {
+              kind: "para",
+              text:
+                "Every outbound call Calevate places for you is placed by an automated " +
+                "dialler. The commercial-communications framework puts one duty on the " +
+                "sender of such calls: tell your own telecom access provider, in writing " +
+                "and in advance, that you use an automated dialler and what the calls " +
+                "are for. You are the sender. Your access provider is the operator that " +
+                "supplies the outbound line you call from.",
+            },
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "We cannot give this notice for you",
+              text:
+                "It is a letter between your business and your own operator, and the " +
+                "operator's counterparty is you. A notice from us covering our clients " +
+                "would not be the notice the rules ask for, and we will not pretend " +
+                "otherwise by sending one. What we do is refuse to dial until you have " +
+                "given it.",
+            },
+            {
+              kind: "para",
+              text:
+                "So record with us the provider you wrote to, what you told them these " +
+                "calls are for, the date you gave the notice, and a reference for the " +
+                "letter if you have one. Until that is recorded, no outbound call goes " +
+                "out for your account — not a campaign, not a single lead, not a " +
+                "callback. There are three separate ways this stops your dialling and " +
+                "the message you get says which: you have recorded no notice; you " +
+                "recorded one and later withdrew it; or the notice you recorded is dated " +
+                "in the future, in which case outbound starts on that date and nothing " +
+                "is wrong with your paperwork.",
+            },
+            {
+              kind: "callout",
+              tone: "note",
+              title: "Your incoming calls are unaffected",
+              text:
+                "Answering a call somebody else placed dials nothing, so this has " +
+                "nothing to do with it. Your agents keep picking up throughout. What " +
+                "waits is the calls that go out.",
+            },
+          ],
+        },
+        {
+          id: "fresh-enquiry",
+          heading: "2.10 Calls placed straight after a customer's own enquiry",
+          blocks: [
+            {
+              kind: "para",
+              text:
+                "Some calls are not campaigns. A customer fills in your web form or your " +
+                "lead advert, and your agent rings them back within seconds. What makes " +
+                "that call acceptable is the customer's own action moments earlier, and " +
+                "that ground lasts thirty minutes.",
+            },
+            {
+              kind: "para",
+              text:
+                "If a lead reaches us more than thirty minutes after the customer " +
+                "submitted it, we keep the lead and do not place the call. The enquiry is " +
+                "real and belongs in your records; what has lapsed is the permission to " +
+                "telephone that person about it without the registrations, the " +
+                "suppression checks and the consent a campaign needs. Dial them through a " +
+                "campaign instead, or have somebody call them by hand.",
+            },
+            {
+              kind: "para",
+              text:
+                "This usually bites on something that is nobody's fault: a delivery your " +
+                "lead source sent again after a failure, or a batch of older enquiries " +
+                "sent to us in one go. The thirty minutes are measured from the time your " +
+                "source tells us the customer submitted, against the time the delivery " +
+                "reached us, so a slow queue at our end never makes a lead stale.",
+            },
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "If your source sends no submission time, we cannot tell how old it is",
+              text:
+                "A delivery that carries no submission time — or one that carries a time " +
+                "with no time zone on it, which we cannot place on a clock — is dialled, " +
+                "because we have nothing to measure. That is a limit of what we can see, " +
+                "not permission. Sending old enquiries to us with the time left off, so " +
+                "that they dial, is a breach of this policy: the obligation to have a " +
+                "lawful basis for the call is yours whether or not we can check it.",
             },
           ],
         },

@@ -29,6 +29,7 @@ import {
   type LegalReadiness,
   type ReadinessBlocker,
 } from "@/lib/api/agreements";
+import { AutodialerNoticePanel } from "./AutodialerNoticePanel";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -77,13 +78,14 @@ import { noFill } from "@/lib/copilot/types";
  */
 
 /** The five server-decided states, as the badge each one wears. */
-const STATE_BADGE: Record<DocumentState, { label: string; tone: NoticeTone }> = {
-  accepted: { label: "Accepted", tone: "ok" },
-  never_accepted: { label: "Not accepted", tone: "stop" },
-  reacceptance_required: { label: "Needs accepting again", tone: "stop" },
-  changed: { label: "Updated", tone: "warn" },
-  not_required: { label: "Reading only", tone: "neutral" },
-};
+const STATE_BADGE: Record<DocumentState, { label: string; tone: NoticeTone }> =
+  {
+    accepted: { label: "Accepted", tone: "ok" },
+    never_accepted: { label: "Not accepted", tone: "stop" },
+    reacceptance_required: { label: "Needs accepting again", tone: "stop" },
+    changed: { label: "Updated", tone: "warn" },
+    not_required: { label: "Reading only", tone: "neutral" },
+  };
 
 /**
  * A small tone pill.
@@ -144,10 +146,15 @@ export default function AgreementsPage() {
       },
       ...(readiness.data
         ? [
-            { key: "verdict", label: "Where this account stands", value: readiness.data.verdict },
+            {
+              key: "verdict",
+              label: "Where this account stands",
+              value: readiness.data.verdict,
+            },
             {
               key: "may_operate",
-              label: "May this account operate on the agreements it has accepted?",
+              label:
+                "May this account operate on the agreements it has accepted?",
               value: readiness.data.may_operate ? "yes" : "no",
             },
             {
@@ -176,7 +183,10 @@ export default function AgreementsPage() {
               key: "documents",
               label: "The documents listed, and whether each blocks operating",
               value: readiness.data.documents
-                .map((doc) => `${doc.title} (${doc.blocking ? "blocking" : "for reference"})`)
+                .map(
+                  (doc) =>
+                    `${doc.title} (${doc.blocking ? "blocking" : "for reference"})`,
+                )
                 .join("; "),
             },
           ]
@@ -196,7 +206,9 @@ export default function AgreementsPage() {
       <ProblemNotice
         error={
           readiness.error ??
-          new Error("Your agreements did not load, so we cannot say where this account stands.")
+          new Error(
+            "Your agreements did not load, so we cannot say where this account stands.",
+          )
         }
         onRetry={() => void readiness.refetch()}
       />
@@ -222,15 +234,20 @@ function Readiness({ readiness }: { readiness: LegalReadiness }) {
       <Verdict readiness={readiness} />
 
       {readiness.provisional_notice && (
-        <NoticeBox tone="warn" icon={<FileText className="h-5 w-5" />} title="These are drafts">
+        <NoticeBox
+          tone="warn"
+          icon={<FileText className="h-5 w-5" />}
+          title="These are drafts"
+        >
           <p className="mt-1">{readiness.provisional_notice}</p>
         </NoticeBox>
       )}
 
       <Card title="The agreements that bind this business">
         <p className="text-sm text-ink-muted">
-          These four decide whether this account may make outgoing calls. Read each one,
-          then confirm below. Calls coming IN are unaffected by anything on this page.
+          These four decide whether this account may make outgoing calls. Read
+          each one, then confirm below. Calls coming IN are unaffected by
+          anything on this page.
         </p>
         <ul className="mt-4 space-y-3">
           {blocking.map((doc) => (
@@ -242,8 +259,9 @@ function Readiness({ readiness }: { readiness: LegalReadiness }) {
 
       <Card title="Also published, with nothing to accept">
         <p className="text-sm text-ink-muted">
-          Notices we owe you rather than promises you make us — a sub-processor list you
-          had to sign would make every vendor change a decision for you to take.
+          Notices we owe you rather than promises you make us — a sub-processor
+          list you had to sign would make every vendor change a decision for you
+          to take.
         </p>
         <ul className="mt-4 space-y-3">
           {readable.map((doc) => (
@@ -252,6 +270,10 @@ function Readiness({ readiness }: { readiness: LegalReadiness }) {
         </ul>
       </Card>
 
+      {/* ABOVE the blocker list, not inside it: this is the one blocker on this
+          screen the client can clear here, and a form buried among read-only rows
+          reads as another thing to go and do elsewhere. */}
+      <AutodialerNoticePanel />
       <Blockers rows={readiness.blockers} />
     </div>
   );
@@ -322,7 +344,9 @@ function DocumentRow({ doc }: { doc: LegalDocumentState }) {
             cannot tell that from a screen that forgot to print it. */}
         <div className="flex gap-1">
           <dt>Effective from</dt>
-          <dd className="text-ink-muted">{doc.effective_date ?? "not yet dated"}</dd>
+          <dd className="text-ink-muted">
+            {doc.effective_date ?? "not yet dated"}
+          </dd>
         </div>
       </dl>
       <a
@@ -351,14 +375,16 @@ function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
   const accept = useAcceptAgreement(session);
   const [ticked, setTicked] = useState(false);
 
-  const outstanding = readiness.documents.filter((doc) => doc.blocking && needsAction(doc));
+  const outstanding = readiness.documents.filter(
+    (doc) => doc.blocking && needsAction(doc),
+  );
 
   if (outstanding.length === 0) {
     return (
       <p className="mt-4 flex items-center gap-2 rounded-card border border-line px-3 py-2 text-sm text-ink-muted">
         <CircleCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
-        Every agreement here has been accepted at its current version. We will ask again
-        when one of them changes in a way that needs it.
+        Every agreement here has been accepted at its current version. We will
+        ask again when one of them changes in a way that needs it.
       </p>
     );
   }
@@ -428,7 +454,11 @@ function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
           We record which documents you accepted, at which version, and when.
         </span>
       </div>
-      {accept.error ? <div className="mt-3"><ProblemNotice error={accept.error} /></div> : null}
+      {accept.error ? (
+        <div className="mt-3">
+          <ProblemNotice error={accept.error} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -445,8 +475,9 @@ function Blockers({ rows }: { rows: ReadinessBlocker[] }) {
     <Card title="Everything else standing in the way">
       {rows.length === 0 ? (
         <p className="text-sm text-ink-muted">
-          Nothing else at the account level is blocking outgoing calls. A campaign can
-          still have conditions of its own — those are named on the campaign.
+          Nothing else at the account level is blocking outgoing calls. A
+          campaign can still have conditions of its own — those are named on the
+          campaign.
         </p>
       ) : (
         <ul className="space-y-3">
