@@ -21,10 +21,12 @@ and working."*
 in their published API (VERIFIED-VENDOR-DOCS, hash-pinned mirror,
 `bolna-findings/mirror/pages/api-reference/voice/overview.md:10-18`, enumerated 11 Sep 2026)
 — and that premise is unchanged. What changed is the conclusion drawn from it: a voice is
-CLONED in their Playground's Voice Lab, and then ADDED HERE by typing the facts the
-synthesizer block needs, which we CHECK against their own list before writing the row
-(`apps/api/agents/voice_admission.py` carries the full argument, including why an unreadable
-platform is a refusal rather than an unverified row).
+CLONED at the provider and then ADDED HERE by typing the facts the synthesizer block needs,
+which are CHECKED against that platform's own list before the row is written — on an engine
+that keeps such a list. Where the engine's catalogue IS this table there is no second list,
+and the operator's attestation is the authority (`apps/api/agents/voice_admission.py` carries
+the full argument, including why an unreadable platform is a refusal rather than an
+unverified row).
 
 WHY `ops:manage` AND NOT `platform:config` OR `admin:tenants`
 ---------------------------------------------------------------
@@ -85,11 +87,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.languages import Language
 from apps.api.agents.voice_admission import (
     OUR_PROVIDERS,
-    UNPUBLISHABLE_CLONING_PROVIDERS,
-    VOICE_LAB_URL,
     VoiceFacts,
     admit_voice,
-    unpublishable_provider_reason,
 )
 from apps.api.agents.voice_curation import (
     CuratedVoice,
@@ -99,7 +98,11 @@ from apps.api.agents.voice_curation import (
     list_curated_voices,
     set_curation_state,
 )
-from apps.api.agents.voice_offer import offerability_of, tts_price_is_billable
+from apps.api.agents.voice_offer import (
+    not_curated_reason,
+    offerability_of,
+    tts_price_is_billable,
+)
 from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import (
     CurationState,
@@ -125,6 +128,20 @@ VoiceCurator = Annotated[Principal, Depends(requires("ops:manage", realm="admin"
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+def withdrawn_note(row: CuratedVoice) -> str | None:
+    """WHY A WITHDRAWN ROW CANNOT BE OFFERED AND WHAT CLEARS IT — or None while it is listed.
+
+    Composed on the SERVER, like every other sentence on this screen, and for a sharper
+    reason than usual: the remedy is not a property of the row, it is a property of the
+    ENGINE. A browser holding `withdrawn_at` can say when the stamp was made and cannot say
+    who can remove it, so a page that writes its own copy here writes a sentence that is
+    true on one engine and false on the other. `voice_offer.not_curated_reason()` is the one
+    place that fork lives, and it is the same sentence the picker gives for this voice — an
+    operator reading two screens reads one answer.
+    """
+    return not_curated_reason() if row.withdrawn else None
 
 
 class CuratedVoiceOut(Strict):
@@ -174,10 +191,12 @@ class CuratedVoiceOut(Strict):
     #: console renders those two differently, which is the whole reason it is nullable
     #: rather than defaulted to the row's creation.
     curated_at: datetime | None
-    #: When the voice platform stopped listing this voice, or null while it still does. A
-    #: withdrawn voice cannot be offered whatever `state` says, and no click here restores
-    #: it — it comes back if and when the platform lists it again.
+    #: When this voice stopped being listed, or null while it still is. A withdrawn voice
+    #: cannot be offered whatever `state` says.
     withdrawn_at: datetime | None
+    #: Non-null exactly when `withdrawn_at` is: what that means on THIS engine and what
+    #: clears it. The console prints it verbatim — see `withdrawn_note`.
+    withdrawn_note: str | None
     #: LIVE agents across every tenant configured with, or published on, this voice. Shown
     #: beside the controls so an operator archives with the number in view. It is NEVER a
     #: veto: see `agents/voice_curation.py` for why refusing would be the worse failure.
@@ -201,6 +220,7 @@ class CuratedVoiceOut(Strict):
             synced_at=row.synced_at,
             curated_at=row.curated_at,
             withdrawn_at=row.withdrawn_at,
+            withdrawn_note=withdrawn_note(row),
             live_agents=row.live_agents,
         )
 
@@ -241,22 +261,20 @@ class CuratedVoicesOut(Strict):
 
 
 class VoiceProviderOptionOut(Strict):
-    """ONE PROVIDER THE ADD FORM OFFERS — including the ones it offers only to REFUSE.
+    """ONE PROVIDER THE ADD FORM OFFERS — including one it offers only to REFUSE.
 
-    **ELEVENLABS IS ON THIS LIST ON PURPOSE, WITH `selectable: false` AND ITS REASON.** The
-    voice platform clones on ElevenLabs or Cartesia; this product runs Sarvam and Cartesia.
-    An operator who has just spent a voice sample cloning on ElevenLabs and finds no such
-    option concludes the console is broken and tries again; an operator who finds it greyed
-    out with a sentence learns, in the one place it matters, that the clone has to be redone
-    on Cartesia. Omitting it would be the silent failure, not the tidy one.
+    Every entry is a provider this product RUNS (`OUR_PROVIDERS`, derived from the model
+    registry). One can still be unselectable: a provider whose minute nobody has priced must
+    not have a voice admitted against it, because an admitted voice arrives ENABLED and hard
+    rule 7 has nothing to charge it against. It is shown with its reason rather than omitted,
+    so an operator holding a finished clone learns what is missing instead of concluding the
+    console is broken.
     """
 
     provider: str
-    #: What a CLIENT is told this quality is called, or null for a provider we do not run
-    #: (there is no tier, which is precisely why we cannot publish it).
-    tier_label: str | None
-    #: The TTS models this product runs on this provider, in catalogue order. Empty for a
-    #: provider we do not run.
+    #: What a CLIENT is told this quality is called — `billing/rates.voice_tier_label`.
+    tier_label: str
+    #: The TTS models this product runs on this provider, in catalogue order.
     models: list[TtsModel]
     selectable: bool
     #: Non-null exactly when `selectable` is false — the sentence the form prints beside the
@@ -268,18 +286,15 @@ class AddVoiceFormOut(Strict):
     """EVERYTHING THE ADD FORM NEEDS, from the server.
 
     The browser composes none of it. Which providers exist, which models run on them, which
-    languages this product sells and why ElevenLabs is refused are all facts with a single
-    source in `agents/languages.py`, `agents/voices.py` and `agents/voice_admission.py`,
-    and a second copy in
-    TypeScript is the copy that goes stale the day a model changes.
+    languages this product sells and why a provider cannot be picked are all facts with a
+    single source in `agents/languages.py`, `agents/voices.py` and
+    `agents/voice_admission.py`, and a second copy in TypeScript is the copy that goes stale
+    the day a model changes.
     """
 
     providers: list[VoiceProviderOptionOut]
     #: The product's languages, Telugu first — `agents/languages.Language`, in picker order.
     languages: list[Language]
-    #: Where the operator gets the voice id and the name. A URL in server-composed copy
-    #: rather than in the page, so it is stated once.
-    voice_lab_url: str
 
 
 #: Why a provider this product RUNS still cannot have a voice added against it (D-618).
@@ -297,27 +312,22 @@ UNPRICED_PROVIDER_REASON: Final = (
 def _form() -> AddVoiceFormOut:
     """The form's options, derived from the catalogue rather than typed.
 
-    `OUR_PROVIDERS` comes from the model registry and `UNPUBLISHABLE_CLONING_PROVIDERS` from
-    the cloning-provider reading, so this function adds no fact of its own — it only decides
-    the ORDER, which is ours: what you can pick first, what you cannot pick last.
+    `OUR_PROVIDERS` comes from the model registry, so this function adds no fact of its
+    own — it only decides the ORDER, which is ours.
 
-    ⚠ **THE FIRST GROUP USED TO BE `selectable=True` UNCONDITIONALLY, AND D-618 MADE THAT
-    FALSE FOR ONE OF ITS MEMBERS.** `OUR_PROVIDERS` is derived from `TtsModel`, so a
-    provider joins it the moment its leg ships — but a provider whose minutes cannot be
-    BILLED must not have a voice admitted against it, because an admitted voice arrives
-    ENABLED (`ADDED_CURATION_STATE`) and hard rule 7 has nothing to charge it against.
-    Offering it as selectable would put an operator one form away from a voice the offer
-    seam then refuses for a reason the form never mentioned.
+    **A PROVIDER WE RUN IS NOT AUTOMATICALLY ONE A VOICE MAY BE ADDED AGAINST** (D-618).
+    `OUR_PROVIDERS` widens the moment a leg ships, but a provider whose minutes cannot be
+    BILLED must not have a voice admitted against it: an admitted voice arrives ENABLED
+    (`ADDED_CURATION_STATE`) and hard rule 7 has nothing to charge it against, so offering
+    it as selectable would put an operator one form away from a voice the offer seam then
+    refuses for a reason the form never mentioned.
 
-    ⚠ **THE PREDICATE MOVED ON 18 Sep 2026 AND THE RULE DID NOT.** It asked
-    `VOICE_TIER_OF_PROVIDER[provider] is not None` — "does this provider bill on a rung at
-    all" — which was the same question as "may it be billed" only while an unpriced provider
-    had no rung. Withdrawing the Sarvam TTS leg put Gnani ON the value rung with its price
-    still unattested, so that predicate would now answer True for exactly the provider it
-    was added to exclude. It asks `tts_price_is_billable` instead: the SAME function the
-    picker's ground 2 asks, over the same attested-price snapshot, so attesting a price in
-    the console makes the provider selectable within one poll with no edit here — and
-    nothing but an attestation can.
+    The predicate is `tts_price_is_billable` — the SAME function the picker's ground 2 asks,
+    over the same attested-price snapshot, so attesting a price in the console makes the
+    provider selectable within one poll with no edit here, and nothing but an attestation
+    can. It is NOT `VOICE_TIER_OF_PROVIDER[provider] is not None`, which asks whether the
+    provider bills on a rung at all and now answers True for exactly the provider this
+    exists to exclude.
     """
     return AddVoiceFormOut(
         providers=[
@@ -331,19 +341,8 @@ def _form() -> AddVoiceFormOut:
                 ),
             )
             for provider in OUR_PROVIDERS
-        ]
-        + [
-            VoiceProviderOptionOut(
-                provider=provider,
-                tier_label=None,
-                models=[],
-                selectable=False,
-                unavailable_reason=unpublishable_provider_reason(provider),
-            )
-            for provider in sorted(UNPUBLISHABLE_CLONING_PROVIDERS)
         ],
         languages=list(get_args(Language)),
-        voice_lab_url=VOICE_LAB_URL,
     )
 
 
@@ -353,8 +352,9 @@ class AddVoiceIn(Strict):
     Every field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops
     a megabyte of junk reaching a vendor call, and that layer decides whether the voice
     platform agrees. `provider` and `tts_model` are bare strings rather than Literals on
-    purpose — a Literal would make an ElevenLabs choice a 422 from the framework with a
-    schema dump for a body, and the whole point is that it is refused with a SENTENCE.
+    purpose — a Literal would make a wrong provider a 422 from the framework with a schema
+    dump for a body, and the whole point is that it is refused with a SENTENCE naming what
+    this product does run.
     """
 
     #: Who synthesises the voice. Cross-checked against `tts_model`, then discarded — the
@@ -457,11 +457,7 @@ def _next_step(row: CuratedVoice) -> str:
     nothing broke, in the same breath as the confirmation, rather than go looking.
     """
     if row.withdrawn:
-        return (
-            "Saved, but the voice platform no longer lists this voice, so it cannot be "
-            "offered whatever state it is in here. The state is kept for the day it "
-            "returns."
-        )
+        return f"Saved, but this voice still cannot be offered: {not_curated_reason()}"
     if row.state == "enabled":
         return (
             "Clients and admins can now choose this voice for an agent. A voice may still "
@@ -546,18 +542,19 @@ def _added_next_step(row: CuratedVoice, *, reason: str | None) -> str:
     response_model=AddVoiceOut,
     status_code=201,
     openapi_extra=permission_meta("ops:manage"),
-    summary="Add one voice by its facts, verified against the voice platform (audited)",
+    summary="Add one voice by its facts, attested by an operator (audited)",
     description=(
-        "Adds ONE voice — normally one cloned in the voice platform's Voice Lab — by the "
-        "facts its synthesizer block needs: the provider, the model, the voice id that "
-        "platform knows it by, the name it shows there, and which of this product's "
-        "languages it serves.\n\n"
-        "**Every fact is checked against the voice platform's own list before the voice is "
-        "accepted.** An id that platform does not list is refused by name, because "
-        'publishing an agent on it would fail at create time with "not available for the '
-        "provider\" — on a client's phone line rather than on this screen. If that list "
-        "cannot be read, the add is REFUSED and retryable: an unverified voice is the exact "
-        "failure this check exists to prevent.\n\n"
+        "Adds ONE voice — normally one cloned at the provider — by the facts its "
+        "synthesizer block needs: the provider, the model, the voice id that provider "
+        "knows it by, the name it shows there, and which of this product's languages it "
+        "serves.\n\n"
+        "**Every fact is checked against the models this product runs.** Where the engine "
+        "keeps a catalogue of its own, each fact is checked against that list too, and an "
+        "id it does not list is refused by name — publishing on such an id would fail at "
+        "create time on a client's phone line rather than on this screen; if that list "
+        "cannot be read the add is REFUSED and retryable. On an engine whose catalogue IS "
+        "this table there is no second list to read, and the operator's attestation is the "
+        "authority.\n\n"
         "An added voice arrives ENABLED — typing its facts is the decision to offer it. It "
         "can still be unofferable for a separate reason (an unattested price, a missing "
         "vendor key, the Cartesia agent cap), and the response says which.\n\n"

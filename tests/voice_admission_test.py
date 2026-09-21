@@ -10,9 +10,8 @@ and these are the clauses that hold it to what it promised:
 * **an id the voice platform does not list is refused BY NAME** — the clause that reaches a
   phone line, because publishing on such an id returns a live `400 … not available for the
   provider` on a client's call rather than on this screen;
-* **an ElevenLabs choice is refused with its reason**, never silently omitted: the voice
-  platform clones on ElevenLabs or Cartesia and this product has no ElevenLabs model, so an
-  operator who has just spent a sample there has to be told why;
+* **a provider this product runs no speech model on is refused from the DERIVED list**, so
+  the refusal cannot come to name a vendor the catalogue no longer has;
 * **the tier is still derived from the id**, so an added Cartesia voice bills as Cartesia
   whatever the form said (hard rule 7);
 * **a live agent survives its voice being archived**, unchanged from D-588;
@@ -29,7 +28,7 @@ from typing import Final
 
 import pytest
 from apps.api.agents.voice_admission import (
-    UNPUBLISHABLE_CLONING_PROVIDERS,
+    OUR_PROVIDERS,
     VoiceFacts,
     admit_voice,
 )
@@ -361,23 +360,29 @@ async def test_a_language_the_platform_does_not_list_is_refused() -> None:
 # --- the two refusals about our own catalogue ------------------------------------
 
 
-async def test_an_elevenlabs_clone_is_refused_with_its_reason_not_silently_omitted() -> None:
-    """THE FLAG THE FOUNDER HAS TO SEE.
+async def test_a_provider_this_product_runs_no_model_on_is_refused_from_the_derived_list() -> None:
+    """ONE REFUSAL, AND IT NAMES ONLY WHAT WE RUN.
 
-    The voice platform clones on ElevenLabs or Cartesia (VERIFIED-VENDOR-DOCS,
-    `bolna-findings/mirror/pages/clone-voices.md`, the "Select Provider" step). This product
-    has no ElevenLabs model, so no provider, no tier and no price for a minute of it (hard
-    rule 7). An operator who has just spent a sample cloning there needs the sentence, not a
-    missing option — and the sentence has to name Cartesia as the thing to do instead.
+    A speech vendor with no `TTS_MODEL_LIFECYCLE` row has no provider, no tier and no price
+    for a minute of it (hard rule 7), so the operator's only move is to pick from
+    `OUR_PROVIDERS` — and the sentence prints that, derived.
+
+    The two assertions at the end are the ones with teeth. This refusal used to fork, and
+    the informative arm hard-coded ElevenLabs and linked the operator to a rented engine's
+    console; both vendors are gone from this product, and copy that sends somebody to a
+    platform we do not use is worse than no copy.
     """
-    assert "elevenlabs" in UNPUBLISHABLE_CLONING_PROVIDERS
-
     with pytest.raises(ProblemError) as refusal:
         await _add(_facts(provider="ElevenLabs"))
-    assert refusal.value.code == "voice_provider_not_published_here"
+    assert refusal.value.code == "voice_provider_unknown"
     detail = refusal.value.detail.lower()
-    assert "elevenlabs" in detail
-    assert "cartesia" in detail, "the refusal did not tell the operator what to do instead"
+    for provider in OUR_PROVIDERS:
+        assert provider in detail, "the refusal did not list what this product runs"
+    # The typed name is ECHOED, which is right — it is the operator's own word. What must
+    # not appear is a vendor or a console OF OURS that this product does not use.
+    said = detail + (refusal.value.remediation or "").lower()
+    for residue in ("bolna", "voice lab", "http", "clone"):
+        assert residue not in said, f"the refusal points the operator at {residue!r}"
 
 
 async def test_a_model_that_does_not_belong_to_the_named_provider_is_refused() -> None:

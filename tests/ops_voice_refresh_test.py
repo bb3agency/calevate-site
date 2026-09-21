@@ -23,7 +23,7 @@ not re-prove upsert or prune, only that the route is wired, guarded and recorded
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 import pytest
@@ -33,16 +33,24 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import delete, text
+from tests.voice_fixture import seed_platform_voices
 
 ROUTE = "/v1/ops/voices/refresh"
 
 
 @pytest.fixture(autouse=True)
-def _restore_seed() -> Any:
-    """The route installs into a process-wide snapshot; put it back so this module cannot
-    decide what the rest of the run's voice picker offers."""
+async def _restore_seed() -> AsyncIterator[None]:
+    """Put back BOTH things this module moves — the process-wide snapshot AND the rows.
+
+    The snapshot alone was not enough. `platform_voice_catalog` is platform-scoped and
+    shared with every other suite, and a clause here empties it to prove the route writes
+    into an empty cache; leaving it empty took the voice picker to zero entries for whatever
+    ran next, so nineteen clauses of `agent_voice_test` failed with no voice to choose and
+    nothing naming the cause.
+    """
     yield
     install_voice_catalogue(None)
+    await seed_platform_voices()
 
 
 def _client() -> AsyncClient:

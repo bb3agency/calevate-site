@@ -3341,25 +3341,56 @@ const ADMIN_SCREENS: Screen[] = [
         ...ADMIN_ME,
         permissions: [...ADMIN_ME.permissions, "ops:manage"],
       },
-      "/v1/ops/voices": {
+      // KEYED WITH THE QUERY, because the stub matches the whole path: the page asks for
+      // `?scope=decided` (`opsVoices.ts::useOpsVoices`) and a bare `/v1/ops/voices` entry
+      // never matched it. The query then errored, the screen rendered its failure state,
+      // and axe swept THAT — so this entry's own promise to sweep the table, the warning
+      // banner and the Add form was unkept while the gate reported green.
+      "/v1/ops/voices?scope=decided": {
         source: "engine",
+        scope: "decided",
+        cached: true,
         offered: 0,
         note: "The catalogue has been read, but no voice is enabled for this platform.",
+        form: {
+          providers: [
+            {
+              provider: "cartesia",
+              tier_label: "Studio",
+              models: ["sonic-3.5"],
+              selectable: true,
+              unavailable_reason: null,
+            },
+            // UNSELECTABLE, deliberately: a provider whose price is unattested is sent
+            // disabled WITH a reason, and that amber sentence is markup axe must sweep.
+            {
+              provider: "gnani",
+              tier_label: "Clear",
+              models: ["timbre-v2.5"],
+              selectable: false,
+              unavailable_reason:
+                "No price has been attested for this provider, so a minute spoken on it cannot be billed.",
+            },
+          ],
+          languages: ["te-IN", "hi-IN", "en-IN"],
+        },
         voices: [
           {
-            voice_id: "bulbul:v3:ashutosh",
-            label: "Ashutosh",
-            provider: "sarvam",
-            tier_label: "Clear",
-            tts_model: "bulbul:v3",
-            engine_voice_id: "ashutosh",
+            voice_id: "sonic-3.5:akshita",
+            label: "Akshita",
+            provider: "cartesia",
+            tier_label: "Studio",
+            tts_model: "sonic-3.5",
+            engine_voice_id: "akshita",
             languages: ["te-IN", "hi-IN", "en-IN"],
             source: "platform",
+            origin: "operator",
             state: "enabled",
             offered: true,
             synced_at: "2026-09-11T04:30:00Z",
             curated_at: "2026-09-11T05:00:00Z",
             withdrawn_at: null,
+            withdrawn_note: null,
             live_agents: 3,
           },
           {
@@ -3371,27 +3402,32 @@ const ADMIN_SCREENS: Screen[] = [
             engine_voice_id: "cloned-one",
             languages: ["te-IN"],
             source: "custom",
+            origin: "operator",
             state: "disabled",
             offered: false,
             synced_at: "2026-09-11T04:30:00Z",
             curated_at: null,
             withdrawn_at: null,
+            withdrawn_note: null,
             live_agents: 0,
           },
           {
-            voice_id: "bulbul:v3:withdrawn",
+            voice_id: "timbre-v2.5:withdrawn",
             label: "Withdrawn One",
-            provider: "sarvam",
+            provider: "gnani",
             tier_label: "Clear",
-            tts_model: "bulbul:v3",
+            tts_model: "timbre-v2.5",
             engine_voice_id: "withdrawn",
             languages: ["hi-IN"],
             source: "platform",
+            origin: "synced",
             state: "archived",
             offered: false,
             synced_at: "2026-09-10T04:30:00Z",
             curated_at: "2026-09-10T06:00:00Z",
             withdrawn_at: "2026-09-11T04:30:00Z",
+            withdrawn_note:
+              "This voice carries a withdrawal stamp. Add it again on this page, with the same id and name, to restore it.",
             live_agents: 0,
           },
         ],

@@ -314,9 +314,6 @@ function AddVoiceCard({
   return (
     <Card title="Add a voice">
       <p className="text-sm text-ink-muted">{CLONE_FIRST}</p>
-      <p className="mt-1 text-xs text-ink-faint">
-        The Voice Lab is at <MonoValue>{form.voice_lab_url}</MonoValue>.
-      </p>
 
       <form
         // `noValidate`: every refusal on this form is the SERVER's — the voice platform
@@ -405,7 +402,7 @@ function AddVoiceCard({
           </label>
 
           <label className="block">
-            <span className={FIELD_LABEL}>Name, exactly as the Voice Lab shows it</span>
+            <span className={FIELD_LABEL}>Name, exactly as the provider shows it</span>
             <input
               className={FIELD}
               value={label}
@@ -530,7 +527,7 @@ function Catalogue({
         <Card title="The voices this platform offers">
           <EmptyState
             title="No voice has been added yet"
-            hint="Use the form above. You will need the voice's ID and its name from the voice platform's Voice Lab — we check both against that platform's own list before adding it."
+            hint="Use the form above. You will need the voice's ID and its name from the provider you cloned it on."
           />
         </Card>
       ) : (
@@ -655,7 +652,10 @@ function VoiceRow({
         <MonoValue className="mt-0.5 block text-[11px]">{voice.voice_id}</MonoValue>
         {voice.withdrawn_at !== null && (
           <span className="mt-0.5 block text-[11px] text-amber-700 dark:text-amber-400">
-            {WITHDRAWN_MEANING}
+            {/* The SERVER's sentence when it has one: what un-withdraws a voice depends on
+                whether the engine keeps a catalogue of its own, which only the server
+                knows. The constant is the fallback and says only what the stamp proves. */}
+            {voice.withdrawn_note ?? WITHDRAWN_MEANING}
           </span>
         )}
       </td>

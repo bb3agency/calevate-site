@@ -294,7 +294,7 @@
       },
       "AddVoiceFormOut": {
         "additionalProperties": false,
-        "description": "EVERYTHING THE ADD FORM NEEDS, from the server.\n\nThe browser composes none of it. Which providers exist, which models run on them, which\nlanguages this product sells and why ElevenLabs is refused are all facts with a single\nsource in `agents/languages.py`, `agents/voices.py` and `agents/voice_admission.py`,\nand a second copy in\nTypeScript is the copy that goes stale the day a model changes.",
+        "description": "EVERYTHING THE ADD FORM NEEDS, from the server.\n\nThe browser composes none of it. Which providers exist, which models run on them, which\nlanguages this product sells and why a provider cannot be picked are all facts with a\nsingle source in `agents/languages.py`, `agents/voices.py` and\n`agents/voice_admission.py`, and a second copy in TypeScript is the copy that goes stale\nthe day a model changes.",
         "properties": {
           "languages": {
             "items": {
@@ -314,23 +314,18 @@
             },
             "title": "Providers",
             "type": "array"
-          },
-          "voice_lab_url": {
-            "title": "Voice Lab Url",
-            "type": "string"
           }
         },
         "required": [
           "providers",
-          "languages",
-          "voice_lab_url"
+          "languages"
         ],
         "title": "AddVoiceFormOut",
         "type": "object"
       },
       "AddVoiceIn": {
         "additionalProperties": false,
-        "description": "THE FACTS FOR ONE CLONED VOICE, as an operator types them.\n\nEvery field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops\na megabyte of junk reaching a vendor call, and that layer decides whether the voice\nplatform agrees. `provider` and `tts_model` are bare strings rather than Literals on\npurpose \u2014 a Literal would make an ElevenLabs choice a 422 from the framework with a\nschema dump for a body, and the whole point is that it is refused with a SENTENCE.",
+        "description": "THE FACTS FOR ONE CLONED VOICE, as an operator types them.\n\nEvery field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops\na megabyte of junk reaching a vendor call, and that layer decides whether the voice\nplatform agrees. `provider` and `tts_model` are bare strings rather than Literals on\npurpose \u2014 a Literal would make a wrong provider a 422 from the framework with a schema\ndump for a body, and the whole point is that it is refused with a SENTENCE naming what\nthis product does run.",
         "properties": {
           "engine_voice_id": {
             "maxLength": 128,
@@ -6672,6 +6667,17 @@
               }
             ],
             "title": "Withdrawn At"
+          },
+          "withdrawn_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn Note"
           }
         },
         "required": [
@@ -6689,6 +6695,7 @@
           "synced_at",
           "curated_at",
           "withdrawn_at",
+          "withdrawn_note",
           "live_agents"
         ],
         "title": "CuratedVoiceOut",
@@ -25615,7 +25622,7 @@
       },
       "VoiceProviderOptionOut": {
         "additionalProperties": false,
-        "description": "ONE PROVIDER THE ADD FORM OFFERS \u2014 including the ones it offers only to REFUSE.\n\n**ELEVENLABS IS ON THIS LIST ON PURPOSE, WITH `selectable: false` AND ITS REASON.** The\nvoice platform clones on ElevenLabs or Cartesia; this product runs Sarvam and Cartesia.\nAn operator who has just spent a voice sample cloning on ElevenLabs and finds no such\noption concludes the console is broken and tries again; an operator who finds it greyed\nout with a sentence learns, in the one place it matters, that the clone has to be redone\non Cartesia. Omitting it would be the silent failure, not the tidy one.",
+        "description": "ONE PROVIDER THE ADD FORM OFFERS \u2014 including one it offers only to REFUSE.\n\nEvery entry is a provider this product RUNS (`OUR_PROVIDERS`, derived from the model\nregistry). One can still be unselectable: a provider whose minute nobody has priced must\nnot have a voice admitted against it, because an admitted voice arrives ENABLED and hard\nrule 7 has nothing to charge it against. It is shown with its reason rather than omitted,\nso an operator holding a finished clone learns what is missing instead of concluding the\nconsole is broken.",
         "properties": {
           "models": {
             "items": {
@@ -25637,15 +25644,8 @@
             "type": "boolean"
           },
           "tier_label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tier Label"
+            "title": "Tier Label",
+            "type": "string"
           },
           "unavailable_reason": {
             "anyOf": [
@@ -42690,7 +42690,7 @@
         "x-calevate-permission": "ops:manage"
       },
       "post": {
-        "description": "Adds ONE voice \u2014 normally one cloned in the voice platform's Voice Lab \u2014 by the facts its synthesizer block needs: the provider, the model, the voice id that platform knows it by, the name it shows there, and which of this product's languages it serves.\n\n**Every fact is checked against the voice platform's own list before the voice is accepted.** An id that platform does not list is refused by name, because publishing an agent on it would fail at create time with \"not available for the provider\" \u2014 on a client's phone line rather than on this screen. If that list cannot be read, the add is REFUSED and retryable: an unverified voice is the exact failure this check exists to prevent.\n\nAn added voice arrives ENABLED \u2014 typing its facts is the decision to offer it. It can still be unofferable for a separate reason (an unattested price, a missing vendor key, the Cartesia agent cap), and the response says which.\n\nIdempotent: adding a voice already in the cache adopts it \u2014 the row becomes an operator-attested, enabled one, and any withdrawal stamp is cleared.",
+        "description": "Adds ONE voice \u2014 normally one cloned at the provider \u2014 by the facts its synthesizer block needs: the provider, the model, the voice id that provider knows it by, the name it shows there, and which of this product's languages it serves.\n\n**Every fact is checked against the models this product runs.** Where the engine keeps a catalogue of its own, each fact is checked against that list too, and an id it does not list is refused by name \u2014 publishing on such an id would fail at create time on a client's phone line rather than on this screen; if that list cannot be read the add is REFUSED and retryable. On an engine whose catalogue IS this table there is no second list to read, and the operator's attestation is the authority.\n\nAn added voice arrives ENABLED \u2014 typing its facts is the decision to offer it. It can still be unofferable for a separate reason (an unattested price, a missing vendor key, the Cartesia agent cap), and the response says which.\n\nIdempotent: adding a voice already in the cache adopts it \u2014 the row becomes an operator-attested, enabled one, and any withdrawal stamp is cleared.",
         "operationId": "add_voice_v1_ops_voices_post",
         "requestBody": {
           "content": {
@@ -42720,7 +42720,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Add one voice by its facts, verified against the voice platform (audited)",
+        "summary": "Add one voice by its facts, attested by an operator (audited)",
         "tags": [
           "ops"
         ],

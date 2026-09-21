@@ -21,9 +21,11 @@ operator to three different places:
 * **`disabled`** — synced, known, switched off here. One click on the Voices page.
 * **`archived`** — retired here. One click, from the archived list.
 * **not curated at all** — the voice is in this process's catalogue snapshot but has no
-  live row: it has been WITHDRAWN from the voice platform's own list (or the snapshot is
-  older than the table). Nothing in this console fixes that; it is the vendor's statement
-  about their account.
+  live row: it has been WITHDRAWN (or the snapshot is older than the table). WHO can fix
+  that depends on the engine, which is why the sentence does: on an engine with a catalogue
+  of its own it is the vendor's statement about their account and no click here reverses it;
+  on an owned runtime the stamp was left by a previous engine's sync and re-attesting the
+  voice in the Add-a-voice form clears it (`not_curated_reason`).
 
 **IT IS MEASURED, NOT SNAPSHOTTED, AND THAT IS DELIBERATE.** Grounds 1-3 sit in in-process
 snapshots refreshed on a 30-second poll. Curation is a row an operator changed ten seconds
@@ -299,10 +301,45 @@ ARCHIVED_REASON: Final = (
     "this voice has been archived for the whole platform — restore it from the archived "
     "list on the admin console's Voices page if it should be offered again"
 )
+#: The withdrawn sentence for an engine that keeps a voice catalogue of its own: the vendor
+#: dropped the voice, and no click here puts it back on their account.
 NOT_CURATED_REASON: Final = (
     "the voice platform no longer lists this voice on our account, so a call on it would "
     "be refused — it was removed or renamed there, and nothing in this console restores it"
 )
+
+#: The same ground on an engine that is US (`agent_hosting="owned_runtime"`), where the
+#: sentence above would name a vendor that does not exist and send the operator to a console
+#: that cannot help. `PipecatEngine.list_voices` reads `platform_voice_catalog WHERE
+#: origin = 'operator'` — our own table — so the withdrawal stamp on such a row was left by
+#: a PREVIOUS engine's sync, and `voice_sync` refuses to run here at all (D-615). The stamp
+#: is therefore permanent until somebody clears it, and exactly one act does:
+#: `voice_admission.admit_voice` writes `withdrawn_at = NULL` on every add, so re-attesting
+#: the voice on the Add-a-voice form IS the restore path. The sentence names it, because a
+#: refusal an operator cannot act on is the failure this seam exists to prevent.
+WITHDRAWN_NEEDS_REATTESTING_REASON: Final = (
+    "this voice was dropped from the catalogue while another voice platform supplied it, "
+    "and this platform has no catalogue to re-read — its voices are the ones an operator "
+    "attests here. Add the voice again on the admin console's Voices page, with the same "
+    "id and name, to restore it"
+)
+
+
+def not_curated_reason() -> str:
+    """The withdrawn/uncurated sentence THIS deployment's engine can be held to.
+
+    Asked per call rather than resolved once at import: `engine_capabilities()` is
+    synchronous and makes no network call (`agents/publishing.py` already relies on that),
+    and a module-level answer would freeze whichever engine was configured when the process
+    loaded its first picker. The import is function-scoped for `voices.speech_for_voice_id`'s
+    reason — the adapters import this package, so a module-scope import back is a cycle.
+    """
+    from apps.api.engine import engine_capabilities
+
+    if engine_capabilities().lists_voices_independently():
+        return NOT_CURATED_REASON
+    return WITHDRAWN_NEEDS_REATTESTING_REASON
+
 
 #: What the CLIENT reads when curation is the deciding ground. It deliberately does NOT go
 #: through `client_unofferable_reason`: that sentence names the tier ("the Studio voice is
@@ -323,23 +360,25 @@ def curation_unofferable_reason(state: CurationState | None) -> str | None:
     the catalogue snapshot holds and the live table does not, which is what a withdrawal
     upstream looks like from here.
 
-    ⚠ **THIS PARAGRAPH USED TO END "(`voice_sync.read_cached_catalogue` drops withdrawn
-    rows, so the two disagree for exactly as long as one process's snapshot is stale…)",
-    AND THAT IS NO LONGER TRUE (D-617, 15 Sep 2026).** It does not drop them: the snapshot
-    is the LOOKUP layer and dropping a row there unnamed the voice a live agent was already
-    speaking, printing a raw engine ref on the client's own panel. So the two sources no
-    longer disagree by accident — they are now a deliberate PAIR, and this branch is the
-    seam. `read_curation` excludes withdrawn rows (`voice_curation.py`, the
-    `withdrawn_at IS NULL` predicate); the catalogue keeps them; a withdrawn voice therefore
-    arrives here as exactly this `None` and is refused. The fail-closed direction below is
-    what makes that pairing safe, and it is now load-bearing rather than defensive.
+    The catalogue snapshot and the curation map are a deliberate PAIR, and this branch is
+    the seam (D-617). `read_curation` excludes withdrawn rows (`voice_curation.py`, the
+    `withdrawn_at IS NULL` predicate) while `read_cached_catalogue` KEEPS them — dropping a
+    withdrawn row from the lookup layer unnamed the voice a live agent was already speaking
+    and printed a raw engine ref on the client's own panel — so a withdrawn voice arrives
+    here as exactly this `None` and is refused. The fail-closed direction below is what
+    makes that pairing safe, and it is load-bearing rather than defensive.
 
     Failing CLOSED on the unknown is the safe direction and the only defensible one: the
     live `400` proving it — *"Provided voice: Anushka is not available for the provider:
     sarvam"* — is what happens when we offer a voice the platform does not have.
+
+    The SENTENCE for that case is the engine's (`not_curated_reason`); the VERDICT is not.
+    A withdrawn row is refused on every engine — on an owned runtime because the stamp
+    outlives the platform that set it and only a re-attestation clears it — and only the
+    remedy an operator is sent to differs.
     """
     if state is None:
-        return NOT_CURATED_REASON
+        return not_curated_reason()
     if state == "disabled":
         return DISABLED_REASON
     if state == "archived":
@@ -644,6 +683,7 @@ __all__ = [
     "CLIENT_NOT_OFFERED_REASON",
     "DISABLED_REASON",
     "NOT_CURATED_REASON",
+    "WITHDRAWN_NEEDS_REATTESTING_REASON",
     "OfferedVoice",
     "TtsCredentialReader",
     "TtsPriceReader",
@@ -660,6 +700,7 @@ __all__ = [
     "install_tts_price_reader",
     "no_attested_price_reason",
     "no_credential_reason",
+    "not_curated_reason",
     "offerability_of",
     "offerable_voices",
     "offered_catalogue",

@@ -6695,10 +6695,10 @@ export interface paths {
         get: operations["list_voices_v1_ops_voices_get"];
         put?: never;
         /**
-         * Add one voice by its facts, verified against the voice platform (audited)
-         * @description Adds ONE voice — normally one cloned in the voice platform's Voice Lab — by the facts its synthesizer block needs: the provider, the model, the voice id that platform knows it by, the name it shows there, and which of this product's languages it serves.
+         * Add one voice by its facts, attested by an operator (audited)
+         * @description Adds ONE voice — normally one cloned at the provider — by the facts its synthesizer block needs: the provider, the model, the voice id that provider knows it by, the name it shows there, and which of this product's languages it serves.
          *
-         *     **Every fact is checked against the voice platform's own list before the voice is accepted.** An id that platform does not list is refused by name, because publishing an agent on it would fail at create time with "not available for the provider" — on a client's phone line rather than on this screen. If that list cannot be read, the add is REFUSED and retryable: an unverified voice is the exact failure this check exists to prevent.
+         *     **Every fact is checked against the models this product runs.** Where the engine keeps a catalogue of its own, each fact is checked against that list too, and an id it does not list is refused by name — publishing on such an id would fail at create time on a client's phone line rather than on this screen; if that list cannot be read the add is REFUSED and retryable. On an engine whose catalogue IS this table there is no second list to read, and the operator's attestation is the authority.
          *
          *     An added voice arrives ENABLED — typing its facts is the decision to offer it. It can still be unofferable for a separate reason (an unattested price, a missing vendor key, the Cartesia agent cap), and the response says which.
          *
@@ -6998,18 +6998,16 @@ export interface components {
          * @description EVERYTHING THE ADD FORM NEEDS, from the server.
          *
          *     The browser composes none of it. Which providers exist, which models run on them, which
-         *     languages this product sells and why ElevenLabs is refused are all facts with a single
-         *     source in `agents/languages.py`, `agents/voices.py` and `agents/voice_admission.py`,
-         *     and a second copy in
-         *     TypeScript is the copy that goes stale the day a model changes.
+         *     languages this product sells and why a provider cannot be picked are all facts with a
+         *     single source in `agents/languages.py`, `agents/voices.py` and
+         *     `agents/voice_admission.py`, and a second copy in TypeScript is the copy that goes stale
+         *     the day a model changes.
          */
         AddVoiceFormOut: {
             /** Languages */
             languages: ("te-IN" | "hi-IN" | "en-IN")[];
             /** Providers */
             providers: components["schemas"]["VoiceProviderOptionOut"][];
-            /** Voice Lab Url */
-            voice_lab_url: string;
         };
         /**
          * AddVoiceIn
@@ -7018,8 +7016,9 @@ export interface components {
          *     Every field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops
          *     a megabyte of junk reaching a vendor call, and that layer decides whether the voice
          *     platform agrees. `provider` and `tts_model` are bare strings rather than Literals on
-         *     purpose — a Literal would make an ElevenLabs choice a 422 from the framework with a
-         *     schema dump for a body, and the whole point is that it is refused with a SENTENCE.
+         *     purpose — a Literal would make a wrong provider a 422 from the framework with a schema
+         *     dump for a body, and the whole point is that it is refused with a SENTENCE naming what
+         *     this product does run.
          */
         AddVoiceIn: {
             /** Engine Voice Id */
@@ -9706,6 +9705,8 @@ export interface components {
             voice_id: string;
             /** Withdrawn At */
             withdrawn_at: string | null;
+            /** Withdrawn Note */
+            withdrawn_note: string | null;
         };
         /**
          * CuratedVoicesOut
@@ -18027,14 +18028,14 @@ export interface components {
         };
         /**
          * VoiceProviderOptionOut
-         * @description ONE PROVIDER THE ADD FORM OFFERS — including the ones it offers only to REFUSE.
+         * @description ONE PROVIDER THE ADD FORM OFFERS — including one it offers only to REFUSE.
          *
-         *     **ELEVENLABS IS ON THIS LIST ON PURPOSE, WITH `selectable: false` AND ITS REASON.** The
-         *     voice platform clones on ElevenLabs or Cartesia; this product runs Sarvam and Cartesia.
-         *     An operator who has just spent a voice sample cloning on ElevenLabs and finds no such
-         *     option concludes the console is broken and tries again; an operator who finds it greyed
-         *     out with a sentence learns, in the one place it matters, that the clone has to be redone
-         *     on Cartesia. Omitting it would be the silent failure, not the tidy one.
+         *     Every entry is a provider this product RUNS (`OUR_PROVIDERS`, derived from the model
+         *     registry). One can still be unselectable: a provider whose minute nobody has priced must
+         *     not have a voice admitted against it, because an admitted voice arrives ENABLED and hard
+         *     rule 7 has nothing to charge it against. It is shown with its reason rather than omitted,
+         *     so an operator holding a finished clone learns what is missing instead of concluding the
+         *     console is broken.
          */
         VoiceProviderOptionOut: {
             /** Models */
@@ -18044,7 +18045,7 @@ export interface components {
             /** Selectable */
             selectable: boolean;
             /** Tier Label */
-            tier_label: string | null;
+            tier_label: string;
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };

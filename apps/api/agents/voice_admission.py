@@ -10,17 +10,15 @@ voices and build out thing in that way where I can provide you everything that y
 voice to be added and working"*.
 
 D-588 concluded the "add" half was unbuildable, and it got the premise right and the
-conclusion wrong. **The premise stands: Bolna's voice API is READ-ONLY** — their whole
-published API has two voice routes and both are GET (VERIFIED-VENDOR-DOCS, hash-pinned
-mirror, `bolna-findings/mirror/pages/api-reference/voice/overview.md:10-18`, read 11 Sep
-2026). Cloning happens in their Playground's Voice Lab (`https://platform.bolna.ai/voices`,
-`pages/clone-voices.md:86`), from a 1-2 minute sample, on **ElevenLabs or Cartesia**
-(`pages/clone-voices.md`, the "Select Provider" step); importing takes a voice id and an
-optional connected-account toggle (`pages/import-voices.md`). None of that is ours.
+conclusion wrong. **The premise stands for a rented engine: Bolna's voice API is
+READ-ONLY** — their whole published API has two voice routes and both are GET
+(VERIFIED-VENDOR-DOCS, hash-pinned mirror,
+`bolna-findings/mirror/pages/api-reference/voice/overview.md:10-18`, read 11 Sep 2026), so
+a voice is added to that platform in its own dashboard and never over its API.
 
-**But adding a voice to THEIR platform and adding a voice to THIS product's catalogue are
-two different acts, and only the first needs a write they do not offer.** The second needs
-the operator's five facts and one read. That is this module.
+**But adding a voice to a VENDOR's platform and adding a voice to THIS product's catalogue
+are two different acts, and only the first needs a write they do not offer.** The second
+needs the operator's five facts and one read. That is this module.
 
 THE FIVE FACTS ARE THE WIRE'S, NOT A FORM DESIGNER'S
 ------------------------------------------------------
@@ -85,19 +83,15 @@ consequences worth stating:
   exists. On a deployment that has never synced, adding a voice is still the whole flow.
 * **Adding a voice that is already cached ADOPTS it** rather than failing on the primary
   key: the row's provenance becomes `operator`, its state becomes `enabled`, and any
-  withdrawal stamp is cleared because we have just read the voice on the platform. That is
-  the honest meaning of "I am attesting this voice", and it is idempotent, which is what a
-  double-submitted form needs.
+  withdrawal stamp is cleared. That is the honest meaning of "I am attesting this voice",
+  and it is idempotent, which is what a double-submitted form needs.
 
-ELEVENLABS IS REFUSED BY NAME, AND THAT REFUSAL IS THE POINT
---------------------------------------------------------------
-Bolna clones on **ElevenLabs or Cartesia**. This product's `TtsModel` is `sonic-3.5`
-(Cartesia) and `timbre-v2.5` (Gnani) — there is no ElevenLabs model, therefore no
-`TTS_MODEL_LIFECYCLE` row, therefore no provider, therefore no voice tier, therefore no
-price for a minute of it (hard rule 7). A form that silently omitted ElevenLabs would let an
-operator clone a voice there, come back, find no way to add it, and conclude the console is
-broken. So it is OFFERED and REFUSED, with the reason, which is the only version of this
-that tells them something they need before they spend a sample on it.
+**THE WITHDRAWAL STAMP IS CLEARED HERE AND NOWHERE ELSE ON AN OWNED RUNTIME**, which makes
+this function the restore path rather than a side effect. `withdrawn_at` is only ever
+written by `voice_sync`'s prune arm, and that arm cannot run on an engine that lists no
+voices of its own (D-615) — so on `agent_hosting="owned_runtime"` a stamped row can never be
+un-stamped by a re-read, and re-attesting the voice through this form is the only act that
+clears it. `voice_offer` says so in the refusal.
 """
 
 from __future__ import annotations
@@ -126,23 +120,6 @@ from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
 
-#: WHERE AN OPERATOR CLONES A VOICE. Printed in every refusal that sends them back there, so
-#: the sentence and the URL cannot drift apart across four error bodies.
-#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/clone-voices.md:86` ("Voice Lab"),
-#: corroborated at `pages/guides/writing-prompts-in-non-english-languages.md:116`, read
-#: 11 Sep 2026 in the hash-pinned mirror.
-VOICE_LAB_URL: Final = "https://platform.bolna.ai/voices"
-
-#: Providers the VOICE PLATFORM will clone on but this product cannot publish. ElevenLabs is
-#: the whole of it today: Bolna's clone flow offers ElevenLabs or Cartesia
-#: (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/clone-voices.md`, "Select Provider"),
-#: and we run Cartesia `sonic-3.5` and Gnani `timbre-v2.5`.
-#:
-#: SEPARATE FROM "a provider we have never heard of", because the two are different
-#: mistakes: one is an operator who has just spent a voice sample on the wrong vendor and
-#: needs telling why, the other is a typo.
-UNPUBLISHABLE_CLONING_PROVIDERS: Final[frozenset[str]] = frozenset({"elevenlabs"})
-
 #: The providers this product actually runs, DERIVED from the model registry rather than
 #: typed — so a refusal message listing "what exists" cannot come to disagree with what the
 #: catalogue offers. Ordered as `TtsModel` is.
@@ -153,22 +130,6 @@ OUR_PROVIDERS: Final[tuple[VoiceProvider, ...]] = tuple(
         if (provider := provider_of_tts_model(model)) is not None
     )
 )
-
-
-def unpublishable_provider_reason(provider: str) -> str:
-    """WHY A VOICE CLONED ON THIS PROVIDER CANNOT BE ADDED — the sentence, in one place.
-
-    It says the consequence first (this voice cannot be published or priced) and the cause
-    second, because the operator reading it is holding a finished clone and needs to know
-    whether to re-do it, not to learn our model catalogue.
-    """
-    return (
-        f"{provider} is one of the two providers the voice platform will clone a voice on, "
-        "but it is not a provider this product runs: there is no ElevenLabs TTS model in "
-        "our catalogue, so a minute spoken on it has no voice tier and no price, and no "
-        "agent could be published on it. Clone the voice again on Cartesia in the voice "
-        f"platform's Voice Lab ({VOICE_LAB_URL}) and add it here as a Cartesia voice."
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,20 +179,12 @@ def _refuse_unknown_provider(provider: str) -> ProblemError:
 def check_provider(provider: str) -> None:
     """Ground 1: is this a provider this product can publish and price at all?
 
-    Ordered so the INFORMATIVE refusal comes first: an operator naming ElevenLabs has made a
-    real, expensive mistake and gets the sentence that explains it, while an operator naming
-    `sarvem` gets the list of what exists. Collapsing the two into "unknown provider" would
-    be the silent omission the founder must not be given.
+    ONE refusal, listing what exists, because there is one mistake left to make. A speech
+    vendor this product does not run has no `TTS_MODEL_LIFECYCLE` row, therefore no voice
+    tier and no price for a minute of it (hard rule 7), and the operator's only next move is
+    to pick from `OUR_PROVIDERS` — which the sentence prints, derived, so it cannot come to
+    disagree with the form's own options.
     """
-    if provider.strip().casefold() in UNPUBLISHABLE_CLONING_PROVIDERS:
-        raise ProblemError.business_rule(
-            "voice_provider_not_published_here",
-            unpublishable_provider_reason(provider.strip().casefold()),
-            remediation=(
-                "Re-clone the voice on Cartesia in the voice platform's Voice Lab, then add "
-                "it here as a Cartesia voice."
-            ),
-        )
     if not tts_models_for_provider(provider):
         raise _refuse_unknown_provider(provider)
 
@@ -336,22 +289,17 @@ def find_on_platform(
             '"not available for the provider". Nothing was saved.'
         ),
         remediation=(
-            # ⚠ **THE FIRST REAL ADD HIT THIS AND THE SENTENCE DID NOT HELP.** It said
-            # "check the id, and if you have only just cloned it there press Refresh" —
-            # which assumes the voice is already ON the voice platform. The founder had
-            # cloned it in CARTESIA'S OWN dashboard, where it has an id and the voice
-            # platform has never heard of it, so Refresh could never have found it and the
-            # advice sent them round a loop. A voice made at the vendor has to be IMPORTED
-            # into the voice platform's Voice Lab before anything here can address it —
-            # `bolna-findings/mirror/pages/import-voices.md`, read 11 Sep 2026 — and that
-            # is the step the message now names first, because it is the one most likely
-            # to be missing.
-            "If you cloned this voice in the VENDOR's own dashboard (Cartesia's or "
-            "ElevenLabs'), the voice platform does not have it yet — cloning there and "
-            "importing here are two steps. Open the Voice Lab "
-            f"({VOICE_LAB_URL}), choose Add Voice, pick the provider, paste this same id "
-            "and switch on importing from your connected account. Then press Refresh here "
-            "and add it again. If you cloned it in the Voice Lab itself, the id is the "
+            # THE MOST LIKELY MISSING STEP IS NAMED FIRST, and it is not "check the id".
+            # The first real add failed here because the voice had been cloned in the
+            # SPEECH VENDOR's own dashboard, where it has an id that the voice platform has
+            # never heard of — so Refresh could never have found it, and advice to press it
+            # sent the operator round a loop. Cloning at the vendor and importing into the
+            # voice platform are two acts (`bolna-findings/mirror/pages/import-voices.md`).
+            "If you cloned this voice in the speech vendor's own dashboard, the voice "
+            "platform does not have it yet — cloning there and importing into the voice "
+            "platform are two separate steps, and only the second makes the id addressable "
+            "here. Import it there with this same id, then press Refresh here and add it "
+            "again. If you created it on the voice platform itself, the id is the "
             "provider-specific one it shows, not the voice's name — and a voice made in "
             "the last few seconds may need one Refresh."
         ),
@@ -567,8 +515,6 @@ def _one_provider(model: TtsModel) -> VoiceProvider:
 
 __all__ = [
     "OUR_PROVIDERS",
-    "UNPUBLISHABLE_CLONING_PROVIDERS",
-    "VOICE_LAB_URL",
     "VoiceFacts",
     "admit_voice",
     "check_label",
@@ -577,5 +523,4 @@ __all__ = [
     "check_provider",
     "find_on_platform",
     "read_platform_listing",
-    "unpublishable_provider_reason",
 ]

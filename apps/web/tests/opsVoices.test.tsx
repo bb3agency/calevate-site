@@ -81,6 +81,7 @@ function voice(over: Partial<CuratedVoice> = {}): CuratedVoice {
     synced_at: "2026-09-11T04:30:00Z",
     curated_at: "2026-09-11T05:00:00Z",
     withdrawn_at: null,
+    withdrawn_note: null,
     live_agents: 0,
     ...over,
   };
@@ -110,7 +111,6 @@ function form(over: Partial<AddVoiceForm> = {}): AddVoiceForm {
       },
     ],
     languages: ["te-IN", "hi-IN", "en-IN"],
-    voice_lab_url: "https://platform.bolna.ai/voices",
     ...over,
   };
 }
@@ -222,7 +222,10 @@ describe("the voices page", () => {
               ...form().providers,
               {
                 provider: "some-clone-shop",
-                tier_label: null,
+                // A STRING, NOT NULL: the server narrowed `tier_label` to non-nullable when
+                // the provider list stopped carrying entries we run no model for. A refused
+                // provider still names the rung it would bill on.
+                tier_label: "Studio",
                 models: [],
                 selectable: false,
                 unavailable_reason:

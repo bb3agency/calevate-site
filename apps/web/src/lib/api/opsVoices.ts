@@ -202,10 +202,10 @@ export function useRefreshVoiceCatalogue(): UseMutationResult<VoiceRefresh, Erro
  * that key and reads that invoice), but a URL in copy is a thing that rots silently.
  */
 export const CLONE_FIRST =
-  "Clone or import the voice in the voice platform's Voice Lab first — that is where its " +
-  "voice id and its name come from. Then type them here: we check every field against " +
-  "that platform's own list before the voice is added, so a voice that would fail on a " +
-  "call is refused on this screen instead.";
+  "Clone or import the voice at the provider first — that is where its voice id and its " +
+  "name come from. Then type them here: every field is checked against the models this " +
+  "product runs, and against the platform's own list where the platform keeps one, so a " +
+  "voice that would fail on a call is refused on this screen instead.";
 
 /**
  * The five fields, with WHERE IN THE VOICE LAB each value is found.
@@ -216,17 +216,17 @@ export const CLONE_FIRST =
  * providers exist and which languages this product sells are facts with one source.
  */
 export const ADD_FIELD_HINTS = {
-  provider: "Who you cloned the voice on. Pick the same one you chose in the Voice Lab.",
+  provider: "Who you cloned the voice on. Pick the same one you chose there.",
   tts_model: "The speech model this product runs for that provider. Usually only one.",
   engine_voice_id:
-    "The voice's ID in the Voice Lab — the provider-specific identifier, not its name. " +
+    "The voice's ID at the provider — the provider-specific identifier, not its name. " +
     "For a cloned voice this is a long generated string.",
   label:
-    "The NAME the Voice Lab shows for it, exactly. This travels to the engine on every " +
+    "The NAME the provider shows for it, exactly. This travels to the engine on every " +
     "publish, so it has to match character for character (case and spacing are forgiven).",
   languages:
-    "Which of this product's languages the voice should be offered for. We check each " +
-    "one against the languages the platform lists it under.",
+    "Which of this product's languages the voice should be offered for. Where the platform " +
+    "keeps its own list, each one is checked against the languages it lists the voice under.",
 } as const;
 
 /** The three verbs, in the order the table offers them. Labels live with the state. */
