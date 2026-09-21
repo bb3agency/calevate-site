@@ -50,6 +50,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Final
 from uuid import UUID
 
 from calevate_shared.calling_window import SlotRefusal, resolve_slot
@@ -59,6 +60,7 @@ from calevate_shared.worker_api import (
     CallbackCancelOut,
     CallbackToolOut,
     CallerIdentityIn,
+    HandoffOutcome,
     HandoffToolIn,
     HandoffToolOut,
     OptOutToolIn,
@@ -67,6 +69,23 @@ from calevate_shared.worker_api import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.handoff import ROSTER_UNAVAILABLE_REASONS
+from apps.api.agents.handoff_execution import (
+    OUTCOME_ARRIVES_LATE,
+    OUTCOME_UNREPORTABLE,
+    HandoffPlacement,
+    place_handoff,
+)
+from apps.api.agents.transfer_providers import (
+    NOT_OUR_CARRIER_LEG,
+    PLATFORM_CANNOT_TRANSFER,
+)
+from apps.api.agents.transfer_providers import (
+    PROVIDER_CONTRACT_UNVERIFIED as TRANSFER_CONTRACT_UNVERIFIED,
+)
+from apps.api.agents.transfer_providers import (
+    PROVIDER_NOT_LICENSED as TRANSFER_PROVIDER_NOT_LICENSED,
+)
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.optout import DETECTED_IN_CALL, record_call_optout
 from apps.api.core.alerting import alert
@@ -450,72 +469,126 @@ async def cancel_callback(engine_call_id: str, request: CallbackCancelIn) -> Cal
 
 # --- handoff -----------------------------------------------------------------------------
 
-_HANDOFF_REFUSED_SAY = (
-    "You CANNOT put this caller through to a person on this line, and you must not say you "
-    "are transferring them or ask them to hold. Tell them plainly that you are not able to "
-    "connect them right now, apologise, and offer either to have somebody call them back — "
-    "then use the call-back tool if they agree — or to take a message."
+#: OUR OUTCOME WORD -> THE WORD THE AGENT HAS A SENTENCE FOR.
+#:
+#: `HandoffOutcome` is declared in `calevate_shared/worker_api.py` because both halves of
+#: the product import it: the server decides which word is true and `voice_worker/
+#: call_tools.py` holds the sentence for each. The four unsuccessful endings collapse to
+#: `no_answer` HERE and not in the seam — a client's screen needs to know whether their
+#: person declined, was busy or never picked up, and a caller does not.
+#:
+#: `failed` is `not_transferred`, the WIDE word: a leg we could not place is not evidence
+#: that nobody would have answered, and telling a caller "nobody took it" would be a
+#: claim about the client's staff that we cannot make.
+_STATUS_OF_OUTCOME: Final[dict[str, HandoffOutcome]] = {
+    "bridged": "connected",
+    "declined": "no_answer",
+    "busy": "no_answer",
+    "unanswered": "no_answer",
+    "whisper_timeout": "no_answer",
+    "failed": "not_transferred",
+}
+
+#: THE WIRE WORD FOR "NOBODY WAS RUNG AND NOBODY WILL BE", carried as the detail beside
+#: `not_available`. `voice_worker/call_tools.py:380` still matches this exact string; that
+#: service may not import this package (hard rule 3), so the spelling is pinned by test.
+ENGINE_CANNOT_TRANSFER: Final = "engine_cannot_transfer"
+
+#: The placement reasons that mean the PLATFORM cannot do it, as opposed to the ones a
+#: client or a clock will resolve. Only these earn `not_available`: telling a caller at 9pm
+#: that a person is unavailable full stop, when the answer is "not until nine tomorrow", is
+#: a wider claim than we hold — the roster's own reasons say `nobody_on_duty` instead.
+_PERMANENTLY_UNAVAILABLE: Final[frozenset[str]] = frozenset(
+    {
+        PLATFORM_CANNOT_TRANSFER,
+        NOT_OUR_CARRIER_LEG,
+        TRANSFER_CONTRACT_UNVERIFIED,
+        TRANSFER_PROVIDER_NOT_LICENSED,
+        OUTCOME_UNREPORTABLE,
+        OUTCOME_ARRIVES_LATE,
+    }
 )
 
 
+def _handoff_status(placement: HandoffPlacement) -> HandoffOutcome:
+    """Which word is true about this handover.
+
+    **`connected` IS NEVER REACHED FROM A REASON, ONLY FROM AN OUTCOME**, and that is the
+    hard rule 5 property of this function: the only path to the one word that licenses "I
+    am putting you through" is a leg that was placed and a person who ACCEPTED it.
+    """
+    if placement.placed:
+        return _STATUS_OF_OUTCOME.get(placement.outcome or "", "not_transferred")
+    if placement.reason in _PERMANENTLY_UNAVAILABLE:
+        return "not_available"
+    if placement.reason in ROSTER_UNAVAILABLE_REASONS:
+        return "nobody_on_duty"
+    return "not_transferred"
+
+
 async def request_handoff(engine_call_id: str, request: HandoffToolIn) -> HandoffToolOut:
-    """The agent wants a person. On this engine that is a refusal, and it is the feature.
+    """The agent wants a person. `agents/handoff_execution` decides what actually happens.
 
-    ⚠ **READ WHAT THIS ENGINE CAN DO BEFORE READING THIS AS A GAP.**
-    `engine/pipecat.PIPECAT_CAPABILITIES` declares `transfer=False` and
-    `in_call_handoff=False` — facts about a carrier surface nobody has read yet, recorded
-    as capability flags rather than as silence — and `PipecatEngine.update_agent` already
-    refuses to publish an agent carrying a handoff configuration at all. So there is no
-    roster to consult, no destination to dial and no leg to place, and a handler that went
-    looking for one would be building against a capability this product does not have.
+    **THIS TOOL DECIDES NOTHING ABOUT HANDOVERS AND THAT IS THE POINT.** The roster, the
+    hours, the platform's ability to transfer at all, the header the second leg presents
+    and the whisper are one ladder in one place (`place_handoff`), because the client's
+    own screen and the publish path ask the same questions and three implementations of
+    "can this caller reach a person" is how two of them come to be wrong.
 
-    **THE CAPABILITY IS ASKED, NOT ASSUMED.** `get_engine().capabilities` is the sanctioned
-    reader (`apps.api.worker` may not import an adapter — import-linter forbids it by name),
-    and `routes._admit` has already established that this deployment runs the worker's
-    engine. Asking means this answer changes by itself on the day a carrier transfer is
-    written, rather than being a hardcoded `False` somebody has to remember.
+    **WHAT THE CALLER HEARS IS NEVER A PROMISE THIS PLATFORM CANNOT KEEP** (hard rule 5).
+    Today every deployment degrades — no carrier's transfer grammar has been read
+    (`agents/transfer_providers/plivo.py`) — and the agent is told to say plainly that it
+    cannot connect them and to offer the call-back tool beside it. What was there before
+    this tool existed was worse than a refusal: with no tool at all a model asked to fetch
+    a human answers from its priors, says "putting you through now", and the caller hears
+    nothing happen.
 
-    **WHAT THE ALTERNATIVE ACTUALLY WAS.** Before this tool existed the model had nothing
-    to call: asked for a human it answered from its priors, said "putting you through now",
-    and the caller heard nothing happen and then a disconnect. That is `build_knowledge_
-    tool`'s advertised-and-honest argument applied to the second-hardest question a caller
-    asks. The `say` sends the agent to the call-back tool beside it rather than booking
-    anything here — one way per problem, and the booking path is already built.
-
-    The model's `reason` and `summary` are read for one thing only: whether they were
-    given. They are conversation content, they are never logged and never stored (hard
-    rule 6), and there is no `handoff_attempts` row to put them in because no handover
-    started.
+    The model's `reason` and `summary` are conversation content: they are never logged and
+    never stored on a degraded path (hard rule 6), and on a placed one they travel into the
+    whisper and onto the attempt row, which is where the person taking the call and the
+    client reading it later both need them.
     """
     tenant_id = _tenant_of_call(engine_call_id)
     async with tenant_session(tenant_id) as session:
         call = await _load_call(session, engine_call_id)
-    if get_engine().capabilities.in_call_handoff:  # pragma: no cover - False on this engine
-        # UNREACHABLE TODAY AND DELIBERATELY NOT BUILT AGAINST. The day the capability
-        # flips, the carrier leg that flips it is what supplies the transfer, and this
-        # branch is where it is wired — refusing loudly beats a plausible guess about a
-        # carrier request nobody has read (`carrier.OUTBOUND_DIAL_UNKNOWN`'s posture).
-        raise ProblemError.conflict(
-            "worker_handoff_unwritten",
-            "This engine now reports that it can transfer a caller, and the transfer has "
-            "not been written.",
-            remediation="Wire the carrier transfer before declaring `in_call_handoff`.",
+        # The OTHER party, chosen by direction exactly as `_subject` chooses it: on an
+        # inbound call the caller is `from_e164`. It reaches the whisper and nothing else.
+        caller = call.from_e164 if call.direction == "inbound" else call.to_e164
+        placement = await place_handoff(
+            session,
+            engine=get_engine(),
+            tenant_id=tenant_id,
+            agent_id=call.agent_id,
+            engine_call_id=engine_call_id,
+            caller_e164=caller,
+            about=request.reason,
+            summary=request.summary,
+            # The agent is holding a turn open and this response carries the outcome, so
+            # the seam may place a leg — and must not place one it cannot report.
+            outcome_reaches_agent=True,
         )
+    status = _handoff_status(placement)
     log.info(
-        "worker_tool_handoff_refused",
+        "worker_tool_handoff",
         extra={
             "tenant_id": str(tenant_id),
             "call_id": str(call.id),
             "agent_id": str(call.agent_id),
+            "status": status,
+            "reason": placement.reason,
             # WHETHER the model gave a reason, never what it said.
             "reason_given": bool(request.reason),
             "summary_given": bool(request.summary),
         },
     )
     return HandoffToolOut(
-        status="not_transferred",
-        reason="engine_cannot_transfer",
-        say=_HANDOFF_REFUSED_SAY,
+        status=status,
+        reason=(
+            ENGINE_CANNOT_TRANSFER
+            if placement.reason in _PERMANENTLY_UNAVAILABLE
+            else (placement.reason or "")
+        ),
+        say=placement.say,
     )
 
 

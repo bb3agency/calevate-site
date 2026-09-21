@@ -62,7 +62,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import is_after_hours
+from apps.api.agents.transfer_providers import PLATFORM_CANNOT_TRANSFER, transfer_blocked_reason
 from apps.api.core.settings import get_settings
+from apps.api.engine import get_engine
 
 #: How many people one agent may hand a call to. A BOUNDED LIST for the reason every
 #: bounded list in this repo exists: the roster is rewritten wholesale on every edit, it is
@@ -137,6 +139,20 @@ _UNAVAILABLE_REASONS: Final[dict[str, str]] = {
         "Nobody on the handover list is available right now, so callers asking for a "
         "person are offered a call-back instead."
     ),
+    PLATFORM_CANNOT_TRANSFER: (
+        "The voice platform this agent runs on cannot put a caller through to a person "
+        "yet, so your handover list is saved and not in use — callers asking for a person "
+        "are told plainly and offered a call-back instead. Nothing needs changing here."
+    ),
+}
+
+
+#: The reasons that are about the CLIENT'S OWN ROSTER rather than about the platform.
+#: DERIVED from the table above rather than retyped, so a reason added there joins this set
+#: the day it appears — `worker/tools.py` keys the agent's own wording on it, and a member
+#: missing from a hand-written copy would be a caller told the wrong thing.
+ROSTER_UNAVAILABLE_REASONS: Final[frozenset[str]] = frozenset(_UNAVAILABLE_REASONS) - {
+    PLATFORM_CANNOT_TRANSFER
 }
 
 
@@ -286,6 +302,16 @@ async def spec_for(
     and importing `agents/service` would close an import cycle through the opt-out chain
     (`assist_leg.py` documents the same loop).
     """
+    # THE PLATFORM IS ASKED BEFORE THE ROSTER, and it decides on its own.
+    #
+    # An engine that can hand a caller over by neither mechanism — not its own in-call
+    # tool, not our carrier seam — has no destination to be given, and publishing one
+    # would put a number on a platform that cannot dial it. It is answered as a VERDICT
+    # with its own reason rather than by refusing the publish: see
+    # `transfer_providers.transfer_blocked_reason` for why the refusal moved.
+    blocked = transfer_blocked_reason(get_engine())
+    if blocked is not None:
+        return None, OnDuty(member=None, reason=blocked)
     duty = await on_duty(
         session,
         agent_id=agent["id"],
@@ -354,6 +380,7 @@ __all__ = [
     "HANDOFF_SPOKEN_TEMPLATES",
     "HANDOFF_TRIGGER_DEFAULT",
     "MAX_HANDOFF_MEMBERS",
+    "ROSTER_UNAVAILABLE_REASONS",
     "OnDuty",
     "RosterMember",
     "brief_url",

@@ -496,19 +496,21 @@ async def test_cancelling_for_an_unknown_caller_does_not_claim_to_have_cancelled
 async def test_the_handoff_tool_refuses_and_tells_the_agent_not_to_promise_a_transfer(
     worker_token: None,
 ) -> None:
-    """THIS ENGINE CANNOT TRANSFER A CALLER AND THE REFUSAL IS THE FEATURE.
+    """THIS DEPLOYMENT CANNOT TRANSFER A CALLER AND THE REFUSAL IS THE FEATURE.
 
-    `PIPECAT_CAPABILITIES.in_call_handoff` is False. What this replaces is worse than a
-    refusal: with no tool at all the model answered from its priors, said "putting you
-    through now", and the caller heard a disconnect. The assertion is on the two
-    instructions that prevent that exact sentence.
+    No carrier's transfer grammar has been read (`agents/transfer_providers/plivo.py`), so
+    `agents/handoff_execution.place_handoff` places no leg and answers `not_available` —
+    the narrow word, because this is the one failure we can name with certainty. What it
+    replaces is worse than a refusal: with no tool at all the model answered from its
+    priors, said "putting you through now", and the caller heard a disconnect. The
+    assertions are on the two instructions that prevent that exact sentence.
     """
     _tenant_id, _agent_id, _call_id, ref = await a_call_in_progress()
     async with tool_client() as api:
         answer = await api.handoff(
             ref, HandoffToolIn(reason="caller asked for a person", summary="billing dispute")
         )
-    assert answer.status == "not_transferred"
+    assert answer.status == "not_available"
     assert answer.reason == "engine_cannot_transfer"
     assert "must not say you are transferring them" in answer.say
     assert "call them back" in answer.say

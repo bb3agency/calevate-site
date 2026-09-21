@@ -675,25 +675,59 @@ class HandoffToolIn(BaseModel):
     summary: str | None = Field(default=None, max_length=MAX_TOOL_TEXT)
 
 
-class HandoffToolOut(BaseModel):
-    """ONE STATUS, BECAUSE THIS ENGINE HAS ONE HONEST ANSWER (`ToolAckOut`'s shape).
+#: What became of a request for a person. ONE vocabulary, declared here because both halves
+#: of the product import it: the server decides which word is true, `voice_worker/
+#: call_tools.py` holds the sentence the agent says for each, and neither may invent a
+#: member the other has no sentence for.
+#:
+#: **THE THREE FAILURES ARE SEPARATE WORDS BECAUSE THEY ARE SEPARATE SENTENCES.** "Nobody
+#: picked up", "there is nobody on duty" and "this line cannot transfer at all" all end the
+#: same way — a call back — and collapsing them would hand a worried caller one flat
+#: apology for three different situations. They also differ in what is true later: the
+#: first may work on the next call, the second will work in the morning, the third never
+#: will until a carrier leg is written.
+#:
+#: **`connected` IS THE ONLY WORD THAT LICENSES "I AM PUTTING YOU THROUGH", AND IT MEANS A
+#: PERSON ACCEPTED** — not that a number was dialled, not that it is ringing. The
+#: destination pattern is whisper-then-accept: the person we ring hears who is calling and
+#: about what, and has to accept before the bridge. A caller told they are getting a person
+#: and then handed silence is the worst outcome this feature has.
+#:
+#: `not_transferred` is the WIDE one: it did not happen and the answer cannot say which of
+#: the three it was. It is what an engine with no handover at all has always returned, so
+#: it stays a member rather than being migrated away.
+HandoffOutcome = Literal[
+    "connected",
+    "no_answer",
+    "nobody_on_duty",
+    "not_available",
+    "not_transferred",
+]
 
-    ⚠ **`owned_runtime` CANNOT TRANSFER A CALLER AND THE REFUSAL IS THE FEATURE.**
+
+class HandoffToolOut(BaseModel):
+    """What became of the request for a person, in a word the agent has a sentence for.
+
+    ⚠ **`owned_runtime` CANNOT TRANSFER A CALLER TODAY, AND THE REFUSAL IS THE FEATURE.**
     `engine/pipecat.PIPECAT_CAPABILITIES` declares `transfer=False` and
     `in_call_handoff=False` — facts about a carrier surface nobody has read, not policy —
     and `update_agent` already refuses to publish an agent carrying a handoff config on this
-    engine. So there is no destination to dial and no leg to place.
+    engine. So `not_available` is the only answer any deployment currently gives, and it is
+    the path to build first rather than the edge case.
 
     What was there before this tool existed was WORSE than a refusal: with no tool at all a
     model asked to fetch a human answers from its priors, says "putting you through now",
     and the caller hears nothing happen. `build_knowledge_tool`'s posture applied to the
-    second-hardest question a caller asks — advertised and honest — and the `say` sends the
-    agent to the call-back tool beside it rather than inventing a second booking path here.
+    second-hardest question a caller asks — advertised and honest.
+
+    **THE WORKER DOES NOT TRUST `say` TO CARRY THAT INVARIANT.** `call_tools.py` keys its
+    own guidance on `status`, so an agent cannot be told it connected somebody unless this
+    field says `connected`, whatever prose an answer carries beside it.
     """
 
     model_config = _STRICT
 
-    status: Literal["not_transferred"]
+    status: HandoffOutcome
     say: str
     reason: str = ""
 
@@ -719,6 +753,7 @@ __all__ = [
     "CallbackToolOut",
     "CallerIdentityIn",
     "CallerIdentityState",
+    "HandoffOutcome",
     "HandoffToolIn",
     "HandoffToolOut",
     "KnowledgeReport",

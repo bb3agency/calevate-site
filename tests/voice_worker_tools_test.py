@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from calevate_shared.engine import pipecat_call_ref
@@ -26,6 +26,7 @@ from calevate_shared.worker_api import (
     CallbackCancelIn,
     CallbackCancelOut,
     CallbackToolOut,
+    HandoffOutcome,
     HandoffToolIn,
     HandoffToolOut,
     OptOutToolIn,
@@ -35,11 +36,13 @@ from voice_worker.api_client import WorkerApiError
 from voice_worker.call_tools import (
     BOOK_CALLBACK_TOOL_NAME,
     CANCEL_CALLBACK_TOOL_NAME,
+    HANDOFF_GUIDANCE,
     HANDOFF_TOOL_NAME,
     OPT_OUT_TOOL_NAME,
     TOOL_BUDGET_S,
     _confirmed,
     build_call_tools,
+    handoff_outcome,
 )
 from voice_worker.pipeline import FUNCTION_CALL_TIMEOUT_SECS
 
@@ -59,6 +62,11 @@ class FakeToolApi:
     opt_outs: list[OptOutToolIn] = field(default_factory=list)
     cancels: list[CallbackCancelIn] = field(default_factory=list)
     handoffs: list[HandoffToolIn] = field(default_factory=list)
+    handoff_answer: HandoffToolOut = field(
+        default_factory=lambda: HandoffToolOut(
+            status="not_transferred", say="", reason="engine_cannot_transfer"
+        )
+    )
 
     def _maybe_fail(self) -> None:
         if self.unreachable:
@@ -84,7 +92,7 @@ class FakeToolApi:
     async def handoff(self, engine_call_id: str, request: HandoffToolIn) -> HandoffToolOut:
         self._maybe_fail()
         self.handoffs.append(request)
-        return HandoffToolOut(status="not_transferred", say="you cannot transfer")
+        return self.handoff_answer
 
 
 @dataclass
@@ -178,11 +186,125 @@ async def test_an_unreachable_api_does_not_claim_a_booking_or_a_cancellation() -
 
 @pytest.mark.asyncio
 async def test_an_unreachable_api_still_forbids_promising_a_transfer() -> None:
-    """The server's answer does not depend on anything it reads — this engine cannot
-    transfer a caller — so an unreachable API changes nothing about what is true."""
+    """Nothing was tried, so nobody is coming — and the model is told that in a WORD.
+
+    A tool that "failed" with no outcome in it leaves the model free to improvise at
+    somebody who has just asked for help, and what it improvises is "putting you through".
+    """
     result = await call_tool(FakeToolApi(unreachable=True), HANDOFF_TOOL_NAME, {"reason": "x"})
-    assert result["status"] == "not_transferred"
-    assert "Do not say you are transferring them" in result["say"]
+    assert result["outcome"] == "not_transferred"
+    assert "Do not say you are transferring them" in result["guidance"]
+
+
+@pytest.mark.parametrize("outcome", get_args(HandoffOutcome))
+def test_every_outcome_has_a_sentence_the_agent_can_say(outcome: str) -> None:
+    """THE WHOLE CONTRACT, AS ONE ASSERTION. A word on the wire with no sentence behind it
+    is a word the model answers from its priors, and a `KeyError` inside a tool handler
+    reaches it as "the function failed and returned no result"."""
+    assert HANDOFF_GUIDANCE[outcome].strip()
+
+
+@pytest.mark.parametrize("outcome", sorted(set(get_args(HandoffOutcome)) - {"connected"}))
+def test_only_an_accepted_handover_licenses_putting_a_caller_through(outcome: str) -> None:
+    """THE ONE CLAIM THAT MUST BE IMPOSSIBLE RATHER THAN UNLIKELY.
+
+    A caller told they are getting a person and then handed silence is the worst outcome
+    this feature has, and it is the one a model reaches for by default when a tool comes
+    back looking like a failure. Every word but `connected` forbids it in so many terms.
+    """
+    guidance = HANDOFF_GUIDANCE[outcome]
+    assert "Do not say you are transferring them" in guidance
+    assert "do not say you are putting them through" in guidance
+    assert "do not ask them to hold" in guidance
+
+
+def test_only_the_connected_sentence_connects_anybody() -> None:
+    """The positive half of the assertion above: the one word that DOES license it, does."""
+    assert "connecting them now" in HANDOFF_GUIDANCE["connected"]
+
+
+@pytest.mark.parametrize("outcome", sorted(set(get_args(HandoffOutcome)) - {"connected"}))
+def test_no_failure_promises_a_time_this_platform_cannot_keep(outcome: str) -> None:
+    """A promise has to be kept by something. `callbacks.book` writes a row the dispatcher
+    really rings, so the time IT hands back is one we keep; "within the hour" is a number
+    nobody here can honour."""
+    guidance = HANDOFF_GUIDANCE[outcome]
+    assert "read back the time it gives you" in guidance
+    assert "not 'within the hour'" in guidance
+
+
+@pytest.mark.parametrize(
+    ("status", "reason", "expected"),
+    [
+        ("connected", "", "connected"),
+        ("no_answer", "declined", "no_answer"),
+        ("nobody_on_duty", "closed", "nobody_on_duty"),
+        ("not_available", "", "not_available"),
+        # THE COMPATIBILITY SHIM, AND TODAY'S ONLY REAL ANSWER. `worker/tools.
+        # request_handoff` returns the wide word with this reason because the engine
+        # declares `in_call_handoff=False`; the reason narrows it to the one failure we can
+        # name, so the caller hears the true sentence rather than the vaguest of the five.
+        ("not_transferred", "engine_cannot_transfer", "not_available"),
+        # A wide word with a reason we do not recognise stays wide. Guessing which failure
+        # it was would be this module inventing a fact about a server's answer.
+        ("not_transferred", "something_new", "not_transferred"),
+    ],
+)
+def test_the_outcome_word_is_derived_from_what_the_server_actually_said(
+    status: str, reason: str, expected: str
+) -> None:
+    answer = HandoffToolOut(status=status, say="", reason=reason)  # type: ignore[arg-type]
+    assert handoff_outcome(answer) == expected
+
+
+@pytest.mark.asyncio
+async def test_the_three_failures_do_not_sound_identical_to_a_worried_caller() -> None:
+    """ "No one is free right now", "we are closed" and "this line cannot transfer" all end
+    in a call back, and they are three different things to say to a person who is worried.
+    Collapsing them into one apology is the defect this vocabulary exists to stop."""
+    sentences = {
+        outcome: await call_tool(
+            FakeToolApi(handoff_answer=HandoffToolOut(status=outcome, say="")),
+            HANDOFF_TOOL_NAME,
+            {},
+        )
+        for outcome in ("no_answer", "nobody_on_duty", "not_available")
+    }
+    guidance = [result["guidance"] for result in sentences.values()]
+    assert len(set(guidance)) == 3
+    assert "did not take the call" in sentences["no_answer"]["guidance"]
+    assert "nobody on duty" in sentences["nobody_on_duty"]["guidance"]
+    assert "cannot put a caller through" in sentences["not_available"]["guidance"]
+
+
+@pytest.mark.asyncio
+async def test_the_server_sentence_travels_beside_ours_rather_than_instead_of_it() -> None:
+    """The server knows detail this container cannot — which member, until when. What it
+    may not do is license the one claim, which is why the guidance is keyed on the STATUS
+    and not carried in prose."""
+    api = FakeToolApi(
+        handoff_answer=HandoffToolOut(
+            status="nobody_on_duty", say="tell them we open at 9 in the morning", reason="closed"
+        )
+    )
+    result = await call_tool(api, HANDOFF_TOOL_NAME, {})
+    assert result["say"] == "tell them we open at 9 in the morning"
+    assert result["guidance"] == HANDOFF_GUIDANCE["nobody_on_duty"]
+    assert result["reason"] == "closed"
+
+
+@pytest.mark.asyncio
+async def test_the_summary_reaches_the_person_taking_the_call_over() -> None:
+    """Requirement 3 of the brief, at the wire: the model's own words about what the caller
+    wants are passed through unread, so whoever picks it up is not starting cold."""
+    api = FakeToolApi()
+    await call_tool(
+        api,
+        HANDOFF_TOOL_NAME,
+        {"reason": "wants a person", "summary": "asking about a refund on order 4412"},
+    )
+    assert api.handoffs[0].summary == "asking about a refund on order 4412"
+    assert api.handoffs[0].reason == "wants a person"
 
 
 @pytest.mark.asyncio

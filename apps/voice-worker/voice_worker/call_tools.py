@@ -16,9 +16,14 @@ would be a second opinion about compliance running on a vendor's infrastructure.
 
 **THE `say` FIELD IS WHY THESE ANSWER AT ALL.** Every response carries English guidance for
 the agent, which its own LLM renders into the caller's language (`calling_window.
-SlotRefusal`'s rule). The handlers below hand it straight back as the tool result; they
-never compose a sentence of their own, because the server is what knows whether the thing
+SlotRefusal`'s rule). Three of the four handlers hand it straight back as the tool result
+and compose nothing of their own, because the server is what knows whether the thing
 happened.
+
+**THE HANDOFF IS THE EXCEPTION, AND `HANDOFF_GUIDANCE` ARGUES IT WHERE IT LIVES.** In one
+line: the server still decides WHAT HAPPENED, and this module keys a sentence on that word
+so no prose in any `say` can license "I am putting you through" for a handover that did not
+happen.
 
 **FAILURE IS ANSWERED, NEVER SWALLOWED AND NEVER DRESSED AS SUCCESS.** If the API cannot be
 reached the caller is still on the phone, so each handler returns its own honest payload —
@@ -49,6 +54,7 @@ from calevate_shared.worker_api import (
     CallbackToolOut,
     CallerIdentityIn,
     CallerIdentityState,
+    HandoffOutcome,
     HandoffToolIn,
     HandoffToolOut,
     OptOutToolIn,
@@ -211,10 +217,12 @@ _CANCEL_CALLBACK_DESCRIPTION = (
 )
 
 _HANDOFF_DESCRIPTION = (
-    "Call this when the caller asks for a person, or when you cannot help them and a "
-    "person could. Call it BEFORE you say anything about transferring them: the answer "
-    "tells you whether a transfer is possible on this line, and it may not be. Never tell "
-    "a caller you are putting them through until this answers."
+    "Call this when the caller needs a person — because they have asked for one, or "
+    "because your instructions tell you to hand this call over. Call it BEFORE you say "
+    "anything about connecting, transferring or holding: whether anybody can be reached "
+    "is not something you can know, and the answer is what tells you. You may say you are "
+    "trying. You may only say the caller is being connected when the answer says a person "
+    "has accepted. Then do what the answer's 'guidance' says."
 )
 
 
@@ -280,10 +288,132 @@ _CANCEL_UNREACHABLE_SAY = (
     "caller we could not do it just now and that a person will make sure they are not rung."
 )
 
+# --- what the agent says about a person -------------------------------------------------
+#
+# **THESE FIVE SENTENCES ARE THE FEATURE.** Everything else on this path is plumbing: what a
+# caller who needs a person actually gets is one of these, rendered by the agent's own model
+# into their language. They are keyed on `HandoffOutcome` — the one vocabulary, declared on
+# the wire — so the server decides which is true and the worker decides what it sounds like.
+#
+# **WHY THE WORKER AUTHORS THEM WHEN THE SERVER ALREADY SENDS A `say`.** For the other three
+# tools the server's sentence is the whole answer and this module adds nothing, because the
+# server is the only thing that knows what happened. Here there is one claim that must be
+# impossible rather than merely unlikely — that the caller is being put through to somebody
+# who is not there — and a floor enforced by prose travelling in a field is not a floor. The
+# guidance below is keyed on the outcome word `handoff_outcome` resolves, so no wording in
+# any `say` can license "I am connecting you" unless that word is `connected`. The server's
+# `say` still travels, beside it, for the detail this module cannot know.
+#
+# **NOTHING HERE IS VERTICAL-SPECIFIC.** The same call is answered for a dealership, a
+# coaching centre, a law office and a clinic, and a sentence that assumes a waiting room or
+# an appointment would be wrong in three of the four. What triggers a handover at all is the
+# CLIENT's own script — this module never decides when a person is needed, only what is
+# true once one has been asked for.
+
+#: The claim that must never be made about a handover that did not happen. Spelled once and
+#: carried into all four failures: it is the sentence a caller acts on by waiting.
+_NEVER_CLAIM_A_TRANSFER = (
+    "Do not say you are transferring them, do not say you are putting them through, and do "
+    "not ask them to hold."
+)
+
+#: The distressed caller, who is vertical-agnostic and is most of why this tool exists. Not
+#: a state of its own: whether somebody is upset does not change what is TRUE about the
+#: handover, and a sixth outcome word for it would be a claim about a person's feelings made
+#: by a model. It rides on every failure instead, where it changes the order of the agent's
+#: own sentences.
+_DISTRESS = (
+    "If they sound upset or worried, acknowledge that first, in one short sentence, before "
+    "you explain anything — and do not hurry them off the call."
+)
+
+#: The fallback, and the reason it names no interval. A promise has to be kept by something:
+#: `callbacks/service.book` writes a row the dispatcher really rings, so a time it hands back
+#: is a promise this platform keeps — "within the hour" is a number nobody here can honour
+#: and nothing anywhere would make true.
+_OFFER_A_CALLBACK = (
+    "Offer to arrange for somebody to call them back. If they agree, ask which day and what "
+    "time suits them, use the call-back tool, and read back the time it gives you. Do not "
+    "promise a time of your own — not 'shortly', not 'within the hour' — because nothing "
+    "here can keep that promise. When you book it, put one line in the note about what they "
+    "want, so the person ringing back is not starting from nothing. If they would rather not "
+    "wait for a call back, offer to take a message instead."
+)
+
+HANDOFF_GUIDANCE: Final[dict[HandoffOutcome, str]] = {
+    "connected": (
+        "A person has accepted this call and is on the line now. Tell the caller you are "
+        "connecting them now — one short sentence — and then stop talking."
+    ),
+    "no_answer": (
+        "Somebody was rung and did not take the call. The caller is NOT connected. "
+        f"{_NEVER_CLAIM_A_TRANSFER} Tell them you tried to reach a person just now and "
+        f"could not. {_DISTRESS} {_OFFER_A_CALLBACK}"
+    ),
+    "nobody_on_duty": (
+        "There is nobody on duty to take calls at the moment, so nobody was rung — do not "
+        f"say you tried. {_NEVER_CLAIM_A_TRANSFER} Tell them there is nobody available to "
+        f"take the call right now. {_DISTRESS} {_OFFER_A_CALLBACK}"
+    ),
+    "not_available": (
+        "This line cannot put a caller through to a person at all, and nobody was rung. "
+        f"{_NEVER_CLAIM_A_TRANSFER} Do not say you are trying, either. Tell them plainly "
+        f"that you are not able to connect them to somebody on this call. {_DISTRESS} "
+        f"{_OFFER_A_CALLBACK}"
+    ),
+    "not_transferred": (
+        "The caller is NOT connected, and the answer does not say why. "
+        f"{_NEVER_CLAIM_A_TRANSFER} Tell them you were not able to connect them, and do "
+        f"not offer a reason you do not have. {_DISTRESS} {_OFFER_A_CALLBACK}"
+    ),
+}
+
+#: The machine reason `apps/api/worker/tools.request_handoff` returns beside its
+#: `not_transferred` — the engine declares `in_call_handoff=False`, so nobody was rung and
+#: nobody ever will be until a carrier leg exists (`engine/pipecat.PIPECAT_CAPABILITIES`).
+#:
+#: **READ SO THAT TODAY'S ONLY ANSWER GETS TODAY'S TRUE SENTENCE.** `not_transferred` is the
+#: wide word — "it did not happen and we cannot say which" — and this reason narrows it to
+#: the one failure we can name with certainty. Without this line every caller on every
+#: deployment would hear the vaguest of the five sentences for the one situation that is
+#: least vague.
+_ENGINE_CANNOT_TRANSFER: Final[str] = "engine_cannot_transfer"
+
+
+def _handoff_payload(outcome: HandoffOutcome, *, say: str, reason: str) -> dict[str, str]:
+    """What the model reads: the word, what to do about it, the server's detail, the code.
+
+    `outcome` rather than the `status` its three sibling tools use, and the difference is
+    real: those pass the server's word through untouched, this one is DERIVED (see
+    `handoff_outcome`). One key per meaning. It is the knowledge tool's shape —
+    `outcome` + `guidance` — for the knowledge tool's reason: the description is read once
+    when the tools are advertised, and this is read in the same breath as the result.
+    """
+    return {
+        "outcome": outcome,
+        "guidance": HANDOFF_GUIDANCE[outcome],
+        "say": say,
+        "reason": reason,
+    }
+
+
+def handoff_outcome(answer: HandoffToolOut) -> HandoffOutcome:
+    """The outcome word this answer really means, which is its status except in one case."""
+    if answer.status == "not_transferred" and answer.reason == _ENGINE_CANNOT_TRANSFER:
+        return "not_available"
+    return answer.status
+
+
+#: What the agent is told when the API could not be reached at all.
+#:
+#: **`not_transferred` AND NOT `not_available`, THOUGH THE SENTENCES ARE NEARLY THE SAME.**
+#: We know the handover did not happen — nothing was asked of anybody — and we do NOT know
+#: whether this deployment could have done one. Answering with the confident word would be
+#: this module stating a fact about a server it could not reach.
+_HANDOFF_UNREACHABLE_REASON: Final[str] = "api_unreachable"
 _HANDOFF_UNREACHABLE_SAY = (
-    "You cannot put this caller through. Do not say you are transferring them and do not "
-    "ask them to hold. Apologise, and offer to take a message or to have somebody call "
-    "them back."
+    "The system that reaches a person could not be contacted, so nothing was tried and "
+    "nobody is coming to this call."
 )
 
 
@@ -397,18 +527,22 @@ def build_call_tools(
             answer = await api.handoff(engine_call_id, request)
         except WorkerApiError as failure:
             _log_failure(HANDOFF_TOOL_NAME, call_id, failure)
-            # THE SAME ANSWER THE SERVER GIVES, because the server's answer does not depend
-            # on anything it reads: this engine cannot transfer a caller
-            # (`PIPECAT_CAPABILITIES.in_call_handoff`), so an unreachable API changes
-            # nothing about what is true. Saying anything softer would put a caller on hold
-            # for a transfer that cannot happen.
+            # NOTHING WAS TRIED, WHICH IS ITSELF AN OUTCOME THE AGENT HAS A SENTENCE FOR.
+            # The dangerous shape here is a tool that "failed" with no word in it: the model
+            # is then free to improvise at somebody who has just asked for help, and what it
+            # improvises is "putting you through".
             await params.result_callback(
-                {"status": "not_transferred", "say": _HANDOFF_UNREACHABLE_SAY}
+                _handoff_payload(
+                    "not_transferred",
+                    say=_HANDOFF_UNREACHABLE_SAY,
+                    reason=_HANDOFF_UNREACHABLE_REASON,
+                )
             )
             return
-        _log_outcome(HANDOFF_TOOL_NAME, call_id, answer.status, answer.reason)
+        outcome = handoff_outcome(answer)
+        _log_outcome(HANDOFF_TOOL_NAME, call_id, outcome, answer.reason)
         await params.result_callback(
-            {"status": answer.status, "say": answer.say, "reason": answer.reason}
+            _handoff_payload(outcome, say=answer.say, reason=answer.reason)
         )
 
     return [
@@ -459,7 +593,9 @@ def build_call_tools(
                     "type": "string",
                     "description": (
                         "One short line about what the call back is for, read by the person "
-                        "who makes it."
+                        "who makes it. If this call back is because you could not reach a "
+                        "person, say so here and include what the caller wants — they are "
+                        "ringing somebody who has heard none of this conversation."
                     ),
                 },
                 "language": {
@@ -488,7 +624,10 @@ def build_call_tools(
                 "summary": {
                     "type": "string",
                     "description": (
-                        "One or two lines on what the caller wants, for the person taking it over."
+                        "One or two lines on what the caller wants and what you have "
+                        "already told them, for the person taking the call over. If this "
+                        "ends in a call back instead, put the same summary in the "
+                        "call-back note so whoever rings is not starting from nothing."
                     ),
                 },
             },
@@ -518,10 +657,12 @@ def _log_failure(tool: str, call_id: str, failure: WorkerApiError) -> None:
 __all__ = [
     "BOOK_CALLBACK_TOOL_NAME",
     "CANCEL_CALLBACK_TOOL_NAME",
+    "HANDOFF_GUIDANCE",
     "HANDOFF_TOOL_NAME",
     "OPT_OUT_TOOL_NAME",
     "TOOL_BUDGET_S",
     "CallToolApi",
     "CallToolApiClient",
     "build_call_tools",
+    "handoff_outcome",
 ]

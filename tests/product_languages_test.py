@@ -215,6 +215,12 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "language, not a list of languages; a missing key is caught above"
     ),
     "apps/api/agents/handoff.py": "the spoken handover line per language, for the same reason",
+    "apps/api/agents/handoff_execution.py": (
+        "the WHISPER the person taking a handed-over call hears before they accept, and "
+        "the two phrases it falls back on, per language. Content per language on the same "
+        "terms as the spoken line above — the caller's half is in `handoff.py` and this is "
+        "the called party's half"
+    ),
     "apps/api/engine/fake.py": (
         "the fake engine's stand-in for a VENDOR's voice listing. Those strings belong to "
         "the simulated vendor payload (hard rule 2), not to our offer — a fake that read "

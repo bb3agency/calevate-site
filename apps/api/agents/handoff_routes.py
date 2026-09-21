@@ -53,6 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import handoff as handoff_service
 from apps.api.agents.business_hours import DAYS
+from apps.api.agents.transfer_providers import transfer_blocked_reason
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -61,6 +62,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
+from apps.api.engine import get_engine
 
 router = APIRouter(prefix="/v1/agents/{agent_id}/handoff", tags=["agents"])
 
@@ -235,11 +237,19 @@ async def _render(session: AsyncSession, agent_id: UUID) -> HandoffOut:
     """
     row = await _agent(session, agent_id)
     members = await handoff_service.roster(session, agent_id=agent_id)
-    duty = handoff_service.resolve_on_duty(
-        members,
-        enabled=bool(row[1]),
-        agent_hours=row[3],
-        at=datetime.now(UTC),
+    # THE PLATFORM IS ASKED THE SAME WAY THE PUBLISH ASKS IT (`agents/handoff.spec_for`).
+    # A screen that named somebody as on duty while the publish sends no destination would
+    # be telling a client their next caller reaches a person when nothing will dial.
+    blocked = transfer_blocked_reason(get_engine())
+    duty = (
+        handoff_service.OnDuty(member=None, reason=blocked)
+        if blocked is not None
+        else handoff_service.resolve_on_duty(
+            members,
+            enabled=bool(row[1]),
+            agent_hours=row[3],
+            at=datetime.now(UTC),
+        )
     )
     return HandoffOut(
         agent_id=agent_id,

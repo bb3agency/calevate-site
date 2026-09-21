@@ -205,11 +205,18 @@ def _carrier_not_written(what: str) -> ProblemError:
 #: reaches nothing. Each flips when `pre-build-blockers` §10 is answered, and the
 #: conformance clause for each already runs in the refusal direction.
 #:
-#: ⚠ `in_call_handoff=False` HAS A COST WORTH STATING: a publish carrying a roster member
-#: on duty is REFUSED rather than silently dropped (D-533), which is the safe direction and
-#: is also the direction that makes an agent unpublishable on this engine while a roster is
-#: live. That is correct today — an engine that cannot transfer a caller must not accept an
-#: agent that promises to.
+#: ⚠ `in_call_handoff=False` NO LONGER MAKES AN AGENT UNPUBLISHABLE, AND THE ADAPTER'S
+#: REFUSAL IS UNCHANGED. `_assert_speech_is_ours` still refuses a config carrying a
+#: `handoff` by name — an adapter must refuse what it cannot honour, and dropping a
+#: destination here would be the silence D-533 wrote that refusal against. What changed is
+#: one step earlier: `agents/handoff.spec_for` asks
+#: `agents/transfer_providers.transfer_blocked_reason` first and sends NO destination to an
+#: engine that can transfer by neither mechanism. So the agent publishes, the client is
+#: told on their own handover screen that the platform cannot put a caller through yet, and
+#: the in-call tool degrades truthfully (`agents/handoff_execution`). Refusing the whole
+#: publish took a working receptionist off the phone to prevent a promise nothing was
+#: making: the roster is not the agent, and the caller-facing promise is refused by the
+#: tool rather than by the publish.
 #:
 #: **EMPTY BY DECISION, NOT BY IGNORANCE.** `number_series` is `frozenset()` because we do
 #: not buy numbers through an API at all (D-596, founder 13 Sep 2026) — not because the buy
@@ -910,8 +917,10 @@ class PipecatEngine:
         for `FakeEngine._assert_speech_is_ours`' reason: the guard belongs to the WRITE
         path, not to the descriptor that happens to be permissive, and an adapter that
         checked only where it currently refuses is one edit away from accepting a value it
-        cannot honour. The handoff arm is the one that actually bites here
-        (`in_call_handoff=False`, see the capability descriptor).
+        cannot honour. The handoff arm is a BACKSTOP rather than the ordinary path:
+        `agents/handoff.spec_for` now sends no destination to an engine that can transfer
+        by neither mechanism, so a `handoff` arriving here came from a config built some
+        other way — and is refused by name rather than dropped (capability descriptor).
         """
         require_speech_leg("stt", engine=self, value=cfg.models.stt_model)
         require_speech_leg("llm", engine=self, value=cfg.models.llm_model)

@@ -100,6 +100,7 @@ from pipecat.services.settings import LLMSettings
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 from voice_worker import pipeline
+from voice_worker.call_tools import HANDOFF_GUIDANCE, HANDOFF_TOOL_NAME, CallToolApi
 from voice_worker.knowledge import SessionKnowledge
 
 # ======================================================================================
@@ -418,6 +419,41 @@ _KNOWLEDGE_QUESTION: Final[tuple[str, ...]] = (
     "ధర",  # "price" (te)
 )
 
+#: Ways a caller asks for a person. Vertical-agnostic on purpose: the same sentences reach
+#: a dealership, a coaching centre, a law office and a clinic, and the handover is the same
+#: mechanism behind all four.
+#:
+#: NOT an attempt at comprehension — the stand-in's stub for it, like `_AI_QUESTION`. What
+#: makes an agent hand over in production is the CLIENT's own script, which this harness
+#: deliberately does not simulate: when to fetch a person is the client's decision and not
+#: a rule this platform encodes.
+_PERSON_REQUEST: Final[tuple[str, ...]] = (
+    "speak to a person",
+    "talk to a person",
+    "speak to someone",
+    "talk to someone",
+    "speak to a human",
+    "real person",
+    "speak to a manager",
+    "put me through",
+    "మనిషితో మాట్లాడ",  # "talk to a person" (te)
+    "किसी इंसान से बात",  # "talk to a human" (hi)
+)
+
+#: The clause of the connected guidance that licenses the one claim a failed handover must
+#: never produce. DERIVED and then checked, rather than typed: if the guidance is reworded
+#: this module fails at import with the needle named, instead of every handover scenario
+#: quietly asserting nothing.
+MAY_CONNECT_CLAUSE: Final[str] = "connecting them now"
+
+__licensing = [outcome for outcome, text in HANDOFF_GUIDANCE.items() if MAY_CONNECT_CLAUSE in text]
+if __licensing != ["connected"]:
+    raise AssertionError(
+        f"{MAY_CONNECT_CLAUSE!r} should appear in the 'connected' guidance and nowhere "
+        f"else; it appears in {__licensing}. Either the guidance was reworded and this "
+        "marker must be re-derived, or a failure now licenses a claim it must not."
+    )
+
 #: The Telugu block. A reply is "in Telugu" when it is written in this script.
 _TELUGU_RANGE: Final[re.Pattern[str]] = re.compile(r"[ఀ-౿]")
 
@@ -520,6 +556,22 @@ class PromptFollowingModel(LLMService):
                     return content
         return ""
 
+    def _handoff_guidance(self, context: Any) -> str | None:
+        """The guidance clause of the most recent handover result in the context.
+
+        The GUIDANCE and not the outcome word, because what the stand-in must decide is
+        whether it has been licensed to tell a caller it is connecting them — and that
+        licence lives in the sentence, which is the thing a real model reads too.
+        """
+        for message in reversed(context.get_messages()):
+            rendered = repr(message)
+            if f"'{HANDOFF_TOOL_NAME}'" not in rendered and '"guidance"' not in rendered:
+                continue
+            for outcome, guidance in HANDOFF_GUIDANCE.items():
+                if f"'outcome': '{outcome}'" in rendered or f'"outcome": "{outcome}"' in rendered:
+                    return guidance
+        return None
+
     def _tool_outcome(self, context: Any) -> str | None:
         """The outcome word of the most recent knowledge-tool result in the context.
 
@@ -568,6 +620,13 @@ class PromptFollowingModel(LLMService):
             self._last_user_text(context)
         )
 
+        # BEFORE the knowledge outcome, because a handover result is the more recent thing
+        # to have happened whenever both are in one context.
+        guidance = self._handoff_guidance(context)
+        if guidance is not None:
+            await self._say(self._handoff_reply(guidance, telugu=telugu), prompt=prompt)
+            return
+
         outcome = self._tool_outcome(context)
         if outcome is not None:
             await self._say(self._knowledge_reply(outcome, telugu=telugu), prompt=prompt)
@@ -575,6 +634,16 @@ class PromptFollowingModel(LLMService):
 
         if any(phrase in heard for phrase in _AI_QUESTION):
             await self._say(self._ai_answer(prompt, telugu=telugu), prompt=prompt)
+            return
+
+        # AFTER the AI question, so "are you a human?" is still answered rather than
+        # treated as a request for one.
+        if any(phrase in heard for phrase in _PERSON_REQUEST):
+            if await self._maybe_hand_off(context, heard):
+                return
+            # NO TOOL TO CALL, WHICH IS THE STATE THIS WHOLE FEATURE REPLACED: asked to
+            # fetch a human with nothing to call, a model answers from its priors.
+            await self._say(self._improvised_transfer(telugu=telugu), prompt=prompt)
             return
 
         if any(phrase in heard for phrase in _RECORDING_QUESTION):
@@ -691,6 +760,77 @@ class PromptFollowingModel(LLMService):
             ),
         }
         return replies[outcome].spoken_in(telugu=telugu)
+
+    def _improvised_transfer(self, *, telugu: bool) -> str:
+        """What a model says when it has been asked for a person and has no way to get one.
+
+        THE DEFECT, SPOKEN. It is what the handover tool exists to replace and what the
+        disobedient control produces, so a scenario asserting "the agent did not promise a
+        transfer" has something that really would have promised one.
+        """
+        return ModelReply(
+            english="Sure, I am putting you through now. Please hold.",
+            telugu="సరే, నేను ఇప్పుడు మిమ్మల్ని కలుపుతున్నాను. కొంచెం వెయిట్ చేయండి.",
+        ).spoken_in(telugu=telugu)
+
+    def _handoff_reply(self, guidance: str, *, telugu: bool) -> str:
+        """What the agent says once it knows what became of the request for a person.
+
+        **THE LICENCE IS READ OFF THE GUIDANCE, NOT OFF THE OUTCOME WORD**, which is what
+        makes this scenario able to fail for a real reason: the day a failure's guidance
+        acquires the connecting clause, this stand-in promises a transfer that did not
+        happen and the scenario goes red. A dict keyed on the outcome would keep passing.
+        """
+        if MAY_CONNECT_CLAUSE in guidance:
+            return ModelReply(
+                english="Connecting you now.",
+                telugu="ఇప్పుడు కలుపుతున్నాను.",
+            ).spoken_in(telugu=telugu)
+        # ONE reply for every failure, not one per outcome. The stand-in cannot render
+        # prose, so what it can honestly stand for is the DECISION the guidance drives:
+        # do not claim a transfer, offer a call back instead. That the three failures are
+        # three DIFFERENT sentences is held down where the sentences are — in
+        # `voice_worker_tools_test.py`, over `HANDOFF_GUIDANCE` itself.
+        return ModelReply(
+            english=(
+                "I am sorry, I was not able to connect you to a person. Shall I arrange "
+                "for somebody to call you back? What day and time suits you?"
+            ),
+            telugu=(
+                "క్షమించండి, నేను మిమ్మల్ని ఒక వ్యక్తికి కలపలేకపోయాను. ఎవరైనా మీకు తిరిగి కాల్ చేయాలా? "
+                "ఏ రోజు, ఏ సమయం మీకు వీలవుతుంది?"
+            ),
+        ).spoken_in(telugu=telugu)
+
+    async def _maybe_hand_off(self, context: Any, heard: str) -> bool:
+        """Ask for a person if this agent has the tool. Returns whether it did.
+
+        A DISOBEDIENT MODEL DOES NOT ASK — it says it is putting the caller through and
+        nothing happens, which is the failure the tool exists to prevent and the negative
+        control every handover scenario needs.
+        """
+        if not self.obedient:
+            return False
+        tools = context.tools
+        names = {
+            getattr(schema, "name", None) for schema in getattr(tools, "standard_tools", []) or []
+        }
+        if HANDOFF_TOOL_NAME not in names:
+            return False
+        self._call_seq += 1
+        arguments = {"reason": "the caller asked for a person", "summary": heard}
+        self.tool_calls.append((HANDOFF_TOOL_NAME, arguments))
+        await self.run_function_calls(
+            [
+                FunctionCallFromLLM(
+                    function_name=HANDOFF_TOOL_NAME,
+                    tool_call_id=f"scenario-{self._call_seq}",
+                    arguments=arguments,
+                    context=context,
+                )
+            ]
+        )
+        return True
 
     async def _maybe_search(self, context: Any, heard: str) -> bool:
         """Call the knowledge tool if this agent advertises one. Returns whether it did.
@@ -821,6 +961,7 @@ async def run_scenario(
     *,
     config: pipeline.SessionConfig | None = None,
     knowledge: SessionKnowledge | None = None,
+    tool_api: CallToolApi | None = None,
     obedient: bool = True,
     greet: bool = True,
     timeout_s: float = 60.0,
@@ -847,6 +988,7 @@ async def run_scenario(
         transport=transport,
         sink=sink,
         knowledge=knowledge,
+        tool_api=tool_api,
     )
     run = ScenarioRun(sink=sink, transport=transport, tts=tts, model=model, call=call)
 
@@ -1030,6 +1172,7 @@ __all__ = [
     "DEFAULT_CLIENT_SCRIPT",
     "DEFAULT_POSTURE",
     "DIGIT_BY_DIGIT_RULE",
+    "MAY_CONNECT_CLAUSE",
     "MIRROR_LANGUAGE_RULE",
     "NO_MARKDOWN_RULE",
     "CallerTurn",
