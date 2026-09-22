@@ -490,8 +490,9 @@ _STATUS_OF_OUTCOME: Final[dict[str, HandoffOutcome]] = {
 }
 
 #: THE WIRE WORD FOR "NOBODY WAS RUNG AND NOBODY WILL BE", carried as the detail beside
-#: `not_available`. `voice_worker/call_tools.py:380` still matches this exact string; that
-#: service may not import this package (hard rule 3), so the spelling is pinned by test.
+#: `not_available`. `voice_worker/call_tools._ENGINE_CANNOT_TRANSFER` matches this exact
+#: string; that service may not import this package (hard rule 3), so the two spellings are
+#: pinned against each other by `tests/handoff_transfer_seam_test.py`.
 ENGINE_CANNOT_TRANSFER: Final = "engine_cannot_transfer"
 
 #: The placement reasons that mean the PLATFORM cannot do it, as opposed to the ones a

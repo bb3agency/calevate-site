@@ -23,6 +23,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from starlette.requests import Request
 from tests.conftest import accept_agreements
 
 PATH = "/v1/compliance/autodialer-notice"
@@ -69,6 +70,12 @@ async def _tenant() -> dict[str, Any]:
 async def _headers(org: dict[str, Any], role: str = "owner") -> dict[str, str]:
     token = await _member(uuid.UUID(str(org["id"])), role)
     return {"Authorization": f"Bearer {token}", "X-Org-Slug": str(org["slug"])}
+
+
+def _request() -> Request:
+    """The one argument a handler called directly still needs: `client_request_ip` reads
+    the headers and the peer off it."""
+    return Request({"type": "http", "method": "POST", "path": PATH, "headers": [], "client": None})
 
 
 def _body(**over: Any) -> dict[str, Any]:
@@ -243,7 +250,7 @@ async def test_an_operator_inside_a_view_as_session_cannot_give_this_notice() ->
 
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as refused:
-            await record_notice(body, session, operator)
+            await record_notice(body, _request(), session, operator)
 
     assert refused.value.code == "autodialer_notice_is_the_senders_own_act"
     assert "your own account" in refused.value.remediation
@@ -256,3 +263,42 @@ async def test_an_operator_inside_a_view_as_session_cannot_give_this_notice() ->
             )
         ).scalar_one()
     assert written == 0, "a refused notice must leave no row behind"
+
+
+@pytest.mark.asyncio
+async def test_filing_the_notice_leaves_an_audit_row_naming_who_filed_it() -> None:
+    """This declaration is what opens every outbound dial for the account, and every other
+    compliance write in this module audits itself.
+
+    The row is what answers "who at this business said they had sent that letter, and from
+    where" — `recorded_by` names a client user and nothing else says how the act arrived.
+    The objective is the client's own prose and is deliberately NOT in the summary, because
+    the audit log is read cross-tenant.
+    """
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    async with _client() as http:
+        recorded = await http.post(PATH, headers=await _headers(org), json=_body())
+        assert recorded.status_code == 201, recorded.text
+        withdrawn = await http.post(PATH, headers=await _headers(org), json=_body(withdraw=True))
+        assert withdrawn.status_code == 201, withdrawn.text
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT action, actor_id, ip, object_type FROM audit_log "
+                    "WHERE tenant_id = :tid AND action LIKE 'autodialer_notice.%' "
+                    "ORDER BY at"
+                ),
+                {"tid": tenant_id},
+            )
+        ).all()
+    assert [row[0] for row in rows] == [
+        "autodialer_notice.recorded",
+        "autodialer_notice.withdrawn",
+    ]
+    for row in rows:
+        assert row[1] is not None, "the person who filed it has to be on the row"
+        assert row[2] is not None, "SEC-COMP §5: a human actor reached us over a connection"
+        assert row[3] == "autodialer_notice"

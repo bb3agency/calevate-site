@@ -36,10 +36,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.audit import write_audit
 from apps.api.compliance.autodialer import (
     MAX_ACCESS_PROVIDER_CHARS,
     MAX_NOTICE_REFERENCE_CHARS,
@@ -48,7 +49,7 @@ from apps.api.compliance.autodialer import (
     read_autodialer_notice,
     record_autodialer_notice,
 )
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -146,7 +147,7 @@ async def read_notice(session: Session, principal: NoticeReader) -> AutodialerNo
     ),
 )
 async def record_notice(
-    body: AutodialerNoticeIn, session: Session, principal: NoticeRecorder
+    body: AutodialerNoticeIn, request: Request, session: Session, principal: NoticeRecorder
 ) -> AutodialerNoticeOut:
     """Append the notice, then read the account's position back from the database.
 
@@ -173,7 +174,7 @@ async def record_notice(
                 "your business and your access provider."
             ),
         )
-    await record_autodialer_notice(
+    row_id = await record_autodialer_notice(
         session,
         tenant_id=principal.tenant_id,
         access_provider=body.access_provider,
@@ -182,6 +183,28 @@ async def record_notice(
         notice_reference=body.notice_reference,
         recorded_by=actor,
         withdraw=body.withdraw,
+    )
+    # IN THE SAME TRANSACTION as the row it describes (`write_audit`'s contract), so no
+    # notice can exist without the entry saying who filed it and from where. This is the
+    # declaration that opens every outbound dial for the account: `recorded_by` names a
+    # client user, and only this row names the operator when the act came through a
+    # view-as session. The objective is not copied — it is the client's own prose, adds
+    # nothing an auditor needs, and the audit log is read cross-tenant.
+    await write_audit(
+        session,
+        action="autodialer_notice.withdrawn" if body.withdraw else "autodialer_notice.recorded",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="autodialer_notice",
+        object_id=str(row_id),
+        ip=client_request_ip(request),
+        summary={
+            "access_provider": body.access_provider,
+            "notified_on": body.notified_on.isoformat(),
+            # Whether one was given, not what it says: the same predicate the service
+            # stores by, so a blank string does not read as a reference on file.
+            "notice_reference_given": bool((body.notice_reference or "").strip()),
+        },
     )
     return _out(await read_autodialer_notice(session, tenant_id=principal.tenant_id))
 

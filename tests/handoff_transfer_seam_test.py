@@ -607,9 +607,10 @@ async def _provider(provider: CallTransferProvider) -> AsyncIterator[None]:
 
 
 async def test_the_tool_reason_is_the_word_the_worker_actually_matches() -> None:
-    """TWO SPELLINGS OF ONE WORD, PINNED. `voice_worker/call_tools.py` matches this exact
-    string to pick the one sentence it can say with certainty out of five; that service
-    may not import `apps.api` (hard rule 3), so the agreement is asserted here or nowhere.
+    """TWO SPELLINGS OF ONE WORD, PINNED. The worker passes this reason through to the
+    model, and matches it to recover the narrow sentence from a server old enough to
+    answer only `not_transferred` (`call_tools._ENGINE_CANNOT_TRANSFER`); that service may
+    not import `apps.api` (hard rule 3), so the agreement is asserted here or nowhere.
     `tests/handoff_tool_test.py` pins `HANDOFF_JOB` the same way for the same reason."""
     from voice_worker.call_tools import _ENGINE_CANNOT_TRANSFER
 

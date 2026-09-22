@@ -112,20 +112,25 @@ const SOLUTIONS: readonly Solution[] = [
       "It holds the call in Telugu, Hindi or English. Telugu is where a new agent starts.",
       // apps/api/crm/service.py:27 count_after_hours_calls -> after_hours_captured_7d.
       "Your dashboard counts how many enquiries arrived outside your own opening hours.",
-      // WHAT THE ROSTER BUYS ON THE ENGINE WE RUN, which is not a live transfer.
-      // `PIPECAT_CAPABILITIES.in_call_handoff` and `transfer` are both False
-      // (`apps/api/engine/pipecat.py:245-246`), so `agents/handoff.spec_for` sends no
-      // destination and the in-call tool answers `not_available`. The caller is told
-      // plainly and offered a call-back; the on-duty member chosen from the roster is who
-      // that call-back belongs to. A sentence promising "puts a caller through" stood here
-      // and was false on this engine.
-      "When a caller asks for a person, it says so plainly and takes a call-back instead — the enquiry reaches whoever is on duty, and never outside the hours that person gave you.",
+      // WHAT A CALLER ASKING FOR A PERSON ACTUALLY GETS, which is not a live transfer and
+      // is not the roster either. `PIPECAT_CAPABILITIES.in_call_handoff` and `transfer`
+      // are both False, so `transfer_blocked_reason` answers `platform_cannot_transfer`,
+      // `agents/handoff.spec_for` sends no destination and nobody on the list is chosen:
+      // the tool answers `not_available` and the agent offers the call-back, which
+      // `callbacks/service.book` rings the CALLER back on. Neither a sentence promising
+      // "puts a caller through" nor one promising the enquiry reaches the on-duty member
+      // is true of this engine, and both have stood here.
+      "When a caller asks for a person, it says so plainly and offers a call-back instead — what they wanted is written down and lands on your call-backs list.",
     ],
     yours: [
       "Your opening hours, so the after-hours count means something.",
       "The sentence it opens with, and whether it volunteers the AI line at the start.",
       "The list of things it has to find out from a caller.",
-      "Who a caller asking for a person is passed to, in the order you want them tried, and the hours each of them is available.",
+      // The roster is SAVED AND NOT IN USE while the platform cannot transfer — which is
+      // the sentence the client's own handover screen gives them
+      // (`agents/handoff._UNAVAILABLE_REASONS[PLATFORM_CANNOT_TRANSFER]`). Listing it as
+      // something they control without that half would promise an escalation path.
+      "Your handover list — who should take an escalation, in what order, and the hours each is available. We hold it; putting a caller through mid-call is not something this platform does yet, and your handover screen says so.",
     ],
     never: [
       // A BAN ON THE WORD "look up" WOULD BE A BAN ON THE TRUTH: the agent DOES search
@@ -135,7 +140,7 @@ const SOLUTIONS: readonly Solution[] = [
       // that is what this line says. A sentence claiming it looks nothing up mid-call
       // stood here and was false on both runnable engines.
       "It does not answer from anything but the material you approved and published. It is not a search engine and it does not learn from your documents.",
-      "It does not put a caller through to a person while they are on the line. Asking for somebody books a call-back, and the caller is told that rather than being left holding.",
+      "It does not put a caller through to a person while they are on the line. Asking for somebody gets a call-back offered instead, and the caller is told that rather than being left holding.",
     ],
   },
   {
@@ -168,10 +173,11 @@ const SOLUTIONS: readonly Solution[] = [
       "The list, and when it may run — inside the platform's own 9am–9pm window, never outside it.",
       "The registration paperwork, which the product refuses to dial without.",
       // `compliance/autodialer.py`, read by `check_dispatch` item 7b: the notice binds the
-      // SENDER, so Calevate cannot give it on a client's behalf. Two limits on what this
-      // may claim — the obligation's evidence class is REPORTED (nobody here has read
-      // TCCCPR Reg 4), and `record_autodialer_notice` has no route or screen, so no client
-      // can lodge one today and the sentence may not offer it as a step they take.
+      // SENDER, so Calevate cannot give it on a client's behalf. The limit on what this
+      // may claim is that the obligation's evidence class is REPORTED — nobody here has
+      // read TCCCPR Reg 4 — so it describes what the product refuses, not what the law
+      // requires. Recording it is a step the client really has: `compliance/
+      // autodialer_routes.py` and the panel on the agreements screen.
       "Written notice to your own telecom access provider, in advance, that these calls are placed by an automated dialler and what they are for. It has to come from you, and no outbound call goes out until you have recorded it on your agreements screen.",
     ],
     never: [

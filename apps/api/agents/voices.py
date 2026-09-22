@@ -710,7 +710,7 @@ def tts_models_for_provider(provider: str) -> tuple[TtsModel, ...]:
     it answers with a tuple so a second model on one provider reaches the form by existing.
 
     Returns `()` for a provider this product does not have — which is a real answer and is
-    what `voice_admission.py` turns into the ElevenLabs refusal.
+    what `voice_admission.check_provider` turns into its refusal.
     """
     return tuple(model for model in get_args(TtsModel) if provider_of_tts_model(model) == provider)
 

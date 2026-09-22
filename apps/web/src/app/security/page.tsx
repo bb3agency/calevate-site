@@ -113,10 +113,10 @@ export default function SecurityPage() {
           {/* `check_dispatch` items 7b (`compliance/autodialer.py`) and 2c
               (`compliance/kyc.py`), both outbound-only. Two things this may not say:
               that the client is compliant — the autodialer obligation's own evidence class
-              is REPORTED, nobody here has opened TCCCPR Reg 4 — and that the notice can be
-              lodged with us today: `record_autodialer_notice` has no route and no screen,
-              so the gate currently has no door, and a page implying otherwise sends a
-              prospect at an outbound product they cannot switch on. */}
+              is REPORTED, nobody here has opened TCCCPR Reg 4 — and that a new account can
+              switch outbound on by itself, which the number arrangement still prevents. The
+              notice itself has a door: `compliance/autodialer_routes.py`, reached from the
+              agreements screen, which is why this names where it is recorded. */}
           <p className="mt-4 max-w-2xl text-sm text-ink-faint">
             Two more things stand in front of a first outbound call, and until
             both are in place every outbound dial is refused. You have to tell

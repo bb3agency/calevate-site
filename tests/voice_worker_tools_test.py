@@ -240,9 +240,10 @@ def test_no_failure_promises_a_time_this_platform_cannot_keep(outcome: str) -> N
         ("no_answer", "declined", "no_answer"),
         ("nobody_on_duty", "closed", "nobody_on_duty"),
         ("not_available", "", "not_available"),
-        # THE COMPATIBILITY SHIM, AND TODAY'S ONLY REAL ANSWER. `worker/tools.
-        # request_handoff` returns the wide word with this reason because the engine
-        # declares `in_call_handoff=False`; the reason narrows it to the one failure we can
+        # THE VERSION-SKEW SHIM. The current server sends this reason beside
+        # `not_available` (see the case above); a server deployed before the outcome
+        # vocabulary widened could only send the wide word with it, and this worker
+        # deploys on its own schedule. The reason narrows it to the one failure we can
         # name, so the caller hears the true sentence rather than the vaguest of the five.
         ("not_transferred", "engine_cannot_transfer", "not_available"),
         # A wide word with a reason we do not recognise stays wide. Guessing which failure

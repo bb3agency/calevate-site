@@ -33,8 +33,11 @@ leg_duration_s` by the settle below. It is NOT metered, and the two places it wo
 to be are named rather than left to be discovered:
 
 * `apps/api/worker/service.py::_INSERT_USAGE_SQL`, on the `carrier` leg of
-  `calevate_shared.worker_api.MeteredLegName` — the one writer of `usage_events` for a
-  call, which multiplies a reported quantity by an ATTESTED rate (hard rule 7);
+  `calevate_shared.worker_api.MeteredLegName` — the writer of `usage_events` for a call
+  the OWNED runtime metered, which multiplies a reported quantity by an ATTESTED rate
+  (hard rule 7). A call on the rented engine is metered by `apps/workers/pipeline.py`
+  instead, off that vendor's execution payload, and a second leg placed there is that
+  path's question rather than this one's;
 * its twin `_INSERT_REFUSAL_SQL` (`call_metering_refusals`) when no attested carrier rate
   exists, so "why did this call meter nothing" keeps an answer that is not a shrug.
 

@@ -208,7 +208,7 @@ export const CLONE_FIRST =
   "voice that would fail on a call is refused on this screen instead.";
 
 /**
- * The five fields, with WHERE IN THE VOICE LAB each value is found.
+ * The five fields, with WHERE AT THE PROVIDER each value is found.
  *
  * Hints rather than placeholders: a placeholder disappears the moment the operator types,
  * which is exactly when they are least sure they typed the right thing. The `provider` and

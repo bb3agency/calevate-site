@@ -165,10 +165,11 @@ const QUESTIONS: { q: string; a: string }[] = [
      * The notice is the CLIENT's to give and we may not imply otherwise — the access
      * provider's counterparty is the sender. Its legal ground is REPORTED (nobody here has
      * opened TCCCPR Reg 4), so this describes what the product refuses, not what the law
-     * says. And `record_autodialer_notice` has no route and no screen, so the answer may
-     * not read as "do these three things and you are dialling": the honest shape is that
-     * outbound is arranged with us, not switched on by a signup. No figure and no price
-     * vocabulary: this block renders on the homepage.
+     * says. The notice IS lodgeable — `POST /v1/compliance/autodialer-notice` and the
+     * panel on the agreements screen — so the answer names where; what it may still not
+     * read as is "do these three things and you are dialling", because the number outbound
+     * goes out from is arranged with us. No figure and no price vocabulary: this block
+     * renders on the homepage.
      */
     a:
       "Yes, and two more things besides. Indian rules require the business whose calls " +

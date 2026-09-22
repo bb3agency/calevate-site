@@ -368,15 +368,16 @@ HANDOFF_GUIDANCE: Final[dict[HandoffOutcome, str]] = {
     ),
 }
 
-#: The machine reason `apps/api/worker/tools.request_handoff` returns beside its
-#: `not_transferred` — the engine declares `in_call_handoff=False`, so nobody was rung and
-#: nobody ever will be until a carrier leg exists (`engine/pipecat.PIPECAT_CAPABILITIES`).
+#: The machine reason the server sends when nobody was rung and nobody ever will be until
+#: a carrier leg exists (`apps/api/worker/tools.ENGINE_CANNOT_TRANSFER`, spelling pinned by
+#: `tests/handoff_transfer_seam_test.py`).
 #:
-#: **READ SO THAT TODAY'S ONLY ANSWER GETS TODAY'S TRUE SENTENCE.** `not_transferred` is the
-#: wide word — "it did not happen and we cannot say which" — and this reason narrows it to
-#: the one failure we can name with certainty. Without this line every caller on every
-#: deployment would hear the vaguest of the five sentences for the one situation that is
-#: least vague.
+#: **READ FOR VERSION SKEW, NOT FOR TODAY'S ANSWER.** The current server sends this reason
+#: beside the NARROW word `not_available` and needs no help. A server deployed before the
+#: outcome vocabulary widened could only answer `not_transferred` — the wide word, "it did
+#: not happen and we cannot say which" — with this reason beside it, and this worker ships
+#: on its own schedule to a different platform. Reading the reason keeps a caller on that
+#: pairing from hearing the vaguest of the five sentences for the least vague situation.
 _ENGINE_CANNOT_TRANSFER: Final[str] = "engine_cannot_transfer"
 
 

@@ -2094,8 +2094,9 @@ def cartesia_rung_breakeven_call_minutes(
 
 
 #: **THE FROZEN STRUCTURAL BOUND `credit_packs.card_refusals` REFUSES BELOW**, struck at the
-#: evidence file's ₹88 = $1: the shared legs (₹1.6911) plus the worst marginal TTS cost
-#: (₹3.0888) = **₹4.7099/min**.
+#: evidence file's ₹88 = $1: the shared legs (₹1.6211 — the engine leg inside them is
+#: dollar-priced, so they are ₹1.6911 at the cost model's own ₹95) plus the worst marginal
+#: TTS cost (₹3.0888) = **₹4.7099/min**.
 #:
 #: ⚠ **THIS USED TO BE ₹4.3639 AND THAT NUMBER WAS A BEST CASE WEARING A FLOOR'S NAME.** It
 #: was the $49 Startup fee spread over the 2,315 call-minutes at which its allotment is
