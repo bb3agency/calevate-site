@@ -367,11 +367,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         ON_RESTART,
         "this is the FALLBACK rate, used only while no published rate is fresh — normal "
         "conversions already use the published rate and need no restart. A new value here "
-        "reaches number rentals and the cost figures on this console immediately. What it "
-        "does NOT reach is the per-CALL cost conversion: the engine adapter copies this "
-        "value when it is built and each server process keeps that adapter for its "
-        "lifetime, so call costs use the new fallback only after every server process is "
-        "restarted.",
+        "reaches number rentals and the cost figures on this console immediately. The one "
+        "reader a restart exists for is a RENTED engine's adapter, which copies this value "
+        "when it is built and is then cached for the life of each server process. On an "
+        "engine this deployment hosts itself there is no such adapter and no such copy, so "
+        "a restart changes nothing about this field — if the value looks unapplied there, "
+        "the rate in force is the PUBLISHED one and this fallback is not being used at "
+        "all. Read it on the FX rate screen, not here.",
     ),
     # The Cartesia adapter captures this at construction and `get_engine()` caches the
     # adapter for the life of the process.

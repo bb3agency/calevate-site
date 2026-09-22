@@ -693,7 +693,7 @@ def test_the_rungs_are_distinguishable_on_a_ledger_row() -> None:
     day = date(2026, 9, 15)
     assert FBIL_DIRECT_RUNG.url_for(day) == (
         "https://www.fbil.org.in/wasdm/refrates/fetchfiltered"
-        "?fromDate=2026-09-05&toDate=2026-09-15&authenticated=false"
+        "?fromDate=2026-08-16&toDate=2026-09-15&authenticated=false"
     )
     assert FRANKFURTER_FBIL_RUNG.url_for(day) == (
         "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL"
@@ -1086,7 +1086,14 @@ def test_a_stale_fbil_window_still_produces_a_rate_for_the_ladder_to_judge() -> 
     [
         ("<html>service unavailable</html>", "not_json", "an error page is not a rate"),
         ('{"rate": 88.4275}', "not_an_array", "the documented container is an ARRAY"),
-        ("[]", "no_usd_record", "an empty window is not silence — say so"),
+        # STILL "say so", with the word that says WHICH silence. An empty array is the
+        # administrator being quiet; records that arrive and do not parse are the contract
+        # moving. The rows below keep `no_usd_record` for exactly that second case.
+        (
+            "[]",
+            "nothing_published_in_window",
+            "an empty window is not silence — say so, and say it is the FEED and not us",
+        ),
         (
             _fbil_body(_fbil_record("INR / 1 EUR", rate=95.5)),
             "no_usd_record",
@@ -1197,7 +1204,7 @@ async def test_the_fbil_request_is_the_window_the_ceiling_implies() -> None:
     await client.aclose()
     assert rate == PUBLISHED
     assert seen == [
-        f"{FBIL_URL}?fromDate=2026-09-05&toDate=2026-09-15&authenticated={FBIL_AUTHENTICATED}"
+        f"{FBIL_URL}?fromDate=2026-08-16&toDate=2026-09-15&authenticated={FBIL_AUTHENTICATED}"
     ]
     assert FBIL_AUTHENTICATED == "false" and isinstance(FBIL_AUTHENTICATED, str)
 
@@ -1276,3 +1283,72 @@ async def test_the_ladder_descends_past_two_stale_rungs_to_the_third(
 
     cost = _engine()._cost(_cost_payload())
     assert cost is not None and cost.fx_source == "test:default"
+
+
+def test_an_empty_fbil_array_is_a_quiet_feed_and_names_the_window() -> None:
+    """THE REFUSAL THAT SENT A READER HUNTING A PARSER BUG THAT DID NOT EXIST.
+
+    On 22 Sep 2026 FBIL's last publication was the 11th. The window opened on the 12th,
+    the array came back `[]`, and the rung refused as `no_usd_record` with every counter
+    reading zero — a CONTRACT-shaped refusal for a feed that had simply gone quiet. The
+    two send an operator to different places: one to this parser, the other to the
+    administrator. So an empty array says which it is, and names how far back we looked
+    before concluding it — the window is the only thing that makes "nothing" actionable.
+    """
+    from datetime import date as _date
+
+    from apps.workers.fx_pull import FxPullError, fbil_window, parse_fbil_response
+
+    today = _date(2026, 9, 22)
+    with pytest.raises(FxPullError) as refused:
+        parse_fbil_response("[]", today)
+
+    assert refused.value.code == "nothing_published_in_window"
+    start, end = fbil_window(today)
+    assert start.isoformat() in str(refused.value)
+    assert end.isoformat() in str(refused.value)
+    assert "empty array" in str(refused.value)
+
+
+def test_records_that_arrive_and_do_not_parse_are_still_the_contract_refusal() -> None:
+    """The other side of the same fork, so the first test cannot pass by widening.
+
+    An array that CARRIES records and yields no dollar rate is the vendor's content or
+    contract having moved, and it keeps `no_usd_record` with the tally — the message that
+    sends a reader to this parser rather than to FBIL.
+    """
+    from datetime import date as _date
+
+    from apps.workers.fx_pull import FxPullError, parse_fbil_response
+
+    body = '[{"subProdName": "INR / 1 EUR", "processRunDate": "2026-09-22", "rate": 103.5}]'
+    with pytest.raises(FxPullError) as refused:
+        parse_fbil_response(body, _date(2026, 9, 22))
+
+    assert refused.value.code == "no_usd_record"
+    assert "other_currency=1" in str(refused.value)
+
+
+def test_the_window_asked_for_outlives_a_publication_gap_longer_than_the_ceiling() -> None:
+    """The constant that made the bug reachable.
+
+    `FBIL_WINDOW` is deliberately wider than `MAX_QUOTE_AGE` so a merely-stale record
+    still ARRIVES and is refused by the one staleness rule, leaving an empty array to mean
+    a genuinely quiet feed. At twice the ceiling that separation failed the first time a
+    real gap ran eleven days. This pins the property rather than the number: whatever the
+    window is, it must reach back past a gap the ceiling would already have rejected.
+    """
+    from datetime import date as _date
+
+    from apps.api.core.fx import MAX_QUOTE_AGE
+    from apps.workers.fx_pull import FBIL_WINDOW, fbil_window
+
+    assert FBIL_WINDOW > MAX_QUOTE_AGE * 2, (
+        "the window must outlive a publication gap that the staleness ceiling would "
+        "already refuse, or 'behind' arrives looking like 'anomalous'"
+    )
+    start, _ = fbil_window(_date(2026, 9, 22))
+    assert start <= _date(2026, 9, 11), (
+        "the real gap this was measured against (last publication 11 Sep, asked on 22 Sep) "
+        "must fall inside the window"
+    )

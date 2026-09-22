@@ -212,7 +212,6 @@ import httpx
 from arq import Retry
 
 from apps.api.core.alerting import alert
-from apps.api.core.fx import MAX_QUOTE_AGE
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import untenanted_session
@@ -247,11 +246,31 @@ FBIL_AUTHENTICATED = "false"
 #: "FBIL answered about no dollar at all" the same response, and those need different
 #: answers: the first is the feed being behind and is decided ONE place — `FxQuote.usable`
 #: on a stored row, the same predicate money applies — while the second is the contract
-#: or the content having moved and must be read by a human. Twice the ceiling means a
-#: record that is merely too old still ARRIVES, is still recorded (the eager write), and
-#: is refused as `stale_publication` by the one staleness rule; an empty result really is
-#: an anomaly.
-FBIL_WINDOW = MAX_QUOTE_AGE * 2
+#: or the content having moved and must be read by a human. A window WIDER than the
+#: ceiling means a record that is merely too old still ARRIVES, is still recorded (the
+#: eager write), and is refused as `stale_publication` by the one staleness rule; an empty
+#: result really is an anomaly.
+#:
+#: ⚠ **IT WAS `MAX_QUOTE_AGE * 2` AND TEN DAYS WAS NOT ENOUGH.** FBIL's last publication
+#: before 22 Sep 2026 was the 11th; the window opened on the 12th and the array came back
+#: `[]`, so the rung refused as `no_usd_record` — a CONTRACT-shaped refusal — when the
+#: truth was a feed that had simply gone quiet for eleven days. The separation above is
+#: right and the constant was too small to deliver it: a gap longer than the window turns
+#: every "behind" into an "anomaly", which is the one substitution this design exists to
+#: prevent. Thirty days is longer than any clustered Indian market holiday, and the cost
+#: of asking for it is a handful of extra records in a response we already parse.
+FBIL_WINDOW = timedelta(days=30)
+
+
+def fbil_window(today: date) -> tuple[date, date]:
+    """The dates the request asks FBIL about, in ONE spelling.
+
+    Both the URL and the refusal that names the window read this, so a message saying
+    "nothing published between X and Y" cannot come to describe a window we did not ask
+    for — which is the whole value of the message.
+    """
+    return today - FBIL_WINDOW, today
+
 
 #: The Frankfurter endpoint behind rungs 2 and 3.
 RATE_URL = f"https://api.frankfurter.dev/v2/rate/{BASE_CURRENCY}/{QUOTE_CURRENCY}"
@@ -302,7 +321,12 @@ FxRefusalCode = Literal[
     "no_date",
     "date_not_iso",
     "date_in_future",
-    # FBIL-specific: the array arrived and yielded no usable dollar rate
+    # FBIL-specific: the feed answered about our window and had nothing in it. NOT a
+    # contract failure — it is the administrator being quiet, and it is separated from
+    # `no_usd_record` because the two send an operator to different places: this one to
+    # the publisher, that one to this parser.
+    "nothing_published_in_window",
+    # FBIL-specific: records ARRIVED and none of them yielded a usable dollar rate
     "no_usd_record",
     "sub_prod_name_unparsable",
     # the ladder as a whole, when no rung produced a rate and none raised
@@ -435,7 +459,7 @@ def _decoded(body: str) -> object:
         raise FxPullError("the response was not JSON", code="not_json") from None
 
 
-def parse_rate_response(body: str) -> tuple[Decimal, date]:
+def parse_rate_response(body: str, today: date | None = None) -> tuple[Decimal, date]:
     """FRANKFURTER's JSON object to `(rate, as_of)`, or `FxPullError`. Rungs 2 and 3.
 
     Every field is checked rather than assumed, including the two that "cannot" be wrong:
@@ -513,7 +537,7 @@ class _FbilTally:
         )
 
 
-def parse_fbil_response(body: str) -> tuple[Decimal, date]:
+def parse_fbil_response(body: str, today: date | None = None) -> tuple[Decimal, date]:
     """FBIL's JSON ARRAY to `(rate, as_of)` for USD, or `FxPullError`. Rung 1.
 
     **THE UNITS ARE READ, NEVER ASSUMED.** `subProdName` carries both the foreign currency
@@ -532,6 +556,7 @@ def parse_fbil_response(body: str) -> tuple[Decimal, date]:
     earlier one — the same tiebreak `ops/fx_rates.latest_observation` applies for the same
     reason: a correction is the one observation nobody may lose to an accident of order.
     """
+    window = fbil_window(today) if today is not None else None
     payload = _decoded(body)
     if not isinstance(payload, list):
         # Their own adapter raises here too. A non-array from this endpoint is an error
@@ -606,6 +631,25 @@ def parse_fbil_response(body: str) -> tuple[Decimal, date]:
                 "parser accepts — read OPERATIONS §2 gate 39 before changing it.",
                 code="date_not_iso",
             )
+        if tally.records == 0:
+            # AN EMPTY ARRAY IS A QUIET FEED, NOT A BROKEN CONTRACT, and conflating the
+            # two cost a reader twenty minutes hunting a parser bug that did not exist.
+            # Every counter above is zero here, which can only mean FBIL answered about
+            # this window and had nothing in it — so the message names the window rather
+            # than the tally, because the window is the only thing that makes "nothing"
+            # actionable: it says how far back we looked before concluding it.
+            asked = (
+                f" between {window[0].isoformat()} and {window[1].isoformat()}"
+                if window is not None
+                else ""
+            )
+            raise FxPullError(
+                f"FBIL published no {BASE_CURRENCY} reference rate{asked} — the response "
+                "was an empty array, so this is the feed being quiet rather than its "
+                "contract having moved. Check whether the administrator is still "
+                "publishing before changing this parser.",
+                code="nothing_published_in_window",
+            )
         raise FxPullError(
             f"the response carried no usable {BASE_CURRENCY} record ({tally})",
             code="no_usd_record",
@@ -629,10 +673,11 @@ def _fbil_request(today: date) -> str:
     """FBIL's request for one tick: the window ending today. See `FBIL_WINDOW` for why it
     is wider than the staleness ceiling, and `FBIL_AUTHENTICATED` for why `false` is a
     string."""
+    start, end = fbil_window(today)
     query = urlencode(
         {
-            "fromDate": (today - FBIL_WINDOW).isoformat(),
-            "toDate": today.isoformat(),
+            "fromDate": start.isoformat(),
+            "toDate": end.isoformat(),
             "authenticated": FBIL_AUTHENTICATED,
         }
     )
@@ -666,7 +711,12 @@ class FxRung:
     #: one that was actually sent.
     url_for: Callable[[date], str]
     #: This feed's body to `(rate, as_of)`. Raises `FxPullError` on anything else.
-    parse: Callable[[str], tuple[Decimal, date]]
+    #:
+    #: IT TAKES THE DATE THE REQUEST WAS BUILT FOR, and the Frankfurter rungs ignore it.
+    #: A refusal that says "nothing published between X and Y" has to name the window the
+    #: URL actually asked for, and the only way to be sure of that without a second
+    #: spelling is to hand the parser the same `today` `url_for` was given.
+    parse: Callable[[str, date], tuple[Decimal, date]]
     #: The operator's sentence for why this rung exists, used in the alarm that says the
     #: platform has fallen past it.
     why: str
@@ -748,7 +798,7 @@ async def fetch_published_rate(
         # from it is not interpreted at all, only reported with its status. Neither is
         # guessed around, and neither is a reason to stop asking: the ladder moves down.
         raise FxFeedUnreachableError(f"the endpoint answered HTTP {response.status_code}")
-    return rung.parse(response.text)
+    return rung.parse(response.text, today or datetime.now(UTC).date())
 
 
 async def _warn_if_silent() -> None:
