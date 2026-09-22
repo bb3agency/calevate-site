@@ -78,7 +78,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from types import MappingProxyType
 from typing import Final, Literal, cast
@@ -1187,6 +1187,275 @@ def stt_cost_inr(duration_s: int) -> Decimal:
     return (stt_rate_inr_per_second() * Decimal(duration_s)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
+# --- THE TELEPHONY LEG: COSTABLE, AND IN NEITHER FLOOR ----------------------------------
+#
+# D-474 (Model B) left the carrier minute out of the cost model entirely, and correctly:
+# the client is the subscriber of record on their own account and is billed by their own
+# operator, so there was no rupee of ours to model. A THIRD arrangement is under
+# consideration in which the number is sold through the platform — under that one the
+# carrier minute IS ours, so the leg has to be costable before it can be priced.
+#
+# ⚠ **NOTHING HERE IS SUMMED INTO A COST FLOOR.** `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and
+# `CARTESIA_COST_FLOOR_INR_PER_MIN` are what the published pack card, `credit_packs
+# .card_margins` and TRD §10's margin model are struck against; folding a leg into them
+# would reprice a card that is on sale and re-classify every account holding one. This is
+# an ADDITIVE term a caller sums in where the arrangement applies, and
+# `cost_floor_inr_per_min` does not read it.
+#
+# ⚠ **AND IT REACHES NO BILL** (hard rule 7) — the same standing as `llm_cost_inr_per_
+# minute` and by the same construction: a catalogue figure has no path to `unit_cost_paid`.
+# The billable doors are attested (`llm_inr_per_ktok`, `tts_rate_inr_per_char`); no
+# function below is one.
+#
+# **EVIDENCE CLASS: VENDOR-PUBLISHED, FOUNDER-RELAYED** — Plivo's India voice pricing page,
+# read by the founder on 22 Sep 2026 and relayed with the figures below. NOT fetched from
+# here and not fetchable: `www.plivo.com` is egress-blocked from this container (403 on
+# CONNECT, measured 21 Sep 2026, recorded at `agents/transfer_providers/plivo.py`), so a
+# re-read is a founder's reading or nothing.
+
+#: Which carrier leg a minute runs over. `domestic` is a PSTN call to or from an Indian
+#: number; `webrtc` is the vendor's browser SDK leg, which never touches the PSTN and is
+#: therefore cheaper. Two legs rather than one rate because the vendor prices them
+#: differently, so a figure that did not say which leg it was for would be two rates.
+TelephonyLeg = Literal["domestic", "webrtc"]
+
+#: Which way the call was placed. Kept as a lookup key even though today's card prices both
+#: identically — see `TELEPHONY_INR_PER_MIN`.
+TelephonyDirection = Literal["inbound", "outbound"]
+
+#: Plivo's India voice card in ₹ per minute, per leg and per direction.
+#:
+#: **THE TWO DIRECTIONS ARE TRANSCRIBED SEPARATELY THOUGH THEY CARRY THE SAME RATE**, for
+#: the reason a single `..._INR_PER_MIN` constant could not serve: the vendor states
+#: inbound and outbound as two rows, and inbound-vs-outbound is exactly the axis a carrier
+#: card splits when it moves. One constant would make that move a rename of a public name
+#: and a re-reading of every call site; a key makes it one figure.
+#:
+#: NUMERIC INR, never float (hard rule 7).
+TELEPHONY_INR_PER_MIN: Final[Mapping[TelephonyLeg, Mapping[TelephonyDirection, Decimal]]] = (
+    MappingProxyType(
+        {
+            "domestic": MappingProxyType(
+                {"inbound": Decimal("0.3800"), "outbound": Decimal("0.3800")}
+            ),
+            "webrtc": MappingProxyType(
+                {"inbound": Decimal("0.2500"), "outbound": Decimal("0.2500")}
+            ),
+        }
+    )
+)
+
+#: What the bidirectional media stream costs on top of the minute: NOTHING — the vendor's
+#: card states "Included" for audio streaming. A named zero rather than a silent absence,
+#: because this is the row the product cannot run without: our agent needs the raw audio
+#: both ways, and a reader who found no streaming row could not tell "free" from "unread".
+TELEPHONY_AUDIO_STREAMING_INR_PER_MIN: Final[Decimal] = Decimal("0.0000")
+
+#: The vendor's billing PULSE, in seconds: a connected call is billed in whole 30-second
+#: increments, so 2m10s is charged as 2m30s.
+#:
+#: **MODELLED RATHER THAN AVERAGED AWAY**, because the distortion is largest exactly where
+#: this product lives: a 40-second qualification call is billed 60 seconds, i.e. 50% more
+#: than its duration, and a cost model that multiplied duration by the per-minute rate
+#: would under-state every short call and would do it silently. Named so the rounding has
+#: one home: a literal 30 spread across the functions below is the D-103 shape on the axis
+#: that moves money.
+TELEPHONY_PULSE_SECONDS: Final[Decimal] = Decimal("30")
+
+#: Seconds per minute, DERIVED from the two constants already here so this module holds no
+#: second spelling of an hour.
+_SECONDS_PER_MINUTE: Final[Decimal] = _SECONDS_PER_HOUR / _MINUTES_PER_HOUR
+
+#: The vendor's ASR unit: ₹1.70 per 15 SECONDS, which is the one add-on quoted in a unit
+#: other than the minute. Kept in the vendor's own unit and converted once, below, so the
+#: published figure and the per-minute one cannot come to disagree.
+TELEPHONY_ASR_INR_PER_15_SECONDS: Final[Decimal] = Decimal("1.70")
+
+_TELEPHONY_ASR_UNIT_SECONDS: Final[Decimal] = Decimal("15")
+
+#: The add-on card, ₹ per minute, keyed by the vendor's own feature names.
+#:
+#: **WE BUY NONE OF THESE** (`TELEPHONY_ADDONS_ENABLED` is empty) — the two that would be
+#: tempting are the two that are refused on merit: the carrier's Automatic Speech
+#: Recognition at ₹6.80/min is more than twice the entire Clear cost floor for a
+#: transcript our own STT leg already produces (Sarvam Saaras, ₹0.50/call-minute,
+#: `stt_rate_inr_per_minute`), and Call Transcription at ₹0.81/min buys the same thing
+#: again at 1.6x the STT leg.
+#:
+#: The zero-rated rows are carried rather than dropped, because an absent row reads as an
+#: unread one — and this product records every call, so "recording is free" is a figure
+#: somebody will come looking for.
+TELEPHONY_ADDON_INR_PER_MIN: Final[Mapping[str, Decimal]] = MappingProxyType(
+    {
+        "noise_cancellation": Decimal("0.12"),
+        "call_recording": Decimal("0.00"),
+        "answering_machine_detection": Decimal("0.00"),
+        "conference_calls": Decimal("0.00"),
+        "multilingual_text_to_speech": Decimal("0.00"),
+        "call_transcription": Decimal("0.81"),
+        "automatic_speech_recognition": (
+            TELEPHONY_ASR_INR_PER_15_SECONDS * (_SECONDS_PER_MINUTE / _TELEPHONY_ASR_UNIT_SECONDS)
+        ),
+    }
+)
+
+#: Which add-ons this product actually buys. **EMPTY, AND THAT IS THE ASSERTION.**
+#:
+#: A set rather than a comment saying "we buy none", so that enabling one is a one-line
+#: change that the SAME function which prices a minute picks up
+#: (`telephony_addons_inr_per_min` is summed into `telephony_cost_inr`). The alternative —
+#: a rate card nothing reads — is how an add-on gets switched on in a console and
+#: discovered on an invoice.
+TELEPHONY_ADDONS_ENABLED: Final[frozenset[str]] = frozenset()
+
+#: What one voice-enabled Indian number costs to rent, per MONTH.
+#:
+#: **DELIBERATELY NOT CONVERTED TO A PER-MINUTE FIGURE HERE**, for the reason
+#: `ENGINE_RESERVED_INSTANCE_USD_PER_MIN` gives about a warm instance: it amortises over
+#: whatever minutes that number actually carries, so ₹/min is ₹200 at one call-minute a
+#: month and ₹0.20 at a thousand. `telephony_number_rental_inr_per_min` takes the volume
+#: and invents no default, because a default volume is an unmeasured assumption baked into
+#: a cost figure.
+TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH: Final[Decimal] = Decimal("200.0000")
+
+
+def telephony_rate_inr_per_min(*, leg: TelephonyLeg, direction: TelephonyDirection) -> Decimal:
+    """The carrier's own per-minute rate for one leg and direction, EXACT and unquantized.
+
+    Refuses an unknown key rather than falling back to the domestic rate: a wrong leg
+    priced at the dearer row looks like a working cost model and is wrong by 52%.
+    """
+    try:
+        return TELEPHONY_INR_PER_MIN[leg][direction]
+    except KeyError:
+        raise ValueError(
+            f"no published telephony rate for leg {leg!r} direction {direction!r}; "
+            f"this card carries {sorted(TELEPHONY_INR_PER_MIN)} "
+            f"x {sorted(TELEPHONY_INR_PER_MIN['domestic'])}"
+        ) from None
+
+
+def telephony_addon_inr_per_min(addon: str) -> Decimal:
+    """The published per-minute rate of one carrier add-on. A REFERENCE, never a charge."""
+    try:
+        return TELEPHONY_ADDON_INR_PER_MIN[addon]
+    except KeyError:
+        raise ValueError(
+            f"{addon!r} is not on the telephony add-on card; it lists "
+            f"{sorted(TELEPHONY_ADDON_INR_PER_MIN)}"
+        ) from None
+
+
+def telephony_addons_inr_per_min() -> Decimal:
+    """What the add-ons this product has enabled cost per minute. ₹0 while none are.
+
+    Exact and unquantized: `telephony_cost_inr` sums the legs and quantizes once.
+    """
+    return sum(
+        (telephony_addon_inr_per_min(addon) for addon in sorted(TELEPHONY_ADDONS_ENABLED)),
+        Decimal("0"),
+    )
+
+
+def telephony_billed_seconds(duration_s: int) -> Decimal:
+    """`duration_s` rounded UP to whole pulses — what the carrier actually bills.
+
+    `ceil(duration / pulse) * pulse` in Decimal with the mode stated, never on the ambient
+    context (`ROUNDING`'s argument, one function over).
+
+    ZERO SECONDS BILLS ZERO PULSES, and the vendor's minimum for an unanswered or
+    zero-duration call is **UNKNOWN** — no read page states one, so none is imputed. The
+    consequence is stated rather than hidden: if the carrier charges a minimum for a call
+    that never connected, this is a FLOOR on the real cost and the model can only
+    under-state, never over-state, what we pay.
+    """
+    if duration_s < 0:
+        raise ValueError("call duration cannot be negative")
+    pulses = (Decimal(duration_s) / TELEPHONY_PULSE_SECONDS).to_integral_value(
+        rounding=ROUND_CEILING
+    )
+    return pulses * TELEPHONY_PULSE_SECONDS
+
+
+def _telephony_cost_inr_exact(
+    duration_s: int, *, leg: TelephonyLeg, direction: TelephonyDirection
+) -> Decimal:
+    """The pulse-rounded carrier cost of one call, before any quantization.
+
+    The exact door beside a display door, the split `CartesiaPlan.exact_tts_inr_per_call_
+    minute` argues for: a per-minute view divides this figure again, and quantizing before
+    that division would be a rounding nobody asked for.
+    """
+    per_minute = (
+        telephony_rate_inr_per_min(leg=leg, direction=direction)
+        + TELEPHONY_AUDIO_STREAMING_INR_PER_MIN
+        + telephony_addons_inr_per_min()
+    )
+    return per_minute / _SECONDS_PER_MINUTE * telephony_billed_seconds(duration_s)
+
+
+def telephony_cost_inr(
+    duration_s: int, *, leg: TelephonyLeg, direction: TelephonyDirection
+) -> Decimal:
+    """What one call of `duration_s` seconds costs on the carrier leg. **A MODEL FIGURE.**
+
+    THE HONEST PRIMITIVE OF THIS LEG, and the reason there is no bare per-minute constant
+    exposed beside the card: a carrier minute has no single price until a call length is
+    named, because the pulse rounds every call up to the next 30 seconds. A 10-second call
+    costs a 30-second call's money.
+
+    Seconds in, for `stt_rate_inr_per_second`'s reason: `duration_s` is the unit a call's
+    length exists in everywhere in this tree, and a per-minute signature would push a lossy
+    `duration_s / 60` onto every caller.
+    """
+    return _telephony_cost_inr_exact(duration_s, leg=leg, direction=direction).quantize(
+        MONEY_Q, rounding=ROUNDING
+    )
+
+
+def telephony_inr_per_call_minute(
+    duration_s: int, *, leg: TelephonyLeg, direction: TelephonyDirection
+) -> Decimal:
+    """The carrier leg as ₹ per call-minute — **FOR A CALL OF THIS LENGTH AND NO OTHER.**
+
+    It takes the duration rather than assuming one because the pulse makes the per-minute
+    figure a function of call length: a 31-second domestic call is billed a full minute and
+    runs at ₹0.7355 a call-minute, where a 10-minute one runs at the card's ₹0.38. A
+    constant here would be one of those numbers wearing the name of both.
+
+    Refuses a non-positive duration rather than returning zero or the bare rate: a call
+    with no seconds has a true COST (`telephony_cost_inr` answers it) and no true cost PER
+    MINUTE, which is the asymmetry `CartesiaPlan.tts_inr_per_call_minute` refuses on.
+    """
+    if duration_s <= 0:
+        raise ValueError(
+            "a per-call-minute telephony cost needs a positive call duration; a call with "
+            "no seconds has a cost but no cost per minute"
+        )
+    exact = _telephony_cost_inr_exact(duration_s, leg=leg, direction=direction)
+    return (exact * _SECONDS_PER_MINUTE / Decimal(duration_s)).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def telephony_number_rental_inr_per_min(call_minutes_per_month: Decimal) -> Decimal:
+    """₹200/month spread over the minutes that number actually carried.
+
+    TAKES THE VOLUME AND HAS NO DEFAULT, for `cartesia_cost_inr_per_call_minute`'s reason:
+    a fixed monthly fee has no per-minute price until a volume is named, and inventing one
+    would put an unmeasured utilisation assumption inside a cost figure.
+
+    A month with no minutes RAISES. Neither alternative is sayable: infinity is not a
+    rupee, and zero reads as a free number on a screen an operator would act on.
+    """
+    if call_minutes_per_month <= 0:
+        raise ValueError(
+            "a number rental has no cost per minute in a month with no minutes; the fee "
+            "is TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH and it is owed either way"
+        )
+    return (TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH / call_minutes_per_month).quantize(
+        MONEY_Q, rounding=ROUNDING
+    )
+
+
 # --- THE TWO COST FLOORS, one per voice tier (D-547) ------------------------------------
 #
 # Each floor is the WORST-CASE cost of one call-minute on that voice, SUMMED FROM THE
@@ -1200,7 +1469,9 @@ def stt_cost_inr(duration_s: int) -> Decimal:
 # on their own carrier account (Exotel/Plivo/Vobiz), is the subscriber of record and is
 # billed the per-minute carrier rate by that carrier — Calevate supplies, rents and bills
 # no number. Plivo's ₹0.38/min is therefore the CLIENT's cost and folding it in here would
-# defend our margin with a rupee we never pay.
+# defend our margin with a rupee we never pay. Under the third arrangement (the number sold
+# through the platform) that minute IS ours: it is costed by `telephony_cost_inr` above and
+# summed in by the caller, never added to a floor these cards are struck against.
 #
 # THE LEGS, with the evidence class of each (hard rule 11):
 #
@@ -2781,6 +3052,13 @@ __all__ = [
     "SARVAM_PRICED_LLM",
     "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "STT_INR_PER_HOUR",
+    "TELEPHONY_ADDONS_ENABLED",
+    "TELEPHONY_ADDON_INR_PER_MIN",
+    "TELEPHONY_ASR_INR_PER_15_SECONDS",
+    "TELEPHONY_AUDIO_STREAMING_INR_PER_MIN",
+    "TELEPHONY_INR_PER_MIN",
+    "TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH",
+    "TELEPHONY_PULSE_SECONDS",
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
     "TTS_RATE_REFUSAL",
@@ -2794,6 +3072,8 @@ __all__ = [
     "LlmPriceAttestationReader",
     "RateMargin",
     "SpeakingRateBasis",
+    "TelephonyDirection",
+    "TelephonyLeg",
     "UnattestedTtsRateError",
     "VoiceTier",
     "assert_rate_is_meterable",
@@ -2834,6 +3114,13 @@ __all__ = [
     "stt_rate_inr_per_minute",
     "stt_rate_inr_per_second",
     "surchargeable_models_are_dearer",
+    "telephony_addon_inr_per_min",
+    "telephony_addons_inr_per_min",
+    "telephony_billed_seconds",
+    "telephony_cost_inr",
+    "telephony_inr_per_call_minute",
+    "telephony_number_rental_inr_per_min",
+    "telephony_rate_inr_per_min",
     "tts_inr_per_call_minute",
     "tts_rate_inr_per_char",
     "usd_mtok_to_inr_ktok_exact",
