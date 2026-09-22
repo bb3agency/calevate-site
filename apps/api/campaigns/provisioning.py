@@ -43,7 +43,7 @@ summaries — REPORTED, not primary, and not usable for a compliance conclusion 
 rule 11. What is therefore NOT established here: whether a DID bought through a licensed
 operator's reseller and assigned to a client is an assignment requiring a UL(VNO)
 authorisation; whether the 2020 repeal of OSP registration leaves any obligation that
-attaches to us; and what "shall not provide switched telephony" reaches. Gate 45 puts all
+attaches to us; and what "shall not provide switched telephony" reaches. Gate 47 puts all
 three to the advocate, in those words. None of them is answered by this file.
 
 WHAT THE CLIENT-REALM ROUTES DO TODAY: REFUSE

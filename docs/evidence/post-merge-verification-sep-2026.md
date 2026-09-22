@@ -540,7 +540,7 @@ Listed so nobody mistakes silence for a pass.
    `www.bolna.ai` is 403 on CONNECT; the hash-pinned mirror is what every vendor claim in
    this tree cites instead.
 4. **The Indian regulatory position on reselling a DID.** `www.dot.gov.in` is
-   egress-blocked; `campaigns/provisioning.py` states this as an UNKNOWN and gate 45 puts it
+   egress-blocked; `campaigns/provisioning.py` states this as an UNKNOWN and gate 47 puts it
    to the advocate.
 
 ---
