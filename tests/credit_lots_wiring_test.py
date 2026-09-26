@@ -381,6 +381,15 @@ async def test_a_purchase_naming_a_pack_takes_that_packs_rates() -> None:
     assert (await _card()).for_purchase(pack_id="max", amount_inr=Decimal("50000")) == _rates("max")
 
 
+async def test_a_purchase_naming_a_pack_it_did_not_pay_for_falls_to_the_amount() -> None:
+    """The id is a claim and the amount is the fact: underpaying the `max` pack buys what
+    was paid, and so does overpaying it."""
+    card = await _card()
+    assert card.for_purchase(pack_id="max", amount_inr=Decimal("100")) == card.list_rates()
+    assert card.for_purchase(pack_id="max", amount_inr=Decimal("6000")) == _rates("growth")
+    assert card.for_purchase(pack_id="growth", amount_inr=Decimal("50000")) == _rates("max")
+
+
 async def test_a_purchase_naming_a_pack_this_build_no_longer_offers_falls_to_the_amount() -> None:
     """The money arrived either way, so an unknown pack id is not a failure — it is a
     purchase whose rates come from what was paid (`credit_captured_payment` takes the

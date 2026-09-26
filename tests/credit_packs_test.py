@@ -38,6 +38,7 @@ from apps.api.billing.credit_packs import (
     card_margins,
     card_refusals,
     pack_by_id,
+    pack_paid_for,
     pack_rate_margin,
     pack_talk_time_minutes,
 )
@@ -255,6 +256,18 @@ def test_pack_ids_are_unique_and_resolvable() -> None:
     assert pack_by_id("no-such-pack") is None
 
 
+def test_a_pack_is_bought_only_by_paying_its_price() -> None:
+    """The pack id rides in provider notes a browser can author; the amount is what the
+    provider actually captured. Only the pair together is a pack purchase."""
+    for pack in PACK_CATALOGUE:
+        assert pack_paid_for(pack.pack_id, pack.amount_inr) is pack
+        assert pack_paid_for(pack.pack_id, Decimal(f"{pack.amount_inr}.00")) is pack
+        assert pack_paid_for(pack.pack_id, pack.amount_inr - Decimal("0.01")) is None
+        assert pack_paid_for(pack.pack_id, pack.amount_inr + Decimal("1")) is None
+    assert pack_paid_for(None, Decimal("2000")) is None
+    assert pack_paid_for("no-such-pack", Decimal("2000")) is None
+
+
 def test_a_pack_prices_by_voice_and_refuses_a_tier_it_does_not_carry() -> None:
     """`inr_per_min` is total over the two tiers and RAISES otherwise. A lookup that fell
     back to the cheaper column would undercharge a Cartesia minute silently."""
@@ -294,7 +307,7 @@ def test_no_pack_carries_a_bonus_any_more() -> None:
 # --- the RETIRED bonus grant (DB) ---------------------------------------------
 #
 # No catalogue pack carries a bonus since D-547, so every test below that needs one drives
-# `payments.pack_by_id` through `_legacy_bonus_pack` — a synthetic pack with the ₹5,000
+# `payments.pack_paid_for` through `_legacy_bonus_pack` — a synthetic pack with the ₹5,000
 # rung's old 3%. The machinery is still in `billing/payments.py` and is retired in Phase B
 # (plan §10's two-step), so it is still covered here rather than left to rot untested; what
 # it must never do again is fire for a REAL pack, which `test_no_catalogue_pack_grants_a_
@@ -316,13 +329,18 @@ def _legacy_bonus_pack(pack_id: str, amount: str, bonus_pct: str) -> CreditPack:
 def legacy_bonus(monkeypatch: pytest.MonkeyPatch) -> CreditPack:
     """Make `growth` a 3%-bonus pack again, for the crediting path only.
 
-    `payments.py` imports `pack_by_id` by name, so the patch is on the payments module's own
-    binding — the catalogue itself is untouched and every other assertion in this file still
-    reads the real card.
+    `payments.py` imports `pack_paid_for` by name, so the patch is on the payments module's
+    own binding — the catalogue itself is untouched and every other assertion in this file
+    still reads the real card. The stand-in keeps the price check, so a test that pays the
+    wrong amount still gets no pack.
     """
     pack = _legacy_bonus_pack("growth", "5000", "3")
     monkeypatch.setattr(
-        payments, "pack_by_id", lambda pack_id: pack if pack_id == pack.pack_id else None
+        payments,
+        "pack_paid_for",
+        lambda pack_id, amount_inr: (
+            pack if pack_id == pack.pack_id and amount_inr == pack.amount_inr else None
+        ),
     )
     return pack
 

@@ -52,7 +52,7 @@ from apps.api.billing.caps import (
     EFFECTIVE_CAP_SPEND_SQL,
     read_spend_counters,
 )
-from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
+from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_paid_for
 from apps.api.billing.list_rates import card_at, self_serve_rate_at
 from apps.api.billing.models import (
     AI_ASSIST_UNIT_TYPES,
@@ -1116,9 +1116,10 @@ class RateCard:
 
         A pack id this build no longer offers falls to the amount rule rather than failing
         — the same reading `credit_captured_payment` already takes of an unknown pack, and
-        the money has arrived either way.
+        the money has arrived either way. So does a pack id whose price was not the amount
+        paid (`credit_packs.pack_paid_for`): the id is a claim, the amount is the fact.
         """
-        pack = pack_by_id(pack_id) if pack_id is not None else None
+        pack = pack_paid_for(pack_id, amount_inr)
         if pack is None:
             return self.for_amount(amount_inr)
         return self.of_pack(pack)

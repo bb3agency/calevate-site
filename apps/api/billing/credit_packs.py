@@ -262,6 +262,23 @@ def pack_by_id(pack_id: str) -> CreditPack | None:
     return _BY_ID.get(pack_id)
 
 
+def pack_paid_for(pack_id: str | None, amount_inr: Decimal) -> CreditPack | None:
+    """The pack a payment of `amount_inr` actually bought, or None.
+
+    A pack's rates and bonus are the price of paying the PACK's amount, so a payment is
+    honoured as a pack only when it paid exactly that. The id alone is not evidence: it
+    arrives in the provider's `notes`, which the browser authors whenever no server-side
+    order exists (`create_topup_intent` hands the notes to the checkout), so without this
+    check ₹100 carrying the ₹50,000 pack's id opened a lot at that pack's minute rate.
+    Anything else is a free amount and is priced by what was paid
+    (`service.RateCard.for_amount`), which can never beat the pack the client did not buy.
+    """
+    pack = pack_by_id(pack_id) if pack_id is not None else None
+    if pack is None or pack.amount_inr != amount_inr:
+        return None
+    return pack
+
+
 def pack_talk_time_minutes(pack: CreditPack, *, voice: VoiceTier) -> Decimal:
     """How many minutes of calling this pack's credits buy on one voice, EXACT.
 
@@ -355,6 +372,7 @@ __all__ = [
     "card_margins",
     "card_refusals",
     "pack_by_id",
+    "pack_paid_for",
     "pack_rate_margin",
     "pack_talk_time_minutes",
 ]
