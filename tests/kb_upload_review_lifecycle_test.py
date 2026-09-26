@@ -112,7 +112,10 @@ async def test_a_redrive_of_an_upload_awaiting_review_does_not_read_it_again(
     real_extract = kb_ingest._extract
 
     async def _counting(*args: Any, **kwargs: Any) -> Any:
-        reads.append(kwargs.get("upload_id"))
+        # The sweep walks every tenant's stalled uploads, so count only this tenant's: an
+        # upload another test left stalled is read legitimately and is not this defect.
+        if str(kwargs.get("tenant_id")) == str(tenant_id):
+            reads.append(kwargs.get("upload_id"))
         return await real_extract(*args, **kwargs)
 
     monkeypatch.setattr(kb_ingest, "_extract", _counting)
