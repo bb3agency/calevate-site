@@ -37,7 +37,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.callbacks import service as callbacks
-from apps.api.compliance.service import PERSON_LEVEL_REFUSALS, check_dispatch
+from apps.api.compliance.service import (
+    PERSON_LEVEL_REFUSALS,
+    call_consent_lapses_by,
+    check_dispatch,
+)
 from apps.api.core.alerting import alert, record_compliance_block
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -166,12 +170,37 @@ async def book_requested_callback(ctx: dict[str, Any], payload: dict[str, Any]) 
             note=payload.get("note") or None,
             language=payload.get("language") or None,
         )
+        # The caller heard "booked" from voice-runtime before this job ran, and that path
+        # reads no database, so a promise the gate would refuse as `consent_expired` is
+        # settled in the same transaction that wrote it: the client sees it today, while
+        # there is still time to ring the person themselves.
+        refused = False
+        if booked is not None and (
+            await call_consent_lapses_by(
+                session, tenant_id=tenant_id, phone_e164=phone, at=requested_at
+            )
+            is not None
+        ):
+            await callbacks.settle(
+                session,
+                booked[0],
+                status="refused",
+                rule=callbacks.CONSENT_LAPSES_FIRST_RULE,
+                reason=callbacks.CONSENT_LAPSES_FIRST_REASON,
+            )
+            refused = True
     if booked is None:
         # Either a later booking from the same conversation is already on file, or the row
         # has been claimed/cancelled/settled since. Both are correct outcomes and neither
         # is an error — see `callbacks.service.book`.
         log.info("callback_booking_superseded", extra={"tenant_id": str(tenant_id)})
         return "superseded"
+    if refused:
+        log.info(
+            "callback_refused_consent_lapses_first",
+            extra={"tenant_id": str(tenant_id), "callback_id": str(booked[0])},
+        )
+        return "refused_consent_lapses_first"
     # Ids and an instant only — never the number (hard rule 6).
     log.info(
         "callback_booked",

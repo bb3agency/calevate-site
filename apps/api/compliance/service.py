@@ -65,12 +65,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
 from calevate_shared.calling_window import IST as _IST
-from sqlalchemy import text
+from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.reconciliation import (
@@ -801,6 +801,42 @@ async def truthful_answer_drift_blocker(
     return (TRUTHFUL_ANSWER_DRIFT_RULE, TRUTHFUL_ANSWER_DRIFT_REASON)
 
 
+async def _latest_call_consent(
+    session: AsyncSession, *, tenant_id: UUID, phone_e164: str
+) -> Row[Any] | None:
+    """`(status, expires_at)` of this person's newest call consent, or None when none is on
+    file. The one read the dial gate and a booking both answer from."""
+    return (
+        await session.execute(
+            text(
+                "SELECT status, expires_at FROM consent_ledger "
+                "WHERE tenant_id = :tid AND phone_e164 = :phone AND purpose = 'callback' "
+                "ORDER BY captured_at DESC, id DESC LIMIT 1"
+            ),
+            {"phone": phone_e164, "tid": tenant_id},
+        )
+    ).first()
+
+
+async def call_consent_lapses_by(
+    session: AsyncSession, *, tenant_id: UUID, phone_e164: str, at: datetime
+) -> datetime | None:
+    """When this person's permission to be called ends, if that is at or before `at`.
+
+    A call-back promised for a time the gate will refuse as `consent_expired` is worse than
+    none: the caller was told we would ring. Only an expiry the record itself set counts —
+    a lead form's inquiry window, today. No row, no expiry, or a status the gate already
+    refuses outright answers None, because a booking can neither shorten nor fix those.
+    """
+    consent = await _latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
+    if consent is None or consent[1] is None:
+        return None
+    if str(consent[0]) in DIAL_REFUSING_CONSENT_STATUSES:
+        return None
+    expires_at: datetime = consent[1]
+    return expires_at if expires_at <= at else None
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -1028,16 +1064,7 @@ async def check_dispatch(
     # person, which is what a lead-ad opt-in question does or does not grant. The
     # `messaging` purpose has its own gate on the WhatsApp path and must not be conflated
     # — a person may accept a call and refuse a message, and both answers are theirs.
-    consent = (
-        await session.execute(
-            text(
-                "SELECT status, expires_at FROM consent_ledger "
-                "WHERE tenant_id = :tid AND phone_e164 = :phone AND purpose = 'callback' "
-                "ORDER BY captured_at DESC, id DESC LIMIT 1"
-            ),
-            {"phone": phone_e164, "tid": tenant_id},
-        )
-    ).first()
+    consent = await _latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
     # ⚠ **AND ON A SERVICE/TRANSACTIONAL ACCOUNT, ABSENCE *IS* A REFUSAL — D-624.** The
     # asymmetry above is not weakened; it is made per-account, because what stood behind it
     # was removed for some accounts and not others.
@@ -1291,6 +1318,7 @@ __all__ = [
     "account_stopped_blocker",
     "add_to_dnc",
     "assert_dispatch_allowed",
+    "call_consent_lapses_by",
     "carrier_application_blocker",
     "check_dispatch",
     "credits_exhausted",

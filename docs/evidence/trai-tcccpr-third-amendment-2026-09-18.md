@@ -53,7 +53,15 @@ known.
    callback, recall, "call now" — because they all pass through `check_dispatch`. It does
    NOT extend to a caller's in-call request (`inbound_call_verbal`) or a staff-recorded
    request: those are not written or digital inquiries in the sense the note uses, and
-   customer-requested callbacks are the open question in §2.
+   customer-requested callbacks are the open question in §2. What that leaves is a
+   call-back a form lead books IN a call for a time after their window closes: the gate
+   would refuse it on the day, after the caller was told "booked". So a booking whose time
+   falls after the person's permission ends is refused as `consent_expires_first`
+   (`compliance.service.call_consent_lapses_by`): in the call on the Pipecat leg, with the
+   last day we may still ring offered instead, and at the moment the booking is written on
+   the Bolna leg, whose tool answer comes from voice-runtime and reads no database. A
+   booking does not itself record consent; whether a caller's own request should is the
+   same open §2 question, and it is the founder's to answer.
 2. **The complaint-spike pause** is tightened to the new trigger's shape: three opt-outs
    within ten days. Opt-outs are our early signal, not the operator's complaint count and
    not its AI flag, which we cannot see; the point is to pause before the operator acts.

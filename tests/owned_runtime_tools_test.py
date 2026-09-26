@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from apps.api.compliance.models import INQUIRY_CONSENT_WINDOW_DAYS
 from apps.api.db.session import tenant_session
 from apps.api.main import app as api_app
 from calevate_shared.calling_window import IST
@@ -339,6 +340,63 @@ async def test_a_callback_is_not_booked_until_it_has_been_read_back(worker_token
             )
         ).first()
     assert row is not None and row[0] == CALLER
+
+
+async def _form_inquiry(tenant_id: uuid.UUID, phone: str) -> None:
+    """The lead-form consent the inquiry window applies to, written by the real writer."""
+    from apps.api.ingest.service import _record_dial_consent_granted
+
+    async with tenant_session(tenant_id) as session:
+        await _record_dial_consent_granted(
+            session,
+            tenant_id=tenant_id,
+            phone_e164=phone,
+            consent_field="call_me",
+            source="website",
+        )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_callback_after_the_callers_permission_ends_is_refused_in_the_call(
+    worker_token: None,
+) -> None:
+    """A form inquiry authorises calls for seven days. A call-back booked for day nine would
+    be refused by the gate as `consent_expired` after the caller was told "booked", so it is
+    refused now, while the agent can still offer an earlier time."""
+    tenant_id, _agent_id, _call_id, ref = await a_call_in_progress()
+    await _form_inquiry(tenant_id, CALLER)
+    date, clock = lawful_slot(days_ahead=INQUIRY_CONSENT_WINDOW_DAYS + 2)
+
+    async with tool_client() as api:
+        answer = await api.book_callback(
+            ref, CallbackBookIn(callback_date=date, callback_time=clock, confirmed=True)
+        )
+
+    assert answer.status == "not_booked"
+    assert answer.reason == "consent_expires_first"
+    assert "only call this person until" in answer.say
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await session.execute(
+                text("SELECT count(*) FROM scheduled_callbacks WHERE tenant_id = :t"),
+                {"t": tenant_id},
+            )
+        ).scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_a_callback_inside_the_callers_permission_is_booked(worker_token: None) -> None:
+    tenant_id, _agent_id, _call_id, ref = await a_call_in_progress()
+    await _form_inquiry(tenant_id, CALLER)
+    date, clock = lawful_slot(days_ahead=2)
+
+    async with tool_client() as api:
+        answer = await api.book_callback(
+            ref, CallbackBookIn(callback_date=date, callback_time=clock, confirmed=True)
+        )
+
+    assert answer.status == "booked"
 
 
 @pytest.mark.asyncio

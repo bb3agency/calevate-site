@@ -88,6 +88,7 @@ from apps.api.agents.transfer_providers import (
 )
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.optout import DETECTED_IN_CALL, record_call_optout
+from apps.api.compliance.service import call_consent_lapses_by
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -332,6 +333,15 @@ async def book_callback(engine_call_id: str, request: CallbackBookIn) -> Callbac
                 extra={"tenant_id": str(tenant_id), "call_id": str(call.id), "ground": ground},
             )
             return CallbackToolOut(status="not_booked", reason=ground, say=_CALLBACK_NO_NUMBER_SAY)
+        lapse = await call_consent_lapses_by(
+            session, tenant_id=tenant_id, phone_e164=phone, at=slot.at_utc
+        )
+        if lapse is not None:
+            return CallbackToolOut(
+                status="not_booked",
+                reason=callbacks.CONSENT_LAPSES_FIRST_RULE,
+                say=callbacks.consent_lapse_say(lapse),
+            )
         booked = await callbacks.book(
             session,
             callback_id=uuid7(),
