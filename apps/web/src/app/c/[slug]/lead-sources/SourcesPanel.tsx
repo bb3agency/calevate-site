@@ -144,17 +144,19 @@ export function SourcesPanel({
               item={item}
               canWrite={canWrite}
               busy={rotate.isPending || setActive.isPending}
-              onRotate={(graceMinutes, secret) =>
+              onRotate={(graceMinutes, secret, issued) =>
                 rotate.mutate(
                   { webhookId: item.id, graceMinutes, appSecret: secret },
                   {
-                    onSuccess: (result) =>
+                    onSuccess: (result) => {
                       setIssued({
                         secret: result.secret,
                         header: result.secret_header,
                         path: null,
                         expiresAt: result.previous_secret_expires_at,
-                      }),
+                      });
+                      issued();
+                    },
                   },
                 )
               }

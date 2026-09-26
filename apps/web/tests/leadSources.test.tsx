@@ -874,6 +874,46 @@ describe("provisioning a lead source", () => {
     expect(container.textContent).not.toContain("stopped working immediately");
   });
 
+  it("keeps the rotation form and the pasted App Secret when the rotation is refused", async () => {
+    // The form used to close and clear itself the moment it was submitted, so a refused
+    // rotation left the refusal on screen and the secret the client had just copied out
+    // of Meta gone — they had to reopen the form and fetch it again.
+    await renderPage({
+      [`POST /v1/lead-sources/${SOURCE_ID}/rotate-secret`]: problem(422, {
+        title: "Secret not accepted",
+        detail: "That App Secret did not verify against Meta.",
+      }),
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "New secret" })[0]);
+    fireEvent.change(screen.getByLabelText("New Meta App Secret"), {
+      target: { value: "meta-app-secret-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Issue new secret" }));
+
+    expect(await screen.findByText("That App Secret did not verify against Meta.")).toBeTruthy();
+    expect((screen.getByLabelText("New Meta App Secret") as HTMLInputElement).value).toBe(
+      "meta-app-secret-123",
+    );
+  });
+
+  it("closes the rotation form once the new secret is issued", async () => {
+    await renderPage({
+      [`POST /v1/lead-sources/${SOURCE_ID}/rotate-secret`]: {
+        secret: "new-secret-abcdefghijklmnop",
+        secret_header: "X-Ingest-Secret",
+        previous_secret_expires_at: "2026-08-14T05:30:00Z",
+      },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "New secret" })[0]);
+    fireEvent.change(screen.getByLabelText("New Meta App Secret"), {
+      target: { value: "meta-app-secret-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Issue new secret" }));
+
+    expect(await screen.findByText(/Copy this secret now/)).toBeTruthy();
+    expect(screen.queryByLabelText("New Meta App Secret")).toBeNull();
+  });
+
   it("offers the immediate revocation named for what it costs", async () => {
     // A "0 minutes" option reads as tidiest and drops every lead submitted while the
     // client updates their form. The label has to say what it is for.
