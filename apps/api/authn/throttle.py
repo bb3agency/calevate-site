@@ -151,7 +151,7 @@ def _refused(budget: Budget, retry_after_s: int) -> ProblemError:
     """The refusal, which deliberately does NOT say whether the account exists.
 
     Reached only for a subject that resolved, so on its face it is already an existence
-    signal — which is why `service.py` never calls `check` before it has decided to spend
+    signal — which is why `service.py` never calls `reserve` before it has decided to spend
     an attempt, and why the unknown-subject path in `service.py` consumes a budget against
     a STABLE PSEUDO-SUBJECT derived from the identifier instead. Both paths therefore
     produce this same 429 at the same threshold, and the difference is unobservable.
@@ -167,71 +167,73 @@ def _refused(budget: Budget, retry_after_s: int) -> ProblemError:
     )
 
 
-async def check(budget: Budget, *, realm: str, subject_id: UUID) -> None:
-    """Refuse if this account's budget for this secret is already spent.
+#: Refuse when the budget is spent, otherwise count this attempt — in ONE server-side step.
+#:
+#: The alternative is a read (`GET`) before the verification and an `INCR` after it, which is
+#: what this module did: every request in flight at the same moment reads the same count and
+#: passes, so a burst of N concurrent guesses had all N verified against a budget of ten. The
+#: distributed attacker the per-account budget exists for is exactly the caller who sends
+#: them concurrently. Doing the comparison and the increment inside one script makes the
+#: budget a reservation rather than a report, and it keeps the property the read-first shape
+#: had: a REFUSED attempt is not counted, so a person who waits out a refusal is not pushed
+#: further out by having asked.
+#:
+#: The TTL is set when the key is created and never refreshed (see `reserve`).
+_RESERVE_LUA: Final = """
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+if current >= tonumber(ARGV[1]) then
+  return {0, redis.call('TTL', KEYS[1])}
+end
+local count = redis.call('INCR', KEYS[1])
+if redis.call('TTL', KEYS[1]) < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return {1, count}
+"""
+
+
+async def reserve(budget: Budget, *, realm: str, subject_id: UUID) -> int:
+    """Spend one attempt from this account's budget, or refuse if it is already spent.
 
     Called BEFORE the expensive verification, so a spent budget does not also buy the
-    attacker 30ms of Argon2 on our CPU. Reading does not count as an attempt — only
-    `record_failure` counts — so a person who is refused and waits is not pushed further
-    out by having asked.
+    attacker 30ms of Argon2 on our CPU. Returns the count including this attempt, which is
+    what `penalty_delay_s` prices if the attempt then fails; a success calls `clear`, which
+    is what makes the threshold count CONSECUTIVE failures.
+
+    The TTL is set once, when the counter is created, and not refreshed on later attempts:
+    refreshing it would let a slow attacker hold an account locked indefinitely by failing
+    once every fourteen minutes, which is the DoS this whole design is avoiding. It is set
+    inside the same script as the `INCR`, so no process death between the two can leave an
+    immortal counter — an account locked out forever.
     """
+    key = _key(budget, realm, subject_id)
     try:
-        redis = get_redis()
-        raw = await redis.get(_key(budget, realm, subject_id))
-        if raw is None:
-            return
-        ttl = await redis.ttl(_key(budget, realm, subject_id))
+        admitted, value = await get_redis().eval(  # type: ignore[misc]
+            _RESERVE_LUA, 1, key, str(budget.threshold), str(budget.window_s)
+        )
     except Exception:
         # FAIL CLOSED. See the module docstring: with no counter, nothing bounds guessing,
         # and an authentication endpoint that is down beats one that is open.
         log.warning("authn_throttle_unavailable", extra={"budget": budget.name})
         raise _refused(budget, budget.window_s) from None
-    if int(raw) < budget.threshold:
-        return
+    if int(admitted):
+        count = int(value)
+        log.info(
+            "authn_attempt_reserved",
+            extra={
+                "budget": budget.name,
+                "realm": realm,
+                "subject_id": str(subject_id),
+                "count": count,
+            },
+        )
+        return count
     log.warning(
         "authn_throttled",
         extra={"budget": budget.name, "realm": realm, "subject_id": str(subject_id)},
     )
-    raise _refused(budget, max(1, ttl) if ttl and ttl > 0 else budget.window_s)
-
-
-async def record_failure(budget: Budget, *, realm: str, subject_id: UUID) -> int:
-    """Count one failure. Returns the new count (0 if the counter is unreachable).
-
-    `EXPIRE ... NX` in the same round trip as the `INCR`, the shape
-    `ratelimit.consume` settled on: setting the TTL in a second call leaves an immortal
-    counter if the process dies between them, and an immortal counter here is an account
-    that is locked out forever.
-
-    The window is a SLIDING one only in the sense that the TTL is not refreshed on each
-    failure — it is set once, when the counter is created. That is deliberate: refreshing
-    it would let a slow attacker hold an account locked indefinitely by failing once every
-    fourteen minutes, which is the DoS this whole design is avoiding.
-    """
-    key = _key(budget, realm, subject_id)
-    try:
-        redis = get_redis()
-        pipe = redis.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, budget.window_s, nx=True)
-        count = int((await pipe.execute())[0])
-    except Exception:
-        # A failure we could not count. Logged, not raised: the caller is already on its
-        # way to refusing this attempt, and turning a wrong password into a 503 would be
-        # a worse answer than a wrong password. The `check` above is where the fail-closed
-        # decision belongs, because that is the call that can still prevent the guess.
-        log.warning("authn_throttle_uncounted", extra={"budget": budget.name})
-        return 0
-    log.info(
-        "authn_attempt_failed",
-        extra={
-            "budget": budget.name,
-            "realm": realm,
-            "subject_id": str(subject_id),
-            "count": count,
-        },
-    )
-    return count
+    ttl = int(value)
+    raise _refused(budget, ttl if ttl > 0 else budget.window_s)
 
 
 async def clear(budget: Budget, *, realm: str, subject_id: UUID) -> None:
@@ -295,9 +297,8 @@ __all__ = [
     "PASSWORD_BUDGET",
     "RESET_BUDGET",
     "Budget",
-    "check",
     "clear",
     "penalty_delay_s",
     "pseudo_subject",
-    "record_failure",
+    "reserve",
 ]
