@@ -1207,8 +1207,9 @@ FLOWS §6.
 
 ## 9. Metering & Billing
 
-Append-only `usage_events` (tenant_id, call_id, unit_type[telephony_s|stt_s|tts_chars|
-llm_tok_in|llm_tok_out|platform_min], qty, unit_cost_paid, occurred_at) — records OUR cost
+Append-only `usage_events` (tenant_id, call_id, unit_type[telephony_s|stt_min|tts_chars|
+llm_tok_in|llm_tok_out|platform_min|…; the full list is `billing/models.UNIT_TYPES`], qty,
+unit_cost_paid, occurred_at) — records OUR cost
 next to billable qty; per-client margin is a query, and phase-2/3 build-vs-rent decisions
 use months of real data. Plans are config rows {setup_fee, monthly_fee, included_min,
 overage_rate, hard_cap_min, hard_cap_spend}; invoices derive from ledger + plan. Prepaid

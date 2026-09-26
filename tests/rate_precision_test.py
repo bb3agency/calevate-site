@@ -70,6 +70,8 @@ UNIT_RATE_SHAPE: dict[str, str] = {
     # (`voice_worker/meter.py::_runtime_row`), which is supplied by a human reading an
     # invoice and is not a card this process can enumerate.
     "platform_min": "derived",
+    # Retired for new rows (D-638); rows already written keep it. It was STRUCK on the owned
+    # runtime at the per-second card rate, which is exactly the loss `stt_min` removes.
     "stt_s": "derived",
     # qty = 1, priced at the whole leg the engine reported.
     "tts_chars": "derived",
@@ -79,8 +81,10 @@ UNIT_RATE_SHAPE: dict[str, str] = {
     "other": "derived",
     # one month's rental converted at the fx rate of the day (billing/number_rental.py).
     "number_rental": "derived",
-    # THE STRUCK ONES — all four are `k`-prefixed, which is not a coincidence but the
-    # answer this repository already gave to this file's question.
+    # THE STRUCK ONES — each quoted in a unit scaled until its rate fits the column, which
+    # is the answer this repository already gave to this file's question.
+    # the engine's STT leg / minutes, OR the Saaras card per minute on the owned runtime.
+    "stt_min": "struck",
     "tts_kchars": "struck",
     "llm_ktok_in": "struck",
     "llm_ktok_out": "struck",
@@ -210,3 +214,17 @@ def test_the_attestation_seam_refuses_an_unmeterable_rate_in_operator_language()
         )
     assert refused.value.code == "attested_price_not_meterable"
     assert "unit_cost_paid" in refused.value.detail
+
+
+def test_the_stt_card_rate_is_exact_in_the_unit_the_ledger_stores() -> None:
+    """D-638. The Saaras card per MINUTE lands in `unit_cost_paid` with zero error; per
+    SECOND it would lose 0.4% — inside the 1% tripwire above, which is why the tripwire
+    never caught it and this asserts exactness instead."""
+    from apps.api.billing.rates import STT_INR_PER_HOUR, stt_rate_inr_per_minute
+
+    per_minute = stt_rate_inr_per_minute()
+    assert ledger_rate_error(per_minute) == 0
+    assert per_minute.quantize(MONEY_Q, rounding=ROUNDING) * 60 == STT_INR_PER_HOUR
+
+    per_second = STT_INR_PER_HOUR / 3600
+    assert ledger_rate_error(per_second) > Decimal("0.003")

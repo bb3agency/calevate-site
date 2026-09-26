@@ -634,7 +634,7 @@ async def _seed_calls(*, tenant_id: UUID, agent_id: UUID, owner_user_id: UUID) -
             usage: tuple[tuple[str, Decimal, Decimal], ...] = (
                 ("telephony_s", duration, Decimal("0.0100")),
                 ("platform_min", minutes, Decimal("0.4000")),
-                ("stt_s", duration, Decimal("0.0040")),
+                ("stt_min", minutes, Decimal("0.2400")),
                 ("tts_chars", Decimal(1), Decimal("0.6000")),
             )
             for unit_type, qty, unit_cost in usage:

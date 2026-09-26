@@ -204,8 +204,11 @@ async def test_tier_metering_does_not_change_what_the_call_cost() -> None:
                 {"t": tenant_id, "c": call_id},
             )
         ).scalar()
-    # 120s telephony + 2 platform-min + 120s stt + one tts leg + one llm leg.
-    assert Decimal(str(total)) == Decimal("6.8000")
+    # 2 platform-min (₹3.00) + 2 stt-min (₹1.00, exact per minute since D-638) + one tts leg
+    # (₹2.00) + one llm leg (₹0) + 120 s telephony. The telephony leg is still priced per
+    # second: ₹0.80 / 120 s = ₹0.006667 stores as 0.0067 and reconstructs as ₹0.804. The
+    # 6.8000 this used to assert was that +0.004 cancelling the STT leg's per-second -0.004.
+    assert Decimal(str(total)) == Decimal("6.8040")
 
 
 # --- the split both panels read ------------------------------------------------

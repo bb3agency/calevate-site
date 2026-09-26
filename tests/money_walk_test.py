@@ -216,6 +216,49 @@ async def test_one_rupee_arrives_at_every_hop_as_the_same_decimal() -> None:
     assert cost_from_tiers == cost_from_margin == to_paise(expected) == Decimal("89.22")
 
 
+async def test_a_month_holding_both_stt_units_costs_every_row_in_its_own_unit() -> None:
+    """D-638 moved the STT leg from `stt_s` to `stt_min`; the ledger keeps every `stt_s` row
+    already written (hard rule 4). A month straddling the change must cost both, each as
+    `qty * unit_cost_paid` in its own unit, on every reader: the rung totals, the margin
+    card and the per-unit breakdown. A reader that summed STT `qty` across the two would be
+    adding seconds to minutes."""
+    from apps.api.billing.attribution import period_attribution
+
+    tenant_id, agent_id = await _tenant()
+    await _plan(tenant_id, included_min=0)
+    await _metered_call(
+        tenant_id,
+        agent_id,
+        tier="premium",
+        seconds="600.0000",
+        legs={"stt_s": ("600.0000", "0.0083")},
+    )
+    await _metered_call(
+        tenant_id,
+        agent_id,
+        tier="premium",
+        seconds="600.0000",
+        legs={"stt_min": ("10.0000", "0.5000")},
+    )
+
+    telephony = 2 * Decimal("600.0000") * _TELEPHONY_UNIT_COST
+    legacy_stt = Decimal("600.0000") * Decimal("0.0083")  # ₹4.98, the lossy old unit
+    stt = Decimal("10.0000") * Decimal("0.5000")  # ₹5.00, exact
+    expected = to_paise(telephony + legacy_stt + stt)
+
+    async with tenant_session(tenant_id) as session:
+        tiers = await tier_usage(session, tenant_id=tenant_id)
+        margin = await margin_for_tenant(session, tenant_id=tenant_id)
+        period = await period_attribution(session, tenant_id=tenant_id)
+
+    assert tiers["cost_premium_inr"] == margin["cost_inr"] == period.cost_inr == expected
+    by_unit = {unit.unit_type: unit for unit in period.by_unit}
+    assert by_unit["stt_s"].qty == Decimal("600.0000")
+    assert by_unit["stt_min"].qty == Decimal("10.0000")
+    assert by_unit["stt_s"].cost_inr == Decimal("4.98")
+    assert by_unit["stt_min"].cost_inr == Decimal("5.00")
+
+
 async def test_the_client_rupee_arrives_at_the_invoice_unchanged() -> None:
     """What the CLIENT pays, followed from the panel to the document.
 

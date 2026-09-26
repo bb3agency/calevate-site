@@ -2402,16 +2402,17 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
 
     AND THERE IS NOW A UNIQUE INDEX BEHIND THE LOCK. This docstring used to end "the
     index remains the better end state and is named in the report"; migration
-    `b8d3f47c2a19` built it — `ux_usage_events_tenant_call_unit` on `(tenant_id, call_id,
-    unit_type)`, partial on the five unit types written below. The lock is still the
-    mechanism and the index is the backstop, and the division of labour is exact: under
-    the lock the second run reads the first run's rows and returns 0 before inserting
-    anything, so the index is never reached; with the lock forgotten the second inserter
-    is REFUSED rather than allowed to double-charge, and because everything here shares
-    one transaction the abort takes the whole second metering with it. That is why no
-    `ON CONFLICT` appears at the insert site — `DO UPDATE` would fire the append-only
-    trigger and `DO NOTHING` would convert the conflict into silence, which on this table
-    is worse than an abort. The migration argues both at length.
+    `b8d3f47c2a19` built it — `ux_usage_events_tenant_call_unit` on `(tenant_id,
+    call_id, unit_type)`, partial on the unit types written below (`stt_min` has its own
+    key, `c5e8a1f47b92`). The lock is still the mechanism and the index is the backstop,
+    and the division of labour is exact: under the lock the second run reads the first
+    run's rows and returns 0 before inserting anything, so the index is never reached;
+    with the lock forgotten the second inserter is REFUSED rather than allowed to
+    double-charge, and because everything here shares one transaction the abort takes
+    the whole second metering with it. That is why no `ON CONFLICT` appears at the
+    insert site — `DO UPDATE` would fire the append-only trigger and `DO NOTHING` would
+    convert the conflict into silence, which on this table is worse than an abort. The
+    migration argues both at length.
     """
     cost = snapshot.cost
     if cost is None:
@@ -2625,7 +2626,10 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         rows: list[tuple[str, Decimal, Decimal | None]] = [
             ("telephony_s", duration_s, _unit_price(cost.network_inr, duration_s)),
             ("platform_min", minutes, _unit_price(cost.platform_inr, minutes)),
-            ("stt_s", duration_s, _unit_price(cost.stt_inr, duration_s)),
+            # Per MINUTE, not per second (D-638): a Saaras-priced leg divided per second is
+            # ₹0.008333…, which NUMERIC(12,4) stores as 0.0083 — 0.4% light on every call.
+            # Per minute the same charge is ₹0.5000.
+            ("stt_min", minutes, _unit_price(cost.stt_inr, minutes)),
         ]
         # The engine bills TTS and LLM as leg costs with no character or token count
         # (TRD §5), so there is no quantity to price against. One unit priced at what

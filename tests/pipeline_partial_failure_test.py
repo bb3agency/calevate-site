@@ -923,6 +923,53 @@ async def test_a_zero_length_call_bills_what_the_ledger_can_express(
     assert census["usage_rows"] == 5, "every leg is still recorded, even the ones qty hides"
 
 
+async def test_the_engine_stt_charge_is_metered_per_minute_and_survives_the_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-638 on the rented-engine path. A 30-second call whose transcriber the engine
+    charged ₹0.25 (₹0.50/min). Per second that is ₹0.008333…, which NUMERIC(12,4) stores
+    as 0.0083 and reconstructs as ₹0.249; per minute it is ₹0.5000 and reconstructs as
+    ₹0.25 exactly."""
+    tenant_id, execution_id, call_id = await _staged("sttmin")
+    real = await get_engine().get_execution(execution_id)
+    snapshot = real.model_copy(
+        update={
+            "duration_s": 30,
+            "cost": CostBreakdown(
+                total_inr=Decimal("0.2500"),
+                platform_inr=None,
+                network_inr=None,
+                llm_inr=None,
+                tts_inr=None,
+                stt_inr=Decimal("0.2500"),
+                source_currency="INR",
+            ),
+        }
+    )
+
+    class _ThirtySeconds:
+        name = "fake"
+
+        async def get_execution(self, execution: str) -> ExecutionSnapshot:
+            return snapshot
+
+    monkeypatch.setattr(pipeline, "get_engine", lambda: _ThirtySeconds())
+    assert await _run(tenant_id, call_id, execution_id) == "ok"
+
+    async with tenant_session(tenant_id) as session:
+        stt = (
+            await session.execute(
+                text(
+                    "SELECT unit_type, qty, unit_cost_paid FROM usage_events "
+                    "WHERE call_id = :c AND unit_type LIKE 'stt%'"
+                ),
+                {"c": call_id},
+            )
+        ).all()
+    assert [tuple(row) for row in stt] == [("stt_min", Decimal("0.5000"), Decimal("0.5000"))]
+    assert stt[0].qty * stt[0].unit_cost_paid == Decimal("0.25")
+
+
 # --- 4b. a re-drive rewrites a turn WHOLE, or it rewrites a lie ----------------
 
 

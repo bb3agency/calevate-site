@@ -126,7 +126,7 @@ corroborating anything.
 |---|---|---|---|
 | Carrier | connected minutes | Plivo CDR | independent, billable |
 | Runtime | Pipecat active minutes | Pipecat Cloud usage | ⚠ what an "active minute" covers is UNKNOWN — **P-1 of `docs/evidence/pre-build-blockers-2026-09-13.md` §3.5**, and OPERATIONS §2 gate 57. (This cell read "§7a Q1" until 19 Sep 2026 and §7a is the letter to GNANI about the TTS leg — a reader chasing the runtime question landed on a voice-cloning letter. `voice_worker/meter.py::RuntimePriceUnknownError` cites the right address.) |
-| STT | audio seconds | our worker's own meter | ours |
+| STT | audio seconds, metered as `stt_min` (D-638) | our worker's own meter | ours |
 | TTS | characters synthesised | our worker's own meter | ours, priced at the attested rate |
 | LLM | `total_tokens` | `LLMTokenUsage` | see the trap below |
 

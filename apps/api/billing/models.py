@@ -169,7 +169,19 @@ KB_INGESTION_FEATURES = (
 #: Units a CLIENT is billed for and sees in their own spend, margin and invoice.
 CLIENT_BILLED_UNIT_TYPES = (
     "telephony_s",
+    # DEPRECATED FOR NEW ROWS (D-638): nothing writes `stt_s` any more, and it stays in the
+    # CHECK because `usage_events` is append-only and every row already written carries it.
+    # Readers sum `qty * unit_cost_paid` per row, so a month holding both STT units adds up
+    # correctly without knowing either name.
     "stt_s",
+    # **SPEECH-TO-TEXT PER MINUTE, and the unit is a money decision (D-638).** The Saaras
+    # card is ₹30/hour (`billing/rates.STT_INR_PER_HOUR`), i.e. ₹0.008333… a second, which
+    # NUMERIC(12,4) stores as 0.0083 and meters our STT cost 0.4% light on every call — the
+    # `tts_kchars` trap one leg over. Per minute it is ₹0.5000 exactly. Minutes and not a
+    # larger unit because `qty` is NUMERIC(14,4) too: an hour-denominated `qty` would round
+    # away up to 0.18s per call, a minute-denominated one at most 0.003s. It matches
+    # `platform_min` and TRD §10.1's own ₹/min spelling of the rate.
+    "stt_min",
     "tts_chars",
     # **THOUSANDS OF CHARACTERS, AND `kchars` RATHER THAN `chars` FOR `ktok`'s REASON
     # (D-547).** `tts_chars` is the row the ENGINE's synthesizer figure lands on: the

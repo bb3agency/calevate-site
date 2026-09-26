@@ -30,6 +30,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from decimal import Decimal
+from typing import Any
 
 import httpx
 import pytest
@@ -614,7 +615,7 @@ async def test_a_refused_leg_does_not_discard_the_legs_beside_it(worker_token: N
         direction="inbound",
         agent_id=agent_id,
         refusals=refusal_settlement(agent_id).refusals,
-        quantities=[MeteredQuantity(leg="stt", unit_type="stt_s", qty=Decimal("42.5"))],
+        quantities=[MeteredQuantity(leg="stt", unit_type="stt_min", qty=Decimal("1.5"))],
     )
     async with worker_client() as api:
         await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
@@ -670,7 +671,7 @@ async def test_a_leg_whose_price_is_not_ours_to_know_is_recorded_rather_than_inv
         direction="inbound",
         agent_id=agent_id,
         quantities=[
-            MeteredQuantity(leg="stt", unit_type="stt_s", qty=Decimal("42.5")),
+            MeteredQuantity(leg="stt", unit_type="stt_min", qty=Decimal("1.5")),
             MeteredQuantity(leg="carrier", unit_type="telephony_s", qty=Decimal("60")),
         ],
     )
@@ -698,28 +699,12 @@ async def test_a_leg_whose_price_is_not_ours_to_know_is_recorded_rather_than_inv
     assert usage == 1, "the leg we could price was discarded with the one we could not"
 
 
-async def test_a_priced_leg_is_multiplied_by_the_rate_card_this_host_holds(
-    worker_token: None,
-) -> None:
-    """The other side of the same rule: the quantity is the WORKER's and the rate is OURS.
-
-    `stt_rate_inr_per_second()` is the one door, read here rather than restated, so a change
-    to the rate card moves this assertion with it rather than leaving a stale number in a
-    test. NUMERIC, never a float (hard rule 7).
-    """
-    from apps.api.billing.rates import stt_rate_inr_per_second
-
+async def _settle_one_stt_leg(quantity: MeteredQuantity) -> tuple[str, Decimal, Decimal, Any]:
+    """Settle a call carrying one STT quantity; answer the usage row it wrote."""
     tenant_id, agent_id, _ = await published_agent()
     call_id, ref = call_ref(tenant_id)
     request = SettlementRequest(
-        final_status="completed",
-        direction="inbound",
-        agent_id=agent_id,
-        quantities=[
-            MeteredQuantity(
-                leg="stt", unit_type="stt_s", qty=Decimal("42.5"), meta={"source": "test"}
-            )
-        ],
+        final_status="completed", direction="inbound", agent_id=agent_id, quantities=[quantity]
     )
     async with worker_client() as api:
         await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
@@ -730,15 +715,53 @@ async def test_a_priced_leg_is_multiplied_by_the_rate_card_this_host_holds(
         row_id = (
             await db.execute(text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": ref})
         ).scalar_one()
-        unit, qty, cost = (
+        unit, qty, cost, meta = (
             await db.execute(
-                text("SELECT unit_type, qty, unit_cost_paid FROM usage_events WHERE call_id = :c"),
+                text(
+                    "SELECT unit_type, qty, unit_cost_paid, meta FROM usage_events "
+                    "WHERE call_id = :c"
+                ),
                 {"c": row_id},
             )
         ).one()
-    assert unit == "stt_s"
-    assert qty == Decimal("42.5")
-    assert cost == stt_rate_inr_per_second().quantize(Decimal("0.0001"))
+    return str(unit), Decimal(qty), Decimal(cost), meta
+
+
+async def test_a_priced_leg_is_multiplied_by_the_rate_card_this_host_holds(
+    worker_token: None,
+) -> None:
+    """The quantity is the WORKER's and the rate is OURS, and the rate survives the column.
+
+    `stt_rate_inr_per_minute()` is the one door, read here rather than restated. The product
+    is held to `STT_INR_PER_HOUR` directly: 90 s at ₹30/hour is ₹0.75, and the per-second
+    unit this replaced stored ₹0.0083 a second and metered ₹0.747 (D-638).
+    """
+    from apps.api.billing.rates import STT_INR_PER_HOUR, stt_rate_inr_per_minute
+
+    unit, qty, cost, _ = await _settle_one_stt_leg(
+        MeteredQuantity(leg="stt", unit_type="stt_min", qty=Decimal("1.5"), meta={"source": "t"})
+    )
+
+    assert unit == "stt_min"
+    assert qty == Decimal("1.5")
+    assert cost == stt_rate_inr_per_minute() == Decimal("0.5")
+    assert qty * cost == STT_INR_PER_HOUR * 90 / 3600 == Decimal("0.75")
+
+
+async def test_an_older_worker_reporting_seconds_is_written_in_minutes(
+    worker_token: None,
+) -> None:
+    """The worker deploys independently of this API, so an image older than D-638 still
+    sends `stt_s`. The leg is priced, not refused, and lands in the ledger unit at the exact
+    per-minute rate — never as a new `stt_s` row at the lossy per-second one."""
+    unit, qty, cost, meta = await _settle_one_stt_leg(
+        MeteredQuantity(leg="stt", unit_type="stt_s", qty=Decimal("90"))
+    )
+
+    assert unit == "stt_min"
+    assert (qty, cost) == (Decimal("1.5000"), Decimal("0.5000"))
+    assert qty * cost == Decimal("0.75")
+    assert meta["audio_seconds"] == "90"
 
 
 async def test_a_batch_larger_than_the_ceiling_is_refused_at_the_edge() -> None:

@@ -594,10 +594,17 @@ kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
 ## 8. Billing & Metering (append-only)
 
 ```
-usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_chars,
-  tts_kchars,llm_tok_in,llm_tok_out,llm_ktok_in,llm_ktok_out,platform_min,number_rental,
-  other,ai_assist_ktok_in,ai_assist_ktok_out], qty NUMERIC, unit_cost_paid NUMERIC,
-  occurred_at, meta JSONB)                          -- INSERT-only; no UPDATE/DELETE grants
+usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,stt_min,
+  tts_chars,tts_kchars,llm_tok_in,llm_tok_out,llm_ktok_in,llm_ktok_out,platform_min,
+  number_rental,other,ai_assist_ktok_in,ai_assist_ktok_out], qty NUMERIC,
+  unit_cost_paid NUMERIC, occurred_at, meta JSONB)  -- INSERT-only; no UPDATE/DELETE grants
+-- `stt_min` (D-638, migration c5e8a1f47b92) — the STT leg per MINUTE of audio, on both
+--   engines. Per second the Saaras rate (₹30/hour = ₹0.008333…/s) stores as 0.0083 in
+--   NUMERIC(12,4), 0.4% light; per minute it is ₹0.5000 exactly. `stt_s` is written by
+--   nothing any more and stays in the CHECK for the rows already on the ledger; every
+--   reader costs a row as `qty * unit_cost_paid` in its own unit, so both sum correctly.
+-- INDEX ux_usage_events_tenant_call_stt_min UNIQUE (tenant_id, call_id, unit_type)
+--   WHERE call_id IS NOT NULL AND unit_type = 'stt_min' (c5e8a1f47b92).
 -- `llm_tok_*` vs `llm_ktok_*` (D-592, migration a3f1c6e82d47) — the same split `tts_chars`
 --   vs `tts_kchars` makes one leg down, for the same reason, arriving from the other
 --   engine. `llm_tok_in`/`llm_tok_out` carry the RENTED engine's reported leg charge at

@@ -28,7 +28,7 @@ from voice_worker.meter import (
     UNIT_LLM_KTOK_IN,
     UNIT_LLM_KTOK_OUT,
     UNIT_PLATFORM_MIN,
-    UNIT_STT_S,
+    UNIT_STT_MIN,
     UNIT_TELEPHONY_S,
     UNIT_TTS_KCHARS,
     CallMeter,
@@ -134,7 +134,7 @@ def test_all_five_legs_are_metered_once_each() -> None:
     assert [row.unit_type for row in rows] == [
         UNIT_TELEPHONY_S,
         UNIT_PLATFORM_MIN,
-        UNIT_STT_S,
+        UNIT_STT_MIN,
         UNIT_TTS_KCHARS,
         UNIT_LLM_KTOK_IN,
         UNIT_LLM_KTOK_OUT,
@@ -167,8 +167,9 @@ def test_stt_leg_sums_incremental_reports_exactly() -> None:
     meter.observe(stt(0.25))
 
     assert meter.stt_audio_seconds == Decimal("4.0")
-    row = _rows(meter)[UNIT_STT_S]
-    assert row.qty == Decimal("4.0")
+    row = _rows(meter)[UNIT_STT_MIN]
+    assert row.qty == Decimal("4.0") / 60
+    assert Decimal(row.meta["audio_seconds"]) == Decimal("4.0")
     assert row.meta["reports"] == "3"
 
 
@@ -180,7 +181,19 @@ def test_stt_seconds_never_become_a_binary_float() -> None:
     meter.observe(stt(0.2))
 
     assert meter.stt_audio_seconds == Decimal("0.3")
-    assert _rows(meter)[UNIT_STT_S].qty == Decimal("0.3")
+    assert _rows(meter)[UNIT_STT_MIN].qty == Decimal("0.3") / 60
+
+
+def test_stt_leg_meters_minutes_not_seconds() -> None:
+    """`stt_min`, not `stt_s`: the Saaras rate per second (₹0.008333…) stores as 0.0083 in
+    NUMERIC(12,4), 0.4% light; per minute it is ₹0.5000 exactly (D-638)."""
+    meter = CallMeter()
+    meter.observe(stt(90.0))
+
+    row = _rows(meter)[UNIT_STT_MIN]
+    assert UNIT_STT_MIN == "stt_min"
+    assert row.qty == Decimal("1.5")
+    assert row.meta["audio_seconds"] == "90.0"
 
 
 def test_tts_leg_meters_characters_per_thousand() -> None:
@@ -431,7 +444,7 @@ def test_every_measured_leg_is_delivered_with_no_price_anywhere_in_the_worker() 
     metered = meter.metered_rows(carrier=None, runtime=None)
 
     assert {(row.unit_type, row.qty) for row in metered.rows} == {
-        (UNIT_STT_S, Decimal("12.5")),
+        (UNIT_STT_MIN, Decimal("12.5") / 60),
         (UNIT_TTS_KCHARS, Decimal("0.7")),
         (UNIT_LLM_KTOK_IN, Decimal("0.3")),
         (UNIT_LLM_KTOK_OUT, Decimal("0.1")),
@@ -461,7 +474,7 @@ def test_every_unit_the_meter_emits_is_one_the_ledger_accepts() -> None:
     emitted = {
         UNIT_TELEPHONY_S,
         UNIT_PLATFORM_MIN,
-        UNIT_STT_S,
+        UNIT_STT_MIN,
         UNIT_TTS_KCHARS,
         UNIT_LLM_KTOK_IN,
         UNIT_LLM_KTOK_OUT,
