@@ -27,6 +27,7 @@ import {
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
+  RestrictionNote,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -39,6 +40,7 @@ import { useClientSession } from "@/lib/api/session";
 import { isDeleted } from "@/lib/agentState";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useAgent } from "@/lib/api/agents";
+import { useWriteAccess } from "@/lib/api/hooks";
 import {
   EMPTY_SCRIPT,
   useApplyScript,
@@ -188,6 +190,9 @@ function Editor({
   const previewMut = usePreviewScript(session, agentId);
   const apply = useApplyScript(session, agentId);
   const undo = useUndoScript(session, agentId);
+  // Reading and previewing are `agents:read`, so staff may draft and look at the compiled
+  // prompt; saving, applying and undoing are `org:manage`, which only the owner holds.
+  const write = useWriteAccess(session, "org:manage", "save or apply this script");
 
   // The field the "insert variable" buttons target: the last text control the author
   // touched, so a variable lands where their cursor is rather than in a fixed field.
@@ -305,7 +310,7 @@ function Editor({
               <button
                 type="button"
                 className={PRIMARY_BUTTON_SM}
-                disabled={apply.isPending}
+                disabled={!write.allowed || apply.isPending}
                 onClick={() => apply.mutate({ expected_version: version })}
               >
                 Apply to live calls
@@ -313,7 +318,7 @@ function Editor({
               <button
                 type="button"
                 className={SECONDARY_BUTTON_SM}
-                disabled={undo.isPending}
+                disabled={!write.allowed || undo.isPending}
                 onClick={() => undo.mutate()}
               >
                 <Undo2 aria-hidden className="h-3.5 w-3.5" />
@@ -368,8 +373,15 @@ function Editor({
         )}
       </Card>
 
+      <RestrictionNote reason={write.reason} />
+
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className={PRIMARY_BUTTON} disabled={save.isPending} onClick={onSave}>
+        <button
+          type="button"
+          className={PRIMARY_BUTTON}
+          disabled={!write.allowed || save.isPending}
+          onClick={onSave}
+        >
           Save script
         </button>
         <button

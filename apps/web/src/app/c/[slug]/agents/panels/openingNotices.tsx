@@ -15,10 +15,12 @@ import type { ReactNode } from "react";
 import {
   NOTICE_TONES,
   ProblemNotice,
+  RestrictionNote,
   SectionHeading,
   ToggleSwitch,
 } from "@/components/ui";
 import { useSetDisclosure, type Agent } from "@/lib/api/agents";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { Term } from "@/lib/glossary";
 
@@ -76,6 +78,10 @@ import { Term } from "@/lib/glossary";
 export function OpeningNotices({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const setDisclosure = useSetDisclosure(session, agent.id);
+  // `PATCH /v1/agents/{id}/disclosure` is `org:manage`. Staff can read this panel and
+  // must not be handed switches the route answers with a 403.
+  const write = useWriteAccess(session, "org:manage", "switch these notices");
+  const locked = setDisclosure.isPending || !write.allowed;
 
   return (
     <section>
@@ -93,6 +99,11 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
       </p>
 
       {setDisclosure.error && <ProblemNotice error={setDisclosure.error} />}
+      {write.reason && (
+        <div className="mt-3">
+          <RestrictionNote reason={write.reason} />
+        </div>
+      )}
 
       <div className="mt-4 space-y-3">
         <NoticeToggle
@@ -100,7 +111,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           hint="Spoken first, before anything else, in your language."
           quote={agent.ai_disclosure_line}
           checked={agent.ai_disclosure_enabled}
-          pending={setDisclosure.isPending}
+          pending={locked}
           offNote="Callers are not told at the start of the call. If one asks, the agent still says it is an AI."
           onChange={(next) => setDisclosure.mutate({ ai_disclosure_enabled: next })}
         />
@@ -109,7 +120,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           hint="Spoken with the line above, at the start of the call."
           quote={agent.recording_notice_line}
           checked={agent.recording_notice_enabled}
-          pending={setDisclosure.isPending}
+          pending={locked}
           offNote={
             <>
               Calls are still recorded — this only stops the agent announcing it. Telling

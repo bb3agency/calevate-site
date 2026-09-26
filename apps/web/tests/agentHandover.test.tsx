@@ -326,7 +326,10 @@ describe("what the handover panel promises about the person answering", () => {
       name: /Putting a caller through to a person/,
     });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Move up" })[1]);
+    // The editor fails closed until `/v1/me` has said this session holds `org:manage`.
+    const moveUp = screen.getAllByRole("button", { name: "Move up" })[1];
+    await waitFor(() => expect(moveUp.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(moveUp);
     fireEvent.click(screen.getByRole("button", { name: "Save the list" }));
 
     await waitFor(() => {
@@ -340,5 +343,34 @@ describe("what the handover panel promises about the person answering", () => {
       // ONE REQUEST CARRYING THE WHOLE ORDER — never a PATCH per row.
       expect(body.members.map((row) => row.label)).toEqual(["Priya", "Ravi"]);
     });
+  });
+
+  it("gives staff a read-only list rather than an editor the save refuses", async () => {
+    // `PUT /v1/agents/{id}/handoff` is `org:manage`, which `staff` does not hold
+    // (`core/rbac.ROLE_PERMISSIONS`); the panel itself is readable on `agents:read`.
+    const staff = {
+      ...OWNER,
+      role: "staff",
+      permissions: ["agents:read", "agents:write", "calls:read", "org:read"],
+    };
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "/v1/me": staff, [HANDOFF_PATH]: handoff() }),
+    );
+    await screen.findByText(
+      "Only an account owner can change who calls are put through to.",
+    );
+
+    for (const name of ["Move up", "Move down", "Add someone", "Save the list"]) {
+      for (const button of screen.getAllByRole("button", { name })) {
+        expect(button.matches(":disabled"), `${name} is pressable`).toBe(true);
+      }
+    }
+    for (const box of screen.getAllByRole("textbox", { name: "Name" })) {
+      expect(box.matches(":disabled")).toBe(true);
+    }
+    fireEvent.click(screen.getAllByRole("button", { name: "Move up" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Save the list" }));
+    expect(calls.some((call) => call.method === "PUT")).toBe(false);
   });
 });

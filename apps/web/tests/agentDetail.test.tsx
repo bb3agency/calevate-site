@@ -878,7 +878,11 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       }),
     );
 
-    const [aiSwitch] = await screen.findAllByRole("switch");
+    const aiSwitch = await within(
+      await waitFor(() => card("What it says about itself")),
+    ).findByRole("switch", { name: /say it is an ai assistant/i });
+    // The switch fails closed until `/v1/me` has said this session holds `org:manage`.
+    await waitFor(() => expect(aiSwitch.hasAttribute("disabled")).toBe(false));
     await act(async () => {
       fireEvent.click(aiSwitch);
     });
@@ -888,6 +892,27 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(JSON.parse(patched?.body ?? "{}")).toEqual({
       ai_disclosure_enabled: false,
     });
+  });
+
+  it("does not hand staff switches the route refuses", async () => {
+    // `PATCH /v1/agents/{id}/disclosure` is `org:manage`, which `staff` does not hold
+    // (`core/rbac.ROLE_PERMISSIONS`), while the panel itself is readable on `agents:read`.
+    const staff = {
+      ...OWNER,
+      role: "staff",
+      permissions: ["agents:read", "agents:write", "calls:read", "org:read"],
+    };
+    const { calls } = await renderClientPage(page, routes({ "/v1/me": staff }));
+
+    const panel = await waitFor(() => card("What it says about itself"));
+    expect(
+      await within(panel).findByText("Only an account owner can switch these notices."),
+    ).toBeTruthy();
+    for (const toggle of within(panel).getAllByRole("switch")) {
+      expect(toggle.hasAttribute("disabled")).toBe(true);
+      fireEvent.click(toggle);
+    }
+    expect(calls.some((call) => call.path.endsWith("/disclosure"))).toBe(false);
   });
 });
 
