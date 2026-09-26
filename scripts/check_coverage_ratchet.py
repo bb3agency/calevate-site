@@ -347,15 +347,6 @@ AREAS: tuple[Area, ...] = (
             # a hard-rule-1 surface the derivation flags; guarded here beside the session
             # factory it leans on rather than in its own budget.
             "apps/api/insights/service.py",
-            # The voice worker's own engine (D-592). It is a SECOND module that executes
-            # `set_config('app.tenant_id', ...)`, in a different deployable, and
-            # `required_surfaces` enrolls it automatically for that reason — this entry is
-            # where it lands. Guarded HERE rather than in an area of its own because the
-            # failure is identically this area's failure: a connection handed out without
-            # the GUC reads zero rows if we are lucky and another client's call if we are
-            # not, and the fact that the process around it is a phone call rather than a
-            # request changes nothing about what breaks.
-            "apps/voice-worker/voice_worker/db.py",
             # The THIRD module to execute `set_config('app.tenant_id', ...)`, enrolled by
             # the same derivation. `cancel_for_phones_fleet_wide` calls off a promised
             # call-back in every account at once, for a suppression that is
@@ -1224,6 +1215,22 @@ def _rule_of(name: str) -> str:
     return next((area.rule for area in AREAS if area.name == name), "hard-rule")
 
 
+def dead_patterns(areas: Iterable[Area] | None = None) -> list[str]:
+    """Area patterns that match no file on disk.
+
+    `_guarded_sources` drops a pattern that matches nothing, so a guarded module that is
+    renamed or deleted leaves its area without an error and its budget quietly scores
+    less code. Refusing the dead pattern turns that into a failure naming the path, so
+    the entry is either re-pointed at the module's new home or removed on purpose.
+    """
+    return [
+        f"area {area.name!r}: pattern {pattern!r} matches no file"
+        for area in (AREAS if areas is None else areas)
+        for pattern in area.patterns
+        if not any(path.is_file() for path in REPO_ROOT.glob(pattern))
+    ]
+
+
 def stale_waivers(budgets: Mapping[str, int] | None = None) -> list[str]:
     """A raised budget that is no longer the budget has done its job — delete it.
 
@@ -1436,6 +1443,7 @@ def main(argv: list[str] | None = None) -> int:
     budgets = load_baseline()
     sections = (
         ("a hard-rule surface no area guards", unguarded_surfaces(None)),
+        ("a guarded pattern that matches no file", dead_patterns()),
         ("the ratchet", evaluate(rows, budgets)),
         ("a raised budget that no longer holds", stale_waivers()),
     )

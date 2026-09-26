@@ -306,6 +306,21 @@ class TestAreasAreReal:
         assert any("apps/voice-runtime/webhook_routes.py" in o for o in offenders)
         assert all("in no guarded area" in o for o in offenders)
 
+    def test_the_real_tree_has_no_pattern_that_matches_nothing(self) -> None:
+        assert ratchet.dead_patterns() == []
+
+    def test_catches_a_guarded_module_that_was_renamed_away(self) -> None:
+        """The mutation is one pattern pointing at a file that does not exist, inside an
+        area whose OTHER patterns still match. That is the case the area-level checks miss:
+        the area still has files, so nothing looked empty, and the renamed module simply
+        stopped being scored."""
+        area = next(a for a in ratchet.AREAS if a.name == "tenancy-session")
+        gone = "apps/api/db/_renamed_away_probe.py"
+        assert not (REPO_ROOT / gone).exists()
+        mutated = replace(area, patterns=(*area.patterns, gone))
+        offenders = ratchet.dead_patterns((mutated,))
+        assert offenders == [f"area 'tenancy-session': pattern {gone!r} matches no file"]
+
     def test_catches_a_new_ledger_module_nobody_guarded(self) -> None:
         """Simulating the growth this design is judged on: somebody adds a module that
         declares an append-only table, in a package no area names.
