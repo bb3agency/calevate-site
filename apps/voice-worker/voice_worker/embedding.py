@@ -46,6 +46,7 @@ re-deriving it from a character count.
 from __future__ import annotations
 
 import asyncio
+import math
 from typing import Any, Final
 
 import httpx
@@ -218,12 +219,23 @@ class GeminiQueryEmbedder:
                 got=len(values) if isinstance(values, list) else None,
             )
             return None
+        # Every element a finite real number. A `null` or a string would raise in `float()`
+        # below — out of a method that promises never to — and `json` parses a bare `NaN`
+        # or `Infinity`, which would sail through as a vector with no direction.
+        if not all(_finite_number(value) for value in values):
+            logger.warning("query embedding shape", reason="not_finite_numbers")
+            return None
         usage = body.get("usage")
         tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
         return QueryVector(
             values=tuple(float(value) for value in values),
             tokens=tokens if isinstance(tokens, int) else None,
         )
+
+
+def _finite_number(value: Any) -> bool:
+    """A JSON number that is a real, finite float. `bool` is an `int` in Python and is not."""
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
 
 
 __all__ = [

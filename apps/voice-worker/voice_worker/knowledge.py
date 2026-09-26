@@ -1074,9 +1074,15 @@ class DenseIndex:
 
 
 def _unit(values: tuple[float, ...]) -> tuple[float, ...] | None:
-    """`values` scaled to length 1, or `None` for the zero vector, which has no direction."""
+    """`values` scaled to length 1, or `None` for a vector with no direction.
+
+    The zero vector has none, and neither does one holding a NaN or an infinity: every
+    cosine against it is NaN, NaN compares False with `DENSE_MIN_COSINE` both ways, and
+    `_dense_pass` would pass its "nothing near this" check and then keep no passage —
+    telling the agent `found` with nothing to answer from.
+    """
     norm = math.sqrt(math.sumprod(values, values))
-    if norm == 0.0:
+    if norm == 0.0 or not math.isfinite(norm):
         return None
     return tuple(value / norm for value in values)
 

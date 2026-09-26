@@ -412,6 +412,25 @@ async def test_an_embedder_that_raises_is_a_defect_the_contract_does_not_absorb(
 
 
 @pytest.mark.asyncio
+async def test_a_query_vector_with_no_direction_never_answers_found_with_nothing() -> None:
+    """A NaN in the query vector makes every cosine NaN, and NaN compares False with the
+    floor: the "nothing near this" check passed, the per-passage filter kept nothing, and
+    the agent was told `found` with no passage to answer from. It must leave the lexical
+    answer standing instead."""
+    session = await load_shop()
+    question = "\u0c37\u0c3e\u0c2a\u0c4d \u0c0e\u0c28\u0c4d\u0c28\u0c3f?"
+    lexical = session.search(question)
+    assert lexical.outcome == "not_found"
+    embedder = FakeEmbedder({question: (math.nan, 0.0, 0.0, 0.0, 0.0)})
+
+    answer = await session.answer(question, embedder=embedder)
+
+    assert embedder.asked == [question]
+    assert answer.outcome == "not_found"
+    assert answer.arm == lexical.arm
+
+
+@pytest.mark.asyncio
 async def test_an_encoder_the_pack_was_not_built_with_is_refused_before_it_is_paid_for() -> None:
     """Two models' vectors of the same width dot-product happily and mean nothing. The
     refusal is BEFORE `embed`, so it costs nothing as well as meaning nothing."""
@@ -591,6 +610,20 @@ async def test_the_gemini_embedder_reads_the_openai_embeddings_shape() -> None:
         (
             "wrong_width",
             lambda request: httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0]}]}),
+        ),
+        (
+            "not_numbers",
+            lambda request: httpx.Response(
+                200, json={"data": [{"embedding": [0.1, None, "x", 0.2]}]}
+            ),
+        ),
+        (
+            "not_finite",
+            lambda request: httpx.Response(
+                200,
+                content=b'{"data": [{"embedding": [0.1, NaN, 0.0, Infinity]}]}',
+                headers={"content-type": "application/json"},
+            ),
         ),
     ],
 )
