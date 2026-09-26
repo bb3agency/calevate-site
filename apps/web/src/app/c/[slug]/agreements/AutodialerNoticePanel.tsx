@@ -26,6 +26,7 @@ import {
   NoticeBox,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
+  RestrictionNote,
   Skeleton,
 } from "@/components/ui";
 import {
@@ -33,6 +34,7 @@ import {
   useRecordAutodialerNotice,
   type AutodialerNotice,
 } from "@/lib/api/autodialerNotice";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 
 const FIELD =
@@ -71,6 +73,9 @@ export function AutodialerNoticePanel() {
   const session = useClientSession();
   const notice = useAutodialerNotice(session);
   const record = useRecordAutodialerNotice(session);
+  // Reading the notice is `org:read`; recording or withdrawing it is `org:manage`, which
+  // staff do not hold. Before the hooks' early returns below.
+  const write = useWriteAccess(session, "org:manage", "record or withdraw this notice");
 
   const [accessProvider, setAccessProvider] = useState("");
   const [objective, setObjective] = useState("");
@@ -123,76 +128,85 @@ export function AutodialerNoticePanel() {
         </dl>
       )}
 
+      {write.reason && (
+        <div className="mt-4">
+          <RestrictionNote reason={write.reason} />
+        </div>
+      )}
+
       <form
         noValidate
-        className="mt-5 space-y-4"
+        className="mt-5"
         onSubmit={(event) => {
           event.preventDefault();
           record.mutate({ accessProvider, objective, notifiedOn });
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        {/* A disabled <fieldset> closes every field and both buttons at once. */}
+        <fieldset disabled={!write.allowed} className="min-w-0 space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="text-ink">Which operator did you tell?</span>
+              <input
+                className={FIELD}
+                value={accessProvider}
+                onChange={(event) => setAccessProvider(event.target.value)}
+                placeholder="The operator that supplies your outgoing line"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-ink">What is the date on your letter?</span>
+              <input
+                className={FIELD}
+                type="date"
+                value={notifiedOn}
+                onChange={(event) => setNotifiedOn(event.target.value)}
+              />
+            </label>
+          </div>
           <label className="block text-sm">
-            <span className="text-ink">Which operator did you tell?</span>
+            <span className="text-ink">
+              What did you tell them the calls are for?
+            </span>
             <input
               className={FIELD}
-              value={accessProvider}
-              onChange={(event) => setAccessProvider(event.target.value)}
-              placeholder="The operator that supplies your outgoing line"
+              value={objective}
+              onChange={(event) => setObjective(event.target.value)}
+              placeholder="In your own words, as your letter puts it"
             />
           </label>
-          <label className="block text-sm">
-            <span className="text-ink">What is the date on your letter?</span>
-            <input
-              className={FIELD}
-              type="date"
-              value={notifiedOn}
-              onChange={(event) => setNotifiedOn(event.target.value)}
-            />
-          </label>
-        </div>
-        <label className="block text-sm">
-          <span className="text-ink">
-            What did you tell them the calls are for?
-          </span>
-          <input
-            className={FIELD}
-            value={objective}
-            onChange={(event) => setObjective(event.target.value)}
-            placeholder="In your own words, as your letter puts it"
-          />
-        </label>
 
-        {record.error && <ProblemNotice error={record.error} />}
+          {record.error && <ProblemNotice error={record.error} />}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            className={PRIMARY_BUTTON_SM}
-            disabled={!canSubmit || record.isPending}
-          >
-            {record.isPending ? "Recording…" : "Record this notice"}
-          </button>
-          {current.recorded && current.state === "notified" && (
+          <div className="flex flex-wrap items-center gap-3">
             <button
-              type="button"
-              className="text-sm text-ink-muted underline"
-              disabled={record.isPending}
-              onClick={() =>
-                record.mutate({
-                  // A withdrawal names the notice it retracts, so it carries that notice's
-                  // own three facts rather than whatever is typed in the form above.
-                  accessProvider: current.access_provider ?? "",
-                  objective: current.objective ?? "",
-                  notifiedOn: current.notified_on ?? "",
-                  withdraw: true,
-                })
-              }
+              type="submit"
+              className={PRIMARY_BUTTON_SM}
+              disabled={!canSubmit || record.isPending}
             >
-              I have withdrawn this notice
+              {record.isPending ? "Recording…" : "Record this notice"}
             </button>
-          )}
-        </div>
+            {current.recorded && current.state === "notified" && (
+              <button
+                type="button"
+                className="text-sm text-ink-muted underline"
+                disabled={record.isPending}
+                onClick={() =>
+                  record.mutate({
+                    // A withdrawal names the notice it retracts, so it carries that notice's
+                    // own three facts rather than whatever is typed in the form above.
+                    accessProvider: current.access_provider ?? "",
+                    objective: current.objective ?? "",
+                    notifiedOn: current.notified_on ?? "",
+                    withdraw: true,
+                  })
+                }
+              >
+                I have withdrawn this notice
+              </button>
+            )}
+          </div>
+        </fieldset>
       </form>
     </section>
   );
