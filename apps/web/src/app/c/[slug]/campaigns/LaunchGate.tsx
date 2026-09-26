@@ -19,6 +19,7 @@ import { ArmingForms } from "./ArmingForms";
 import { LaunchConfirm } from "./LaunchConfirm";
 import { ConsentProvenanceAnswer } from "./ConsentProvenance";
 import {
+  AUTODIALER_NOTICE_BLOCKERS,
   BLOCKER_COPY,
   FIRST_CAMPAIGN_REVIEW_LABEL,
   KYC_BLOCKERS,
@@ -90,6 +91,9 @@ export function LaunchGate({
       b.rule === "consent_source_refused",
   )?.rule;
   const blockedOnKyc = clientBlockers.some((b) => KYC_BLOCKERS.includes(b.rule));
+  const blockedOnAutodialerNotice = clientBlockers.some((b) =>
+    AUTODIALER_NOTICE_BLOCKERS.includes(b.rule),
+  );
   const blockedOnFirstCampaign = clientBlockers.some((b) =>
     FIRST_CAMPAIGN_BLOCKERS.includes(b.rule),
   );
@@ -280,6 +284,21 @@ export function LaunchGate({
                       <span className="text-ink-muted">
                         — incoming calls are unaffected while this is
                         outstanding.
+                      </span>
+                    </p>
+                  )}
+
+                  {blockedOnAutodialerNotice && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/agreements`)}
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                      >
+                        Record your autodialler notice
+                      </Link>{" "}
+                      <span className="text-ink-muted">
+                        — it is on the Agreements screen, beside the numbers your
+                        agents call from.
                       </span>
                     </p>
                   )}
