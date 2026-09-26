@@ -36,6 +36,7 @@ from apps.api.crm.service import (
     FACET_RAIL_BUDGET_MS,
     MAX_FACET_FIELDS,
     MAX_FACET_VALUES,
+    lead_columns,
 )
 from apps.api.db.base import uuid7
 from apps.api.db.session import get_engine, tenant_session, untenanted_session
@@ -604,3 +605,60 @@ async def test_the_searched_rail_and_the_searched_table_describe_one_population(
     assert sum(counts.values()) == len(table.json()["items"]), (
         "the panel and the table must not disagree about how many rows the lens matches"
     )
+
+
+async def test_with_no_agent_filter_the_columns_are_the_newest_schema_not_the_most_edited() -> None:
+    """`lead_columns(None)` promises "the most recently published schema", and it read
+    `ORDER BY version DESC` across every agent. `version` counts ONE agent's edits, so the
+    agent whose variables were edited most often won the whole unfiltered table and its
+    export — an agent created later, with its own capture list, had no columns on the
+    default Leads screen or in the default CSV.
+    """
+    t = await _tenant()  # agent A: SCHEMA at version 1
+    edited = [{"key": "locality", "label": "Locality", "type": "text", "reason": "where"}]
+    newer_agent = uuid.uuid4()
+    newest = [{"key": "visit_date", "label": "Visit date", "type": "text", "reason": "when"}]
+    async with tenant_session(t.tenant_id) as session:
+        # A's variables edited twice more, both BEFORE agent B existed.
+        for version in (2, 3):
+            await session.execute(
+                text(
+                    "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
+                    "created_at, updated_at) VALUES (:id, :tid, :aid, :v, CAST(:f AS jsonb), "
+                    "now() - interval '1 day', now() - interval '1 day')"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": t.tenant_id,
+                    "aid": t.agent_id,
+                    "v": version,
+                    "f": json.dumps(edited),
+                },
+            )
+        await session.execute(
+            text(
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:id, :tid, 'Site visits', 'outbound', "
+                "'Idi AI assistant.', 'Idi AI assistant.', 'This call is being recorded.', "
+                "'I keep a short note of what you ask about.', 'live', 'fake', now(), now())"
+            ),
+            {"id": newer_agent, "tid": t.tenant_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
+                "created_at, updated_at) VALUES (:id, :tid, :aid, 1, CAST(:f AS jsonb), "
+                "now(), now())"
+            ),
+            {"id": uuid7(), "tid": t.tenant_id, "aid": newer_agent, "f": json.dumps(newest)},
+        )
+
+    async with tenant_session(t.tenant_id) as session:
+        unfiltered = await lead_columns(session, None)
+        only_a = await lead_columns(session, t.agent_id)
+
+    assert [f.key for f in unfiltered] == ["visit_date"], (
+        "the unfiltered table took the most-edited agent's schema, not the newest one"
+    )
+    assert [f.key for f in only_a] == ["locality"], "per agent, the latest version still wins"
