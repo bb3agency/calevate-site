@@ -136,12 +136,11 @@ assert {leg.value for leg in MeteredLeg} == METERED_LEGS, (
 # hard rule 4: a row's `unit_type` can never be corrected by an UPDATE, so a typo at one of
 # five call sites is permanent and re-files a leg into `other` forever.
 #
-# FOUR OF THESE ARE ALREADY IN `apps/api/billing/models.CLIENT_BILLED_UNIT_TYPES` AND TWO
-# ARE NOT. `llm_ktok_in` / `llm_ktok_out` are REQUESTED, not assumed — the enum is rendered
-# verbatim into `ck_usage_events_unit_type_enum`, so until that migration lands an insert of
-# these rows is refused by the database rather than accepted wrongly. That is the correct
-# failure and it is why they are spelled here rather than folded onto the existing
-# `llm_tok_in` / `llm_tok_out`.
+# All six are members of `apps/api/billing/models.UNIT_TYPES`, which is rendered
+# verbatim into `ck_usage_events_unit_type_enum` — a token spelled differently here is
+# refused by the database at settlement. `llm_ktok_in` / `llm_ktok_out` are this engine's
+# own (migration a3f1c6e82d47) rather than the rented engine's `llm_tok_in` / `llm_tok_out`,
+# because those carry a leg CHARGE at `qty = 1` and these carry a real token count.
 #
 # **PER THOUSAND TOKENS, AND THAT IS A MONEY DECISION.** `unit_cost_paid` is `NUMERIC(12,4)`
 # and every reader multiplies it by `qty`. `gpt-4o-mini` input lists at $0.15/Mtok, i.e.

@@ -452,6 +452,23 @@ def test_a_metered_row_carries_no_money_field() -> None:
     }
 
 
+def test_every_unit_the_meter_emits_is_one_the_ledger_accepts() -> None:
+    """The worker cannot import `apps.api`, so nothing but this pins its six tokens to the
+    CHECK constraint the settlement INSERT meets — where a mismatch fails the whole
+    settlement transaction, not one leg."""
+    from apps.api.billing.models import UNIT_TYPES
+
+    emitted = {
+        UNIT_TELEPHONY_S,
+        UNIT_PLATFORM_MIN,
+        UNIT_STT_S,
+        UNIT_TTS_KCHARS,
+        UNIT_LLM_KTOK_IN,
+        UNIT_LLM_KTOK_OUT,
+    }
+    assert emitted <= set(UNIT_TYPES)
+
+
 # --- an unreadable speech report is an absence, never a zero ----------------------------
 
 
