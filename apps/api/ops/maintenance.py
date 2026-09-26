@@ -497,7 +497,13 @@ async def amend_window(
     # ONE STATEMENT. The deadline is recomputed here rather than by a second UPDATE
     # because an extended drain bound with a stale deadline is a bound that does not
     # apply — and the two writes could interleave with the tick reading between them.
-    await session.execute(
+    #
+    # Every rule above was decided on a READ, and the tick moves windows on every worker
+    # process, so the write is a CAS on the state that read saw (BACKEND-PATTERNS §5): a
+    # window that began draining in between must not have its start moved. "Was it
+    # announced" is read from the row being written for the same reason — an advance
+    # notice claimed in that gap described the old time, and this change must re-open it.
+    changed = await session.execute(
         text(
             "UPDATE platform_maintenance_windows SET "
             "reason = COALESCE(:reason, reason), "
@@ -507,20 +513,27 @@ async def amend_window(
             "drain_deadline_at = CASE WHEN draining_since IS NULL THEN drain_deadline_at "
             "  ELSE draining_since + make_interval(mins => COALESCE(:drain, "
             "       max_drain_minutes)) END, "
-            "amended_notice_at = CASE WHEN :client_visible THEN NULL "
-            "  ELSE amended_notice_at END, "
+            "amended_notice_at = CASE WHEN :client_visible AND advance_notice_at IS NOT NULL "
+            "  THEN NULL ELSE amended_notice_at END, "
             "updated_at = now() "
-            "WHERE id = :id"
+            "WHERE id = :id AND state = :state"
         ),
         {
             "id": window_id,
+            "state": window.state,
             "reason": reason,
             "starts_at": starts_at,
             "ends_at": ends_at,
             "drain": max_drain_minutes,
-            "client_visible": client_visible and window.announced,
+            "client_visible": client_visible,
         },
     )
+    if rowcount_of(changed) == 0:
+        raise ProblemError.conflict(
+            "maintenance_window_changed",
+            "The window moved on while this change was being made, so it was not applied.",
+            remediation="Reload the window, check its state now, and make the change again.",
+        )
     return await read_window(session, window_id)
 
 

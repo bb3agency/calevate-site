@@ -111,7 +111,7 @@ _BIDI_CONTROLS: Final = frozenset(
 )
 
 
-def clean_business_name(raw: str) -> str:
+def clean_business_name(raw: str, *, field: str = "business_name") -> str:
     """The business name as it will be STORED, or an actionable refusal.
 
     `Field(min_length=2, max_length=120)` was the only thing in front of
@@ -138,24 +138,26 @@ def clean_business_name(raw: str) -> str:
     place: `min_length` on the raw string is a bound on what was typed, and what matters
     is what is left.
 
-    ⚠ THE ADMIN WIZARD DOES NOT USE THIS YET. `admin/service.create_organization` takes
-    `name` straight from `admin/routes.py`, which has the identical `Field` bound and the
-    identical three holes. That path is operator-only, so a stranger cannot reach it — but
-    it is the same defect and it wants the same call, at `admin/routes.py`'s intake model.
-    It is not done here only because another change is in flight in those files.
+    Both doors that write `organizations.name` call this — self-serve signup and the
+    operator wizard's create and edit routes (`admin/routes.py`) — and `field` names the
+    input in the refusal, because the two request bodies spell it differently.
     """
     name = " ".join(
         "".join(
             ch
             for ch in unicodedata.normalize("NFC", raw)
-            # `Cc` is the C0/C1 controls, NUL and CR/LF among them. `Cs` (surrogates) and
-            # `Co` (private use) are not text either. Whitespace survives this because
-            # SPACE and TAB are `Zs`/`Cc`-adjacent — TAB is `Cc` and is deliberately
-            # dropped, which is correct: the join below would have collapsed it anyway.
-            if ch not in _BIDI_CONTROLS and unicodedata.category(ch) not in ("Cc", "Cs", "Co")
+            # `Cc` is the C0/C1 controls, NUL among them. `Cs` (surrogates) and `Co`
+            # (private use) are not text either. WHITESPACE IS KEPT even where it is `Cc`
+            # (TAB, CR, LF): `split()` below turns it into one space, whereas dropping it
+            # here would glue the words either side of a pasted line break together.
+            if ch.isspace()
+            or (ch not in _BIDI_CONTROLS and unicodedata.category(ch) not in ("Cc", "Cs", "Co"))
         ).split()
     )
-    if 2 <= len(name) <= 120:
+    # The `Cf` characters `_BIDI_CONTROLS` lets through (ZWJ, ZWNJ) render nothing on
+    # their own, so a name made only of them is as invisible as one made of spaces.
+    visible = any(unicodedata.category(ch) != "Cf" for ch in name)
+    if visible and 2 <= len(name) <= 120:
         return name
     raise ProblemError(
         kind="validation",
@@ -167,7 +169,7 @@ def clean_business_name(raw: str) -> str:
         ),
         fields=[
             {
-                "field": "business_name",
+                "field": field,
                 "rule": "length",
                 "message": "2-120 characters of ordinary text",
             }

@@ -292,6 +292,12 @@ async def confirm_bootstrap(
     `auth.service.ts:996`. A bootstrap token naming an `admin_users` row that has since
     been deleted must be a clean refusal, not a driver error.
 
+    THE BURN AND THE PASSWORD SHARE ONE TRANSACTION, as they do in
+    `service.confirm_password_reset`: a password `authn/policy.py` refuses rolls the burn
+    back, so the operator told to choose another password can do so with the same link. On
+    a bare deployment there is nobody in the console to send a second one. The refusals
+    about the TOKEN itself are raised after the transaction commits, so those burns stand.
+
     IT ALSO REFUSES AN ACCOUNT THAT ALREADY HAS A PASSWORD, which the reset path does not
     need to. That is what makes this endpoint unable to act as an unaudited password reset
     for an established operator: a leaked bootstrap token from a completed deploy opens
@@ -302,60 +308,70 @@ async def confirm_bootstrap(
     bootstrap, and a rule that holds only sometimes is a rule somebody will remove.
     """
     at = now or datetime.now(UTC)
+    refusal: str | None = None
+    admin_id: UUID | None = None
     async with credential_session() as session:
         redeemed = await tokens.redeem_token(
             session, purpose="admin_bootstrap", token=token, now=at
         )
-    if redeemed is None or redeemed.subject_id is None or redeemed.realm != ADMIN_REALM:
+        if redeemed is not None and redeemed.realm == ADMIN_REALM:
+            admin_id = redeemed.subject_id
+        if admin_id is not None:
+            async with untenanted_session() as lookup:
+                row = (
+                    await lookup.execute(
+                        # LIVE only: a link that outlived its account must be refused, and
+                        # after migration f2c74b81a9d3 "gone" includes "revoked". Belt and
+                        # braces — `revoke_operator` burns every outstanding
+                        # `admin_bootstrap` token in the same transaction, so a live token
+                        # for a revoked operator should not exist — but this is the
+                        # statement that decides whether a password is installed, and it
+                        # should not depend on another function's completeness. The
+                        # address comes back with the liveness check rather than from a
+                        # second read: `authn/policy.py`'s blocklist refuses a password
+                        # that is nothing but a decorated form of the operator's own
+                        # address. It is used for that comparison and is never logged
+                        # (hard rule 6).
+                        text(
+                            "SELECT email FROM admin_users "
+                            "WHERE id = :id AND deactivated_at IS NULL"
+                        ),
+                        {"id": admin_id},
+                    )
+                ).first()
+            has_credential = (
+                await session.execute(
+                    text(
+                        "SELECT 1 FROM auth_credentials WHERE realm = :realm AND subject_id = :sub"
+                    ),
+                    {"realm": ADMIN_REALM, "sub": admin_id},
+                )
+            ).first()
+            if row is None:
+                refusal = "admin_bootstrap_subject_missing"
+            elif has_credential is not None:
+                # See the docstring: this endpoint sets a FIRST password and nothing else.
+                refusal = "admin_bootstrap_already_has_password"
+            else:
+                await set_password(
+                    session,
+                    realm=ADMIN_REALM,
+                    subject_id=admin_id,
+                    password=password,
+                    # See `authn/policy.py`: the operator's own address is context an
+                    # attacker guesses first. It is the address the bootstrap link was
+                    # issued to and is already proved by possession of that link.
+                    email=str(row[0]) if row[0] is not None else None,
+                    now=at,
+                )
+                await revoke_subject_sessions(
+                    session, realm=ADMIN_REALM, subject_id=admin_id, now=at
+                )
+    if admin_id is None:
         raise _bad_bootstrap_token()
-    admin_id = redeemed.subject_id
-
-    async with untenanted_session() as session:
-        row = (
-            await session.execute(
-                # LIVE only: a link that outlived its account must be refused, and after
-                # migration f2c74b81a9d3 "gone" includes "revoked". Belt and braces —
-                # `revoke_operator` burns every outstanding `admin_bootstrap` token in the
-                # same transaction, so a live token for a revoked operator should not
-                # exist — but this is the statement that decides whether a password is
-                # installed, and it should not depend on another function's completeness.
-                # The address comes back with the liveness check rather than from a second
-                # read: `authn/policy.py`'s blocklist refuses a password that is nothing
-                # but a decorated form of the operator's own address, and one round trip
-                # already has the row open. It is used for that comparison and is never
-                # logged (hard rule 6).
-                text("SELECT email FROM admin_users WHERE id = :id AND deactivated_at IS NULL"),
-                {"id": admin_id},
-            )
-        ).first()
-    if row is None:
-        log.warning("admin_bootstrap_subject_missing", extra={"admin_id": str(admin_id)})
+    if refusal is not None:
+        log.warning(refusal, extra={"admin_id": str(admin_id)})
         raise _bad_bootstrap_token()
-    admin_email = str(row[0]) if row[0] is not None else None
-
-    async with credential_session() as session:
-        has_credential = (
-            await session.execute(
-                text("SELECT 1 FROM auth_credentials WHERE realm = :realm AND subject_id = :sub"),
-                {"realm": ADMIN_REALM, "sub": admin_id},
-            )
-        ).first()
-        if has_credential is not None:
-            # See the docstring: this endpoint sets a FIRST password and nothing else.
-            log.warning("admin_bootstrap_already_has_password", extra={"admin_id": str(admin_id)})
-            raise _bad_bootstrap_token()
-        await set_password(
-            session,
-            realm=ADMIN_REALM,
-            subject_id=admin_id,
-            password=password,
-            # See `authn/policy.py`: the operator's own address is context an attacker
-            # guesses first. `admin_email` is the address the bootstrap link was issued
-            # to and is already proved by possession of that link.
-            email=admin_email,
-            now=at,
-        )
-        await revoke_subject_sessions(session, realm=ADMIN_REALM, subject_id=admin_id, now=at)
 
     async with untenanted_session() as session:
         await write_audit(

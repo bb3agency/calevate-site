@@ -63,6 +63,7 @@ from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
+from apps.api.tenancy.signup import clean_business_name
 from apps.workers.account_closure import NOTICE_JOB, enqueue_notice_address_changed
 
 log = get_logger(__name__)
@@ -596,7 +597,10 @@ async def edit_tenant(
     changes = {
         field: value
         for field, value in (
-            ("name", payload.name),
+            (
+                "name",
+                None if payload.name is None else clean_business_name(payload.name, field="name"),
+            ),
             ("billing_email", payload.billing_email),
             ("vertical_template", payload.vertical_template),
         )
@@ -756,7 +760,8 @@ async def create_tenant(
     # `derive_slug` REFUSES rather than inventing one when the name yields no ASCII —
     # which on a Telugu-first product is the ordinary case, not an edge one. See it for
     # what the old constant fallback did to the second client with a Telugu name.
-    slug = payload.slug or service.derive_slug(payload.name)
+    name = clean_business_name(payload.name, field="name")
+    slug = payload.slug or service.derive_slug(name)
 
     async def _audit(scoped: AsyncSession, tenant_id: UUID) -> None:
         await write_audit(
@@ -771,7 +776,7 @@ async def create_tenant(
         )
 
     created = await service.create_organization(
-        name=payload.name,
+        name=name,
         slug=slug,
         vertical_template=payload.vertical_template,
         billing_email=str(payload.billing_email) if payload.billing_email else None,

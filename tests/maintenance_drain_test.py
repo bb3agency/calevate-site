@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
+from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status, set_platform_status
 from apps.api.db.session import untenanted_session
 from apps.api.ops.maintenance import (
@@ -304,6 +306,53 @@ async def test_a_window_that_has_begun_is_never_rescheduled() -> None:
                 session, window_id=window_id, ends_at=datetime.now(UTC) + timedelta(hours=9)
             )
         assert extended.state == "draining"
+    finally:
+        await _clear_windows()
+
+
+async def test_a_drain_that_lands_between_the_read_and_the_write_is_not_rescheduled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rule above, under the race the tick makes possible.
+
+    `amend_window` decides on a READ of the state and then writes. The tick runs on every
+    worker process and may move the window to `draining` in that gap; the write must then
+    refuse rather than move the start of a window whose campaigns are already paused.
+    Driven by handing `amend_window` the snapshot it would have read a moment earlier.
+    """
+    from apps.api.ops import maintenance
+
+    window_id = await _schedule()
+    try:
+        async with untenanted_session() as session:
+            stale = await read_window(session, window_id)
+        async with untenanted_session() as session:
+            assert await begin_drain(session, window_id=window_id, max_drain_minutes=15)
+
+        real_read = maintenance.read_window
+        reads = 0
+
+        async def _read_before_the_tick(session: Any, wid: uuid.UUID) -> Any:
+            nonlocal reads
+            reads += 1
+            return stale if reads == 1 else await real_read(session, wid)
+
+        monkeypatch.setattr(maintenance, "read_window", _read_before_the_tick)
+        moved_to = datetime.now(UTC) + timedelta(hours=3)
+        async with untenanted_session() as session:
+            with pytest.raises(ProblemError) as refused:
+                await maintenance.amend_window(
+                    session,
+                    window_id=window_id,
+                    starts_at=moved_to,
+                    ends_at=moved_to + timedelta(hours=1),
+                )
+        assert refused.value.code == "maintenance_window_changed"
+        monkeypatch.setattr(maintenance, "read_window", real_read)
+        async with untenanted_session() as session:
+            after = await read_window(session, window_id)
+        assert after.state == "draining"
+        assert after.starts_at == stale.starts_at, "the start of a begun window was moved"
     finally:
         await _clear_windows()
 
