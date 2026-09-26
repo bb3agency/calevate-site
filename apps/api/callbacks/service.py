@@ -319,8 +319,12 @@ async def claim_due(
                 "  AND (next_attempt_at IS NULL OR next_attempt_at <= :now) "
                 "  ORDER BY requested_at, id LIMIT :n FOR UPDATE SKIP LOCKED"
                 ") "
+                # The refusal that deferred the last attempt is cleared: it is what the
+                # client's screen explains a row with, and from here the row is either
+                # dialled or refused afresh (`defer`/`settle` write the new reason).
                 "UPDATE scheduled_callbacks s SET status = 'dialing', "
-                "  attempts = s.attempts + 1, updated_at = now() "
+                "  attempts = s.attempts + 1, last_refusal_rule = NULL, "
+                "  last_refusal_reason = NULL, updated_at = now() "
                 "FROM picked WHERE s.id = picked.id "
                 "RETURNING s.id, s.agent_id, s.lead_id, s.phone_e164, s.requested_at, s.note"
             ),
