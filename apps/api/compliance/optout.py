@@ -52,10 +52,12 @@ because the regulatory half is the part that is not recoverable if wrong.
   (`compliance/consent.py` makes the same point about grants). So this row is the
   TM-side suppression plus the evidence of the request; it is honest about being that
   and nothing more.
-* **The complaint clock is 7 days** (2025 amendment, up from 3), and 5+ complaints in a
-  rolling 10 days puts the CLIENT's registration at risk (SEC-COMP §1). That is the
-  practical cost of a missed opt-out and the reason the failure direction below is
-  chosen the way it is.
+* **The complaint clock is 7 days** (2025 amendment, up from 3), and 3 complaints in a
+  rolling 10 days, combined with an operator AI flag, can now trigger action against the
+  CLIENT as sender (TCCCPR Third Amendment, 18 Sep 2026; REPORTED,
+  `docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md` row 6). That is the practical
+  cost of a missed opt-out and the reason the failure direction below is chosen the way
+  it is.
 
 Sources: TRAI TCCCPR 2018 (Reg. 6 preference/effect timing; Reg. 17 sender obligations)
 and the TCCCPR Second Amendment dated 12 Feb 2025, gazette PDFs linked above; PIB press

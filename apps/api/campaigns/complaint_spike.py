@@ -24,14 +24,14 @@ the runbook says so plainly so nobody reads "5 opt-outs" as "5 complaints".
 
 THE THREE NUMBERS, EACH ARGUED
 -------------------------------
-* **`MIN_OPTOUTS = 5`** is TRAI's own number, used deliberately as a CEILING rather than
-  a target: five unique complaints in ten days is what obliges a TSP to suspend the
-  client's outgoing service (TCCCPR Second Amendment, in force 12 Feb 2025 — the
-  threshold was tightened from ten-in-seven to five-in-ten;
-  https://www.pib.gov.in/PressReleasePage.aspx?PRID=2102413). Five people who asked this
-  campaign to stop is therefore the first count that is provably the same order of
-  magnitude as the number that ends the client's ability to dial at all. Under five, on
-  any list, is noise.
+* **`MIN_OPTOUTS = 3`** is TRAI's own number, used deliberately as a CEILING rather than
+  a target. The TCCCPR Third Amendment (18 Sep 2026) lets three unique complaints in ten
+  days, combined with an operator AI flag on the CLI, trigger action against the sender;
+  it was five under the Second Amendment (in force 12 Feb 2025,
+  https://www.pib.gov.in/PressReleasePage.aspx?PRID=2102413). The Third Amendment figure
+  is REPORTED, an access provider's summary of TRAI press release No. 119/2026
+  (`docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md` row 6). We cannot see the
+  AI flag, so the count is matched and the flag is assumed.
 * **`RATE = 0.10`** is what keeps the count honest on a big campaign, where five opt-outs
   in a thousand conversations is a good list rather than a bad one. The reference point:
   a measured 10,794-call cold outbound study reports 4.1% of calls ending in a
@@ -46,6 +46,16 @@ THE THREE NUMBERS, EACH ARGUED
   would mean a campaign that had one bad morning could never be resumed, and the
   alternative in the other direction (an hour) is short enough that a slow campaign never
   accumulates five of anything.
+
+PER CAMPAIGN AND PER SENDER, BOTH. The regulator now aggregates flags and complaints per
+SENDER, the client, across every CLI it uses, so a client running five campaigns that each
+lose two callers a day is past the trigger while no single campaign is. The second
+measurement is therefore the whole account's outbound calls over `SENDER_WINDOW_DAYS`, the
+regulator's own window, and when it trips every running campaign of that client pauses on
+its own next tick, because each asks the same question and gets the same answer. It
+counts all outbound calls, not only campaigns, since a complaint about an instant lead
+call is a complaint against the same sender. It clears only as the ten days roll, which is
+as long as the exposure lasts.
 
 BOTH CONDITIONS, NOT EITHER. Count alone pages a large healthy campaign; rate alone pages
 a campaign that dialled four people and lost one. The pair is the standard shape for
@@ -69,6 +79,7 @@ a person or us.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -83,12 +94,14 @@ from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
 
-#: See the module docstring: TRAI's suspension threshold, used as a ceiling.
-MIN_OPTOUTS = 5
+#: See the module docstring: TRAI's complaint trigger, used as a ceiling.
+MIN_OPTOUTS = 3
 #: Opt-outs per connected call. 0.10 against a 4.1% cold-calling benchmark.
 RATE = 0.10
-#: One calling day.
+#: One calling day, for one campaign.
 WINDOW_HOURS = 24
+#: The regulator's window, for the sender as a whole.
+SENDER_WINDOW_DAYS = 10
 
 #: The blocker name this refusal is counted under, so `compliance_blocks{rule=...}` can
 #: answer "why did this campaign stop" the way `runbooks/campaign-stall.md` §8 promises
@@ -114,6 +127,18 @@ _WINDOW_SQL = text(
     "AND coalesce(c.started_at, c.created_at) >= now() - make_interval(hours => :hours)"
 )
 
+#: The same measurement over the whole account's OUTBOUND calls. Under RLS like the one
+#: above, so "the whole account" is this tenant and nobody else.
+_SENDER_WINDOW_SQL = text(
+    "SELECT count(*) AS connected, count(*) FILTER (WHERE EXISTS ("
+    "  SELECT 1 FROM consent_ledger cl WHERE cl.call_id = c.id "
+    "  AND cl.status = 'withdrawn' AND cl.purpose = :purpose)) AS optouts "
+    "FROM calls c WHERE c.direction = 'outbound' AND c.status = 'completed' "
+    "AND coalesce(c.started_at, c.created_at) >= now() - make_interval(days => :days)"
+)
+
+SpikeScope = Literal["campaign", "sender"]
+
 
 @dataclass(frozen=True, slots=True)
 class ComplaintSpike:
@@ -123,6 +148,7 @@ class ComplaintSpike:
     optouts: int
     connected: int
     paused: bool
+    scope: SpikeScope = "campaign"
 
 
 async def check_complaint_spike(
@@ -135,21 +161,25 @@ async def check_complaint_spike(
     blocks every contact of this campaign identically costs no attempts and needs no
     compensating refund if it is asked before the claim rather than after it.
     """
-    row = (
+    campaign_row = (
         await session.execute(
             _WINDOW_SQL,
             {"cid": campaign_id, "purpose": OPTOUT_PURPOSE, "hours": WINDOW_HOURS},
         )
     ).one()
-    connected, optouts = int(row[0]), int(row[1])
-    if optouts < MIN_OPTOUTS:
-        return None
-    # `connected` cannot be zero here: an opt-out is recorded against a call, and the
-    # count above only sees completed ones. The guard is still written, because a future
-    # detector attaching an opt-out to a call we never marked completed would otherwise
-    # divide by zero inside the one check that is supposed to stop a campaign.
-    if connected <= 0 or (optouts / connected) < RATE:
-        return None
+    scope: SpikeScope = "campaign"
+    connected, optouts = int(campaign_row[0]), int(campaign_row[1])
+    if not _spiked(optouts=optouts, connected=connected):
+        sender_row = (
+            await session.execute(
+                _SENDER_WINDOW_SQL, {"purpose": OPTOUT_PURPOSE, "days": SENDER_WINDOW_DAYS}
+            )
+        ).one()
+        scope = "sender"
+        connected, optouts = int(sender_row[0]), int(sender_row[1])
+        if not _spiked(optouts=optouts, connected=connected):
+            return None
+    window = f"{WINDOW_HOURS}h" if scope == "campaign" else f"{SENDER_WINDOW_DAYS}d"
 
     record_compliance_block(rule=BLOCK_RULE)
     try:
@@ -179,9 +209,10 @@ async def check_complaint_spike(
             # would make the tamper-evident chain unverifiable.
             summary={
                 "reason": BLOCK_RULE,
+                "scope": scope,
                 "optouts": optouts,
                 "connected": connected,
-                "window_hours": WINDOW_HOURS,
+                "window": window,
             },
         )
 
@@ -191,9 +222,14 @@ async def check_complaint_spike(
         "CORE_LOGIC",
         "campaign_complaint_spike",
         detail=(
-            f"{optouts} of {connected} connected calls ended in an opt-out in the last "
-            f"{WINDOW_HOURS}h (threshold: {MIN_OPTOUTS} and {RATE:.0%}); "
-            + ("campaign paused" if paused else "campaign was already stopped")
+            f"{optouts} of {connected} connected "
+            + (
+                "calls on this campaign"
+                if scope == "campaign"
+                else "outbound calls on this account"
+            )
+            + f" ended in an opt-out in the last {window} (threshold: {MIN_OPTOUTS} and "
+            f"{RATE:.0%}); " + ("campaign paused" if paused else "campaign was already stopped")
         ),
         tenant_id=str(tenant_id),
         campaign_id=str(campaign_id),
@@ -205,16 +241,31 @@ async def check_complaint_spike(
             "optouts": optouts,
             "connected": connected,
             "paused": paused,
+            "scope": scope,
         },
     )
-    return ComplaintSpike(optouts=optouts, connected=connected, paused=paused)
+    return ComplaintSpike(optouts=optouts, connected=connected, paused=paused, scope=scope)
+
+
+def _spiked(*, optouts: int, connected: int) -> bool:
+    """Both conditions: enough opt-outs to matter, and too many for the calls they came from.
+
+    `connected` cannot be zero when `optouts` is positive, since an opt-out is recorded
+    against a completed call; the guard is kept so a future detector attaching one to an
+    uncompleted call cannot divide by zero in the check meant to stop dialling.
+    """
+    if optouts < MIN_OPTOUTS or connected <= 0:
+        return False
+    return optouts / connected >= RATE
 
 
 __all__ = [
     "BLOCK_RULE",
     "MIN_OPTOUTS",
     "RATE",
+    "SENDER_WINDOW_DAYS",
     "WINDOW_HOURS",
     "ComplaintSpike",
+    "SpikeScope",
     "check_complaint_spike",
 ]

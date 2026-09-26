@@ -299,12 +299,13 @@ async def test_the_alert_carries_ids_and_counts_and_never_a_number(alerts: _Aler
     assert not any(phone in value for phone in numbers for value in ids.values())
 
 
-async def test_four_opt_outs_out_of_four_is_not_a_spike(alerts: _Alerts) -> None:
-    """Below the COUNT. Four people on a four-contact campaign is 100% and still not the
-    order of magnitude TCCCPR's suspension threshold sits at — and pausing there would
-    stop campaigns for a reason nobody could defend to a client."""
+async def test_one_short_of_the_count_is_not_a_spike(alerts: _Alerts) -> None:
+    """Below the COUNT. Every caller on a tiny campaign opting out is 100% and still under
+    the complaint trigger, and pausing there would stop campaigns for a reason nobody
+    could defend to a client."""
     tenant_id, agent_id, campaign_id = await _running_campaign()
-    calls = await _connected_calls(tenant_id, agent_id, campaign_id, count=4)
+    below = complaint_spike.MIN_OPTOUTS - 1
+    calls = await _connected_calls(tenant_id, agent_id, campaign_id, count=below)
     await _opt_out(tenant_id, calls)
 
     assert await _check(tenant_id, campaign_id) is None
@@ -325,23 +326,111 @@ async def test_five_opt_outs_in_two_hundred_calls_is_not_a_spike(alerts: _Alerts
     assert await _status(tenant_id, campaign_id) == "running"
 
 
-async def test_opt_outs_older_than_the_window_do_not_count(alerts: _Alerts) -> None:
-    """The window is one calling day, so a campaign that had a bad Tuesday can dial on
-    Wednesday. Without it a single bad morning would pause a campaign forever."""
-    tenant_id, agent_id, campaign_id = await _running_campaign()
-    calls = await _connected_calls(tenant_id, agent_id, campaign_id, count=10)
-    await _opt_out(tenant_id, calls[: complaint_spike.MIN_OPTOUTS])
+async def _backdate(tenant_id: uuid.UUID, campaign_id: uuid.UUID, *, hours: int) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE calls SET started_at = now() - make_interval(hours => :h), "
                 "created_at = now() - make_interval(hours => :h) WHERE campaign_id = :c"
             ),
-            {"h": complaint_spike.WINDOW_HOURS + 1, "c": campaign_id},
+            {"h": hours, "c": campaign_id},
         )
+
+
+async def test_a_bad_day_past_the_campaign_window_still_pauses_as_the_sender(
+    alerts: _Alerts,
+) -> None:
+    """The campaign's own window is one calling day, but the regulator counts ten days
+    against the sender, so yesterday's opt-outs still hold the account's exposure."""
+    tenant_id, agent_id, campaign_id = await _running_campaign()
+    calls = await _connected_calls(tenant_id, agent_id, campaign_id, count=10)
+    await _opt_out(tenant_id, calls[: complaint_spike.MIN_OPTOUTS])
+    await _backdate(tenant_id, campaign_id, hours=complaint_spike.WINDOW_HOURS + 1)
+
+    spike = await _check(tenant_id, campaign_id)
+
+    assert spike is not None and spike.scope == "sender"
+    assert await _status(tenant_id, campaign_id) == "paused"
+
+
+async def test_opt_outs_older_than_the_sender_window_do_not_count(alerts: _Alerts) -> None:
+    """Past the regulator's ten days the exposure is gone, so a campaign can dial again."""
+    tenant_id, agent_id, campaign_id = await _running_campaign()
+    calls = await _connected_calls(tenant_id, agent_id, campaign_id, count=10)
+    await _opt_out(tenant_id, calls[: complaint_spike.MIN_OPTOUTS])
+    await _backdate(tenant_id, campaign_id, hours=complaint_spike.SENDER_WINDOW_DAYS * 24 + 1)
 
     assert await _check(tenant_id, campaign_id) is None
     assert alerts.codes() == []
+    assert await _status(tenant_id, campaign_id) == "running"
+
+
+async def _another_running_campaign(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID:
+    async with tenant_session(tenant_id) as session:
+        campaign_id = await campaigns.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Spike test, second list",
+            classification="promotional",
+            number_id=None,
+            dlt_template_id=None,
+            concurrency=3,
+            consent_source="existing_customer",
+            consent_collected_at=datetime.now(UTC) - timedelta(days=7),
+        )
+        await campaigns.set_campaign_status(
+            session, campaign_id=campaign_id, to_status="running", from_statuses=("draft",)
+        )
+    return campaign_id
+
+
+async def test_a_spike_spread_across_campaigns_pauses_every_campaign(alerts: _Alerts) -> None:
+    """The case the per-campaign window cannot see: each list stays under the count, the
+    sender does not. Flags and complaints now aggregate per sender, so spreading the
+    dialling across campaigns must not reset the measurement."""
+    tenant_id, agent_id, first = await _running_campaign()
+    second = await _another_running_campaign(tenant_id, agent_id)
+    each = complaint_spike.MIN_OPTOUTS - 1
+    for campaign_id in (first, second):
+        calls = await _connected_calls(tenant_id, agent_id, campaign_id, count=each)
+        await _opt_out(tenant_id, calls)
+
+    for campaign_id in (first, second):
+        spike = await _check(tenant_id, campaign_id)
+        assert spike is not None and spike.scope == "sender"
+        assert await _status(tenant_id, campaign_id) == "paused"
+
+
+async def test_inbound_opt_outs_do_not_count_against_the_sender(alerts: _Alerts) -> None:
+    """A caller who rang the business and said not to call them back is a preference, not
+    a complaint about calls the business placed, and inbound is not commercial
+    communication."""
+    tenant_id, agent_id, campaign_id = await _running_campaign()
+    inbound: list[tuple[uuid.UUID, str]] = []
+    async with tenant_session(tenant_id) as session:
+        for _ in range(complaint_spike.MIN_OPTOUTS + 2):
+            call_id = uuid7()
+            phone = f"+9198{uuid.uuid4().int % 10**8:08d}"
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, from_e164, started_at, ended_at, created_at, updated_at) VALUES "
+                    "(:id, :tid, :aid, :ref, 'inbound', 'completed', :frm, now(), now(), "
+                    "now(), now())"
+                ),
+                {
+                    "id": call_id,
+                    "tid": tenant_id,
+                    "aid": agent_id,
+                    "ref": f"exec_{uuid.uuid4().hex}",
+                    "frm": phone,
+                },
+            )
+            inbound.append((call_id, phone))
+    await _opt_out(tenant_id, inbound)
+
+    assert await _check(tenant_id, campaign_id) is None
     assert await _status(tenant_id, campaign_id) == "running"
 
 
