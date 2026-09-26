@@ -197,12 +197,12 @@ class HttpEventSink:
         #: Turns waiting to be sent. RAW, because redaction is the server's now — which also
         #: means this buffer holds exactly what the wire will carry and nothing derived.
         self._pending: list[TranscriptTurn] = []
-        #: Call events waiting to go with them. Buffered TOO, and that is new: over SQL a
-        #: lifecycle event was one statement and there was no reason to hold it, but over
-        #: HTTP an unbuffered event is a whole round trip for a status nobody is waiting on.
-        #: A TERMINAL event forces the flush (see `on_call_event`), so the one status that
-        #: matters is never held.
+        #: Call events waiting to go with them. Buffered too, because over HTTP an unbuffered
+        #: event is a whole round trip. The FIRST event and a TERMINAL event force the flush (see `on_call_event`).
         self._events: list[CallEvent] = []
+        #: Whether the server has accepted a batch for this call, i.e. whether the `calls`
+        #: row exists. Until it does, every event flushes at once.
+        self._opened = False
         #: WHAT THIS CALL'S KNOWLEDGE TURNED OUT TO BE, waiting for the next batch to carry
         #: it. Set once, cleared once it has been accepted, `None` either side of that.
         self._knowledge: KnowledgeReport | None = None
@@ -225,12 +225,16 @@ class HttpEventSink:
     async def on_call_event(self, event: CallEvent) -> None:
         """One lifecycle event. Status only ever moves forward, and the server enforces it.
 
-        **A TERMINAL EVENT FLUSHES IMMEDIATELY AND THE REST DO NOT.** `is_terminal` is the
-        one status a reader outside this container acts on: `admin/health.py` stops the board
-        for a call stuck at `in_progress`, and the post-call pipeline waits on the row. An
-        opening status held for ten seconds costs nothing; a terminal one held for ten
-        seconds is a call that looks live after the caller hung up, and a container replaced
-        in those ten seconds leaves it that way for ever.
+        **THE OPENING EVENT AND A TERMINAL EVENT FLUSH IMMEDIATELY; THE REST DO NOT.**
+        The opening one because it mints the `calls` row, and the four in-call tools resolve
+        their call by that row and answer 404 without it — held in the buffer, a caller who
+        asked not to be called again in their first turn reached a tool that could not find
+        the call. It costs one round trip per call, in an event-handler task and not on the
+        audio path. `is_terminal` because it is the one status a reader outside this
+        container acts on: `admin/health.py` stops the board for a call stuck at
+        `in_progress`, and the post-call pipeline waits on the row. A terminal status held for
+        ten seconds is a call that looks live after the caller hung up, and a container
+        replaced in those ten seconds leaves it that way for ever.
         """
         self._check_identity(
             call_id=event.call_id, tenant_id=event.tenant_id, agent_id=event.agent_id
@@ -240,7 +244,7 @@ class HttpEventSink:
         async with self._lock:
             self._events.append(event)
             self._start_flusher()
-            if event.is_terminal or len(self._pending) >= self._batch_size:
+            if event.is_terminal or not self._opened or len(self._pending) >= self._batch_size:
                 await self._flush_locked()
         logger.info(
             "call event recorded",
@@ -333,6 +337,7 @@ class HttpEventSink:
             knowledge=self._knowledge,
         )
         answer = await self._api.post_observations(self._engine_call_id, batch)
+        self._opened = True
         sent = len(batch.turns)
         del self._pending[:sent]
         del self._events[: len(batch.events)]
