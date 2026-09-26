@@ -29,6 +29,7 @@ from apps.api.agents.config_versions import (
     prompt_digest,
     record_attestation,
 )
+from apps.api.agents.verification import judge
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
@@ -138,15 +139,7 @@ def _config(
     )
 
 
-async def _attest_as_worker(
-    tenant_id: uuid.UUID, agent_id: uuid.UUID, cfg: AgentConfig, *, digest: str | None = None
-) -> None:
-    """Play the worker: recompute the prompt digest and write what it loaded.
-
-    `digest` overrides it, which is the only way the disagreement branch is reachable — a
-    worker that always recomputes correctly can never produce the finding the whole
-    arrangement exists to catch.
-    """
+async def _latest_version(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         version = (
             await session.execute(
@@ -157,12 +150,32 @@ async def _attest_as_worker(
                 {"aid": agent_id},
             )
         ).first()
-        assert version is not None, "the publish minted no config version"
+    assert version is not None, "the publish minted no config version"
+    return uuid.UUID(str(version[0]))
+
+
+async def _attest_as_worker(
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    cfg: AgentConfig,
+    *,
+    digest: str | None = None,
+    version_id: uuid.UUID | None = None,
+) -> None:
+    """Play the worker: recompute the prompt digest and write what it loaded.
+
+    `digest` overrides it, which is the only way the disagreement branch is reachable — a
+    worker that always recomputes correctly can never produce the finding the whole
+    arrangement exists to catch. `version_id` names the version the worker loaded; by
+    default the latest one published.
+    """
+    loaded = version_id or await _latest_version(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
         await record_attestation(
             session,
             tenant_id,
             agent_id=agent_id,
-            agent_config_version_id=version[0],
+            agent_config_version_id=loaded,
             prompt_sha256=digest if digest is not None else prompt_digest(cfg),
         )
 
@@ -252,13 +265,15 @@ async def test_a_worker_running_something_else_is_reported_as_unreadable() -> No
     assert attestation.matches is False, "the mismatch must survive as evidence in the row"
 
 
-async def test_an_update_the_worker_has_not_picked_up_is_visible_as_a_disagreement() -> None:
-    """A worker on the PREVIOUS version is the ordinary case of the same finding.
+async def test_an_attestation_from_before_a_republish_is_not_evidence_about_it() -> None:
+    """Every session reads the published config afresh, so a worker that attested the OLD
+    version BEFORE the republish says nothing about whether the new one will run.
 
-    It attested faithfully — its digest matches the version it loaded — so the read-back is
-    readable and carries the OLD script, which is exactly what a caller needs to see: the
-    update was accepted and is not yet applied. That distinction is the one thing a 2xx
-    could never give us and the reason `get_agent` exists at all.
+    Reporting its old script as "what the engine holds" made `verification.judge` score
+    every prompt-changing republish of an agent that had taken one call `not_applied`, and
+    `agents/service.publish_agent` rolls a `not_applied` publish back — the agent could
+    never be edited again. The honest answer is the never-dialled one: nobody has confirmed
+    the current version yet.
     """
     tenant_id, agent_id = await _org()
     engine = PipecatEngine()
@@ -266,14 +281,49 @@ async def test_an_update_the_worker_has_not_picked_up_is_visible_as_a_disagreeme
 
     ref = await engine.create_agent(first)
     await _attest_as_worker(tenant_id, agent_id, first)
-    await engine.update_agent(ref, _config(tenant_id, agent_id, system_prompt="marker-new"))
+    second = _config(tenant_id, agent_id, system_prompt="marker-new")
+    await engine.update_agent(ref, second)
+
+    snapshot = await engine.get_agent(ref)
+    assert snapshot.system_prompt_readable is False
+    assert snapshot.carries_prompt_marker("marker-old") is None
+    assert judge(engine, second, snapshot).state == "unreadable"
+
+
+async def test_a_worker_that_loaded_the_old_version_after_a_republish_is_a_disagreement() -> None:
+    """THE STALE WORKER, which is the finding the witness exists for: a session that read
+    the previous version AFTER the new one was published is running something other than
+    what we published, and its faithful attestation of the old script says so."""
+    tenant_id, agent_id = await _org()
+    engine = PipecatEngine()
+    first = _config(tenant_id, agent_id, system_prompt="Receptionist. marker-old")
+
+    ref = await engine.create_agent(first)
+    old_version = await _latest_version(tenant_id, agent_id)
+    second = _config(tenant_id, agent_id, system_prompt="marker-new")
+    await engine.update_agent(ref, second)
+    await _attest_as_worker(tenant_id, agent_id, first, version_id=old_version)
 
     snapshot = await engine.get_agent(ref)
     assert snapshot.carries_prompt_marker("marker-old") is True
-    assert snapshot.carries_prompt_marker("marker-new") is False, (
-        "the read-back reported the version the control plane published rather than the "
-        "one the worker attested — the vendor read-back's defect, rebuilt without a vendor"
-    )
+    assert snapshot.carries_prompt_marker("marker-new") is False
+    assert judge(engine, second, snapshot).state == "not_applied"
+
+
+async def test_the_current_version_attested_reads_back_as_applied_after_a_republish() -> None:
+    tenant_id, agent_id = await _org()
+    engine = PipecatEngine()
+    first = _config(tenant_id, agent_id, system_prompt="Receptionist. marker-old")
+
+    ref = await engine.create_agent(first)
+    await _attest_as_worker(tenant_id, agent_id, first)
+    second = _config(tenant_id, agent_id, system_prompt="marker-new")
+    await engine.update_agent(ref, second)
+    await _attest_as_worker(tenant_id, agent_id, second)
+
+    snapshot = await engine.get_agent(ref)
+    assert snapshot.carries_prompt_marker("marker-new") is True
+    assert judge(engine, second, snapshot).state == "applied"
 
 
 # --- the SQL control plane -----------------------------------------------------
