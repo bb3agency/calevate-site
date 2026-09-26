@@ -1773,11 +1773,12 @@ def assist_unavailable(
 class AssistResult:
     """One user-triggered assist: what came back, who wrote it, and what it cost.
 
-    `usage` is non-None only for an AZURE answer that Azure counted — the leg that spends
+    `usage` is non-None only for AZURE tokens that Azure counted — the leg that spends
     Calevate's rupees and the only one `record_ai_assist_usage` (D-137) has units for. A
-    Sarvam fallback leaves it None because D-36 prices that leg at zero, and an Azure
-    answer whose `usage` block did not arrive leaves it None because "we do not know" and
-    "it was free" must not meter the same.
+    Sarvam fallback adds nothing because D-36 prices that leg at zero, but it CARRIES the
+    Azure turn that failed in front of it when that turn was answered and billed (a
+    truncated reply). An Azure answer whose `usage` block did not arrive leaves it None
+    because "we do not know" and "it was free" must not meter the same.
     """
 
     output: ExtractionOutput
@@ -1853,6 +1854,11 @@ async def run_assist(
     if not capability.available:
         raise assist_unavailable(capability)
 
+    # What an Azure turn that did not produce the answer still cost. A truncated reply is
+    # refused as an ANSWER and was billed as a request (`AzureOpenAIExtractor.run` records
+    # `last_usage` before raising for exactly this), so it rides the fallback's result to
+    # the meter. The Sarvam leg itself adds nothing (D-36).
+    spent: TokenUsage | None = None
     if capability.provider == AZURE_PROVIDER:
         # `azure_extractor()` rather than a second assembly of the same four settings: it
         # is the ONE constructor, and the branch that used to build the adapter inline
@@ -1882,6 +1888,7 @@ async def run_assist(
                 "assist_provider_failed",
                 extra={"model": extractor.model_name, "error": failure},
             )
+            spent = extractor.last_usage
         # `quota_exhausted` is re-stated rather than dropped: it cannot be True here
         # today (the ladder blocks on it first, so this branch is unreachable with it
         # set), and a re-ask that silently forgot an input would become wrong the moment
@@ -1908,7 +1915,7 @@ async def run_assist(
         # edge deadline and replace this answer with a 504.
         extractor=SarvamExtractor(settings.sarvam_api_key, timeout_s=ASSIST_TIMEOUT_S),
     )
-    return AssistResult(output=output, capability=capability)
+    return AssistResult(output=output, capability=capability, usage=spent)
 
 
 def _nothing_was_said(spec: ExtractionSchemaSpec) -> ExtractionOutput:
