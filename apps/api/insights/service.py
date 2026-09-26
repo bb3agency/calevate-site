@@ -114,7 +114,11 @@ async def record_call_gaps(
                     "hits": gap.hit_count,
                 },
             )
-        affected = previous | {gap.topic_key for gap in gaps}
+        # SORTED, because each recompute locks its aggregate row until this transaction
+        # commits. A `set` iterates in string-hash order, which is randomised per process,
+        # so two workers finishing calls that share topics would lock them in different
+        # orders and deadlock. `scrub_quotes_for_calls` takes the same order.
+        affected = sorted(previous | {gap.topic_key for gap in gaps})
         for topic_key in affected:
             await _recompute_aggregate(
                 session, tenant_id=tenant_id, agent_id=agent_id, topic_key=topic_key
@@ -261,7 +265,7 @@ async def scrub_quotes_for_calls(
     # (they are emptied, not deleted) so this could be read either side — it is read first
     # so the set is fixed even if a concurrent call adds a topic mid-statement, which
     # would otherwise be recomputed on data this function has not finished writing.
-    affected = (
+    rows = (
         await session.execute(
             text(
                 "SELECT DISTINCT tenant_id, agent_id, topic_key "
@@ -270,6 +274,11 @@ async def scrub_quotes_for_calls(
             {"ids": ids},
         )
     ).all()
+    # The recompute below locks each aggregate row, and `record_call_gaps` locks them in
+    # Python `sorted` topic order; any other order here could deadlock with a pipeline run.
+    # Sorted HERE rather than by `ORDER BY`, because a database's locale collation orders a
+    # Telugu or `_`-joined phrase key differently from `sorted`'s codepoint order.
+    affected = sorted(rows, key=lambda row: (str(row[0]), str(row[1]), str(row[2])))
 
     result = await session.execute(
         text(
