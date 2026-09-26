@@ -355,10 +355,15 @@ async def record_entry(
 ) -> Balance:
     """Append one entry and return the new balance.
 
-    `allow_negative=False` refuses a charge that would overdraw. The exception is
-    deliberate: usage recorded AFTER a call completes must always land, because the
-    call already happened and refusing to record it would hide a real cost. Prevention
-    belongs at the pre-dispatch gate, not at the accounting layer.
+    `allow_negative=False` refuses a DEBIT that would leave the balance below zero. The
+    exception is deliberate: usage recorded AFTER a call completes must always land,
+    because the call already happened and refusing to record it would hide a real cost.
+    Prevention belongs at the pre-dispatch gate, not at the accounting layer.
+
+    A credit is never refused, even onto an overdrawn wallet it does not clear: it cannot
+    make the balance worse, and refusing it is the accounting layer declining to record
+    money that has already arrived. The guard used to test the resulting balance alone, so
+    a ₹100 Razorpay capture onto a wallet at -₹500 was refused on every provider retry.
 
     The read-decide-write runs under a per-tenant advisory lock (see the module
     docstring for why a row lock on the newest entry is not enough), so two concurrent
@@ -383,7 +388,7 @@ async def record_entry(
     current = await _newest_balance(session, tenant_id)
     new_balance = current + delta
 
-    if new_balance < 0 and not allow_negative:
+    if delta < 0 and new_balance < 0 and not allow_negative:
         raise ProblemError.business_rule(
             "insufficient_credits",
             "This account does not have enough credit for that.",

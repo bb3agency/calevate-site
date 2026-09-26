@@ -447,6 +447,28 @@ WHERE tenant_id = :tid AND month = :month
 RETURNING capped
 """
 
+# The case `_RECOMPUTE_CAPPED` cannot reach: no row for THIS month (nothing metered since
+# the 1st, or never), while the effective ceiling is already reached at zero — which,
+# under `>=`, only a ceiling of zero is. The gate reads the flag and nothing else, so
+# without a current-month row a client's zero cap stopped nothing until some call
+# completed. A closed month's row is rolled to this month with zero counters, exactly as
+# the meter's own upsert rolls it; its counters are read by nothing (`read_spend_counters`
+# and `spend_capped` both ignore a stale month, and a closed month's figures come from the
+# ledger). `WHERE ... <` leaves a current-month row to the UPDATE above.
+_ARM_ZERO_CEILING = f"""
+WITH caps AS ({CAPS_CTE})
+INSERT INTO spend_state (
+    tenant_id, month, minutes_used, spend_used, billed_inr, capped, created_at, updated_at
+)
+SELECT CAST(:tid AS uuid), CAST(:month AS text), 0, 0, 0, true, now(), now()
+WHERE {over_cap_sql("0", "0")}
+ON CONFLICT (tenant_id) DO UPDATE SET
+    month = EXCLUDED.month, minutes_used = 0, spend_used = 0, billed_inr = 0,
+    capped = true, updated_at = now()
+WHERE spend_state.month < EXCLUDED.month
+RETURNING capped
+"""
+
 _SPEND_STATE_SELECT = (
     "SELECT minutes_used, spend_used, capped, month, billed_inr "
     "FROM spend_state WHERE tenant_id = :tid"
@@ -515,9 +537,12 @@ async def recompute_capped(session: AsyncSession, *, tenant_id: UUID) -> bool | 
 
     Returns the flag as it now stands, or `None` when there is no row for the CURRENT
     billing month — a tenant that has metered nothing this month, or whose row still
-    belongs to a closed one. That is a real and distinct answer, not an error: nothing
-    is capped, nothing needed writing, and a stale row is deliberately left alone
-    because `spend_capped` already reads its month.
+    belongs to a closed one — and the ceiling is not reached at zero. That is a real and
+    distinct answer, not an error: nothing is capped, nothing needed writing, and a stale
+    row is left alone because `spend_capped` already reads its month.
+
+    A ceiling of ZERO is reached by zero counters, so that one case writes a current-month
+    row with the flag armed (`_ARM_ZERO_CEILING`) and returns True.
     """
     # Imported HERE, not at module scope: `billing.service.usage_summary` reads the
     # effective-cap expression from this module, so a top-level import in either
@@ -529,10 +554,10 @@ async def recompute_capped(session: AsyncSession, *, tenant_id: UUID) -> bool | 
     # WRITES `spend_state`. Re-entrant, so `apply_client_caps` holding it already costs
     # nothing; the ops recompute reaches this function with nothing held and needs it.
     await lock_tenant_spend_state(session, tenant_id)
-    result = await session.execute(
-        text(_RECOMPUTE_CAPPED), {"tid": tenant_id, "month": current_billing_month()}
-    )
-    value = result.scalar()
+    binds = {"tid": tenant_id, "month": current_billing_month()}
+    value = (await session.execute(text(_RECOMPUTE_CAPPED), binds)).scalar()
+    if value is None:
+        value = (await session.execute(text(_ARM_ZERO_CEILING), binds)).scalar()
     return bool(value) if value is not None else None
 
 

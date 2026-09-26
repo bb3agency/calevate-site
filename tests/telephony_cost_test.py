@@ -269,3 +269,26 @@ def test_nothing_on_this_leg_is_a_billable_rate() -> None:
 
     for door in (rates.llm_inr_per_ktok, rates.tts_rate_inr_per_char):
         assert "elephony" not in inspect.getsource(door)
+
+
+def test_a_four_decimal_carrier_rate_is_costed_exactly_and_rounded_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The card is stored at four decimals, so a four-decimal rate is the ordinary case.
+
+    `rate / 60` does not terminate for most of them, and dividing first left a 28-digit
+    residue under the half-way point: ₹0.1001/min for one 30-second pulse is exactly
+    ₹0.05005, which `ROUNDING` (half-up) makes ₹0.0501 — the division-first order answered
+    ₹0.0500. The per-call-minute view reads the same exact figure and must agree.
+    """
+    monkeypatch.setattr(
+        "apps.api.billing.rates.TELEPHONY_INR_PER_MIN",
+        {
+            "domestic": {"inbound": Decimal("0.2003"), "outbound": Decimal("0.2003")},
+            "webrtc": {"inbound": Decimal("0.1001"), "outbound": Decimal("0.1001")},
+        },
+    )
+    assert telephony_cost_inr(30, leg="webrtc", direction="inbound") == Decimal("0.0501")
+    # 30m30s is 61 pulses: 0.2003 x 61 / 2 = 6.10915 exactly.
+    assert telephony_cost_inr(1830, leg="domestic", direction="outbound") == Decimal("6.1092")
+    assert telephony_inr_per_call_minute(30, leg="webrtc", direction="inbound") == Decimal("0.1001")
