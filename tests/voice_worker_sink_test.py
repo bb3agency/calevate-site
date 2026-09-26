@@ -554,6 +554,58 @@ async def test_settling_twice_is_reported_and_not_re_applied(worker_token: None)
     assert promises == 1, "the post-call pipeline was promised twice"
 
 
+async def _stored_status(tenant_id: uuid.UUID, call_id: str) -> str:
+    async with tenant_session(tenant_id) as db:
+        return str(
+            (
+                await db.execute(
+                    text("SELECT status FROM calls WHERE engine_call_id = :c"),
+                    {"c": pipecat_call_ref(tenant_id, call_id)},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_settlement_keeps_the_failed_status_the_pipeline_reported(
+    worker_token: None,
+) -> None:
+    """A call the pipeline ended as `failed` must still read `failed` after it settles.
+
+    The server lets a `completed` settlement overwrite any terminal status, so a settlement
+    that always claimed `completed` rewrote every cancelled or broken call as a clean one.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(call_id)
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "failed"))
+        assert await _stored_status(tenant_id, call_id) == "failed"
+        await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
+    finally:
+        await sink.aclose()
+        await api.aclose()
+
+    assert await _stored_status(tenant_id, call_id) == "failed", (
+        "the settlement overwrote the pipeline's failed status with completed"
+    )
+
+
+async def test_a_settlement_with_no_observed_end_does_not_claim_completed(
+    worker_token: None,
+) -> None:
+    """No terminal event means nobody saw the pipeline finish, which is not a clean call."""
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(call_id)
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
+    finally:
+        await sink.aclose()
+        await api.aclose()
+
+    assert await _stored_status(tenant_id, call_id) == "failed"
+
+
 # ---------------------------------------------------------------------------------------
 # 3. The identity refusal (hard rule 1), before anything reaches the wire.
 # ---------------------------------------------------------------------------------------

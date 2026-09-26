@@ -50,17 +50,19 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, cast
 from uuid import UUID
 
 from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 from calevate_shared.worker_api import (
+    SETTLEMENT_STATUSES,
     KnowledgeReport,
     MeteredQuantity,
     ObservationBatch,
     SettlementRefusal,
     SettlementRequest,
+    SettlementStatus,
 )
 from loguru import logger
 
@@ -211,6 +213,12 @@ class HttpEventSink:
         #: of this repository's tests, and a task created there would warn and die.
         self._flusher: asyncio.Task[None] | None = None
         self._closed = False
+        #: The status the settlement reports: the terminal event the pipeline emitted, or
+        #: `failed` when none arrived. It must never default to `completed`, because the
+        #: server's call-row upsert lets `completed` overwrite ANY terminal status
+        #: (`worker/service._UPSERT_CALL_SQL`), so a constant would rewrite every cancelled
+        #: or broken call as a clean one. A call nobody saw end did not end cleanly.
+        self._final_status: SettlementStatus = "failed"
 
     # -- the Protocol --------------------------------------------------------------------
 
@@ -227,6 +235,8 @@ class HttpEventSink:
         self._check_identity(
             call_id=event.call_id, tenant_id=event.tenant_id, agent_id=event.agent_id
         )
+        if event.status in SETTLEMENT_STATUSES:
+            self._final_status = cast(SettlementStatus, event.status)
         async with self._lock:
             self._events.append(event)
             self._start_flusher()
@@ -445,11 +455,7 @@ class HttpEventSink:
         metered = meter.metered_rows(carrier=carrier, runtime=runtime)
 
         request = SettlementRequest(
-            # `completed` and not the observed status: `settle` runs after the pipeline has
-            # drained, so this is the worker saying the SESSION finished. The server's clause
-            # is forward-only and a terminal status already on the row wins, so a call cut
-            # off mid-sentence keeps the status its terminal event reported.
-            final_status="completed",
+            final_status=self._final_status,
             direction=self._direction,
             agent_id=self._agent_id,
             refusals=[_refusal_of(refused) for refused in metered.refusals],
