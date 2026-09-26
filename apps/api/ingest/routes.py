@@ -92,7 +92,9 @@ class IngestAckOut(BaseModel):
     status: Literal["accepted", "duplicate"]
     lead_id: UUID | None = None
     # Whether THIS delivery placed the call. `false` with a `blocked` rule beside it is
-    # the normal lawful outcome, not an error: the lead lands, the dial does not.
+    # the normal lawful outcome, not an error: the lead lands, the dial does not. Null
+    # on an `accepted` delivery means the engine may have started the call and we could
+    # not confirm it — never `false`, which would read as "nobody was rung".
     dispatched: bool | None = None
     # The compliance rule that refused the dial (`dnc`, `no_form_consent`, `quiet_hours`,
     # …) — OUR authored rule name, never an exception's message. Null when nothing
@@ -177,7 +179,7 @@ async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
     return IngestAckOut(
         status="accepted",
         lead_id=result["lead_id"],
-        dispatched=bool(result["dispatched"]),
+        dispatched=result["dispatched"],
         blocked=result.get("blocked"),
     )
 
@@ -1162,6 +1164,20 @@ async def test_webhook(
         return LeadSourceDryRunOut(would_call=False, steps=steps)
 
     consent_field = config.mapping.get("consent_field")
+    if not (isinstance(consent_field, str) and consent_field) and config.source == META_SOURCE:
+        # The real Meta receiver passes `require_form_consent=True`: a lead-ad fill is not
+        # permission to ring, so a source that asks no consent question never dials.
+        steps.append(
+            LeadSourceDryRunStepOut(
+                step="form_consent",
+                ok=False,
+                detail=(
+                    "This source has no consent question configured — the lead would be "
+                    "saved but never dialled."
+                ),
+            )
+        )
+        return LeadSourceDryRunOut(would_call=False, steps=steps)
     if isinstance(consent_field, str) and consent_field:
         affirmed = str(body.payload.get(consent_field, "")).strip().lower() in (
             "true",

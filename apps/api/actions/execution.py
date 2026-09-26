@@ -234,7 +234,6 @@ async def _run_whatsapp(
     recipient = values.get(config.recipient_param)
     if not recipient:
         return ExecutionResult(ok=False, payload={"error": "no_recipient"}, status="no_recipient")
-    recipient = _stringify(recipient)
     # The dispatch gate AND the caller's messaging consent, in that order — the same two
     # questions `workers/whatsapp._send_escalation` asks, because one outbound channel
     # may not have two answers to "may we contact this person" (hard rule 5). This path
@@ -242,11 +241,11 @@ async def _run_whatsapp(
     # list that had once granted messaging consent was refused by the campaign leg and
     # messaged by this one.
     try:
-        await wa.assert_recipient_may_be_messaged(
+        recipient = await wa.assert_recipient_may_be_messaged(
             session,
             tenant_id=tool.tenant_id,
             agent_id=tool.agent_id,
-            recipient_e164=recipient,
+            recipient_e164=_stringify(recipient),
         )
     except wa.WhatsAppBlockedError as exc:
         return ExecutionResult(ok=False, payload={"error": exc.code}, status="blocked")

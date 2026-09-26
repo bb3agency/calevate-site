@@ -396,6 +396,48 @@ async def test_whatsapp_send_delivers_when_opted_in(monkeypatch: pytest.MonkeyPa
     assert result.payload == {"status": "sent"}
 
 
+@pytest.mark.asyncio
+async def test_whatsapp_send_is_addressed_to_the_number_the_gate_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate and the consent read are asked about the NORMALIZED number, so the message
+    must go to that number too, not to the raw string the model or engine supplied."""
+    asked: list[str] = []
+
+    async def _check(session: Any, **kwargs: Any) -> Any:
+        asked.append(kwargs["phone_e164"])
+        return DispatchDecision(allowed=True)
+
+    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(whatsapp, "check_dispatch", _check)
+    monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
+    tool = _loaded(
+        kind="whatsapp",
+        provider="aisensy",
+        credential_id=uuid4(),
+        config=WhatsAppConfig(recipient_param="caller", template="c", body_params=[]).model_dump(),
+        params=[{"name": "caller", "source": "ai", "type": "string", "description": "number"}],
+    )
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True})
+
+    async with _mock_client(handler) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"caller": "098765 43210"},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert result.ok is True
+    assert asked == ["+919876543210"]
+    assert sent["destination"] == "+919876543210"
+
+
 # ------------------------------------------------------------------ helpers ----
 
 

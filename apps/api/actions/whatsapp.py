@@ -84,8 +84,12 @@ class WhatsAppNotOptedInError(ProblemError):
 
 async def assert_recipient_may_be_messaged(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, recipient_e164: str
-) -> None:
+) -> str:
     """The gate, then the opt-in — the order and the arguments `_send_escalation` uses.
+
+    Returns the normalized E.164 both were asked about, and the send must be addressed to
+    THAT string: the raw value is model- or engine-supplied (`98765 43210`, `09876543210`),
+    and a message addressed to it is not the number the gate and the consent cleared.
 
     Raises `WhatsAppBlockedError` when the dispatch gate refuses (DNC above all) and
     `WhatsAppNotOptedInError` when there is no current messaging consent. Two exceptions
@@ -118,6 +122,7 @@ async def assert_recipient_may_be_messaged(
             extra={"tenant_id": str(tenant_id), "reason": "not_opted_in"},
         )
         raise WhatsAppNotOptedInError()
+    return phone_e164
 
 
 def _digits(e164: str) -> str:

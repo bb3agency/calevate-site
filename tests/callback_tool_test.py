@@ -246,6 +246,36 @@ async def test_a_confirmed_time_queues_the_booking_and_writes_nothing(
     assert "phone" not in payload and "tenant_id" not in payload
 
 
+async def test_a_caller_who_returns_to_an_earlier_time_gets_a_job_arq_will_accept(
+    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ "Four — no, five — no, four after all." arq refuses a job id whose result it still
+    holds (`keep_result`), so if the third booking reused the first one's id it would be
+    dropped, the promise would stay at five, and the caller would have heard four."""
+    job_ids: list[str] = []
+
+    async def _spy(job: str, payload: dict[str, Any], **kwargs: Any) -> str:
+        job_ids.append(kwargs["job_id"])
+        return kwargs["job_id"]
+
+    monkeypatch.setattr(tool_routes, "enqueue", _spy)
+    day = (datetime.now(UTC) + timedelta(days=2)).strftime("%Y-%m-%d")
+    async with _client() as client:
+        for hour in ("16:00", "17:00", "16:00"):
+            response = await client.post(
+                BOOK,
+                json={
+                    "execution_id": "exec_changed_mind",
+                    "callback_date": day,
+                    "callback_time": hour,
+                    "confirmed": True,
+                },
+                headers=HEADERS,
+            )
+            assert response.json()["status"] == "accepted"
+    assert len(set(job_ids)) == 3, "a later booking reused an earlier booking's job id"
+
+
 async def test_a_time_outside_calling_hours_is_a_conversation_and_not_an_error(
     _allowlist: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

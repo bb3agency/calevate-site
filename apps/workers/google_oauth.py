@@ -65,6 +65,9 @@ from typing import Final
 
 import httpx
 import jwt
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from apps.api.core.logging import get_logger
 
@@ -117,7 +120,7 @@ def parse_service_account(raw: str) -> ServiceAccount | None:
         return None
     email = str(parsed.get("client_email") or "").strip()
     key = str(parsed.get("private_key") or "").strip()
-    if not email or not key:
+    if not email or not key or not _signs_rs256(key):
         return None
     key_id = parsed.get("private_key_id")
     return ServiceAccount(
@@ -128,6 +131,20 @@ def parse_service_account(raw: str) -> ServiceAccount | None:
         token_uri=str(parsed.get("token_uri") or TOKEN_URL),
         private_key_id=str(key_id) if key_id else None,
     )
+
+
+def _signs_rs256(pem: str) -> bool:
+    """Whether `pem` is an unencrypted RSA private key, i.e. what `_assertion` can sign with.
+
+    Checked here rather than left to the exchange: `jwt.encode` RAISES `InvalidKeyError` on
+    unusable material, which would escape `access_token` and the delivery job that called
+    it instead of surfacing as the named refusal this parser exists to produce.
+    """
+    try:
+        loaded = load_pem_private_key(pem.encode(), password=None)
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        return False
+    return isinstance(loaded, RSAPrivateKey)
 
 
 @dataclass(frozen=True, slots=True)
