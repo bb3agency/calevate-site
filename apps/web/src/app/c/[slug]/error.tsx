@@ -19,9 +19,10 @@
 
 import { useEffect } from "react";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { FailureScreen } from "@/components/failureScreen";
+import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
 export default function ClientRealmError({
   error,
@@ -34,7 +35,13 @@ export default function ClientRealmError({
   const slug = /^\/c\/([a-z0-9-]+)(?:\/|$)/i.exec(pathname ?? "")?.[1];
   // `/c` resolves a signed-in user's own console, so it is the honest fallback when the
   // path is not the shape we expect rather than a guessed URL.
-  const dashboard = slug ? `/c/${slug}` : "/c";
+  // An operator viewing as this client keeps the view-as marker: without it `/c/<slug>`
+  // restores the CLIENT realm's session, which they do not have, and the exit becomes the
+  // client sign-in page.
+  const viewAs = useSearchParams()?.get(VIEW_AS_PARAM) === VIEW_AS_ADMIN;
+  const dashboard = slug
+    ? `/c/${slug}${viewAs ? `?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}` : ""}`
+    : "/c";
 
   useEffect(() => {
     console.error("[calevate] uncaught render error in the client realm", {
