@@ -92,7 +92,9 @@ class IngestAckOut(BaseModel):
     status: Literal["accepted", "duplicate"]
     lead_id: UUID | None = None
     # Whether THIS delivery placed the call. `false` with a `blocked` rule beside it is
-    # the normal lawful outcome, not an error: the lead lands, the dial does not.
+    # the normal lawful outcome, not an error: the lead lands, the dial does not. Null
+    # on an `accepted` delivery means the engine may have started the call and we could
+    # not confirm it — never `false`, which would read as "nobody was rung".
     dispatched: bool | None = None
     # The compliance rule that refused the dial (`dnc`, `no_form_consent`, `quiet_hours`,
     # …) — OUR authored rule name, never an exception's message. Null when nothing
@@ -177,7 +179,7 @@ async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
     return IngestAckOut(
         status="accepted",
         lead_id=result["lead_id"],
-        dispatched=bool(result["dispatched"]),
+        dispatched=result["dispatched"],
         blocked=result.get("blocked"),
     )
 

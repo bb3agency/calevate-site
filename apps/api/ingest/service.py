@@ -39,7 +39,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.service import dispatch_call
+from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.models import CALLBACK_CONSENT_WITHDRAWN_REASON
@@ -531,15 +531,39 @@ async def ingest_lead(
 
     # 4. Dial, with the form fields as context so the agent opens with
     # "you enquired about…" rather than a cold open.
-    handle = await dispatch_call(
-        session,
-        tenant_id=config.tenant_id,
-        agent_id=config.agent_id,
-        lead_id=resolved_lead,
-        phone_e164=phone,
-        lead_name=name,
-        context_note=f"Enquiry via {config.source}",
-    )
+    try:
+        handle = await dispatch_call(
+            session,
+            tenant_id=config.tenant_id,
+            agent_id=config.agent_id,
+            lead_id=resolved_lead,
+            phone_e164=phone,
+            lead_name=name,
+            context_note=f"Enquiry via {config.source}",
+        )
+    except DialUnconfirmedError as unconfirmed:
+        # The phone may already be ringing, so this delivery must COMMIT: raising would
+        # roll back the lead and the caller's inbox claim with it, and the sender's retry
+        # (form vendors and Zapier retry a 5xx; Meta re-claims once the lease lapses)
+        # would then dial the same person again. The intent row `dispatch_call` committed
+        # is the record of the possible call; the lead link and the timeline point at it.
+        await session.execute(
+            text("UPDATE calls SET lead_id = :lid, updated_at = now() WHERE id = :id"),
+            {"lid": resolved_lead, "id": unconfirmed.call_id},
+        )
+        await _timeline(
+            session,
+            config.tenant_id,
+            resolved_lead,
+            "call_unconfirmed",
+            {"call_id": str(unconfirmed.call_id), "code": unconfirmed.code},
+        )
+        record_speed_to_lead(time.time() - received_at, outcome="dial_unconfirmed")
+        log.warning(
+            "lead_callback_unconfirmed",
+            extra={"lead_id": str(resolved_lead), "call_id": str(unconfirmed.call_id)},
+        )
+        return {"lead_id": resolved_lead, "dispatched": None, "call_id": unconfirmed.call_id}
     await _timeline(session, config.tenant_id, resolved_lead, "call", {"engine_call_id": handle})
     elapsed = time.time() - received_at
     record_speed_to_lead(elapsed, outcome="dispatched")
