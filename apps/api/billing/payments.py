@@ -184,7 +184,7 @@ from apps.api.billing.credit_packs import (
     PACK_BONUS_CLAWBACK_META_KIND,
     PACK_BONUS_META_KIND,
     CreditPack,
-    pack_by_id,
+    pack_paid_for,
 )
 from apps.api.billing.lots import split_meta
 from apps.api.billing.rates import MONEY_Q, ROUNDING
@@ -1105,11 +1105,22 @@ async def credit_captured_payment(
             recorded=False,
         )
 
+    # The pack is honoured only when the payment paid its price (`pack_paid_for`), and
+    # that one answer drives the paid row's stamp, the lot's rates and the bonus below.
+    pack = pack_paid_for(payment.pack_id, payment.amount_inr)
     paid_meta: dict[str, Any] = {"source": PROVIDER, "currency": payment.currency}
-    if payment.pack_id is not None:
+    if pack is not None:
         # Stamped on the PAID row too, so the pack a payment bought is recoverable even from
         # the topup entry alone — the ledger stamp survives the catalogue changing later.
-        paid_meta["pack_id"] = payment.pack_id
+        paid_meta["pack_id"] = pack.pack_id
+    elif payment.pack_id is not None:
+        # Kept under its own key so reconciliation can see what the notes claimed; nothing
+        # reads it as the pack bought.
+        paid_meta["unhonoured_pack_id"] = payment.pack_id
+        log.warning(
+            "razorpay_topup_pack_not_paid_for",
+            extra={"tenant_id": str(payment.tenant_id), "payment_ref": payment.payment_id},
+        )
     balance = await record_entry(
         session,
         tenant_id=payment.tenant_id,
@@ -1133,10 +1144,10 @@ async def credit_captured_payment(
         credits_inr=payment.amount_inr,
         balance_after=balance.amount_inr,
         rates=(await rate_card_at(session, at=datetime.now(UTC))).for_purchase(
-            pack_id=payment.pack_id, amount_inr=payment.amount_inr
+            pack_id=None if pack is None else pack.pack_id, amount_inr=payment.amount_inr
         ),
         source="topup",
-        pack_id=payment.pack_id,
+        pack_id=None if pack is None else pack.pack_id,
         ledger_entry_id=written.entry_id,
     )
 
@@ -1170,9 +1181,8 @@ async def credit_captured_payment(
     # The volume bonus, in the SAME transaction as the paid credit, so a wallet can never
     # hold the paid credits of a pack without its bonus (or vice versa). Idempotent on the
     # payment id under `reason='bonus'` (`ux_credit_ledger_bonus_ref`); a payment carrying no
-    # pack, or a pack this build no longer offers, grants nothing and leaves `balance` as the
-    # paid-only figure above.
-    pack = pack_by_id(payment.pack_id) if payment.pack_id is not None else None
+    # pack, a pack this build no longer offers, or a pack whose price it did not pay grants
+    # nothing and leaves `balance` as the paid-only figure above.
     if pack is None:
         return TopUpResult(entry_id=written.entry_id, balance=balance, recorded=True)
     return await _grant_pack_bonus(

@@ -330,6 +330,38 @@ async def test_a_captured_payment_with_no_pack_falls_to_the_free_amount_rule() -
     assert lot["studio_inr_per_min"] == _pack("growth").studio_inr_per_min
 
 
+async def test_a_pack_id_whose_price_was_not_paid_does_not_buy_the_packs_minute() -> None:
+    """The pack id arrives in the payment's notes, which the browser authors whenever no
+    server-side order exists. ₹2,000 claiming the ₹50,000 pack is a ₹2,000 purchase: the
+    lot opens at the free-amount rule's rates, carries no pack, and the paid row does not
+    record the claim as the pack bought."""
+    tenant_id = await _tenant()
+    payment = payments.CapturedPayment(
+        payment_id=f"pay_{uuid.uuid4().hex[:12]}",
+        tenant_id=tenant_id,
+        amount_inr=Decimal("2000.00"),
+        currency="INR",
+        pack_id="max",
+    )
+    async with tenant_session(tenant_id) as session:
+        await payments.credit_captured_payment(session, payment=payment)
+        meta = (
+            await session.execute(
+                text("SELECT meta FROM credit_ledger WHERE tenant_id = :t AND ref = :r"),
+                {"t": tenant_id, "r": payment.payment_id},
+            )
+        ).scalar_one()
+    (lot,) = await lot_rows(tenant_id)
+    assert lot["pack_id"] is None
+    starter = _pack("starter")
+    assert (lot["clear_inr_per_min"], lot["studio_inr_per_min"]) == (
+        starter.clear_inr_per_min,
+        starter.studio_inr_per_min,
+    )
+    assert "pack_id" not in meta
+    assert meta["unhonoured_pack_id"] == "max"
+
+
 async def test_a_correction_that_overdraws_the_wallet_publishes_the_shortfall() -> None:
     """AN OPERATOR WHO PUSHES A CLIENT INTO OVERDRAFT IS TOLD, ON THE RESPONSE.
 

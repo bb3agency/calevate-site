@@ -32,7 +32,7 @@ import httpx
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
-from apps.api.billing.credit_packs import CreditPack
+from apps.api.billing.credit_packs import CreditPack, pack_by_id
 from apps.api.billing.payment_routes import (
     CheckoutCallbackIn,
     RefundIn,
@@ -1015,21 +1015,25 @@ LEGACY_BONUS_PACK = CreditPack(
 def legacy_bonus(monkeypatch: pytest.MonkeyPatch) -> CreditPack:
     """Make `growth` a bonus-bearing pack again for the crediting and refund paths only.
 
-    `payments.py` imports `pack_by_id` by name, so the patch is on the payments module's own
-    binding: the catalogue itself is untouched and every other assertion in this file reads
-    the real card.
+    `payments.py` imports `pack_paid_for` by name, so the patch is on the payments module's
+    own binding: the catalogue itself is untouched and every other assertion in this file
+    reads the real card. The stand-in keeps the price check.
     """
     monkeypatch.setattr(
         payments,
-        "pack_by_id",
-        lambda pack_id: LEGACY_BONUS_PACK if pack_id == LEGACY_BONUS_PACK.pack_id else None,
+        "pack_paid_for",
+        lambda pack_id, amount_inr: (
+            LEGACY_BONUS_PACK
+            if pack_id == LEGACY_BONUS_PACK.pack_id and amount_inr == LEGACY_BONUS_PACK.amount_inr
+            else None
+        ),
     )
     return LEGACY_BONUS_PACK
 
 
 async def _fund_pack(tenant_id: UUID, *, payment_id: str, pack_id: str) -> None:
     """A pack purchase, exactly as the webhook credits one."""
-    pack = payments.pack_by_id(pack_id)
+    pack = pack_by_id(pack_id)
     assert pack is not None
     payment = payments.CapturedPayment(
         payment_id=payment_id,
