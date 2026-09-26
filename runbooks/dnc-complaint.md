@@ -303,20 +303,33 @@ loading it into `dnc_list` would refuse lawful transactional traffic to the same
 ## 9. `campaign_complaint_spike` — a campaign is generating opt-outs
 
 You were paged with `campaign_complaint_spike`, and **the campaign is already paused.**
-It stopped itself: five or more of its connected calls in the last 24 hours ended in an
-opt-out, and that was at least 10% of them (`apps/api/campaigns/complaint_spike.py`
-argues all three numbers). This is FLOWS §5's mid-campaign safety doing what it exists
-for; nothing further is dialling on that campaign.
+It stopped itself on one of two measurements (`apps/api/campaigns/complaint_spike.py`
+argues the numbers), and the alert says which:
+
+- **"calls on this campaign"**: three or more of this campaign's connected calls in the
+  last 24 hours ended in an opt-out, and that was at least 10% of them.
+- **"outbound calls on this account"**: the same test over the whole client's outbound
+  calls in the last **10 days**, across every campaign and every instant or call-back
+  dial. Every running campaign of that client pauses on its own next tick, so expect one
+  page per campaign.
+
+This is FLOWS §5's mid-campaign safety doing what it exists for; nothing further is
+dialling on a paused campaign.
 
 **Read the counts as a leading indicator, not as complaints.** What was measured is
 people who told the agent to stop — every one of them is a `consent_ledger` withdrawal and
 a `dnc_list` row, and all of them are already suppressed. A TRAI complaint is filed with an
-access provider and arrives, if it ever does, days later as a letter. The reason five is
-the trigger is that **five unique complaints inside ten days obliges the TSP to suspend the
-client's outgoing service** (TCCCPR Second Amendment, in force 12 February 2025). Anyone who
-files is in the population we just counted. This is the last cheap moment.
+access provider and arrives, if it ever does, days later as a letter. The reason three is
+the trigger is that **three unique complaints inside ten days, with an operator AI flag on
+the number, can now trigger action against the client as sender**, and flags aggregate
+across every number the client uses (TCCCPR Third Amendment, 18 September 2026, as an
+access provider summarised it: `docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md`).
+It was five under the Second Amendment. Anyone who files is in the population we just
+counted. This is the last cheap moment.
 
 ### 9.1 Confirm what was measured
+
+For a campaign spike:
 
 ```sql
 SET LOCAL app.tenant_id = '<tenant-uuid>';
@@ -328,6 +341,22 @@ SELECT count(*) AS connected,
 FROM calls c
 WHERE c.campaign_id = '<campaign-uuid>' AND c.status = 'completed'
   AND coalesce(c.started_at, c.created_at) >= now() - interval '24 hours';
+```
+
+For an account spike, the same count over every outbound call in ten days. Run the
+campaign query first: a campaign under its own threshold with the account over it is
+exactly the case this measurement exists for, not a false alarm.
+
+```sql
+SET LOCAL app.tenant_id = '<tenant-uuid>';
+SELECT count(*) AS connected,
+       count(*) FILTER (WHERE EXISTS (
+         SELECT 1 FROM consent_ledger cl
+         WHERE cl.call_id = c.id AND cl.status = 'withdrawn' AND cl.purpose = 'marketing'
+       )) AS optouts
+FROM calls c
+WHERE c.direction = 'outbound' AND c.status = 'completed'
+  AND coalesce(c.started_at, c.created_at) >= now() - interval '10 days';
 ```
 
 Then read WHY people opted out. `consent_ledger.evidence` carries the detector, the rule
@@ -346,13 +375,15 @@ The pause is ours; resuming is theirs to ask for and yours to allow. Three outco
 
 1. **The list is bad.** Cancel the campaign. Do not resume it — the remaining contacts are
    from the same list. A new campaign against a scrubbed list is a new `campaign_id` with
-   no history, which is the honest way to start again.
-2. **The script or the hour is bad.** Fix it, then resume. **Resuming while the 24-hour
-   window still holds the spike will re-pause the campaign on the next tick**, and that is
-   deliberate: nothing about the campaign changed in the ten minutes after somebody pressed
-   resume. Wait the window out, or cancel and relaunch.
-3. **It is a false alarm** — a tiny campaign where five people out of thirty genuinely had
-   nothing to do with each other. Rare, and still worth one look at the list before
+   no history, which is the honest way to start again **after a campaign spike only**.
+   After an account spike the new campaign asks the same account question and pauses on
+   its first tick until the ten days clear; there is no fresh start inside that window.
+2. **The script or the hour is bad.** Fix it, then resume. **Resuming while the window
+   still holds the spike will re-pause the campaign on the next tick**: 24 hours for a
+   campaign spike, 10 days for an account spike. That is deliberate: nothing about the
+   campaign changed in the ten minutes after somebody pressed resume.
+3. **It is a false alarm** — a tiny campaign where three people out of twenty genuinely
+   had nothing to do with each other. Rare, and still worth one look at the list before
    resuming.
 
 ### 9.3 What NOT to do
