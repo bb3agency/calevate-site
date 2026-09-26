@@ -1164,6 +1164,20 @@ async def test_webhook(
         return LeadSourceDryRunOut(would_call=False, steps=steps)
 
     consent_field = config.mapping.get("consent_field")
+    if not (isinstance(consent_field, str) and consent_field) and config.source == META_SOURCE:
+        # The real Meta receiver passes `require_form_consent=True`: a lead-ad fill is not
+        # permission to ring, so a source that asks no consent question never dials.
+        steps.append(
+            LeadSourceDryRunStepOut(
+                step="form_consent",
+                ok=False,
+                detail=(
+                    "This source has no consent question configured — the lead would be "
+                    "saved but never dialled."
+                ),
+            )
+        )
+        return LeadSourceDryRunOut(would_call=False, steps=steps)
     if isinstance(consent_field, str) and consent_field:
         affirmed = str(body.payload.get(consent_field, "")).strip().lower() in (
             "true",
