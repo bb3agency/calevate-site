@@ -2297,7 +2297,7 @@ async def _erase_copilot_turns(session: AsyncSession, *, phone: str) -> int:
 # conversation — why this caller asked for a person, and what had been said so far —
 # filed against `source_call_id` beside the number that rang.
 #
-# "IT IS REDACTED ON WRITE" IS NOT A DEFENCE, and `handoff.py::_bounded` really does
+# "IT IS REDACTED ON WRITE" IS NOT A DEFENCE, and `agents/handoff.redacted_brief` really does
 # redact. `knowledge_gap_occurrences.question_redacted` is redacted on write too and is
 # scrubbed by this erasure for the reason `scrub_quotes_for_calls` spells out: redaction
 # removes IDENTIFIERS from a sentence and leaves the SENTENCE. "She wants a refund for the
