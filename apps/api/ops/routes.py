@@ -915,10 +915,11 @@ async def recompute_spend_cap(
             raise ProblemError.not_found("Organization")
 
         before = await read_spend_counters(session, tenant_id=tenant_id)
-        # `None` means there is no row for the CURRENT month — nothing metered yet, or a
-        # row still stamped with a closed one. Both are "no cap in force" and both are
-        # left alone: `compliance.spend_capped` already reads the month, so rewriting a
-        # stale row would evaluate last month's counters against this month's ceiling.
+        # `None` means there is no row for the CURRENT month (nothing metered yet, or a row
+        # still stamped with a closed one) and the ceiling is not zero: no cap in force, and
+        # a stale row is left alone because `compliance.spend_capped` already reads the
+        # month. A ZERO ceiling is reached by zero counters, so that one case arms a
+        # current-month row and answers True.
         recomputed = await recompute_capped(session, tenant_id=tenant_id)
         capped = bool(recomputed)
         caps = await read_caps(session, tenant_id=tenant_id)

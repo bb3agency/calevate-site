@@ -30,6 +30,7 @@ from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.billing import number_rental
 from apps.api.billing.number_rental import record_number_rental, rental_ref
+from apps.api.billing.service import current_billing_month
 from apps.api.campaigns import number_supply, provisioning
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
@@ -488,7 +489,10 @@ async def test_the_monthly_meter_reaches_every_tenants_bought_numbers(authorized
 async def test_a_released_number_stops_being_metered(authorized: None) -> None:
     """`released_at` is the meter's off switch, and the row survives so a closed month's
     cost query still refers to it. A release that only deleted the row would take the
-    history with it; one that left the row untouched would keep charging."""
+    history with it; one that left the row untouched would keep charging.
+
+    The purchase month itself is charged: the vendor billed it at the purchase, release or
+    no release. What the release stops is every month after."""
     from apps.workers.number_rental import meter_number_rentals
 
     tenant_id = await _tenant()
@@ -509,13 +513,84 @@ async def test_a_released_number_stops_being_metered(authorized: None) -> None:
 
     await meter_number_rentals({})
     async with tenant_session(tenant_id) as session:
+        refs = (
+            (
+                await session.execute(
+                    text("SELECT ref FROM usage_events WHERE ref LIKE :prefix"),
+                    {"prefix": f"number_rental:{bought.number_id}:%"},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert refs == [rental_ref(bought.number_id, current_billing_month())], (
+        "only the month the vendor already billed; nothing after the release"
+    )
+
+
+async def test_a_purchase_records_the_month_it_was_bought_in(authorized: None) -> None:
+    """The monthly meter runs on the 1st and sees only numbers held then, so a number
+    bought mid-month would otherwise never have its first month recorded."""
+    tenant_id = await _tenant()
+    offer = await _offer(uuid.uuid4().hex[:6])
+    async with tenant_session(tenant_id) as session:
+        bought = await number_supply.buy_number(
+            session,
+            get_engine(),
+            tenant_id=tenant_id,
+            e164=offer.e164,
+            country="IN",
+            provider=offer.provider,
+            monthly_rental_usd=offer.monthly_price_usd,
+            agent_id=None,
+            purpose=None,
+        )
+    async with tenant_session(tenant_id) as session:
         rows = (
             await session.execute(
-                text("SELECT count(*) FROM usage_events WHERE ref LIKE :prefix"),
-                {"prefix": f"number_rental:{bought.number_id}:%"},
+                text("SELECT unit_cost_paid FROM usage_events WHERE ref = :ref"),
+                {"ref": rental_ref(bought.number_id, current_billing_month())},
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0][0] > 0
+
+
+async def test_a_purchase_month_that_cannot_be_metered_keeps_the_number_and_alarms(
+    authorized: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The number is already paid for, so the record pointing at it must survive a
+    metering failure; the missing month is alarmed because no later pass revisits it."""
+    raised: list[str] = []
+
+    async def _unmeterable(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("no usd-inr rate")
+
+    monkeypatch.setattr(number_supply, "record_number_rental", _unmeterable)
+    monkeypatch.setattr(number_supply, "alert", lambda _stage, code, **_fields: raised.append(code))
+    tenant_id = await _tenant()
+    offer = await _offer(uuid.uuid4().hex[:6])
+    async with tenant_session(tenant_id) as session:
+        bought = await number_supply.buy_number(
+            session,
+            get_engine(),
+            tenant_id=tenant_id,
+            e164=offer.e164,
+            country="IN",
+            provider=offer.provider,
+            monthly_rental_usd=offer.monthly_price_usd,
+            agent_id=None,
+            purpose=None,
+        )
+    async with tenant_session(tenant_id) as session:
+        held = (
+            await session.execute(
+                text("SELECT count(*) FROM phone_numbers WHERE id = :id"),
+                {"id": bought.number_id},
             )
         ).scalar()
-    assert rows == 0, "a number given back to the vendor must not be charged for"
+    assert held == 1
+    assert raised == ["number_purchase_month_unmetered"]
 
 
 # ------------------------------------------------------- hard rule 1

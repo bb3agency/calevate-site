@@ -290,6 +290,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # until somebody fills it in, and no client is debited wrongly in the meantime.
     "number_rental_price_missing": "attention",
     "number_rentals_incomplete": "attention",
+    "number_purchase_month_unmetered": "attention",
     "engine_agent_unmapped": "attention",
     # The call has NO ROW: no lead, no transcript, no usage event. Unrecoverable.
     "engine_ingest_abandoned": "page",

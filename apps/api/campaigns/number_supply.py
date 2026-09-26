@@ -64,6 +64,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import series_for_e164
+from apps.api.billing.number_rental import record_number_rental
+from apps.api.billing.service import current_billing_month
 from apps.api.campaigns.provisioning import (
     PURCHASABLE_SERIES,
     assert_number_supply_authorized,
@@ -250,6 +252,13 @@ async def buy_number(
             engine_number_ref=ref,
         )
         raise
+    await _meter_purchase_month(
+        session,
+        tenant_id=tenant_id,
+        number_id=number_id,
+        monthly_rental_usd=monthly_rental_usd,
+        provider=bought.provider or provider,
+    )
     log.info(
         "number_bought",
         extra={"tenant_id": str(tenant_id), "number_id": str(number_id), "ref": ref},
@@ -323,6 +332,53 @@ async def release_number(session: AsyncSession, engine: VoiceEngine, *, number_i
         {"id": number_id},
     )
     log.info("number_released", extra={"number_id": str(number_id)})
+
+
+async def _meter_purchase_month(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    number_id: UUID,
+    monthly_rental_usd: Decimal,
+    provider: str | None,
+) -> None:
+    """Record the rental for the month the number was bought in.
+
+    The vendor charges a month at purchase, and `workers/number_rental` meters only the
+    numbers held on the 1st: without this, a number bought mid-month never has its first
+    month recorded, and one bought and released inside a month is never recorded at all.
+    The ref is the monthly run's own (`rental_ref(number, month)`), so a purchase on the 1st
+    cannot be recorded twice.
+
+    In a savepoint, because the number is already bought: a metering failure (an FX rate we
+    cannot read, say) must not roll back the only record that points at the purchase. It is
+    alarmed instead, naming the month the 1st-of-month pass will never revisit.
+    """
+    month = current_billing_month()
+    try:
+        async with session.begin_nested():
+            await record_number_rental(
+                session,
+                tenant_id=tenant_id,
+                number_id=number_id,
+                month=month,
+                monthly_rental_usd=monthly_rental_usd,
+                provider=provider,
+            )
+    except Exception as exc:
+        alert(
+            "CORE_LOGIC",
+            "number_purchase_month_unmetered",
+            detail=(
+                "a phone number was bought and recorded, but the rental for the month it "
+                "was bought in could not be metered. The monthly pass does not revisit a "
+                "past month, so this cost stays missing until it is recorded by hand."
+            ),
+            tenant_id=str(tenant_id),
+            number_id=str(number_id),
+            month=month,
+            error=exc.__class__.__name__,
+        )
 
 
 __all__ = ["BoughtNumber", "buy_number", "release_number", "search_numbers"]
