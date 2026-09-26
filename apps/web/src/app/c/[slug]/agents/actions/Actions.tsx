@@ -26,6 +26,7 @@ import { PlugZap, Plus } from "lucide-react";
 import {
   FIELD_HINT,
   ProblemNotice,
+  RestrictionNote,
   SECONDARY_BUTTON_SM,
   SectionHeading,
   Skeleton,
@@ -37,6 +38,7 @@ import {
   useSetMasterSwitch,
 } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
+import { useWriteAccess } from "@/lib/api/hooks";
 
 import { ActionForm } from "./ActionForm";
 import { Credentials } from "./Credentials";
@@ -47,6 +49,9 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   const actions = useAgentActions(session, agentId);
   const setMaster = useSetMasterSwitch(session, agentId);
   const [adding, setAdding] = useState<Kind | null>(null);
+  // Reading actions and credentials is `org:read`; every write here — the master switch,
+  // a tool, a credential, a test run — is `org:manage`, which staff do not hold.
+  const write = useWriteAccess(session, "org:manage", "change what this agent can do mid-call");
 
   if (actions.isPending) return <Skeleton rows={4} label="Loading actions…" />;
   if (actions.isError)
@@ -64,60 +69,66 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
         Changes take effect on live calls the next time you publish the agent.
       </p>
 
-      <ToggleSwitch
-        label="Enable API actions"
-        hint="Master switch for every integration on this agent."
-        checked={settings.api_actions_enabled}
-        disabled={setMaster.isPending}
-        onChange={(next) => setMaster.mutate(next)}
-        className="rounded-card border border-line bg-app p-4"
-      />
-      {setMaster.isError ? <ProblemNotice error={setMaster.error} /> : null}
+      <RestrictionNote reason={write.reason} />
 
-      <Credentials session={session} />
+      {/* A disabled <fieldset> disables every control inside it natively, including the
+          ones the child components own, so no write can be reached without the grant. */}
+      <fieldset disabled={!write.allowed} className="min-w-0 space-y-6">
+        <ToggleSwitch
+          label="Enable API actions"
+          hint="Master switch for every integration on this agent."
+          checked={settings.api_actions_enabled}
+          disabled={setMaster.isPending}
+          onChange={(next) => setMaster.mutate(next)}
+          className="rounded-card border border-line bg-app p-4"
+        />
+        {setMaster.isError ? <ProblemNotice error={setMaster.error} /> : null}
 
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-ink">Configured actions</h3>
-        {settings.tools.length === 0 ? (
-          <p className="text-sm text-ink-muted">No actions yet. Add one below.</p>
-        ) : (
-          <ul className="space-y-2">
-            {settings.tools.map((tool) => (
-              <ToolRow key={tool.id} tool={tool} agentId={agentId} session={session} />
-            ))}
-          </ul>
-        )}
-      </div>
+        <Credentials session={session} />
 
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-ink">Add an action</h3>
-        <div className="flex flex-wrap gap-2">
-          {(["custom_api", "whatsapp", "calendar"] as Kind[]).map((kind) => (
-            <button
-              key={kind}
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              onClick={() => setAdding(kind)}
-            >
-              <Plus className="mr-1 inline h-3.5 w-3.5" />
-              {ACTION_KIND_LABELS[kind]}
-            </button>
-          ))}
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-ink">Configured actions</h3>
+          {settings.tools.length === 0 ? (
+            <p className="text-sm text-ink-muted">No actions yet. Add one below.</p>
+          ) : (
+            <ul className="space-y-2">
+              {settings.tools.map((tool) => (
+                <ToolRow key={tool.id} tool={tool} agentId={agentId} session={session} />
+              ))}
+            </ul>
+          )}
         </div>
-        {settings.calendar_available ? null : (
-          <p className={FIELD_HINT}>
-            Google Calendar is not connected for your account yet — contact support to enable it.
-          </p>
-        )}
-        {adding ? (
-          <ActionForm
-            kind={adding}
-            agentId={agentId}
-            session={session}
-            onDone={() => setAdding(null)}
-          />
-        ) : null}
-      </div>
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-ink">Add an action</h3>
+          <div className="flex flex-wrap gap-2">
+            {(["custom_api", "whatsapp", "calendar"] as Kind[]).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                className={SECONDARY_BUTTON_SM}
+                onClick={() => setAdding(kind)}
+              >
+                <Plus className="mr-1 inline h-3.5 w-3.5" />
+                {ACTION_KIND_LABELS[kind]}
+              </button>
+            ))}
+          </div>
+          {settings.calendar_available ? null : (
+            <p className={FIELD_HINT}>
+              Google Calendar is not connected for your account yet — contact support to enable it.
+            </p>
+          )}
+          {adding ? (
+            <ActionForm
+              kind={adding}
+              agentId={agentId}
+              session={session}
+              onDone={() => setAdding(null)}
+            />
+          ) : null}
+        </div>
+      </fieldset>
     </section>
   );
 }

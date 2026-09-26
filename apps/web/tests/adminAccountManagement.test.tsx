@@ -415,6 +415,35 @@ describe("correcting a client's business record", () => {
 });
 
 describe("a client's invitations", () => {
+  it("shows a new invitation in the list the moment it is sent", async () => {
+    // The success notice says the link "appears in the list above", so the list has to be
+    // read again after the POST rather than left on the answer from before it.
+    const minted = {
+      id: "0192f0aa-8888-7000-8000-000000000003",
+      email: "n***@sri.example",
+      role: "staff",
+      invited_at: "2026-09-06T05:30:00Z",
+      expires_at: "2026-09-09T05:30:00Z",
+      last_sent_at: "2026-09-06T05:30:00Z",
+      send_count: 1,
+    };
+    let sent = false;
+    await renderInvitations({
+      [INVITES_PATH]: () => (sent ? [minted] : []),
+      [`POST ${INVITES_PATH}`]: () => {
+        sent = true;
+        return { id: minted.id, delivery: "queued", expires_in_hours: 72 };
+      },
+    });
+
+    const address = await screen.findByLabelText("Their email address");
+    await waitFor(() => expect((address as HTMLInputElement).disabled).toBe(false));
+    fireEvent.change(address, { target: { value: "new.person@sri.example" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send the invitation/ }));
+
+    expect(await screen.findByText("n***@sri.example")).toBeTruthy();
+  });
+
   it("never claims nobody holds a key when the read failed", async () => {
     // An operator who believes "no invitation is outstanding" issues a second link to an
     // address that already holds one — which the API then refuses.

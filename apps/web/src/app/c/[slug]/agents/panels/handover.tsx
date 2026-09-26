@@ -60,6 +60,7 @@ import {
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
+  RestrictionNote,
   SECONDARY_BUTTON_SM,
   SectionHeading,
   Skeleton,
@@ -73,6 +74,7 @@ import {
   type HandoffIn,
   type HandoffOut,
 } from "@/lib/api/agents";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
@@ -107,6 +109,8 @@ export function Handover({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const handoff = useHandoff(session, agent.id);
   const save = useSetHandoff(session, agent.id);
+  // `PUT /v1/agents/{id}/handoff` is `org:manage`; staff read this panel on `agents:read`.
+  const write = useWriteAccess(session, "org:manage", "change who calls are put through to");
 
   const [enabled, setEnabled] = useState(false);
   const [rows, setRows] = useState<Draft[]>([]);
@@ -181,157 +185,168 @@ export function Handover({ agent }: { agent: Agent }) {
         </p>
       </NoticeBox>
 
-      <div className="mt-4">
-        <ToggleSwitch
-          checked={enabled}
-          onChange={(next) => {
-            setDirty(true);
-            setEnabled(next);
-          }}
-          label="Let this agent put callers through"
-          hint="Off means callers who ask for a person are offered a call-back instead."
-        />
-      </div>
-
-      {/* THE VERDICT, IN THE SERVER'S OWN WORDS. Five causes, four of them a minute's work
-          — and the sentence that fixes each one comes from the same place the publish
-          reads, so the screen cannot say "working" while the publish disagrees. */}
-      {data.unavailable_reason ? (
-        <NoticeBox tone="warn" className="mt-4">
-          <p className="font-medium">Nobody is available to take a call right now.</p>
-          {data.remediation && <p className="mt-1">{data.remediation}</p>}
-        </NoticeBox>
-      ) : (
-        <p className={`mt-4 rounded-md px-3 py-2 text-sm ${NOTICE_TONES.ok}`}>
-          A caller asking for a person right now would reach{" "}
-          <strong>
-            {data.members.find((member) => member.id === data.on_duty_member_id)?.label ??
-              "the first person on this list"}
-          </strong>
-          .
-        </p>
+      {write.reason && (
+        <div className="mt-4">
+          <RestrictionNote reason={write.reason} />
+        </div>
       )}
 
-      <ul className="mt-4 space-y-3">
-        {rows.map((row, index) => (
-          <li key={row.key} className="rounded-lg border border-line p-3">
-            <div className="flex items-start gap-3">
-              <span className="mt-2 text-xs font-semibold text-ink-faint">{index + 1}</span>
-              <div className="grid flex-1 gap-2 sm:grid-cols-2">
-                <label className="block">
-                  <span className={FIELD_LABEL}>Name</span>
-                  <input
-                    className={FIELD}
-                    value={row.label}
-                    maxLength={120}
-                    onChange={(event) => edit(index, { label: event.target.value })}
-                  />
-                </label>
-                <label className="block">
-                  <span className={FIELD_LABEL}>Mobile number</span>
-                  <input
-                    className={FIELD}
-                    value={row.phone_e164}
-                    inputMode="tel"
-                    placeholder="+919876543210"
-                    onChange={(event) => edit(index, { phone_e164: event.target.value })}
-                  />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className={FIELD_LABEL}>Note (optional)</span>
-                  <input
-                    className={FIELD}
-                    value={row.note}
-                    maxLength={500}
-                    placeholder="Evenings only, ask for the manager first"
-                    onChange={(event) => edit(index, { note: event.target.value })}
-                  />
-                </label>
-              </div>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <ToggleSwitch
-                checked={row.active}
-                onChange={(next) => edit(index, { active: next })}
-                label="Available"
-                hint="Switch off while they are away — they keep their place in the order."
-              />
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={index === 0}
-                onClick={() => {
-                  setDirty(true);
-                  setRows((current) => move(current, index, index - 1));
-                }}
-              >
-                Move up
-              </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={index === rows.length - 1}
-                onClick={() => {
-                  setDirty(true);
-                  setRows((current) => move(current, index, index + 1));
-                }}
-              >
-                Move down
-              </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                aria-label={`Remove ${row.label || "this person"}`}
-                onClick={() => {
-                  setDirty(true);
-                  setRows((current) => current.filter((_, i) => i !== index));
-                }}
-              >
-                <Trash2 aria-hidden className="h-3.5 w-3.5" />
-                Remove
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {/* A disabled <fieldset> disables every control inside it natively, so a reader who
+          may not save cannot build a draft the server will refuse, and no row control can
+          be missed by a per-button flag. */}
+      <fieldset disabled={!write.allowed} className="min-w-0">
+        <div className="mt-4">
+          <ToggleSwitch
+            checked={enabled}
+            onChange={(next) => {
+              setDirty(true);
+              setEnabled(next);
+            }}
+            label="Let this agent put callers through"
+            hint="Off means callers who ask for a person are offered a call-back instead."
+          />
+        </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          onClick={() => {
-            setDirty(true);
-            setRows((current) => [
-              ...current,
-              {
-                key: `new-${current.length}-${Date.now()}`,
-                label: "",
-                phone_e164: "",
-                active: true,
-                note: "",
-              },
-            ]);
-          }}
-        >
-          <Plus aria-hidden className="h-3.5 w-3.5" />
-          Add someone
-        </button>
-        <button
-          type="button"
-          className={PRIMARY_BUTTON}
-          disabled={!dirty || save.isPending}
-          onClick={() => {
-            save.mutate(payload, { onSuccess: () => setDirty(false) });
-          }}
-        >
-          {save.isPending ? "Saving…" : "Save the list"}
-        </button>
-        {dirty && (
-          <span className="text-xs text-ink-faint">
-            Not saved yet. Changes reach your callers the next time this agent is published.
-          </span>
+        {/* THE VERDICT, IN THE SERVER'S OWN WORDS. Five causes, four of them a minute's work
+            — and the sentence that fixes each one comes from the same place the publish
+            reads, so the screen cannot say "working" while the publish disagrees. */}
+        {data.unavailable_reason ? (
+          <NoticeBox tone="warn" className="mt-4">
+            <p className="font-medium">Nobody is available to take a call right now.</p>
+            {data.remediation && <p className="mt-1">{data.remediation}</p>}
+          </NoticeBox>
+        ) : (
+          <p className={`mt-4 rounded-md px-3 py-2 text-sm ${NOTICE_TONES.ok}`}>
+            A caller asking for a person right now would reach{" "}
+            <strong>
+              {data.members.find((member) => member.id === data.on_duty_member_id)?.label ??
+                "the first person on this list"}
+            </strong>
+            .
+          </p>
         )}
-      </div>
+
+        <ul className="mt-4 space-y-3">
+          {rows.map((row, index) => (
+            <li key={row.key} className="rounded-lg border border-line p-3">
+              <div className="flex items-start gap-3">
+                <span className="mt-2 text-xs font-semibold text-ink-faint">{index + 1}</span>
+                <div className="grid flex-1 gap-2 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={FIELD_LABEL}>Name</span>
+                    <input
+                      className={FIELD}
+                      value={row.label}
+                      maxLength={120}
+                      onChange={(event) => edit(index, { label: event.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={FIELD_LABEL}>Mobile number</span>
+                    <input
+                      className={FIELD}
+                      value={row.phone_e164}
+                      inputMode="tel"
+                      placeholder="+919876543210"
+                      onChange={(event) => edit(index, { phone_e164: event.target.value })}
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className={FIELD_LABEL}>Note (optional)</span>
+                    <input
+                      className={FIELD}
+                      value={row.note}
+                      maxLength={500}
+                      placeholder="Evenings only, ask for the manager first"
+                      onChange={(event) => edit(index, { note: event.target.value })}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <ToggleSwitch
+                  checked={row.active}
+                  onChange={(next) => edit(index, { active: next })}
+                  label="Available"
+                  hint="Switch off while they are away — they keep their place in the order."
+                />
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  disabled={index === 0}
+                  onClick={() => {
+                    setDirty(true);
+                    setRows((current) => move(current, index, index - 1));
+                  }}
+                >
+                  Move up
+                </button>
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  disabled={index === rows.length - 1}
+                  onClick={() => {
+                    setDirty(true);
+                    setRows((current) => move(current, index, index + 1));
+                  }}
+                >
+                  Move down
+                </button>
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  aria-label={`Remove ${row.label || "this person"}`}
+                  onClick={() => {
+                    setDirty(true);
+                    setRows((current) => current.filter((_, i) => i !== index));
+                  }}
+                >
+                  <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                  Remove
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            onClick={() => {
+              setDirty(true);
+              setRows((current) => [
+                ...current,
+                {
+                  key: `new-${current.length}-${Date.now()}`,
+                  label: "",
+                  phone_e164: "",
+                  active: true,
+                  note: "",
+                },
+              ]);
+            }}
+          >
+            <Plus aria-hidden className="h-3.5 w-3.5" />
+            Add someone
+          </button>
+          <button
+            type="button"
+            className={PRIMARY_BUTTON}
+            disabled={!dirty || save.isPending}
+            onClick={() => {
+              save.mutate(payload, { onSuccess: () => setDirty(false) });
+            }}
+          >
+            {save.isPending ? "Saving…" : "Save the list"}
+          </button>
+          {dirty && (
+            <span className="text-xs text-ink-faint">
+              Not saved yet. Changes reach your callers the next time this agent is published.
+            </span>
+          )}
+        </div>
+      </fieldset>
 
       {/* THE SERVER'S REFUSALS VERBATIM — a duplicated number, an empty list with the
           switch on, a number that is not in international format. Each is a sentence the

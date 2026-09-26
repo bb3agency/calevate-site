@@ -9,6 +9,7 @@ import {
   FIELD,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
+  RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
@@ -20,6 +21,7 @@ import {
   type KnowledgeGap,
 } from "@/lib/api/knowledgeGaps";
 import { useFormValidation } from "@/components/formValidation";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import type { VerticalExamples } from "@/lib/verticalExamples";
@@ -48,6 +50,9 @@ export function KnowledgeGaps({
   // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
   const eg = useVerticalExamples();
   const gaps = useKnowledgeGaps(session, { agentId, status: "open", limit: 20 });
+  // Reading gaps is `calls:read`; teaching and dismissing are `kb:write`, which staff hold
+  // only when their owner has switched curation on (`/v1/me` reports the effective set).
+  const write = useWriteAccess(session, "kb:write", "teach or dismiss these");
 
   const title = agentId ? "Where this agent struggled" : "Where your agents struggled";
 
@@ -90,6 +95,11 @@ export function KnowledgeGaps({
         Found automatically from real conversations — not guessed. Each one will keep
         happening until you teach the answer.
       </p>
+      {write.reason && (
+        <div className="px-2 pb-3">
+          <RestrictionNote reason={write.reason} />
+        </div>
+      )}
       {items.length === 0 ? (
         <EmptyState
           title="Nothing unanswered"
@@ -98,7 +108,13 @@ export function KnowledgeGaps({
       ) : (
         <ul className="space-y-2" aria-label="Knowledge gaps needing attention">
           {items.map((gap) => (
-            <GapRow eg={eg} key={gap.id} gap={gap} showAgent={!agentId} />
+            <GapRow
+              eg={eg}
+              key={gap.id}
+              gap={gap}
+              showAgent={!agentId}
+              canWrite={write.allowed}
+            />
           ))}
         </ul>
       )}
@@ -115,10 +131,12 @@ const SIGNAL_BADGE: Record<GapSignal, string> = {
 function GapRow({
   gap,
   showAgent,
+  canWrite,
   eg,
 }: {
   gap: KnowledgeGap;
   showAgent: boolean;
+  canWrite: boolean;
   /** This tenant's examples, passed down rather than re-read: one `/v1/me` per screen. */
   eg: VerticalExamples;
 }) {
@@ -182,7 +200,7 @@ function GapRow({
         </div>
       ) : null}
 
-      {teaching ? (
+      {!canWrite ? null : teaching ? (
         <form
           className="mt-3 space-y-2"
           noValidate

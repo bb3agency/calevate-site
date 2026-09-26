@@ -132,4 +132,19 @@ describe("the knowledge-gaps card", () => {
     expect(teach).toBeTruthy();
     expect(teach?.body).toContain("It is 500 rupees.");
   });
+
+  it("does not offer Teach or Dismiss to a staff member without kb:write", async () => {
+    // `/v1/knowledge-gaps` is `calls:read`, so staff see the card; the two actions are
+    // `kb:write`, which staff hold only when their owner switched curation on.
+    const staff: Me = { ...ME, role: "staff", permissions: ["calls:read"] };
+    const { calls } = await renderClientPage(page, routes({ "/v1/me": staff }));
+
+    expect(await screen.findByText("Pricing")).toBeTruthy();
+    expect(
+      await screen.findByText("Only an account owner can teach or dismiss these."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Teach this")).toBeNull();
+    expect(screen.queryByText("Dismiss")).toBeNull();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
 });
