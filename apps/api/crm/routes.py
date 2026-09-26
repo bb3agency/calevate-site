@@ -283,11 +283,9 @@ async def assist_call(
     exactly `leads:write`'s, and a permission every role holds precisely when it holds
     another is a fourth registry entry that buys nothing.
 
-    **The `Idempotency-Key` is REQUIRED**, which `POST /v1/leads/{lead_id}/call` does not
-    do, and the difference is what a repeat costs. A repeated dial re-runs the compliance
-    gate and is bounded by the follow-up ladder; a repeated assist is a second, silent
-    payment to our model provider — Azure OpenAI since D-410, Google when this was written
-    — with nothing else in front of it. D-140 removed the client-suppliable
+    **The `Idempotency-Key` is REQUIRED**, as it is on `POST /v1/leads/{lead_id}/call`,
+    because a repeat is a second, silent payment to our model provider — Azure OpenAI
+    since D-410 — with nothing else in front of it. D-140 removed the client-suppliable
     metering `ref` precisely so that dedupe could not happen after the provider was paid,
     and moved double-click protection here. An OPTIONAL key would protect only the callers
     that remember to send one, i.e. this console on the day it was written, which is the
@@ -1335,27 +1333,39 @@ async def call_lead(
 ) -> CallLeadOut:
     assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
 
-    # Idempotency: a double-click must not place two calls to a customer. The key is
-    # required here precisely because the side effect is a real phone ringing.
+    # Idempotency: a double-click must not place two calls to a customer, so the key is
+    # REQUIRED rather than honoured when present. An optional key dedupes only the callers
+    # that remember to send one; every other caller's retry is a second phone ringing,
+    # which nothing later can undo. Refused before the gate, as `assist_call` does.
     idem_key = request.headers.get("Idempotency-Key")
-    claim = None
-    if idem_key:
-        # IN ITS OWN COMMITTED TRANSACTION, before anything can ring — see the assist
-        # route above for the argument, which is the same one with a phone call in place
-        # of a model call: a claim written into the request's transaction is erased by
-        # the rollback that follows any later failure, and the retry the key exists to
-        # answer rings the customer a second time.
-        async with tenant_session(principal.tenant_id) as claim_session:
-            claim = await claim_idempotency(
-                claim_session,
-                scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
-                route="/v1/leads/{lead_id}/call",
-                method="POST",
-                key=idem_key,
-                request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump()}),
-            )
-        if claim.state == "replay" and claim.response_payload:
-            return CallLeadOut.model_validate(claim.response_payload)
+    if not idem_key:
+        raise ProblemError(
+            kind="validation",
+            status=400,
+            code="idempotency_key_required",
+            title="This request has to carry an Idempotency-Key",
+            detail=(
+                "Calling a lead rings a real phone, so every attempt names itself and a "
+                "repeat of the same attempt is answered rather than dialled again."
+            ),
+            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
+        )
+    # IN ITS OWN COMMITTED TRANSACTION, before anything can ring — see the assist route
+    # above for the argument, which is the same one with a phone call in place of a model
+    # call: a claim written into the request's transaction is erased by the rollback that
+    # follows any later failure, and the retry the key exists to answer rings the
+    # customer a second time.
+    async with tenant_session(principal.tenant_id) as claim_session:
+        claim = await claim_idempotency(
+            claim_session,
+            scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
+            route="/v1/leads/{lead_id}/call",
+            method="POST",
+            key=idem_key,
+            request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump()}),
+        )
+    if claim.state == "replay" and claim.response_payload:
+        return CallLeadOut.model_validate(claim.response_payload)
 
     phone, name = await service.lead_phone(session, lead_id)
 
@@ -1378,14 +1388,13 @@ async def call_lead(
         result = CallLeadOut(
             status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
         )
-        if claim is not None:
-            async with tenant_session(principal.tenant_id) as done_session:
-                await complete_idempotency(
-                    done_session,
-                    record_id=claim.record_id,
-                    response_status=200,
-                    response_payload=result.model_dump(),
-                )
+        async with tenant_session(principal.tenant_id) as done_session:
+            await complete_idempotency(
+                done_session,
+                record_id=claim.record_id,
+                response_status=200,
+                response_payload=result.model_dump(),
+            )
         return result
 
     from apps.api.agents.service import DialUnconfirmedError, dispatch_call
@@ -1434,13 +1443,12 @@ async def call_lead(
             ip=client_request_ip(request),
             summary={"agent_id": str(payload.agent_id), "has_note": bool(payload.context_note)},
         )
-        if claim is not None:
-            await complete_idempotency(
-                record_session,
-                record_id=claim.record_id,
-                response_status=200,
-                response_payload=result.model_dump(),
-            )
+        await complete_idempotency(
+            record_session,
+            record_id=claim.record_id,
+            response_status=200,
+            response_payload=result.model_dump(),
+        )
     return result
 
 

@@ -306,6 +306,52 @@ async def test_a_remembered_call_is_marked_and_recallable_and_metered() -> None:
     assert metered, "a model call this client's cap must be able to stop went unbilled"
 
 
+async def test_a_later_call_failing_does_not_unrecord_a_call_already_paid_for() -> None:
+    """Hard rule 7 and the `pending` marker, settled per CALL rather than per tenant.
+
+    A tenant's calls used to share one transaction, so a provider error on the second
+    call rolled back the first call's memory rows, its marker and its `usage_events` rows
+    after its model call had been paid: the spend went unbilled and the next tick bought
+    the same conversation again.
+    """
+    import httpx
+
+    tenant_id, agent_id = await _tenant()
+    first = await _finished_call(tenant_id, agent_id)
+    second = await _finished_call(tenant_id, agent_id)
+    calls: list[int] = []
+    succeed = _model(f'{{"facts": ["{FACT}"]}}', calls)
+
+    async def _second_refused(*args: Any, **kwargs: Any) -> Any:
+        if calls:
+            raise httpx.ConnectError("provider unavailable")
+        return await succeed(*args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(caller_memory_distil.chat, "complete", _second_refused)
+        await distil_caller_memories({})
+
+    states = {await _state(tenant_id, first), await _state(tenant_id, second)}
+    assert states == {caller_memory.CALLER_MEMORY_REMEMBERED, caller_memory.CALLER_MEMORY_PENDING}
+    async with tenant_session(tenant_id) as session:
+        metered = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM usage_events "
+                    "WHERE tenant_id = :tid AND meta->>'feature' = :feature"
+                ),
+                {"tid": tenant_id, "feature": ASSIST_FEATURE_CALLER_MEMORY},
+            )
+        ).scalar_one()
+        # Settle the refused call: the tick sweeps every tenant on the worklist, and a
+        # `pending` call left behind would be bought by the next test's tick.
+        await session.execute(
+            text("UPDATE calls SET caller_memory_state = :done WHERE id = ANY(:ids)"),
+            {"done": caller_memory.CALLER_MEMORY_NOTHING, "ids": [first, second]},
+        )
+    assert int(metered) > 0, "the call that was paid for is on this client's bill"
+
+
 async def test_an_agent_that_does_not_remember_costs_nothing_at_all() -> None:
     """THE DEFAULT, and it is a COST claim so it is measured as one. Discovery starts
     from the switch, so a fleet with it everywhere off asks a provider nothing — and

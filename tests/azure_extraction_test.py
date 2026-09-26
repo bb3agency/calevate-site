@@ -1012,6 +1012,35 @@ async def test_a_disclosed_sarvam_fallback_reports_no_usage(
     assert result.usage is None
 
 
+async def test_a_truncated_azure_answer_is_still_metered_when_sarvam_writes_the_reply(
+    configured: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A truncated answer is refused as an answer and still paid for as a request.
+
+    `AzureOpenAIExtractor.run` records `last_usage` BEFORE raising `ExtractionTruncatedError`
+    precisely so "the truncated turn is still metered", and `run_assist` then fell through
+    to the Sarvam leg and returned `usage=None` — dropping the tokens Azure had billed us
+    for. The fallback is still free; the Azure turn in front of it was not.
+    """
+    azure = FakeAzure()
+    azure.truncated = True
+    _patch_client(monkeypatch, azure)
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+
+    async def _sarvam_run(
+        self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
+    ) -> dict[str, Any]:
+        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "resolved"}
+
+    monkeypatch.setattr(SarvamExtractor, "run", _sarvam_run)
+
+    result = await run_assist(SPEC, REDACTED_TRANSCRIPT)
+
+    assert result.capability.provider == SARVAM_PROVIDER
+    assert result.output.summary == "from sarvam"
+    assert result.usage == extraction_module.TokenUsage(prompt_tokens=1_200, output_tokens=800)
+
+
 # --- 7. the ceiling reaches the runner -------------------------------------------
 
 

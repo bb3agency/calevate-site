@@ -8,17 +8,20 @@ point of `record_call_gaps` is what it writes to the database.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.api.insights import service
+from apps.api.insights import detection, service
 from apps.api.insights.detection import RedactedTurn
 from apps.api.insights.schemas import GapTeachIn
 
@@ -286,3 +289,88 @@ async def test_dismissing_a_gap_that_names_nothing_is_a_404() -> None:
             await service.dismiss_gap(session, uuid7(), principal=principal, reason=None)
     assert caught.value.status == 404
     assert caught.value.code == "not_found"
+
+
+#: Enough topics that a hash order is almost never sorted by chance, plus phrase-derived
+#: keys (`detection._topic`) whose `_` and Telugu letters are where a locale collation and
+#: codepoint order disagree.
+_MANY_TOPICS = (
+    "parking",
+    "hours",
+    "insurance",
+    "pricing",
+    "q_a_b",
+    "q_aa",
+    "q_\u0c05\u0c21",
+    "refunds",
+)
+
+
+def _gaps_for(keys: tuple[str, ...]) -> list[detection.DetectedGap]:
+    return [
+        detection.DetectedGap(
+            topic_key=key,
+            topic_label=key.title(),
+            question_redacted=f"What about {key}?",
+            answer_redacted="I don't know.",
+            signal="dont_know",
+        )
+        for key in keys
+    ]
+
+
+async def _aggregate_lock_order(
+    monkeypatch: pytest.MonkeyPatch, run: Callable[[], Awaitable[object]]
+) -> list[str]:
+    """The topic order in which `run` takes the aggregate row locks."""
+    order: list[str] = []
+    real = service._recompute_aggregate
+
+    async def spy(session: AsyncSession, **kwargs: Any) -> None:
+        order.append(kwargs["topic_key"])
+        await real(session, **kwargs)
+
+    monkeypatch.setattr(service, "_recompute_aggregate", spy)
+    await run()
+    monkeypatch.setattr(service, "_recompute_aggregate", real)
+    return order
+
+
+async def test_two_calls_take_the_aggregate_locks_in_one_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every writer locks `knowledge_gaps` rows in topic order, or two pipelines deadlock.
+
+    Each recompute locks its aggregate row (STEP 1's upsert) and holds it until commit, and
+    one call's topics are recomputed in one transaction. Iterating a Python `set` made the
+    order a function of string hashing, which is randomised PER PROCESS — so two workers
+    finishing calls that share two topics could each hold one row and wait on the other,
+    and Postgres aborts one pipeline run mid-way (its lead upsert and metering with it)
+    until the retry.
+    """
+    tenant_id, agent_id = await _tenant()
+    monkeypatch.setattr(detection, "detect_gaps", lambda _turns: _gaps_for(_MANY_TOPICS))
+    call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
+
+    recorded = await _aggregate_lock_order(
+        monkeypatch,
+        lambda: service.record_call_gaps(
+            tenant_id=tenant_id, agent_id=agent_id, call_id=call_id, turns=_pricing_turns()
+        ),
+    )
+    assert recorded == sorted(_MANY_TOPICS), recorded
+
+    async def scrub() -> int:
+        async with tenant_session(tenant_id) as session:
+            # A HashAggregate DISTINCT, so the rows arrive in hash order: a sort-based plan
+            # under this database's C collation would hand them over sorted by accident,
+            # and a production database's locale collation would not.
+            await session.execute(text("SET LOCAL enable_sort = off"))
+            return await service.scrub_quotes_for_calls(
+                session, call_ids=[call_id], mark="[erased]"
+            )
+
+    scrubbed = await _aggregate_lock_order(monkeypatch, scrub)
+    assert scrubbed == sorted(_MANY_TOPICS), (
+        "the erasure path recomputes the same rows and must take them in the same order"
+    )

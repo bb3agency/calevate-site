@@ -78,6 +78,7 @@ vector to reach the same raise, for ever.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
 
@@ -272,7 +273,7 @@ async def _embed_claimed(
 ) -> int:
     """Phase 2 for one claimed batch: re-read the text, buy the vectors, store them.
 
-    RAISES on a transport failure so the CALLER can roll the whole tenant back — the claims
+    RAISES on a transport failure so the CALLER can roll this batch back — the claims
     included, which is what returns those chunks to `pending` for the next tick.
     """
     bodies = await projection.content_for(session, keys)
@@ -375,35 +376,51 @@ async def _embed_claimed(
     return stored
 
 
-async def _sweep_tenant(
-    session: AsyncSession, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int
-) -> tuple[int, int]:
-    """Discover then embed, for every registered scope. Returns (projected, embedded)."""
-    projected = 0
-    embedded = 0
+@dataclass
+class _Tally:
+    """What one tenant's share of the tick did, kept outside its transactions so a failure
+    part-way through still charges the tick's budget for the batches it paid for."""
+
+    projected: int = 0
+    embedded: int = 0
+
+
+async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int) -> None:
+    """Discover then embed, for every registered scope, counted into `tally`.
+
+    ONE TRANSACTION PER DISCOVERY AND PER BATCH, not one per tenant. A batch is paid for
+    when the provider answers, and its vectors, states and platform-ledger rows must commit
+    with it: a tenant-wide transaction let a LATER batch's failure roll an earlier, paid
+    batch back — spend the platform brake never saw, bought again next tick. The claim stays
+    inside its batch's transaction so `SKIP LOCKED` still guards the rows until their result
+    commits.
+    """
     remaining = min(MAX_CHUNKS_PER_TENANT, budget)
     for projection in registered_projections():
-        projected += await _discover(session, tenant_id=tenant_id, projection=projection)
+        async with tenant_session(tenant_id) as session:
+            tally.projected += await _discover(session, tenant_id=tenant_id, projection=projection)
         while remaining > 0:
-            rows = (
-                await session.execute(
-                    text(_CLAIM_SQL),
-                    {
-                        "kind": projection.subject_kind,
-                        "limit": min(EMBED_BATCH, remaining),
-                        # The model and width THIS deployment embeds with; a `ready` row
-                        # not matching both is stale and re-claimed.
-                        "model": EMBEDDING_MODEL,
-                        "dim": EMBEDDING_DIMS,
-                    },
+            async with tenant_session(tenant_id) as session:
+                rows = (
+                    await session.execute(
+                        text(_CLAIM_SQL),
+                        {
+                            "kind": projection.subject_kind,
+                            "limit": min(EMBED_BATCH, remaining),
+                            # The model and width THIS deployment embeds with; a `ready`
+                            # row not matching both is stale and re-claimed.
+                            "model": EMBEDDING_MODEL,
+                            "dim": EMBEDDING_DIMS,
+                        },
+                    )
+                ).all()
+                if not rows:
+                    break
+                keys: list[ChunkKey] = [(UUID(str(row[0])), int(row[1])) for row in rows]
+                remaining -= len(keys)
+                tally.embedded += await _embed_claimed(
+                    session, projection=projection, keys=keys, leg=leg
                 )
-            ).all()
-            if not rows:
-                break
-            keys: list[ChunkKey] = [(UUID(str(row[0])), int(row[1])) for row in rows]
-            remaining -= len(keys)
-            embedded += await _embed_claimed(session, projection=projection, keys=keys, leg=leg)
-    return projected, embedded
 
 
 async def _column_can_hold_our_vectors() -> bool:
@@ -505,24 +522,22 @@ async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
     for tenant_id in tenants:
         if budget <= 0:
             break
+        tally = _Tally()
         try:
-            async with tenant_session(tenant_id) as session:
-                tenant_projected, tenant_embedded = await _sweep_tenant(
-                    session, tenant_id=tenant_id, leg=leg, budget=budget
-                )
-            projected += tenant_projected
-            embedded += tenant_embedded
-            budget -= tenant_embedded
+            await _sweep_tenant(tally, tenant_id=tenant_id, leg=leg, budget=budget)
         except (httpx.HTTPError, TimeoutError) as failure:
-            # The provider, for THIS tenant. Every claim in the transaction rolls back, so
-            # the chunks stay `pending` and the next tick picks them up — the correct
-            # response to a transient failure, at a cost of thirty minutes.
+            # The provider, for THIS batch. Its claims roll back, so those chunks stay
+            # `pending` and the next tick picks them up — the correct response to a
+            # transient failure, at a cost of thirty minutes.
             log.warning(
                 "caller_embed_provider_failed",
                 extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
             )
         except Exception:
             log.exception("caller_embed_tenant_failed", extra={"tenant_id": str(tenant_id)})
+        projected += tally.projected
+        embedded += tally.embedded
+        budget -= tally.embedded
 
     log.info(
         "caller_embed_tick",

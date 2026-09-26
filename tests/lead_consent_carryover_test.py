@@ -150,7 +150,11 @@ async def test_the_manual_dial_button_now_refuses_a_consent_blocked_lead(
         response = await http.post(
             f"/v1/leads/{lead_id}/call",
             json={"agent_id": str(agent_id)},
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "Idempotency-Key": f"press-{lead_id}",
+            },
         )
 
     assert response.status_code == 200, response.text

@@ -78,7 +78,7 @@ from apps.api.kb.models import (
     UPLOAD_RETRYABLE,
     text_is_read,
 )
-from apps.workers.document_ocr import OcrImage, ocr_images
+from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
 from apps.workers.document_text import extract_document
 from apps.workers.storage import read_kb_object
 
@@ -267,6 +267,16 @@ async def _extract(
         # The lane's own sentence, written for a shop owner, copied verbatim. Its `code`
         # goes to the log so an operator can count the shapes; the prose goes to the client.
         log.info("kb_ingest_refused", extra={"upload_id": str(upload_id), "code": refused.code})
+        if isinstance(refused, PaidOcrUnusableError):
+            # Refused to the client, still paid to the vendor: metered in this transaction
+            # beside the refusal, exactly as a kept read is metered beside its text.
+            await _meter_ocr(
+                session,
+                tenant_id=tenant_id,
+                model=refused.model,
+                prompt_tokens=refused.prompt_tokens,
+                output_tokens=refused.output_tokens,
+            )
         await _mark(
             session,
             upload_id,
@@ -276,11 +286,24 @@ async def _extract(
         return None
 
     if extracted.model is not None:
-        await _meter_ocr(session, tenant_id=tenant_id, extracted=extracted)
+        await _meter_ocr(
+            session,
+            tenant_id=tenant_id,
+            model=extracted.model,
+            prompt_tokens=extracted.prompt_tokens,
+            output_tokens=extracted.output_tokens,
+        )
     return extracted
 
 
-async def _meter_ocr(session: AsyncSession, *, tenant_id: UUID, extracted: ExtractedText) -> None:
+async def _meter_ocr(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    model: str,
+    prompt_tokens: int | None,
+    output_tokens: int | None,
+) -> None:
     """Hard rule 7, in the SAME transaction as the text the call produced.
 
     `kb_gloss._gloss_one`'s ending, verbatim in shape and for its reason: a model call that
@@ -288,7 +311,7 @@ async def _meter_ocr(session: AsyncSession, *, tenant_id: UUID, extracted: Extra
     one state D-140 refuses to invent a number for — so it alerts instead of estimating
     from the length of the text.
     """
-    if extracted.prompt_tokens is None or extracted.output_tokens is None:
+    if prompt_tokens is None or output_tokens is None:
         alert(
             "CORE_LOGIC",
             "kb_ocr_unmeterable",
@@ -304,9 +327,9 @@ async def _meter_ocr(session: AsyncSession, *, tenant_id: UUID, extracted: Extra
         session,
         tenant_id=tenant_id,
         ref=new_assist_ref(),
-        tokens_in=extracted.prompt_tokens,
-        tokens_out=extracted.output_tokens,
-        model=str(extracted.model),
+        tokens_in=prompt_tokens,
+        tokens_out=output_tokens,
+        model=model,
         feature=ASSIST_FEATURE_KB_OCR,
     )
 

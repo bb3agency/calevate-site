@@ -84,6 +84,7 @@ argument does not distinguish them either.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
@@ -434,46 +435,57 @@ async def _mark(session: AsyncSession, call_id: UUID, state: str) -> None:
     )
 
 
-async def _sweep_tenant(
-    session: AsyncSession, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int
-) -> tuple[int, int]:
-    """One tenant's share of the tick. Returns (model calls spent, facts written)."""
-    rows = (
-        await session.execute(
-            text(_PENDING_CALLS_SQL),
-            {
-                "settle_minutes": SETTLE_MINUTES,
-                "lookback_days": LOOKBACK_DAYS,
-                "limit": min(MAX_CALLS_PER_TENANT, budget),
-            },
-        )
-    ).all()
-    spent = 0
-    facts = 0
+@dataclass
+class _Tally:
+    """What one tenant's share of the tick spent, kept outside its transactions so a
+    failure part-way through still charges the tick's budget for the calls it paid for."""
+
+    spent: int = 0
+    facts: int = 0
+
+
+async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int) -> None:
+    """One tenant's share of the tick, counted into `tally`."""
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(_PENDING_CALLS_SQL),
+                {
+                    "settle_minutes": SETTLE_MINUTES,
+                    "lookback_days": LOOKBACK_DAYS,
+                    "limit": min(MAX_CALLS_PER_TENANT, budget),
+                },
+            )
+        ).all()
     for row in rows:
-        if spent >= budget:
+        if tally.spent >= budget:
             break
         call_id = UUID(str(row[0]))
         phone = None if row[2] is None else str(row[2])
-        if not phone:
-            # No subject to file a fact under: an erasure has already NULLed the number, or
-            # the poller never learned it. `skipped`, because no model was asked — and
-            # settled rather than left pending, so it is not re-discovered every hour for
-            # a fortnight.
-            await _mark(session, call_id, CALLER_MEMORY_SKIPPED)
-            continue
-        written, spent_a_call = await _distil_call(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            agent_id=UUID(str(row[1])),
-            phone_e164=phone,
-            occurred_at=row[3],
-            leg=leg,
-        )
-        facts += written
-        spent += 1 if spent_a_call else 0
-    return spent, facts
+        # ONE TRANSACTION PER CALL, not per tenant. A call's model spend is final when the
+        # provider answers, and its memory rows, marker and `usage_events` rows must commit
+        # with it: sharing the tenant's transaction let a provider error on a LATER call roll
+        # all three back, so the spend went unbilled (hard rule 7) and the next tick bought
+        # the same conversation again.
+        async with tenant_session(tenant_id) as session:
+            if not phone:
+                # No subject to file a fact under: an erasure has already NULLed the number,
+                # or the poller never learned it. `skipped`, because no model was asked — and
+                # settled rather than left pending, so it is not re-discovered every hour for
+                # a fortnight.
+                await _mark(session, call_id, CALLER_MEMORY_SKIPPED)
+                continue
+            written, spent_a_call = await _distil_call(
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                agent_id=UUID(str(row[1])),
+                phone_e164=phone,
+                occurred_at=row[3],
+                leg=leg,
+            )
+        tally.facts += written
+        tally.spent += 1 if spent_a_call else 0
 
 
 async def distil_caller_memories(ctx: dict[str, Any]) -> str:
@@ -518,15 +530,11 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
     for tenant_id in tenants:
         if budget <= 0:
             break
+        tally = _Tally()
         try:
-            async with tenant_session(tenant_id) as session:
-                spent, facts = await _sweep_tenant(
-                    session, tenant_id=tenant_id, leg=leg, budget=budget
-                )
-            budget -= spent
-            facts_written += facts
+            await _sweep_tenant(tally, tenant_id=tenant_id, leg=leg, budget=budget)
         except (httpx.HTTPError, TimeoutError) as failure:
-            # The provider, for THIS tenant's call. The transaction rolls back, so the call
+            # The provider, for THIS tenant's call. That call's transaction rolls back, so it
             # keeps its `pending` marker and the next tick picks it up — the correct
             # behaviour for a transient failure, at a cost of one hour.
             log.warning(
@@ -535,6 +543,8 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
             )
         except Exception:
             log.exception("caller_memory_distil_tenant_failed", extra={"tenant_id": str(tenant_id)})
+        budget -= tally.spent
+        facts_written += tally.facts
 
     log.info(
         "caller_memory_distil_tick",

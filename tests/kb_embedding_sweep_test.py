@@ -267,6 +267,51 @@ async def test_the_spend_reaches_the_ledger_under_its_own_feature_name(
     ]
 
 
+async def test_a_later_batch_failing_does_not_unrecord_a_batch_already_paid_for(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """Hard rule 7 per BATCH, which is the unit a provider charges for.
+
+    A tenant's batches used to share one transaction, so a transport failure on the second
+    request rolled back the first batch's vectors, states AND `usage_events` rows after it
+    had been paid for: the spend was off the books and the next tick bought the same
+    vectors again.
+    """
+    import httpx
+
+    tenant_id, agent_id = await _tenant_with_pending_chunk("A consultation costs 500 rupees.")
+    async with tenant_session(tenant_id) as session:
+        second = await kb_service.submit_source(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Parking", body="Parking is free."
+        )
+        await kb_service.approve_source(session, source_id=second["id"], approved_by=None)
+        await kb_service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(second["id"]))
+        )
+    await _settle_gloss(tenant_id)
+    await _only_tenant(monkeypatch, tenant_id)
+    monkeypatch.setattr(kb_embeddings, "EMBED_BATCH", 1)
+    calls: list[int] = []
+    succeed = _counting_embed(calls)
+
+    async def _second_fails(leg: ChatLeg, inputs: Sequence[str], **kwargs: Any) -> Any:
+        if calls:
+            raise httpx.ConnectError("provider unavailable")
+        return await succeed(leg, inputs, **kwargs)
+
+    monkeypatch.setattr(chat, "embed", _second_fails)
+    await kb_embeddings.embed_knowledge_chunks({})
+
+    assert sorted(await _states(tenant_id)) == [("pending", False), ("ready", True)]
+    async with tenant_session(tenant_id) as session:
+        metered = (
+            await session.execute(
+                text("SELECT count(*) FROM usage_events WHERE meta->>'feature' = 'kb_embed'")
+            )
+        ).scalar_one()
+    assert int(metered) > 0, "the batch that was paid for is on the ledger"
+
+
 async def test_a_vector_from_a_superseded_model_is_re_bought(
     monkeypatch: pytest.MonkeyPatch, priced: Any
 ) -> None:

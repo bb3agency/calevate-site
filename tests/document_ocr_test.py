@@ -29,6 +29,7 @@ from apps.workers.document_ocr import (
     MAX_SOURCE_OCR_COST_USD,
     NO_TEXT_SENTINEL,
     OcrImage,
+    PaidOcrUnusableError,
     _legibility_reason,
     estimated_page_cost_usd,
     ocr_images,
@@ -184,6 +185,98 @@ async def test_nothing_readable_at_all_is_a_refusal_and_not_an_empty_success() -
     assert refusal.value.code == "ingest_ocr_unusable"
     # A client can act on it without knowing what a vision model is.
     assert "light" in refusal.value.remediation
+
+
+async def test_a_refusal_after_the_provider_answered_carries_what_the_reads_cost() -> None:
+    """Discarding every page is a refusal to the client and not a refund from the vendor:
+    both reads below were answered and billed. The refusal has to carry the tokens or the
+    caller has nothing to meter (hard rule 7)."""
+    client, _ = _client(_reply(NO_TEXT_SENTINEL), _reply("x"))
+    async with client:
+        with pytest.raises(PaidOcrUnusableError) as refusal:
+            await ocr_images([_image(1), _image(2)], client=client)
+    assert (refusal.value.prompt_tokens, refusal.value.output_tokens) == (2 * 2580, 2 * 300)
+    assert refusal.value.model == DOCUMENT_OCR_MODEL
+    assert refusal.value.reason == "all_images_discarded"
+
+
+async def test_a_refusal_with_no_answered_read_claims_no_cost() -> None:
+    """Nothing reached a billing provider (every page was refused at the door), so there
+    is nothing to meter and the plain refusal is the honest one."""
+    client, _ = _client(503, 503)
+    async with client:
+        with pytest.raises(OcrUnusableError) as refusal:
+            await ocr_images([_image(1), _image(2)], client=client)
+    assert not isinstance(refusal.value, PaidOcrUnusableError)
+
+
+async def test_an_illegible_upload_is_still_metered_when_the_ingest_refuses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ingest job's refusal arm used to mark the upload failed and meter nothing, so
+    every blurry photo a client uploaded was model spend that never reached their AI
+    ceiling — and `conversion_failed` is not retryable, so it was never recorded later."""
+    import uuid
+    from datetime import date
+
+    from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attestations
+    from apps.api.crm.assist import ASSIST_FEATURE_KB_OCR
+    from apps.api.db.session import tenant_session
+    from apps.workers import kb_ingest
+    from sqlalchemy import text
+    from tests.ai_quota_test import _tenant
+
+    tenant_id = await _tenant()
+    client, _ = _client(_reply("x"))
+
+    async def _object(_key: str) -> bytes:
+        return _JPEG
+
+    async def _ocr(images: list[OcrImage]) -> Any:
+        return await ocr_images(images, client=client)
+
+    monkeypatch.setattr(kb_ingest, "read_kb_object", _object)
+    monkeypatch.setattr(kb_ingest, "ocr_images", _ocr)
+    install_llm_price_attestations(
+        lambda: {
+            DOCUMENT_OCR_MODEL: LlmPriceAttestation(
+                model=DOCUMENT_OCR_MODEL,
+                input_usd_per_mtok=Decimal("0.30"),
+                output_usd_per_mtok=Decimal("2.50"),
+                read_on=date(2026, 9, 1),
+                attested_by="test",
+                source="fixture",
+            )
+        }
+    )
+    try:
+        async with client, tenant_session(tenant_id) as session:
+            extracted = await kb_ingest._extract(
+                session,
+                tenant_id=tenant_id,
+                upload_id=uuid.uuid4(),
+                kind="image",
+                key="kb/menu.jpg",
+                content_type="image/jpeg",
+                expected_sha256=None,
+            )
+        assert extracted is None, "an illegible photo is refused"
+        async with tenant_session(tenant_id) as session:
+            metered = (
+                await session.execute(
+                    text(
+                        "SELECT unit_type, qty FROM usage_events "
+                        "WHERE tenant_id = :t AND meta->>'feature' = :f ORDER BY unit_type"
+                    ),
+                    {"t": tenant_id, "f": ASSIST_FEATURE_KB_OCR},
+                )
+            ).all()
+    finally:
+        install_llm_price_attestations(None)
+    assert [(str(r[0]), Decimal(str(r[1]))) for r in metered] == [
+        ("ai_assist_ktok_in", Decimal("2.58")),
+        ("ai_assist_ktok_out", Decimal("0.3")),
+    ]
 
 
 async def test_a_provider_failure_on_one_page_does_not_lose_the_other_five() -> None:

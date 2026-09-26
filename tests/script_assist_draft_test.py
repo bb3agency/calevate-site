@@ -74,7 +74,8 @@ async def test_a_truncated_draft_is_no_draft_on_either_leg(
     """
     _scripted_complete(monkeypatch, chat.ChatOutcome(content=_DRAFT_JSON, finish_reason="length"))
     with caplog.at_level("WARNING"):
-        assert await _draft_via_azure("a clinic in Guntur") is None
+        azure = await _draft_via_azure("a clinic in Guntur")
+        assert azure is not None and azure.script is None
         assert await _draft_via_sarvam("a clinic in Guntur") is None
     truncations = [r for r in caplog.records if r.message == "script_assist_draft_truncated"]
     assert len(truncations) == 2
@@ -102,3 +103,29 @@ async def test_draft_script_falls_back_when_the_azure_draft_is_truncated(
     # The answer is a substitution and says so (D-127 G-6).
     assert draft.capability.provider == "sarvam"
     assert draft.capability.disclosure is not None
+
+
+async def test_a_truncated_azure_draft_is_still_metered_when_sarvam_writes_the_script(
+    both_keys: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The truncated Azure turn was billed whether or not its JSON was usable, so its
+    tokens ride the Sarvam draft to `meter_assist` (hard rule 7). They were dropped: the
+    draft came back with `usage=None` and the route metered nothing."""
+    outcomes = [
+        chat.ChatOutcome(
+            content=_DRAFT_JSON,
+            finish_reason="length",
+            usage=chat.TokenUsage(prompt_tokens=300, output_tokens=2000),
+        ),
+        chat.ChatOutcome(content=_DRAFT_JSON, finish_reason="stop"),
+    ]
+
+    async def _complete(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> chat.ChatOutcome:
+        return outcomes.pop(0)
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    draft = await script_assist.draft_script("a clinic in Guntur")
+    assert draft.capability.provider == "sarvam"
+    assert draft.usage == chat.TokenUsage(prompt_tokens=300, output_tokens=2000)

@@ -414,23 +414,28 @@ async def recording_ref_for(session: AsyncSession, call_id: UUID) -> RecordingRe
 # --- leads --------------------------------------------------------------------
 
 
+_AGENT_SCHEMA_SQL = (
+    "SELECT fields FROM extraction_schemas WHERE agent_id = :aid ORDER BY version DESC LIMIT 1"
+)
+_NEWEST_SCHEMA_SQL = (
+    "SELECT fields FROM extraction_schemas ORDER BY created_at DESC, id DESC LIMIT 1"
+)
+
+
 async def lead_columns(
     session: AsyncSession, agent_id: UUID | None = None
 ) -> list[ExtractionField]:
     """The Leads table columns ARE the extraction schema (TRD §7). With no agent filter
     we take the most recently published schema — a v1 tenant has exactly one agent, and
-    a mixed list is better served by the per-agent view."""
-    params: dict[str, Any] = {}
-    where = ""
+    a mixed list is better served by the per-agent view.
+
+    Two orderings, because `version` is a per-AGENT counter: across agents it measures how
+    often each one's variables were edited, not which schema is newest."""
     if agent_id:
-        where = "WHERE agent_id = :aid"
-        params["aid"] = agent_id
-    row = (
-        await session.execute(
-            text(f"SELECT fields FROM extraction_schemas {where} ORDER BY version DESC LIMIT 1"),
-            params,
-        )
-    ).first()
+        statement, params = _AGENT_SCHEMA_SQL, {"aid": agent_id}
+    else:
+        statement, params = _NEWEST_SCHEMA_SQL, {}
+    row = (await session.execute(text(statement), params)).first()
     if row is None or not row[0]:
         return []
     return [ExtractionField.model_validate(f) for f in row[0]]

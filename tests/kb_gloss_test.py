@@ -278,6 +278,51 @@ async def test_a_paid_gloss_reaches_the_ledger_under_its_own_feature_name(
     assert all(float(r[1]) > 0 for r in rows)
 
 
+async def test_a_later_gloss_failing_does_not_unrecord_a_gloss_already_paid_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hard rule 7 per CHUNK, which is the unit the provider charges for.
+
+    A tenant's chunks used to share one transaction, so a transport failure translating the
+    second rolled back the first chunk's gloss, its state AND its `usage_events` rows after
+    it had been paid for: the spend was off the books and the next tick paid again.
+    """
+    import httpx
+
+    tenant_id, _, _bodies = await _tenant_with_pending_chunks(TELUGU_BODY, TELUGU_BODY)
+    succeed = _RecordingProvider()
+
+    async def _second_fails(leg: Any, messages: Any, **kwargs: Any) -> _FakeOutcome:
+        if succeed.seen:
+            raise httpx.ConnectError("provider unavailable")
+        return await succeed(leg, messages, **kwargs)
+
+    monkeypatch.setattr(kb_gloss.chat, "complete", _second_fails)
+    monkeypatch.setattr(kb_gloss, "azure_credentials", lambda: ("res", "key", "deployment-abc"))
+
+    async def _one() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _one)
+    await kb_gloss.write_knowledge_glosses({"job_try": 1})
+
+    assert sorted(s[0] for s in await _states(tenant_id)) == [GLOSS_PENDING, GLOSS_READY]
+    async with tenant_session(tenant_id) as session:
+        metered = (
+            await session.execute(
+                text("SELECT count(*) FROM usage_events WHERE meta ->> 'feature' = 'kb_gloss'")
+            )
+        ).scalar_one()
+    assert int(metered) > 0, "the gloss that was paid for is on the ledger"
+    # Close the refused chunk: the sweep is fleet-wide, and a chunk left `pending` here
+    # would be translated by the next test's tick.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_documents SET gloss_state = :s WHERE gloss_state = :p"),
+            {"s": GLOSS_NOT_NEEDED, "p": GLOSS_PENDING},
+        )
+
+
 async def test_an_empty_completion_is_left_pending_rather_than_stored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

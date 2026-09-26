@@ -124,8 +124,9 @@ class ScriptDraft:
 
     `script` is a structured `CallScript` the builder can load directly — opening line,
     steps and FAQ, in raw pydantic-validated form so a malformed model answer is caught here
-    rather than in the editor. `usage` is non-None only for an Azure answer Azure counted,
-    exactly as `AssistResult.usage` is: the one leg `record_ai_assist_usage` can price.
+    rather than in the editor. `usage` is non-None only for Azure tokens Azure counted —
+    including an Azure turn that failed in front of a Sarvam draft — exactly as
+    `AssistResult.usage` is: the one leg `record_ai_assist_usage` can price.
     `capability` carries the fallback disclosure the response and screen must show (G-6).
     """
 
@@ -136,9 +137,13 @@ class ScriptDraft:
 
 @dataclass(frozen=True, slots=True)
 class _RawDraft:
-    """The model's JSON, normalised into a `CallScript`, plus usage. Internal to this file."""
+    """The model's JSON, normalised into a `CallScript`, plus usage. Internal to this file.
 
-    script: CallScript
+    `script` is None when the model ANSWERED and the answer was unusable (truncated, or no
+    JSON in it): no draft, but a billed turn whose `usage` must still reach the meter.
+    """
+
+    script: CallScript | None
     usage: TokenUsage | None = field(default=None)
 
 
@@ -250,14 +255,13 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
         # The `_DRAFT_MAX_TOKENS` valve fired. The JSON was cut off mid-generation, so
         # parsing it would either fail (→ an inexplicable empty editor) or, worse, yield
         # a balanced PREFIX that reads as a short draft. "No draft" is the honest answer;
-        # the caller falls back exactly as it does for any other non-answer. (The paid
-        # tokens go unmetered on this arm, as on every `None` return here — a
-        # pre-existing failure-path gap, not widened by this check.)
+        # the caller falls back exactly as it does for any other non-answer — carrying the
+        # billed tokens, which the valve firing means were the most this turn could cost.
         log.warning("script_assist_draft_truncated", extra={"provider": "azure"})
-        return None
+        return _RawDraft(script=None, usage=outcome.usage)
     raw = _first_json_object(outcome.content)
     if not raw:
-        return None
+        return _RawDraft(script=None, usage=outcome.usage)
     return _RawDraft(script=_script_from_model_json(raw), usage=outcome.usage)
 
 
@@ -322,10 +326,15 @@ async def draft_script(
     if not capability.available:
         raise assist_unavailable(capability)
 
+    # What an Azure turn that produced no draft still cost — `run_assist`'s `spent`, for
+    # its reason: billed as a request, refused as an answer, so it rides the fallback's
+    # draft to the meter. The Sarvam leg itself adds nothing (D-36).
+    spent: TokenUsage | None = None
     if capability.provider == AZURE_PROVIDER:
-        drafted = await _draft_via_azure(description)
-        if drafted is not None:
-            return ScriptDraft(script=drafted.script, capability=capability, usage=drafted.usage)
+        azure = await _draft_via_azure(description)
+        if azure is not None and azure.script is not None:
+            return ScriptDraft(script=azure.script, capability=capability, usage=azure.usage)
+        spent = azure.usage if azure is not None else None
         # Azure could not answer — re-ask the selector with the fact we now have rather
         # than deciding locally what an outage means (run_assist's rule).
         capability = assist_capability(
@@ -335,12 +344,12 @@ async def draft_script(
             raise assist_unavailable(capability)
 
     drafted = await _draft_via_sarvam(description)
-    if drafted is None:
+    if drafted is None or drafted.script is None:
         # Both legs silent: a refusal the author can act on, not an empty editor.
         raise assist_unavailable(
             AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
         )
-    return ScriptDraft(script=drafted.script, capability=capability)
+    return ScriptDraft(script=drafted.script, capability=capability, usage=spent)
 
 
 __all__ = ["ScriptDraft", "draft_script"]

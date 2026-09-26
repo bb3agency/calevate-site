@@ -198,6 +198,25 @@ class OcrImage:
     position: int
 
 
+class PaidOcrUnusableError(OcrUnusableError):
+    """`OcrUnusableError` for reads the provider answered, and so was paid for.
+
+    Every page being discarded is a refusal to the CLIENT, not a refund from the vendor: a
+    garbled, truncated or empty transcription costs the same tokens as a good one. The
+    refusal therefore carries what the reads cost, so the caller can meter it (hard rule 7)
+    — without it an illegible photo was spend that never reached the tenant's AI ceiling,
+    as many times as they cared to upload it.
+    """
+
+    def __init__(
+        self, *, reason: str, images: int, model: str, prompt_tokens: int, output_tokens: int
+    ) -> None:
+        super().__init__(reason=reason, images=images)
+        self.model = model
+        self.prompt_tokens = prompt_tokens
+        self.output_tokens = output_tokens
+
+
 def ocr_leg() -> chat.ChatLeg:
     """Where a transcription goes, or `OcrUnavailableError` naming what an operator must fix.
 
@@ -318,6 +337,14 @@ async def ocr_images(
     )
 
     if not pages:
+        if usage_seen:
+            raise PaidOcrUnusableError(
+                reason="all_images_discarded",
+                images=len(images),
+                model=DOCUMENT_OCR_MODEL,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+            )
         raise OcrUnusableError(reason="all_images_discarded", images=len(images))
 
     return ExtractedText(
