@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 from apps.api.core.queue import get_queue, job_id_for
+from apps.api.reliability.service import OUTBOX_CLAIM_LEASE
 from apps.workers import auth_email
 from apps.workers.settings import FUNCTIONS, WorkerSettings
 from arq.connections import ArqRedis
@@ -39,6 +40,23 @@ def test_the_auth_email_job_is_registered_to_keep_no_result() -> None:
     assert registered["deliver_auth_email"].keep_result_s == 0
     # The worker-wide default is untouched: every other job keeps its dedupe window.
     assert WorkerSettings.keep_result == 3600
+
+
+@pytest.mark.parametrize(
+    "job", ["deliver_outbound_webhook", "recall_dials_for_dnc", "notify_account_closed"]
+)
+def test_a_job_carrying_personal_data_keeps_it_only_as_long_as_its_dedupe_needs(
+    job: str,
+) -> None:
+    """A lead's details, a caller's numbers or a contact address sat in Redis for the
+    worker-wide hour after the outbox had scrubbed its own copy. The window now outlives
+    only what it guards: a claim that lapses after `OUTBOX_CLAIM_LEASE` and is re-enqueued
+    by the next dispatch tick (every ten seconds) under the same job id."""
+    registered = {f.name: f for f in map(func, FUNCTIONS)}
+    kept = registered[job].keep_result_s
+    assert kept is not None
+    assert kept < WorkerSettings.keep_result
+    assert kept > OUTBOX_CLAIM_LEASE.total_seconds() + 10
 
 
 @pytest.mark.asyncio

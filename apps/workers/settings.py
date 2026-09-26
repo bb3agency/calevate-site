@@ -57,8 +57,10 @@ copies and metering too, which is a far worse failure than degraded extraction.
 import asyncio
 import logging
 import sys
+from collections.abc import Mapping
 from contextlib import suppress
-from typing import Any
+from datetime import timedelta
+from typing import Any, Final
 
 # Must run before arq creates its loop. Same policy as tests/conftest.py.
 if sys.platform == "win32":
@@ -87,6 +89,7 @@ from apps.api.core.settings import (
 )
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
+from apps.api.reliability.service import OUTBOX_CLAIM_LEASE
 from apps.workers.account_closure import (
     SWEEP_MINUTE as ERASURE_FILING_MINUTE,
 )
@@ -320,32 +323,53 @@ FUNCTIONS: list[Any] = [
     )
 ]
 
-#: Jobs whose ARGUMENTS must not outlive the run. arq writes a finished job's args into
-#: `arq:result:<id>` for `keep_result` seconds (`arq.jobs.serialize_result`), and
-#: `deliver_auth_email`'s args are a live one-time credential — a reset token, an
-#: invitation or operator-setup link, an OTP — whose outbox copy is scrubbed at publish
-#: for exactly that reason. Keeping the result would hold it in Redis for an hour, the
-#: whole life of a reset link. What is given up is the result key's job-id dedupe after
-#: completion: a dispatch tick that enqueued and then died before committing re-sends the
-#: SAME message to the SAME mailbox, which is the cheaper failure.
-NO_RESULT_JOBS: frozenset[str] = frozenset({deliver_auth_email.__name__})
+#: How long arq may keep a finished job's ARGUMENTS, for the jobs whose arguments are a
+#: credential or personal data. arq writes a finished job's args into `arq:result:<id>` for
+#: `keep_result` seconds (`arq.jobs.serialize_result`), and that key is also the job-id
+#: dedupe after completion, so the window is chosen per job rather than cut for all:
+#:
+#: * `deliver_auth_email` keeps nothing. Its args are a live one-time credential (a reset
+#:   token, an invitation or operator-setup link, an OTP) whose outbox copy is scrubbed at
+#:   publish; an hour of result would be the whole life of a reset link. What is given up is
+#:   a re-send of the same message to the same mailbox when a dispatch tick enqueues and dies
+#:   before committing, the cheaper failure.
+#: * The outbox jobs that carry a lead's details, a caller's numbers or a contact address
+#:   keep `OUTBOX_RESULT_WINDOW_S`. Their only duplicate is that same dying tick: the row's
+#:   claim lapses after `OUTBOX_CLAIM_LEASE` and the next tick re-enqueues it under the same
+#:   job id, which the result key must still be there to refuse. So the window outlives the
+#:   lease and a tick, and nothing else, instead of the worker-wide hour.
+OUTBOX_RESULT_WINDOW_S: Final[int] = int(
+    (OUTBOX_CLAIM_LEASE + timedelta(minutes=3)).total_seconds()
+)
+RESULT_WINDOW_S: Final[Mapping[str, int]] = {
+    deliver_auth_email.__name__: 0,
+    deliver_outbound_webhook.__name__: OUTBOX_RESULT_WINDOW_S,
+    recall_dials_for_dnc.__name__: OUTBOX_RESULT_WINDOW_S,
+    notify_account_closed.__name__: OUTBOX_RESULT_WINDOW_S,
+}
 
 
-def _resultless(job: Any) -> Function:
-    """`job` as an arq `Function` with `keep_result=0`, still answering to its name.
+def _with_result_window(job: Any, seconds: int) -> Function:
+    """`job` as an arq `Function` with its own `keep_result`, still answering to its name.
 
     A per-job `keep_result` exists only on arq's `Function`, which carries `.name` but not
     the `__name__`/`__qualname__` every other entry here has and every reader of this list
     keys on (`check_job_wiring`, the registration tests). `Function` is a plain dataclass,
     so the two names go on the instance rather than into a second registry shape.
     """
-    registered = func(job, keep_result=0)
+    registered = func(job, keep_result=seconds)
     vars(registered).update(__name__=job.__name__, __qualname__=job.__qualname__)
     return registered
 
 
+_unwindowed = set(RESULT_WINDOW_S) - {getattr(fn, "__name__", "") for fn in FUNCTIONS}
+if _unwindowed:
+    raise RuntimeError(f"result windows name jobs that are not registered: {sorted(_unwindowed)}")
 FUNCTIONS = [
-    _resultless(fn) if getattr(fn, "__name__", "") in NO_RESULT_JOBS else fn for fn in FUNCTIONS
+    _with_result_window(fn, RESULT_WINDOW_S[fn.__name__])
+    if getattr(fn, "__name__", "") in RESULT_WINDOW_S
+    else fn
+    for fn in FUNCTIONS
 ]
 
 #: What each registered cron costs per tick, keyed by the arq job name.

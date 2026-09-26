@@ -14,7 +14,9 @@ what else is in that column — "a lead's name, phone number and call summary �
 copy of tenant personal data sitting OUTSIDE every retention policy a tenant can set, and
 outside the DPDP erasure path" — and pruning bounded the GROWTH without shortening the
 EXPOSURE. Scrubbing at publish takes it from ninety days to the length of a dispatch tick,
-for every job, without a new table, a new sweep or a new schedule.
+for every job, without a new table, a new sweep or a new schedule. That is the OUTBOX's
+copy; the one arq keeps in its result key is bounded per job by
+`workers.settings.RESULT_WINDOW_S` (`tests/auth_email_result_retention_test.py`).
 
 What must survive is the answer to "was this delivery made": `job`, `job_id`,
 `published_at`, `attempt_count`, `status`. Those are asserted here too, because a scrub
