@@ -31,6 +31,7 @@ from unittest import mock
 import httpx
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents import service as agent_service
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.compliance.service import add_to_dnc
 from apps.api.core.errors import ProblemError
@@ -875,6 +876,49 @@ async def test_a_retry_after_a_refusal_that_placed_nothing_dials_afresh(
     assert [row for row in await _outbound_calls(tenant_id) if row[1] == "queued"] == [
         (phone, "queued")
     ]
+    await _settle_calls(tenant_id)
+
+
+async def test_a_failure_inside_the_dial_after_the_vendor_answered_keeps_the_key_held(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure from `dispatch_call` that does not PROVE no line was seized must not
+    release the claim: the vendor has answered and the phone may be ringing, so the same
+    key's retry is refused as in flight rather than dialled a second time. Driven by
+    letting the real dial complete and then raising, the shape of the handle or lead
+    stamp failing after the vendor accepted the call."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    key = str(uuid.uuid4())
+    real_dispatch = agent_service.dispatch_call
+
+    async def dial_then_fail(*args: object, **kwargs: object) -> str:
+        await real_dispatch(*args, **kwargs)  # type: ignore[arg-type]
+        raise RuntimeError("lead stamp failed after the vendor answered")
+
+    monkeypatch.setattr(agent_service, "dispatch_call", dial_then_fail)
+    async with _no_reraise_client() as http:
+        first = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+    assert first.status_code >= 500, first.text
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")], "one press, one call"
+
+    # Restored by name: `monkeypatch.undo()` would also revert the autouse daytime pin.
+    monkeypatch.setattr(agent_service, "dispatch_call", real_dispatch)
+    async with _no_reraise_client() as http:
+        retry = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["type"].endswith("/idempotent_request_in_flight"), retry.text
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")], (
+        "the retry rang a customer whose phone may already have been ringing"
+    )
     await _settle_calls(tenant_id)
 
 
