@@ -352,6 +352,8 @@ async def test_a_superseded_plan_row_does_not_double_claim_the_campaign() -> Non
         )
         await campaigns.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
+    # The number was bound after the notice was recorded, so the notice declares it now.
+    await record_autodialer_notice_for_tests(tenant_id)
     await dispatch_campaign_tick({})
 
     async with tenant_session(tenant_id) as session:

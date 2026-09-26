@@ -168,6 +168,7 @@ async def test_an_account_with_a_live_notice_gets_no_autodialler_row() -> None:
             objective="Delivery reminders",
             notified_on=(datetime.now(UTC) - timedelta(days=30)).date(),
             notice_reference="REF-1",
+            declared_clis=["+919848022338"],
             recorded_by=user_id,
         )
         rows = await readiness_rows(

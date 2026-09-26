@@ -83,6 +83,7 @@ def _body(**over: Any) -> dict[str, Any]:
         "access_provider": "Airtel",
         "objective": "Delivery reminders for orders our customers placed",
         "notified_on": "2026-09-01",
+        "declared_clis": ["+91 98480 22338"],
         **over,
     }
 

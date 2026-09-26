@@ -126,6 +126,9 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     ),
     "autodialer_notice_withdrawn": "the client gives the notice again and records it",
     "autodialer_notice_not_yet_effective": "the date the recorded notice bears arrives",
+    "autodialer_notice_cli_undeclared": (
+        "the client records a notice that names the number the agent calls from"
+    ),
     "tm_registration_missing": "Calevate's telemarketer registration goes live again",
     "pe_registration_missing": "the client records their DLT Principal Entity registration",
     "pe_registration_not_active": "the registrar returns the PE registration to active",

@@ -77,7 +77,7 @@ from apps.api.agents.reconciliation import (
     TRUTHFUL_ANSWER_MISSING,
     TRUTHFUL_ANSWER_VERDICT_TTL_S,
 )
-from apps.api.agents.service import agent_outbound_number_blocker
+from apps.api.agents.service import agent_outbound_number_blocker, agent_registered_numbers
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
@@ -1113,7 +1113,11 @@ async def check_dispatch(
         # send until they know which registered header the calls will come from. Reporting
         # "tell your provider you autodial" to a client whose Principal Entity is still
         # pending would be the wrong next action.
-        notice_block = await autodialer_notice_blocker(session, tenant_id=tenant_id)
+        notice_block = await autodialer_notice_blocker(
+            session,
+            tenant_id=tenant_id,
+            caller_ids=await agent_registered_numbers(session, agent_id=agent_id),
+        )
         if notice_block is not None:
             rule, reason = notice_block
             return DispatchDecision(allowed=False, rule=rule, reason=reason)

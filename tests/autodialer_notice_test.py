@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.service import tenant_registered_numbers
 from apps.api.compliance.autodialer import (
     AUTODIALER_NOTICE_MISSING_REASON,
     AUTODIALER_NOTICE_MISSING_RULE,
@@ -114,6 +115,7 @@ async def _notify(
             access_provider="Airtel",
             objective=objective,
             notified_on=(datetime.now(UTC) - timedelta(days=days_ago)).date(),
+            declared_clis=await tenant_registered_numbers(session) or ["+919800000000"],
             recorded_by=user_id,
             notice_reference="AIRTEL-TKT-4417",
             withdraw=withdraw,

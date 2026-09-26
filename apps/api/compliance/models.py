@@ -18,7 +18,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -1429,6 +1429,10 @@ class AutodialerNotice(PKMixin, Base):
     # invite a timezone question the evidence cannot answer.
     notified_on: Mapped[date] = mapped_column(Date, nullable=False)
     notice_reference: Mapped[str | None] = mapped_column(Text)
+    # The numbers the calls will present, in E.164 (migration `f39583a282fb`).
+    declared_clis: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
     recorded_by: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

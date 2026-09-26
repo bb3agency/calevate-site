@@ -176,6 +176,8 @@ async def _dlt_rows(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[uuid.UUI
             ),
             {"id": template_id, "tid": tenant_id, "body": "Hello from {#var#}, an AI assistant."},
         )
+    # The number was bound after the notice was recorded, so the notice declares it now.
+    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     return number_id, template_id
 
 

@@ -233,6 +233,8 @@ async def _ready_campaign(
         # preference-scrubbed its list, so this fixture supplies the fact through the
         # production writer — `tests/national_dnd_test.py` proves the refusal is real.
         await record_test_scrub(session, campaign_id)
+    # The number was bound after the notice was recorded, so the notice declares it now.
+    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     return tenant_id, agent_id, campaign_id
 
 

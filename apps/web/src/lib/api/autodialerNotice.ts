@@ -53,13 +53,23 @@ export function useAutodialerNotice(
   });
 }
 
-/** What one record sends. A withdrawal carries the same three facts, by design. */
+/** What one record sends. A withdrawal carries the same facts, by design. */
 export interface RecordNoticeBody {
   accessProvider: string;
   objective: string;
   notifiedOn: string;
+  /** The numbers the calls will come from, as typed; the server normalises them. */
+  declaredClis: string[];
   noticeReference?: string | null;
   withdraw?: boolean;
+}
+
+/** The numbers in a free-text box: one per line or comma, blanks dropped. */
+export function parseDeclaredNumbers(raw: string): string[] {
+  return raw
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 export function useRecordAutodialerNotice(session: Session) {
@@ -72,6 +82,7 @@ export function useRecordAutodialerNotice(session: Session) {
           access_provider: body.accessProvider,
           objective: body.objective,
           notified_on: body.notifiedOn,
+          declared_clis: body.declaredClis,
           notice_reference: body.noticeReference ?? null,
           withdraw: body.withdraw ?? false,
         },

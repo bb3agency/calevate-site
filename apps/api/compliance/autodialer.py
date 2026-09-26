@@ -61,6 +61,7 @@ WHAT IS NOT HERE
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final, Literal
@@ -88,10 +89,14 @@ MAX_ACCESS_PROVIDER_CHARS: Final = 120
 #: objective of such calls"), so it gets room for a sentence rather than a label.
 MAX_OBJECTIVE_CHARS: Final = 500
 MAX_NOTICE_REFERENCE_CHARS: Final = 200
+#: The most numbers one notice may declare. Ours, not the regulator's: a small business
+#: presents one or two, and a notice listing dozens is a list somebody pasted by mistake.
+MAX_DECLARED_CLIS: Final = 20
 
 AUTODIALER_NOTICE_MISSING_RULE: Final = "autodialer_notice_missing"
 AUTODIALER_NOTICE_WITHDRAWN_RULE: Final = "autodialer_notice_withdrawn"
 AUTODIALER_NOTICE_NOT_YET_EFFECTIVE_RULE: Final = "autodialer_notice_not_yet_effective"
+AUTODIALER_NOTICE_CLI_UNDECLARED_RULE: Final = "autodialer_notice_cli_undeclared"
 
 #: Client-facing, and every word of it is the client's next action rather than ours. It
 #: says WHO must write (them), TO WHOM (their own access provider), WHAT the letter must
@@ -103,6 +108,17 @@ AUTODIALER_NOTICE_MISSING_REASON: Final = (
     "are for. TRAI requires the sender of the calls to give that notice, so it has to "
     "come from you rather than from Calevate. Send it to the provider that supplies your "
     "outbound line, then record the date here. Answering incoming calls is unaffected."
+)
+#: The TCCCPR Third Amendment (18 Sep 2026) requires the numbers an automated caller will
+#: use to be declared to the access provider in advance, and treats a call from an
+#: undeclared one as unsolicited commercial communication (REPORTED,
+#: `docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md` row 2). The reason names no
+#: number: the client can see their agent's numbers beside the notice.
+AUTODIALER_NOTICE_CLI_UNDECLARED_REASON: Final = (
+    "This agent calls from a number your business has not declared to its telecom access "
+    "provider. Automated calls may only come from numbers declared in advance, so add "
+    "this agent's number to your notice, send the updated notice to your provider, and "
+    "record it here. Answering incoming calls is unaffected."
 )
 AUTODIALER_NOTICE_WITHDRAWN_REASON: Final = (
     "Your business has withdrawn the notice it gave its telecom access provider about "
@@ -143,6 +159,7 @@ class AutodialerNotice:
     notified_on: date | None
     notice_reference: str | None
     created_at: datetime | None
+    declared_clis: tuple[str, ...] = ()
 
     def is_effective(self, *, today: date | None = None) -> bool:
         """Is this sender covered, as of `today` in IST?
@@ -171,8 +188,8 @@ NOT_RECORDED: Final = AutodialerNotice(
 # `now()`, and a withdrawal that sorted before the notice it retracts would report the
 # opposite of the truth. uuid7 is time-ordered, so the tiebreak is still chronological.
 _LATEST_SQL = text(
-    "SELECT state, access_provider, objective, notified_on, notice_reference, created_at "
-    "FROM autodialer_notices WHERE tenant_id = :tid "
+    "SELECT state, access_provider, objective, notified_on, notice_reference, created_at, "
+    "declared_clis FROM autodialer_notices WHERE tenant_id = :tid "
     "ORDER BY created_at DESC, id DESC LIMIT 1"
 )
 
@@ -196,11 +213,12 @@ async def read_autodialer_notice(session: AsyncSession, *, tenant_id: UUID) -> A
         notified_on=row[3],
         notice_reference=row[4],
         created_at=row[5],
+        declared_clis=tuple(row[6] or ()),
     )
 
 
 async def autodialer_notice_blocker(
-    session: AsyncSession, *, tenant_id: UUID
+    session: AsyncSession, *, tenant_id: UUID, caller_ids: Sequence[str] = ()
 ) -> tuple[str, str] | None:
     """`(rule, reason)` if Regulation 4 blocks this sender's outbound, else None.
 
@@ -213,11 +231,11 @@ async def autodialer_notice_blocker(
     different facts with different next actions, and collapsing them would send a client
     to the wrong one.
 
-    TENANT-SCOPED, NOT PER CAMPAIGN AND NOT PER NUMBER. The regulation names the Sender
-    and our evidence says explicitly that the unit is not stated; the sender is the one
-    unit we can support from the text. If an access provider later answers that the notice
-    is per objective or per number, this predicate grows an argument — it does not have to
-    be rebuilt, because the row already carries the objective it was given for.
+    PER SENDER, AND PER NUMBER WHERE THE CALLER NAMES ONE. Regulation 4 names the
+    Sender; the Third Amendment adds that the numbers must be declared too, so every
+    number in `caller_ids` must appear on the notice. The dial gate passes every number
+    the agent could present, since any of them may carry the call. A caller asking only
+    about the sender (the readiness screen) passes none and gets the sender answer.
     """
     notice = await read_autodialer_notice(session, tenant_id=tenant_id)
     if not notice.recorded:
@@ -230,7 +248,63 @@ async def autodialer_notice_blocker(
             AUTODIALER_NOTICE_NOT_YET_EFFECTIVE_RULE,
             autodialer_notice_not_yet_effective_reason(notice.notified_on),
         )
+    if any(caller_id not in notice.declared_clis for caller_id in caller_ids):
+        return (AUTODIALER_NOTICE_CLI_UNDECLARED_RULE, AUTODIALER_NOTICE_CLI_UNDECLARED_REASON)
     return None
+
+
+def declared_cli(raw: str) -> str | None:
+    """A number a client typed, in the form `phone_numbers.e164` stores it, or None.
+
+    Everything `normalize_phone` accepts, plus a bare ten-digit 140- or 160-series header,
+    which `normalize_phone` refuses because it only guesses the country for a mobile. A
+    header is prefixed with +91 and then confirmed by `series_for_e164`, so a ten-digit
+    string that merely starts with 140 is accepted only because it is what that function
+    calls a header.
+    """
+    # Imported here: `compliance.models` imports this module, and both of these reach it.
+    from apps.api.agents.models import series_for_e164
+    from apps.api.ingest.service import normalize_phone
+
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) == 10 and not raw.strip().startswith("+"):
+        header = "+91" + digits
+        if series_for_e164(header) in {"140", "160"}:
+            return header
+    return normalize_phone(raw)
+
+
+def _declared_clis(raw: Sequence[str], *, required: bool) -> list[str]:
+    """Normalised, de-duplicated in the order given, and refused whole on any bad entry."""
+    numbers: list[str] = []
+    for entry in raw:
+        if not entry.strip():
+            continue
+        number = declared_cli(entry)
+        if number is None:
+            raise ProblemError.business_rule(
+                "autodialer_notice_number_invalid",
+                f"'{entry.strip()[:32]}' is not a number your calls can come from.",
+                remediation=(
+                    "Enter each number with its country code, for example +91 98480 22338, "
+                    "or a 140 or 160 series number as issued."
+                ),
+            )
+        if number not in numbers:
+            numbers.append(number)
+    if required and not numbers:
+        raise ProblemError.business_rule(
+            "autodialer_notice_numbers_missing",
+            "List the numbers these automated calls will come from.",
+            remediation="The notice to your provider must name them, so it has to here too.",
+        )
+    if len(numbers) > MAX_DECLARED_CLIS:
+        raise ProblemError.business_rule(
+            "autodialer_notice_numbers_too_many",
+            "That is more numbers than one notice can declare.",
+            remediation=f"Declare at most {MAX_DECLARED_CLIS} numbers.",
+        )
+    return numbers
 
 
 async def record_autodialer_notice(
@@ -242,6 +316,7 @@ async def record_autodialer_notice(
     notified_on: date,
     recorded_by: UUID,
     notice_reference: str | None = None,
+    declared_clis: Sequence[str] = (),
     withdraw: bool = False,
 ) -> UUID:
     """Append one notice or withdrawal. INSERT-only (hard rule 4).
@@ -257,6 +332,9 @@ async def record_autodialer_notice(
     is that it opens the gate before Monday. Rejecting the write would push them to record
     a date they did not write, which is worse evidence than a true one that does not yet
     count. `autodialer_notice_blocker` holds that line.
+
+    A notice must declare at least one number; a withdrawal need not, since it retracts
+    the notice whole.
     """
     provider = access_provider.strip()
     stated_objective = objective.strip()
@@ -282,13 +360,14 @@ async def record_autodialer_notice(
             "That reference for your notice is too long.",
             remediation=f"Use at most {MAX_NOTICE_REFERENCE_CHARS} characters.",
         )
+    numbers = _declared_clis(declared_clis, required=not withdraw)
     row_id = uuid7()
     await session.execute(
         text(
             "INSERT INTO autodialer_notices "
             "(id, tenant_id, state, access_provider, objective, notified_on, "
-            "notice_reference, recorded_by) "
-            "VALUES (:id, :tid, :state, :ap, :obj, :on, :ref, :by)"
+            "notice_reference, declared_clis, recorded_by) "
+            "VALUES (:id, :tid, :state, :ap, :obj, :on, :ref, :clis, :by)"
         ),
         {
             "id": row_id,
@@ -298,6 +377,7 @@ async def record_autodialer_notice(
             "obj": stated_objective,
             "on": notified_on,
             "ref": reference,
+            "clis": numbers,
             "by": recorded_by,
         },
     )
@@ -305,12 +385,15 @@ async def record_autodialer_notice(
 
 
 __all__ = [
+    "AUTODIALER_NOTICE_CLI_UNDECLARED_REASON",
+    "AUTODIALER_NOTICE_CLI_UNDECLARED_RULE",
     "AUTODIALER_NOTICE_MISSING_REASON",
     "AUTODIALER_NOTICE_MISSING_RULE",
     "AUTODIALER_NOTICE_NOT_YET_EFFECTIVE_RULE",
     "AUTODIALER_NOTICE_WITHDRAWN_REASON",
     "AUTODIALER_NOTICE_WITHDRAWN_RULE",
     "MAX_ACCESS_PROVIDER_CHARS",
+    "MAX_DECLARED_CLIS",
     "MAX_NOTICE_REFERENCE_CHARS",
     "MAX_OBJECTIVE_CHARS",
     "NOTICE_STATES",
@@ -319,6 +402,7 @@ __all__ = [
     "NoticeState",
     "autodialer_notice_blocker",
     "autodialer_notice_not_yet_effective_reason",
+    "declared_cli",
     "read_autodialer_notice",
     "record_autodialer_notice",
 ]

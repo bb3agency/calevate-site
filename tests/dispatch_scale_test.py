@@ -535,6 +535,8 @@ async def _running_campaign(
         # production writer — `tests/national_dnd_test.py` proves the refusal is real.
         await record_test_scrub(session, campaign_id)
         await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+    # The number was bound after the notice was recorded, so the notice declares it now.
+    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     return campaign_id
 
 

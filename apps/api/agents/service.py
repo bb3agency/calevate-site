@@ -2678,6 +2678,35 @@ async def agent_outbound_number_blocker(
     return None
 
 
+async def agent_registered_numbers(session: AsyncSession, *, agent_id: UUID) -> list[str]:
+    """Every DLT-registered number bound to this agent, oldest first.
+
+    The numbers its outbound calls can present. `resolve_caller_id` refuses more than one;
+    the dial gate's declaration check needs them all, since whichever is used must have
+    been declared.
+    """
+    rows = (await session.execute(text(_AGENT_CALLER_ID_SQL), {"aid": agent_id})).all()
+    return [str(row[0]) for row in rows]
+
+
+async def tenant_registered_numbers(session: AsyncSession) -> list[str]:
+    """Every DLT-registered number bound to any of this tenant's agents, oldest first.
+
+    On the caller's RLS-scoped session, so "this tenant" is the session's tenant. What the
+    readiness screen asks the declaration question about, so it reports the refusal the
+    dial gate would give for any agent rather than only the one being dialled.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT e164 FROM phone_numbers WHERE agent_id IS NOT NULL "
+                "AND dlt_status = 'registered' ORDER BY created_at, id"
+            )
+        )
+    ).all()
+    return [str(row[0]) for row in rows]
+
+
 async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | None:
     """The number this agent's calls must present to the callee, or None (D-420).
 
@@ -2719,7 +2748,7 @@ async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | N
 
     Ids and counts in the log line, never a number (hard rule 6).
     """
-    rows = (await session.execute(text(_AGENT_CALLER_ID_SQL), {"aid": agent_id})).all()
+    rows = await agent_registered_numbers(session, agent_id=agent_id)
     if not rows:
         return None
     if len(rows) > 1:
@@ -2737,7 +2766,7 @@ async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | N
                 "and use a separate agent for the other class."
             ),
         )
-    return str(rows[0][0])
+    return rows[0]
 
 
 async def _recall_for_dial(

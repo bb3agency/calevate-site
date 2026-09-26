@@ -257,6 +257,8 @@ async def _launched(
         await record_test_scrub(session, campaign_id)
         # The real gate, unmodified: if any fixture above were missing this raises.
         await campaigns.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+    # The number was bound after the notice was recorded, so the notice declares it now.
+    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     return tenant_id, agent_id, campaign_id, number_id, template_id
 
 

@@ -253,6 +253,8 @@ async def _ready_campaign(
         # `tests/national_dnd_test.py` proves the refusal by leaving it out.
         if classification in PREFERENCE_SCRUBBED_CLASSIFICATIONS:
             await record_test_scrub(session, campaign_id)
+    # The number was bound after the notice was recorded, so the notice declares it now.
+    await record_autodialer_notice_for_tests(tenant_id)
     return tenant_id, agent_id, campaign_id
 
 
@@ -1374,6 +1376,8 @@ async def _windowed_campaign(
         # Promotional, so the national DND scrub applies here exactly as it does in
         # `_ready_campaign` — see the note there.
         await record_test_scrub(session, campaign_id)
+    # The number was bound after the notice was recorded, so the notice declares it now.
+    await record_autodialer_notice_for_tests(tenant_id)
     return tenant_id, agent_id, campaign_id
 
 

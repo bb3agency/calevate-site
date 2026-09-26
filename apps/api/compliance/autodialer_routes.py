@@ -40,9 +40,11 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.service import tenant_registered_numbers
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.autodialer import (
     MAX_ACCESS_PROVIDER_CHARS,
+    MAX_DECLARED_CLIS,
     MAX_NOTICE_REFERENCE_CHARS,
     MAX_OBJECTIVE_CHARS,
     AutodialerNotice,
@@ -80,6 +82,10 @@ class AutodialerNoticeOut(BaseModel):
     #: A notice dated in the future is recorded and `notified` and still not effective,
     #: which is three facts a screen has to tell apart to say anything useful.
     effective: bool
+    #: What the notice declares, and the account's agent numbers it does not. A call from
+    #: a number in the second list is refused as undeclared, so it is the list to act on.
+    declared_clis: list[str]
+    undeclared_clis: list[str]
 
 
 class AutodialerNoticeIn(BaseModel):
@@ -93,13 +99,17 @@ class AutodialerNoticeIn(BaseModel):
     #: and the gate holds outbound until it arrives — see `record_autodialer_notice`.
     notified_on: date
     notice_reference: str | None = Field(default=None, max_length=MAX_NOTICE_REFERENCE_CHARS)
+    #: The numbers the calls will come from, as the notice names them. Required on a
+    #: notice and not on a withdrawal; normalised by `record_autodialer_notice`.
+    declared_clis: list[str] = Field(default_factory=list, max_length=MAX_DECLARED_CLIS)
     #: A withdrawal is a NEW row carrying the same three facts, never an edit of the
     #: notice it retracts (hard rule 4) — the history has to keep showing that the notice
     #: was live while last month's calls were placed.
     withdraw: bool = False
 
 
-def _out(notice: AutodialerNotice) -> AutodialerNoticeOut:
+async def _out(session: AsyncSession, notice: AutodialerNotice) -> AutodialerNoticeOut:
+    agent_numbers = await tenant_registered_numbers(session)
     return AutodialerNoticeOut(
         recorded=notice.recorded,
         state=notice.state,
@@ -108,6 +118,8 @@ def _out(notice: AutodialerNotice) -> AutodialerNoticeOut:
         notified_on=notice.notified_on,
         notice_reference=notice.notice_reference,
         effective=notice.is_effective(),
+        declared_clis=list(notice.declared_clis),
+        undeclared_clis=[n for n in agent_numbers if n not in notice.declared_clis],
     )
 
 
@@ -121,14 +133,15 @@ def _out(notice: AutodialerNotice) -> AutodialerNoticeOut:
         "rules put one duty on the sender of such calls: tell your own telecom access "
         "provider, in writing and in advance, that you use an automated dialler and what "
         "the calls are for. You are the sender, so the notice is yours to give and ours "
-        "to record. Until this says `effective`, no outbound call goes out. Answering "
-        "incoming calls is unaffected. An account with nothing on file gets "
-        "`recorded: false` and a 200."
+        "to record. Until this says `effective`, no outbound call goes out, and none goes "
+        "out from a number listed in `undeclared_clis`: the notice must name every number "
+        "the calls come from. Answering incoming calls is unaffected. An account with "
+        "nothing on file gets `recorded: false` and a 200."
     ),
 )
 async def read_notice(session: Session, principal: NoticeReader) -> AutodialerNoticeOut:
     assert principal.tenant_id is not None
-    return _out(await read_autodialer_notice(session, tenant_id=principal.tenant_id))
+    return await _out(session, await read_autodialer_notice(session, tenant_id=principal.tenant_id))
 
 
 @router.post(
@@ -140,8 +153,9 @@ async def read_notice(session: Session, principal: NoticeReader) -> AutodialerNo
     description=(
         "Record the notice after you have sent it — this is where you tell us it exists, "
         "not where it is sent. Name the provider you sent it to, what the calls are for, "
-        "and the date on the letter. If you dated it in the future, that is fine: it is "
-        "recorded now and your outbound starts on that date. Withdrawing files a new "
+        "the numbers the calls will come from, and the date on the letter. If you dated "
+        "it in the future, that is fine: it is recorded now and your outbound starts on "
+        "that date. Withdrawing files a new "
         "record rather than deleting the old one, so the history still shows the notice "
         "was live while earlier calls were placed."
     ),
@@ -181,6 +195,7 @@ async def record_notice(
         objective=body.objective,
         notified_on=body.notified_on,
         notice_reference=body.notice_reference,
+        declared_clis=body.declared_clis,
         recorded_by=actor,
         withdraw=body.withdraw,
     )
@@ -206,7 +221,7 @@ async def record_notice(
             "notice_reference_given": bool((body.notice_reference or "").strip()),
         },
     )
-    return _out(await read_autodialer_notice(session, tenant_id=principal.tenant_id))
+    return await _out(session, await read_autodialer_notice(session, tenant_id=principal.tenant_id))
 
 
 __all__ = ["AutodialerNoticeIn", "AutodialerNoticeOut", "router"]

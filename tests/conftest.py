@@ -34,12 +34,18 @@ async def record_autodialer_notice_for_tests(tenant_id: uuid.UUID) -> None:
     the same facts through the production writer; it does NOT soften the gate —
     `tests/autodialer_notice_test.py` proves the refusal by leaving it out. Idempotent.
     """
+    from apps.api.agents.service import tenant_registered_numbers
     from apps.api.compliance.autodialer import read_autodialer_notice, record_autodialer_notice
     from apps.api.db.base import uuid7
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
-        if (await read_autodialer_notice(session, tenant_id=tenant_id)).is_effective():
+        # The notice declares every number the tenant's agents can present, so a second
+        # agent armed with a second number gets a fresh notice naming both. A tenant with
+        # no number yet still needs one on the notice; the placeholder presents nothing.
+        numbers = await tenant_registered_numbers(session) or ["+919800000000"]
+        notice = await read_autodialer_notice(session, tenant_id=tenant_id)
+        if notice.is_effective() and set(numbers) <= set(notice.declared_clis):
             return
         # `recorded_by` is NOT NULL and a fixture organisation has no member until somebody
         # accepts an invitation, so one is made rather than looked up.
@@ -64,6 +70,7 @@ async def record_autodialer_notice_for_tests(tenant_id: uuid.UUID) -> None:
             access_provider="Armed Test Telecom",
             objective="Appointment reminders and confirmations for our own customers",
             notified_on=(datetime.now(UTC) - timedelta(days=30)).date(),
+            declared_clis=numbers,
             recorded_by=user_id,
         )
 

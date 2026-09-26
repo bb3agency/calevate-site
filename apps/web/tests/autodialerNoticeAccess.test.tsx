@@ -35,6 +35,8 @@ const RECORDED: AutodialerNotice = {
   notified_on: "2026-09-01",
   notice_reference: null,
   effective: true,
+  declared_clis: ["+919848022338"],
+  undeclared_clis: [],
 };
 
 function routes(who: Me) {

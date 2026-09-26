@@ -43,6 +43,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.service import tenant_registered_numbers
 from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
 from apps.api.compliance.registration import outbound_entity_blockers
@@ -326,8 +327,12 @@ async def readiness_rows(
     # THE SENDER'S OWN NOTICE, and it is here rather than only in `check_dispatch` because
     # a gate that stops every outbound call and appears on no screen is a client staring at
     # a dead campaign with nothing to act on. Same predicate, so the sentence they read
-    # here is the sentence the dial refused with.
-    notice = await autodialer_notice_blocker(session, tenant_id=tenant_id)
+    # here is the sentence the dial refused with. Asked about every number the account's
+    # agents can present, since a number missing from the notice refuses every call it
+    # would carry.
+    notice = await autodialer_notice_blocker(
+        session, tenant_id=tenant_id, caller_ids=await tenant_registered_numbers(session)
+    )
     if notice is not None:
         rows.append(_row(*notice))
 

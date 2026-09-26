@@ -8,11 +8,13 @@
  * nowhere to do that, and a blocker whose remedy is on another screen is only marginally
  * better. The refusal and the fix read as one thing here.
  *
- * WHY THE FORM IS NOT PREFILLED FROM THE LAST NOTICE. The three facts describe a letter
- * the client sent — a provider, a purpose and the date on it. Prefilling invites somebody
- * to re-submit last year's date without reading it, which is the one thing this record
- * must not contain. A withdrawal is the exception and is deliberate: it carries the same
- * three facts because the row has to say which notice was retracted.
+ * WHY THE FORM IS NOT PREFILLED FROM THE LAST NOTICE. The facts describe a letter the
+ * client sent — a provider, a purpose, the numbers it names and the date on it.
+ * Prefilling invites somebody to re-submit last year's date without reading it, which is
+ * the one thing this record must not contain. A withdrawal is the exception and is
+ * deliberate: it carries the same facts because the row has to say which notice was
+ * retracted. The one thing offered is the agent numbers the notice does not cover, as a
+ * button the client presses, because those come from this account and not from a letter.
  *
  * `effective` COMES FROM THE SERVER, never from comparing the date here. A notice dated
  * in the future is recorded, `notified`, and not yet carrying outbound — the same
@@ -30,6 +32,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import {
+  parseDeclaredNumbers,
   useAutodialerNotice,
   useRecordAutodialerNotice,
   type AutodialerNotice,
@@ -63,6 +66,12 @@ function stateLine(notice: AutodialerNotice): {
       text: "The date on your notice has not arrived yet. Nothing is wrong with your paperwork — outgoing calls start on that date.",
     };
   }
+  if (notice.undeclared_clis.length > 0) {
+    return {
+      tone: "warn",
+      text: "Your notice does not name every number your agents call from, so calls from the missing numbers will not go out. Add them to your letter, send it to your operator, and record it here again.",
+    };
+  }
   return {
     tone: "ok",
     text: "Your notice is on file and your outgoing calls are not held up by it.",
@@ -80,6 +89,7 @@ export function AutodialerNoticePanel() {
   const [accessProvider, setAccessProvider] = useState("");
   const [objective, setObjective] = useState("");
   const [notifiedOn, setNotifiedOn] = useState("");
+  const [numbers, setNumbers] = useState("");
 
   if (notice.isPending)
     return <Skeleton rows={4} label="Loading your notice" />;
@@ -88,10 +98,12 @@ export function AutodialerNoticePanel() {
 
   const current = notice.data;
   const line = stateLine(current);
+  const declared = parseDeclaredNumbers(numbers);
   const canSubmit =
     accessProvider.trim().length > 0 &&
     objective.trim().length > 0 &&
-    notifiedOn.length > 0;
+    notifiedOn.length > 0 &&
+    declared.length > 0;
 
   return (
     <section className="rounded-card border border-line p-5">
@@ -104,7 +116,8 @@ export function AutodialerNoticePanel() {
         operator, in writing and before the calls start, that you use an
         automated dialler and what the calls are for. That letter is yours to
         send — we cannot send it for you, because the operator holds your
-        business to it, not us. Send it, then record it here.
+        business to it, not us. It must also name every number the calls will
+        come from. Send it, then record it here.
       </p>
 
       <NoticeBox tone={line.tone} className="mt-4">
@@ -125,7 +138,28 @@ export function AutodialerNoticePanel() {
             <dt className="text-ink-muted">Date on the letter</dt>
             <dd className="text-ink">{current.notified_on}</dd>
           </div>
+          <div className="sm:col-span-3">
+            <dt className="text-ink-muted">Numbers it names</dt>
+            <dd className="text-ink">
+              {current.declared_clis.length > 0
+                ? current.declared_clis.join(", ")
+                : "None"}
+            </dd>
+          </div>
         </dl>
+      )}
+
+      {current.undeclared_clis.length > 0 && (
+        <div className="mt-4 text-sm">
+          <p className="text-ink">
+            Your agents call from these numbers, which your notice does not name:
+          </p>
+          <ul className="mt-1 list-disc pl-5 text-ink">
+            {current.undeclared_clis.map((number) => (
+              <li key={number}>{number}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {write.reason && (
@@ -139,7 +173,12 @@ export function AutodialerNoticePanel() {
         className="mt-5"
         onSubmit={(event) => {
           event.preventDefault();
-          record.mutate({ accessProvider, objective, notifiedOn });
+          record.mutate({
+            accessProvider,
+            objective,
+            notifiedOn,
+            declaredClis: declared,
+          });
         }}
       >
         {/* A disabled <fieldset> closes every field and both buttons at once. */}
@@ -175,6 +214,33 @@ export function AutodialerNoticePanel() {
               placeholder="In your own words, as your letter puts it"
             />
           </label>
+          <label className="block text-sm">
+            <span className="text-ink">
+              Which numbers did your letter say the calls come from?
+            </span>
+            <textarea
+              className={FIELD}
+              rows={3}
+              value={numbers}
+              onChange={(event) => setNumbers(event.target.value)}
+              placeholder="One per line, for example +91 98480 22338 or a 140 or 160 number"
+            />
+          </label>
+          {current.undeclared_clis.length > 0 && (
+            <button
+              type="button"
+              className="text-sm text-accent underline"
+              onClick={() =>
+                setNumbers(
+                  [...declared, ...current.undeclared_clis]
+                    .filter((value, index, all) => all.indexOf(value) === index)
+                    .join("\n"),
+                )
+              }
+            >
+              {"Add my agents' numbers"}
+            </button>
+          )}
 
           {record.error && <ProblemNotice error={record.error} />}
 
@@ -198,6 +264,7 @@ export function AutodialerNoticePanel() {
                     accessProvider: current.access_provider ?? "",
                     objective: current.objective ?? "",
                     notifiedOn: current.notified_on ?? "",
+                    declaredClis: current.declared_clis,
                     withdraw: true,
                   })
                 }

@@ -4163,13 +4163,13 @@ export interface paths {
         };
         /**
          * The autodialler notice this account has on file
-         * @description Every outbound call Calevate places for you is dialled automatically, and the rules put one duty on the sender of such calls: tell your own telecom access provider, in writing and in advance, that you use an automated dialler and what the calls are for. You are the sender, so the notice is yours to give and ours to record. Until this says `effective`, no outbound call goes out. Answering incoming calls is unaffected. An account with nothing on file gets `recorded: false` and a 200.
+         * @description Every outbound call Calevate places for you is dialled automatically, and the rules put one duty on the sender of such calls: tell your own telecom access provider, in writing and in advance, that you use an automated dialler and what the calls are for. You are the sender, so the notice is yours to give and ours to record. Until this says `effective`, no outbound call goes out, and none goes out from a number listed in `undeclared_clis`: the notice must name every number the calls come from. Answering incoming calls is unaffected. An account with nothing on file gets `recorded: false` and a 200.
          */
         get: operations["read_notice_v1_compliance_autodialer_notice_get"];
         put?: never;
         /**
          * Record that you have given your access provider the notice, or withdraw it
-         * @description Record the notice after you have sent it — this is where you tell us it exists, not where it is sent. Name the provider you sent it to, what the calls are for, and the date on the letter. If you dated it in the future, that is fine: it is recorded now and your outbound starts on that date. Withdrawing files a new record rather than deleting the old one, so the history still shows the notice was live while earlier calls were placed.
+         * @description Record the notice after you have sent it — this is where you tell us it exists, not where it is sent. Name the provider you sent it to, what the calls are for, the numbers the calls will come from, and the date on the letter. If you dated it in the future, that is fine: it is recorded now and your outbound starts on that date. Withdrawing files a new record rather than deleting the old one, so the history still shows the notice was live while earlier calls were placed.
          */
         post: operations["record_notice_v1_compliance_autodialer_notice_post"];
         delete?: never;
@@ -7795,6 +7795,8 @@ export interface components {
         AutodialerNoticeIn: {
             /** Access Provider */
             access_provider: string;
+            /** Declared Clis */
+            declared_clis?: string[];
             /** Notice Reference */
             notice_reference?: string | null;
             /**
@@ -7817,6 +7819,8 @@ export interface components {
         AutodialerNoticeOut: {
             /** Access Provider */
             access_provider: string | null;
+            /** Declared Clis */
+            declared_clis: string[];
             /** Effective */
             effective: boolean;
             /** Notice Reference */
@@ -7829,6 +7833,8 @@ export interface components {
             recorded: boolean;
             /** State */
             state: string | null;
+            /** Undeclared Clis */
+            undeclared_clis: string[];
         };
         /**
          * AvailableNumberOut
