@@ -53,7 +53,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.calling_window import IST, spoken_instant
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,27 +123,6 @@ UNATTEMPTED_REASON: Final[str] = (
     "We were not able to place this call in time. Nothing blocked it — it simply did not "
     "go out while it still made sense to."
 )
-
-
-#: A call-back not kept because the person's permission to be called ends before the time
-#: they asked for — a lead form's inquiry window, today. The dial gate would refuse it then
-#: as `consent_expired`, by which time the caller has been told we would ring, so it is
-#: refused at booking instead: in the call where the agent can still offer an earlier time,
-#: or, where the booking is written after the call, at once on the client's screen.
-CONSENT_LAPSES_FIRST_RULE: Final[str] = "consent_expires_first"
-CONSENT_LAPSES_FIRST_REASON: Final[str] = (
-    "The time they asked for is after their permission to be called ends, so this "
-    "call-back could not be kept. Call them before then yourself, or capture a fresh opt-in."
-)
-
-
-def consent_lapse_say(lapse: datetime) -> str:
-    """What the agent tells the caller when their permission ends before the time asked."""
-    return (
-        "You could NOT book that time: we may only call this person until "
-        f"{spoken_instant(lapse)}, and the time they asked for is later. Offer a time before "
-        "then, or ask them to ring back themselves."
-    )
 
 
 @dataclass(frozen=True, slots=True)

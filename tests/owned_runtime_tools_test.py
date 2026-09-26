@@ -357,13 +357,26 @@ async def _form_inquiry(tenant_id: uuid.UUID, phone: str) -> None:
         await session.commit()
 
 
+async def _callback_grants(tenant_id: uuid.UUID) -> list[tuple[str, str | None]]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT status, consent_source FROM consent_ledger "
+                    "WHERE tenant_id = :t AND purpose = 'callback' ORDER BY captured_at, id"
+                ),
+                {"t": tenant_id},
+            )
+        ).all()
+    return [(str(row[0]), row[1]) for row in rows]
+
+
 @pytest.mark.asyncio
-async def test_a_callback_after_the_callers_permission_ends_is_refused_in_the_call(
+async def test_a_callback_past_a_form_inquiry_window_is_booked_on_the_callers_request(
     worker_token: None,
 ) -> None:
-    """A form inquiry authorises calls for seven days. A call-back booked for day nine would
-    be refused by the gate as `consent_expired` after the caller was told "booked", so it is
-    refused now, while the agent can still offer an earlier time."""
+    """The request is the caller's consent to that call (founder decision, 26 Sep 2026), so
+    the promise is kept and the gate has a grant to read on the day."""
     tenant_id, _agent_id, _call_id, ref = await a_call_in_progress()
     await _form_inquiry(tenant_id, CALLER)
     date, clock = lawful_slot(days_ahead=INQUIRY_CONSENT_WINDOW_DAYS + 2)
@@ -373,20 +386,20 @@ async def test_a_callback_after_the_callers_permission_ends_is_refused_in_the_ca
             ref, CallbackBookIn(callback_date=date, callback_time=clock, confirmed=True)
         )
 
-    assert answer.status == "not_booked"
-    assert answer.reason == "consent_expires_first"
-    assert "only call this person until" in answer.say
-    async with tenant_session(tenant_id) as session:
-        assert (
-            await session.execute(
-                text("SELECT count(*) FROM scheduled_callbacks WHERE tenant_id = :t"),
-                {"t": tenant_id},
-            )
-        ).scalar_one() == 0
+    assert answer.status == "booked"
+    assert await _callback_grants(tenant_id) == [
+        ("granted", "web_form_optin"),
+        ("granted", "inbound_call_verbal"),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_a_callback_inside_the_callers_permission_is_booked(worker_token: None) -> None:
+async def test_a_callback_inside_the_callers_permission_writes_no_narrower_grant(
+    worker_token: None,
+) -> None:
+    """The gate reads the newest row alone, so a grant scoped to one call written over a
+    wider one would shorten it. Where the permission on file already covers the call,
+    nothing is added."""
     tenant_id, _agent_id, _call_id, ref = await a_call_in_progress()
     await _form_inquiry(tenant_id, CALLER)
     date, clock = lawful_slot(days_ahead=2)
@@ -397,6 +410,25 @@ async def test_a_callback_inside_the_callers_permission_is_booked(worker_token: 
         )
 
     assert answer.status == "booked"
+    assert await _callback_grants(tenant_id) == [("granted", "web_form_optin")]
+
+
+@pytest.mark.asyncio
+async def test_a_callback_on_a_permissive_account_with_nothing_on_file_writes_nothing(
+    worker_token: None,
+) -> None:
+    """Over nothing, on an account that does not require consent, the call is already
+    allowed; a grant that lapsed after it would turn later dials into `consent_expired`."""
+    tenant_id, _agent_id, _call_id, ref = await a_call_in_progress()
+    date, clock = lawful_slot()
+
+    async with tool_client() as api:
+        answer = await api.book_callback(
+            ref, CallbackBookIn(callback_date=date, callback_time=clock, confirmed=True)
+        )
+
+    assert answer.status == "booked"
+    assert await _callback_grants(tenant_id) == []
 
 
 @pytest.mark.asyncio

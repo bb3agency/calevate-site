@@ -148,11 +148,6 @@ def _spoken(at_ist: datetime) -> str:
     return f"{at_ist:%A} {at_ist.day} {at_ist:%B} at {hour}:{at_ist:%M} {meridiem}"
 
 
-def spoken_instant(at: datetime) -> str:
-    """An aware instant as a caller hears it: the IST weekday, date and 12-hour time."""
-    return _spoken(at.astimezone(UTC) + IST)
-
-
 def resolve_slot(
     date_text: str | None,
     time_text: str | None,
@@ -249,6 +244,5 @@ __all__ = [
     "ist_wall_clock",
     "next_window_opening",
     "resolve_slot",
-    "spoken_instant",
     "within_window",
 ]

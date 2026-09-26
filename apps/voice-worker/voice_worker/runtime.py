@@ -94,6 +94,7 @@ from voice_worker.call_tools import CallToolApiClient
 from voice_worker.carrier import arm_first_turn
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
+from voice_worker.memory import ApiCallerMemoryReader
 from voice_worker.meter import CallMeter, CarrierCdr, RuntimeUsage
 from voice_worker.pipeline import CallerIdentityLike, SessionConfig, VendorCredentials
 from voice_worker.session import AssembledCall, knowledge_report, open_session, pack_cache
@@ -298,6 +299,10 @@ class WorkerRuntime:
             # on it — which would fail at the first act instead of at assembly.
             tool_api=self._api if isinstance(self._api, CallToolApiClient) else None,
             caller=caller,
+            # Asked only when the agent's prompt carries the memory slot and we know who is
+            # ringing (`session.load_caller_memory`); the number travels no further.
+            memory_reader=ApiCallerMemoryReader(self._api),
+            caller_e164=caller.e164 if caller is not None and caller.is_known else None,
         )
 
         # WHETHER THIS CALL HAS ITS CLIENT'S KNOWLEDGE, HANDED TO THE SINK AND NOT SENT.

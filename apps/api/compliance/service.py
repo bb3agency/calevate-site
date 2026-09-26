@@ -262,7 +262,7 @@ PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset(
 )
 
 
-async def _outbound_requires_consent(session: AsyncSession, *, tenant_id: UUID) -> bool:
+async def outbound_requires_consent(session: AsyncSession, *, tenant_id: UUID) -> bool:
     """Is this account on the service/transactional footing (D-624)?
 
     Read from `organizations` rather than carried in the caller's arguments, because every
@@ -801,7 +801,7 @@ async def truthful_answer_drift_blocker(
     return (TRUTHFUL_ANSWER_DRIFT_RULE, TRUTHFUL_ANSWER_DRIFT_REASON)
 
 
-async def _latest_call_consent(
+async def latest_call_consent(
     session: AsyncSession, *, tenant_id: UUID, phone_e164: str
 ) -> Row[Any] | None:
     """`(status, expires_at)` of this person's newest call consent, or None when none is on
@@ -816,25 +816,6 @@ async def _latest_call_consent(
             {"phone": phone_e164, "tid": tenant_id},
         )
     ).first()
-
-
-async def call_consent_lapses_by(
-    session: AsyncSession, *, tenant_id: UUID, phone_e164: str, at: datetime
-) -> datetime | None:
-    """When this person's permission to be called ends, if that is at or before `at`.
-
-    A call-back promised for a time the gate will refuse as `consent_expired` is worse than
-    none: the caller was told we would ring. Only an expiry the record itself set counts —
-    a lead form's inquiry window, today. No row, no expiry, or a status the gate already
-    refuses outright answers None, because a booking can neither shorten nor fix those.
-    """
-    consent = await _latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
-    if consent is None or consent[1] is None:
-        return None
-    if str(consent[0]) in DIAL_REFUSING_CONSENT_STATUSES:
-        return None
-    expires_at: datetime = consent[1]
-    return expires_at if expires_at <= at else None
 
 
 async def check_dispatch(
@@ -1064,7 +1045,7 @@ async def check_dispatch(
     # person, which is what a lead-ad opt-in question does or does not grant. The
     # `messaging` purpose has its own gate on the WhatsApp path and must not be conflated
     # — a person may accept a call and refuse a message, and both answers are theirs.
-    consent = await _latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
+    consent = await latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
     # ⚠ **AND ON A SERVICE/TRANSACTIONAL ACCOUNT, ABSENCE *IS* A REFUSAL — D-624.** The
     # asymmetry above is not weakened; it is made per-account, because what stood behind it
     # was removed for some accounts and not others.
@@ -1083,7 +1064,7 @@ async def check_dispatch(
     # these accounts consent REPLACES the registration, so it must be asked in the same
     # breath as the rest of the person-level questions and not inside a `dlt_governed` branch
     # they may never enter.
-    if consent is None and await _outbound_requires_consent(session, tenant_id=tenant_id):
+    if consent is None and await outbound_requires_consent(session, tenant_id=tenant_id):
         return DispatchDecision(
             allowed=False,
             rule=NO_CONSENT_RECORD_RULE,
@@ -1318,13 +1299,14 @@ __all__ = [
     "account_stopped_blocker",
     "add_to_dnc",
     "assert_dispatch_allowed",
-    "call_consent_lapses_by",
     "carrier_application_blocker",
     "check_dispatch",
     "credits_exhausted",
     "first_campaign_hold_blocker",
     "ist_now",
     "kyc_blocker",
+    "latest_call_consent",
+    "outbound_requires_consent",
     "spend_capped",
     "truthful_answer_drift_blocker",
     "within_calling_hours",

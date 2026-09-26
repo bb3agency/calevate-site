@@ -524,3 +524,58 @@ async def test_a_pipeline_that_raises_leaves_no_attestation_task_behind(
         assert api.posted is False
     finally:
         await real.aclose()
+
+
+@pytest.mark.parametrize(
+    ("state", "number", "handed"),
+    [("known", "+919876543210", "+919876543210"), ("withheld", None, None)],
+    ids=["known-caller", "withheld-caller"],
+)
+async def test_a_call_hands_assembly_a_memory_reader_and_only_a_known_callers_number(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_token: None,
+    state: str,
+    number: str | None,
+    handed: str | None,
+) -> None:
+    """The reader, the route and the gate all existed while `run_call` passed none of them,
+    so every agent that tells callers it keeps notes recalled nothing."""
+    from voice_worker.carrier import CallerIdentity
+    from voice_worker.memory import ApiCallerMemoryReader
+
+    seen: dict[str, Any] = {}
+
+    class _StopError(Exception):
+        pass
+
+    async def capture(**kwargs: Any) -> Any:
+        seen.update(kwargs)
+        raise _StopError
+
+    tenant_id, agent_id, call_id, api, _sink = await _live_call()
+    await PipecatEngine().create_agent(_agent_config(tenant_id, agent_id))
+    monkeypatch.setattr(runtime, "open_session", capture)
+
+    class _NoPacks:
+        async def fetch(self, _key: str) -> bytes | None:
+            return None
+
+    worker_runtime = runtime.WorkerRuntime(api, fetcher=_NoPacks())
+    try:
+        with pytest.raises(_StopError):
+            await worker_runtime.run_call(
+                call_id=call_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                direction="inbound",
+                engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
+                credentials_for=lambda _provider: CREDENTIALS,
+                greeting="skip",
+                transport=FakeTransport(),
+                caller=CallerIdentity(state=state, ground="fixture", e164=number),  # type: ignore[arg-type]
+            )
+    finally:
+        await worker_runtime.aclose()
+
+    assert isinstance(seen["memory_reader"], ApiCallerMemoryReader)
+    assert seen["caller_e164"] == handed

@@ -479,6 +479,17 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="authorized",
     ),
+    "POST /v1/worker/agents/{engine_agent_ref}/caller-memory": PublicRoute(
+        why=(
+            "The same worker, while a call is assembled, asking what the agent remembers "
+            "about the number now ringing. A read, same credential, and the tenant and agent "
+            "are PARSED out of the engine-space agent ref so the lookup runs under that "
+            "tenant's RLS. `compliance/caller_memory.recall` re-checks the client's switch and "
+            "the SPDI vertical refusal on every request, so a token holder learns nothing an "
+            "agent's client has not switched on. The number is in the body, never the URL."
+        ),
+        credential="authorized",
+    ),
     "POST /v1/worker/agents/{engine_agent_ref}/attestation": PublicRoute(
         why=(
             "The same worker reporting the sha256 of the system prompt it actually loaded, "

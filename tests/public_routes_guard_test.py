@@ -230,8 +230,18 @@ class TestWiring:
         by `webhook_verification` in `core/ratelimit.RULES` rather than by nginx alone.
 
         A SECOND vendor-callback route, or any change that let this one take the tenant from
-        the payload, is the conversation this paragraph is for."""
-        assert len(exempt) <= 49, sorted(exempt)
+        the payload, is the conversation this paragraph is for.
+
+        RAISED 49 -> 50 by `POST /v1/worker/agents/{engine_agent_ref}/caller-memory`, the
+        ninth worker route and the first that takes a phone number, so both warnings above
+        apply. It REPLACES a route rather than adding a capability:
+        `GET /v1/engine/caller-data/{engine}` answers the same question from the same
+        `recall()`, on a second token and with the number in its query string, and its only
+        callers were the rented engine (being removed, D-639) and this worker. Here the
+        number is an observation in the body, the answer is gated live on the client's switch
+        and the SPDI refusal, and the tenant is parsed from the ref. Removing the caller-data
+        route brings this bound back to 49."""
+        assert len(exempt) <= 50, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

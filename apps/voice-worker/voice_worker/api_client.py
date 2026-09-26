@@ -38,6 +38,8 @@ import httpx
 from calevate_shared.worker_api import (
     AttestationIn,
     AttestationOut,
+    CallerMemoryIn,
+    CallerMemoryOut,
     ObservationBatch,
     ObservationsOut,
     SettlementOut,
@@ -201,6 +203,21 @@ class WorkerApiClient:
             what="session",
         )
         return self._parse(WorkerSessionOut, body, what="session")
+
+    async def caller_memory(
+        self, engine_agent_ref: str, caller_e164: str, *, budget_s: float
+    ) -> CallerMemoryOut:
+        """What the agent remembers about the caller. Raises; `memory.ApiCallerMemoryReader`
+        is what turns every failure into "nothing remembered". Not retried: session
+        assembly is waiting on it."""
+        body = await self._request(
+            "POST",
+            f"{AGENTS_PATH}/{engine_agent_ref}/caller-memory",
+            budget_s=budget_s,
+            what="caller memory",
+            json=CallerMemoryIn(caller_e164=caller_e164).model_dump(mode="json"),
+        )
+        return self._parse(CallerMemoryOut, body, what="caller memory")
 
     async def post_observations(
         self, engine_call_id: str, batch: ObservationBatch
