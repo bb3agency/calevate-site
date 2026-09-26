@@ -61,6 +61,8 @@ from calevate_shared.worker_api import (
     DEGRADED_KNOWLEDGE_STATES,
     AttestationIn,
     AttestationOut,
+    CallerMemoryIn,
+    CallerMemoryOut,
     KnowledgeReport,
     MeteredQuantity,
     ObservationBatch,
@@ -79,6 +81,7 @@ from apps.api.billing.rates import (
     stt_rate_inr_per_minute,
     tts_rate_inr_per_char,
 )
+from apps.api.compliance.caller_memory import recall
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -481,6 +484,28 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         # somebody hung up — against a cap its owner had set and been shown (hard rule 7).
         max_call_duration_s=published.max_call_duration_s,
     )
+
+
+async def recall_caller_memory(engine_agent_ref: str, request: CallerMemoryIn) -> CallerMemoryOut:
+    """What one agent remembers about the caller now ringing, for the worker assembling it.
+
+    The ref is parsed for its tenant and agent, as `load_session` does. `recall` is the one
+    reader and checks the client's switch live, so an agent whose client turned continuity
+    off after publishing answers nothing here although its published prompt still has the
+    slot.
+    """
+    parsed = parse_owned_runtime_agent_ref(engine_agent_ref)
+    if parsed is None:
+        raise _refuse_unknown_agent()
+    tenant_id, agent_id = parsed
+    async with tenant_session(tenant_id) as session:
+        facts = await recall(session, tenant_id, agent_id=agent_id, phone_e164=request.caller_e164)
+    # A count, never a fact and never the number (hard rule 6).
+    log.info(
+        "worker_caller_memory_served",
+        extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "facts": len(facts)},
+    )
+    return CallerMemoryOut(facts=list(facts))
 
 
 def _refuse_unknown_agent() -> ProblemError:

@@ -81,6 +81,13 @@ class BoundedByConstruction:
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # --- bounded by a constant or a registry in this repo ---------------------------
+    "POST /v1/worker/agents/{engine_agent_ref}/caller-memory": BoundedByConstruction(
+        by=(
+            "`compliance/caller_memory.RECALL_LIMIT` (5) facts per answer, read with that "
+            "LIMIT, and the wire model `calevate_shared.worker_api.CallerMemoryOut` refuses "
+            "more than `MAX_RECALLED_FACTS`."
+        )
+    ),
     "GET /v1/compliance/autodialer-notice": BoundedByConstruction(
         by=(
             "`declared_clis` is capped at `compliance/autodialer.MAX_DECLARED_CLIS` (20) by "

@@ -740,6 +740,36 @@ class HandoffToolOut(BaseModel):
     reason: str = ""
 
 
+# --- POST /v1/worker/agents/{engine_agent_ref}/caller-memory -----------------------------
+
+#: The most facts one answer carries, and the longest each may be. The server reads
+#: `compliance/caller_memory.RECALL_LIMIT` facts of at most `MAX_FACT_CHARS`, both below
+#: these; the bound is the wire's, so a changed server constant cannot grow the body unseen.
+MAX_RECALLED_FACTS: Final = 10
+MAX_RECALLED_FACT_CHARS: Final = 500
+
+
+class CallerMemoryIn(BaseModel):
+    """The number now ringing, as the container observed it.
+
+    In the BODY rather than the path or the query string: a request line is what an access
+    log records, and this one would carry a phone number (hard rule 6).
+    """
+
+    model_config = _STRICT
+
+    caller_e164: str = Field(pattern=r"^\+[1-9]\d{6,14}$")
+
+
+class CallerMemoryOut(BaseModel):
+    """What this agent remembers about the caller, newest first. Empty for a caller it has
+    not met, and for an agent whose client has not switched caller continuity on."""
+
+    model_config = _STRICT
+
+    facts: list[str] = Field(default_factory=list, max_length=MAX_RECALLED_FACTS)
+
+
 __all__ = [
     "DEFAULT_CALL_CAP_S",
     "DEGRADED_KNOWLEDGE_STATES",
@@ -748,6 +778,8 @@ __all__ = [
     "MAX_IDENTIFIER",
     "MAX_METERED_QTY",
     "MAX_QUANTITIES",
+    "MAX_RECALLED_FACTS",
+    "MAX_RECALLED_FACT_CHARS",
     "MAX_REFUSALS",
     "MAX_REFUSAL_TEXT",
     "MAX_TOOL_TEXT",
@@ -762,6 +794,8 @@ __all__ = [
     "CallbackToolOut",
     "CallerIdentityIn",
     "CallerIdentityState",
+    "CallerMemoryIn",
+    "CallerMemoryOut",
     "HandoffOutcome",
     "HandoffToolIn",
     "HandoffToolOut",

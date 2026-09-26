@@ -55,6 +55,8 @@ from calevate_shared.worker_api import (
     CallbackCancelIn,
     CallbackCancelOut,
     CallbackToolOut,
+    CallerMemoryIn,
+    CallerMemoryOut,
     HandoffToolIn,
     HandoffToolOut,
     ObservationBatch,
@@ -73,6 +75,7 @@ from apps.api.worker.service import (
     authorized,
     engine_enabled,
     load_session,
+    recall_caller_memory,
     record_observations,
     record_prompt_attestation,
     refuse_wrong_engine,
@@ -151,6 +154,23 @@ async def worker_session(
     """
     _admit(authorization, writes=False)
     return await load_session(engine_agent_ref)
+
+
+@router.post("/agents/{engine_agent_ref}/caller-memory", include_in_schema=False)
+async def worker_caller_memory(
+    engine_agent_ref: Annotated[str, Path(max_length=_REF_MAX)],
+    request: CallerMemoryIn,
+    authorization: Annotated[str | None, Header()] = None,
+) -> CallerMemoryOut:
+    """What this agent remembers about the caller now ringing, read as the call is assembled.
+
+    Here rather than on the engine caller-data endpoint for two reasons: the worker then
+    holds one credential instead of two, and the number travels in the body instead of that
+    endpoint's query string, which an access log records. A read, so `writes=False`, for the
+    session read's reason.
+    """
+    _admit(authorization, writes=False)
+    return await recall_caller_memory(engine_agent_ref, request)
 
 
 @router.post("/calls/{engine_call_id}/observations", include_in_schema=False)
