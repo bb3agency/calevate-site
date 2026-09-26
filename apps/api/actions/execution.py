@@ -22,9 +22,11 @@ audit summary carries ids, the kind/provider and the outcome — never a value.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+from calevate_shared.calling_window import IST
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import calendar as gcal
@@ -56,6 +58,8 @@ _TIMEOUT_S = 8.0
 # The most external-response text handed back to the LLM. A phone-call reply is short; a
 # multi-megabyte body would blow the prompt and the latency both.
 _MAX_RESPONSE_CHARS = 4000
+
+_IST = timezone(IST)
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +319,31 @@ async def _run_calendar(
     session: AsyncSession, *, tool: LoadedTool, values: dict[str, Any], client: httpx.AsyncClient
 ) -> ExecutionResult:
     config = CalendarConfig.model_validate(tool.config)
+
+    # The times are settled BEFORE a token is minted: a request Google would refuse, or one
+    # whose answer means nothing, costs nothing to refuse here.
+    raw_start = values.get(config.start_param) if config.start_param else None
+    if not raw_start:
+        return ExecutionResult(ok=False, payload={"error": "no_start_time"}, status="no_start_time")
+    raw_end = values.get(config.end_param) if config.end_param else None
+    if config.operation == "check" and not raw_end:
+        # Not defaulted to the start: a window from a time to the same time contains
+        # nothing, so no calendar is busy in it and the answer would be "available" for a
+        # slot that is already taken.
+        return ExecutionResult(ok=False, payload={"error": "no_end_time"}, status="no_end_time")
+    start_at = _rfc3339(raw_start)
+    if raw_end:
+        end_at = _rfc3339(raw_end)
+    elif start_at is not None:
+        end_at = start_at + timedelta(minutes=config.duration_min or 30)
+    else:
+        end_at = None
+    if start_at is None or end_at is None:
+        return ExecutionResult(
+            ok=False, payload={"error": "unreadable_time"}, status="unreadable_time"
+        )
+    start, end = start_at.isoformat(), end_at.isoformat()
+
     refresh_token = await _credential_secret(session, tool)
     if refresh_token is None:
         return ExecutionResult(ok=False, payload={"error": "no_credential"}, status="no_credential")
@@ -328,17 +357,7 @@ async def _run_calendar(
     if not access_token:
         return ExecutionResult(ok=False, payload={"error": "auth_failed"}, status="token_empty")
 
-    start = values.get(config.start_param) if config.start_param else None
-    if not start:
-        return ExecutionResult(ok=False, payload={"error": "no_start_time"}, status="no_start_time")
-    start = _stringify(start)
-
     if config.operation == "check":
-        end = (
-            _stringify(values.get(config.end_param))
-            if config.end_param and values.get(config.end_param)
-            else start
-        )
         request = gcal.build_freebusy(
             calendar_id=config.calendar_id, time_min=start, time_max=end, access_token=access_token
         )
@@ -353,11 +372,6 @@ async def _run_calendar(
         )
 
     # book
-    end = (
-        _stringify(values.get(config.end_param))
-        if config.end_param and values.get(config.end_param)
-        else _plus_minutes(start, config.duration_min or 30)
-    )
     summary = (
         _stringify(values.get(config.summary_param))
         if config.summary_param and values.get(config.summary_param)
@@ -384,17 +398,18 @@ async def _run_calendar(
     )
 
 
-def _plus_minutes(start_iso: str, minutes: int) -> str:
-    """`start` + duration as RFC 3339, when the client gave a duration rather than an end.
-    Falls back to returning the start unchanged if it cannot be parsed — the API then
-    refuses, which surfaces as a booking error the agent can relay, rather than a crash."""
-    from datetime import datetime, timedelta
+def _rfc3339(value: Any) -> datetime | None:
+    """A model-supplied time as an aware instant, or None when it is not an ISO 8601 time.
 
+    RFC 3339 §5.6 requires an offset and a model often omits it. A time with none is read
+    as IST — the caller's own clock in this India-only product — rather than sent bare for
+    Google to guess at or refuse.
+    """
     try:
-        dt = datetime.fromisoformat(start_iso)
+        parsed = datetime.fromisoformat(_stringify(value).strip())
     except ValueError:
-        return start_iso
-    return (dt + timedelta(minutes=minutes)).isoformat()
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=_IST)
 
 
 __all__ = [
