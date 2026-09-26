@@ -397,7 +397,7 @@ async def test_a_wrong_current_password_spends_the_same_budget_a_sign_in_does(
 async def test_a_spent_budget_refuses_before_any_verification_happens(
     subject_ids: dict[str, uuid.UUID],
 ) -> None:
-    """The gate is `throttle.check`, applied BEFORE the Argon2 verification — so a spent
+    """The gate is `throttle.reserve`, applied BEFORE the Argon2 verification — so a spent
     budget does not also buy the attacker 30ms of our CPU per guess.
 
     The counter is planted rather than earned: driving eleven real failures would pay
