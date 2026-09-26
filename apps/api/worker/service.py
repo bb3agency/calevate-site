@@ -580,6 +580,7 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
     status = _forward_status(batch)
     written = already = 0
     async with tenant_session(tenant_id) as session:
+        await _require_visible_agent(session, batch.agent_id)
         call_row_id = (
             await _upsert_call(
                 session,
@@ -744,6 +745,17 @@ def _check_batch_identity(tenant_id: UUID, batch: ObservationBatch) -> None:
         raise _refuse_identity("call")
 
 
+async def _require_visible_agent(session: AsyncSession, agent_id: UUID) -> None:
+    """Refuse an agent the call's tenant cannot see, before any row names it.
+
+    Run under the call's tenant session, so RLS answers the question the foreign key
+    cannot (see `_AGENT_VISIBLE_SQL`).
+    """
+    visible = (await session.execute(text(_AGENT_VISIBLE_SQL), {"aid": agent_id})).first()
+    if visible is None:
+        raise _refuse_identity("agent")
+
+
 def _party(batch: ObservationBatch, field: str) -> str | None:
     """The first party any event in this batch names, or None. See `record_observations`.
 
@@ -841,6 +853,7 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
     _check_settlement(request)
     occurred_at = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
+        await _require_visible_agent(session, request.agent_id)
         call = await _upsert_call(
             session,
             engine_call_id=engine_call_id,
