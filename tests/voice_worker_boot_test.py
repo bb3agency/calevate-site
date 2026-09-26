@@ -273,6 +273,23 @@ def test_the_readiness_marker_appears_and_disappears_with_the_state(tmp_path: Pa
     assert marker.exists()
 
 
+def test_a_call_that_failed_before_assembly_gives_its_readiness_back(tmp_path: Path) -> None:
+    """A reserved slot that never got a call — the session read refused, the transport never
+    opened — is released in `bot()`'s `finally` like any other. With one session per
+    container the reservation took the marker away, so a release that did not republish it
+    left a free container advertising itself as busy for good."""
+    marker = tmp_path / "ready"
+    registry = lifecycle.SessionRegistry(marker=lifecycle.ReadinessFile(marker))
+    registry.mark_started()
+
+    registry.reserve("call-1")
+    assert not marker.exists()
+
+    registry.release("call-1")
+    assert registry.status().ready
+    assert marker.exists(), "the slot came back but the marker saying so never did"
+
+
 def test_an_unwritable_marker_does_not_stop_a_container_that_can_answer_the_phone(
     tmp_path: Path,
 ) -> None:

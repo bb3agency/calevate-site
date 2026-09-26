@@ -395,6 +395,14 @@ class SettlementRefusal(BaseModel):
     remediation: str | None = Field(default=None, max_length=MAX_REFUSAL_TEXT)
 
 
+#: What a settlement may say the call ended as. Named so the worker can hold one without
+#: retyping the vocabulary.
+SettlementStatus = Literal["completed", "failed", "no_answer", "busy", "cancelled"]
+
+#: The same five as a set, for a caller that needs membership rather than a type.
+SETTLEMENT_STATUSES: Final[frozenset[str]] = frozenset(get_args(SettlementStatus))
+
+
 class SettlementRequest(BaseModel):
     """The terminal write, and the one that carries D-607.
 
@@ -429,7 +437,7 @@ class SettlementRequest(BaseModel):
 
     model_config = _STRICT
 
-    final_status: Literal["completed", "failed", "no_answer", "busy", "cancelled"]
+    final_status: SettlementStatus
     direction: CallDirection
     agent_id: UUID
     #: Carried here TOO, and not only on `ObservationBatch`, because settlement upserts the
@@ -745,6 +753,7 @@ __all__ = [
     "MAX_TOOL_TEXT",
     "MAX_TURNS_PER_BATCH",
     "METERED_LEGS",
+    "SETTLEMENT_STATUSES",
     "AttestationIn",
     "AttestationOut",
     "CallbackBookIn",
@@ -768,5 +777,6 @@ __all__ = [
     "SettlementOut",
     "SettlementRefusal",
     "SettlementRequest",
+    "SettlementStatus",
     "WorkerSessionOut",
 ]

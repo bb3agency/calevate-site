@@ -335,6 +335,31 @@ async def test_a_call_ref_naming_another_tenant_cannot_be_written_through(
     assert b_agent  # both fixtures really ran
 
 
+async def test_another_tenants_agent_cannot_be_filed_onto_a_call(worker_token: None) -> None:
+    """RLS does not stop a foreign-key check, so `calls.agent_id` would accept tenant A's
+    agent on tenant B's call — and B's post-call pipeline would then run off A's extraction
+    schema. Both writing routes that can mint the row refuse it before any row exists."""
+    _a_tenant, a_agent, _ = await published_agent()
+    b_tenant, _b_agent, _ = await published_agent()
+    call_id, b_ref = call_ref(b_tenant)
+
+    async with worker_client() as api:
+        with pytest.raises(WorkerApiError) as observed:
+            await api.post_observations(b_ref, batch(call_id, b_tenant, a_agent))
+        with pytest.raises(WorkerApiError) as settled:
+            await api.post_settlement(b_ref, refusal_settlement(a_agent))
+    assert "422" in str(observed.value)
+    assert "422" in str(settled.value)
+
+    async with tenant_session(b_tenant) as db:
+        rows = (
+            await db.execute(
+                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"), {"c": b_ref}
+            )
+        ).scalar_one()
+    assert rows == 0, "a call row was minted naming another tenant's agent"
+
+
 async def test_a_ref_this_engine_never_minted_is_refused_before_any_row_is_touched(
     worker_token: None,
 ) -> None:

@@ -227,8 +227,12 @@ class SessionRegistry:
 
     def release(self, call_id: str) -> None:
         """Give up a call. Idempotent — the entrypoint releases in a `finally`, and the
-        drain path may have released the same call already."""
-        if self._sessions.pop(call_id, None) is not None:
+        drain path may have released the same call already.
+
+        Membership, not the stored value, decides whether anything changed: a slot reserved
+        and never attached holds `None`, and its release must still republish readiness."""
+        if call_id in self._sessions:
+            del self._sessions[call_id]
             self._publish()
 
     # -- shutdown ------------------------------------------------------------------------

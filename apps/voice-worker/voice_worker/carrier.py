@@ -104,6 +104,7 @@ from calevate_shared.events import CallDirection
 from calevate_shared.extraction import normalize_phone
 from calevate_shared.worker_api import CallerIdentityState
 from loguru import logger
+from pipecat.frames.frames import EndWorkerFrame
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.transports.base_transport import BaseTransport
@@ -130,6 +131,11 @@ from voice_worker.session import start_session
 #: `AssembledCall.start_conversation` is documented as belonging to it, and this module is
 #: the entrypoint that does the one-line registration.
 CLIENT_CONNECTED_EVENT: Final = "on_client_connected"
+
+#: The event the same transport fires when the far end closes the socket — the caller hanging
+#: up (`fastapi.py:392-396`: fired only when WE were not the ones closing). It is an event and
+#: nothing else: no frame reaches the pipeline, so without a handler the call runs on.
+CLIENT_DISCONNECTED_EVENT: Final = "on_client_disconnected"
 
 #: What Pipecat's telephony auto-detection calls our carrier (`runner/utils.py:89-96`), and
 #: the value `create_transport` switches on (`:532`). ONE deployment, ONE carrier: anything
@@ -750,15 +756,24 @@ class CarrierWiringError(RuntimeError):
 
 
 def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: str) -> None:
-    """Make the agent speak first when the carrier connects — or refuse to pretend it will.
+    """Wire the call to the carrier's two edges — or refuse to pretend they are wired.
 
-    `AssembledCall.start_conversation` holds the decision (and returns whether it spoke);
-    this registers it on the transport's own connect event, which is the shipped pattern
-    (`examples/voice/voice-cartesia.py:112-119`) and the reason `assemble_call` does not do
-    it: a fake transport has no such event, and `assemble_call` must stay runnable against
-    one.
+    **CONNECT: the agent speaks first.** `AssembledCall.start_conversation` holds the decision
+    (and returns whether it spoke); this registers it on the transport's own connect event,
+    which is the shipped pattern (`examples/voice/voice-cartesia.py:112-119`) and the reason
+    `assemble_call` does not do it: a fake transport has no such event, and `assemble_call`
+    must stay runnable against one.
 
-    The registration is VERIFIED rather than attempted — see `CarrierWiringError`. The
+    **DISCONNECT: the call ends.** A caller hanging up reaches the pipeline as nothing at
+    all, and `assemble_call` sets `idle_timeout_secs=None`, so an unhandled hang-up left the
+    pipeline — and this container's one session slot — running until the duration cap, with
+    the call's terminal status that many minutes late. The vendor's template answers it with
+    `runner.cancel()` (`cli/templates/server/_macros/event_handlers.jinja2:25-28`); this
+    pushes `EndWorkerFrame` instead, as `pipeline.CallDurationCap` does, because a cancel
+    ends the call as `failed` (`NormalizedEventBoundary`) and a caller hanging up is the
+    ordinary end of a call, not a failure.
+
+    Both registrations are VERIFIED rather than attempted — see `CarrierWiringError`. The
     membership test reads a private attribute because 1.10.0 exposes no public accessor for
     the registered set (`base_object.py:76`, `:195-206`); a `getattr` with a default keeps
     that read from becoming a crash if the attribute is ever renamed, and the refusal then
@@ -770,6 +785,11 @@ def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: st
             f"this transport does not fire {CLIENT_CONNECTED_EVENT!r}, so the agent would "
             "never speak first and the caller would hear silence"
         )
+    if CLIENT_DISCONNECTED_EVENT not in registered:
+        raise CarrierWiringError(
+            f"this transport does not fire {CLIENT_DISCONNECTED_EVENT!r}, so a caller "
+            "hanging up would leave the call running until its duration cap"
+        )
 
     async def _greet(*_args: Any) -> None:
         # Two states an operator needs apart, and neither is an error: an agent that
@@ -777,7 +797,12 @@ def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: st
         spoke = await call.start_conversation()
         logger.info("carrier call connected", call_id=call_id, spoke_first=spoke)
 
+    async def _hang_up(*_args: Any) -> None:
+        logger.info("carrier call disconnected by the far end", call_id=call_id)
+        await call.worker.queue_frames([EndWorkerFrame(reason="caller hung up")])
+
     transport.add_event_handler(CLIENT_CONNECTED_EVENT, _greet)
+    transport.add_event_handler(CLIENT_DISCONNECTED_EVENT, _hang_up)
 
 
 async def start_carrier_call(
@@ -944,6 +969,7 @@ __all__ = [
     "CLAIM_CALLER_STATE_PARAM",
     "CLAIM_CARRIER_PARAM",
     "CLIENT_CONNECTED_EVENT",
+    "CLIENT_DISCONNECTED_EVENT",
     "OUTBOUND_DIAL_UNKNOWN",
     "PLIVO_TRANSPORT_TYPE",
     "CallRoute",

@@ -247,18 +247,43 @@ def _confirmed(value: Any) -> bool:
     return isinstance(value, str) and value.strip().lower() in {"true", "yes"}
 
 
-def _text_arg(params: FunctionCallParams, name: str) -> str | None:
-    """One string argument, or None. Never a `TypeError` out of a tool handler.
+def _text_arg(
+    params: FunctionCallParams, name: str, *, into: type[BaseModel], clip: bool = False
+) -> str | None:
+    """One string argument, sized to fit field `name` of `into`, or None. Never raises.
 
     Absent, non-string and blank all become `None`: a handler that raised would reach the
     model as "the function failed and returned no result", which on these four tools is
     worse than the field simply being empty — every one of them has a defined behaviour
     for a missing hint, and none of them needs one to do its job.
+
+    The same holds for LENGTH, which the model chooses and the wire model bounds. Building
+    the request with a value over its `max_length` raises inside the handler, so the act is
+    never sent — on the opt-out tool, a caller asking to be removed is not removed because
+    the model spelled the language "Telugu (India)". Free text (`clip=True`) is shortened
+    to the bound: the first 500 characters of a reason are still the reason. An identifier
+    that does not fit (a language code, a date) is dropped instead, because a truncated
+    code is a different, wrong code.
     """
     raw = params.arguments.get(name)
     if not isinstance(raw, str) or not raw.strip():
         return None
-    return raw.strip()
+    value = raw.strip()
+    limit = _max_length(into, name)
+    if limit is None or len(value) <= limit:
+        return value
+    if not clip:
+        return None
+    return value[:limit].rstrip()
+
+
+def _max_length(model: type[BaseModel], name: str) -> int | None:
+    """The `max_length` the wire model declares for `name`, read rather than retyped."""
+    for constraint in model.model_fields[name].metadata:
+        limit = getattr(constraint, "max_length", None)
+        if isinstance(limit, int):
+            return limit
+    return None
 
 
 # --- the handlers ------------------------------------------------------------------------
@@ -461,8 +486,8 @@ def build_call_tools(
 
     async def _opt_out(params: FunctionCallParams) -> None:
         request = OptOutToolIn(
-            reason=_text_arg(params, "reason"),
-            language=_text_arg(params, "language"),
+            reason=_text_arg(params, "reason", into=OptOutToolIn, clip=True),
+            language=_text_arg(params, "language", into=OptOutToolIn),
             caller=caller,
         )
         try:
@@ -480,11 +505,11 @@ def build_call_tools(
 
     async def _book_callback(params: FunctionCallParams) -> None:
         request = CallbackBookIn(
-            callback_date=_text_arg(params, "callback_date"),
-            callback_time=_text_arg(params, "callback_time"),
+            callback_date=_text_arg(params, "callback_date", into=CallbackBookIn),
+            callback_time=_text_arg(params, "callback_time", into=CallbackBookIn),
             confirmed=_confirmed(params.arguments.get("confirmed")),
-            note=_text_arg(params, "note"),
-            language=_text_arg(params, "language"),
+            note=_text_arg(params, "note", into=CallbackBookIn, clip=True),
+            language=_text_arg(params, "language", into=CallbackBookIn),
             caller=caller,
         )
         try:
@@ -522,7 +547,8 @@ def build_call_tools(
 
     async def _handoff(params: FunctionCallParams) -> None:
         request = HandoffToolIn(
-            reason=_text_arg(params, "reason"), summary=_text_arg(params, "summary")
+            reason=_text_arg(params, "reason", into=HandoffToolIn, clip=True),
+            summary=_text_arg(params, "summary", into=HandoffToolIn, clip=True),
         )
         try:
             answer = await api.handoff(engine_call_id, request)

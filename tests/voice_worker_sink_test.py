@@ -36,14 +36,23 @@ from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
 
+import httpx
 import pytest
 from apps.api.db.session import tenant_session
+from apps.api.main import app as api_app
 from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
+from calevate_shared.worker_api import OptOutToolIn
 from loguru import logger
 from sqlalchemy import text
-from tests.worker_api_harness import declare_pipecat_engine, published_agent, worker_client
+from tests.worker_api_harness import (
+    TOKEN,
+    declare_pipecat_engine,
+    published_agent,
+    worker_client,
+)
 from voice_worker.api_client import WorkerApiClient, WorkerApiError
+from voice_worker.call_tools import CallToolApiClient
 from voice_worker.meter import (
     UNIT_STT_S,
     CarrierFactsMissingError,
@@ -245,13 +254,10 @@ async def test_the_timer_sends_a_conversation_that_never_fills_a_batch(
 async def test_a_terminal_event_is_never_held_by_the_buffer(worker_token: None) -> None:
     """**THE ONE BOUND D-621 ADDED, AND IT IS NOT AN OPTIMISATION.**
 
-    Events are buffered now too — over SQL a lifecycle event was one statement and there was
-    no reason to hold it; over HTTP an unbuffered event is a whole round trip for a status
-    nobody is waiting on. But `is_terminal` is the one status a reader OUTSIDE this container
-    acts on: `admin/health.py` stops the board for a call stuck at `in_progress`, and the
-    post-call pipeline waits on the row. Held for ten seconds it is a call that looks live
-    after the caller hung up; held through a container replacement it stays that way for
-    ever.
+    `is_terminal` is the one status a reader OUTSIDE this container acts on:
+    `admin/health.py` stops the board for a call stuck at `in_progress`, and the post-call
+    pipeline waits on the row. Held for ten seconds it is a call that looks live after the
+    caller hung up; held through a container replacement it stays that way for ever.
     """
     call_id = f"call-{uuid.uuid4().hex[:10]}"
     sink, tenant_id, agent_id, api = await _sink(
@@ -259,14 +265,8 @@ async def test_a_terminal_event_is_never_held_by_the_buffer(worker_token: None) 
     )
     try:
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
-        async with tenant_session(tenant_id) as db:
-            rows = (
-                await db.execute(
-                    text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
-                    {"c": pipecat_call_ref(tenant_id, call_id)},
-                )
-            ).scalar_one()
-        assert rows == 0, "an opening status cost a round trip the buffer exists to avoid"
+        await sink.on_transcript_turn(_t(call_id, 0))
+        assert await _turn_count(tenant_id, call_id) == 0, "a turn skipped the buffer"
 
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
         async with tenant_session(tenant_id) as db:
@@ -280,6 +280,36 @@ async def test_a_terminal_event_is_never_held_by_the_buffer(worker_token: None) 
     finally:
         await sink.aclose()
         await api.aclose()
+
+
+async def test_the_opening_event_mints_the_call_row_the_in_call_tools_need(
+    worker_token: None,
+) -> None:
+    """Every in-call tool resolves its call by `calls.engine_call_id` and answers 404 when
+    the row is not there yet. A buffered opening status left no row until the first batch
+    filled or the timer fired, so a caller who said "stop calling me" in their first
+    breath reached a tool that could not find the call, and the opt-out was never written.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(
+        call_id, turn_batch_size=100, turn_flush_seconds=3600
+    )
+    tools = CallToolApiClient.from_config(
+        base_url="http://api",
+        token=TOKEN,
+        transport=httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444)),
+    )
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        answer = await tools.opt_out(pipecat_call_ref(tenant_id, call_id), OptOutToolIn())
+    finally:
+        await sink.aclose()
+        await api.aclose()
+        await tools.aclose()
+
+    # No number on this call, so the honest answer is `not_recorded` — but it is an ANSWER
+    # about the caller, not a refusal to find the call.
+    assert answer.status == "not_recorded"
 
 
 async def test_settlement_sends_the_transcript_before_it_settles_anything(
@@ -552,6 +582,58 @@ async def test_settling_twice_is_reported_and_not_re_applied(worker_token: None)
         ).scalar_one()
     assert refusals == 1, "a retried settlement wrote a second, uncorrectable refusal row"
     assert promises == 1, "the post-call pipeline was promised twice"
+
+
+async def _stored_status(tenant_id: uuid.UUID, call_id: str) -> str:
+    async with tenant_session(tenant_id) as db:
+        return str(
+            (
+                await db.execute(
+                    text("SELECT status FROM calls WHERE engine_call_id = :c"),
+                    {"c": pipecat_call_ref(tenant_id, call_id)},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_settlement_keeps_the_failed_status_the_pipeline_reported(
+    worker_token: None,
+) -> None:
+    """A call the pipeline ended as `failed` must still read `failed` after it settles.
+
+    The server lets a `completed` settlement overwrite any terminal status, so a settlement
+    that always claimed `completed` rewrote every cancelled or broken call as a clean one.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(call_id)
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "failed"))
+        assert await _stored_status(tenant_id, call_id) == "failed"
+        await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
+    finally:
+        await sink.aclose()
+        await api.aclose()
+
+    assert await _stored_status(tenant_id, call_id) == "failed", (
+        "the settlement overwrote the pipeline's failed status with completed"
+    )
+
+
+async def test_a_settlement_with_no_observed_end_does_not_claim_completed(
+    worker_token: None,
+) -> None:
+    """No terminal event means nobody saw the pipeline finish, which is not a clean call."""
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(call_id)
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
+    finally:
+        await sink.aclose()
+        await api.aclose()
+
+    assert await _stored_status(tenant_id, call_id) == "failed"
 
 
 # ---------------------------------------------------------------------------------------

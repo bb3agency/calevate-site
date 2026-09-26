@@ -405,3 +405,122 @@ async def test_running_a_call_records_what_prompt_the_worker_actually_loaded(
         stored = await latest_attestation(db, agent_id)
     assert stored is not None, "a whole call ran and left no record of the prompt it loaded"
     assert stored.matches is True
+
+
+class _SlowAttestation(WorkerApiClient):
+    """The real client, except the attestation POST waits until the test releases it."""
+
+    def __init__(self, real: WorkerApiClient) -> None:
+        super().__init__(client=real._client, base_url=real._base_url, token=real._token)
+        self.release = asyncio.Event()
+        self.posted = False
+
+    async def post_attestation(self, *args: Any, **kwargs: Any) -> Any:
+        await self.release.wait()
+        answer = await super().post_attestation(*args, **kwargs)
+        self.posted = True
+        return answer
+
+
+async def test_the_pipeline_does_not_wait_on_the_attestation(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_token: None,
+) -> None:
+    """The carrier leg is already up when `run_call` starts, so every await before the
+    pipeline runs is silence on the line. The attestation is evidence about the prompt, not
+    a gate on the call: the pipeline must start while it is still in flight, and the call
+    must still wait for it before it finishes."""
+    from apps.api.agents.config_versions import latest_attestation
+
+    tenant_id, agent_id, call_id, real, _sink = await _live_call()
+    api = _SlowAttestation(real)
+    await PipecatEngine().create_agent(_agent_config(tenant_id, agent_id))
+    pipeline_started_before_attestation: list[bool] = []
+
+    class _Runner:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def add_workers(self, *_workers: Any) -> None:
+            return None
+
+        async def run(self) -> None:
+            pipeline_started_before_attestation.append(not api.posted)
+            api.release.set()
+
+    class _NoPacks:
+        async def fetch(self, _key: str) -> bytes | None:
+            return None
+
+    monkeypatch.setattr(runtime, "WorkerRunner", _Runner)
+    worker_runtime = runtime.WorkerRuntime(api, fetcher=_NoPacks())
+    try:
+        await asyncio.wait_for(
+            worker_runtime.run_call(
+                call_id=call_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                direction="inbound",
+                engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
+                credentials_for=lambda _provider: CREDENTIALS,
+                greeting="skip",
+                transport=FakeTransport(),
+            ),
+            timeout=10,
+        )
+    finally:
+        await real.aclose()
+
+    assert pipeline_started_before_attestation == [True], "the caller waited on a witness row"
+    async with tenant_session(tenant_id) as db:
+        stored = await latest_attestation(db, agent_id)
+    assert stored is not None, "the call finished without the attestation it started"
+
+
+async def test_a_pipeline_that_raises_leaves_no_attestation_task_behind(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_token: None,
+) -> None:
+    """The attestation runs beside the pipeline, so a pipeline that dies must take it down
+    rather than leave a task holding the shared client open after `run_call` has gone."""
+    tenant_id, agent_id, call_id, real, _sink = await _live_call()
+    api = _SlowAttestation(real)
+    await PipecatEngine().create_agent(_agent_config(tenant_id, agent_id))
+
+    class _Crashes:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def add_workers(self, *_workers: Any) -> None:
+            return None
+
+        async def run(self) -> None:
+            raise RuntimeError("the pipeline died")
+
+    class _NoPacks:
+        async def fetch(self, _key: str) -> bytes | None:
+            return None
+
+    monkeypatch.setattr(runtime, "WorkerRunner", _Crashes)
+    worker_runtime = runtime.WorkerRuntime(api, fetcher=_NoPacks())
+    try:
+        with pytest.raises(RuntimeError, match="the pipeline died"):
+            await worker_runtime.run_call(
+                call_id=call_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                direction="inbound",
+                engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
+                credentials_for=lambda _provider: CREDENTIALS,
+                greeting="skip",
+                transport=FakeTransport(),
+            )
+        lingering = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and "_attest" in repr(task.get_coro())
+        ]
+        assert lingering == [], "the attestation outlived the call it belonged to"
+        assert api.posted is False
+    finally:
+        await real.aclose()
