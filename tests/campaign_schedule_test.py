@@ -61,6 +61,7 @@ from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_ti
 from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
+    bind_number_for_tests,
     fund_wallet,
     record_autodialer_notice_for_tests,
 )
@@ -184,22 +185,9 @@ async def _ready_campaign(
     """(tenant, agent, campaign) — a promotional campaign that would launch right now."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        number_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
-            ),
-            {
-                "id": number_id,
-                "tid": tenant_id,
-                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
-                # whose approved number is not the number its agent dials from.
-                "aid": agent_id,
-                "e": f"+9180{uuid.uuid4().int % 10**8:08d}",
-            },
-        )
+        # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign whose
+        # approved number is not the number its agent dials from.
+        number_id = await bind_number_for_tests(session, tenant_id, agent_id)
         template_id = uuid7()
         await session.execute(
             text(
@@ -233,8 +221,6 @@ async def _ready_campaign(
         # preference-scrubbed its list, so this fixture supplies the fact through the
         # production writer — `tests/national_dnd_test.py` proves the refusal is real.
         await record_test_scrub(session, campaign_id)
-    # The number was bound after the notice was recorded, so the notice declares it now.
-    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     return tenant_id, agent_id, campaign_id
 
 

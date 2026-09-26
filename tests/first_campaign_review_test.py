@@ -48,7 +48,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, bind_number_for_tests
 from tests.national_dnd_test import record_test_scrub
 
 pytestmark = [pytest.mark.rls]
@@ -208,22 +208,9 @@ async def _campaign(
     tenant_id = uuid.UUID(str(org["id"]))
     agent_id = uuid.UUID(str(org["agent_id"]))
     async with tenant_session(tenant_id) as session:
-        number_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
-            ),
-            {
-                "id": number_id,
-                "tid": tenant_id,
-                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
-                # whose approved number is not the number its agent dials from.
-                "aid": agent_id,
-                "e": f"+9180{uuid.uuid4().int % 10**8:08d}",
-            },
-        )
+        # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign whose
+        # approved number is not the number its agent dials from.
+        number_id = await bind_number_for_tests(session, tenant_id, agent_id)
         template_id = uuid7()
         await session.execute(
             text(

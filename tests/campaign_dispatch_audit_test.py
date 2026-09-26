@@ -75,7 +75,12 @@ from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_ti
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements, fund_wallet, record_autodialer_notice_for_tests
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    fund_wallet,
+    record_autodialer_notice_for_tests,
+)
 from tests.national_dnd_test import record_test_scrub
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -207,23 +212,11 @@ async def _launched(
     whether the dispatcher notices.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = uuid7(), uuid7()
+    template_id = uuid7()
     async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
-            ),
-            {
-                "id": number_id,
-                "tid": tenant_id,
-                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
-                # whose approved number is not the number its agent dials from.
-                "aid": agent_id,
-                "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-            },
-        )
+        # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign whose
+        # approved number is not the number its agent dials from.
+        number_id = await bind_number_for_tests(session, tenant_id, agent_id)
         await session.execute(
             text(
                 "INSERT INTO dlt_templates (id, tenant_id, kind, classification, body, status, "
@@ -257,8 +250,6 @@ async def _launched(
         await record_test_scrub(session, campaign_id)
         # The real gate, unmodified: if any fixture above were missing this raises.
         await campaigns.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
-    # The number was bound after the notice was recorded, so the notice declares it now.
-    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     return tenant_id, agent_id, campaign_id, number_id, template_id
 
 

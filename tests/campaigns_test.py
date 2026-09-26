@@ -40,7 +40,12 @@ from apps.workers.campaign_dispatch import (
 )
 from pydantic import ValidationError
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet, record_autodialer_notice_for_tests
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    fund_wallet,
+    record_autodialer_notice_for_tests,
+)
 from tests.national_dnd_test import record_test_scrub
 
 
@@ -169,21 +174,7 @@ async def _number(
     fixture be silently un-launchable, which is exactly the state this helper produced
     before the gate closed.
     """
-    number_id = uuid7()
-    await session.execute(
-        text(
-            "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-            "created_at, updated_at) VALUES (:id, :tid, :aid, :e, :s, 'registered', now(), now())"
-        ),
-        {
-            "id": number_id,
-            "tid": tenant_id,
-            "aid": agent_id,
-            "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-            "s": series,
-        },
-    )
-    return number_id
+    return await bind_number_for_tests(session, tenant_id, agent_id, series=series)
 
 
 async def _template(
@@ -253,8 +244,6 @@ async def _ready_campaign(
         # `tests/national_dnd_test.py` proves the refusal by leaving it out.
         if classification in PREFERENCE_SCRUBBED_CLASSIFICATIONS:
             await record_test_scrub(session, campaign_id)
-    # The number was bound after the notice was recorded, so the notice declares it now.
-    await record_autodialer_notice_for_tests(tenant_id)
     return tenant_id, agent_id, campaign_id
 
 
@@ -1376,8 +1365,6 @@ async def _windowed_campaign(
         # Promotional, so the national DND scrub applies here exactly as it does in
         # `_ready_campaign` — see the note there.
         await record_test_scrub(session, campaign_id)
-    # The number was bound after the notice was recorded, so the notice declares it now.
-    await record_autodialer_notice_for_tests(tenant_id)
     return tenant_id, agent_id, campaign_id
 
 

@@ -60,7 +60,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
 
 PROVIDER = "airtel-dlt"
 
@@ -194,23 +194,10 @@ async def _campaign(
     assertion below turns on that one fact and not on a missing template."""
     series = "140" if classification == "promotional" else "160"
     async with tenant_session(tenant_id) as session:
-        number_id, template_id = uuid7(), uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :e, :s, 'registered', now(), now())"
-            ),
-            {
-                "id": number_id,
-                "tid": tenant_id,
-                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
-                # whose approved number is not the number its agent dials from.
-                "aid": agent_id,
-                "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-                "s": series,
-            },
-        )
+        template_id = uuid7()
+        # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign whose
+        # approved number is not the number its agent dials from.
+        number_id = await bind_number_for_tests(session, tenant_id, agent_id, series=series)
         await session.execute(
             text(
                 "INSERT INTO dlt_templates (id, tenant_id, kind, classification, body, status, "

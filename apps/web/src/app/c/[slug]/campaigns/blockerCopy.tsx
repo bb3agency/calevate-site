@@ -299,6 +299,22 @@ export const PLATFORM_BLOCKER = "tm_registration_missing";
 export const KYC_BLOCKERS = ["kyc_missing", "kyc_not_verified"];
 
 /**
+ * The autodialler-notice refusals whose fix is on the Agreements screen, where
+ * `AutodialerNoticePanel` records the notice. Same treatment as the KYC pair: the
+ * server's reason already says what to send and to whom, and ends "record it here" —
+ * which on this screen means nothing without a link.
+ *
+ * `autodialer_notice_not_yet_effective` is deliberately absent, as it is from the admin
+ * readiness screen: the paperwork is correct and only the date has to arrive, so a link
+ * would invite re-recording a notice that is fine.
+ */
+export const AUTODIALER_NOTICE_BLOCKERS = [
+  "autodialer_notice_missing",
+  "autodialer_notice_withdrawn",
+  "autodialer_notice_cli_undeclared",
+];
+
+/**
  * The first-campaign hold — same treatment, same reasoning, one screen behind it.
  *
  * `FIRST_CAMPAIGN_BLOCKERS` is the API's own pair of rule names, imported rather than

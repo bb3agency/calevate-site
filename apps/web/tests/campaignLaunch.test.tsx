@@ -294,6 +294,38 @@ describe("the launch panel with blockers outstanding", () => {
     expect(text).not.toContain("spend_cap");
   });
 
+  it("sends a sender with no autodialler notice to the screen that records it", async () => {
+    // The server's reason ends "record it here", which on the launch panel names nowhere.
+    const reason =
+      "This agent calls from a number your business has not declared to its telecom " +
+      "access provider.";
+    const { container } = await openLaunchPanel(
+      check({ rule: "autodialer_notice_cli_undeclared", reason }),
+    );
+
+    const text = container.textContent ?? "";
+    expect(text).toContain(reason);
+    expect(
+      screen
+        .getByRole("link", { name: /Record your autodialler notice/ })
+        .getAttribute("href"),
+    ).toContain("/agreements");
+    expect(text).not.toContain("autodialer_notice_cli_undeclared");
+  });
+
+  it("offers no notice link when the notice is fine and only its date has to arrive", async () => {
+    await openLaunchPanel(
+      check({
+        rule: "autodialer_notice_not_yet_effective",
+        reason: "The notice is dated in the future.",
+      }),
+    );
+
+    expect(
+      screen.queryByRole("link", { name: /Record your autodialler notice/ }),
+    ).toBeNull();
+  });
+
   it("keeps the enum names out of the DOM for the rules it does know", async () => {
     const { container } = await openLaunchPanel(
       check({

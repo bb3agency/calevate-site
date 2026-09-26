@@ -49,7 +49,12 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, TenantWork
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet, record_autodialer_notice_for_tests
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    fund_wallet,
+    record_autodialer_notice_for_tests,
+)
 from tests.national_dnd_test import record_test_scrub
 
 
@@ -153,21 +158,9 @@ async def _dlt_rows(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[uuid.UUI
     satisfy the first rule by breaking the second, and the dispatcher under test here
     would then place no calls while the budget assertions still read green.
     """
-    number_id, template_id = uuid7(), uuid7()
+    template_id = uuid7()
     async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
-            ),
-            {
-                "id": number_id,
-                "tid": tenant_id,
-                "aid": agent_id,
-                "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-            },
-        )
+        number_id = await bind_number_for_tests(session, tenant_id, agent_id)
         await session.execute(
             text(
                 "INSERT INTO dlt_templates (id, tenant_id, kind, classification, body, status, "
@@ -176,8 +169,6 @@ async def _dlt_rows(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[uuid.UUI
             ),
             {"id": template_id, "tid": tenant_id, "body": "Hello from {#var#}, an AI assistant."},
         )
-    # The number was bound after the notice was recorded, so the notice declares it now.
-    await record_autodialer_notice_for_tests(uuid.UUID(str(tenant_id)))
     return number_id, template_id
 
 

@@ -52,6 +52,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.lifecycle import assert_assignable, hold_agent_for_campaign_start
+from apps.api.agents.service import agent_registered_numbers
 from apps.api.campaigns.models import (
     CONSENT_SOURCES,
     REFUSED_CONSENT_SOURCES,
@@ -62,6 +63,7 @@ from apps.api.campaigns.sender_attestation import (
     attestation_reason,
     latest_attestation,
 )
+from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
 from apps.api.compliance.registration import outbound_entity_blockers
@@ -1286,6 +1288,22 @@ async def launch_blockers(
     blockers.extend(
         _channel_blockers(facts, sender_attested=await _sender_attested(session, facts=facts))
     )
+
+    # AND WHETHER THE SENDER TOLD ITS ACCESS PROVIDER THAT IT AUTODIALS, FROM THESE NUMBERS
+    # (TCCCPR Regulation 4 and the Third Amendment; `compliance/autodialer.py` carries the
+    # evidence class). `check_dispatch` refuses every dial on this answer, so leaving it to
+    # dial time launches a campaign that can never call anyone. Asked with the dial gate's
+    # own arguments — the tenant, and every registered number bound to the campaign's
+    # agent — so the two gates cannot disagree about which number is undeclared. After the
+    # number rules, as in `check_dispatch`: the notice has to name the header those rules
+    # approve. Not in `dispatch_blockers`, because `check_dispatch` asks it per contact.
+    unnoticed = await autodialer_notice_blocker(
+        session,
+        tenant_id=tenant_id,
+        caller_ids=await agent_registered_numbers(session, agent_id=facts.agent_id),
+    )
+    if unnoticed is not None:
+        blockers.append(LaunchBlocker(*unnoticed))
 
     # SEC-COMP §3, third bullet, NATIONAL half. Refused rather than warned about,
     # because the bullet is a legal claim: a promotional campaign dialled without a

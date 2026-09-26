@@ -38,7 +38,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 pytestmark = [pytest.mark.rls]
@@ -77,21 +77,7 @@ async def _number(session: Any, tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uu
     """A registered 140 header BOUND TO `agent_id` (D-424) — the launch gate refuses a
     campaign whose approved number is not the number its agent dials from, and every
     campaign here is meant to be green on everything except the provenance under test."""
-    number_id = uuid7()
-    await session.execute(
-        text(
-            "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-            "created_at, updated_at) "
-            "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
-        ),
-        {
-            "id": number_id,
-            "tid": tenant_id,
-            "aid": agent_id,
-            "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-        },
-    )
-    return number_id
+    return await bind_number_for_tests(session, tenant_id, agent_id)
 
 
 async def _template(session: Any, tenant_id: uuid.UUID) -> uuid.UUID:
