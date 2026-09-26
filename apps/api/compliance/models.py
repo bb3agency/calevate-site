@@ -221,6 +221,14 @@ CALLBACK_SUPPRESSED_REASON = (
 CALLBACK_CONSENT_WITHDRAWN_REASON = (
     "This person's permission to be called was withdrawn, so we did not ring them back."
 )
+
+#: How long a consent a lead form recorded authorises calls: the inquiry window. TCCCPR
+#: Third Amendment (18 Sep 2026) permits commercial calls based on a customer's written or
+#: digital inquiry for 7 days from it — REPORTED, an access provider's summary of TRAI
+#: press release No. 119/2026, `docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md`.
+#: Applied only where we witnessed the inquiry; a consent a client asserts from before it
+#: reached us is gate 60's open question, not this window.
+INQUIRY_CONSENT_WINDOW_DAYS = 7
 # The categories a tenant may set a retention period for. Mirrors
 # `ck_retention_policies_category_enum` — the CHECK is the source of truth and this
 # tuple must not drift from it (DATA-MODEL §9, §10).

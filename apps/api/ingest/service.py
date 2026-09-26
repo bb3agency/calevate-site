@@ -42,7 +42,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.callbacks.service import cancel_for_phones
-from apps.api.compliance.models import CALLBACK_CONSENT_WITHDRAWN_REASON
+from apps.api.compliance.models import (
+    CALLBACK_CONSENT_WITHDRAWN_REASON,
+    INQUIRY_CONSENT_WINDOW_DAYS,
+)
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import record_speed_to_lead
 from apps.api.core.errors import ProblemError
@@ -597,11 +600,14 @@ async def _record_dial_consent_granted(
     the person answered; a client asked to produce the opt-in has the two facts they need
     to go and find it.
 
-    NO `expires_at`. A default validity window for voice consent is counsel's decision,
-    not code's (LEGAL-OPS-PLAYBOOK §10.7/§20, hard rule 11) — `check_dispatch` honours an
-    expiry a record SET and imposes none on a record that did not, and inventing one here
-    would be exactly the invented number that rule forbids. `compliance.consent.
-    record_call_consent` is where an expiry can be stated, because there a human states it.
+    IT EXPIRES `INQUIRY_CONSENT_WINDOW_DAYS` AFTER CAPTURE, because a form submission is a
+    written, digital inquiry and the amended TCCCPR permits calls on one for that long.
+    The expiry is set on the ROW rather than imposed by the gate, so `check_dispatch`'s
+    `consent_expired` refuses every later dial path (callback, campaign, recall, "call
+    now") with one answer, and a fresh submission writes a fresh row that restarts it. No
+    other writer sets it: a call-back a caller asks for in a call is the case the amendment
+    leaves open, and a consent a client records from elsewhere has an inquiry date we never
+    saw (OPERATIONS §2 gate 60).
 
     HARD RULE 6: the field NAME is configuration, not personal data. The submitted value
     is not stored — only that it was in the affirmative set.
@@ -609,13 +615,15 @@ async def _record_dial_consent_granted(
     await session.execute(
         text(
             "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
-            "consent_source, captured_at, evidence, created_at) VALUES (:id, :tid, :phone, "
-            "'callback', 'granted', 'web_form_optin', now(), CAST(:evidence AS jsonb), now())"
+            "consent_source, captured_at, expires_at, evidence, created_at) VALUES (:id, "
+            ":tid, :phone, 'callback', 'granted', 'web_form_optin', now(), "
+            "now() + make_interval(days => :window_days), CAST(:evidence AS jsonb), now())"
         ),
         {
             "id": uuid7(),
             "tid": tenant_id,
             "phone": phone_e164,
+            "window_days": INQUIRY_CONSENT_WINDOW_DAYS,
             "evidence": json.dumps({"consent_field": consent_field, "lead_source": source}),
         },
     )
