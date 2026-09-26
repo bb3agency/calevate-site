@@ -191,7 +191,8 @@ REGISTER_ONLY: dict[str, str] = {
         "credential and no route remains. The row stays until the register's next change "
         "notice retires it, because a register that over-discloses a vendor the product no "
         "longer uses errs in the safe direction and one that drops a row without notice "
-        "does not. Its status cell says it is withdrawn."
+        "does not. Changing its words is a new legal revision (versions.ts + "
+        "legal/catalogue.py), which is the legal lane's call, not this guard's."
     ),
     "Exotel": (
         "A candidate carrier. No account, no credential and no adapter — the only carrier "

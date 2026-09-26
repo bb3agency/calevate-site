@@ -138,8 +138,8 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "which we have not purchased. Read the note below before relying on this " +
       "row either way — it is the most important caution on this page.",
     status:
-      "Withdrawn. Removed from the product's code on 26 September 2026 and no longer " +
-      "selectable; listed here until our next notice of changes to this register.",
+      "Core (primary engine). The verification pilot has not yet been run, and the " +
+      "shipped default engine is a local stub.",
   },
   {
     names: ["Sarvam"],
