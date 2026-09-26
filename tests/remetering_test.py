@@ -453,3 +453,18 @@ async def test_a_tenant_whose_metered_legs_cannot_be_read_is_counted_unreached(
     summary = await remeter_refused_legs({})
     assert "metered=0 " in summary
     assert "unreached=0" not in summary
+
+
+async def test_one_demand_that_raises_is_counted_unreached(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A demand whose re-metering raises is that demand unreached; the tick still returns."""
+    await _settled_call()
+
+    async def _raises(*_args: object, **_kwargs: object) -> str:
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(remetering, "remeter", _raises)
+    summary = await remeter_refused_legs({})
+    assert "metered=0 " in summary
+    assert "unreached=0" not in summary
