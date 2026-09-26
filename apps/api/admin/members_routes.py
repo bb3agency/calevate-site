@@ -347,11 +347,12 @@ async def set_tenant_member_role(
 ) -> TeamMemberOut:
     """No step-up: reversible by the same operator on the same screen (module docstring).
 
-    `actor_user_id` is the OPERATOR's own `users.id` where they have one. Operators
-    authenticate against `admin_users`, so it is ordinarily `None` here and
-    `members._refuse_self` is then vacuous — but the founder's account can be both, and
-    passing the id means "nobody acts on themselves" keeps holding for the one person on
-    this platform for whom it can bite.
+    `actor_user_id` is `None`: `members._refuse_self` compares a `users.id`, and an
+    operator's `principal.user_id` is an `admin_users.id` — a different table with no
+    link to `users`, so passing it would only ever look like the self-check was armed.
+    The self-refusal protects an owner from giving up the permission they would need to
+    undo the change; an operator acting from the console keeps `admin:tenants` whatever
+    happens to a client membership, so it has nothing to protect here.
 
     The role change and its audit row share one transaction, for the reason every write in
     this package gives: a grant of authority whose record failed to commit is a grant
@@ -362,7 +363,7 @@ async def set_tenant_member_role(
             raise ProblemError.not_found("Client")
         previous = await members_service.assign_member_role(
             scoped,
-            actor_user_id=principal.user_id,
+            actor_user_id=None,
             target_user_id=user_id,
             new_role=payload.role,
             expected_role=payload.expected_role,
@@ -437,7 +438,7 @@ async def remove_tenant_member(
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
         previous, still_assigned = await members_service.remove_member(
-            scoped, actor_user_id=principal.user_id, target_user_id=user_id
+            scoped, actor_user_id=None, target_user_id=user_id
         )
         await write_audit(
             scoped,
