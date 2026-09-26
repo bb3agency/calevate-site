@@ -22,6 +22,7 @@ from typing import Any, get_args
 import pytest
 from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.worker_api import (
+    MAX_TOOL_TEXT,
     CallbackBookIn,
     CallbackCancelIn,
     CallbackCancelOut,
@@ -414,3 +415,47 @@ async def test_an_unconfirmed_booking_is_what_reaches_the_server() -> None:
         {"callback_date": "2026-10-01", "callback_time": "16:00", "confirmed": "maybe"},
     )
     assert api.booked[0].confirmed is False
+
+
+@pytest.mark.asyncio
+async def test_an_over_long_argument_still_records_the_opt_out() -> None:
+    """The model chooses the length of every argument, and the wire model bounds it.
+
+    A language spelled as a name ("Telugu (India)") or a reason quoted at length failed the
+    request model's validation inside the handler, so the suppression was never sent and the
+    model heard "the function failed" on the turn where the caller asked to be removed. A
+    hint that does not fit is dropped or shortened; the act still happens.
+    """
+    api = FakeToolApi()
+    result = await call_tool(
+        api,
+        OPT_OUT_TOOL_NAME,
+        {"reason": "please stop " * 100, "language": "Telugu (India)"},
+    )
+    assert result["status"] == "recorded"
+    sent = api.opt_outs[0]
+    assert sent.language is None
+    assert sent.reason is not None
+    assert len(sent.reason) == MAX_TOOL_TEXT
+
+
+@pytest.mark.asyncio
+async def test_an_over_long_argument_does_not_break_the_other_three_tools() -> None:
+    api = FakeToolApi()
+    long = "x" * 2000
+    booked = await call_tool(
+        api,
+        BOOK_CALLBACK_TOOL_NAME,
+        {
+            "callback_date": "2026-10-01",
+            "callback_time": "16:00",
+            "note": long,
+            "language": "English (India)",
+        },
+    )
+    assert booked["status"] == "booked"
+    assert api.booked[0].language is None
+    assert len(api.booked[0].note or "") == MAX_TOOL_TEXT
+    handed = await call_tool(api, HANDOFF_TOOL_NAME, {"reason": long, "summary": long})
+    assert handed["outcome"] == "not_available"
+    assert len(api.handoffs[0].summary or "") == MAX_TOOL_TEXT
