@@ -152,6 +152,12 @@ def national_dnd_scrub_incomplete_reason(added: int) -> str:
     )
 
 
+#: The contacts a scrub scores and marks. The call in flight on a `dialing` one is not
+#: recalled by the mark; its settle is a CAS on `dialing`
+#: (`campaign_dispatch._STILL_CLAIMED`), so the ladder cannot return it to `pending`.
+_STILL_DIALABLE = "status IN ('pending', 'dialing')"
+
+
 def scrub_expiry(scrubbed_at: datetime) -> datetime:
     """The last instant a scrub is valid: 23:59:59.999999 IST of the day it was run.
 
@@ -179,7 +185,7 @@ class ScrubState:
     scrub_ref: str | None = None
     scrubbed_at: datetime | None = None
     expires_at: datetime | None = None
-    #: How many contacts were pending when the run was recorded — the size of the list
+    #: How many contacts were pending or dialing when the run was recorded — the size of the list
     #: the provider's verdict actually covers. `national_dnd_blocker` compares the live
     #: pending count against it as a BACKSTOP; the rule it enforces is "was any contact
     #: created after `scrubbed_at`", because this count is taken before the run's own
@@ -370,8 +376,8 @@ async def record_scrub_run(
     Idempotent on `(campaign_id, provider, scrub_ref)`: re-sending a recording — a retry
     whose response was lost, the same reference pasted twice — records nothing new and
     reports `first_time=False`. The contact marking is re-applied regardless, because it
-    is a `status='pending'` filter and a replay must not be able to leave the first
-    attempt half done.
+    is a status filter and a replay must not be able to leave the first attempt half
+    done.
 
     `preference_scrub_runs` is INSERT-only (hard rule 4, `APPEND_ONLY_TABLES`): a scrub
     is evidence that a list was clean at an instant, and an UPDATE that moved
@@ -402,12 +408,18 @@ async def record_scrub_run(
         normalized.append(e164)
     unique = list(dict.fromkeys(normalized))
 
+    # `dialing` IS STILL ON THE LIST. A contact whose call is ringing when the run is
+    # recorded returns to `pending` if the call goes unanswered, so the list the provider
+    # scored is every contact that can still be dialled, not only the ones waiting. Marking
+    # `pending` alone let a number the provider had just blocked be redialled off the
+    # retry ladder; counting `pending` alone made those same contacts, back on the ladder,
+    # read as additions the provider never saw and refused the whole campaign.
     submitted = int(
         (
             await session.execute(
                 text(
                     "SELECT count(*) FROM campaign_contacts "
-                    "WHERE campaign_id = :cid AND status = 'pending'"
+                    f"WHERE campaign_id = :cid AND {_STILL_DIALABLE}"
                 ),
                 {"cid": campaign_id},
             )
@@ -420,7 +432,7 @@ async def record_scrub_run(
         marked = await session.execute(
             text(
                 "UPDATE campaign_contacts SET status = 'dnc_blocked', updated_at = now() "
-                "WHERE campaign_id = :cid AND status = 'pending' AND phone_e164 = ANY(:phones)"
+                f"WHERE campaign_id = :cid AND {_STILL_DIALABLE} AND phone_e164 = ANY(:phones)"
             ),
             {"cid": campaign_id, "phones": unique},
         )

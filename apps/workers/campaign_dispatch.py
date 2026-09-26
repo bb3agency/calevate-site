@@ -253,6 +253,17 @@ _TICK_LEASE_KEY = "calevate:campaign_dispatch:tick"
 TICK_LEASE_TTL_S = 330
 
 
+#: Every writer that settles a claimed contact is a CAS on the claim. A contact leaves
+#: `dialing` through exactly one of them, or through an erasure
+#: (`retention._CAMPAIGN_CONTACT_ERASE_SQL`), and a write by id alone after the erasure
+#: would put an anonymised row back on the ladder for the next tick to claim.
+_STILL_CLAIMED = "status = 'dialing'"
+
+
+class ContactNoLongerClaimedError(Exception):
+    """The contact was settled by another writer between the claim and the dial."""
+
+
 class TenantWork(NamedTuple):
     """One row of `dispatch_scan()`: a tenant that is holding lines, or has work, or both."""
 
@@ -991,8 +1002,17 @@ async def _dispatch_for_campaign(
                     phone_e164=phone,
                     lead_name=name,
                     context_note=None,
-                    on_reserved=_link_contact_to_call(contact_id, campaign_id),
+                    on_reserved=_link_contact_to_call(contact_id, campaign_id, phone),
                 )
+            except ContactNoLongerClaimedError:
+                # Settled by another writer since the claim (an erasure, in practice).
+                # Nothing was dialled and the row already says why, so nothing is written.
+                log.info(
+                    "campaign_contact_settled_before_dial",
+                    extra={"campaign_id": str(campaign_id), "contact_id": str(contact_id)},
+                )
+                blocked += 1
+                continue
             except DialUnconfirmedError as unconfirmed:
                 # THE THIRD OUTCOME: the engine may have started this call. Not the
                 # ladder — a retry here is a second unsolicited call to somebody whose
@@ -1173,7 +1193,7 @@ async def resolve_campaign_contact(
                 "SELECT cc.id, cc.attempts, c.retry_policy, cc.campaign_id "
                 "FROM campaign_contacts cc "
                 "JOIN campaigns c ON c.id = cc.campaign_id "
-                "WHERE cc.last_call_id = :cid AND cc.status = 'dialing'"
+                "WHERE cc.last_call_id = :cid AND cc.status = 'dialing' FOR UPDATE OF cc"
             ),
             {"cid": call_id},
         )
@@ -1263,23 +1283,24 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
     it belongs on. One writer, both refusal shapes, so they can never diverge again.
     """
     record_compliance_block(rule=rule)
-    terminal = rule in PERSON_LEVEL_REFUSALS
-    await session.execute(
-        text("UPDATE campaign_contacts SET status = :status, updated_at = now() WHERE id = :id"),
-        {"status": "dnc_blocked" if terminal else "pending", "id": contact_id},
-    )
-    if not terminal:
-        await session.execute(
-            text(
-                "UPDATE campaign_contacts SET next_attempt_at = now() + interval '30 minutes', "
-                "attempts = attempts - 1, updated_at = now() WHERE id = :id"
-            ),
-            {"id": contact_id},
+    if rule in PERSON_LEVEL_REFUSALS:
+        settle = "status = 'dnc_blocked'"
+    else:
+        settle = (
+            "status = 'pending', next_attempt_at = now() + interval '30 minutes', "
+            "attempts = attempts - 1"
         )
+    await session.execute(
+        text(
+            f"UPDATE campaign_contacts SET {settle}, updated_at = now() "
+            f"WHERE id = :id AND {_STILL_CLAIMED}"
+        ),
+        {"id": contact_id},
+    )
 
 
 def _link_contact_to_call(
-    contact_id: UUID, campaign_id: UUID
+    contact_id: UUID, campaign_id: UUID, phone: str
 ) -> Callable[[AsyncSession, UUID], Awaitable[None]]:
     """`dispatch_call`'s `on_reserved` hook: link the contact and the call both ways.
 
@@ -1293,16 +1314,32 @@ def _link_contact_to_call(
     a call left without it is a call the complaint-spike pause can never see — every
     opt-out on the campaign goes uncounted and the safety never fires. The upserts leave
     the column alone, so the value survives every later status write.
+
+    The link is also the last check that the claim still holds, and it has to be here
+    rather than a re-read in the dispatcher's own transaction. The dispatcher dials from
+    the rows its claim returned, and between that commit and this dial a DPDP erasure can
+    settle the contact `dnc_blocked` and anonymise its number without touching any list the
+    gate reads (erasure is not an objection to calls). A lock taken in the dispatcher's
+    session cannot close that gap: this UPDATE runs on `dispatch_call`'s second connection
+    and would wait on that lock for ever. So the UPDATE itself is the CAS: it takes the row
+    lock, sees a committed erasure, matches nothing, and the raise rolls the intent row
+    back before the engine is called. An erasure that commits after this point finds the
+    call row already written, which `deletion.refile_erasure_for_late_records` covers.
     """
 
     async def link(session: AsyncSession, call_id: UUID) -> None:
-        await session.execute(
-            text(
-                "UPDATE campaign_contacts SET last_call_id = :call, updated_at = now() "
-                "WHERE id = :id"
-            ),
-            {"call": call_id, "id": contact_id},
-        )
+        linked = (
+            await session.execute(
+                text(
+                    "UPDATE campaign_contacts SET last_call_id = :call, updated_at = now() "
+                    f"WHERE id = :id AND phone_e164 = :phone AND {_STILL_CLAIMED} "
+                    "RETURNING id"
+                ),
+                {"call": call_id, "id": contact_id, "phone": phone},
+            )
+        ).first()
+        if linked is None:
+            raise ContactNoLongerClaimedError(contact_id)
         await session.execute(
             text("UPDATE calls SET campaign_id = :cid WHERE id = :call"),
             {"cid": campaign_id, "call": call_id},
@@ -1329,16 +1366,26 @@ async def _settle_unconfirmed_dial(
 
 async def _exhaust_contact(
     session: Any, contact_id: UUID, *, tenant_id: UUID | None, campaign_id: UUID | None
-) -> None:
+) -> bool:
     """Terminal `failed` + the once-per-contact escalation. One writer, three callers:
-    the spent ladder, an unconfirmed dial, and the reaper's unconfirmed backstop."""
-    await session.execute(
-        text("UPDATE campaign_contacts SET status = 'failed', updated_at = now() WHERE id = :id"),
-        {"id": contact_id},
-    )
+    the spent ladder, an unconfirmed dial, and the reaper's unconfirmed backstop.
+
+    Returns whether the contact was still claimed, i.e. whether it was exhausted here. A
+    row an erasure settled first gets no escalation: that is a message to the person."""
+    exhausted = (
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET status = 'failed', updated_at = now() "
+                f"WHERE id = :id AND {_STILL_CLAIMED} RETURNING id"
+            ),
+            {"id": contact_id},
+        )
+    ).first()
+    if exhausted is None:
+        return False
     if tenant_id is None or campaign_id is None:
         log.info("campaign_contact_exhausted", extra={"escalation_queued": False})
-        return
+        return True
     # Local import: `whatsapp` is a worker peer and a module-level import here would drag
     # the notification stack into the dispatch tick's hot path.
     from apps.workers.whatsapp import enqueue_campaign_escalation
@@ -1351,6 +1398,7 @@ async def _exhaust_contact(
         "campaign_contact_exhausted",
         extra={"campaign_id": str(campaign_id), "escalation_queued": queued},
     )
+    return True
 
 
 async def _reap_stuck_dialing(
@@ -1469,8 +1517,9 @@ async def _record_failure(
     with a log line rather than guessed at.
     """
     if attempts >= max_attempts:
-        await _exhaust_contact(session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id)
-        return True
+        return await _exhaust_contact(
+            session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id
+        )
     backoffs = retry_policy.get("backoff_minutes") or [30, 120]
     minutes = int(backoffs[min(attempts - 1, len(backoffs) - 1)])
     # ONE CLOCK ON THIS COLUMN, and it is the database's. The rung used to be computed in
@@ -1486,7 +1535,7 @@ async def _record_failure(
         text(
             "UPDATE campaign_contacts SET status = 'pending', "
             "next_attempt_at = now() + make_interval(mins => :minutes), "
-            "updated_at = now() WHERE id = :id"
+            f"updated_at = now() WHERE id = :id AND {_STILL_CLAIMED}"
         ),
         {"minutes": minutes, "id": contact_id},
     )

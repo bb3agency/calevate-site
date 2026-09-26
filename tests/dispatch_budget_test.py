@@ -881,9 +881,14 @@ async def test_the_ladder_still_ends_when_the_caller_has_no_campaign_to_escalate
         tenant_id, agent_id, number_id, template_id, name="No context", phones=("9876650001",)
     )
     async with tenant_session(tenant_id) as session:
+        # Claimed, as every caller of `_record_failure` has it: the settle is a CAS on
+        # `dialing`, so a never-claimed row is not one it may touch.
         contact_id = (
             await session.execute(
-                text("SELECT id FROM campaign_contacts WHERE campaign_id = :c"),
+                text(
+                    "UPDATE campaign_contacts SET status = 'dialing' WHERE campaign_id = :c "
+                    "RETURNING id"
+                ),
                 {"c": campaign_id},
             )
         ).scalar()

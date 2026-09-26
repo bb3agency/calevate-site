@@ -117,9 +117,9 @@ REF_HEX_CHARS: Final = 32
 _E164: Final = re.compile(r"^\+[1-9]\d{7,14}$")
 
 #: `retention.ANONYMIZED_PHONE`, and the prefix `_LEAD_SQL` / `_CAMPAIGN_CONTACT_ERASE_SQL`
-#: actually write (`ANONYMIZED_PHONE[:9]` plus eight characters of row id). Matched on the
+#: actually write (`ANONYMIZED_PHONE[:9]` plus a slice of the row id). Matched on the
 #: PREFIX for that reason — the full constant never appears in a lead row.
-_ANONYMIZED_PREFIX: Final = "+91000000"
+ANONYMIZED_PREFIX: Final = "+91000000"
 
 
 class CallerRefError(ValueError):
@@ -161,7 +161,7 @@ def _checked(phone_e164: str) -> str:
     candidate = phone_e164.strip()
     if not _E164.match(candidate):
         raise CallerRefError("caller ref requires an E.164 number")
-    if candidate.startswith(_ANONYMIZED_PREFIX):
+    if candidate.startswith(ANONYMIZED_PREFIX):
         # An erased lead's placeholder. Deriving a ref from it would mint one shared
         # pseudonym that every erased lead in the tenant lands on — a bucket that reads
         # like a person and is not one.
@@ -228,6 +228,7 @@ def ring_covers(kek_id: int, *, ring: KekRing | None = None) -> bool:
 
 
 __all__ = [
+    "ANONYMIZED_PREFIX",
     "CALLER_REF_INFO",
     "REF_HEX_CHARS",
     "ActiveCallerRef",

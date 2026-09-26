@@ -402,6 +402,7 @@ campaign before any tenant dialled:
 | `no_consent` | TERMINAL: contact set to `dnc_blocked` — they withdrew or never gave permission (D-117) |
 | `consent_expired` | TERMINAL: contact set to `dnc_blocked` — a granted opt-in whose own `expires_at` has passed. Only a fresh grant lifts it, which is the same act that lifts `no_consent`; waiting never does |
 | `destination_not_india` | TERMINAL: contact set to `dnc_blocked` — a non-`+91` number, out of scope for the freeze |
+| `destination_erased` | TERMINAL: contact set to `dnc_blocked` — the number is the `+91000000…` placeholder an erasure or retention sweep wrote over it |
 
 **Terminal is exactly `compliance.service.PERSON_LEVEL_REFUSALS`** — the refusals that
 are facts about the PERSON and will not become false by waiting. Everything else returns

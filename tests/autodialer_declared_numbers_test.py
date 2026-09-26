@@ -14,6 +14,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.agents.service import agent_registered_numbers, resolve_caller_id
+from apps.api.compliance import autodialer
 from apps.api.compliance.autodialer import (
     AUTODIALER_NOTICE_CLI_UNDECLARED_RULE,
     MAX_DECLARED_CLIS,
@@ -24,7 +25,7 @@ from apps.api.compliance.autodialer import (
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import PlatformStatus
 from apps.api.db.session import tenant_session
-from apps.api.legal.readiness import readiness_rows
+from apps.api.legal.readiness import _UNKNOWN, ROW_COPY, readiness_rows
 from sqlalchemy import text
 from tests.autodialer_notice_route_test import PATH, _body, _client, _headers
 from tests.autodialer_notice_route_test import _tenant as _bare_tenant
@@ -157,7 +158,21 @@ async def test_readiness_names_the_refusal_the_dial_would_give() -> None:
             tenant_id=tenant_id,
             platform=PlatformStatus(mode="normal", outbound_halted=False),
         )
-    assert AUTODIALER_NOTICE_CLI_UNDECLARED_RULE in {row.rule for row in rows}
+    [row] = [row for row in rows if row.rule == AUTODIALER_NOTICE_CLI_UNDECLARED_RULE]
+    # The client's move, with the client's next step — not the fallback row that tells
+    # them to contact support about a refusal only they can clear.
+    assert row.actor == "client"
+    assert row.title != _UNKNOWN.title and row.next_step != _UNKNOWN.next_step
+
+
+def test_every_autodialer_rule_the_gate_emits_has_readiness_copy() -> None:
+    rules = {
+        value
+        for name, value in vars(autodialer).items()
+        if name.startswith("AUTODIALER_NOTICE_") and name.endswith("_RULE")
+    }
+    assert len(rules) == 4, rules
+    assert rules <= set(ROW_COPY), sorted(rules - set(ROW_COPY))
 
 
 async def test_the_route_lists_what_is_declared_and_what_is_not() -> None:

@@ -1268,6 +1268,11 @@ WHERE id IN (
 #: is not a phone number. Every other status is settled history and is left exactly as the
 #: client's own campaign report shows it.
 #:
+#: A `dialing` ROW IS SKIPPED until its call settles, and the next sweep takes it. Its
+#: number is on a call in flight, and the ladder returns an unanswered one to `pending`: a
+#: row blanked while `dialing` came back as a claimable contact whose "phone number" was
+#: this placeholder, which the dispatcher then handed to the gate and the engine.
+#:
 #: THE SUFFIX IS THE UUID'S TAIL AND NOT ITS HEAD, which is the one thing about these
 #: two statements a reader must not copy from the version that shipped: a UUIDv7's leading
 #: hex characters are a timestamp bucket and collide for every row written in the same
@@ -1291,6 +1296,7 @@ SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),
 WHERE id IN (
   SELECT id FROM campaign_contacts
   WHERE created_at < :cutoff AND left(phone_e164, length(:anon)) <> :anon
+    AND status <> 'dialing'
   ORDER BY created_at LIMIT :batch)
 """
 

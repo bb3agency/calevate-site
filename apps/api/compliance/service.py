@@ -83,6 +83,7 @@ from apps.api.billing.service import current_billing_month, get_balance, plan_ti
 from apps.api.billing.trials import trial_billing_active
 from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.autodialer import autodialer_notice_blocker
+from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
 from apps.api.compliance.carrier_application import (
     CARRIER_APPLICATION_MISSING_REASON,
     carrier_application_not_accepted_reason,
@@ -247,8 +248,17 @@ NO_CONSENT_RECORD_RULE = "no_consent_record"
 #: thirty minutes, so a batch dialler must SETTLE the contact rather than re-claim it every
 #: tick for ever. Only an affirmative act by the person — a form, a booking, a reply, an
 #: inbound call — lifts it, which is the membership test this set applies.
+#: `destination_erased` is person-level for `destination_not_india`'s reason: the value is
+#: a placeholder that never becomes a number again.
 PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset(
-    {"dnc", "no_consent", "destination_not_india", "consent_expired", NO_CONSENT_RECORD_RULE}
+    {
+        "dnc",
+        "no_consent",
+        "destination_not_india",
+        "consent_expired",
+        NO_CONSENT_RECORD_RULE,
+        "destination_erased",
+    }
 )
 
 
@@ -284,6 +294,11 @@ INDIA_E164_PREFIX = "+91"
 DESTINATION_NOT_INDIA_REASON = (
     "Calevate places calls to Indian (+91) numbers only. This destination is outside "
     "India and cannot be dialled."
+)
+DESTINATION_ERASED_RULE = "destination_erased"
+DESTINATION_ERASED_REASON = (
+    "This person's number was deleted from this account, under a deletion request or at "
+    "the end of its retention period, so there is no number left to call."
 )
 
 
@@ -966,6 +981,16 @@ async def check_dispatch(
             allowed=False,
             rule="destination_not_india",
             reason=DESTINATION_NOT_INDIA_REASON,
+        )
+    # The placeholder an erasure or a retention sweep writes over a number starts `+91`, so
+    # the freeze above lets it through. Every table that holds a dialable number is
+    # anonymised in place rather than deleted, which makes this the one check that holds
+    # whichever of them a future path reads a destination from.
+    if phone_e164.startswith(ANONYMIZED_PREFIX):
+        return DispatchDecision(
+            allowed=False,
+            rule=DESTINATION_ERASED_RULE,
+            reason=DESTINATION_ERASED_REASON,
         )
 
     # LIVE read, never cached: an opt-out captured mid-call must block the very next
