@@ -37,11 +37,14 @@ from apps.api.core.rbac import permission_meta
 from apps.api.db.session import ingest_config_session, tenant_session
 from apps.api.ingest import meta, service
 from apps.api.ingest.service import (
+    STALE_SUBMISSION_RULE,
     IngestConfig,
     apply_mapping,
     ingest_lead,
     load_config,
     normalize_phone,
+    submission_instant,
+    submission_is_stale,
     verify_ingest_secret,
 )
 from apps.api.reliability.service import (
@@ -1199,6 +1202,21 @@ async def test_webhook(
         )
         if not affirmed:
             return LeadSourceDryRunOut(would_call=False, steps=steps)
+
+    # Reported on the gate step: the real path records it as a block with this rule.
+    if submission_is_stale(submission_instant(mapped, body.payload), received_at=time.time()):
+        steps.append(
+            LeadSourceDryRunStepOut(
+                step="compliance_gate",
+                ok=False,
+                detail=(
+                    "This sample was submitted too long ago to call about — the lead would "
+                    "be saved but not dialled."
+                ),
+                rule=STALE_SUBMISSION_RULE,
+            )
+        )
+        return LeadSourceDryRunOut(would_call=False, steps=steps)
 
     decision = await check_dispatch(
         session, tenant_id=principal.tenant_id, agent_id=config.agent_id, phone_e164=phone

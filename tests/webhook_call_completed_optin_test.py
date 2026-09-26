@@ -197,9 +197,10 @@ async def test_recording_and_redacted_transcript(_presign: list[int]) -> None:
 
     (data,) = await _fan_out(tenant_id, call_id)
 
-    # A signed, short-TTL link to OUR key — never the audio, never the raw column.
-    assert data["recording_url"].startswith("https://store.example/")
-    assert _presign == [storage.PRESIGN_TTL_S]
+    # The link is NOT in the queued payload: it expires in minutes, so it is signed when
+    # the delivery is made (`test_the_recording_link_is_signed_for_each_delivery`).
+    assert "recording_url" not in data
+    assert _presign == []
 
     # The redacted transcript, as an ordered array of turns matching the dashboard's read.
     turns = data["transcript"]
@@ -249,16 +250,82 @@ async def test_raw_transcript_included_and_audited(_presign: list[int]) -> None:
 # --- 4. a recording that does not exist is omitted, not nulled ----------------
 
 
-async def test_recording_omitted_when_absent(_presign: list[int]) -> None:
+async def test_recording_omitted_when_absent(
+    _presign: list[int], monkeypatch: pytest.MonkeyPatch
+) -> None:
     tenant_id, _, _ = await _make_tenant()
-    await _endpoint(tenant_id, include_recording_url=True)
+    endpoint_id = await _endpoint(tenant_id, include_recording_url=True)
     call_id = await _completed_call(tenant_id, recording_key=None)
 
     (data,) = await _fan_out(tenant_id, call_id)
+    (delivered,) = await _deliver(monkeypatch, tenant_id, endpoint_id, data, times=1)
 
-    assert "recording_url" not in data
+    assert "recording_url" not in delivered
     # No key means the presigner is never even asked.
     assert _presign == []
+
+
+# --- 4b. the link is signed when the delivery is made -------------------------
+
+
+async def _deliver(
+    monkeypatch: pytest.MonkeyPatch,
+    tenant_id: uuid.UUID,
+    endpoint_id: uuid.UUID,
+    data: dict,
+    *,
+    times: int,
+) -> list[dict]:
+    """Run the delivery worker `times` times over ONE queued payload — a retry, or an
+    operator's dead-letter replay — and return the `data` each attempt put on the wire."""
+    from apps.workers.outbound_webhooks import deliver_outbound_webhook
+
+    sent: list[dict] = []
+
+    async def fake_deliver(**kwargs: object) -> service.DeliveryResult:
+        envelope = kwargs["envelope"]
+        assert isinstance(envelope, dict)
+        sent.append(envelope["data"])
+        return service.DeliveryResult(delivered=True, status_code=200)
+
+    monkeypatch.setattr(service, "deliver", fake_deliver)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "endpoint_id": str(endpoint_id),
+        "event": "call.completed",
+        "data": data,
+        "delivery_id": str(uuid.uuid4()),
+    }
+    for _ in range(times):
+        await deliver_outbound_webhook({"job_try": 1}, dict(payload))
+    return sent
+
+
+async def test_the_recording_link_is_signed_for_each_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The link lives `PRESIGN_TTL_S` (five minutes), and docs/WEBHOOKS.md tells the
+    receiver it is good when the delivery arrives. Signed at fan-out and stored in the
+    outbox row, it was already dead on any delivery made later than that: a queue backlog,
+    the retry ladder, or an operator replaying the dead-letter queue an hour on — each of
+    which then reported `delivered` for a link that opens nothing."""
+    minted: list[str] = []
+
+    def fake(key: str, *, ttl_s: int = storage.PRESIGN_TTL_S) -> str:
+        minted.append(key)
+        return f"https://store.example/{key}?X-Amz-Expires={ttl_s}&n={len(minted)}"
+
+    monkeypatch.setattr(storage, "presigned_url", fake)
+    tenant_id, _, _ = await _make_tenant()
+    endpoint_id = await _endpoint(tenant_id, include_recording_url=True)
+    call_id = await _completed_call(tenant_id, recording_key=RECORDING_KEY)
+
+    (data,) = await _fan_out(tenant_id, call_id)
+    first, replay = await _deliver(monkeypatch, tenant_id, endpoint_id, data, times=2)
+
+    assert first["recording_url"].endswith(f"X-Amz-Expires={storage.PRESIGN_TTL_S}&n=1")
+    assert replay["recording_url"].endswith("&n=2"), "a replay must carry its own live link"
+    assert minted == [RECORDING_KEY, RECORDING_KEY]
 
 
 # --- 5. the registration gate (unit, no live request) -------------------------

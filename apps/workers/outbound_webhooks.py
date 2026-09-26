@@ -262,6 +262,10 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             _kind_of(endpoint) == service.SHEET_KIND
             and await service.delivery_status(session, delivery_id) == "delivered"
         )
+        if endpoint is not None and not already_delivered:
+            data = await service.with_delivery_time_fields(
+                session, endpoint=endpoint, event=event, data=data
+            )
 
     if endpoint is None:
         log.info("outbound_endpoint_gone", extra={"tenant_id": str(tenant_id)})

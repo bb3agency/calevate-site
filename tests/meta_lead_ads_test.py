@@ -325,6 +325,22 @@ async def test_an_absent_signature_is_refused() -> None:
     assert await _inbox(webhook_id) == []
 
 
+async def test_a_signature_header_with_a_non_ascii_byte_is_refused_not_a_crash() -> None:
+    """Header values reach us latin-1-decoded, and `hmac.compare_digest` RAISES on a `str`
+    holding any non-ASCII character. On an unauthenticated route that is a 500 any
+    stranger can produce with one byte, where the answer is the forgery's 401."""
+    _, _, webhook_id = await _tenant_with_meta_source()
+    raw, headers = _signed(_notification(leadgen_id="900000000000009"))
+    forged = {**headers, meta.SIGNATURE_HEADER: b"sha256=\xe9" + b"0" * 63}
+
+    async with _client() as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=forged
+        )
+    assert response.status_code == 401, response.text
+    assert await _inbox(webhook_id) == []
+
+
 async def test_a_signature_over_a_different_body_is_refused() -> None:
     """The classic replay-with-substitution: a genuine header from delivery A, moved
     onto body B. It fails only if we hash the bytes we actually received."""

@@ -26,7 +26,7 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
 
 
-async def _dry_run(tenant_id: UUID, webhook_id: UUID) -> object:
+async def _dry_run(tenant_id: UUID, webhook_id: UUID, **extra: object) -> object:
     # Imported here: at module level pytest would try to collect both `Test*`/`test_*`.
     from apps.api.ingest.routes import TestWebhookIn, test_webhook
 
@@ -36,7 +36,7 @@ async def _dry_run(tenant_id: UUID, webhook_id: UUID) -> object:
     async with tenant_session(tenant_id) as session:
         return await test_webhook(
             webhook_id,
-            TestWebhookIn(payload={"phone": "9876509993", "name": "Preview"}),
+            TestWebhookIn(payload={"phone": "9876509993", "name": "Preview", **extra}),
             session,
             principal,
         )
@@ -64,3 +64,21 @@ async def test_a_published_shared_secret_source_still_previews_a_call() -> None:
     )
     result = await _dry_run(tenant_id, webhook_id)
     assert result.would_call is True  # type: ignore[attr-defined]
+
+
+async def test_a_stale_submission_is_reported_as_never_calling() -> None:
+    """The real path records `outside_transactional_window` and does not dial a form
+    submitted more than `TRANSACTIONAL_WINDOW` ago; the preview said it would."""
+    from apps.api.ingest.service import STALE_SUBMISSION_RULE, TRANSACTIONAL_WINDOW
+
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest(
+        mapping={"phone": "phone", "name": "name", "submitted_at": "submitted_at"}
+    )
+    submitted = datetime.now(UTC) - TRANSACTIONAL_WINDOW - timedelta(minutes=5)
+    result = await _dry_run(tenant_id, webhook_id, submitted_at=submitted.isoformat())
+    assert result.would_call is False  # type: ignore[attr-defined]
+    rules = [s.rule for s in result.steps if not s.ok]  # type: ignore[attr-defined]
+    assert STALE_SUBMISSION_RULE in rules
+
+    fresh = await _dry_run(tenant_id, webhook_id, submitted_at=datetime.now(UTC).isoformat())
+    assert fresh.would_call is True  # type: ignore[attr-defined]

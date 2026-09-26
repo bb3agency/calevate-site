@@ -438,6 +438,170 @@ async def test_whatsapp_send_is_addressed_to_the_number_the_gate_cleared(
     assert sent["destination"] == "+919876543210"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["aisensy", "meta_cloud", "interakt"])
+async def test_a_missing_template_value_is_not_filled_by_the_next_one(
+    monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    """Template variables are POSITIONAL ({{1}}, {{2}}, ...). Dropping the one the model did
+    not supply shifts every later value into its slot, so "Hi {{1}}, see you at {{2}}"
+    would greet the customer by the appointment time. Nothing may be sent; the model is
+    told which value it still needs, so it can ask the caller."""
+    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
+    monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
+    tool = _loaded(
+        kind="whatsapp",
+        provider=provider,
+        credential_id=uuid4(),
+        config=WhatsAppConfig(
+            recipient_param="caller",
+            template="booking_confirmed",
+            language="en",
+            phone_number_id="1234567890",
+            body_params=["customer_name", "slot"],
+        ).model_dump(),
+        params=[
+            {"name": "caller", "source": "lead_var", "lead_var": "caller_phone"},
+            {"name": "customer_name", "source": "ai", "type": "string", "description": "name"},
+            {"name": "slot", "source": "ai", "type": "string", "description": "time"},
+        ],
+    )
+    sent: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.content)
+        return httpx.Response(200, json={"ok": True})
+
+    async with _mock_client(handler) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"caller": "+919000000000", "slot": "10:30 AM"},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert sent == [], "a template with a value in the wrong slot was sent to a customer"
+    assert result.ok is False
+    assert result.status == "missing_template_value"
+    assert result.payload == {"error": "missing_template_value", "missing": ["customer_name"]}
+
+
+def _calendar_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The platform OAuth client configured, the refresh token resolvable, and Google's
+    hosts resolving to a public address through the guard's own seam."""
+    from apps.api.core.settings import get_settings
+    from apps.api.integrations import egress_guard
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "google_oauth_client_id", "client-id")
+    monkeypatch.setattr(settings, "google_oauth_client_secret", "client-secret")
+    monkeypatch.setattr(settings, "google_oauth_redirect_uri", "https://app.test/cb")
+    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("refresh-token"))
+
+    async def _public(host: str, port: int) -> tuple[str, ...]:
+        return ("142.250.183.10",)
+
+    monkeypatch.setattr(egress_guard, "resolve_addresses", _public)
+
+
+def _calendar_tool(**config: Any) -> LoadedTool:
+    from apps.api.actions.schema import CalendarConfig
+
+    return _loaded(
+        kind="calendar",
+        provider="google",
+        credential_id=uuid4(),
+        config=CalendarConfig(**config).model_dump(),
+        params=[
+            {"name": "start", "source": "ai", "type": "string", "description": "start"},
+            {"name": "end", "source": "ai", "type": "string", "description": "end"},
+        ],
+    )
+
+
+def _google(seen: list[httpx.Request]) -> Any:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "access"})
+        if request.url.path.endswith("/freeBusy"):
+            return httpx.Response(200, json={"calendars": {"primary": {"busy": []}}})
+        return httpx.Response(200, json={"id": "evt_1"})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_an_availability_check_with_no_end_time_is_not_answered_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A window from a time to the same time contains nothing, so no calendar can be busy
+    in it: querying it answers "available" for a slot that is already booked, and the
+    agent then offers it to the caller."""
+    _calendar_ready(monkeypatch)
+    seen: list[httpx.Request] = []
+    tool = _calendar_tool(operation="check", start_param="start", end_param="end")
+    async with _mock_client(_google(seen)) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"start": "2026-10-01T10:00:00+05:30"},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert not any(r.url.path.endswith("/freeBusy") for r in seen)
+    assert result.ok is False
+    assert result.status == "no_end_time"
+
+
+@pytest.mark.asyncio
+async def test_a_time_with_no_offset_is_sent_as_ist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RFC 3339 (which Google's `dateTime` is) requires an offset; a model that says
+    "2026-10-01T10:00:00" means ten in the morning where the caller is, and every caller
+    of this India-only product is on IST."""
+    _calendar_ready(monkeypatch)
+    seen: list[httpx.Request] = []
+    tool = _calendar_tool(operation="book", start_param="start", duration_min=30)
+    async with _mock_client(_google(seen)) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"start": "2026-10-01T10:00:00"},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert result.ok is True, result
+    (book,) = [r for r in seen if r.url.path.endswith("/events")]
+    body = json.loads(book.content)
+    assert body["start"] == {"dateTime": "2026-10-01T10:00:00+05:30"}
+    assert body["end"] == {"dateTime": "2026-10-01T10:30:00+05:30"}
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_time_is_refused_before_google_is_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _calendar_ready(monkeypatch)
+    seen: list[httpx.Request] = []
+    tool = _calendar_tool(operation="book", start_param="start", duration_min=30)
+    async with _mock_client(_google(seen)) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"start": "tomorrow at ten"},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert not any(r.url.path.endswith("/events") for r in seen)
+    assert result.ok is False
+    assert result.status == "unreadable_time"
+
+
 # ------------------------------------------------------------------ helpers ----
 
 
