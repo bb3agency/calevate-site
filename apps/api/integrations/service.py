@@ -378,14 +378,15 @@ async def enqueue_events(
     # is NOT copied into the payload — the worker reads it off the endpoint row, which
     # is the only place it can change.
     #
-    # The three `call.completed` opt-ins ride here too, for the same reason the raw-phone
-    # opt-in does: the fan-out is the last point that still knows WHICH endpoint a payload
-    # is for, so a recording link or a transcript can only be added — or withheld — per
-    # endpoint here.
+    # The two transcript opt-ins ride here too, for the same reason the raw-phone opt-in
+    # does: the fan-out is the last point that still knows WHICH endpoint a payload is for,
+    # so a transcript can only be added — or withheld — per endpoint here. The recording
+    # opt-in does not: its link expires, so the worker signs it per delivery
+    # (`with_delivery_time_fields`).
     endpoints = (
         await session.execute(
             text(
-                "SELECT w.id, w.mapping, w.include_recording_url, w.include_transcript, "
+                "SELECT w.id, w.mapping, w.include_transcript, "
                 "w.include_raw_transcript FROM outbound_webhooks w WHERE "
                 + subscribed_endpoint_sql("w")
             ),
@@ -401,21 +402,20 @@ async def enqueue_events(
     occurred_at = datetime.now(UTC).isoformat()
 
     written = 0
-    for endpoint_id, mapping, inc_recording, inc_transcript, inc_raw_transcript in endpoints:
+    for endpoint_id, mapping, inc_transcript, inc_raw_transcript in endpoints:
         opted_in = bool((mapping or {}).get("include_raw_phone"))
         for data in rows:
             payload_data = lead_payload(data, include_raw_phone=opted_in)
-            if is_call_completed and (inc_recording or inc_transcript or inc_raw_transcript):
+            if is_call_completed and (inc_transcript or inc_raw_transcript):
                 # Only opted-in endpoints pay for the extra reads and the audit write.
                 # Not folded into `lead_payload` because it is call-shaped and needs the
-                # session (transcript reads, recording presign) and the tenant (the raw
-                # audit row) — none of which a pure masking pass over a lead row has.
+                # session (transcript reads) and the tenant (the raw audit row) — none of
+                # which a pure masking pass over a lead row has.
                 payload_data = await call_completed_payload(
                     session,
                     base=payload_data,
                     tenant_id=tenant_id,
                     endpoint_id=endpoint_id,
-                    include_recording_url=bool(inc_recording),
                     include_transcript=bool(inc_transcript),
                     include_raw_transcript=bool(inc_raw_transcript),
                 )
@@ -449,7 +449,7 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
     row = (
         await session.execute(
             text(
-                "SELECT id, url, secret_ref, mapping, active, kind "
+                "SELECT id, url, secret_ref, mapping, active, kind, include_recording_url "
                 "FROM outbound_webhooks WHERE id = :id"
             ),
             {"id": endpoint_id},
@@ -460,7 +460,35 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
     # `secret` is the raw signing secret for a webhook and a secrets-manager REFERENCE
     # for a sheet (DATA-MODEL §6) — the column holds whichever the kind implies, and
     # neither is ever logged.
-    return {"id": row[0], "url": row[1], "secret": row[2], "mapping": row[3] or {}, "kind": row[5]}
+    return {
+        "id": row[0],
+        "url": row[1],
+        "secret": row[2],
+        "mapping": row[3] or {},
+        "kind": row[5],
+        "include_recording_url": bool(row[6]),
+    }
+
+
+async def with_delivery_time_fields(
+    session: AsyncSession, *, endpoint: dict[str, Any], event: str, data: dict[str, Any]
+) -> dict[str, Any]:
+    """`data` widened by what must be minted per delivery attempt rather than at fan-out.
+
+    The recording link is the one such field: it lives `PRESIGN_TTL_S`, and a link signed
+    when the event was queued is already dead on a delivery made later — a backlog, the
+    retry ladder, a dead-letter replay — while docs/WEBHOOKS.md §1.7 tells the receiver it
+    is good when the delivery arrives. Read from the endpoint as it is NOW, so an opt-in
+    withdrawn after the event was queued is honoured, and from the call as it is now, so a
+    recording erased in between is not linked. Never mutates `data`.
+    """
+    if event != CALL_COMPLETED_EVENT or not endpoint.get("include_recording_url"):
+        return data
+    call_id = data.get("call_id")
+    if not call_id:
+        return data
+    url = await _recording_url(session, UUID(str(call_id)))
+    return data if url is None else {**data, "recording_url": url}
 
 
 async def deactivate_endpoint(session: AsyncSession, *, endpoint_id: UUID) -> bool:
@@ -885,15 +913,15 @@ async def call_completed_payload(
     base: dict[str, Any],
     tenant_id: UUID,
     endpoint_id: UUID,
-    include_recording_url: bool,
     include_transcript: bool,
     include_raw_transcript: bool,
 ) -> dict[str, Any]:
-    """`base` widened by whatever this endpoint opted into. Never mutates `base`.
+    """`base` widened by the transcript opt-ins of this endpoint. Never mutates `base`.
 
     The fields are ADDED, never blanked: an endpoint that did not opt in gets exactly the
     payload it always got, and one that did gets the extra keys only when there is
-    something to put in them (a recording that exists, turns that were transcribed).
+    something to put in them. The recording link is not added here — see
+    `with_delivery_time_fields`.
 
     `include_raw_transcript` writes an `audit_log` row with `actor_type='system'` — there
     is no user principal on the post-call pipeline, and the config-time opt-in already
@@ -906,16 +934,12 @@ async def call_completed_payload(
     call_id_value = base.get("call_id")
     if not call_id_value:
         # Every real `call.completed` carries a `call_id` (pipeline step 8); a body that
-        # somehow lacks one has nothing to fetch a transcript or a recording FOR, so it is
-        # returned unwidened rather than raising on a defensive arm.
+        # somehow lacks one has nothing to fetch a transcript FOR, so it is returned
+        # unwidened rather than raising on a defensive arm.
         return base
     call_id = UUID(str(call_id_value))
 
     payload = dict(base)
-    if include_recording_url:
-        url = await _recording_url(session, call_id)
-        if url is not None:
-            payload["recording_url"] = url
     if include_transcript:
         payload["transcript"] = await _transcript_turns(session, call_id, raw=False)
     if include_raw_transcript:
@@ -1142,4 +1166,5 @@ __all__ = [
     "sign_payload",
     "subscribed_endpoint_sql",
     "verify_signature",
+    "with_delivery_time_fields",
 ]
