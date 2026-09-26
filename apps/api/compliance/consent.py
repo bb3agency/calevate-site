@@ -105,7 +105,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.callbacks.service import cancel_for_phones
+from apps.api.callbacks.service import GRACE, cancel_for_phones
 from apps.api.compliance.models import (
     CALLBACK_CONSENT_WITHDRAWN_REASON,
     CALLBACK_PURPOSE,
@@ -115,7 +115,11 @@ from apps.api.compliance.models import (
     RECORDING_PURPOSE,
     WITHDRAWAL_ONLY_CONSENT_SOURCES,
 )
-from apps.api.compliance.service import DIAL_REFUSING_CONSENT_STATUSES
+from apps.api.compliance.service import (
+    DIAL_REFUSING_CONSENT_STATUSES,
+    latest_call_consent,
+    outbound_requires_consent,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -589,6 +593,62 @@ async def _append_consent_row(
     return captured_at
 
 
+async def record_callback_request_consent(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    phone_e164: str,
+    call_id: UUID,
+    callback_id: UUID,
+    callback_at: datetime,
+) -> bool:
+    """A caller who asks, in a call, to be rung back has agreed to THAT call. Returns
+    whether a row was written.
+
+    The founder's decision (26 Sep 2026) on the question the TCCCPR Third Amendment note
+    leaves open (`docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md` §2): a
+    customer-requested call-back is consented to by the request. Spoken, so the call is the
+    evidence, which `inbound_call_verbal` requires.
+
+    Scoped to the promise, not a standing permission: it lapses `callbacks.GRACE` after the
+    promised time, the last moment the dispatcher may still place that call.
+
+    WRITTEN ONLY WHERE WHAT IS ON FILE WOULD NOT ALREADY LET THAT CALL THROUGH, because the
+    dial gate reads a person's newest row alone: a short grant written over a wider one (a
+    paper opt-in with no end date, say) would narrow it, and over nothing on an account that
+    does not require consent it would turn "allowed" into `consent_expired` once it lapsed.
+    So it is written over nothing on an account that requires consent, over a refusal (the
+    request is the affirmative act that lifts it; the DNC list is a separate block), and over
+    a grant that ends before the call.
+    """
+    lapses_at = callback_at + GRACE
+    consent = await latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
+    if consent is None:
+        covered = not await outbound_requires_consent(session, tenant_id=tenant_id)
+    else:
+        status, expires_at = str(consent[0]), consent[1]
+        covered = status not in DIAL_REFUSING_CONSENT_STATUSES and (
+            expires_at is None or expires_at >= lapses_at
+        )
+    if covered:
+        return False
+    await record_call_consent(
+        session,
+        tenant_id=tenant_id,
+        raw_phone=phone_e164,
+        status="granted",
+        source="inbound_call_verbal",
+        call_id=call_id,
+        evidence={
+            "basis": "in_call_callback_request",
+            "callback_id": str(callback_id),
+            "callback_at": callback_at.isoformat(),
+        },
+        expires_at=lapses_at,
+    )
+    return True
+
+
 def _assert_grant_is_evidenced(
     *, source: str, call_id: UUID | None, evidence: dict[str, str] | None
 ) -> None:
@@ -631,6 +691,7 @@ __all__ = [
     "MessagingConsent",
     "read_messaging_consent",
     "record_call_consent",
+    "record_callback_request_consent",
     "record_messaging_consent",
     "record_recording_notice",
 ]

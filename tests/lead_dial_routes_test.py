@@ -817,6 +817,7 @@ async def test_a_retry_of_a_dial_the_engine_may_have_started_does_not_ring_again
     async def lost_response(self: object, ref: str, to: str, ctx: object) -> str:
         raise ProblemError(kind="dependency", code="engine_unreachable", title="x", detail="x")
 
+    original_dial = FakeEngine.start_outbound_call
     monkeypatch.setattr(FakeEngine, "start_outbound_call", lost_response)
     async with _client() as http:
         await http.post(
@@ -824,7 +825,9 @@ async def test_a_retry_of_a_dial_the_engine_may_have_started_does_not_ring_again
             json={"agent_id": str(agent_id)},
             headers={**headers, "Idempotency-Key": key},
         )
-        monkeypatch.undo()
+        # Restored by hand: `monkeypatch.undo()` would also revert the autouse daytime pin,
+        # and the retry would then be refused by the calling-hours gate after 21:00 IST.
+        monkeypatch.setattr(FakeEngine, "start_outbound_call", original_dial)
         retry = await http.post(
             f"/v1/leads/{lead_id}/call",
             json={"agent_id": str(agent_id)},
@@ -849,6 +852,7 @@ async def test_a_retry_after_a_refusal_that_placed_nothing_dials_afresh(
     async def throttled(self: object, ref: str, to: str, ctx: object) -> str:
         raise ProblemError(kind="dependency", code="engine_rate_limited", title="x", detail="x")
 
+    original_dial = FakeEngine.start_outbound_call
     monkeypatch.setattr(FakeEngine, "start_outbound_call", throttled)
     async with _client() as http:
         refused = await http.post(
@@ -856,7 +860,9 @@ async def test_a_retry_after_a_refusal_that_placed_nothing_dials_afresh(
             json={"agent_id": str(agent_id)},
             headers={**headers, "Idempotency-Key": key},
         )
-        monkeypatch.undo()
+        # Restored by hand: `monkeypatch.undo()` would also revert the autouse daytime pin,
+        # and the retry would then be refused by the calling-hours gate after 21:00 IST.
+        monkeypatch.setattr(FakeEngine, "start_outbound_call", original_dial)
         retry = await http.post(
             f"/v1/leads/{lead_id}/call",
             json={"agent_id": str(agent_id)},

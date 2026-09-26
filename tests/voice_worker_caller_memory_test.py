@@ -32,12 +32,15 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
+from apps.api.compliance.caller_memory import remember
 from apps.api.db.session import tenant_session
 from apps.api.engine.pipecat import PipecatEngine, engine_agent_ref_for
+from apps.api.main import app as api_app
 from calevate_shared.engine import (
     CALLER_MEMORY_SLOT,
     CALLER_MEMORY_VARIABLE,
@@ -58,8 +61,9 @@ from tests.voice_worker_pipeline_test import (
     RecordingSink,
     make_config,
 )
-from tests.worker_api_harness import worker_client
+from tests.worker_api_harness import TOKEN, published_agent, worker_client
 from voice_worker import memory, pipeline, session
+from voice_worker.api_client import WorkerApiClient
 from voice_worker.config import load_session_config
 
 pytestmark = pytest.mark.anyio
@@ -321,10 +325,9 @@ def test_the_filler_is_shared_with_the_composer_and_is_idempotent_on_a_filled_pr
 async def test_a_store_that_stops_talking_costs_the_budget_and_then_nothing() -> None:
     """The real reader against a transport that hangs. The call is assembled anyway.
 
-    `httpx` raises `ReadTimeout` at the budget; the reader answers `()`; assembly finishes
-    and the agent greets a returning caller as a stranger. The alternative — letting it
-    raise — is a call that never connects because a nicety could not be fetched, which is
-    the trade `caller_data_routes.py` refuses one hop away.
+    The client's wall-clock budget fires; the reader answers `()`; assembly finishes and the
+    agent greets a returning caller as a stranger. Letting it raise would be a call that
+    never connects because a nicety could not be fetched.
     """
     budget = 0.05
 
@@ -332,29 +335,25 @@ async def test_a_store_that_stops_talking_costs_the_budget_and_then_nothing() ->
         await asyncio.sleep(budget * 40)
         raise AssertionError("the budget did not fire")
 
-    reader = memory.ApiCallerMemoryReader(
-        client=httpx.AsyncClient(transport=httpx.MockTransport(hangs)),
+    api = WorkerApiClient.from_config(
         base_url="https://api.calevate.test",
         token="token-under-test",
-        engine=pipeline.ENGINE_NAME,
-        budget_s=budget,
+        transport=httpx.MockTransport(hangs),
     )
+    reader = memory.ApiCallerMemoryReader(api, budget_s=budget)
 
     loop = asyncio.get_running_loop()
     started = loop.time()
     facts = await reader.recall(engine_agent_ref="pipecat:t:a", phone_e164=CALLER)
     elapsed = loop.time() - started
+    await api.aclose()
 
     assert facts == ()
-    # THE READ IS TIMED AND THE ASSEMBLY IS NOT, deliberately: `assemble_call` constructs the
-    # vendor legs and loads an ONNX turn model, which is seconds of one-off work on a cold
-    # process and has nothing to do with the bound under test. Generous even so, because this
-    # asserts the bound EXISTS rather than that the machine is fast — with no timeout the
-    # handler above sits here for two seconds, not for a tenth of one.
+    # Generous: this asserts the bound EXISTS rather than that the machine is fast — with no
+    # budget the handler above sits here for two seconds, not a tenth of one.
     assert elapsed < budget * 20, "the read was not bounded by its own budget"
 
-    # And the call is still assembled and still speaks, which is the half that matters to a
-    # caller: a nicety we could not fetch must not be a call that does not connect.
+    # And the call is still assembled, which is the half that matters to a caller.
     call = await _open(_config(remembers=True), reader=reader)
     assert CALLER_MEMORY_SLOT not in _system_message(call)
 
@@ -438,96 +437,135 @@ async def test_nothing_on_this_path_logs_the_number_or_what_we_remember() -> Non
 
 
 async def test_a_failing_read_logs_a_type_and_never_the_request_it_made() -> None:
-    """A provider's error body quotes the request, and this request carries the number."""
+    """An error body can quote the request, and this request carries the number."""
     captured: list[str] = []
 
     def sink_log(message: Any) -> None:
         captured.append(str(message) + repr(message.record["extra"]))
 
     def refuses(request: httpx.Request) -> httpx.Response:
-        # A 500 whose body echoes the query string, which is how the number would escape.
-        return httpx.Response(500, text=f"upstream failed for {request.url}")
+        # A 500 whose body echoes the request body, which is how the number would escape.
+        return httpx.Response(500, text=f"upstream failed for {request.content!r}")
 
-    reader = memory.ApiCallerMemoryReader(
-        client=httpx.AsyncClient(transport=httpx.MockTransport(refuses)),
+    api = WorkerApiClient.from_config(
         base_url="https://api.calevate.test",
         token="token-under-test",
-        engine=pipeline.ENGINE_NAME,
+        transport=httpx.MockTransport(refuses),
     )
+    reader = memory.ApiCallerMemoryReader(api)
 
     handler = logger.add(sink_log, level="DEBUG")
     try:
         facts = await reader.recall(engine_agent_ref="pipecat:t:a", phone_e164=CALLER)
     finally:
         logger.remove(handler)
+        await api.aclose()
 
     assert facts == ()
     blob = "\n".join(captured)
-    assert "HTTPStatusError" in blob, "the failure was not reported to an operator at all"
+    assert "WorkerApiError" in blob, "the failure was not reported to an operator at all"
     assert CALLER not in blob and "9876543210" not in blob
     assert "token-under-test" not in blob
 
 
 # --------------------------------------------------------------------------------------
-# 5. The wire shape, against the renderer that actually produces it.
+# 5. The wire, end to end against the real route.
 # --------------------------------------------------------------------------------------
 
 
-async def test_the_reader_parses_exactly_what_the_endpoint_renders() -> None:
-    """Round trip through `render_caller_memory`, not through a hand-typed body.
+async def test_the_worker_recalls_what_the_store_holds_through_the_worker_api(
+    worker_token: None,
+) -> None:
+    """The real reader, the real client, the real route and the real store: a fact written
+    by `remember` comes back, and the number travels in the body rather than the URL."""
+    tenant_id, agent_id, agent_ref = await published_agent()
+    async with tenant_session(tenant_id) as db:
+        # The fixture's tenant is a clinic, and caller memory is refused outright on a
+        # health vertical (D-507(b)); an estate agent's is not refused.
+        await db.execute(
+            text("UPDATE organizations SET vertical_template = 'real_estate' WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        await db.execute(
+            text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
+            {"aid": agent_id},
+        )
+        await remember(
+            db,
+            tenant_id,
+            agent_id=agent_id,
+            phone_e164=CALLER,
+            occurred_at=datetime.now(UTC),
+            source_call_id=None,
+            facts=[ALTERATION_MEMORY],
+        )
+        await db.commit()
 
-    The endpoint answers `{caller_memory: render_caller_memory(facts)}`, so a fixture body
-    typed by hand would pin this file's guess at the wire rather than the wire.
-    """
-    facts = (ALTERATION_MEMORY, PICKUP_MEMORY)
-    seen: dict[str, Any] = {}
+    seen: list[str] = []
+    real = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
 
-    def answers(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
-        seen["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, json={CALLER_MEMORY_VARIABLE: render_caller_memory(facts)})
+    class Watching(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return await real.handle_async_request(request)
 
-    reader = memory.ApiCallerMemoryReader(
-        client=httpx.AsyncClient(transport=httpx.MockTransport(answers)),
-        base_url="https://api.calevate.test/",
-        token="token-under-test",
-        engine=pipeline.ENGINE_NAME,
-    )
+    async with WorkerApiClient.from_config(
+        base_url="http://api", token=TOKEN, transport=Watching()
+    ) as api:
+        facts = await memory.ApiCallerMemoryReader(api).recall(
+            engine_agent_ref=agent_ref, phone_e164=CALLER
+        )
 
-    assert await reader.recall(engine_agent_ref="pipecat:t:a", phone_e164=CALLER) == facts
-    assert f"{memory.CALLER_DATA_PATH}/{pipeline.ENGINE_NAME}" in seen["url"]
-    assert seen["auth"] == "Bearer token-under-test"
+    assert facts == (ALTERATION_MEMORY,)
+    assert seen and all("9876543210" not in url for url in seen)
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        {},
-        {"caller_memory": ""},
-        {"something_else": "x"},
-        [],
-        "not-json-object",
-        {"caller_memory": 7},
-    ],
-    ids=["empty-object", "empty-block", "other-key", "a-list", "a-string", "wrong-type"],
-)
-async def test_every_shape_that_is_not_an_answer_is_the_same_silence(body: Any) -> None:
-    """`{}` is the endpoint's own fail-open and its first-time-caller answer alike.
+async def test_an_agent_whose_client_switched_memory_off_recalls_nothing(
+    worker_token: None,
+) -> None:
+    """The server re-reads the switch live, so a published prompt that still carries the
+    slot is not enough to be answered."""
+    tenant_id, agent_id, agent_ref = await published_agent()
+    async with tenant_session(tenant_id) as db:
+        # Not a health vertical, so the switch is the only thing that can refuse.
+        await db.execute(
+            text("UPDATE organizations SET vertical_template = 'real_estate' WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        await db.execute(
+            text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
+            {"aid": agent_id},
+        )
+        await remember(
+            db,
+            tenant_id,
+            agent_id=agent_id,
+            phone_e164=CALLER,
+            occurred_at=datetime.now(UTC),
+            source_call_id=None,
+            facts=[ALTERATION_MEMORY],
+        )
+        await db.execute(
+            text("UPDATE agents SET caller_memory_enabled = false WHERE id = :aid"),
+            {"aid": agent_id},
+        )
+        await db.commit()
 
-    They must not be told apart HERE: the endpoint deliberately renders both as `{}` so a
-    reader cannot start treating "we could not look" as a state worth telling a caller
-    about, and this asserts no branch here reintroduces the distinction.
-    """
-    reader = memory.ApiCallerMemoryReader(
-        client=httpx.AsyncClient(
-            transport=httpx.MockTransport(lambda _r: httpx.Response(200, json=body))
-        ),
-        base_url="https://api.calevate.test",
-        token="token-under-test",
-        engine=pipeline.ENGINE_NAME,
-    )
+    async with worker_client() as api:
+        facts = await memory.ApiCallerMemoryReader(api).recall(
+            engine_agent_ref=agent_ref, phone_e164=CALLER
+        )
 
-    assert await reader.recall(engine_agent_ref="pipecat:t:a", phone_e164=CALLER) == ()
+    assert facts == ()
+
+
+async def test_a_ref_that_names_no_agent_is_silence_not_an_error(worker_token: None) -> None:
+    async with worker_client() as api:
+        facts = await memory.ApiCallerMemoryReader(api).recall(
+            engine_agent_ref=f"pipecat:{uuid.uuid4()}:{uuid.uuid4()}", phone_e164=CALLER
+        )
+
+    assert facts == ()
 
 
 # --------------------------------------------------------------------------------------

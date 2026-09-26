@@ -304,16 +304,19 @@ async def test_an_inbound_caller_is_rung_back_on_their_own_number_and_not_on_our
     assert rows[0]["note"] == "wants the evening slot"
 
 
-async def test_a_promise_past_the_callers_permission_is_refused_the_moment_it_is_written(
+async def test_a_booking_past_a_form_inquiry_window_records_the_request_as_consent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The caller heard "booked" from voice-runtime, which reads no database. A promise the
-    gate will refuse as `consent_expired` is settled now, with a reason, so the client
-    learns it today rather than on the day it was due."""
+    """A form lead's permission ends after the inquiry window; a call-back they ask for in a
+    call past it is consented to by the request (founder decision, 26 Sep 2026), so the
+    promise is kept and the grant names the call and lasts until `GRACE` after it."""
+    from apps.api.callbacks.service import GRACE
     from apps.api.compliance.models import INQUIRY_CONSENT_WINDOW_DAYS
     from apps.api.ingest.service import _record_dial_consent_granted
 
-    tenant_id, _agent_id, ref = await _routed_tenant()
+    tenant_id, agent_id, ref = await _routed_tenant()
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    call_id = uuid7()
     async with tenant_session(tenant_id) as session:
         await _record_dial_consent_granted(
             session,
@@ -322,23 +325,33 @@ async def test_a_promise_past_the_callers_permission_is_refused_the_moment_it_is
             consent_field="call_me",
             source="website",
         )
-    execution = f"exec_lapse_{uuid.uuid4().hex[:8]}"
-    _stage(monkeypatch, _snap(execution, ref, direction="inbound"))
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "from_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, "
+                "'inbound', :p, 'in_progress', now(), now())"
+            ),
+            {"i": call_id, "t": tenant_id, "a": agent_id, "e": execution_id, "p": CALLER},
+        )
+    _stage(monkeypatch, _snap(execution_id, ref))
 
-    outcome = await _book(execution, requested_in=timedelta(days=INQUIRY_CONSENT_WINDOW_DAYS + 2))
+    assert (
+        await _book(execution_id, requested_in=timedelta(days=INQUIRY_CONSENT_WINDOW_DAYS + 2))
+        == "booked"
+    )
 
-    assert outcome == "refused_consent_lapses_first"
+    booked_for = (await _rows(tenant_id))[0]["requested_at"]
     async with tenant_session(tenant_id) as session:
-        row = (
+        grant = (
             await session.execute(
                 text(
-                    "SELECT status, last_refusal_rule, last_refusal_reason FROM scheduled_callbacks"
+                    "SELECT status, consent_source, call_id, expires_at FROM consent_ledger "
+                    "WHERE purpose = 'callback' ORDER BY captured_at DESC, id DESC LIMIT 1"
                 )
             )
         ).one()
-    assert row[0] == "refused"
-    assert row[1] == "consent_expires_first"
-    assert "permission to be called ends" in row[2]
+    assert (grant[0], grant[1], grant[2]) == ("granted", "inbound_call_verbal", call_id)
+    assert grant[3] == booked_for + GRACE
 
 
 async def test_an_outbound_call_books_the_number_we_dialled(
