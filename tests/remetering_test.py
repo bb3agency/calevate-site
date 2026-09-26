@@ -38,6 +38,7 @@ import pytest
 from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attestations
 from apps.api.db.session import tenant_session
 from apps.api.worker.service import REMETER_JOB
+from apps.workers import remetering
 from apps.workers.remetering import remeter_refused_legs
 from calevate_shared.worker_api import (
     MeteredQuantity,
@@ -396,3 +397,59 @@ async def test_the_insert_itself_is_idempotent_without_the_pre_check(
         await _write_usage(db, tenant_id, call_row_id, (row,), at=at)  # type: ignore[arg-type]
         await _write_usage(db, tenant_id, call_row_id, (row,), at=at)  # type: ignore[arg-type]
     assert len(await _usage(tenant_id, call_row_id)) == 1
+
+
+# ---------------------------------------------------------------------------------------
+# 4. The sweep reaches every demand, however many settled ones sit in front of it.
+# ---------------------------------------------------------------------------------------
+
+
+async def test_settled_demands_do_not_starve_the_newer_ones(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Demands stay in the store for their 90-day window after they are metered, so a sweep
+    that read only the oldest page re-read the same settled rows every hour and never reached
+    a newer one. A page of ONE makes that page the oldest demand in the database, which the
+    first call below guarantees is not the second."""
+    monkeypatch.setattr(remetering, "SWEEP_BATCH", 1)
+    older_tenant, older_call, _ = await _settled_call()
+    newer_tenant, newer_call, _ = await _settled_call()
+    _attest("1.00")
+    await remeter_refused_legs({})
+    assert len(await _usage(older_tenant, older_call)) == 1
+    assert len(await _usage(newer_tenant, newer_call)) == 1
+
+
+async def test_a_tick_that_runs_out_of_time_stops_and_says_so(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Out of budget between pages, and out of budget between tenants inside a page: both
+    stop the walk, meter nothing further and log the truncation."""
+    tenant_id, call_row_id, _ref = await _settled_call()
+    _attest("1.00")
+
+    monkeypatch.setattr(remetering, "SWEEP_BUDGET_S", 0.0)
+    assert (await remeter_refused_legs({})).startswith("metered=0 ")
+
+    clock = iter([0.0, 0.0])
+    monkeypatch.setattr(remetering, "SWEEP_BUDGET_S", 1.0)
+    monkeypatch.setattr(remetering.time, "monotonic", lambda: next(clock, 5.0))
+    assert (await remeter_refused_legs({})).startswith("metered=0 ")
+    assert await _usage(tenant_id, call_row_id) == []
+    assert "remetering_sweep_truncated" in caplog.text
+
+
+async def test_a_tenant_whose_metered_legs_cannot_be_read_is_counted_unreached(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One tenant's failed read is that tenant's demands unreached, never the tick's failure."""
+    await _settled_call()
+    _attest("1.00")
+
+    async def _broken(*_args: object, **_kwargs: object) -> set[tuple[uuid.UUID, str]]:
+        raise RuntimeError("pool exhausted")
+
+    monkeypatch.setattr(remetering, "_metered_legs", _broken)
+    summary = await remeter_refused_legs({})
+    assert "metered=0 " in summary
+    assert "unreached=0" not in summary
