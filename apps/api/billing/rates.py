@@ -1391,7 +1391,10 @@ def _telephony_cost_inr_exact(
         + TELEPHONY_AUDIO_STREAMING_INR_PER_MIN
         + telephony_addons_inr_per_min()
     )
-    return per_minute / _SECONDS_PER_MINUTE * telephony_billed_seconds(duration_s)
+    # Multiply BEFORE dividing. Billed seconds are whole pulses, so `rate x seconds / 60` is
+    # `rate x pulses / 2` and terminates; `rate / 60` does not, and its 28-digit residue
+    # made a half-paisa-hundredth round down (₹0.1001/min for 30s: 0.0500, not 0.0501).
+    return per_minute * telephony_billed_seconds(duration_s) / _SECONDS_PER_MINUTE
 
 
 def telephony_cost_inr(
