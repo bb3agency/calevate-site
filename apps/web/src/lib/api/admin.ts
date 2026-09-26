@@ -435,12 +435,17 @@ export function useCreateTenant() {
 }
 
 export function useInvite() {
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({ tenantId, email, role }: { tenantId: string; email: string; role: string }) =>
       apiRequest<InviteOut>(adminSession(), `/v1/admin/tenants/${tenantId}/invitations`, {
         method: "POST",
         body: { email, role },
       }),
+    // The Invitations screen tells the operator the new link "appears in the list above",
+    // and that list is `useTenantInvitations`, which has no poll of its own.
+    onSuccess: (_data, { tenantId }) =>
+      client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
   });
 }
 
