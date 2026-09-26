@@ -38,10 +38,12 @@ import {
   EmptyState,
   MonoValue,
   ProblemNotice,
+  RestrictionNote,
   Skeleton,
   formatIST,
 } from "@/components/ui";
 import { useCallbacks, useCancelCallback, type ScheduledCallback } from "@/lib/api/callbacks";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { lookup } from "@/lib/lookup";
 import { useClientSession } from "@/lib/api/session";
 
@@ -70,6 +72,10 @@ export default function CallbacksPage() {
   const [openOnly, setOpenOnly] = useState(false);
   const callbacks = useCallbacks(session, openOnly);
   const cancel = useCancelCallback(session);
+  // Reading the list is `leads:read`, which staff hold; calling one off is
+  // `DELETE /v1/callbacks/{id}` under `leads:dispatch`, which they do not. Without this the
+  // button is offered to every reader and answers a staff member with a 403.
+  const write = useWriteAccess(session, "leads:dispatch", "call off a call-back");
   const [stopping, setStopping] = useState<ScheduledCallback | null>(null);
 
   const rows = callbacks.data;
@@ -86,6 +92,8 @@ export default function CallbacksPage() {
           is stopped and says why.
         </p>
       </div>
+
+      <RestrictionNote reason={write.reason} />
 
       <Card
         title={openOnly ? "Still to come" : "Every call-back"}
@@ -115,6 +123,7 @@ export default function CallbacksPage() {
               <CallbackRow
                 key={row.id}
                 callback={row}
+                canStop={write.allowed}
                 stopping={cancel.isPending && cancel.variables === row.id}
                 onStop={() => setStopping(row)}
               />
@@ -171,10 +180,12 @@ export default function CallbacksPage() {
 
 function CallbackRow({
   callback,
+  canStop,
   stopping,
   onStop,
 }: {
   callback: ScheduledCallback;
+  canStop: boolean;
   stopping: boolean;
   onStop: () => void;
 }) {
@@ -203,7 +214,7 @@ function CallbackRow({
       {/* Only where there is something to stop. `dialing` is deliberately excluded — that
           phone may be ringing as this renders, and a button that reported success while
           somebody answered would be the screen lying about a call that happened. */}
-      {callback.status === "scheduled" && (
+      {callback.status === "scheduled" && canStop && (
         <button
           type="button"
           className="shrink-0 text-sm font-medium text-ink-muted underline underline-offset-2 hover:text-ink disabled:opacity-50"
