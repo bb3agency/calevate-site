@@ -281,3 +281,50 @@ class TestCalibration:
         resolver = guard.Resolver(modules)
         scope = crm.functions["_lead_scope"]
         assert resolver._returns_safe(crm, scope)
+
+
+# --- the driver door -----------------------------------------------------------
+
+
+class TestTheDriverDoor:
+    """`text()` is not the only way this tree executes a string. `core/alert_records.py`
+    runs on the alert-delivery thread and talks to Postgres through psycopg directly —
+    `cur.execute(_UPSERT, ...)`, `conn.execute(_MARK_EMAILED, ...)`,
+    `conn.execute("DELETE FROM platform_alerts")` — and a string handed to a driver's
+    `execute` is SQL exactly as a string handed to `text()` is. The check watched only the
+    SQLAlchemy doors, so an f-string there would have passed it."""
+
+    ALERT_RECORDS = "apps/api/core/alert_records.py"
+
+    def test_the_driver_statements_are_counted_as_statements(
+        self, modules: list[guard.Module]
+    ) -> None:
+        records = next(m for m in modules if m.rel == self.ALERT_RECORDS)
+        assert len(guard.sql_sites(records)) == 3, [
+            ast.unparse(call.args[0]) for call in guard.sql_sites(records)
+        ]
+
+    def test_a_splice_into_a_driver_statement_is_reported(
+        self, modules: list[guard.Module]
+    ) -> None:
+        doctored = _doctored(
+            modules,
+            self.ALERT_RECORDS,
+            'conn.execute(_MARK_EMAILED, {"id": alert_id})',
+            "conn.execute(f\"UPDATE platform_alerts SET emailed = true WHERE id = '{alert_id}'\")",
+        )
+        sites = _sites(guard.audit(doctored))
+        assert any(site.startswith(f"{self.ALERT_RECORDS}:") for site in sites), sites
+
+    def test_a_constructed_statement_is_not_a_driver_site(
+        self, modules: list[guard.Module]
+    ) -> None:
+        """`session.execute(select(...))` executes a construct, not a string. Only a
+        string-shaped first argument is a statement; anything else would drown the check
+        in SQLAlchemy calls it has no business judging."""
+        crm = next(m for m in modules if m.rel == "apps/api/crm/service.py")
+        for call in guard.sql_sites(crm):
+            callee = call.func
+            name = callee.id if isinstance(callee, ast.Name) else getattr(callee, "attr", None)
+            if name != guard.SQL_SINK:
+                assert not isinstance(call.args[0], ast.Call), ast.unparse(call)

@@ -1,10 +1,11 @@
 """Guardrail: nothing but our own source text is ever spliced into a SQL string (D-172).
 
-`text()` is the only door raw SQL uses in this tree — there is no `exec_driver_sql`, no
-`literal_column`, no bare-string `execute` (SQLAlchemy 2.0 refuses that one) — and it is
-used 493 times in the two trees this check scans (and about four times that again in
-`tests/`, which is out of scope — see below), because most tenant-scoped access here is
-hand-written SQL rather than ORM queries. Every one of those statements runs as a role that
+`text()` is the door raw SQL uses in this tree — there is no `exec_driver_sql` and no
+`literal_column`, and SQLAlchemy 2.0 refuses a bare-string `execute` — and it is used over
+a thousand times in the two trees this check scans (`tests/` is out of scope — see below),
+because most tenant-scoped access here is hand-written SQL rather than ORM queries. The
+one other door is a string handed straight to a DRIVER's `execute` (`DRIVER_EXECUTE`),
+and it is held to the same rule. Every one of those statements runs as a role that
 is `NOSUPERUSER
 NOBYPASSRLS`, so a successful injection does not merely read a table: it runs inside a
 session whose `tenant_id` GUC decides visibility, and the first thing an attacker would
@@ -84,10 +85,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: module docstring.
 SCAN_ROOTS: tuple[str, ...] = ("apps", "packages")
 
-#: The SQLAlchemy constructor that turns a string into an executable statement. This is
-#: the only raw-SQL door in the tree; the check asserts that below so a second one cannot
-#: be added silently.
+#: The SQLAlchemy constructor that turns a string into an executable statement — the door
+#: nearly every statement in the tree uses.
 SQL_SINK = "text"
+
+#: The OTHER door: a string handed straight to a driver. `core/alert_records.py` runs on
+#: the alert-delivery thread and talks to Postgres through psycopg (`cur.execute(_UPSERT,
+#: ...)`), because the alerting path must not depend on the async engine it may be
+#: reporting on. SQLAlchemy's own `execute` refuses a bare string, so a STRING-shaped first
+#: argument to any `.execute`/`.executemany` is a driver statement; a construct
+#: (`session.execute(select(...))`, `session.execute(text(...))`) is not, and `text()` is
+#: judged on its own. A statement whose name is a bare function PARAMETER is not
+#: recognised here — that shape does not exist in the tree, and `text()`'s call-site walk
+#: is what would have to be built for it.
+DRIVER_EXECUTE: frozenset[str] = frozenset({"execute", "executemany"})
 
 #: Other ways SQLAlchemy will execute a string. None of these is used here and none may
 #: be: they would each be a second door this check does not watch, and "one way per
@@ -695,15 +706,48 @@ class Resolver:
 
 
 def sql_sites(module: Module) -> list[ast.Call]:
-    """Every `text(...)` call with a statement argument."""
+    """Every `text(...)` call, and every driver `.execute` handed a string, with its
+    statement as the first argument."""
+    resolver: Resolver | None = None
     sites: list[ast.Call] = []
     for node in ast.walk(module.tree):
-        if isinstance(node, ast.Call):
+        if isinstance(node, ast.Call) and node.args:
             callee = node.func
             name = callee.id if isinstance(callee, ast.Name) else getattr(callee, "attr", None)
-            if name == SQL_SINK and node.args:
+            if name == SQL_SINK:
                 sites.append(node)
+            elif isinstance(callee, ast.Attribute) and name in DRIVER_EXECUTE:
+                resolver = resolver or Resolver([module])
+                if _string_shaped(node.args[0], module, resolver):
+                    sites.append(node)
     return sites
+
+
+def _string_shaped(node: ast.expr, module: Module, resolver: Resolver, depth: int = 0) -> bool:
+    """Could `node` evaluate to a `str`? Syntactic, and deliberately generous: a site
+    recognised here is then held to the same literal-derived rule as `text()`."""
+    if depth > 8:
+        return False
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str)
+    if isinstance(node, ast.JoinedStr):
+        return True
+    if isinstance(node, ast.BinOp):
+        return _string_shaped(node.left, module, resolver, depth + 1) or _string_shaped(
+            node.right, module, resolver, depth + 1
+        )
+    if isinstance(node, ast.IfExp):
+        return _string_shaped(node.body, module, resolver, depth + 1) or _string_shaped(
+            node.orelse, module, resolver, depth + 1
+        )
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        return node.func.attr in _TEXT_METHODS and _string_shaped(
+            node.func.value, module, resolver, depth + 1
+        )
+    if isinstance(node, ast.Name):
+        values = resolver._values_of(node, module) or []
+        return any(_string_shaped(value, module, resolver, depth + 1) for value in values)
+    return False
 
 
 def forbidden_sink_uses(modules: list[Module]) -> list[str]:
@@ -774,7 +818,7 @@ def main() -> int:
     findings = audit(modules)
     if not sql_sites_exist(modules):
         print(
-            "FAIL check_raw_sql: found no `text(...)` call anywhere. Statement discovery "
+            "FAIL check_raw_sql: found no SQL statement anywhere. Statement discovery "
             "is broken — fix it rather than believing the clean report.",
             file=sys.stderr,
         )
