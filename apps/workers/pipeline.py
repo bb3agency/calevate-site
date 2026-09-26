@@ -125,7 +125,7 @@ from apps.api.reliability.service import (
     mark_inbox_processed,
 )
 from apps.workers import storage
-from apps.workers.extraction import extract_call
+from apps.workers.extraction import MODEL_FAILURE, extract_call, model_answered
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import derive_moments, merge_moments
 from apps.workers.redaction import redact
@@ -1338,6 +1338,7 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         # fate. Not `enqueue_outbox_once`: the fan-out writes one row PER SUBSCRIBED
         # ENDPOINT and those are not duplicates of each other.
         if snapshot.status == "completed" and not await _crm_already_notified(session, call_id):
+            call_outcome, call_sentiment = _call_reading(extraction)
             written = await integrations.enqueue_event(
                 session,
                 tenant_id=tenant_id,
@@ -1347,8 +1348,8 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
                     "lead_id": str(lead_id) if lead_id else None,
                     "direction": direction,
                     "duration_s": snapshot.duration_s,
-                    "outcome": extraction.outcome_tag if extraction else None,
-                    "sentiment": extraction.sentiment if extraction else None,
+                    "outcome": call_outcome,
+                    "sentiment": call_sentiment,
                     # The SUMMARY, never the transcript: a transcript is the most
                     # sensitive artefact we hold, and it does not leave on a webhook.
                     # Redacted on the way out, because the summary is DERIVED from the
@@ -1682,7 +1683,7 @@ async def _settled_extraction(
         return None
     data, valid, errors, needs_review, summary, sentiment, outcome_tag = row
     errors = errors if isinstance(errors, dict) else {}
-    if "_model" in errors:
+    if MODEL_FAILURE in errors:
         return None
     # The same coercions `extract_call` applies to a fresh answer, so a reconstructed
     # object and a fresh one cannot be judged by two different rules.
@@ -1765,6 +1766,7 @@ async def _persist_extraction(
                 "moments": _json(moments) if moments is not None else None,
             },
         )
+        outcome, sentiment = _call_reading(extraction)
         await session.execute(
             text(
                 "UPDATE calls SET summary = :summary, sentiment = :sentiment, "
@@ -1773,12 +1775,25 @@ async def _persist_extraction(
             ),
             {
                 "summary": extraction.summary or None,
-                "sentiment": extraction.sentiment,
-                "outcome": extraction.outcome_tag,
+                "sentiment": sentiment,
+                "outcome": outcome,
                 "id": call_id,
                 "tid": tenant_id,
             },
         )
+
+
+def _call_reading(extraction: ExtractionOutput | None) -> tuple[str | None, str | None]:
+    """`(outcome_tag, sentiment)` as far as a model actually read the call, else NULLs.
+
+    A provider failure comes back carrying the type's DEFAULTS (`resolved`, `neutral`), and
+    those are not a reading: `resolved` is what the default experiment conversion metric
+    counts and what the client's CRM is told on `call.completed`. Unknown is NULL, which the
+    `calls` CHECKs admit; the re-drive that repairs the extraction fills both in.
+    """
+    if extraction is None or not model_answered(extraction):
+        return None, None
+    return extraction.outcome_tag, extraction.sentiment
 
 
 async def _load_call_context(
