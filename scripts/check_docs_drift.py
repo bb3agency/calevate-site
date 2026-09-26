@@ -2788,10 +2788,68 @@ def answered_assumptions(
 # --- gate -----------------------------------------------------------------------
 
 
+#: An HTTP route written in a runbook: `POST /v1/ops/platform`, with `{id}`, `<id>` or
+#: `:id` standing in for a path parameter.
+_ROUTE_CLAIM = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE) (/v1/[A-Za-z0-9_{}<>:./-]+)")
+
+#: Routes a runbook names that belong to a VENDOR's API rather than ours, each with where
+#: it is served. Without this a runbook could not describe what our code calls out to.
+VENDOR_ROUTE_MENTIONS: dict[tuple[str, str], str] = {
+    ("POST", "/v1/orders"): (
+        "Razorpay's order API (api.razorpay.com), which "
+        "`billing/payments.RazorpayOrders.create_order` calls"
+    ),
+}
+
+
+def _route_shape(path: str) -> str:
+    return re.sub(r"\{[^}]+\}|<[^>]+>|:[A-Za-z_]+", "{}", path.rstrip(".,:;)`"))
+
+
+def served_routes() -> set[tuple[str, str]]:
+    """Every (method, path shape) the API serves, walked the way the boot check walks it."""
+    from apps.api.core.rbac import iter_api_routes
+    from apps.api.main import app
+
+    return {(m, _route_shape(r.path)) for r in iter_api_routes(app) for m in r.methods}
+
+
+def runbook_route_claims(root: Path | None = None) -> list[tuple[str, int, str, str]]:
+    """`(file, line, method, path)` for every route written in a runbook."""
+    base = root or REPO_ROOT / "runbooks"
+    return [
+        (_rel(path), number, method, route)
+        for path in sorted(base.glob("*.md"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        for method, route in _ROUTE_CLAIM.findall(line)
+    ]
+
+
+def unserved_runbook_routes(
+    claims: Iterable[tuple[str, int, str, str]] | None = None,
+    served: set[tuple[str, str]] | None = None,
+) -> list[str]:
+    """Runbook routes the API does not serve.
+
+    A runbook is read by an operator in the middle of an incident, and a route that 404s
+    there costs the minutes the runbook exists to save. `runbooks/` only, not `docs/`:
+    the decision log quotes routes that were retired on purpose, and that history is
+    correct as written.
+    """
+    live = served_routes() if served is None else served
+    return [
+        f"{file}:{number}: {method} {route} — no route serves this"
+        for file, number, method, route in (runbook_route_claims() if claims is None else claims)
+        if (method, _route_shape(route)) not in live
+        and (method, _route_shape(route)) not in VENDOR_ROUTE_MENTIONS
+    ]
+
+
 def main() -> int:
     sections: tuple[tuple[str, list[str]], ...] = (
         ("this check cannot see its own subject", blind_spots()),
         ("a doc names a command nothing answers to", unresolved_commands()),
+        ("a runbook names a route the API does not serve", unserved_runbook_routes()),
         ("a decision reference resolves to nothing", dangling_decisions()),
         ("the decision log numbers a decision twice", duplicate_decision_ids()),
         ("a decision row is not one line, so the table ends there", broken_decision_rows()),
@@ -2835,6 +2893,7 @@ def main() -> int:
 
     print(
         f"DOCS DRIFT: OK ({len(recognized_commands())} command claims resolve, "
+        f"{len(runbook_route_claims())} runbook routes served, "
         f"{len(decision_ids())} decisions with no dangling reference, "
         f"{len(compliance_section_tokens())} names in SEC-COMP §3 still in the code, "
         f"{len(doc_rate_zones())} rate zones declared, "

@@ -258,6 +258,41 @@ class TestCommandCalibration:
         assert self._findings(tmp_path, "```bash\nmake check | tee out.log\n```\n") == []
 
 
+class TestRunbookRoutes:
+    def test_every_route_a_runbook_names_is_served(self) -> None:
+        assert guard.unserved_runbook_routes() == []
+
+    def test_the_route_the_breach_runbook_used_to_name_is_caught(self, tmp_path: Path) -> None:
+        """The line that shipped: an operator containing a breach was sent to a halt
+        route that answered 404."""
+        (tmp_path / "breach.md").write_text(
+            "The big red switch (`POST /v1/ops/outbound/halt`) stops outbound dialling.\n",
+            encoding="utf-8",
+        )
+        offenders = guard.unserved_runbook_routes(guard.runbook_route_claims(tmp_path))
+        assert len(offenders) == 1
+        assert offenders[0].endswith(
+            "breach.md:1: POST /v1/ops/outbound/halt — no route serves this"
+        )
+
+    def test_a_path_parameter_in_any_spelling_matches_the_served_route(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "params.md").write_text(
+            "`DELETE /v1/ops/dnc/global/{entry_id}` · `DELETE /v1/ops/dnc/global/<id>` · "
+            "`DELETE /v1/ops/dnc/global/:id`\n",
+            encoding="utf-8",
+        )
+        assert guard.unserved_runbook_routes(guard.runbook_route_claims(tmp_path)) == []
+
+    def test_a_vendor_route_is_named_only_through_the_allowlist(self, tmp_path: Path) -> None:
+        (tmp_path / "vendor.md").write_text("`POST /v1/orders`\n", encoding="utf-8")
+        claims = guard.runbook_route_claims(tmp_path)
+        assert guard.unserved_runbook_routes(claims) == []
+        assert guard.unserved_runbook_routes(claims, served=set()) == []
+        assert ("POST", "/v1/orders") in guard.VENDOR_ROUTE_MENTIONS
+
+
 class TestDecisionReferences:
     def test_catches_a_dangling_reference_in_a_doc(self, tmp_path: Path) -> None:
         absent = _absent_decision()

@@ -63,8 +63,10 @@ reviewed any of this** — see §7.
 2. **Open an incident reference** (`CAL-BREACH-YYYYMMDD-n`). One string the client can
    quote back.
 3. **Contain**, if containment is still possible: rotate the credential, remove the public
-   grant, stop the job. The big red switch (`POST /v1/ops/outbound/halt`) stops outbound
-   dialling and is the right lever if the exposure is being made worse by calls going out.
+   grant, stop the job. The big red switch stops outbound dialling and is the right lever
+   if the exposure is being made worse by calls going out: `POST /v1/ops/platform` with
+   `{"outbound_halted": true}` and the header `X-Confirm-Action: halt_outbound`, from an
+   operator session holding `ops:manage`.
 4. **Do not delete anything.** `audit_log` is a hash chain and `usage_events`,
    `consent_ledger` and the other append-only ledgers cannot be edited (hard rule 4) —
    that is the forensic record, and it is also what proves the scope you are about to
