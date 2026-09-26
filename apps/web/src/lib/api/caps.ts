@@ -21,6 +21,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { agreementsKey } from "./agreements";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -50,6 +51,11 @@ export function useCaps(session: Session): UseQueryResult<Caps> {
  * The usage panel is invalidated as well as the caps query, because capping yourself
  * below this month's spend stops outbound calling immediately — the `capped` banner on
  * that screen has to move in the same breath, not on its next poll.
+ *
+ * The PUT also recomputes `spend_state.capped` (`billing/caps.recompute_capped`), which is
+ * the `spend_cap` row on the readiness screen and a campaign launch blocker. Readiness
+ * holds for a minute and is always mounted for the nav, so without these a client who
+ * raises their limit to restart outbound is told on the next screen it is still stopped.
  */
 export function useSetCaps(session: Session) {
   const queryClient = useQueryClient();
@@ -62,6 +68,8 @@ export function useSetCaps(session: Session) {
     onSuccess: (caps) => {
       queryClient.setQueryData(capsKey(session.orgSlug), caps);
       queryClient.invalidateQueries({ queryKey: ["usage", session.orgSlug] });
+      void queryClient.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+      void queryClient.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug] });
     },
   });
 }

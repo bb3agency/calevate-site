@@ -29,6 +29,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
+import { walletKey } from "./wallet";
 
 type Schemas = components["schemas"];
 
@@ -69,8 +70,9 @@ export function useAiQuota(
  * server's own `extra_block_inr`, and the point of the echo is that the browser did not
  * compute it.
  *
- * On success both this query and the usage panel are refreshed, because the debit lands
- * on the SAME wallet the usage screen prints as "Calling credit" — a balance that still
+ * On success this query, the usage panel and the wallet are refreshed, because the debit
+ * lands on the prepaid wallet whose balance the dashboard tile and the billing screen
+ * print — and the assistant dock that sells it is open over both. A balance that still
  * showed the pre-debit figure would be this console contradicting itself about money.
  */
 export function useBuyAiExtra(session: Session) {
@@ -84,6 +86,8 @@ export function useBuyAiExtra(session: Session) {
     onSuccess: (quota) => {
       queryClient.setQueryData(aiQuotaKey(session.orgSlug), quota);
       queryClient.invalidateQueries({ queryKey: ["usage", session.orgSlug] });
+      // The prefix: the balance, and the ledger and lots the debit is drawn from.
+      void queryClient.invalidateQueries({ queryKey: walletKey(session.orgSlug) });
     },
   });
 }

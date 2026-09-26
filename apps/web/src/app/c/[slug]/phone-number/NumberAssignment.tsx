@@ -7,14 +7,14 @@
  * caller ID a campaign dials from, so a number attached to nobody publishes a
  * receptionist whose phone never rings.
  *
- * ## This panel states what it DID, never what is currently set
+ * ## The form opens on the binding the number HAS
  *
- * ⚠ `GET /v1/campaigns/numbers` (`campaigns/routes.py::NumberOut`) carries the number,
- * its series, its registration status and whether the platform can answer it — and NOT
- * the agent it is bound to. So there is nothing to read the current binding from, and the
- * honest response is a control that makes a change and reports the outcome, rather than a
- * select whose "Nobody" is a claim this console cannot support. §52's rule, one step
- * further out: an answer we do not have is not rendered as a state.
+ * `NumberOut` carries `agent_id` and `direction`, and both seed the form. Opening on
+ * "Nobody" instead made the panel's one button destructive: a Save pressed to change only
+ * the direction, or pressed with nothing changed, posted `agent_id: null` and took the
+ * number off its agent, so its line stopped being answered. An agent the list does not
+ * offer (archived, say) is still named as the current choice rather than shown as
+ * "Nobody", which would be the opposite of the truth.
  *
  * `AssignOut`'s counts are what the voice platform was TOLD, which is why the result
  * sentence is drawn from `bound`/`released`/`failed` rather than from the request: a
@@ -63,18 +63,24 @@ function notActivated(error: unknown): boolean {
 export function NumberAssignment({
   numberId,
   series,
+  currentAgentId,
+  currentDirection,
 }: {
   numberId: string;
   /** DLT's number class, as the server derived it from the number's own prefix. */
   series: string;
+  /** `NumberOut.agent_id` — the agent the number is on now, or null for nobody. */
+  currentAgentId: string | null;
+  /** `NumberOut.direction` — what the number is recorded as being for. */
+  currentDirection: CallDirection;
 }) {
   const { session, href } = useClientRealm();
   const agents = useAgents(session);
   const assign = useAssignNumber(session);
   const write = useWriteAccess(session, "org:manage", "choose which agent uses a number");
 
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const [direction, setDirection] = useState<CallDirection>("inbound");
+  const [agentId, setAgentId] = useState<string | null>(currentAgentId);
+  const [direction, setDirection] = useState<CallDirection>(currentDirection);
 
   if (agents.isLoading) return <Skeleton rows={2} label="Loading your agents" />;
   if (agents.error || !agents.data) {
@@ -82,6 +88,8 @@ export function NumberAssignment({
   }
 
   const result = assign.data;
+  const unlisted =
+    agentId !== null && !agents.data.some((agent) => agent.id === agentId) ? agentId : null;
 
   return (
     <div className="mt-3 rounded-card border border-line bg-app p-4">
@@ -101,6 +109,9 @@ export function NumberAssignment({
           }
         >
           <option value={NOBODY}>Nobody — take this number off any agent</option>
+          {unlisted !== null && (
+            <option value={unlisted}>The agent it is on now (not in your agent list)</option>
+          )}
           {agents.data.map((agent) => (
             <option key={agent.id} value={agent.id}>
               {agent.name}

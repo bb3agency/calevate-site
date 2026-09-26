@@ -110,7 +110,12 @@ export default function PhoneNumberPage() {
                           {number.answerable ? "Ready to answer" : "Not ready yet"}
                         </span>
                       </div>
-                      <NumberAssignment numberId={number.id} series={number.series} />
+                      <NumberAssignment
+                        numberId={number.id}
+                        series={number.series}
+                        currentAgentId={number.agent_id ?? null}
+                        currentDirection={number.direction}
+                      />
                       <SenderAttestation numberId={number.id} />
                     </li>
                   ))}
@@ -149,7 +154,12 @@ export default function PhoneNumberPage() {
                             : "Registration still in progress"}
                         </span>
                       </div>
-                      <NumberAssignment numberId={number.id} series={number.series} />
+                      <NumberAssignment
+                        numberId={number.id}
+                        series={number.series}
+                        currentAgentId={number.agent_id ?? null}
+                        currentDirection={number.direction}
+                      />
                       <SenderAttestation numberId={number.id} />
                     </li>
                   ))}

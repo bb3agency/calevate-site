@@ -37,6 +37,8 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { agreementsKey } from "./agreements";
+import { autodialerNoticeKey } from "./autodialerNotice";
 import { apiRequest, type Session } from "./client";
 
 /** THE ONE PLACE A ROUTE IS SPELLED — `router = APIRouter(prefix="/v1/numbers")`. */
@@ -219,6 +221,12 @@ export function usePurchaseNumber(
  * campaign dials from, so a campaign whose number is bound elsewhere is refused at
  * launch: every campaign check is invalidated with it, broadly rather than by campaign,
  * because this module cannot know which of them dials from this number.
+ *
+ * The autodialler notice and the readiness screen go with it: both ask whether the notice
+ * names every number the account's agents can present (`undeclared_clis`), so binding a
+ * number the notice omits is a new outbound blocker. Both reads hold for a minute, and
+ * without this the agreements screen opened next says the notice is fine while the dial
+ * gate refuses.
  */
 export function useAssignNumber(
   session: Session,
@@ -237,6 +245,8 @@ export function useAssignNumber(
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: autodialerNoticeKey(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
     },
   });
 }

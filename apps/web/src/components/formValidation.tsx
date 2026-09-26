@@ -149,6 +149,21 @@ export function fieldProblem(el: Control, ask: string): string | null {
   return null;
 }
 
+/**
+ * A typed whole-number box that cannot be sent as a number, or `null` when it can.
+ *
+ * For `inputMode="numeric"` text boxes whose EMPTY value means something (no limit, none
+ * included), where `Number()` would otherwise decide. `Number("1,000")` is NaN and JSON
+ * sends NaN as `null`, so "1,000" became the empty value's meaning — the opposite of what
+ * was typed — with nothing on the server able to tell. Digits only, because the grouping
+ * an Indian reader types ("1,00,000") is not one a stripped comma could safely guess at.
+ */
+export function wholeNumberProblem(typed: string): string | null {
+  const value = typed.trim();
+  if (value === "" || /^\d+$/.test(value)) return null;
+  return "Enter a whole number in digits only, for example 1000.";
+}
+
 /** Props for a control this module both labels the error of and watches. */
 export interface FieldProps {
   id: string;

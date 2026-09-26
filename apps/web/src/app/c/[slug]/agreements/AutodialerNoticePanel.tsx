@@ -13,8 +13,9 @@
  * Prefilling invites somebody to re-submit last year's date without reading it, which is
  * the one thing this record must not contain. A withdrawal is the exception and is
  * deliberate: it carries the same facts because the row has to say which notice was
- * retracted. The one thing offered is the agent numbers the notice does not cover, as a
- * button the client presses, because those come from this account and not from a letter.
+ * retracted. The one thing offered is the numbers the calls come from — those on the
+ * notice on file and the agent numbers it misses — as a button the client presses, because
+ * those come from this account and not from a letter.
  *
  * `effective` COMES FROM THE SERVER, never from comparing the date here. A notice dated
  * in the future is recorded, `notified`, and not yet carrying outbound — the same
@@ -76,6 +77,30 @@ function stateLine(notice: AutodialerNotice): {
     tone: "ok",
     text: "Your notice is on file and your outgoing calls are not held up by it.",
   };
+}
+
+/**
+ * What "Add my agents' numbers" puts in the box: what is typed, then every number the
+ * notice on file names, then the agent numbers it misses.
+ *
+ * The notice on file as well as the missing ones, because the LATEST notice is the whole
+ * declaration — the dial gate and readiness read nothing older. Adding only
+ * `undeclared_clis` meant recording the result declared the new number and dropped the
+ * ones already declared, so their calls were refused next.
+ *
+ * Compared by digits so "+91 98480 22338" typed and "+919848022338" from the server are
+ * one entry; what is typed keeps its spelling, since the server normalises it anyway.
+ */
+function withEveryCallingNumber(typed: string[], notice: AutodialerNotice): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const number of [...typed, ...notice.declared_clis, ...notice.undeclared_clis]) {
+    const key = number.replace(/[^\d]/g, "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(number);
+  }
+  return out;
 }
 
 export function AutodialerNoticePanel() {
@@ -230,13 +255,7 @@ export function AutodialerNoticePanel() {
             <button
               type="button"
               className="text-sm text-accent underline"
-              onClick={() =>
-                setNumbers(
-                  [...declared, ...current.undeclared_clis]
-                    .filter((value, index, all) => all.indexOf(value) === index)
-                    .join("\n"),
-                )
-              }
+              onClick={() => setNumbers(withEveryCallingNumber(declared, current).join("\n"))}
             >
               {"Add my agents' numbers"}
             </button>

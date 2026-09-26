@@ -100,6 +100,8 @@ function heldNumbers(): unknown {
       dlt_status: "registered",
       supplied_by_us: false,
       answerable: true,
+      agent_id: null,
+      direction: "inbound",
     },
   ];
 }
@@ -417,6 +419,72 @@ describe("choosing what a number is used for", () => {
       });
     });
     expect(await screen.findByText(/that agent now uses this number/i)).toBeTruthy();
+  });
+
+  it("starts from the agent and the use the number already has", async () => {
+    // A number that is ON an agent, for both legs. The panel used to open on "Nobody" and
+    // "answer calls" whatever the server said, so a Save pressed to change nothing — or
+    // only the direction — took the number off its agent and left its line unanswered.
+    const { calls } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/campaigns/numbers": [
+          {
+            id: "num-1",
+            e164: "+918041234567",
+            series: "standard",
+            dlt_status: "registered",
+            supplied_by_us: false,
+            answerable: true,
+            agent_id: "agent-1",
+            direction: "both",
+          },
+        ],
+        [`POST ${PATHS.assign("num-1")}`]: {
+          number_id: "num-1",
+          agent_id: "agent-1",
+          bound: 1,
+          released: 0,
+          failed: 0,
+          unsupported: 0,
+        },
+      }),
+    );
+
+    const select = (await screen.findByLabelText(/the agent that uses it/i)) as HTMLSelectElement;
+    expect(select.value).toBe("agent-1");
+    expect((screen.getByLabelText(/^both/i) as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => {
+      const post = calls.find((call) => call.path === PATHS.assign("num-1"));
+      expect(JSON.parse(post?.body ?? "{}")).toEqual({ agent_id: "agent-1", direction: "both" });
+    });
+  });
+
+  it("names an agent the number is on even when the agent list no longer offers it", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/campaigns/numbers": [
+          {
+            id: "num-1",
+            e164: "+918041234567",
+            series: "standard",
+            dlt_status: "registered",
+            supplied_by_us: false,
+            answerable: true,
+            agent_id: "agent-gone",
+            direction: "inbound",
+          },
+        ],
+      }),
+    );
+
+    const select = (await screen.findByLabelText(/the agent that uses it/i)) as HTMLSelectElement;
+    // Not silently shown as "Nobody", which is the opposite of the truth.
+    expect(select.value).toBe("agent-gone");
+    expect(select.selectedOptions[0]?.textContent).toMatch(/not in your agent list/i);
   });
 
   it("does not report a binding the voice platform refused", async () => {

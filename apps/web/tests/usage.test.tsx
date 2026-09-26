@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { Me } from "@/lib/api/client";
@@ -427,6 +427,33 @@ describe("the usage panel", () => {
       "People calling you still get through.",
     );
     expect(container.textContent).toContain("About 0 minutes");
+  });
+
+  it("refuses a minute limit it cannot read rather than sending it as 'no limit'", async () => {
+    // `Number("1,000")` is NaN and JSON sends NaN as null — which is the instruction
+    // "remove my own limit". An owner typing a limit the Indian way got the opposite of it.
+    const { calls } = await renderBillingHub(routes(), "Usage");
+
+    fireEvent.change(await screen.findByLabelText("Minutes"), { target: { value: "1,000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save limit" }));
+
+    expect(await screen.findByText(/whole number in digits only/i)).toBeTruthy();
+    expect(screen.getByLabelText("Minutes").getAttribute("aria-invalid")).toBe("true");
+    expect(calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+
+  it("sends a minute limit typed as digits", async () => {
+    const { calls } = await renderBillingHub(
+      routes({ "PUT /v1/billing/caps": { ...CAPS, client_cap_minutes: 1000 } }),
+      "Usage",
+    );
+
+    fireEvent.change(await screen.findByLabelText("Minutes"), { target: { value: " 1000 " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save limit" }));
+
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    const put = calls.find((call) => call.method === "PUT");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ cap_minutes: 1000, cap_spend_inr: null });
   });
 
   it("offers no runway figure when the server did not compute one", async () => {

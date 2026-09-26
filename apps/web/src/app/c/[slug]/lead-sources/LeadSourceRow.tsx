@@ -22,7 +22,12 @@ export function LeadSourceRow({
   item: LeadSource;
   canWrite: boolean;
   busy: boolean;
-  onRotate: (graceMinutes: number, appSecret?: string) => void;
+  /**
+   * `issued` is called once the new secret exists. The form closes and forgets the App
+   * Secret only then: on a refusal the client is left with what they pasted, beside the
+   * panel's refusal, rather than having to go back to Meta for it.
+   */
+  onRotate: (graceMinutes: number, appSecret: string | undefined, issued: () => void) => void;
   onToggle: () => void;
 }) {
   const [rotating, setRotating] = useState(false);
@@ -77,9 +82,10 @@ export function LeadSourceRow({
           className="mt-2 flex flex-wrap items-end gap-2"
           noValidate
           onSubmit={valid.onSubmit(() => {
-            onRotate(Number(grace), isMeta ? appSecret.trim() || undefined : undefined);
-            setRotating(false);
-            setAppSecret("");
+            onRotate(Number(grace), isMeta ? appSecret.trim() || undefined : undefined, () => {
+              setRotating(false);
+              setAppSecret("");
+            });
           })}
         >
           {isMeta && (

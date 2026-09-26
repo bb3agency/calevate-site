@@ -16,6 +16,7 @@ import {
   formatRupeeRate,
   hasNonZeroDigit,
 } from "@/components/ui";
+import { FieldMessage, wholeNumberProblem } from "@/components/formValidation";
 import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
@@ -361,6 +362,7 @@ function SpendLimit({ session }: { session: Session }) {
   const write = useWriteAccess(session, "org:manage", "change your spending limit");
   const [minutes, setMinutes] = useState<string | null>(null);
   const [spend, setSpend] = useState<string | null>(null);
+  const [minutesProblem, setMinutesProblem] = useState<string | null>(null);
 
   if (caps.isLoading) return <Skeleton rows={3} />;
   if (caps.error) return <ProblemNotice error={caps.error} onRetry={() => void caps.refetch()} />;
@@ -405,8 +407,14 @@ function SpendLimit({ session }: { session: Session }) {
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
+            const typedMinutes = minutesField.trim();
+            // A parse check, not the ceiling rule (that stays the server's): an unreadable
+            // box would otherwise be sent as `null`, the instruction to REMOVE the limit.
+            const problem = wholeNumberProblem(typedMinutes);
+            setMinutesProblem(problem);
+            if (problem !== null) return;
             save.mutate({
-              capMinutes: minutesField.trim() === "" ? null : Number(minutesField),
+              capMinutes: typedMinutes === "" ? null : Number(typedMinutes),
               // A STRING all the way to the server (hard rule 7): `Number()` here would
               // put a rupee amount through a binary float on the way out.
               capSpendInr: spendField.trim() === "" ? null : spendField.trim(),
@@ -418,8 +426,12 @@ function SpendLimit({ session }: { session: Session }) {
             label="Minutes"
             value={minutesField}
             disabled={!write.allowed}
-            onChange={setMinutes}
+            onChange={(value) => {
+              setMinutes(value);
+              setMinutesProblem(null);
+            }}
             placeholder="no limit"
+            problem={minutesProblem}
           />
           <Field
             id="cap-spend"
@@ -479,6 +491,7 @@ function Field({
   disabled,
   onChange,
   placeholder,
+  problem = null,
 }: {
   id: string;
   label: string;
@@ -486,7 +499,9 @@ function Field({
   disabled: boolean;
   onChange: (value: string) => void;
   placeholder: string;
+  problem?: string | null;
 }) {
+  const problemId = `${id}-problem`;
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-xs font-medium text-ink-muted">
@@ -499,8 +514,11 @@ function Field({
         disabled={disabled}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={problem ? problemId : undefined}
         className="w-32 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint disabled:opacity-50"
       />
+      {problem && <FieldMessage id={problemId}>{problem}</FieldMessage>}
     </div>
   );
 }

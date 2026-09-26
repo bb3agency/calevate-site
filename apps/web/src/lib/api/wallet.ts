@@ -31,10 +31,12 @@
  * Types come from `schema.d.ts` (`pnpm gen:api`), never hand-mirrored.
  */
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 import { lookup } from "@/lib/lookup";
 
+import { agreementsKey } from "./agreements";
 import { apiRequest, type Session } from "./client";
 
 import type { components } from "./schema";
@@ -123,8 +125,68 @@ export function useWalletLedger(session: Session): UseQueryResult<WalletLedger> 
 export function useTopUpAttempts(session: Session): UseQueryResult<TopUpAttempt[]> {
   return useQuery({
     queryKey: walletAttemptsKey(session.orgSlug),
-    queryFn: () => apiRequest<TopUpAttempt[]>(session, "/v1/billing/wallet/topups"),
+    queryFn: () => apiRequest<TopUpAttempt[]>(session, TOPUP_ATTEMPTS_PATH),
   });
+}
+
+const TOPUP_ATTEMPTS_PATH = "/v1/billing/wallet/topups";
+
+/** How often a verified payment's credit is looked for, and for how long at most. */
+export const CREDIT_POLL_MS = 4_000;
+export const CREDIT_WAIT_MS = 3 * 60_000;
+
+/** A payment this page saw verified, and the instant it stops waiting for the credit. */
+export interface AwaitedCredit {
+  receipt: string;
+  until: number;
+}
+
+function captured(attempts: TopUpAttempt[] | undefined, receipt: string): boolean {
+  return attempts?.some((row) => row.receipt === receipt && row.outcome === "captured") ?? false;
+}
+
+/**
+ * Has the credit for a payment this page just saw verified reached the wallet?
+ *
+ * The Checkout callback proves the payment and credits NOTHING
+ * (`payment_routes.confirm_topup_callback`): the webhook credits, seconds later, and marks
+ * the attempt `captured` in the same transaction. So the refetch `useConfirmTopUp` makes
+ * on the callback almost always reads the balance from before the payment — and nothing
+ * else re-reads it while the client stays on the page, because the payment window is an
+ * overlay and closing it is not a window focus. A client told "your balance updates as
+ * soon as the provider confirms it" then watched a balance that never moved, which is the
+ * screen most likely to make them pay twice.
+ *
+ * Polls the attempts list for THIS receipt rather than the balance, because a balance can
+ * move for other reasons (a call ending, an operator's grant) and would stop the wait on
+ * the wrong event. Stops when the attempt is captured or at `until`, and on capture
+ * re-reads everything the credit moved.
+ */
+export function useCreditLanding(session: Session, awaited: AwaitedCredit | null): boolean {
+  const client = useQueryClient();
+  const attempts = useQuery({
+    queryKey: walletAttemptsKey(session.orgSlug),
+    queryFn: () => apiRequest<TopUpAttempt[]>(session, TOPUP_ATTEMPTS_PATH),
+    enabled: awaited !== null,
+    refetchInterval: (query) =>
+      awaited !== null &&
+      !captured(query.state.data, awaited.receipt) &&
+      Date.now() < awaited.until
+        ? CREDIT_POLL_MS
+        : false,
+  });
+  const landed = awaited !== null && captured(attempts.data, awaited.receipt);
+
+  useEffect(() => {
+    if (!landed) return;
+    // The wallet prefix covers the balance, the ledger, the lots and this list; readiness
+    // carries the `no_credits` blocker a first top-up clears.
+    void client.invalidateQueries({ queryKey: walletKey(session.orgSlug) });
+    void client.invalidateQueries({ queryKey: ["usage", session.orgSlug] });
+    void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+  }, [landed, client, session.orgSlug]);
+
+  return landed;
 }
 
 /**

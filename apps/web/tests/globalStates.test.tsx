@@ -37,6 +37,7 @@ import { browserOffline } from "./harness";
  */
 const nav = vi.hoisted(() => ({
   pathname: "/",
+  search: "",
   notFound: vi.fn(() => {
     // The shape Next signals a 404 with: a throw the router catches and answers by
     // rendering `app/not-found.tsx`.
@@ -47,7 +48,7 @@ const nav = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => nav.pathname,
   notFound: nav.notFound,
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(nav.search),
   useRouter: () => ({
     push: vi.fn(),
     replace: vi.fn(),
@@ -60,6 +61,7 @@ vi.mock("next/navigation", () => ({
 
 beforeEach(() => {
   nav.pathname = "/";
+  nav.search = "";
   nav.notFound.mockClear();
 });
 
@@ -177,6 +179,19 @@ describe("the realm error boundaries", () => {
     );
     expect(container.querySelector("a[href]")?.getAttribute("href")).toBe(
       "/c/kirana-mart",
+    );
+  });
+
+  it("keep an operator viewing as the client inside the view-as session", () => {
+    // Without the marker `/c/<slug>` restores the CLIENT realm's session, which an
+    // operator does not have, so "Back to your dashboard" sent them to the client sign-in.
+    nav.pathname = "/c/kirana-mart/leads";
+    nav.search = "view=admin";
+    const { container } = render(
+      <ClientRealmError error={crash("boom")} reset={vi.fn()} />,
+    );
+    expect(container.querySelector("a[href]")?.getAttribute("href")).toBe(
+      "/c/kirana-mart?view=admin",
     );
   });
 
