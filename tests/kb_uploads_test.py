@@ -427,6 +427,78 @@ async def test_a_changed_page_becomes_a_new_version_for_review_and_the_live_one_
     ], "the live version stopped serving, or the new one did not arrive for review"
 
 
+async def test_a_change_already_submitted_for_review_is_not_submitted_again(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The live row keeps the digest it was published with, and the sweep re-reads it daily
+    against that digest. Until somebody reviews the new version, the page still differs from
+    it — which is the SAME change, and must not become a fresh version in the review queue
+    every day."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        row = await uploads.create_link(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Price list",
+            url="https://example.com/prices",
+            submitted_by=None,
+            auto_approve=True,
+        )
+        await service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(row["source_id"]))
+        )
+        await session.execute(
+            text("UPDATE kb_uploads SET content_digest = 'baseline' WHERE id = :id"),
+            {"id": row["id"]},
+        )
+
+    page = b"<html><body>Thali 180</body></html>"
+
+    async def _page(_url: str) -> bytes:
+        return page
+
+    monkeypatch.setattr(kb_ingest, "_fetch_page", _page)
+
+    async def _check() -> bool:
+        async with tenant_session(tenant_id) as session:
+            known = (
+                await session.execute(
+                    text("SELECT content_digest FROM kb_uploads WHERE id = :id"),
+                    {"id": row["id"]},
+                )
+            ).scalar()
+        return await kb_ingest._recheck_link(
+            upload_id=uuid.UUID(str(row["id"])),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            url="https://example.com/prices",
+            known_digest=known,
+            name="Price list",
+        )
+
+    assert await _check() is True
+    assert await _check() is False, "the same change was submitted for review a second time"
+    page = b"<html><body>Thali 200</body></html>"
+    assert await _check() is True, "a genuinely new change must still be submitted"
+
+    async with tenant_session(tenant_id) as session:
+        versions = (
+            await session.execute(
+                text(
+                    "SELECT version, status FROM kb_sources "
+                    "WHERE agent_id = :a AND name = 'Price list' ORDER BY version"
+                ),
+                {"a": agent_id},
+            )
+        ).all()
+    assert [(v[0], v[1]) for v in versions] == [
+        (1, "approved"),
+        (2, "pending_approval"),
+        (3, "pending_approval"),
+    ]
+
+
 # --- 6. Deletion ---------------------------------------------------------------------
 
 
