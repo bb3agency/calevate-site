@@ -55,7 +55,7 @@ from tests.worker_api_harness import (
 from voice_worker.api_client import WorkerApiClient, WorkerApiError
 from voice_worker.call_tools import CallToolApiClient
 from voice_worker.meter import (
-    UNIT_STT_S,
+    UNIT_STT_MIN,
     CallMeter,
     CarrierFactsMissingError,
     MeteredCall,
@@ -168,8 +168,8 @@ class _MeasuredEverythingButTheCarrier:
             rows=(
                 UsageRow(
                     leg=MeteredLeg.STT,
-                    unit_type=UNIT_STT_S,
-                    qty=Decimal("60"),
+                    unit_type=UNIT_STT_MIN,
+                    qty=Decimal("1"),
                     meta={"reports": "3"},
                 ),
             ),
@@ -537,7 +537,7 @@ async def test_the_legs_we_measured_settle_beside_the_leg_nobody_witnessed(
                 {"c": row_id},
             )
         ).all()
-    assert [(unit, qty) for unit, qty in usage] == [(UNIT_STT_S, Decimal("60.0000"))]
+    assert [(unit, qty) for unit, qty in usage] == [(UNIT_STT_MIN, Decimal("1.0000"))]
     assert refusals == [("carrier", "meter_carrier_cdr_missing")]
 
 
@@ -561,7 +561,7 @@ async def test_the_meter_a_production_call_builds_delivers_its_quantities_to_the
             kind=ServiceUsageKind.STT,
             processor="SarvamSTTService",
             timestamp=1.0,
-            audio_seconds=42.5,
+            audio_seconds=45.0,
         )
     )
     meter.observe(
@@ -592,10 +592,13 @@ async def test_the_meter_a_production_call_builds_delivers_its_quantities_to_the
         ).scalar_one()
         stt = (
             await db.execute(
-                text("SELECT qty FROM usage_events WHERE call_id = :c AND unit_type = :u"),
-                {"c": row_id, "u": UNIT_STT_S},
+                text(
+                    "SELECT qty, unit_cost_paid FROM usage_events "
+                    "WHERE call_id = :c AND unit_type = :u"
+                ),
+                {"c": row_id, "u": UNIT_STT_MIN},
             )
-        ).scalar_one_or_none()
+        ).one_or_none()
         codes = set(
             (
                 await db.execute(
@@ -604,7 +607,9 @@ async def test_the_meter_a_production_call_builds_delivers_its_quantities_to_the
                 )
             ).scalars()
         )
-    assert stt == Decimal("42.5000"), "the STT seconds this container measured never landed"
+    assert stt is not None, "the STT seconds this container measured never landed"
+    # 45 s is 0.75 min at ₹0.50/min: ₹0.375, exactly what ₹30/hour says 45 s costs.
+    assert tuple(stt) == (Decimal("0.7500"), Decimal("0.5000"))
     assert "meter_rate_card_missing" not in codes
 
 

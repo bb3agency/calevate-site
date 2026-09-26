@@ -65,6 +65,13 @@ COVERED_UNIT_TYPES = frozenset({"telephony_s", "platform_min", "stt_s", "tts_cha
 KCHARS_INDEX = "ux_usage_events_tenant_call_kchars"
 KCHARS_UNIT_TYPES = frozenset({"tts_kchars"})
 
+#: The THIRD partial unique index (c5e8a1f47b92): the STT leg per minute (D-638). Disjoint
+#: from the first for the kchars index's reason; `stt_s` stays inside the first index's
+#: frozen predicate, protecting the rows written before it, and is no longer written.
+STT_MIN_INDEX = "ux_usage_events_tenant_call_stt_min"
+STT_MIN_UNIT_TYPES = frozenset({"stt_min"})
+RETIRED_UNIT_TYPES = frozenset({"stt_s"})
+
 
 async def _index_definition(name: str = INDEX) -> str:
     async with untenanted_session() as session:
@@ -280,6 +287,8 @@ async def test_the_index_covers_exactly_the_unit_types_the_metering_path_writes(
     in_index = {unit for unit in UNIT_TYPES if f"'{unit}'" in definition}
     kchars_definition = await _index_definition(KCHARS_INDEX)
     in_kchars = {unit for unit in UNIT_TYPES if f"'{unit}'" in kchars_definition}
+    stt_min_definition = await _index_definition(STT_MIN_INDEX)
+    in_stt_min = {unit for unit in UNIT_TYPES if f"'{unit}'" in stt_min_definition}
 
     assert in_index == COVERED_UNIT_TYPES, (
         f"the live index covers {sorted(in_index)}, and this file expects "
@@ -290,17 +299,23 @@ async def test_the_index_covers_exactly_the_unit_types_the_metering_path_writes(
         f"{sorted(KCHARS_UNIT_TYPES)} — the two predicates must stay disjoint, or one leg "
         "is covered twice and another not at all"
     )
+    assert in_stt_min == STT_MIN_UNIT_TYPES, (
+        f"{STT_MIN_INDEX} covers {sorted(in_stt_min)}, and this file expects "
+        f"{sorted(STT_MIN_UNIT_TYPES)}"
+    )
     assert not (COVERED_UNIT_TYPES & KCHARS_UNIT_TYPES), (
         "the two partial indexes overlap: a row matching both predicates is keyed twice, "
         "which is not wrong but means one of them is no longer the key anybody reads"
     )
-    assert written == COVERED_UNIT_TYPES | KCHARS_UNIT_TYPES, (
-        f"the metering path writes {sorted(written)} but the two partial indexes cover "
-        f"{sorted(COVERED_UNIT_TYPES | KCHARS_UNIT_TYPES)}.\n"
+    assert not ((COVERED_UNIT_TYPES | KCHARS_UNIT_TYPES) & STT_MIN_UNIT_TYPES)
+    protected = (COVERED_UNIT_TYPES - RETIRED_UNIT_TYPES) | KCHARS_UNIT_TYPES | STT_MIN_UNIT_TYPES
+    assert written == protected, (
+        f"the metering path writes {sorted(written)} but the partial indexes cover "
+        f"{sorted(protected)} (less the retired {sorted(RETIRED_UNIT_TYPES)}).\n"
         f"  metered but unprotected: "
-        f"{sorted(written - COVERED_UNIT_TYPES - KCHARS_UNIT_TYPES)}\n"
+        f"{sorted(written - protected)}\n"
         f"  protected but unwritten: "
-        f"{sorted((COVERED_UNIT_TYPES | KCHARS_UNIT_TYPES) - written)}\n"
+        f"{sorted(protected - written)}\n"
         "A metered unit with no key is a leg that can be billed twice; widening the key "
         "needs a new migration, because a partial index cannot be altered in place."
     )
@@ -452,3 +467,18 @@ async def test_a_cartesia_call_can_carry_both_tts_units_once_each() -> None:
         await _meter_row(tenant_id, call_id, "tts_chars")
     with pytest.raises(IntegrityError):
         await _meter_row(tenant_id, call_id, "tts_kchars")
+
+
+async def test_the_stt_leg_per_minute_is_admitted_and_keyed_once_per_call() -> None:
+    """`stt_min` (D-638) is accepted by the CHECK, is refused a second time for one call by
+    its own key, and coexists with a legacy `stt_s` row — the two are different units, and
+    the append-only ledger keeps every `stt_s` row written before the change."""
+    tenant_id, agent_id = await _tenant()
+    call_id = await _call(tenant_id, agent_id)
+
+    await _meter_row(tenant_id, call_id, "stt_s")
+    await _meter_row(tenant_id, call_id, "stt_min")
+
+    with pytest.raises(IntegrityError) as caught:
+        await _meter_row(tenant_id, call_id, "stt_min")
+    assert STT_MIN_INDEX in str(caught.value), f"refused by something else: {caught.value}"

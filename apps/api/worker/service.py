@@ -76,7 +76,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.config_versions import record_attestation
 from apps.api.billing.rates import (
     llm_inr_per_ktok,
-    stt_rate_inr_per_second,
+    stt_rate_inr_per_minute,
     tts_rate_inr_per_char,
 )
 from apps.api.core.alerting import alert
@@ -1101,10 +1101,27 @@ def _price(
     return tuple(priced), tuple(unpriced)
 
 
+#: Seconds per minute, for re-expressing a legacy `stt_s` quantity in `stt_min`.
+_SECONDS_PER_MINUTE: Final = Decimal(60)
+
+
 def _price_one(quantity: MeteredQuantity) -> _Priced:
     unit = quantity.unit_type
+    if unit == "stt_min":
+        # Per MINUTE because the per-second Saaras rate (₹0.008333…) does not survive
+        # NUMERIC(12,4); `billing/models.py` argues the quantum at the column (D-638).
+        return _Priced(unit, quantity.qty, stt_rate_inr_per_minute(), dict(quantity.meta))
     if unit == "stt_s":
-        return _Priced(unit, quantity.qty, stt_rate_inr_per_second(), dict(quantity.meta))
+        # A worker image older than D-638 still reports seconds, and the worker deploys
+        # independently of this API. Refusing it would discard a leg we can price; writing
+        # it as `stt_s` would store the lossy per-second rate. So it is re-expressed in the
+        # ledger unit, and the measurement it arrived as is kept on the row.
+        return _Priced(
+            "stt_min",
+            quantity.qty / _SECONDS_PER_MINUTE,
+            stt_rate_inr_per_minute(),
+            {**dict(quantity.meta), "audio_seconds": str(quantity.qty)},
+        )
     if unit == "tts_kchars":
         # Per THOUSAND characters, because `unit_cost_paid` is NUMERIC(12,4) and a per-
         # character rate of ₹0.0034496 stores as 0.0034 — 1.4% light on every call.
@@ -1422,7 +1439,7 @@ async def remeter(demand: RemeterDemand) -> str:
 
     **WHAT STOPS A DOUBLE BILL IS THE DATABASE, NOT THIS FUNCTION.** `usage_events` carries
     a unique index on `(tenant_id, call_id, unit_type)` for every unit type this path can
-    write — `ux_usage_events_tenant_call_unit` (`stt_s`, migration `b8d3f47c2a19`),
+    write — `ux_usage_events_tenant_call_stt_min` (`stt_min`, migration `c5e8a1f47b92`),
     `ux_usage_events_tenant_call_ktok` (`llm_ktok_in`/`out`, `a3f1c6e82d47`) and
     `ux_usage_events_tenant_call_kchars` (`tts_kchars`, `a3c62f8b4d19`) — and
     `_INSERT_USAGE_SQL` ends `ON CONFLICT DO NOTHING`, with no conflict target, so it

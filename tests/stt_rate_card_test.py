@@ -36,14 +36,12 @@ def test_the_stt_rate_is_one_numeric_scalar() -> None:
 
 
 def test_the_two_spellings_of_the_rate_are_exactly_one_rate() -> None:
-    """₹30/hour is ₹0.50/minute and ₹0.008333…/second, and the per-minute figure is
-    DERIVED — there is no second constant that could disagree with the first."""
+    """₹30/hour is ₹0.50/minute, and the per-minute figure is DERIVED — there is no second
+    constant that could disagree with the first. It is also the ledger rate for `stt_min`
+    rows, so it must hold at NUMERIC(12,4) with nothing rounded away (D-638)."""
     assert rates.stt_rate_inr_per_minute() == Decimal("0.5")
     assert rates.stt_rate_inr_per_minute() * 60 == rates.STT_INR_PER_HOUR
-    assert rates.stt_rate_inr_per_second() * 60 == rates.stt_rate_inr_per_minute()
-    # Unquantized on purpose: the per-second rate has no exact 4-decimal rupee, and
-    # rounding it here would round twice for every caller.
-    assert rates.stt_rate_inr_per_second() != rates.stt_rate_inr_per_second().quantize(
+    assert rates.stt_rate_inr_per_minute() == rates.stt_rate_inr_per_minute().quantize(
         rates.MONEY_Q, rounding=rates.ROUNDING
     )
 
@@ -54,6 +52,8 @@ def test_stt_cost_takes_seconds_and_prices_round_inputs_exactly() -> None:
     assert rates.stt_cost_inr(3600) == Decimal("30.0000")
     assert rates.stt_cost_inr(60) == Decimal("0.5000")
     assert rates.stt_cost_inr(600) == Decimal("5.0000")
+    # 7 s is ₹0.058333…: exact arithmetic, one rounding at the end.
+    assert rates.stt_cost_inr(7) == Decimal("0.0583")
     assert isinstance(rates.stt_cost_inr(60), Decimal)
 
 

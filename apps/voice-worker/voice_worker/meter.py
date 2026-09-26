@@ -79,7 +79,7 @@ __all__ = [
     "UNIT_LLM_KTOK_IN",
     "UNIT_LLM_KTOK_OUT",
     "UNIT_PLATFORM_MIN",
-    "UNIT_STT_S",
+    "UNIT_STT_MIN",
     "UNIT_TELEPHONY_S",
     "UNIT_TTS_KCHARS",
     "CallMeter",
@@ -150,12 +150,15 @@ assert {leg.value for leg in MeteredLeg} == METERED_LEGS, (
 # takes the same answer rather than a fourth one.
 UNIT_TELEPHONY_S = "telephony_s"
 UNIT_PLATFORM_MIN = "platform_min"
-UNIT_STT_S = "stt_s"
+#: Per MINUTE of audio rather than per second, for the reason the block above gives for
+#: the `k` units (D-638): the Saaras rate is ₹0.008333… a second, stored as 0.0083.
+UNIT_STT_MIN = "stt_min"
 UNIT_TTS_KCHARS = "tts_kchars"
 UNIT_LLM_KTOK_IN = "llm_ktok_in"
 UNIT_LLM_KTOK_OUT = "llm_ktok_out"
 
 _PER_THOUSAND = Decimal(1000)
+_SECONDS_PER_MINUTE = Decimal(60)
 
 
 # --- refusals -------------------------------------------------------------------------
@@ -729,12 +732,13 @@ class CallMeter:
         return [
             UsageRow(
                 leg=MeteredLeg.STT,
-                unit_type=UNIT_STT_S,
-                qty=self._stt_audio_seconds,
+                unit_type=UNIT_STT_MIN,
+                qty=self._stt_audio_seconds / _SECONDS_PER_MINUTE,
                 meta={
                     "source": "pipecat:STTUsage.audio_seconds",
                     "processors": ",".join(sorted(self._stt_processors)),
                     "reports": str(self._stt_reports),
+                    "audio_seconds": str(self._stt_audio_seconds),
                 },
             )
         ]

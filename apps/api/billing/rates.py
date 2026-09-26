@@ -286,7 +286,7 @@ ROUNDING = ROUND_HALF_UP
 #
 # `unit_cost_paid` is `NUMERIC(12,4)`, so the smallest non-zero figure it holds is
 # ₹0.0001 per unit of `qty` and every rate struck finer than that is rounded ON THE WAY
-# IN. This repository has already answered that question three times, each time the same
+# IN. This repository has already answered that question four times, each time the same
 # way and each time in a comment rather than in code:
 #
 #   * `ai_assist_ktok_*` — per THOUSAND tokens, because `gpt-4o-mini` input is ₹0.0000143
@@ -296,13 +296,15 @@ ROUNDING = ROUND_HALF_UP
 #     (billing/models.py, D-547).
 #   * `llm_ktok_*` — per THOUSAND tokens, for the first of those reasons on the owned
 #     runtime's leg (`apps/voice-worker/voice_worker/meter.py`, D-592).
+#   * `stt_min` — per MINUTE of audio, because the Saaras card is ₹0.008333… a second and
+#     a per-second rate meters our own STT cost 0.4% light (billing/models.py, D-638).
 #
 # THE HOUSE PATTERN IS THEREFORE *SCALE THE UNIT UNTIL THE RATE FITS*, not widen the
 # column. It is the right pattern and it stays: `usage_events` is append-only under hard
 # rule 4, so a scale change is a migration against frozen history that re-reads every
 # closed month, and it would buy nothing the `k`-prefix has not already bought.
 #
-# WHAT WAS MISSING IS THE CHECK. Each of those three decisions was made by a human doing
+# WHAT WAS MISSING IS THE CHECK. Each of those decisions was made by a human doing
 # the arithmetic by hand at the moment a unit was invented, and nothing re-does it when a
 # rate MOVES underneath a unit that already exists. The live path for that is not
 # hypothetical: `platform_tts_prices.inr_per_1k_chars` and `platform_model_prices
@@ -1126,28 +1128,18 @@ def tts_inr_per_call_minute(chars_per_call_minute: Decimal) -> Decimal:
     )
 
 
-def stt_rate_inr_per_second() -> Decimal:
-    """Exact, unquantized: ₹30/hour is ₹0.008333… per second and no 4-decimal rupee holds
-    it. Callers multiply by a duration and quantize ONCE — the same contract
-    `value_rung_tts_inr_per_char` above has with its callers, for the same reason.
-
-    **PER SECOND, because that is the unit a call's duration exists in everywhere in this
-    codebase**: `ExecutionSnapshot.duration_s`, `workers/pipeline.py::_billable_seconds`,
-    the `stt_s` usage rows it writes, `agents/models.py::CALL_CAP_MAX_S`. A per-minute
-    signature would push `duration_s / 60` onto every caller — a lossy division done N
-    times in place of an exact multiplication done once, and the arithmetic this module
-    exists to keep out of the rest of the tree.
-    """
-    return STT_INR_PER_HOUR / _SECONDS_PER_HOUR
-
-
 def stt_rate_inr_per_minute() -> Decimal:
-    """The same rate in TRD §10.1's other spelling (₹0.50/min), DERIVED and never restated.
+    """The Saaras rate per minute of audio: the ledger rate for `stt_min` rows, and TRD
+    §10.1's ₹0.50/min cell, DERIVED from `STT_INR_PER_HOUR` and never restated.
 
-    Exact and unquantized for `stt_rate_inr_per_second`'s reason. This exists so the doc's
-    per-minute cell has something in code to be diffed against
-    (`scripts/check_docs_drift.py` §4d) without a second constant that could disagree with
-    the first.
+    **PER MINUTE AND NOT PER SECOND, because this figure lands in `unit_cost_paid`**
+    (`worker/service._price_one`). ₹30/hour is ₹0.008333… a second, which NUMERIC(12,4)
+    stores as 0.0083 — 0.4% light on every STT second of every call. Per minute it is
+    ₹0.5000 exactly (`billing/models.py` at `stt_min`, D-638).
+
+    Unquantized: the column's INSERT is the one rounding, and handing back a rounded figure
+    here would make this a second rounding site. `scripts/check_docs_drift.py` §4d diffs
+    the doc's per-minute cell against this function.
     """
     return STT_INR_PER_HOUR / _MINUTES_PER_HOUR
 
@@ -1157,10 +1149,12 @@ def stt_cost_inr(duration_s: int) -> Decimal:
 
     ⚠ **A MODEL FIGURE, NEVER A BILL — and unlike the TTS half this leg HAS a real
     counterpart on the ledger, so the distinction is sharper here than it is one function
-    up.** What reaches `usage_events.unit_cost_paid` for STT is the ENGINE's own reported
-    per-leg cost: `CostBreakdown.stt_inr` (`engine/bolna.py::_cost`, `leg("transcriber")`),
-    divided by the call's billable seconds in `workers/pipeline.py::_meter` to make a price
-    per unit of `qty`. Nothing on that path consults this function and nothing may: the
+    up.** What reaches `usage_events.unit_cost_paid` for STT on a rented-engine call is the
+    ENGINE's own reported per-leg cost: `CostBreakdown.stt_inr` (`engine/bolna.py::_cost`,
+    `leg("transcriber")`), divided by the call's billable minutes in
+    `workers/pipeline.py::_meter` to make a price per unit of `qty` (on the owned runtime,
+    which holds its own Sarvam account, the ledger rate is `stt_rate_inr_per_minute`).
+    Nothing on the engine path consults this function and nothing may: the
     engine rents its own Sarvam account, so what IT charges us is a fact about ITS invoice,
     while this card is a fact about Sarvam's list. Two numbers with two meanings — "what we
     pay" and "what the vendor lists" — and they are never the same variable again, which is
@@ -1184,7 +1178,8 @@ def stt_cost_inr(duration_s: int) -> Decimal:
     """
     if duration_s < 0:
         raise ValueError("audio duration cannot be negative")
-    return (stt_rate_inr_per_second() * Decimal(duration_s)).quantize(MONEY_Q, rounding=ROUNDING)
+    exact = STT_INR_PER_HOUR * Decimal(duration_s) / _SECONDS_PER_HOUR
+    return exact.quantize(MONEY_Q, rounding=ROUNDING)
 
 
 # --- THE TELEPHONY LEG: COSTABLE, AND IN NEITHER FLOOR ----------------------------------
@@ -1407,9 +1402,9 @@ def telephony_cost_inr(
     named, because the pulse rounds every call up to the next 30 seconds. A 10-second call
     costs a 30-second call's money.
 
-    Seconds in, for `stt_rate_inr_per_second`'s reason: `duration_s` is the unit a call's
-    length exists in everywhere in this tree, and a per-minute signature would push a lossy
-    `duration_s / 60` onto every caller.
+    Seconds in, because `duration_s` is the unit a call's length exists in everywhere in
+    this tree, and a per-minute signature would push a lossy `duration_s / 60` onto every
+    caller.
     """
     return _telephony_cost_inr_exact(duration_s, leg=leg, direction=direction).quantize(
         MONEY_Q, rounding=ROUNDING
@@ -3115,7 +3110,6 @@ __all__ = [
     "stored_voice_tier",
     "stt_cost_inr",
     "stt_rate_inr_per_minute",
-    "stt_rate_inr_per_second",
     "surchargeable_models_are_dearer",
     "telephony_addon_inr_per_min",
     "telephony_addons_inr_per_min",

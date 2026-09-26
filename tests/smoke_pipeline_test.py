@@ -234,7 +234,7 @@ async def test_inbound_call_becomes_a_lead_with_extracted_fields() -> None:
     assert extraction[2] == 1, "the schema version at extraction time is recorded"
 
     assert usage, "a completed call must be metered"
-    assert {u[0] for u in usage} >= {"telephony_s", "platform_min", "stt_s"}
+    assert {u[0] for u in usage} >= {"telephony_s", "platform_min", "stt_min"}
     assert all(cost is None or cost >= 0 for _, cost in usage)
 
     assert recording and recording.startswith("recordings/"), "our storage key, not the engine URL"
