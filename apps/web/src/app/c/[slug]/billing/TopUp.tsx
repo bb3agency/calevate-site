@@ -25,6 +25,7 @@ import {
   type TopUpIntent,
 } from "@/lib/api/billing";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit } from "@/lib/api/wallet";
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
 import type { ApiProblem, Session } from "@/lib/api/client";
 
@@ -86,6 +87,10 @@ export function TopUp({ session }: { session: Session }) {
   const packs = useCreditPacks(session);
   const confirm = useConfirmTopUp(session);
   const [stage, setStage] = useState<Stage>({ at: "idle" });
+  const creditLanded = useCreditLanding(
+    session,
+    stage.at === "verified" ? stage.awaited : null,
+  );
   // Which control the in-flight intent belongs to, so only the pack the client clicked
   // (or the custom row) shows its spinner — never every button at once.
   const [pending, setPending] = useState<string | null>(null);
@@ -125,7 +130,11 @@ export function TopUp({ session }: { session: Session }) {
         // Unconditional, and above the guards below on purpose: a payment exists.
         setStage({ at: "verifying" });
         confirm.mutate(response, {
-          onSuccess: () => setStage({ at: "verified" }),
+          onSuccess: () =>
+            setStage({
+              at: "verified",
+              awaited: { receipt: order.receipt, until: Date.now() + CREDIT_WAIT_MS },
+            }),
           onError: () => setStage({ at: "unverified" }),
         });
       },
@@ -223,11 +232,15 @@ export function TopUp({ session }: { session: Session }) {
           card to find out whether it worked. */}
       {stage.at === "verified" && (
         <NoticeBox tone="ok" title="Payment received">
-          <p>
-            We have confirmed this payment with the provider. Your balance updates as soon
-            as the payment provider confirms it to us — usually within a minute. Nothing
-            else is needed from you.
-          </p>
+          {creditLanded ? (
+            <p role="status">The credit has been added to your balance.</p>
+          ) : (
+            <p>
+              We have confirmed this payment with the provider. Your balance updates as
+              soon as the payment provider confirms it to us — usually within a minute.
+              Nothing else is needed from you.
+            </p>
+          )}
         </NoticeBox>
       )}
 
@@ -434,7 +447,7 @@ type Stage =
   | { at: "opening" }
   | { at: "open" }
   | { at: "verifying" }
-  | { at: "verified" }
+  | { at: "verified"; awaited: AwaitedCredit }
   | { at: "unverified" }
   | { at: "failed" }
   | { at: "blocked"; problem: ApiProblem };

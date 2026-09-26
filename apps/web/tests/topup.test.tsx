@@ -1,8 +1,8 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/lib/api/client";
-import type { Wallet } from "@/lib/api/wallet";
+import { CREDIT_POLL_MS, type Wallet } from "@/lib/api/wallet";
 import { RAZORPAY_CHECKOUT_SRC } from "@/lib/razorpayCheckout";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -739,6 +739,66 @@ describe("the payment window", () => {
 
     // Prefill nothing we were not given: no email, no phone, no name of a person.
     expect(Object.keys(options)).not.toContain("prefill");
+  });
+
+  it("keeps looking until the webhook's credit lands, then re-reads what it moved", async () => {
+    // The callback credits nothing; the webhook does, after it. The refetch made on the
+    // callback therefore read the state from before the credit, and nothing re-read it
+    // while the client stayed on the page: "Payment received" sat above the same payment
+    // listed as "Still settling", and the balance and the credit lots never moved.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let phase: "before" | "paid" | "credited" = "before";
+      const opened = stubRazorpay();
+      const { calls } = await renderBillingHub(
+        routes({
+          [ATTEMPTS]: () =>
+            phase === "before"
+              ? []
+              : [
+                  {
+                    id: "0192f0aa-1111-7000-8000-000000000001",
+                    receipt: ORDER_INTENT.receipt,
+                    amount_inr: "2500.10",
+                    pack_id: null,
+                    outcome: phase === "credited" ? "captured" : "settling",
+                    started_at: "2026-09-26T04:00:00Z",
+                  },
+                ],
+          [INTENT]: ORDER_INTENT,
+          [CALLBACK]: {
+            verified: true,
+            payment_id: CHECKOUT_RESPONSE.razorpay_payment_id,
+            order_id: CHECKOUT_RESPONSE.razorpay_order_id,
+            credit_pending: true,
+          },
+        }),
+        "Credits",
+      );
+
+      await payCustomAmount();
+      await waitFor(() => expect(opened).toHaveLength(1));
+      phase = "paid";
+      await act(async () => {
+        opened[0].options.handler(CHECKOUT_RESPONSE);
+      });
+      await screen.findByText("Payment received");
+      expect(await screen.findByText("Still settling")).toBeTruthy();
+      const walletReadsBefore = calls.filter((c) => c.path === WALLET).length;
+
+      phase = "credited";
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CREDIT_POLL_MS);
+      });
+
+      expect(await screen.findByText("The credit has been added to your balance.")).toBeTruthy();
+      await waitFor(() => expect(screen.queryByText("Still settling")).toBeNull());
+      await waitFor(() =>
+        expect(calls.filter((c) => c.path === WALLET).length).toBeGreaterThan(walletReadsBefore),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("posts exactly the three signature fields and never asserts a balance itself", async () => {
