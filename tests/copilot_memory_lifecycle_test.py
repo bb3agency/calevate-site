@@ -458,6 +458,15 @@ async def test_a_later_group_failing_does_not_unrecord_a_group_already_paid_for(
     }, "the paid group is done; the refused one is left for the next tick"
     assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 1
     assert int(metered) > 0, "the model call that was paid for is on the ledger"
+    # Settle the refused group: the tick sweeps every tenant on the worklist, and a group
+    # left undistilled would spend the next test's tick budget.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE copilot_memories SET distilled_at = now() "
+                "WHERE kind = 'episodic' AND distilled_at IS NULL"
+            )
+        )
 
 
 async def test_the_job_meters_what_it_spent(stub_provider: Any) -> None:
