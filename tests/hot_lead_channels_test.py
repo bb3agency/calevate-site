@@ -153,6 +153,7 @@ class _EmailTransport:
         self.delivered = delivered
         self.attempts = 0
         self.bodies: list[str] = []
+        self.htmls: list[str | None] = []
 
     def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         # `html` accepted because `transport.Transport` declares it (the branded
@@ -161,6 +162,7 @@ class _EmailTransport:
         # `tests/auth_email_delivery_test` exists to catch.
         self.attempts += 1
         self.bodies.append(body)
+        self.htmls.append(html)
         return self.delivered
 
 
@@ -653,3 +655,50 @@ async def test_the_alert_email_masks_the_number_and_links_to_the_screen_that_doe
         "a masked number with no way through to the real one is an obstruction, not a "
         f"control: {body}"
     )
+
+
+# A hostile value for a free-text field the alert carries: a blank line, then a URL on a
+# line of its own. `email_render.from_text` turns a paragraph that is exactly one URL into
+# the email's button, so this is the shape that would decide where that button points.
+_PLANTED_URL = "https://calevate-verify.example/login"
+_HOSTILE = f"Ravi\n\n{_PLANTED_URL}\n\nThank you"
+
+
+@pytest.mark.parametrize("field", ["name", "summary"])
+async def test_text_a_caller_controls_cannot_become_the_alert_button(
+    monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """The lead's name arrives from a public form or the caller's own words, and the
+    summary is a model's paraphrase of what the caller said. Neither may decide the
+    structure of the branded email: its one button opens the lead's screen, and a URL
+    somebody typed or spoke is text, never a link we render on their behalf."""
+    payload = await _hot_lead(f"inject{field}")
+    tenant_id = UUID(payload["tenant_id"])
+    async with tenant_session(tenant_id) as session:
+        if field == "name":
+            await session.execute(
+                text("UPDATE leads SET name = :v WHERE id = :lid"),
+                {"v": _HOSTILE, "lid": UUID(payload["lead_id"])},
+            )
+        else:
+            await session.execute(
+                text("UPDATE calls SET summary = :v WHERE id = :cid"),
+                {"v": _HOSTILE, "cid": UUID(payload["call_id"])},
+            )
+        slug = (
+            await session.execute(
+                text("SELECT slug FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            )
+        ).scalar_one()
+
+    transport = _email(monkeypatch, delivered=True)
+    assert await notifications.notify_hot_lead({"job_try": 1}, payload) == "sent"
+
+    (html,) = transport.htmls
+    assert html is not None
+    # Anti-vacuity: the hostile text did reach the email, as text.
+    assert _PLANTED_URL in html
+    assert f'href="{_PLANTED_URL}' not in html, "a planted URL became a link in our email"
+    lead_url = f"{notifications.CONSOLE_BASE}/c/{slug}/leads/{payload['lead_id']}"
+    assert f'href="{lead_url}"' in html, "the alert's one button must open the lead"
+    assert html.count("href=") == 1, "the alert renders exactly one link: the lead's"

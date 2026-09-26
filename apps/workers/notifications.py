@@ -365,19 +365,37 @@ def _compose(
     lines = [
         f"A lead was marked {status} by your AI receptionist.",
         "",
-        f"Name: {name or 'not captured'}",
+        f"Name: {_one_line(name) or 'not captured'}",
         f"Phone: {masked}",
     ]
     if triggers:
         lines.append(f"Triggered by: {', '.join(triggers)}")
-    if summary:
-        lines += ["", "Call summary:", redact(summary).text]
+    spoken = _without_blank_lines(redact(summary).text) if summary else ""
+    if spoken:
+        lines += ["", "Call summary:", spoken]
     lines += [
         "",
         "Open the lead to see the full number and call back:",
+        # Its own paragraph, so `from_text` renders it as the email's button.
+        "",
         f"{CONSOLE_BASE}/c/{slug}/leads/{lead_id}",
     ]
     return "\n".join(lines)
+
+
+# `email_render.from_text` reads STRUCTURE out of this text: a blank line starts a
+# paragraph, and a paragraph that is exactly one URL becomes the email's button. The name
+# (a public form, or what the caller said) and the summary (a model's paraphrase of the
+# call) are untrusted, so neither may contain a blank line — otherwise "Ravi\n\nhttps://…"
+# makes a stranger's URL the branded "Open the lead" button above the real one.
+
+
+def _one_line(value: str | None) -> str:
+    return " ".join((value or "").split())
+
+
+def _without_blank_lines(value: str) -> str:
+    return "\n".join(line for line in value.splitlines() if line.strip())
 
 
 async def _send_email(to: str, subject: str, body: str) -> bool:
