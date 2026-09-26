@@ -254,7 +254,7 @@ class InviteOut(BaseModel):
     # yet — that is what the invitation is FOR).
     id: UUID
     #: WAS `token: str`, and its removal is the point of D-198 — the same removal D-190
-    #: made on the client realm's `POST /v1/tenants/invitations`, which this route is the
+    #: made on the client realm's `POST /v1/invitations`, which this route is the
     #: twin of and which it was left behind by.
     #:
     #: This handed the raw invitation token back to the OPERATOR and mailed nothing, so the

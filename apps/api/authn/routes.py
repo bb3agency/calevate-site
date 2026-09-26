@@ -677,7 +677,7 @@ def _realm_router(realm: str) -> APIRouter:
             """
             _require_enabled()
             enforce_same_origin(request)
-            await service.request_step_up(verified=verified)
+            await service.request_step_up(verified=verified, ip=client_request_ip(request))
             return Response(status_code=202)
 
         @router.post(

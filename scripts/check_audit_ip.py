@@ -50,7 +50,10 @@ The three:
    and must not invent one — `campaigns/scheduling.py` says exactly that where it audits a
    launch nobody was at the keyboard for. Those stay exempt BY CONSTRUCTION rather than by
    an allowlist somebody has to maintain, so the exemption cannot be claimed by a handler
-   that just forgot the argument.
+   that just forgot the argument. A person is named by `actor_type=` too (every
+   authentication event is written before a `Principal` exists), and `ip=None` is not an
+   address — so outside test modules, no call may pass a literal `ip=None` at all, which
+   is how a wrapper that forwards `ip=ip` was fed nothing one frame up.
 
 **BOTH SPELLINGS OF THE PEER READ, which is what this check missed when it shipped.** Its
 own rationale is that the next author will write it differently, and a different spelling
@@ -187,13 +190,64 @@ def _human_actor_audits_without_ip(tree: ast.AST) -> list[tuple[int, str | None]
             continue
         assert isinstance(node, ast.Call)
         keywords = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg}
-        actor = keywords.get("actor")
-        if actor is None or (isinstance(actor, ast.Constant) and actor.value is None):
+        if not _names_a_person(keywords):
             continue
-        if "ip" in keywords:
+        address = keywords.get("ip")
+        if address is not None and not _is_none(address):
             continue
         found.append((node.lineno, enclosing.get(id(node))))
     return found
+
+
+def _is_none(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
+
+
+def _names_a_person(keywords: dict[str, ast.expr]) -> bool:
+    """Does this `write_audit` call say a PERSON acted?
+
+    Either spelling says so. `actor=<principal>` is the route-handler shape; `actor_type=`
+    with no principal is the shape of every authentication event, the self-serve signup,
+    the invitation accept and the operator bootstrap — rows written before a `Principal`
+    exists, which name a user or an admin all the same. Only `actor_type="system"` (or no
+    actor at all) is the scheduler; any other `actor_type`, including one computed at run
+    time, is a person until proven otherwise.
+    """
+    actor = keywords.get("actor")
+    if actor is not None and not _is_none(actor):
+        return True
+    actor_type = keywords.get("actor_type")
+    if actor_type is None:
+        return False
+    return not (isinstance(actor_type, ast.Constant) and actor_type.value == "system")
+
+
+def _discarded_addresses(tree: ast.AST) -> list[tuple[int, str | None]]:
+    """Calls that pass `ip=None` as a literal — an address thrown away one frame up.
+
+    Check 3 inspects `write_audit` itself, so a wrapper that forwards `ip=ip` passes it,
+    and the caller that handed the wrapper `None` was invisible: `authn/service.
+    request_step_up` did exactly that, so every `auth.step_up_requested` row recorded no
+    address although its route held the request. A system caller with no address OMITS
+    the argument (`write_audit`'s default); spelling `None` out in production code is
+    what a caller that had a request and dropped it looks like.
+    """
+    enclosing: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call):
+                    enclosing[id(child)] = node.name
+    return [
+        (node.lineno, enclosing.get(id(node)))
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and any(k.arg == "ip" and _is_none(k.value) for k in node.keywords)
+    ]
+
+
+def _is_test_module(path: Path) -> bool:
+    return path.name.endswith("_test.py") or path.name.startswith("test_")
 
 
 def _is_write_audit(node: ast.AST) -> bool:
@@ -219,10 +273,8 @@ def _human_actor_audit_count(tree: ast.AST) -> int:
         if not _is_write_audit(node):
             continue
         assert isinstance(node, ast.Call)
-        actor = next((k.value for k in node.keywords if k.arg == "actor"), None)
-        if actor is None or (isinstance(actor, ast.Constant) and actor.value is None):
-            continue
-        total += 1
+        if _names_a_person({k.arg: k.value for k in node.keywords if k.arg}):
+            total += 1
     return total
 
 
@@ -250,6 +302,17 @@ def main() -> int:
                 f"if nobody was at the keyboard say so with `actor=None, "
                 f'actor_type="system"` (campaigns/scheduling.py is the worked example).'
             )
+
+        if not _is_test_module(path):
+            for lineno, function in _discarded_addresses(tree):
+                problems.append(
+                    f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno} passes `ip=None` in "
+                    f"`{function or '<module>'}`. An address that reaches an audit row is "
+                    f"either the caller's — `core.auth.{PERMITTED_FUNCTION}(request)`, "
+                    f"threaded down from the route — or absent because nobody was at the "
+                    f"keyboard, in which case omit the argument. A literal None is a request "
+                    f"that was in hand and dropped."
+                )
 
         for lineno, function in _peer_reads(tree):
             if function is not None and (path, function) in PERMITTED:

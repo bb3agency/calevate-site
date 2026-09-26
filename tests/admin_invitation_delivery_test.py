@@ -1,6 +1,6 @@
 """The admin realm's invitation stopped handing the operator a live credential (D-198).
 
-D-190 moved `POST /v1/tenants/invitations` — the CLIENT realm's invite — onto the mailer
+D-190 moved `POST /v1/invitations` — the CLIENT realm's invite — onto the mailer
 and deleted `token` from its response, because "the squat is possible for exactly as long
 as anyone but the invitee can see the token" (D-185). The onboarding wizard's twin,
 `POST /v1/admin/tenants/{tenant_id}/invitations`, was left behind: it still returned the

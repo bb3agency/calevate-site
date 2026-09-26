@@ -64,8 +64,9 @@ from typing import Any
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from arq import cron
+from arq import cron, func
 from arq.cron import CronJob
+from arq.worker import Function
 
 from apps.api.core.alert_admission import close_admission
 from apps.api.core.alerting import alert
@@ -317,6 +318,34 @@ FUNCTIONS: list[Any] = [
         # would stay unbillable while every screen said the settlement was complete.
         remeter_refused_leg,
     )
+]
+
+#: Jobs whose ARGUMENTS must not outlive the run. arq writes a finished job's args into
+#: `arq:result:<id>` for `keep_result` seconds (`arq.jobs.serialize_result`), and
+#: `deliver_auth_email`'s args are a live one-time credential — a reset token, an
+#: invitation or operator-setup link, an OTP — whose outbox copy is scrubbed at publish
+#: for exactly that reason. Keeping the result would hold it in Redis for an hour, the
+#: whole life of a reset link. What is given up is the result key's job-id dedupe after
+#: completion: a dispatch tick that enqueued and then died before committing re-sends the
+#: SAME message to the SAME mailbox, which is the cheaper failure.
+NO_RESULT_JOBS: frozenset[str] = frozenset({deliver_auth_email.__name__})
+
+
+def _resultless(job: Any) -> Function:
+    """`job` as an arq `Function` with `keep_result=0`, still answering to its name.
+
+    A per-job `keep_result` exists only on arq's `Function`, which carries `.name` but not
+    the `__name__`/`__qualname__` every other entry here has and every reader of this list
+    keys on (`check_job_wiring`, the registration tests). `Function` is a plain dataclass,
+    so the two names go on the instance rather than into a second registry shape.
+    """
+    registered = func(job, keep_result=0)
+    vars(registered).update(__name__=job.__name__, __qualname__=job.__qualname__)
+    return registered
+
+
+FUNCTIONS = [
+    _resultless(fn) if getattr(fn, "__name__", "") in NO_RESULT_JOBS else fn for fn in FUNCTIONS
 ]
 
 #: What each registered cron costs per tick, keyed by the arq job name.

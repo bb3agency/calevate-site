@@ -46,6 +46,17 @@ that CLAIMS to have created a policy:
    both tables, both verbs) while this gate printed OK. Migration b8e2d47f0c19 narrowed
    both to the strict form. An exempt table is now judged on that ONE question and only
    that one — see `_check_untenanted_write`.
+9. **objects that read a policied table WITHOUT the caller's policies applying.** Rules
+   1-8 prove every table isolates; none of them looks at what else can read those tables.
+   A view runs with its OWNER's privileges unless it is `security_invoker`, migrations run
+   as the owner role, and that role is a superuser here — which bypasses RLS even under
+   FORCE. So `CREATE VIEW lead_totals AS SELECT tenant_id, count(*) FROM leads GROUP BY 1`
+   in a migration hands every tenant session every tenant's rows (default privileges grant
+   the app role SELECT on it), while every table above still passes. Measured against the
+   live catalogue as `calevate_app`: `leads` showed one tenant, such a view showed 77, and
+   this gate printed OK. A materialized view carries no RLS at all, and a SECURITY DEFINER
+   function owned by an RLS-bypassing role is the same hole in procedural form. Each is
+   refused when it reads a policied or tenant-column table.
 
 Run: uv run python -m scripts.check_rls_coverage   (needs migrated DB; owner URL)
 """
@@ -65,7 +76,7 @@ from apps.api.db.registry import (
     Base,
 )
 from dotenv import load_dotenv
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Connection, Engine, create_engine, text
 
 from scripts.check_ledger_immutability import evaluate_triggers, fetch_triggers
 
@@ -145,6 +156,30 @@ _INLINE_PAYLOAD_TABLE_SQL = text(
     "AND a.attnum > 0 AND NOT a.attisdropped"
 )
 
+#: Views and materialized views in `public`, whether a view is `security_invoker`, and
+#: every relation its rewrite rule reads. `pg_depend` on the rule is the catalogue's own
+#: record of what the query touches, so no SQL text is parsed.
+_DERIVED_SQL = text(
+    "SELECT v.relname, v.relkind, coalesce(array_to_string(v.reloptions, ','), ''), "
+    "coalesce(array_agg(DISTINCT t.relname) FILTER (WHERE t.relname IS NOT NULL), '{}') "
+    "FROM pg_class v JOIN pg_namespace n ON n.oid = v.relnamespace "
+    "LEFT JOIN pg_rewrite r ON r.ev_class = v.oid "
+    "LEFT JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid "
+    "AND d.refclassid = 'pg_class'::regclass "
+    "LEFT JOIN pg_class t ON t.oid = d.refobjid AND t.oid <> v.oid "
+    "WHERE n.nspname = 'public' AND v.relkind IN ('v', 'm') "
+    "GROUP BY v.relname, v.relkind, v.reloptions"
+)
+
+#: SECURITY DEFINER functions in `public` whose owner bypasses RLS outright. A definer
+#: owned by an ordinary FORCE-subject owner still meets every policy (the GUCs are the
+#: session's), so only these can read past them.
+_DEFINER_SQL = text(
+    "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+    "JOIN pg_roles o ON o.oid = p.proowner "
+    "WHERE n.nspname = 'public' AND p.prosecdef AND (o.rolsuper OR o.rolbypassrls)"
+)
+
 _POLICY_SQL = text(
     "SELECT c.relname, p.polname, c.relrowsecurity, c.relforcerowsecurity, "
     "pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid), "
@@ -208,6 +243,21 @@ class PolicyFacts:
 
 
 @dataclass(frozen=True)
+class DerivedRelation:
+    """A view (`kind="v"`) or materialized view (`"m"`) and the relations it reads."""
+
+    name: str
+    kind: str
+    security_invoker: bool
+    reads: frozenset[str]
+
+
+def _security_invoker(reloptions: str) -> bool:
+    options = dict(option.split("=", 1) for option in reloptions.split(",") if "=" in option)
+    return options.get("security_invoker", "").lower() in ("true", "on", "yes", "1")
+
+
+@dataclass(frozen=True)
 class SchemaState:
     """Everything the evaluation needs, so the evaluation itself is pure and testable."""
 
@@ -232,6 +282,11 @@ class SchemaState:
     #: where an empty set makes 7c vacuous rather than wrong — the same contract as
     #: `object_ref_tables` above.
     inline_payload_tables: frozenset[str] = frozenset()
+    #: Views and materialized views, for rule 9. Defaulted empty for the synthetic states,
+    #: where that makes 9 vacuous rather than wrong.
+    derived_relations: tuple[DerivedRelation, ...] = ()
+    #: SECURITY DEFINER functions owned by an RLS-bypassing role, for rule 9.
+    rls_bypassing_definers: frozenset[str] = frozenset()
 
     def for_table(self, table: str) -> list[PolicyFacts]:
         return [p for p in self.policies if p.table == table]
@@ -239,30 +294,44 @@ class SchemaState:
 
 def fetch_state(engine: Engine) -> SchemaState:
     with engine.connect() as conn:
-        tenant_tables = {r[0] for r in conn.execute(_TENANT_COLUMN_SQL)}
-        all_tables = {r[0] for r in conn.execute(_ALL_TABLE_SQL)}
-        object_ref_tables = {
-            r[0] for r in conn.execute(_OBJECT_REF_TABLE_SQL, {"cols": list(_OBJECT_REF_COLUMNS)})
-        }
-        inline_payload_tables = {
-            r[0]
-            for r in conn.execute(
-                _INLINE_PAYLOAD_TABLE_SQL, {"cols": list(_INLINE_PAYLOAD_COLUMNS)}
-            )
-        }
-        policies = tuple(
-            PolicyFacts(
-                table=r[0],
-                name=r[1],
-                rls_enabled=bool(r[2]),
-                rls_forced=bool(r[3]),
-                using=r[4],
-                with_check=r[5],
-                cmd=str(r[6]),
-                permissive=bool(r[7]),
-            )
-            for r in conn.execute(_POLICY_SQL)
+        return read_state(conn)
+
+
+def read_state(conn: Connection) -> SchemaState:
+    """The catalogue as `conn` sees it — inside its transaction, so a test can create an
+    object, read the state and roll back without committing anything."""
+    tenant_tables = {r[0] for r in conn.execute(_TENANT_COLUMN_SQL)}
+    all_tables = {r[0] for r in conn.execute(_ALL_TABLE_SQL)}
+    object_ref_tables = {
+        r[0] for r in conn.execute(_OBJECT_REF_TABLE_SQL, {"cols": list(_OBJECT_REF_COLUMNS)})
+    }
+    inline_payload_tables = {
+        r[0]
+        for r in conn.execute(_INLINE_PAYLOAD_TABLE_SQL, {"cols": list(_INLINE_PAYLOAD_COLUMNS)})
+    }
+    policies = tuple(
+        PolicyFacts(
+            table=r[0],
+            name=r[1],
+            rls_enabled=bool(r[2]),
+            rls_forced=bool(r[3]),
+            using=r[4],
+            with_check=r[5],
+            cmd=str(r[6]),
+            permissive=bool(r[7]),
         )
+        for r in conn.execute(_POLICY_SQL)
+    )
+    derived = tuple(
+        DerivedRelation(
+            name=r[0],
+            kind=str(r[1]),
+            security_invoker=_security_invoker(str(r[2])),
+            reads=frozenset(r[3]),
+        )
+        for r in conn.execute(_DERIVED_SQL)
+    )
+    definers = frozenset(r[0] for r in conn.execute(_DEFINER_SQL))
     return SchemaState(
         tenant_column_tables=frozenset(tenant_tables),
         policies=policies,
@@ -270,7 +339,42 @@ def fetch_state(engine: Engine) -> SchemaState:
         all_tables=frozenset(all_tables),
         object_ref_tables=frozenset(object_ref_tables),
         inline_payload_tables=frozenset(inline_payload_tables),
+        derived_relations=derived,
+        rls_bypassing_definers=definers,
     )
+
+
+def _check_rls_bypassing_objects(state: SchemaState, failures: list[str]) -> None:
+    """Rule 9: nothing may read a guarded table with somebody else's privileges.
+
+    "Guarded" is every table carrying a policy or a `tenant_id`. A view over another view
+    is judged on the base tables its own rule names, not on the inner view: an owner-rights
+    view over a `security_invoker` view does NOT bypass (the inner view's base tables are
+    checked as the querying user), and an owner-rights inner view is reported on its own.
+    """
+    guarded = state.tenant_column_tables | {p.table for p in state.policies}
+    for derived in sorted(state.derived_relations, key=lambda d: d.name):
+        reached = sorted(derived.reads & guarded)
+        if not reached:
+            continue
+        if derived.kind == "m":
+            failures.append(
+                f"{derived.name}: MATERIALIZED VIEW over {reached} — a materialized view "
+                "carries no row-level security, so every session that may select it reads "
+                "every tenant's rows. Compute it per tenant into a policied table instead."
+            )
+        elif not derived.security_invoker:
+            failures.append(
+                f"{derived.name}: view over {reached} runs with its OWNER's privileges, and "
+                "the migration role bypasses RLS — every tenant session reads every "
+                "tenant's rows through it. Create it WITH (security_invoker = true)."
+            )
+    for function in sorted(state.rls_bypassing_definers):
+        failures.append(
+            f"{function}(): SECURITY DEFINER owned by a role that bypasses RLS — whatever "
+            "it reads, it reads across tenants on behalf of any caller who may execute it. "
+            "Make it SECURITY INVOKER, or own it by a role subject to the policies."
+        )
 
 
 def _check_isolated(table: str, policies: list[PolicyFacts], failures: list[str]) -> None:
@@ -406,6 +510,9 @@ def evaluate(
         failures.append(f"organizations: tenant root missing its {POLICY_NAME} policy")
     else:
         _check_isolated("organizations", org_policies, failures)
+
+    # 9. What reads those tables with somebody else's privileges.
+    _check_rls_bypassing_objects(state, failures)
 
     # 4. The exemption list is where a new tenant table would be hidden. Make each
     #    entry keep earning its place.

@@ -92,12 +92,10 @@ from apps.api.authn.throttle import (
     OTP_BUDGET,
     PASSWORD_BUDGET,
     RESET_BUDGET,
-    Budget,
-    check,
     clear,
     penalty_delay_s,
     pseudo_subject,
-    record_failure,
+    reserve,
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
@@ -200,11 +198,6 @@ async def _equalise(count: int) -> None:
         await asyncio.sleep(delay)
 
 
-async def _spend_failure(budget: Budget, *, realm: str, subject_id: UUID) -> None:
-    """Count a failed attempt and pay its delay. Used by every wrong-secret path."""
-    await _equalise(await record_failure(budget, realm=realm, subject_id=subject_id))
-
-
 # ─────────────────────────────── sign in ────────────────────────────────────
 
 
@@ -236,13 +229,13 @@ async def sign_in(
     if subject is None:
         # Everything the real path does, against a subject that does not exist.
         ghost = pseudo_subject(realm, email)
-        await check(PASSWORD_BUDGET, realm=realm, subject_id=ghost)
+        attempt = await reserve(PASSWORD_BUDGET, realm=realm, subject_id=ghost)
         await verify_password(password, None)
-        await _spend_failure(PASSWORD_BUDGET, realm=realm, subject_id=ghost)
+        await _equalise(attempt)
         log.info("auth_login_unknown_subject", extra={"realm": realm})
         raise _invalid_credentials()
 
-    await check(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
+    attempt = await reserve(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
     async with credential_session() as session:
         ok = await authenticate_subject(
             session, realm=realm, subject_id=subject.subject_id, password=password, now=at
@@ -254,7 +247,7 @@ async def sign_in(
             subject_id=subject.subject_id,
             ip=ip,
         )
-        await _spend_failure(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
+        await _equalise(attempt)
         raise _invalid_credentials()
 
     await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
@@ -321,7 +314,7 @@ async def complete_second_factor(
     forward, so a session cannot extend its life by passing the challenge.
     """
     realm, subject_id = verified.realm, verified.subject_id
-    await check(OTP_BUDGET, realm=realm, subject_id=subject_id)
+    attempt = await reserve(OTP_BUDGET, realm=realm, subject_id=subject_id)
 
     at = now or datetime.now(UTC)
     async with credential_session() as session:
@@ -335,7 +328,7 @@ async def complete_second_factor(
         )
     if not ok:
         await _audit(action="auth.mfa_failed", realm=realm, subject_id=subject_id, ip=ip)
-        await _spend_failure(OTP_BUDGET, realm=realm, subject_id=subject_id)
+        await _equalise(attempt)
         raise ProblemError(
             kind="auth",
             code="invalid_second_factor",
@@ -445,10 +438,12 @@ async def refresh(*, verified: VerifiedSession, now: datetime | None = None) -> 
 # ──────────────────────── step-up re-authentication ──────────────────────────
 
 
-async def request_step_up(*, verified: VerifiedSession, now: datetime | None = None) -> None:
+async def request_step_up(
+    *, verified: VerifiedSession, ip: str | None, now: datetime | None = None
+) -> None:
     """Mail a fresh step-up code to the mailbox on file for this session's own subject.
 
-    Same shape as `resend_second_factor` and for the same reasons: no address parameter, so
+    Same shape as `resend_second_factor` and for the same reasons: no email parameter, so
     there is nothing to probe and no way to make us mail a stranger; the caller already
     holds a session, so this endpoint grants no capability they lack. What differs is the
     PURPOSE, which keeps this challenge and a pending sign-in challenge from being each
@@ -470,7 +465,7 @@ async def request_step_up(*, verified: VerifiedSession, now: datetime | None = N
             to=subject.email,
             secret=challenge.code,
         )
-    await _audit(action="auth.step_up_requested", realm=realm, subject_id=subject_id, ip=None)
+    await _audit(action="auth.step_up_requested", realm=realm, subject_id=subject_id, ip=ip)
 
 
 async def complete_step_up(
@@ -486,7 +481,7 @@ async def complete_step_up(
     stops step-up from being a session-renewal loop.
     """
     realm, subject_id = verified.realm, verified.subject_id
-    await check(OTP_BUDGET, realm=realm, subject_id=subject_id)
+    attempt = await reserve(OTP_BUDGET, realm=realm, subject_id=subject_id)
     at = now or datetime.now(UTC)
     async with credential_session() as session:
         ok = await otp.verify_challenge(
@@ -494,7 +489,7 @@ async def complete_step_up(
         )
     if not ok:
         await _audit(action="auth.step_up_failed", realm=realm, subject_id=subject_id, ip=ip)
-        await _spend_failure(OTP_BUDGET, realm=realm, subject_id=subject_id)
+        await _equalise(attempt)
         raise ProblemError(
             kind="auth",
             code="invalid_second_factor",
@@ -575,8 +570,7 @@ async def request_password_reset(
     # limiter. The pseudo-subject is derived through the code key, so the Redis keyspace
     # does not become a plaintext list of addresses somebody tried (`pseudo_subject`).
     budget_subject = subject.subject_id if subject is not None else pseudo_subject(realm, email)
-    await check(RESET_BUDGET, realm=realm, subject_id=budget_subject)
-    await record_failure(RESET_BUDGET, realm=realm, subject_id=budget_subject)
+    await reserve(RESET_BUDGET, realm=realm, subject_id=budget_subject)
     if subject is None:
         log.info("auth_reset_unknown_subject", extra={"realm": realm})
         return
@@ -842,7 +836,7 @@ async def change_password(
     if subject is None:
         raise _invalid_credentials()
 
-    await check(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
+    attempt = await reserve(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
     async with credential_session() as session:
         ok = await authenticate_subject(
             session, realm=realm, subject_id=subject_id, password=current_password, now=at
@@ -854,7 +848,7 @@ async def change_password(
         # The same counter a sign-in spends, on purpose: an attacker holding a live cookie
         # but not the password must not get an unmetered oracle here that the sign-in form
         # denies them.
-        await _spend_failure(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
+        await _equalise(attempt)
         raise _wrong_current_password()
     await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
 
@@ -935,14 +929,14 @@ async def confirm_otp(
 ) -> None:
     """Spend one guess against the live challenge. Raises on failure."""
     _refuse_unknown_realm(realm)
-    await check(OTP_BUDGET, realm=realm, subject_id=subject_id)
+    attempt = await reserve(OTP_BUDGET, realm=realm, subject_id=subject_id)
     at = now or datetime.now(UTC)
     async with credential_session() as session:
         ok = await otp.verify_challenge(
             session, purpose=purpose, realm=realm, subject_id=subject_id, code=code, now=at
         )
     if not ok:
-        await _spend_failure(OTP_BUDGET, realm=realm, subject_id=subject_id)
+        await _equalise(attempt)
         raise ProblemError(
             kind="auth",
             code="invalid_code",
