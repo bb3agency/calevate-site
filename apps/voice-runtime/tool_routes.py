@@ -334,6 +334,7 @@ async def _book_callback(
         )
 
     job_id: str | None = None
+    booked_at = datetime.now(UTC).isoformat()
     async with _durable(
         engine,
         started,
@@ -351,19 +352,22 @@ async def _book_callback(
                 "requested_at": slot.at_utc.isoformat(),
                 # WHEN THE CALLER ASKED, so two bookings in one conversation resolve to the
                 # LATER word whichever job commits first (`callbacks.service.book`).
-                "booked_at": datetime.now(UTC).isoformat(),
+                "booked_at": booked_at,
                 # HINTS ONLY, bounded, and `scalar_hint` rather than `str()` for the reason
                 # spelled out on the opt-out payload above: `str()` renders a container
                 # with Python's repr, and this one is read out to a person on the call-back.
                 "note": (scalar_hint(payload.get("note")) or "")[:200],
                 "language": (scalar_hint(payload.get("language")) or "")[:8],
             },
-            # One promise per execution: the model invoking the function twice with the
-            # same answer, or the engine retrying it, must not queue two jobs. The
-            # BOOKED-FOR time is in the key, so a caller who genuinely changes their mind
-            # ("make it five") gets a second job that supersedes the first — which is
-            # exactly the case a job id keyed on the execution alone would have swallowed.
-            job_id=job_id_for(BOOK_CALLBACK_JOB, engine, execution_id, slot.at_utc.isoformat()),
+            # Keyed on the MOMENT the caller said it, not only on the time they chose. arq
+            # refuses an id whose result is still stored (`keep_result`, an hour), so a key
+            # of (execution, slot) swallowed "four — no, five — no, four after all": the
+            # third job was dropped, the promise stayed at five, and the agent had just
+            # told the caller four. A repeated invocation now queues a second job, which
+            # `callbacks.service.book` absorbs: the same slot, a later `booked_at`.
+            job_id=job_id_for(
+                BOOK_CALLBACK_JOB, engine, execution_id, slot.at_utc.isoformat(), booked_at
+            ),
         )
     log.info("in_call_callback_queued", extra={"engine": engine, "job_id": job_id or "deduped"})
     return _ack(
