@@ -75,7 +75,9 @@ Pipecat Cloud image is part of step 6 rather than of this seam.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -320,18 +322,6 @@ class WorkerRuntime:
         # gets through costs the report and never the call.
         sink.report_knowledge(knowledge_report(call.knowledge))
 
-        # §1.1's ATTESTATION, POSTED AT SESSION START (D-626). `AssembledCall` has recomputed
-        # the digest of the prompt in this process's memory; until now it reached nothing, so
-        # `agent_config_attestations` had no production writer, `PipecatEngine.get_agent`
-        # answered `system_prompt_readable=False` for every agent for ever, and hard rule 5's
-        # engine-side verification never ran on this leg.
-        #
-        # WHAT IS SENT IS THE DIGEST AND NOT `prompt_matches_config_version`. The verdict is
-        # the SERVER's — an attestation whose verdict came from the attesting process agrees
-        # with itself by construction, which is the whole defect `config_versions.py` exists
-        # to close. The local flag stays for this log line and nothing else.
-        await self._attest(engine_agent_ref, config, call)
-
         if on_assembled is not None:
             # THE CONTAINER LEARNS ABOUT THE CALL THE MOMENT IT EXISTS, so a SIGTERM
             # arriving one instant later drains it gracefully instead of cutting a caller
@@ -356,7 +346,27 @@ class WorkerRuntime:
             handle_sigint=True,
             handle_sigterm=False,
         )
-        await runner.add_workers(call.worker)
+        # §1.1's ATTESTATION, POSTED AT SESSION START (D-626). `AssembledCall` has recomputed
+        # the digest of the prompt in this process's memory; until now it reached nothing, so
+        # `agent_config_attestations` had no production writer, `PipecatEngine.get_agent`
+        # answered `system_prompt_readable=False` for every agent for ever, and hard rule 5's
+        # engine-side verification never ran on this leg.
+        #
+        # WHAT IS SENT IS THE DIGEST AND NOT `prompt_matches_config_version`. The verdict is
+        # the SERVER's — an attestation whose verdict came from the attesting process agrees
+        # with itself by construction, which is the whole defect `config_versions.py` exists
+        # to close. The local flag stays for this log line and nothing else.
+        #
+        # STARTED HERE AND AWAITED AFTER THE PIPELINE, NOT AWAITED HERE. The carrier leg is
+        # already connected when `run_call` starts, so every await before `runner.run()` is
+        # silence on the line; awaiting the POST here put one API round trip — and up to
+        # `WRITE_BUDGET_S` against a slow API — in front of the greeting, for a row that
+        # gates nothing. It is awaited after settling, so the settlement never hangs on it
+        # and the call's work is finished when `run_call` returns, and it is cancelled on
+        # the paths that never settle. Created after every step that can refuse the call,
+        # so a refusal leaves no task behind.
+        attestation = asyncio.create_task(self._attest(engine_agent_ref, config, call))
+
         # `try/finally` RATHER THAN A PLAIN SEQUENCE, and only since turns are buffered.
         # `settle` flushes, so the happy path never needed this; what needs it is every path
         # that does NOT reach `settle` — the pipeline raising, the task being cancelled — on
@@ -364,11 +374,17 @@ class WorkerRuntime:
         # exit. `aclose` stops the timer and writes what is left, and it is idempotent, so
         # the ordinary path pays only a second no-op flush.
         try:
+            await runner.add_workers(call.worker)
             await runner.run()
 
             drained = call.worker.has_finished()
             settlement = await sink.settle(meter, carrier=carrier, runtime=runtime_usage)
+            await attestation
         finally:
+            if not attestation.done():
+                attestation.cancel()
+                with suppress(asyncio.CancelledError):
+                    await attestation
             await sink.aclose()
         logger.info(
             "call finished",
