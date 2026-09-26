@@ -185,17 +185,20 @@ cite the same string:
   - **INBOUND IS UNAFFECTED.** Regulation 4 is about the *use of* an auto dialler; a
     receptionist answering a call the customer placed dials nothing, and an inbound agent
     is refused by `agent_inbound_only` long before this rule is reached.
-  - ⚠ **ENFORCED AT THE PER-DIAL GATE, NOT YET IN THE LAUNCH PREVIEW, AND THE DIFFERENCE
-    IS VISIBLE TO A CLIENT.** `compliance.service.check_dispatch` refuses every outbound
-    dial — campaign contact, "call this lead" and instant callback alike — so no call goes
-    out without the notice. `campaigns.service.launch_blockers` does not yet ASK, so a
-    campaign can still launch "ready" and then refuse on every contact, which is the shape
-    `kyc_blocker`'s docstring names as the reason a dial rule and a launch rule must be the
-    same predicate. Closing it is one call to `autodialer_notice_blocker` in
-    `campaigns.service._entity_blockers`, beside `outbound_entity_blockers`.
-  - **NO WRITE SURFACE YET.** Nothing in the client console or the ops console can create
-    one of these rows; the recording screen and its route are a separate change. Until they
-    ship, the gate is real and nobody can satisfy it.
+  - **ENFORCED AT THE PER-DIAL GATE AND AT LAUNCH, WITH ONE PREDICATE.**
+    `compliance.service.check_dispatch` refuses every outbound dial — campaign contact,
+    "call this lead" and instant callback alike — and `campaigns.service.launch_blockers`
+    asks the same `autodialer_notice_blocker` with the same arguments (the tenant, and
+    every registered number bound to the campaign's agent), so a campaign that could never
+    dial cannot launch "ready". It is asked in `launch_blockers` itself rather than in
+    `_entity_blockers`, because that helper is shared with `dispatch_blockers` and
+    `check_dispatch` already asks this per contact. The Third Amendment's declared-number
+    requirement (REPORTED, `docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md` row 2)
+    adds a fourth refusal, **`autodialer_notice_cli_undeclared`**, for a number the agent
+    calls from that the notice does not name.
+  - **THE WRITE SURFACE** is the client's own: `POST /v1/compliance/autodialer-notice`
+    (`compliance/autodialer_routes.py`), rendered on the client's Agreements screen, which
+    the launch panel links to beside these refusals.
 - Contact list DNC-scrubbed (national DND + tenant `dnc_list`) with scrub timestamp; a
   list with nothing left after the scrub is `all_contacts_dnc`, an empty one
   `no_contacts`. **The two scrubs are separate facts and this bullet used to claim a

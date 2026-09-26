@@ -46,6 +46,7 @@ from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
+    bind_number_for_tests,
     fund_wallet,
     record_autodialer_notice_for_tests,
 )
@@ -170,20 +171,7 @@ async def _campaign(
         )
     ).scalar()
     if number_id is None:
-        number_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "created_at, updated_at) VALUES (:id, :tid, :aid, :e, '140', :dlt, now(), now())"
-            ),
-            {
-                "id": number_id,
-                "tid": tenant_id,
-                "aid": agent_id,
-                "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-                "dlt": dlt_status,
-            },
-        )
+        number_id = await bind_number_for_tests(session, tenant_id, agent_id, dlt_status=dlt_status)
     template_id = uuid7()
     await session.execute(
         text(
@@ -352,8 +340,6 @@ async def test_a_superseded_plan_row_does_not_double_claim_the_campaign() -> Non
         )
         await campaigns.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
-    # The number was bound after the notice was recorded, so the notice declares it now.
-    await record_autodialer_notice_for_tests(tenant_id)
     await dispatch_campaign_tick({})
 
     async with tenant_session(tenant_id) as session:

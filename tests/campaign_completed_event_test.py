@@ -38,7 +38,7 @@ from apps.api.engine import reset_engine_cache
 from apps.api.integrations import service as integrations
 from apps.workers import campaign_dispatch
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 # 11:00 IST — inside the platform calling window, so nothing here is ever refused by the
@@ -159,22 +159,9 @@ async def _running_campaign(
     `_fire_due_schedules` starts it through the full launch gate.
     """
     async with tenant_session(tenant_id) as session:
-        number_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
-            ),
-            {
-                "id": number_id,
-                "tid": tenant_id,
-                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
-                # whose approved number is not the number its agent dials from.
-                "aid": agent_id,
-                "e": f"+9180{uuid.uuid4().int % 10**8:08d}",
-            },
-        )
+        # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign whose
+        # approved number is not the number its agent dials from.
+        number_id = await bind_number_for_tests(session, tenant_id, agent_id)
         template_id = uuid7()
         await session.execute(
             text(

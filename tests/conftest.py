@@ -29,50 +29,106 @@ async def record_autodialer_notice_for_tests(tenant_id: uuid.UUID) -> None:
     """Give a tenant the advance autodialer notice every OUTBOUND dial now requires.
 
     TCCCPR Regulation 4: the Sender tells its Originating Access Provider, in writing and
-    in advance, that it uses an auto dialler and what for, so `check_dispatch` refuses
-    `autodialer_notice_missing` without one (`apps/api/compliance/autodialer.py`). Records
-    the same facts through the production writer; it does NOT soften the gate —
-    `tests/autodialer_notice_test.py` proves the refusal by leaving it out. Idempotent.
+    in advance, that it uses an auto dialler and what for, so `check_dispatch` and
+    `launch_blockers` refuse `autodialer_notice_missing` without one
+    (`apps/api/compliance/autodialer.py`). Records the same facts through the production
+    writer; it does NOT soften the gate — `tests/autodialer_notice_test.py` proves the
+    refusal by leaving it out. Idempotent.
+    """
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        await declare_tenant_numbers_for_tests(session, tenant_id)
+
+
+async def declare_tenant_numbers_for_tests(session: Any, tenant_id: uuid.UUID | str) -> None:
+    """`record_autodialer_notice_for_tests` on the caller's open tenant session.
+
+    On the caller's session so a number bound in the same, still-uncommitted transaction is
+    declared too — a fresh session would not see it.
     """
     from apps.api.agents.service import tenant_registered_numbers
     from apps.api.compliance.autodialer import read_autodialer_notice, record_autodialer_notice
     from apps.api.db.base import uuid7
-    from apps.api.db.session import tenant_session
 
-    async with tenant_session(tenant_id) as session:
-        # The notice declares every number the tenant's agents can present, so a second
-        # agent armed with a second number gets a fresh notice naming both. A tenant with
-        # no number yet still needs one on the notice; the placeholder presents nothing.
-        numbers = await tenant_registered_numbers(session) or ["+919800000000"]
-        notice = await read_autodialer_notice(session, tenant_id=tenant_id)
-        if notice.is_effective() and set(numbers) <= set(notice.declared_clis):
-            return
-        # `recorded_by` is NOT NULL and a fixture organisation has no member until somebody
-        # accepts an invitation, so one is made rather than looked up.
-        user_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:id, :e, now(), now())"
-            ),
-            {"id": user_id, "e": f"armed-{user_id}@example.test"},
-        )
-        await session.execute(
-            text(
-                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
-                "VALUES (:id, :t, :u, 'owner', now(), now())"
-            ),
-            {"id": uuid7(), "t": tenant_id, "u": user_id},
-        )
-        await record_autodialer_notice(
-            session,
-            tenant_id=tenant_id,
-            access_provider="Armed Test Telecom",
-            objective="Appointment reminders and confirmations for our own customers",
-            notified_on=(datetime.now(UTC) - timedelta(days=30)).date(),
-            declared_clis=numbers,
-            recorded_by=user_id,
-        )
+    tenant = uuid.UUID(str(tenant_id))
+    # The notice declares every number the tenant's agents can present, so a second agent
+    # armed with a second number gets a fresh notice naming both. A tenant with no number
+    # yet still needs one on the notice; the placeholder presents nothing.
+    numbers = await tenant_registered_numbers(session) or ["+919800000000"]
+    notice = await read_autodialer_notice(session, tenant_id=tenant)
+    if notice.is_effective() and set(numbers) <= set(notice.declared_clis):
+        return
+    # `recorded_by` is NOT NULL and a fixture organisation has no member until somebody
+    # accepts an invitation, so one is made rather than looked up.
+    user_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO users (id, email, created_at, updated_at) VALUES (:id, :e, now(), now())"
+        ),
+        {"id": user_id, "e": f"armed-{user_id}@example.test"},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+            "VALUES (:id, :t, :u, 'owner', now(), now())"
+        ),
+        {"id": uuid7(), "t": tenant, "u": user_id},
+    )
+    await record_autodialer_notice(
+        session,
+        tenant_id=tenant,
+        access_provider="Armed Test Telecom",
+        objective="Appointment reminders and confirmations for our own customers",
+        notified_on=(datetime.now(UTC) - timedelta(days=30)).date(),
+        declared_clis=numbers,
+        recorded_by=user_id,
+    )
+
+
+async def bind_number_for_tests(
+    session: Any,
+    tenant_id: uuid.UUID | str,
+    agent_id: uuid.UUID | str | None,
+    *,
+    series: str = "140",
+    dlt_status: str = "registered",
+    e164: str | None = None,
+    autodialer_notice: bool = True,
+) -> uuid.UUID:
+    """Bind a number to an agent on the caller's session, and declare it on the notice.
+
+    The one place a fixture gives an agent a number to dial from. The launch gate and the
+    dial gate both refuse `autodialer_notice_cli_undeclared` for a registered number the
+    notice does not name, so a fixture that records the notice and THEN binds a number
+    builds a tenant that cannot dial — and every test built on it reports that refusal in
+    place of the one it is about. Declaring here, at the bind, keeps the two in order
+    without each fixture having to know the rule exists.
+
+    `autodialer_notice=False` leaves the notice alone, for the tests whose subject is that
+    refusal. A number that is unbound or not `registered` is not one the gates ask about,
+    so it is not declared. Returns the `phone_numbers.id`.
+    """
+    from apps.api.db.base import uuid7
+
+    number_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+            "created_at, updated_at) VALUES (:id, :tid, :aid, :e, :series, :dlt, now(), now())"
+        ),
+        {
+            "id": number_id,
+            "tid": tenant_id,
+            "aid": agent_id,
+            "e": e164 or f"+9180{uuid.uuid4().int % 10**8:08d}",
+            "series": series,
+            "dlt": dlt_status,
+        },
+    )
+    if autodialer_notice and dlt_status == "registered" and agent_id is not None:
+        await declare_tenant_numbers_for_tests(session, tenant_id)
+    return number_id
 
 
 async def arm_agent_for_outbound(
@@ -99,7 +155,6 @@ async def arm_agent_for_outbound(
     re-arming an already-armed agent adds nothing.
     """
     from apps.api.campaigns import service as campaigns
-    from apps.api.db.base import uuid7
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
@@ -122,19 +177,8 @@ async def arm_agent_for_outbound(
             )
         ).first()
         if existing is None:
-            await session.execute(
-                text(
-                    "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, "
-                    "dlt_status, created_at, updated_at) VALUES (:id, :tid, :aid, :e, :series, "
-                    "'registered', now(), now())"
-                ),
-                {
-                    "id": uuid7(),
-                    "tid": tenant_id,
-                    "aid": agent_id,
-                    "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-                    "series": series,
-                },
+            await bind_number_for_tests(
+                session, tenant_id, agent_id, series=series, autodialer_notice=False
             )
     # Regulation 4's advance notice, which is now part of "the paperwork every outbound
     # dial requires". `autodialer_notice=False` leaves it out for the tests whose subject
