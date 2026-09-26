@@ -198,7 +198,8 @@ class HttpEventSink:
         #: means this buffer holds exactly what the wire will carry and nothing derived.
         self._pending: list[TranscriptTurn] = []
         #: Call events waiting to go with them. Buffered too, because over HTTP an unbuffered
-        #: event is a whole round trip. The FIRST event and a TERMINAL event force the flush (see `on_call_event`).
+        #: event is a whole round trip. The FIRST event and a TERMINAL event force the flush
+        #: (see `on_call_event`).
         self._events: list[CallEvent] = []
         #: Whether the server has accepted a batch for this call, i.e. whether the `calls`
         #: row exists. Until it does, every event flushes at once.
