@@ -16,7 +16,7 @@ import {
   formatRupeeRate,
   hasNonZeroDigit,
 } from "@/components/ui";
-import { FieldMessage } from "@/components/formValidation";
+import { FieldMessage, wholeNumberProblem } from "@/components/formValidation";
 import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
@@ -408,16 +408,11 @@ function SpendLimit({ session }: { session: Session }) {
           onSubmit={(e) => {
             e.preventDefault();
             const typedMinutes = minutesField.trim();
-            // A parse check, not the ceiling rule (that stays the server's). It has to be
-            // here because `Number("1,000")` is NaN and JSON sends NaN as `null` — the
-            // instruction to REMOVE the limit, which the server cannot tell from a real one.
-            if (typedMinutes !== "" && !/^\d+$/.test(typedMinutes)) {
-              setMinutesProblem(
-                "Enter a whole number of minutes, in digits only — for example 1000.",
-              );
-              return;
-            }
-            setMinutesProblem(null);
+            // A parse check, not the ceiling rule (that stays the server's): an unreadable
+            // box would otherwise be sent as `null`, the instruction to REMOVE the limit.
+            const problem = wholeNumberProblem(typedMinutes);
+            setMinutesProblem(problem);
+            if (problem !== null) return;
             save.mutate({
               capMinutes: typedMinutes === "" ? null : Number(typedMinutes),
               // A STRING all the way to the server (hard rule 7): `Number()` here would

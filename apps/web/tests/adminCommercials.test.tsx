@@ -208,6 +208,22 @@ describe("the commercials screen", () => {
     expect(field.value).toBe("");
   });
 
+  it("refuses a minute figure it cannot read instead of recording it as none", async () => {
+    // `Number("1,000")` is NaN, which JSON sends as null: "1,000 minutes included" was
+    // recorded as NO allowance, and a first minute ceiling of "1,000" as no ceiling at all.
+    const { calls } = await render({ [TERMS_PATH]: terms({ in_effect: null, state: "none" }) });
+
+    fireEvent.change(await screen.findByLabelText(/Included minutes/), {
+      target: { value: "1,000" },
+    });
+    fireEvent.change(screen.getByLabelText(/Minute ceiling/), { target: { value: "50 000" } });
+    fireEvent.click(screen.getByRole("button", { name: /Record new terms/ }));
+
+    expect((await screen.findAllByText(/whole number in digits only/i)).length).toBe(2);
+    expect(screen.getByLabelText(/Included minutes/).getAttribute("aria-invalid")).toBe("true");
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
   it("records a tightened ceiling with no confirmation header", async () => {
     const { calls } = await render({
       [`POST ${TERMS_PATH}`]: {

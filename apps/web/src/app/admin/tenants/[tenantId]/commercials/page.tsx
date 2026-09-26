@@ -23,6 +23,7 @@ import {
   istInputToInstant,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
+import { FieldMessage, wholeNumberProblem } from "@/components/formValidation";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { flatDraftSurface, type FlatFieldSpec } from "@/lib/copilot/screens/flatDraft";
 import { adminSession, useTenant } from "@/lib/api/admin";
@@ -315,6 +316,14 @@ function text(value: string): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+/**
+ * The whole-number fields. Their empty value MEANS something ("none included", "no
+ * ceiling"), so an unreadable one is refused on the form rather than sent: `Number()` of
+ * it is NaN, which JSON sends as that same `null`.
+ */
+const COUNT_FIELDS = ["included_minutes", "hard_cap_minutes", "concurrency_ceiling"] as const;
+type CountField = (typeof COUNT_FIELDS)[number];
+
 function count(value: string): number | null {
   const trimmed = value.trim();
   return trimmed === "" ? null : Number(trimmed);
@@ -376,7 +385,10 @@ function RecordForm({
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const [draft, setDraft] = useState<Draft>(() => initialDraft(inEffect));
-  const set = (key: keyof Draft, value: string) => {
+  // Whole-number problems show once a submit has been tried, then stay live so a fix
+  // clears them.
+  const [attempted, setAttempted] = useState(false);
+  const set =(key: keyof Draft, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
     save.reset();
   };
@@ -423,6 +435,21 @@ function RecordForm({
 
   const payload = toPayload(draft);
   const loosened = loosenedCeilings(inEffect, payload);
+  const countProblems: Partial<Record<CountField, string>> = {};
+  for (const key of COUNT_FIELDS) {
+    const problem = wholeNumberProblem(draft[key]);
+    if (attempted && problem !== null) countProblems[key] = problem;
+  }
+  const countProps = (key: CountField) => {
+    const problem = countProblems[key];
+    return problem
+      ? { "aria-invalid": true as const, "aria-describedby": `terms-${key}-problem` }
+      : {};
+  };
+  const countMessage = (key: CountField) => {
+    const problem = countProblems[key];
+    return problem ? <FieldMessage id={`terms-${key}-problem`}>{problem}</FieldMessage> : null;
+  };
 
   return (
     <Card title="Agree new terms">
@@ -442,6 +469,8 @@ function RecordForm({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
+          setAttempted(true);
+          if (COUNT_FIELDS.some((key) => wholeNumberProblem(draft[key]) !== null)) return;
           save.mutate({
             terms: payload,
             // Sent only for the dangerous direction, and bound to this tenant. The
@@ -491,7 +520,9 @@ function RecordForm({
               onChange={(event) => set("included_minutes", event.target.value)}
               inputMode="numeric"
               className={FIELD}
+              {...countProps("included_minutes")}
             />
+            {countMessage("included_minutes")}
           </Field>
           <Field
             label="Base overage rate (₹ / minute)"
@@ -548,7 +579,9 @@ function RecordForm({
               onChange={(event) => set("concurrency_ceiling", event.target.value)}
               inputMode="numeric"
               className={FIELD}
+              {...countProps("concurrency_ceiling")}
             />
+            {countMessage("concurrency_ceiling")}
           </Field>
           <Field
             label="Spend ceiling (₹ / month)"
@@ -576,7 +609,9 @@ function RecordForm({
               onChange={(event) => set("hard_cap_minutes", event.target.value)}
               inputMode="numeric"
               className={FIELD}
+              {...countProps("hard_cap_minutes")}
             />
+            {countMessage("hard_cap_minutes")}
           </Field>
           <Field
             label="In effect from (IST)"

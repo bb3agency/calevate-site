@@ -437,7 +437,7 @@ describe("the usage panel", () => {
     fireEvent.change(await screen.findByLabelText("Minutes"), { target: { value: "1,000" } });
     fireEvent.click(screen.getByRole("button", { name: "Save limit" }));
 
-    expect(await screen.findByText(/whole number of minutes/i)).toBeTruthy();
+    expect(await screen.findByText(/whole number in digits only/i)).toBeTruthy();
     expect(screen.getByLabelText("Minutes").getAttribute("aria-invalid")).toBe("true");
     expect(calls.some((call) => call.method === "PUT")).toBe(false);
   });
