@@ -1123,6 +1123,7 @@ class _InMemoryControlPlane:
             agent_id=agent_id,
             name=cfg.name,
             agent_config_version_id=version_id,
+            published_at=datetime.now(UTC),
             config=cfg,
         )
         composed = compose_engine_prompt(cfg)

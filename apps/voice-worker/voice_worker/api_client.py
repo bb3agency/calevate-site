@@ -30,6 +30,7 @@ no money field at all. The server holds the rate card.
 from __future__ import annotations
 
 import asyncio
+import random
 from types import TracebackType
 from typing import Any, Final, Self, TypeVar
 
@@ -75,6 +76,23 @@ SESSION_FETCH_BUDGET_S: Final[float] = 3.0
 #: outlasted it would be killed mid-flight anyway.
 WRITE_BUDGET_S: Final[float] = 5.0
 
+#: How many times an IDEMPOTENT write (a batch of observations, the settlement) is attempted,
+#: and the base of the pause before each retry (doubled per retry, with jitter).
+#:
+#: The settlement is the only producer of a Pipecat call's post-call outbox row (D-607) and
+#: nothing polls behind it, so a single 502 from a proxy or a connection reset during an API
+#: deploy used to cost the call its extraction, its CRM columns and its lead. Both writes are
+#: safe to repeat — turns are unique on `(call_id, idx)` and a second settlement is answered
+#: `already_settled` — so a transient failure is retried and a refusal is not (see
+#: `_retryable_status`). Worst case is `WRITE_ATTEMPTS * WRITE_BUDGET_S` plus the pauses; it
+#: is spent only on a path that is already failing, after the pipeline has drained.
+#:
+#: The session read, the tools and the attestation are NOT retried: the first two are inside
+#: a budget a waiting caller hears, and the attestation is a degradation that inserts a row
+#: per attempt.
+WRITE_ATTEMPTS: Final[int] = 3
+WRITE_RETRY_BACKOFF_S: Final[float] = 0.5
+
 #: The routes, with `{…}` still to fill. Spelled once, here, so the two halves of this
 #: product name one surface — `apps/api/worker/routes.py` mounts exactly these.
 SESSION_PATH: Final[str] = "/v1/worker/session"
@@ -97,7 +115,14 @@ class WorkerApiError(RuntimeError):
 
     Carries no response body and no URL (hard rule 6): an error body quotes the request, and
     a request here carries a call ref.
+
+    `retryable` says whether the same request could succeed if sent again — a transport
+    failure or a 5xx/429 — as opposed to a refusal it would get again.
     """
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class WorkerApiClient:
@@ -186,6 +211,7 @@ class WorkerApiClient:
             f"{CALLS_PATH}/{engine_call_id}/observations",
             budget_s=WRITE_BUDGET_S,
             what="observations",
+            attempts=WRITE_ATTEMPTS,
             json=batch.model_dump(mode="json"),
         )
         return self._parse(ObservationsOut, body, what="observations")
@@ -199,6 +225,7 @@ class WorkerApiClient:
             f"{CALLS_PATH}/{engine_call_id}/settlement",
             budget_s=WRITE_BUDGET_S,
             what="settlement",
+            attempts=WRITE_ATTEMPTS,
             json=request.model_dump(mode="json"),
         )
         return self._parse(SettlementOut, body, what="settlement")
@@ -272,9 +299,45 @@ class WorkerApiClient:
             )
 
     async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        budget_s: float,
+        what: str,
+        attempts: int = 1,
+        **kw: Any,
+    ) -> Any:
+        """A 2xx body, or `WorkerApiError`, retrying a transient failure up to `attempts`.
+
+        `attempts` is 1 unless the caller knows the request is idempotent on the server; see
+        `WRITE_ATTEMPTS`. Each attempt gets the full `budget_s`.
+        """
+        attempt = 1
+        while True:
+            try:
+                return await self._attempt(method, path, budget_s=budget_s, what=what, **kw)
+            except WorkerApiError as failure:
+                if not failure.retryable or attempt >= attempts:
+                    raise
+                # OUR OWN PROSE: a status code or an exception type, never a body or a URL.
+                logger.warning(
+                    "worker api call will be retried",
+                    surface=what,
+                    attempt=attempt,
+                    error=str(failure),
+                )
+                base = WRITE_RETRY_BACKOFF_S * 2 ** (attempt - 1)
+                # Equal jitter: containers that failed together against one API restart do
+                # not all come back in the same instant.
+                await asyncio.sleep(base / 2 + random.uniform(0, base / 2))
+                attempt += 1
+
+    async def _attempt(
         self, method: str, path: str, *, budget_s: float, what: str, **kw: Any
     ) -> Any:
-        """A 2xx body, or `WorkerApiError`. The one place a transport failure becomes ours.
+        """One request: a 2xx body, or `WorkerApiError`. The one place a transport failure
+        becomes ours.
 
         Broad and narrowed nowhere, for `memory.ApiCallerMemoryReader.recall`'s reason
         inverted: there every failure meant one thing to the caller and none could raise;
@@ -288,7 +351,8 @@ class WorkerApiClient:
                 # The STATUS, never the body. A problem+json detail from our own API is safe
                 # prose, but a 502 from something in between is whatever it wants to be.
                 raise WorkerApiError(
-                    f"the worker API refused the {what} call: HTTP {response.status_code}"
+                    f"the worker API refused the {what} call: HTTP {response.status_code}",
+                    retryable=_retryable_status(response.status_code),
                 )
             return response.json()
         except WorkerApiError:
@@ -297,7 +361,10 @@ class WorkerApiClient:
             logger.warning("worker api call failed", surface=what, reason=type(failure).__name__)
             raise WorkerApiError(
                 f"the worker API could not be reached for the {what} call "
-                f"({type(failure).__name__})"
+                f"({type(failure).__name__})",
+                # A request that never got an answer may succeed on a second connection; a
+                # 2xx whose body is not JSON will not.
+                retryable=isinstance(failure, httpx.TransportError | TimeoutError),
             ) from failure
 
     @staticmethod
@@ -321,13 +388,25 @@ class WorkerApiClient:
             ) from failure
 
 
+def _retryable_status(status: int) -> bool:
+    """A status a second identical request could get a different answer to.
+
+    429 and 5xx: our API shedding load, a proxy with no upstream, a deploy in progress. Every
+    4xx is a verdict on THIS request — a token (401), an engine mismatch (409, D-627), a body
+    the contract refuses (422) — and would come back the same.
+    """
+    return status == httpx.codes.TOO_MANY_REQUESTS or status >= httpx.codes.INTERNAL_SERVER_ERROR
+
+
 __all__ = [
     "AGENTS_PATH",
     "CALLS_PATH",
     "PROBE_REF",
     "SESSION_FETCH_BUDGET_S",
     "SESSION_PATH",
+    "WRITE_ATTEMPTS",
     "WRITE_BUDGET_S",
+    "WRITE_RETRY_BACKOFF_S",
     "WorkerApiClient",
     "WorkerApiError",
 ]

@@ -150,9 +150,8 @@ async def _seed_tenant() -> tuple[uuid.UUID, uuid.UUID]:
 
 
 class _NothingToMeter:
-    """A meter with no priced leg. The honest shape for a deployment with no attested rate
-    card and no carrier CDR, which is every deployment today (`meter.RateCardMissingError`,
-    BLOCKER-1) — and the branch that used to open no transaction at all."""
+    """A meter with no leg to settle — a call that never spoke and has no carrier CDR
+    (BLOCKER-1) — and the branch that used to open no transaction at all."""
 
     def metered_rows(self, *, carrier: Any, runtime: Any) -> MeteredCall:
         return MeteredCall(rows=(), refusals=())

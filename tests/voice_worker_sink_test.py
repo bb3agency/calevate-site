@@ -44,6 +44,7 @@ from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from calevate_shared.worker_api import OptOutToolIn
 from loguru import logger
+from pipecat.observers.service_metrics_observer import ServiceUsageKind, ServiceUsageRecord
 from sqlalchemy import text
 from tests.worker_api_harness import (
     TOKEN,
@@ -55,6 +56,7 @@ from voice_worker.api_client import WorkerApiClient, WorkerApiError
 from voice_worker.call_tools import CallToolApiClient
 from voice_worker.meter import (
     UNIT_STT_S,
+    CallMeter,
     CarrierFactsMissingError,
     MeteredCall,
     MeteredLeg,
@@ -149,7 +151,7 @@ class _RefusesTheCarrier:
 
     ⚠ **THIS USED TO BE "the meter every production call has today" AND IT IS NOW THE CORNER
     CASE (D-625).** A real call transcribes and synthesises, so the production shape is
-    `_MeasuredEverythingButTheCarrier` below: three legs priced, one recorded as unpriceable.
+    `_MeasuredEverythingButTheCarrier` below: three legs measured, one recorded as unmeterable.
     This one keeps the "nothing could be priced at all" branch under test, because the server
     and the sink still have to distinguish it from a call with no leg to price.
     """
@@ -168,8 +170,6 @@ class _MeasuredEverythingButTheCarrier:
                     leg=MeteredLeg.STT,
                     unit_type=UNIT_STT_S,
                     qty=Decimal("60"),
-                    unit_cost_inr=Decimal("0.01"),
-                    total_inr=Decimal("0.60"),
                     meta={"reports": "3"},
                 ),
             ),
@@ -539,6 +539,73 @@ async def test_the_legs_we_measured_settle_beside_the_leg_nobody_witnessed(
         ).all()
     assert [(unit, qty) for unit, qty in usage] == [(UNIT_STT_S, Decimal("60.0000"))]
     assert refusals == [("carrier", "meter_carrier_cdr_missing")]
+
+
+async def test_the_meter_a_production_call_builds_delivers_its_quantities_to_the_server(
+    worker_token: None,
+) -> None:
+    """The REAL meter, built the way `runtime.run_call` builds it, end to end.
+
+    The fakes above hand the sink a finished `MeteredCall`, so they could not see that the
+    meter itself refused every measured leg when the container held no rate card — and no
+    production container holds one. The STT seconds, TTS characters and LLM tokens then
+    crossed the wire as `meter_rate_card_missing` refusals with no quantity, which the server
+    can neither price nor park for a later attestation: the measurement was destroyed on
+    every call.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, api = await _sink(call_id)
+    meter = CallMeter()
+    meter.observe(
+        ServiceUsageRecord(
+            kind=ServiceUsageKind.STT,
+            processor="SarvamSTTService",
+            timestamp=1.0,
+            audio_seconds=42.5,
+        )
+    )
+    meter.observe(
+        ServiceUsageRecord(
+            kind=ServiceUsageKind.LLM,
+            processor="AzureLLMService",
+            model="gpt-4o-mini",
+            timestamp=1.0,
+            prompt_tokens=1500,
+            completion_tokens=500,
+            total_tokens=2000,
+        )
+    )
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
+        settlement = await sink.settle(meter, carrier=None, runtime=None)
+    finally:
+        await sink.aclose()
+        await api.aclose()
+
+    assert [leg for leg, _ in settlement.refusals] == ["carrier", "runtime"]
+    async with tenant_session(tenant_id) as db:
+        row_id = (
+            await db.execute(
+                text("SELECT id FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
+            )
+        ).scalar_one()
+        stt = (
+            await db.execute(
+                text("SELECT qty FROM usage_events WHERE call_id = :c AND unit_type = :u"),
+                {"c": row_id, "u": UNIT_STT_S},
+            )
+        ).scalar_one_or_none()
+        codes = set(
+            (
+                await db.execute(
+                    text("SELECT code FROM call_metering_refusals WHERE call_id = :c"),
+                    {"c": row_id},
+                )
+            ).scalars()
+        )
+    assert stt == Decimal("42.5000"), "the STT seconds this container measured never landed"
+    assert "meter_rate_card_missing" not in codes
 
 
 async def test_settling_twice_is_reported_and_not_re_applied(worker_token: None) -> None:

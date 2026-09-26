@@ -20,10 +20,9 @@ than a simplification:
   of the wall, which is where the value in a column hard rule 5 promises belongs. A
   `text_redacted` this process computed would be a client-supplied value in that column.
   That import is gone from this container with it.
-* **Nothing is priced here.** `settle` sends the QUANTITIES it measured with the prices
-  stripped off, and a refusal for every leg its meter could not measure. `unit_cost_inr`
-  cannot travel: the wire model has no field for it
-  (`calevate_shared.worker_api.MeteredQuantity`).
+* **Nothing is priced here.** `settle` sends the QUANTITIES it measured and a refusal for
+  every leg its meter could not measure. A price could not travel if one existed: the wire
+  model has no field for it (`calevate_shared.worker_api.MeteredQuantity`).
 
 **WHAT DID NOT CHANGE, AND MUST NOT.** The buffer and both its bounds (D-620), the identity
 refusal, the flush-before-settle ordering, and the fact that a failed write leaves the turns
@@ -428,10 +427,9 @@ class HttpEventSink:
         and that pipeline reads this call's turns. Settling first would race a dispatcher
         tick against turns still sitting in memory.
 
-        **THE WORKER SENDS QUANTITIES AND THE SERVER PRICES THEM (D-621).** The RATE the
-        meter multiplied by cannot cross this wire: `MeteredQuantity` has no money field, and
-        `apps/api/billing/rates.py` is the one door a rupee comes through. What travels is
-        what this container witnessed.
+        **THE WORKER SENDS QUANTITIES AND THE SERVER PRICES THEM (D-621).** `MeteredQuantity`
+        has no money field, and `apps/api/billing/rates.py` is the one door a rupee comes
+        through. What travels is what this container witnessed.
 
         ⚠ **TWO OF THE FIVE LEGS §1.3 NAMES ARE NOT SETTLEABLE FROM HERE, AND THAT IS THE
         DESIGN RATHER THAN A REGRESSION.** The carrier's connected minute is priced by the
@@ -554,12 +552,10 @@ def _refusal_of(error: LegNotMeterableError) -> SettlementRefusal:
 
 
 def _quantity_of(row: UsageRow) -> MeteredQuantity:
-    """One measured leg, with the price stripped off. Hard rule 7 at the wire.
+    """One measured leg, as the wire carries it. The server prices it (hard rule 7).
 
-    `unit_cost_inr` and `total_inr` are DROPPED rather than absent-by-accident: the server
-    re-derives them from the rate card it holds, so the figure that reaches `unit_cost_paid`
-    is one an operator attested and never one this container computed. The leg name travels
-    because `unit_type` alone does not say which of §1.3's five legs produced it.
+    The leg name travels because `unit_type` alone does not say which of §1.3's five legs
+    produced it.
     """
     return MeteredQuantity(
         leg=row.leg.value, unit_type=row.unit_type, qty=row.qty, meta=dict(row.meta)

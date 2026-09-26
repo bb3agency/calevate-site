@@ -273,6 +273,10 @@ class RuntimeAgent:
     agent_id: UUID
     name: str
     agent_config_version_id: UUID
+    #: When `agent_config_version_id` became the version a new session loads. An
+    #: attestation of ANOTHER version observed before this instant was made by a session
+    #: that started before the publish, so it says nothing about the current version.
+    published_at: datetime
     #: WHAT THE ENGINE WAS TOLD, as published. Not the read-back and never reported as one
     #: — `get_agent` answers from the worker's attestation, and this is the object
     #: `override_call_script` rewrites two fields of before minting the next version.
@@ -428,7 +432,7 @@ class SqlControlPlane:
                 await session.execute(
                     text(
                         "SELECT tenant_id, agent_id, name, agent_config_version_id, "
-                        "       resolved_config "
+                        "       resolved_config, updated_at "
                         "FROM pipecat_agents WHERE engine_agent_ref = :ref"
                     ),
                     {"ref": ref},
@@ -442,6 +446,7 @@ class SqlControlPlane:
             agent_id=row[1],
             name=row[2],
             agent_config_version_id=row[3],
+            published_at=row[5],
             # Validated rather than cast, `latest_attestation`'s reason: a row written
             # before a field moved must fail HERE, with the ref in hand, rather than inside
             # a Pydantic error three layers up in a publish.
@@ -1198,11 +1203,16 @@ class PipecatEngine:
 
         THE THREE ANSWERS, AND WHY THEY ARE THREE RATHER THAN TWO:
 
-        1. **No worker has ever attested.** A real answer, not a failure: an agent that has
-           been published and never dialled has no witness yet. The compliance fields read
-           back `None` with `_readable=False`, which is precisely the tri-state's meaning
-           ("the adapter could not FIND it"), and `verification.judge` scores the publish
-           `unreadable` rather than applied. That is the correct direction to fail in.
+        1. **No worker has attested the current version yet.** A real answer, not a
+           failure: an agent that has been published and never dialled has no witness yet.
+           The compliance fields read back `None` with `_readable=False`, which is
+           precisely the tri-state's meaning ("the adapter could not FIND it"), and
+           `verification.judge` scores the publish `unreadable` rather than applied. That
+           is the correct direction to fail in. An attestation of an OLDER version made
+           before the current one was published is this case too: every session reads the
+           published config afresh, so it says nothing about what the next one will load.
+           Reporting its script instead scored every prompt-changing republish of a
+           dialled agent `not_applied`, which `publish_agent` rolls back.
         2. **A worker attested and its own digest disagrees with the version it names.**
            Everything we know is that it is running something else; there is nothing here
            that describes it, so the same `_readable=False` applies and the mismatch is
@@ -1229,6 +1239,15 @@ class PipecatEngine:
         self._assert_this_engine_hosts_agents()
         held = await self._held(ref)
         attested = await self._store.attested(held)
+        if (
+            attested is not None
+            and attested.agent_config_version_id != held.agent_config_version_id
+            and attested.observed_at <= held.published_at
+        ):
+            # A session that began before the current version was published. A session
+            # that loaded another version AFTER it was published is kept: that worker is
+            # running something other than what we published, which is the finding.
+            attested = None
         # A LOCAL NAME RATHER THAN `attested is not None and attested.matches` REPEATED:
         # every field below is gated on it, and the narrowing has to reach them all.
         # `composed_prompt` is checked as well as `matches`, and it is not defensive
