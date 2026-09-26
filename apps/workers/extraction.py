@@ -167,6 +167,17 @@ EXTRACTION_TIMEOUT_S: Final = 30.0
 EXTRACTION_MAX_TOKENS: Final = 2048
 
 
+#: The `errors` key `extract_call` files a provider failure under: the model gave no answer
+#: at all, as opposed to an answer whose fields failed the schema.
+MODEL_FAILURE: Final = "_model"
+
+
+def model_answered(output: ExtractionOutput) -> bool:
+    """Did a model actually read this call? False for `extract_call`'s failure ladder, whose
+    `outcome_tag`/`sentiment` are the type's defaults rather than a reading of anything."""
+    return MODEL_FAILURE not in output.errors
+
+
 class ExtractionTruncatedError(ValueError):
     """The model hit `EXTRACTION_MAX_TOKENS` before finishing its JSON.
 
@@ -1854,7 +1865,7 @@ async def run_assist(
         extractor = azure_extractor(timeout_s=ASSIST_TIMEOUT_S)
         if extractor is not None:
             output = await extract_call(spec, redacted_transcript, extractor=extractor)
-            failure = output.errors.get("_model")
+            failure = output.errors.get(MODEL_FAILURE)
             if failure is None:
                 # A schema-invalid FIELD is still an answer (`valid=False`, per-field
                 # errors) and belongs to the client to see. Only `_model` — the ladder's
@@ -1964,7 +1975,7 @@ async def extract_call(
         # metering (which all happen after this returns).
         record_extraction_failure(reason=type(exc).__name__)
         log.warning("extraction_failed", extra={"model": runner.model_name})
-        return ExtractionOutput(valid=False, errors={"_model": type(exc).__name__})
+        return ExtractionOutput(valid=False, errors={MODEL_FAILURE: type(exc).__name__})
 
     outcome = validate_extraction(spec, raw)
     if outcome.errors:
@@ -1995,6 +2006,7 @@ __all__ = [
     "AZURE_SCHEMA_NAME",
     "GEMINI_EXTRACTION_DEFAULT",
     "GOOGLE_PROVIDER",
+    "MODEL_FAILURE",
     "NO_CREDENTIAL_REASON",
     "PROVIDER_UNAVAILABLE_REASON",
     "QUOTA_EXHAUSTED_REASON",
@@ -2015,6 +2027,7 @@ __all__ = [
     "build_azure_response_schema",
     "extract_call",
     "get_extractor",
+    "model_answered",
     "run_assist",
     "usage_from_body",
 ]

@@ -125,7 +125,7 @@ from apps.api.reliability.service import (
     mark_inbox_processed,
 )
 from apps.workers import storage
-from apps.workers.extraction import extract_call
+from apps.workers.extraction import MODEL_FAILURE, extract_call, model_answered
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import derive_moments, merge_moments
 from apps.workers.redaction import redact
@@ -1338,6 +1338,7 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         # fate. Not `enqueue_outbox_once`: the fan-out writes one row PER SUBSCRIBED
         # ENDPOINT and those are not duplicates of each other.
         if snapshot.status == "completed" and not await _crm_already_notified(session, call_id):
+            call_outcome, call_sentiment = _call_reading(extraction)
             written = await integrations.enqueue_event(
                 session,
                 tenant_id=tenant_id,
@@ -1347,8 +1348,8 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
                     "lead_id": str(lead_id) if lead_id else None,
                     "direction": direction,
                     "duration_s": snapshot.duration_s,
-                    "outcome": extraction.outcome_tag if extraction else None,
-                    "sentiment": extraction.sentiment if extraction else None,
+                    "outcome": call_outcome,
+                    "sentiment": call_sentiment,
                     # The SUMMARY, never the transcript: a transcript is the most
                     # sensitive artefact we hold, and it does not leave on a webhook.
                     # Redacted on the way out, because the summary is DERIVED from the
@@ -1682,7 +1683,7 @@ async def _settled_extraction(
         return None
     data, valid, errors, needs_review, summary, sentiment, outcome_tag = row
     errors = errors if isinstance(errors, dict) else {}
-    if "_model" in errors:
+    if MODEL_FAILURE in errors:
         return None
     # The same coercions `extract_call` applies to a fresh answer, so a reconstructed
     # object and a fresh one cannot be judged by two different rules.
@@ -1765,6 +1766,7 @@ async def _persist_extraction(
                 "moments": _json(moments) if moments is not None else None,
             },
         )
+        outcome, sentiment = _call_reading(extraction)
         await session.execute(
             text(
                 "UPDATE calls SET summary = :summary, sentiment = :sentiment, "
@@ -1773,12 +1775,25 @@ async def _persist_extraction(
             ),
             {
                 "summary": extraction.summary or None,
-                "sentiment": extraction.sentiment,
-                "outcome": extraction.outcome_tag,
+                "sentiment": sentiment,
+                "outcome": outcome,
                 "id": call_id,
                 "tid": tenant_id,
             },
         )
+
+
+def _call_reading(extraction: ExtractionOutput | None) -> tuple[str | None, str | None]:
+    """`(outcome_tag, sentiment)` as far as a model actually read the call, else NULLs.
+
+    A provider failure comes back carrying the type's DEFAULTS (`resolved`, `neutral`), and
+    those are not a reading: `resolved` is what the default experiment conversion metric
+    counts and what the client's CRM is told on `call.completed`. Unknown is NULL, which the
+    `calls` CHECKs admit; the re-drive that repairs the extraction fills both in.
+    """
+    if extraction is None or not model_answered(extraction):
+        return None, None
+    return extraction.outcome_tag, extraction.sentiment
 
 
 async def _load_call_context(
@@ -1946,6 +1961,41 @@ async def _record_disclosure(tenant_id: UUID, call_id: UUID, spoken: bool | None
         )
 
 
+#: When a call happened, for ordering one caller's calls. A call row with no known time
+#: sorts as the LATEST (and never as the earliest), which is what the upsert did before it
+#: ordered anything: an unknown time must not stop a call from being filed as the newest.
+_CALL_AT = "(SELECT COALESCE(c.started_at, c.created_at) FROM calls c WHERE c.id = {ref})"
+
+#: Is the call being filed (`EXCLUDED`) at least as recent as the lead's current last call?
+_LEAD_CALL_IS_LATEST = (
+    "(leads.last_call_id IS NULL OR leads.last_call_id = EXCLUDED.last_call_id "
+    "OR COALESCE("
+    + _CALL_AT.format(ref="EXCLUDED.last_call_id")
+    + ", 'infinity'::timestamptz) >= COALESCE("
+    + _CALL_AT.format(ref="leads.last_call_id")
+    + ", '-infinity'::timestamptz))"
+)
+
+#: Is the call being filed strictly earlier than the lead's recorded first call?
+_LEAD_CALL_IS_EARLIEST = (
+    "(COALESCE("
+    + _CALL_AT.format(ref="EXCLUDED.first_call_id")
+    + ", 'infinity'::timestamptz) < COALESCE("
+    + _CALL_AT.format(ref="leads.first_call_id")
+    + ", '-infinity'::timestamptz))"
+)
+
+#: Has this call already been filed against this lead? Its `call` timeline event is written
+#: in the same transaction as the count, so it is the durable once-per-call marker. The
+#: `last_call_id` arm keeps a re-run of the latest call idempotent for a lead whose event
+#: predates that marker.
+_LEAD_CALL_FILED = (
+    "(leads.last_call_id IS NOT DISTINCT FROM EXCLUDED.last_call_id OR EXISTS ("
+    "SELECT 1 FROM lead_events e WHERE e.lead_id = leads.id AND e.type = 'call' "
+    "AND e.payload->>'call_id' = :cid_text))"
+)
+
+
 async def _upsert_lead(
     tenant_id: UUID,
     agent_id: UUID,
@@ -1964,11 +2014,19 @@ async def _upsert_lead(
     outbound. Keying on the wrong end would file every outbound call under our own
     number and collapse a tenant's whole CRM into one lead.
 
-    A RE-RUN IS NOT A SECOND CALL. `call_count` and `is_repeat_caller` move only when
-    the call id on the row actually changes, and the timeline event is written once per
-    call: the pipeline is re-runnable by design (TRD §8), and a replay that invented a
-    returning customer would put the repeat-caller context injection (FLOWS §3) in front
-    of a first-time caller.
+    A RE-RUN IS NOT A SECOND CALL, WHICHEVER CALL IS RE-RUN. The pipeline is re-runnable
+    by design (TRD §8), and a replay that invented a returning customer would put the
+    repeat-caller context injection (FLOWS §3) in front of a first-time caller. A call is
+    counted once: the `call` timeline event below is written once per call in this same
+    transaction, so its presence is the record that this call was already filed.
+    `last_call_id` alone cannot answer that — it recognises only a re-run of the caller's
+    MOST RECENT call, and a re-drive of an earlier one would count as a third.
+
+    AND THE LEAD MOVES FORWARD IN CALL TIME, NOT IN PIPELINE TIME. Pipelines finish out of
+    order (a re-drive days later, an earlier call stalled on a vendor fetch), so the call
+    that last WROTE is not necessarily the latest call. `_LEAD_CALL_IS_LATEST` decides
+    whether this call's answers win the merge, its schema version stands and it becomes
+    `last_call_id`; an older call only fills the fields the newer ones left unanswered.
     """
     caller = _party_e164(snapshot.from_e164 if direction == "inbound" else snapshot.to_e164)
     if not caller:
@@ -1984,14 +2042,20 @@ async def _upsert_lead(
                     ":name, :source, 'new', CAST(:data AS jsonb), :ver, :cid, :cid, 1, false, "
                     "now(), now()) "
                     "ON CONFLICT (tenant_id, phone_e164, agent_id) DO UPDATE SET "
-                    "  data = leads.data || EXCLUDED.data, "
-                    "  schema_version = EXCLUDED.schema_version, "
-                    "  name = COALESCE(EXCLUDED.name, leads.name), "
-                    "  last_call_id = EXCLUDED.last_call_id, "
-                    "  call_count = leads.call_count + "
-                    "    (leads.last_call_id IS DISTINCT FROM EXCLUDED.last_call_id)::int, "
+                    f"  data = CASE WHEN {_LEAD_CALL_IS_LATEST} "
+                    "    THEN leads.data || EXCLUDED.data ELSE EXCLUDED.data || leads.data END, "
+                    f"  schema_version = CASE WHEN {_LEAD_CALL_IS_LATEST} "
+                    "    THEN EXCLUDED.schema_version ELSE leads.schema_version END, "
+                    f"  name = CASE WHEN {_LEAD_CALL_IS_LATEST} "
+                    "    THEN COALESCE(EXCLUDED.name, leads.name) "
+                    "    ELSE COALESCE(leads.name, EXCLUDED.name) END, "
+                    f"  last_call_id = CASE WHEN {_LEAD_CALL_IS_LATEST} "
+                    "    THEN EXCLUDED.last_call_id ELSE leads.last_call_id END, "
+                    f"  first_call_id = CASE WHEN {_LEAD_CALL_IS_EARLIEST} "
+                    "    THEN EXCLUDED.first_call_id ELSE leads.first_call_id END, "
+                    f"  call_count = leads.call_count + (NOT {_LEAD_CALL_FILED})::int, "
                     "  is_repeat_caller = leads.is_repeat_caller OR (leads.call_count > 0 "
-                    "    AND leads.last_call_id IS DISTINCT FROM EXCLUDED.last_call_id), "
+                    f"    AND NOT {_LEAD_CALL_FILED}), "
                     "  updated_at = now() "
                     "RETURNING id"
                 ),
@@ -2005,6 +2069,7 @@ async def _upsert_lead(
                     "data": _json(data),
                     "ver": schema_version,
                     "cid": call_id,
+                    "cid_text": str(call_id),
                 },
             )
         ).first()

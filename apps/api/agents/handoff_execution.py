@@ -62,7 +62,7 @@ from calevate_shared.languages import get_language
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.handoff import on_duty, spoken_line_for
+from apps.api.agents.handoff import on_duty, redacted_brief, spoken_line_for
 from apps.api.agents.service import resolve_caller_id
 from apps.api.agents.transfer_providers import (
     HANDOFF_OUTCOME_OF,
@@ -321,6 +321,10 @@ async def place_handoff(
     if not present_as:
         return _degraded(NO_PRESENTABLE_CLI)
 
+    # Redacted before the whisper and the row see them: both are read by people who are
+    # not the caller, and the row is the same column the engine's job fills redacted.
+    about = redacted_brief(about)
+    summary = redacted_brief(summary)
     request = TransferRequest(
         call_ref=engine_call_id,
         to_e164=duty.member.phone_e164,

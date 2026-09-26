@@ -76,6 +76,7 @@ from apps.api.kb.models import (
     UPLOAD_PROCESSING,
     UPLOAD_RECEIVED,
     UPLOAD_RETRYABLE,
+    text_is_read,
 )
 from apps.workers.document_ocr import OcrImage, ocr_images
 from apps.workers.document_text import extract_document
@@ -147,7 +148,7 @@ def page_digest(body: bytes) -> str:
 
 _ROW_SQL = """
 SELECT u.id, u.source_kind, u.original_key, u.content_type, u.ingest_status,
-       u.original_sha256, s.status
+       u.original_sha256, s.status, u.text_provenance
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 WHERE u.source_id = :sid
 """
@@ -334,7 +335,10 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         status, expected_sha256 = str(row[4]), row[5]
         review_state = str(row[6])
 
-        if kind not in ("pdf", "url") and status in (UPLOAD_RECEIVED, UPLOAD_CONVERTING):
+        # Read ONCE. A re-drive of a row whose text is already stored must not read it
+        # again: for a photograph that is a second paid model call, and it would replace the
+        # chunks a reviewer is reading (or has approved) with a different reading.
+        if not text_is_read(kind=kind, status=status, provenance=row[7]):
             await _mark(session, upload_id, UPLOAD_CONVERTING)
             extracted = await _extract(
                 session,
@@ -619,6 +623,24 @@ async def _due_link_sources(due: Sequence[Any]) -> dict[tuple[UUID, UUID], str]:
     return names
 
 
+#: Is this reading of the page already a LATER version of the same source? The row being
+#: checked keeps the digest it was published with (it is half of that version's publish
+#: identity, `kb/service._link_digest`), so until a person reviews the new version the page
+#: still differs from it on every tick. A later version carrying this exact digest — pending,
+#: rejected or live — means the change was already submitted, and submitting it again would
+#: put one more identical version in the review queue every day. Only LATER versions count:
+#: a page that returns to what an older, archived version said is a change worth reviewing.
+_CHANGE_ALREADY_SUBMITTED_SQL = """
+SELECT 1
+FROM kb_uploads cu
+JOIN kb_sources cs ON cs.id = cu.source_id
+JOIN kb_sources s ON s.agent_id = cs.agent_id AND s.name = cs.name AND s.version > cs.version
+JOIN kb_uploads u ON u.source_id = s.id
+WHERE cu.id = :checked AND u.content_digest = :d
+LIMIT 1
+"""
+
+
 async def _recheck_link(
     *,
     upload_id: UUID,
@@ -662,6 +684,13 @@ async def _recheck_link(
             )
             return False
         if digest == known_digest:
+            return False
+        already = (
+            await session.execute(
+                text(_CHANGE_ALREADY_SUBMITTED_SQL), {"checked": upload_id, "d": digest}
+            )
+        ).first()
+        if already is not None:
             return False
 
         source_id, version, _ = await kb_service.insert_source_version(

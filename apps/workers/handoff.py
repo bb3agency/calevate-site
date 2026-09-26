@@ -50,7 +50,7 @@ from calevate_shared.engine import ExecutionSnapshot
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.handoff import RosterMember, resolve_on_duty, roster
+from apps.api.agents.handoff import RosterMember, redacted_brief, resolve_on_duty, roster
 from apps.api.callbacks import service as callbacks
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -58,7 +58,6 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
-from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
@@ -66,12 +65,6 @@ log = get_logger(__name__)
 #: `tests/handoff_tool_test.py` — that service may not import this package (hard rule 3),
 #: so the name is spelled twice and pinned rather than shared.
 HANDOFF_JOB = "record_handoff_started"
-
-#: The longest a `reason` or a `summary` may be after redaction. A BOUND at the boundary,
-#: for `callbacks.MAX_NOTE`'s reason: both strings are written by a language model with no
-#: length contract, they land in a column a client reads and a message somebody's phone
-#: receives, and an unbounded model output is an unbounded row.
-MAX_BRIEF_CHARS = 600
 
 
 async def record_handoff_started(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -131,8 +124,8 @@ async def record_handoff_started(ctx: dict[str, Any], payload: dict[str, Any]) -
                 execution_id=execution_id,
             )
             return "destination_unknown"
-        reason = _bounded(payload.get("reason"))
-        summary = _bounded(payload.get("summary"))
+        reason = redacted_brief(payload.get("reason"))
+        summary = redacted_brief(payload.get("summary"))
         attempt_id = await _record(
             session,
             tenant_id=tenant_id,
@@ -439,22 +432,6 @@ async def _agent_hours(session: AsyncSession, agent_id: UUID) -> dict[str, Any] 
     return hours
 
 
-def _bounded(raw: object) -> str | None:
-    """The model's own words, REDACTED and bounded, or None.
-
-    **REDACTED BEFORE ANYTHING ELSE TOUCHES THEM.** These two strings are a summary of a
-    live conversation written by a language model, so they can carry anything the caller
-    said — a card number read out loud, an Aadhaar, a second phone number. They go into a
-    column a client reads and into a message delivered to somebody's handset, and both are
-    places SEC-COMP §4's `text_redacted` rule applies with full force. `redact` is the same
-    pass every transcript in this system goes through; there is no second one.
-    """
-    if not isinstance(raw, str):
-        return None
-    cleaned = redact(raw.strip()).text.strip()
-    return cleaned[:MAX_BRIEF_CHARS] or None
-
-
 async def _send_brief(
     *,
     tenant_id: UUID,
@@ -534,7 +511,6 @@ async def _snapshot(engine_name: str, execution_id: str, attempt: int) -> Execut
 __all__ = [
     "HANDOFF_CALLBACK_NOTE",
     "HANDOFF_JOB",
-    "MAX_BRIEF_CHARS",
     "record_handoff_started",
     "settle_handoff",
 ]
