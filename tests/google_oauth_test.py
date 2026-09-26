@@ -354,3 +354,26 @@ async def test_a_refused_exchange_does_not_poison_the_cache() -> None:
         assert google_oauth._TOKENS == {}
         google.status = 200
         assert await access_token(http, _account(), scope=SCOPE) == "ya29.token-2"
+
+
+def test_key_material_that_cannot_sign_is_refused_at_parse() -> None:
+    """A present-but-unusable `private_key` (truncated in a paste, or not RSA) is malformed
+    material, and `parse_service_account` answers None for it. Admitted instead,
+    `jwt.encode` raised `InvalidKeyError` out of `access_token`, through the sheets append
+    and out of the delivery job: one attempt, no delivery row, no exhaustion alert.
+    """
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    truncated = _PEM_OLD[: len(_PEM_OLD) // 2] + "\n-----END PRIVATE KEY-----\n"
+    not_rsa = (
+        ec.generate_private_key(ec.SECP256R1())
+        .private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        .decode()
+    )
+    for pem in (truncated, not_rsa, "not a key at all"):
+        raw = json.dumps({"client_email": EMAIL, "private_key": pem})
+        assert parse_service_account(raw) is None
