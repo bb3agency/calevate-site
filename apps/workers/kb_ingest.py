@@ -76,6 +76,7 @@ from apps.api.kb.models import (
     UPLOAD_PROCESSING,
     UPLOAD_RECEIVED,
     UPLOAD_RETRYABLE,
+    text_is_read,
 )
 from apps.workers.document_ocr import OcrImage, ocr_images
 from apps.workers.document_text import extract_document
@@ -147,7 +148,7 @@ def page_digest(body: bytes) -> str:
 
 _ROW_SQL = """
 SELECT u.id, u.source_kind, u.original_key, u.content_type, u.ingest_status,
-       u.original_sha256, s.status
+       u.original_sha256, s.status, u.text_provenance
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 WHERE u.source_id = :sid
 """
@@ -334,7 +335,10 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         status, expected_sha256 = str(row[4]), row[5]
         review_state = str(row[6])
 
-        if kind not in ("pdf", "url") and status in (UPLOAD_RECEIVED, UPLOAD_CONVERTING):
+        # Read ONCE. A re-drive of a row whose text is already stored must not read it
+        # again: for a photograph that is a second paid model call, and it would replace the
+        # chunks a reviewer is reading (or has approved) with a different reading.
+        if not text_is_read(kind=kind, status=status, provenance=row[7]):
             await _mark(session, upload_id, UPLOAD_CONVERTING)
             extracted = await _extract(
                 session,

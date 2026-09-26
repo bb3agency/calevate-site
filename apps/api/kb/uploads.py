@@ -67,7 +67,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
-from apps.api.kb.models import UPLOAD_CONVERTING, UPLOAD_RECEIVED
+from apps.api.kb.models import UPLOAD_RECEIVED, text_is_read
 from apps.api.kb.pdf_render import MAX_UPLOAD_BYTES
 from apps.api.kb.service import approve_source, insert_source_version, withdraw_source
 from apps.api.reliability.service import enqueue_outbox
@@ -736,9 +736,8 @@ async def confirm_upload(
         assert_view_as_may(principal, "kb.self_approve")
         raise ProblemError.forbidden("Only the account owner can approve knowledge for the agent.")
     row = await get_upload(session, upload_id)
-    if row["ingest_status"] in (UPLOAD_RECEIVED, UPLOAD_CONVERTING) and row["source_kind"] not in (
-        "pdf",
-        "url",
+    if not text_is_read(
+        kind=row["source_kind"], status=row["ingest_status"], provenance=row["text_provenance"]
     ):
         # Nothing to approve YET is a different answer from "you may not", and a client
         # who is told "not yet, we are still reading it" reloads rather than files a ticket.
