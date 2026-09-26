@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents.handoff import _UNAVAILABLE_REASONS, spec_for
+from apps.api.agents.handoff import _UNAVAILABLE_REASONS, MAX_BRIEF_CHARS, spec_for
 from apps.api.agents.handoff_execution import (
     ACCEPT_KEY,
     AGENT_UNKNOWN,
@@ -437,6 +437,40 @@ async def test_a_carrier_that_refuses_leaves_no_row_pretending_to_be_in_progress
     assert placement.reason == CARRIER_REFUSED
     assert placement.say == HANDOFF_DEGRADED_SAY
     assert [row[0] for row in await _attempts(tenant_id, agent_id)] == ["unknown"]
+
+
+async def test_the_models_prose_is_redacted_before_the_row_or_the_whisper_carries_it() -> None:
+    """The in-call tool path writes the same `handoff_attempts.reason`/`summary` columns the
+    rented engine's job writes, and those columns hold REDACTED prose (SEC-COMP §4): a
+    client reads them and the retention scrub assumes nothing rawer is there. A card number
+    the caller read out must not reach the row, and must not be read aloud to staff."""
+    tenant_id, agent_id = await _org()
+    provider = FakeTransfers()
+    card = "4111 1111 1111 1111"
+    async with tenant_session(tenant_id) as session, _provider(provider):
+        placement = await place_handoff(
+            session,
+            engine=owned_runtime_engine(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            engine_call_id=f"exec-{uuid.uuid4().hex[:10]}",
+            caller_e164=CALLER,
+            about=f"caller read out card {card} and wants the owner",
+            summary="y" * (MAX_BRIEF_CHARS + 500),
+            outcome_reaches_agent=True,
+        )
+    assert placement.placed
+    (request,) = provider.requests
+    assert "4111" not in request.whisper
+    async with tenant_session(tenant_id) as session:
+        reason, summary = (
+            await session.execute(
+                text("SELECT reason, summary FROM handoff_attempts WHERE agent_id = :aid"),
+                {"aid": agent_id},
+            )
+        ).one()
+    assert reason is not None and "4111" not in reason
+    assert summary == "y" * MAX_BRIEF_CHARS
 
 
 async def test_one_conversation_hands_over_once_however_many_times_the_tool_is_called() -> None:

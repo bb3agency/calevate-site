@@ -23,7 +23,8 @@ from typing import Any
 
 import pytest
 import tool_routes
-from apps.workers.handoff import HANDOFF_JOB, MAX_BRIEF_CHARS, _bounded
+from apps.api.agents.handoff import MAX_BRIEF_CHARS, redacted_brief
+from apps.workers.handoff import HANDOFF_JOB
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 
@@ -155,9 +156,9 @@ def test_the_models_prose_is_redacted_and_bounded_before_it_is_stored() -> None:
     summary is written by a language model about a live conversation, so it can carry
     anything the caller said out loud — and it lands in a column a client reads and (once a
     channel exists) in a message delivered to somebody's handset."""
-    brief = _bounded("Caller read out card 4111 1111 1111 1111 and wants the owner")
+    brief = redacted_brief("Caller read out card 4111 1111 1111 1111 and wants the owner")
     assert brief is not None
     assert "4111" not in brief, "a card number reached a handover brief"
-    assert _bounded("x" * (MAX_BRIEF_CHARS + 500)) == "x" * MAX_BRIEF_CHARS
-    assert _bounded("   ") is None
-    assert _bounded(None) is None
+    assert redacted_brief("x" * (MAX_BRIEF_CHARS + 500)) == "x" * MAX_BRIEF_CHARS
+    assert redacted_brief("   ") is None
+    assert redacted_brief(None) is None

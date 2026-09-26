@@ -65,6 +65,7 @@ from apps.api.agents.business_hours import is_after_hours
 from apps.api.agents.transfer_providers import PLATFORM_CANNOT_TRANSFER, transfer_blocked_reason
 from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
+from apps.workers.redaction import redact
 
 #: How many people one agent may hand a call to. A BOUNDED LIST for the reason every
 #: bounded list in this repo exists: the roster is rewritten wholesale on every edit, it is
@@ -73,6 +74,27 @@ from apps.api.engine import get_engine
 #: wizard's own limit for the same list (`admin/intake.IntakeFacts.escalation_contacts`),
 #: kept identical so the two screens cannot disagree about what a roster is.
 MAX_HANDOFF_MEMBERS: Final = 10
+
+#: The longest a handover `reason` or `summary` may be after redaction. Both are written
+#: by a language model with no length contract and land in a column a client reads, so an
+#: unbounded model output would be an unbounded row (`callbacks.MAX_NOTE`'s reason).
+MAX_BRIEF_CHARS: Final = 600
+
+
+def redacted_brief(raw: object) -> str | None:
+    """The model's words about a live conversation, redacted and bounded, or None.
+
+    The one producer of `handoff_attempts.reason` / `summary` for BOTH paths that write
+    them — the rented engine's job (`workers/handoff`) and the in-call tool
+    (`handoff_execution.place_handoff`). The prose can carry anything the caller said out
+    loud (a card number, an Aadhaar, a second phone number), and SEC-COMP §4's
+    `text_redacted` rule applies to the column exactly as to a transcript.
+    """
+    if not isinstance(raw, str):
+        return None
+    cleaned = redact(raw.strip()).text.strip()
+    return cleaned[:MAX_BRIEF_CHARS] or None
+
 
 #: WHEN the agent should hand over, when the client has written nothing of their own.
 #:
@@ -379,6 +401,7 @@ def handoff_spec(
 __all__ = [
     "HANDOFF_SPOKEN_TEMPLATES",
     "HANDOFF_TRIGGER_DEFAULT",
+    "MAX_BRIEF_CHARS",
     "MAX_HANDOFF_MEMBERS",
     "ROSTER_UNAVAILABLE_REASONS",
     "OnDuty",
@@ -386,6 +409,7 @@ __all__ = [
     "brief_url",
     "handoff_spec",
     "on_duty",
+    "redacted_brief",
     "resolve_on_duty",
     "roster",
     "spec_for",
