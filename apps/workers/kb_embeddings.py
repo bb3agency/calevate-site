@@ -213,7 +213,7 @@ async def _embed_batch(
 ) -> int:
     """One provider request for up to `EMBED_BATCH` chunks. Returns how many were stored.
 
-    RAISES on a transport failure so the CALLER can roll the whole tenant back — the claims
+    RAISES on a transport failure so the CALLER can roll this batch back — the claims
     included, which is what returns those chunks to `pending` for the next tick.
     """
     outcome = await chat.embed(
@@ -393,9 +393,15 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
         if budget <= 0:
             break
         try:
-            async with tenant_session(tenant_id) as session:
-                remaining = min(MAX_CHUNKS_PER_TENANT, budget)
-                while remaining > 0:
+            remaining = min(MAX_CHUNKS_PER_TENANT, budget)
+            while remaining > 0:
+                # ONE TRANSACTION PER BATCH, the claim included. A batch is paid for when
+                # the provider answers, and its vectors, states and `usage_events` rows must
+                # commit with it: a tenant-wide transaction let a LATER batch's failure roll
+                # an earlier, paid batch back — spend off the books (hard rule 7) and bought
+                # again next tick. The claim stays inside so `SKIP LOCKED` still guards the
+                # rows until their result commits.
+                async with tenant_session(tenant_id) as session:
                     rows = (
                         await session.execute(
                             text(_CLAIM_SQL),
@@ -417,8 +423,8 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
                         session, tenant_id=tenant_id, claimed=claimed, leg=leg
                     )
         except (httpx.HTTPError, TimeoutError) as failure:
-            # The provider, for THIS tenant. Every claim in the transaction rolls back, so
-            # the chunks stay `pending` and the next tick picks them up — the correct
+            # The provider, for THIS batch. Its claims roll back, so those chunks stay
+            # `pending` and the next tick picks them up — the correct
             # response to a transient failure, at a cost of thirty minutes.
             log.warning(
                 "kb_embed_provider_failed",

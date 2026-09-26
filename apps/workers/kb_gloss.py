@@ -558,25 +558,41 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
                     ).all()
                     for row in rows:
                         budget -= 1
-                        if await _gloss_one(
-                            session,
-                            tenant_id=tenant_id,
-                            chunk_id=UUID(str(row[0])),
-                            content=str(row[1]),
-                            leg=leg,
-                            model=model,
-                        ):
+                        # A SAVEPOINT PER CHUNK. Each gloss is paid for when the provider
+                        # answers, and its state and `usage_events` rows must survive a
+                        # LATER chunk's provider failure — which used to roll the whole
+                        # tenant back, taking earlier paid glosses off the books (hard rule
+                        # 7) to be bought again next tick. A transaction per chunk would do
+                        # it too, but would re-claim a chunk `_gloss_one` leaves `pending`
+                        # (an empty completion) in the same tick and pay for it again; one
+                        # claim with savepoints asks each chunk at most once per tick.
+                        try:
+                            async with session.begin_nested():
+                                paid = await _gloss_one(
+                                    session,
+                                    tenant_id=tenant_id,
+                                    chunk_id=UUID(str(row[0])),
+                                    content=str(row[1]),
+                                    leg=leg,
+                                    model=model,
+                                )
+                        except (httpx.HTTPError, TimeoutError) as failure:
+                            # The provider, for THIS chunk. Its savepoint rolls back, so it
+                            # and the unvisited chunks stay `pending` for the next tick —
+                            # the correct response to a transient failure, at a cost of
+                            # thirty minutes — while what was already paid for commits.
+                            log.warning(
+                                "kb_gloss_provider_failed",
+                                extra={
+                                    "tenant_id": str(tenant_id),
+                                    "error": type(failure).__name__,
+                                },
+                            )
+                            break
+                        if paid:
                             translated += 1
                         else:
                             not_needed += 1
-            except (httpx.HTTPError, TimeoutError) as failure:
-                # The provider, for THIS tenant. Every claim in the transaction rolls back,
-                # so the chunks stay `pending` and the next tick picks them up — the correct
-                # response to a transient failure, at a cost of thirty minutes.
-                log.warning(
-                    "kb_gloss_provider_failed",
-                    extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
-                )
             except Exception:
                 log.exception("kb_gloss_tenant_failed", extra={"tenant_id": str(tenant_id)})
 
