@@ -236,11 +236,39 @@ async def add_numbers(
                 extra={"tenant_id": str(tenant_id), "cancelled": cancelled},
             )
 
+    # A suppression's source only ever gets stronger (D-189), on this writer as on
+    # `compliance.service.add_to_dnc`. A number already on the list as `manual` is not
+    # `fresh`, so without this the person's own request, entered here as
+    # `customer_request`, would leave the row `manual` — deletable from the console, which
+    # is the consumer's opt-out being undone by the account it was made against. Run over
+    # every number rather than the ones the read found, so a `manual` row a racing request
+    # committed after that read is upgraded too. Counted as already suppressed: it was.
+    upgraded = 0
+    if source not in REMOVABLE_SOURCES:
+        result = await session.execute(
+            text(
+                "UPDATE dnc_list SET source = :source WHERE tenant_id = :tid "
+                "AND phone_e164 = ANY(:phones) AND source = ANY(:removable)"
+            ),
+            {
+                "source": source,
+                "tid": tenant_id,
+                "phones": unique,
+                "removable": list(REMOVABLE_SOURCES),
+            },
+        )
+        upgraded = rowcount_of(result)
+
     # Counts only (hard rule 6): the numbers are the whole point of the request and
     # none of them belong in a log line.
     log.info(
         "dnc_added",
-        extra={"tenant_id": str(tenant_id), "added": added, "source": source},
+        extra={
+            "tenant_id": str(tenant_id),
+            "added": added,
+            "upgraded": upgraded,
+            "source": source,
+        },
     )
     return AddResult(
         added=added,

@@ -669,6 +669,53 @@ async def test_a_removal_that_deletes_no_row_reports_not_found_rather_than_succe
     assert "dnc entry" in caught.value.detail.lower(), caught.value.detail
 
 
+async def test_a_customer_request_over_a_typed_entry_makes_it_undeletable() -> None:
+    """Staff paste a number into the do-not-call page (`manual`, deletable). That person
+    later rings and asks not to be called, and staff record it through the same page as
+    `customer_request`. The bulk writer treated the number as already suppressed and left
+    the row `manual`, so the console still offered — and honoured — delete on a
+    consumer's own request. `add_to_dnc` has upgraded in place since D-189; this is the
+    same rule on the other writer, and it stays monotone in the other direction."""
+    tenant_id, _agent_id, _slug, _token = await _tenant()
+    upgraded, kept = _number(), _number()
+
+    async with tenant_session(tenant_id) as session:
+        await dnc.add_numbers(session, tenant_id=tenant_id, raw_numbers=[upgraded], source="manual")
+        await dnc.add_numbers(
+            session, tenant_id=tenant_id, raw_numbers=[kept], source="customer_request"
+        )
+    async with tenant_session(tenant_id) as session:
+        result = await dnc.add_numbers(
+            session, tenant_id=tenant_id, raw_numbers=[upgraded], source="customer_request"
+        )
+        await dnc.add_numbers(session, tenant_id=tenant_id, raw_numbers=[kept], source="manual")
+    assert (result.added, result.already_suppressed) == (0, 1)
+
+    async with tenant_session(tenant_id) as session:
+        rows = dict(
+            (
+                await session.execute(
+                    text("SELECT phone_e164, id FROM dnc_list WHERE tenant_id = :t"),
+                    {"t": tenant_id},
+                )
+            ).all()
+        )
+        sources = dict(
+            (
+                await session.execute(
+                    text("SELECT phone_e164, source FROM dnc_list WHERE tenant_id = :t"),
+                    {"t": tenant_id},
+                )
+            ).all()
+        )
+    assert sources == {upgraded: "customer_request", kept: "customer_request"}
+
+    with pytest.raises(ProblemError) as refused:
+        async with tenant_session(tenant_id) as session:
+            await dnc.remove_entry(session, entry_id=uuid.UUID(str(rows[upgraded])))
+    assert refused.value.code == "dnc_consumer_optout"
+
+
 async def test_a_removal_racing_the_callers_own_opt_out_never_deletes_the_opt_out() -> None:
     """The client presses delete on a number they typed in; at the same moment that person
     is on a call saying "stop calling me", and `add_to_dnc` upgrades the SAME row from
