@@ -51,9 +51,14 @@ leg raises.
 **HARD RULE 2.** `ServiceUsageRecord` is a Pipecat shape and it stops at this module's door:
 what leaves is `UsageRow`, ours, and nothing downstream of it learns Pipecat exists.
 
-**HARD RULE 7.** `Decimal` throughout, INR throughout, and no rate is invented here — see
-`RateCard` below for the one door a rupee comes through and for the boundary that keeps this
-module from importing `apps.api.billing.rates` directly.
+**HARD RULE 7: THIS MODULE MEASURES AND DOES NOT PRICE.** Quantities are `Decimal`, and no
+rupee is computed here: `apps/api/worker/service._price` multiplies each quantity by the
+rate `billing/rates.py` holds, or records a refusal (and parks the measurement for a later
+attestation) when it holds none. A worker-side rate card was the rejected alternative. The
+worker cannot import `billing/rates.py` (a separate deployable) and the wire carries no
+money (`calevate_shared.worker_api.MeteredQuantity`), so a local card could only ever GATE a
+measurement: a container without one refused every leg it had measured, and because
+`usage_events` is append-only those quantities never reached the ledger at all.
 """
 
 from __future__ import annotations
@@ -62,7 +67,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
-from typing import Protocol
 
 from calevate_shared.worker_api import METERED_LEGS
 from pipecat.observers.service_metrics_observer import (
@@ -87,9 +91,6 @@ __all__ = [
     "LlmTotalTokensMissingError",
     "MeteredCall",
     "MeteredLeg",
-    "RateCard",
-    "RateCardMissingError",
-    "RateRefusedError",
     "RuntimePriceUnknownError",
     "RuntimeUsage",
     "SpeechQuantityMissingError",
@@ -166,11 +167,11 @@ _PER_THOUSAND = Decimal(1000)
 # render", which is exactly this module's position: `apps/api/core/errors.ProblemError` is
 # the right base for anything that becomes a problem+json body, and this worker never
 # produces one. `BACKEND-PATTERNS` §3's ladder still names the `kind`, and every refusal here
-# is `business_rule` — nothing is retryable, because a rate nobody attested does not appear
-# by waiting.
+# is `business_rule` — nothing is retryable, because a quantity nobody could read does not
+# appear by waiting.
 #
 # The audience is an OPERATOR and not a client: a client never sees these and can do nothing
-# about them, so the remediation names the ops console, the invoice and the vendor question.
+# about them, so the remediation names the invoice and the vendor question.
 
 
 class LegNotMeterableError(Exception):
@@ -196,44 +197,6 @@ class LegNotMeterableError(Exception):
         self.detail = detail
         self.remediation = remediation
         super().__init__(f"{code}: {detail} {remediation}")
-
-
-class RateCardMissingError(LegNotMeterableError):
-    """Nothing was installed to price with. See `RateCard` for why this is not a default."""
-
-    def __init__(self, leg: MeteredLeg) -> None:
-        super().__init__(
-            leg=leg,
-            code="meter_rate_card_missing",
-            detail=(
-                f"the {leg.value} leg has a measured quantity and no rate card was installed "
-                "on this worker, so nothing can turn it into rupees."
-            ),
-            remediation=(
-                "Construct CallMeter with the rate card the deployment configures. A worker "
-                "running without one meters quantities only and can never settle a call."
-            ),
-        )
-
-
-class RateRefusedError(LegNotMeterableError):
-    """The rate card itself refused — no attested price, no vendor reading. Hard rule 7.
-
-    SEPARATE FROM `RateCardMissingError` because they are different events with the same
-    symptom: nothing installed is a deployment fault, and a refusal is the rate card working
-    correctly on a model nobody priced. An operator triages them differently.
-    """
-
-    def __init__(self, *, leg: MeteredLeg, subject: str, refusal: str) -> None:
-        super().__init__(
-            leg=leg,
-            code="meter_rate_refused",
-            detail=f"the rate card refused to price {subject!r} on the {leg.value} leg: {refusal}",
-            remediation=(
-                "Enter the price from the vendor invoice in the ops console. Until it is "
-                "attested this leg is unmetered, which is not the same as free."
-            ),
-        )
 
 
 class CarrierFactsMissingError(LegNotMeterableError):
@@ -290,12 +253,12 @@ class RuntimePriceUnknownError(LegNotMeterableError):
                 "what a Pipecat Cloud active minute covers is UNKNOWN — whether it is "
                 "connected time only, or container start and teardown too, and how many "
                 "minutes a three-minute call bills. Nobody has read an answer, so this "
-                "worker has neither a quantity nor a rate for the runtime leg."
+                "worker has no quantity for the runtime leg."
             ),
             remediation=(
                 "Answer P-1 of docs/evidence/pre-build-blockers-2026-09-13.md against a real "
-                "Pipecat Cloud invoice, then supply RuntimeUsage with the attested minutes "
-                "and rate. Do not estimate it."
+                "Pipecat Cloud invoice, then supply RuntimeUsage with the attested minutes. "
+                "Do not estimate it."
             ),
         )
 
@@ -310,7 +273,7 @@ class TokenUsageNotComparableError(LegNotMeterableError):
     (`src/pipecat/metrics/metrics.py:109-127`, read at `f67c18af`).
 
     Our three declared legs (`azure_openai`, `openai`, `google`) are all OpenAI-compatible, so
-    the split IS billable as reported and the two rates the rate card returns apply to it. A
+    the split IS billable as reported and the server's in/out rates apply to it. A
     report where the parts do not reconcile to the whole means this call did not run on the
     leg we think it did, and billing the parts would silently under-bill the cached prompt.
     So it refuses, and it never repairs the figure by subtraction — `total_tokens` is the
@@ -450,50 +413,6 @@ class LlmModelAmbiguousError(LegNotMeterableError):
         )
 
 
-# --- the rate surface, and the boundary it sits behind --------------------------------
-
-
-class RateCard(Protocol):
-    """The one door a rupee comes through. **NO DEFAULT IMPLEMENTATION SHIPS IN THIS FILE.**
-
-    `apps/api/billing/rates.py` is the rate surface this repository already has, and it is
-    the one to use: `llm_inr_per_ktok` refuses an unattested price rather than returning
-    zero, which is the behaviour §1.3 says the other four legs must now copy. Re-deriving any
-    of it here would be a second answer to a solved question.
-
-    **BUT THIS WORKER MUST NOT IMPORT `apps.api`** — it is a separate deployable (D-592) that
-    has no business pulling in a monolith carrying tenancy, billing and the console. So the
-    rate surface arrives as a port, in the shape `BACKEND-PATTERNS` §1 already prescribes
-    ("ports for external systems are Protocols"), and the process that builds the pipeline
-    supplies the adapter.
-
-    The methods mirror `billing/rates.py` exactly — same names, same units, same contract
-    that the returned rate is EXACT and UNQUANTIZED and the caller multiplies once. They are
-    a subset: the two legs this protocol does not mention are the two nobody can price from a
-    rate card (`CarrierCdr`, `RuntimeUsage`).
-
-    ⚠ **THE ADAPTER DOES NOT EXIST YET AND THIS MODULE DOES NOT INVENT ONE.** The change
-    wanted, named here so the next reader inherits it rather than re-deriving it: lift the
-    pure arithmetic of `billing/rates.py` — `llm_inr_per_ktok`, `tts_rate_inr_per_char`,
-    `stt_rate_inr_per_second` and the attestation reader they consult — into
-    `calevate_shared` so `apps/api` and this worker share ONE door instead of two. Until that
-    lands a worker constructed with `rates=None` meters quantities and refuses to price,
-    which is a refusal and not a zero.
-    """
-
-    def llm_inr_per_ktok(self, model: str) -> Mapping[str, Decimal]:
-        """`{"in": ₹, "out": ₹}` per 1,000 tokens AS BILLED. Raises where nobody priced it."""
-        ...
-
-    def tts_rate_inr_per_char(self) -> Decimal:
-        """₹ per character synthesised. Exact, unquantized."""
-        ...
-
-    def stt_rate_inr_per_second(self) -> Decimal:
-        """₹ per second of audio transcribed. Exact, unquantized."""
-        ...
-
-
 # --- the two legs that are supplied, not observed --------------------------------------
 
 
@@ -501,9 +420,11 @@ class RateCard(Protocol):
 class CarrierCdr:
     """The carrier's own record of the call. THE AUTHORITY FOR THE BILLABLE MINUTE (§1.2).
 
-    Both the quantity and the charge come from here, because the carrier is the party that
-    billed them; neither is derived from anything the worker observed. `cdr_id` travels onto
-    the row so a disputed minute can be taken back to Plivo's record of it.
+    The quantity comes from here because the carrier is the party that billed it; it is
+    never derived from anything the worker observed. `cdr_id` travels onto the row so a
+    disputed minute can be taken back to Plivo's record of it. The CHARGE the CDR states is
+    not carried: nothing priced leaves this module, and the carrier leg is priced or refused
+    on our side of the wire (`apps/api/worker/service._price_one`).
 
     NO PHONE NUMBER (hard rule 6). The CDR names which number rang and this dataclass does
     not carry it — the ledger row would be the wrong place for it and the reconciliation
@@ -511,24 +432,23 @@ class CarrierCdr:
     """
 
     connected_seconds: Decimal
-    charge_inr: Decimal
     carrier: str
     cdr_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeUsage:
-    """Pipecat Cloud's billed active minutes and the rate, BOTH ATTESTED BY A HUMAN.
+    """Pipecat Cloud's billed active minutes, ATTESTED BY A HUMAN.
 
     There is no constructor that derives this from the session: see `RuntimePriceUnknownError`
-    for why, and §3.5 P-1 for the question that closes it. `attested_by` and `source` are the
+    for why, and §3.5 P-1 for the question that closes it. The per-minute RATE is not carried
+    for the reason `CarrierCdr`'s charge is not. `attested_by` and `source` are the
     same two fields `billing/rates.LlmPriceAttestation` carries, for the same reason — a
     figure with no named reader and no named source is a REPORTED number wearing a fact's
     clothes (hard rule 11).
     """
 
     active_minutes: Decimal
-    inr_per_active_minute: Decimal
     attested_by: str
     source: str
 
@@ -538,29 +458,17 @@ class RuntimeUsage:
 
 @dataclass(frozen=True, slots=True)
 class UsageRow:
-    """One `usage_events` row's worth of OUR normalized usage. No vendor shape survives here.
+    """One `usage_events` row's worth of OUR normalized usage, before it is priced.
 
-    `unit_cost_inr` is A PRICE PER UNIT OF `qty`, which is what `unit_cost_paid` means to
-    every reader of that column (`billing.margin_for_tenant` sums `qty * unit_cost_paid`).
-
-    **EXACT AND UNQUANTIZED, DELIBERATELY.** `billing/rates.py` promises its callers an exact
-    rate and asks them to "multiply by a count and quantize once"; quantizing here and again
-    at the column would be the second rounding that contract exists to avoid. The writer
-    quantizes to the column's own quantum with `ROUND_HALF_UP`, which is where that fact
-    already lives (`billing/rates.MONEY_Q`, `ROUNDING`) and where it stays — duplicating the
-    quantum into this deployable would be a second home for it.
-
-    `total_inr` is carried alongside because on the carrier leg it is the PRIMARY figure (the
-    CDR states a charge, and the per-second price is derived from it) while on the other legs
-    it is the product. Keeping both means a `qty` of zero cannot lose the money silently, the
-    gap `workers/pipeline.py::_unit_price` documents at length.
+    No vendor shape survives here, and no price is on it: `qty` in `unit_type` is what the
+    server multiplies by the rate it holds (`calevate_shared.worker_api.MeteredQuantity` is
+    this, on the wire). `qty` is exact and unquantized — the ledger column's quantum is the
+    server's to apply, once.
     """
 
     leg: MeteredLeg
     unit_type: str
     qty: Decimal
-    unit_cost_inr: Decimal
-    total_inr: Decimal
     meta: Mapping[str, str]
 
 
@@ -591,24 +499,12 @@ class MeteredCall:
       it always was — what changed is that the call is no longer the unit too.
 
     `refusals` is ordered as §1.3 lists the legs, so the first refusal an operator reads is
-    the one furthest from our control: a missing CDR and an unanswered vendor question are
-    somebody's to go and get, while an unattested rate is a form in the ops console.
+    the one furthest from our control. A refusal here is always a QUANTITY nobody could
+    read; a rate nobody attested is the server's refusal, recorded beside these.
     """
 
     rows: tuple[UsageRow, ...]
     refusals: tuple[LegNotMeterableError, ...]
-
-
-def _unit_cost(*, total_inr: Decimal, qty: Decimal) -> Decimal:
-    """A leg total expressed per unit of `qty`, with `workers/pipeline.py::_unit_price`'s rule
-    for a zero quantity: keep the leg cost whole on the row rather than divide by zero.
-
-    One way per problem — the same choice the Bolna path made, so the two ledgers' rows mean
-    the same thing and the reader that mishandles a zero-qty row is one bug in one place.
-    """
-    if qty == 0:
-        return total_inr
-    return total_inr / qty
 
 
 # --- the meter -------------------------------------------------------------------------
@@ -628,19 +524,18 @@ class _LlmTally:
 class CallMeter:
     """Observes one session and emits the five legs §1.3 sums, or refuses a leg by name.
 
-    **OBSERVING NEVER RAISES; PRICING DOES.** A live call must not die because the ops console
-    has no attestation for a model — the caller is mid-sentence and the refusal helps nobody
-    until the call is over. So `observe` only accumulates (and remembers what it could not
-    use), and every refusal lands in `metered_rows`, which runs after the call, on the path
-    that writes the ledger. That division is the reason `observe` has no failure mode and no
-    `try` around it at the call site.
+    **OBSERVING NEVER RAISES; `metered_rows` REFUSES.** A live call must not die because a
+    service reported usage in a shape we cannot sum — the caller is mid-sentence and the
+    refusal helps nobody until the call is over. So `observe` only accumulates (and
+    remembers what it could not use), and every refusal lands in `metered_rows`, which runs
+    after the call, on the path that settles it. That division is the reason `observe` has
+    no failure mode and no `try` around it at the call site.
 
     Not thread-safe and not meant to be: one meter per session, accumulated from the
     pipeline's own event loop, exactly as `ServiceMetricsObserver` delivers.
     """
 
-    def __init__(self, *, rates: RateCard | None = None) -> None:
-        self._rates = rates
+    def __init__(self) -> None:
         self._stt_audio_seconds = Decimal(0)
         self._stt_reports = 0
         self._stt_processors: set[str] = set()
@@ -671,8 +566,8 @@ class CallMeter:
         `PipelineParams.enable_metrics` and `enable_usage_metrics` both default to **False**
         (`src/pipecat/pipeline/worker.py:198-199`), and `frame_processor.py:591-613` drops
         every usage metric when they are off. A meter attached to a pipeline that did not
-        enable them observes nothing and then refuses every leg, which is the right failure
-        but a confusing one — `pipeline.py` sets both True.
+        enable them observes nothing and settles no speech or language leg at all, exactly
+        like a call that never spoke — `pipeline.py` sets both True.
 
         ⚠ **THE HANDLER RUNS AS ITS OWN TASK**, not inline: the observer creates one per
         handler per event (`src/pipecat/utils/base_object.py:256-261`). So a report pushed in
@@ -753,12 +648,12 @@ class CallMeter:
         """`total_tokens`, summed. THE cross-provider comparable figure (§1.3), never rebuilt."""
         return sum(tally.total_tokens for tally in self._llm.values())
 
-    # -- pricing -------------------------------------------------------------------
+    # -- settling ------------------------------------------------------------------
 
     def metered_rows(
         self, *, carrier: CarrierCdr | None, runtime: RuntimeUsage | None
     ) -> MeteredCall:
-        """Every leg this call can be priced on, and a refusal for every leg it cannot.
+        """Every leg this call has a quantity for, and a refusal for every leg it does not.
 
         **IT RETURNS REFUSALS RATHER THAN RAISING ONE (D-625).** See `MeteredCall` for the
         decision and for the alternative it replaces; the mechanical consequence here is that
@@ -797,8 +692,6 @@ class CallMeter:
             leg=MeteredLeg.CARRIER,
             unit_type=UNIT_TELEPHONY_S,
             qty=carrier.connected_seconds,
-            unit_cost_inr=_unit_cost(total_inr=carrier.charge_inr, qty=carrier.connected_seconds),
-            total_inr=carrier.charge_inr,
             meta={
                 "source": "carrier_cdr",
                 "carrier": carrier.carrier,
@@ -809,24 +702,16 @@ class CallMeter:
     def _runtime_row(self, runtime: RuntimeUsage | None) -> UsageRow:
         if runtime is None:
             raise RuntimePriceUnknownError
-        total = runtime.active_minutes * runtime.inr_per_active_minute
         return UsageRow(
             leg=MeteredLeg.RUNTIME,
             unit_type=UNIT_PLATFORM_MIN,
             qty=runtime.active_minutes,
-            unit_cost_inr=runtime.inr_per_active_minute,
-            total_inr=total,
             meta={
                 "source": "operator_attestation",
                 "attested_by": runtime.attested_by,
                 "attestation_source": runtime.source,
             },
         )
-
-    def _rate_card(self, leg: MeteredLeg) -> RateCard:
-        if self._rates is None:
-            raise RateCardMissingError(leg)
-        return self._rates
 
     def _stt_rows(self) -> list[UsageRow]:
         # BEFORE the "nothing was reported" arm, because that arm cannot tell the two apart:
@@ -842,21 +727,11 @@ class CallMeter:
             # transcriber never reported on — an answer that hung up in silence — and there
             # is no leg to price. Distinct from a leg we cannot price: nothing is missing.
             return []
-        rates = self._rate_card(MeteredLeg.STT)
-        try:
-            rate = rates.stt_rate_inr_per_second()
-        except (ValueError, LookupError) as exc:
-            raise RateRefusedError(
-                leg=MeteredLeg.STT, subject="stt audio seconds", refusal=str(exc)
-            ) from exc
-        qty = self._stt_audio_seconds
         return [
             UsageRow(
                 leg=MeteredLeg.STT,
                 unit_type=UNIT_STT_S,
-                qty=qty,
-                unit_cost_inr=rate,
-                total_inr=rate * qty,
+                qty=self._stt_audio_seconds,
                 meta={
                     "source": "pipecat:STTUsage.audio_seconds",
                     "processors": ",".join(sorted(self._stt_processors)),
@@ -874,22 +749,11 @@ class CallMeter:
             )
         if self._tts_reports == 0:
             return []
-        rates = self._rate_card(MeteredLeg.TTS)
-        try:
-            per_char = rates.tts_rate_inr_per_char()
-        except (ValueError, LookupError) as exc:
-            raise RateRefusedError(
-                leg=MeteredLeg.TTS, subject="tts characters", refusal=str(exc)
-            ) from exc
-        qty = Decimal(self._tts_characters) / _PER_THOUSAND
-        per_kchar = per_char * _PER_THOUSAND
         return [
             UsageRow(
                 leg=MeteredLeg.TTS,
                 unit_type=UNIT_TTS_KCHARS,
-                qty=qty,
-                unit_cost_inr=per_kchar,
-                total_inr=per_kchar * qty,
+                qty=Decimal(self._tts_characters) / _PER_THOUSAND,
                 meta={
                     "source": "pipecat:TTSUsageMetricsData.value",
                     "processors": ",".join(sorted(self._tts_processors)),
@@ -923,11 +787,6 @@ class CallMeter:
                 completion=tally.completion_tokens,
                 total=tally.total_tokens,
             )
-        rates = self._rate_card(MeteredLeg.LLM)
-        try:
-            price = rates.llm_inr_per_ktok(model)
-        except (ValueError, LookupError) as exc:
-            raise RateRefusedError(leg=MeteredLeg.LLM, subject=model, refusal=str(exc)) from exc
         meta = {
             "source": "pipecat:LLMTokenUsage",
             "model": model,
@@ -939,28 +798,15 @@ class CallMeter:
             # the session that produced it.
             "total_tokens": str(tally.total_tokens),
         }
-        rows = []
-        for unit_type, key, tokens in (
-            (UNIT_LLM_KTOK_IN, "in", tally.prompt_tokens),
-            (UNIT_LLM_KTOK_OUT, "out", tally.completion_tokens),
-        ):
-            try:
-                rate = price[key]
-            except KeyError as exc:
-                raise RateRefusedError(
-                    leg=MeteredLeg.LLM,
-                    subject=model,
-                    refusal=f"the rate card returned no {key!r} rate",
-                ) from exc
-            qty = Decimal(tokens) / _PER_THOUSAND
-            rows.append(
-                UsageRow(
-                    leg=MeteredLeg.LLM,
-                    unit_type=unit_type,
-                    qty=qty,
-                    unit_cost_inr=rate,
-                    total_inr=rate * qty,
-                    meta=meta,
-                )
+        return [
+            UsageRow(
+                leg=MeteredLeg.LLM,
+                unit_type=unit_type,
+                qty=Decimal(tokens) / _PER_THOUSAND,
+                meta=meta,
             )
-        return rows
+            for unit_type, tokens in (
+                (UNIT_LLM_KTOK_IN, tally.prompt_tokens),
+                (UNIT_LLM_KTOK_OUT, tally.completion_tokens),
+            )
+        ]

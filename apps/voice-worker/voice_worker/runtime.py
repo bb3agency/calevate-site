@@ -94,7 +94,7 @@ from voice_worker.call_tools import CallToolApiClient
 from voice_worker.carrier import arm_first_turn
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
-from voice_worker.meter import CallMeter, CarrierCdr, RateCard, RuntimeUsage
+from voice_worker.meter import CallMeter, CarrierCdr, RuntimeUsage
 from voice_worker.pipeline import CallerIdentityLike, SessionConfig, VendorCredentials
 from voice_worker.session import AssembledCall, knowledge_report, open_session, pack_cache
 from voice_worker.sink import (
@@ -140,7 +140,6 @@ class WorkerRuntime:
         api: WorkerApiClient,
         *,
         fetcher: PackFetcher,
-        rates: RateCard | None = None,
         cache: PackCache | None = None,
         embedder: QueryEmbedder | None = None,
         turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
@@ -148,7 +147,6 @@ class WorkerRuntime:
     ) -> None:
         self._api = api
         self._fetcher = fetcher
-        self._rates = rates
         self._cache = cache if cache is not None else pack_cache()
         self._embedder = embedder
         #: Passed to every per-call sink. Defaulted here rather than required, so a test
@@ -157,23 +155,13 @@ class WorkerRuntime:
         self._turn_flush_seconds = turn_flush_seconds
 
     @classmethod
-    def from_env(cls, *, rates: RateCard | None = None) -> WorkerRuntime:
+    def from_env(cls) -> WorkerRuntime:
         """The production constructor. Both halves raise on a misconfigured container.
 
-        ⚠ **`rates` STAYS AN ARGUMENT AND HAS NO ENV FORM**, which is hard rule 7 showing
-        through the bootstrap. A rate card is attested prices, and the ops console is where
-        an operator attests them (`meter.RateCardMissingError`'s remediation); a container
-        that read one out of its own environment would be a container that can invent a
-        price. `None` is therefore a legitimate deployment — the worker meters QUANTITIES
-        and refuses every leg at settlement, loudly and on the record, which is the correct
-        behaviour for a worker nobody has priced.
-
-        ⚠ **AND SINCE D-621 THE PRICE NEVER LEAVES THIS PROCESS EVEN WHEN A CARD IS
-        INSTALLED.** `sink.settle` sends `MeteredQuantity` — leg, unit type, quantity — and
-        `apps/api/worker/service._price` multiplies, because the rate that reaches
+        There is no rate card to pass: the worker sends QUANTITIES and
+        `apps/api/worker/service._price` prices them, because the rate that reaches
         `unit_cost_paid` must be one an operator attested to US rather than one a container
-        on a vendor's infrastructure computed. The argument survives for the measurement it
-        still gates and for the refusals it still raises.
+        on a vendor's infrastructure holds (hard rule 7, `meter.py`).
         """
         # THE TWO BUFFER BOUNDS COME THROUGH `boot`'s PARSERS, not through a second reading
         # of the same variables here. `load_worker_config` is the authority on this
@@ -209,7 +197,6 @@ class WorkerRuntime:
                 token=config.pipecat_worker_api_token,
             ),
             fetcher=ObjectStorePackFetcher.from_env(),
-            rates=rates,
             embedder=embedder,
             turn_batch_size=batch,
             turn_flush_seconds=flush,
@@ -257,9 +244,10 @@ class WorkerRuntime:
         fetches. §1.2 gives the connected minute and its charge to the CARRIER, whose CDR is
         not retrievable from this container, and §7 P-1 leaves what a Pipecat "active
         minute" bills UNANSWERED; both are things a human or a reconciliation supplies.
-        ⚠ Today both are `None` on every production call, so every call settles as a
-        RECORDED REFUSAL rather than as rupees. That is not a defect to code around — it is
-        what an unwitnessed billable fact looks like when nothing is allowed to invent one.
+        ⚠ Today both are `None` on every production call, so those two legs settle as
+        RECORDED REFUSALS beside the speech and language quantities this container measured.
+        That is not a defect to code around — it is what an unwitnessed billable fact looks
+        like when nothing is allowed to invent one.
 
         **`greeting` DEFAULTS TO `"required"` AND THAT DEFAULT IS THE POINT.** Arming the
         first turn used to live in `bot.py`, beside a second, partial copy of this method —
@@ -278,7 +266,7 @@ class WorkerRuntime:
             turn_batch_size=self._turn_batch_size,
             turn_flush_seconds=self._turn_flush_seconds,
         )
-        meter = CallMeter(rates=self._rates)
+        meter = CallMeter()
         observer = ServiceMetricsObserver()
         meter.attach(observer)
 
