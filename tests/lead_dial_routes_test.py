@@ -213,7 +213,7 @@ async def test_the_lead_button_places_exactly_one_call_and_records_who_pressed_i
         response = await http.post(
             f"/v1/leads/{lead_id}/call",
             json={"agent_id": str(agent_id), "context_note": "Asked about braces"},
-            headers=headers,
+            headers={**headers, "Idempotency-Key": f"press-{lead_id}"},
         )
 
     assert response.status_code == 200, response.text
@@ -258,7 +258,7 @@ async def test_a_number_on_the_dnc_list_is_refused_by_the_button_with_the_rule_n
         response = await http.post(
             f"/v1/leads/{lead_id}/call",
             json={"agent_id": str(agent_id)},
-            headers=headers,
+            headers={**headers, "Idempotency-Key": f"press-{lead_id}"},
         )
 
     assert response.status_code == 200, response.text
@@ -296,6 +296,32 @@ async def test_two_presses_with_one_idempotency_key_ring_the_customer_once() -> 
     assert first.json()["status"] == "queued"
     assert second.json() == first.json(), "the replay is the FIRST answer, not a new dial"
     assert await _outbound_calls(tenant_id) == [(phone, "queued")], "one ring, not two"
+
+
+async def test_a_press_without_an_idempotency_key_is_refused_before_anything_rings() -> None:
+    """The key is REQUIRED, and the refusal comes before the gate and the engine.
+
+    The handler only claimed a key when one was sent, so a caller that omitted the header
+    — any client other than this console, or a retry layer that strips it — got no
+    dedupe at all: two identical requests were two dials to a real person. An optional
+    key protects only the callers that remember it (`assist_call` makes the same
+    argument for money). The retry the header exists to answer must find a key to replay.
+    """
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, _phone = await _lead(tenant_id, agent_id)
+
+    async with _client() as http:
+        first = await http.post(
+            f"/v1/leads/{lead_id}/call", json={"agent_id": str(agent_id)}, headers=headers
+        )
+        second = await http.post(
+            f"/v1/leads/{lead_id}/call", json={"agent_id": str(agent_id)}, headers=headers
+        )
+
+    for response in (first, second):
+        assert response.status_code == 400, response.text
+        assert response.json()["type"].endswith("/idempotency_key_required"), response.text
+    assert await _outbound_calls(tenant_id) == [], "nothing rings on a request with no key"
 
 
 async def test_a_blocked_press_is_replayed_as_blocked_rather_than_dialled_on_retry() -> None:

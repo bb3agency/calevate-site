@@ -92,7 +92,7 @@ async def test_a_refused_click_to_dial_is_counted_under_its_own_rule(
         response = await http.post(
             f"/v1/leads/{lead_id}/call",
             json={"agent_id": str(agent_id)},
-            headers=headers,
+            headers={**headers, "Idempotency-Key": f"press-{lead_id}"},
         )
 
     assert response.status_code == 200, response.text
@@ -113,7 +113,7 @@ async def test_a_dial_that_goes_through_counts_nothing(
         response = await http.post(
             f"/v1/leads/{lead_id}/call",
             json={"agent_id": str(agent_id)},
-            headers=headers,
+            headers={**headers, "Idempotency-Key": f"press-{lead_id}"},
         )
 
     assert response.json()["status"] == "queued", response.text
