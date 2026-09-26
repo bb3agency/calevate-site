@@ -176,6 +176,16 @@ ROW_COPY: dict[str, _Copy] = {
             "is unaffected."
         ),
     ),
+    "autodialer_notice_cli_undeclared": _Copy(
+        title="A number your agents call from is not on your autodialler notice",
+        actor="client",
+        next_step=(
+            "Add the missing number to your notice, send the updated notice to the "
+            "provider that supplies your outbound line, and record it here. The notice "
+            "screen lists the numbers it does not yet name. Calls from them stay stopped "
+            "until then; answering incoming calls is unaffected."
+        ),
+    ),
     "tm_registration_missing": _Copy(
         title="Calevate's telemarketer registration",
         actor="calevate",
