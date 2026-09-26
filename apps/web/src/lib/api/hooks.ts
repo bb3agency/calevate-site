@@ -298,8 +298,28 @@ export function useCall(
     queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}`),
     // A call detail page opened while the pipeline is still running fills in as the
     // extraction lands; once it has, there is nothing left to poll for.
-    refetchInterval: (q) => (q.state.data?.summary ? false : SLOW_INTERVAL_MS),
+    refetchInterval: (q) => (callStillFillingIn(q.state.data) ? SLOW_INTERVAL_MS : false),
   });
+}
+
+/**
+ * The terminal statuses that promise no transcript and so never get a summary
+ * (`workers/pipeline.py`: only `completed` carries artefacts).
+ */
+const ENDED_WITHOUT_A_CONVERSATION = new Set(["failed", "no_answer", "busy", "voicemail"]);
+
+/**
+ * Can the pipeline still add to this call?
+ *
+ * Not "is there a summary": an unanswered call never gets one, and a completed call with an
+ * empty transcript is stored with a NULL summary beside `outcome_tag = 'dropped'`. Polling on
+ * the summary alone re-read those every minute for as long as the tab stayed open.
+ * `outcome_tag` is written with the extraction, so its presence means the reading is in.
+ */
+function callStillFillingIn(call: CallDetail | undefined): boolean {
+  if (call === undefined) return true;
+  if (call.summary || call.outcome_tag !== null) return false;
+  return !ENDED_WITHOUT_A_CONVERSATION.has(call.status);
 }
 
 /**
