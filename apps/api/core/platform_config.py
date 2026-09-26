@@ -554,10 +554,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "redirect errors until every server process is restarted.",
     ),
     # Read at the point of use, per call or per request.
-    # Read per request, inside the handler, from the settings snapshot
-    # (`compliance/caller_data_routes._authorized`) — nothing captures it at boot, so a
-    # rotation is in force on the next inbound call.
-    "bolna_caller_data_token": AppliesRule(LIVE),
     # The voice worker's own credential (D-621). Read per request inside the handler, from
     # the settings snapshot (`worker/service.authorized`) — nothing captures it at boot, so
     # a rotation is in force on the next batch the worker posts. ⚠ THE OTHER HALF OF THE

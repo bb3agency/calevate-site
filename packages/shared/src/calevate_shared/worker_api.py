@@ -195,8 +195,7 @@ class WorkerSessionOut(BaseModel):
 
     Replaces the SELECT in `voice_worker/config.py`, field for field. `tenant_id` and
     `agent_id` are ANSWERED rather than asked for: the worker presents an
-    `engine_agent_ref` and the server resolves it, which is the same direction
-    `compliance/caller_data_routes.py` already resolves that ref in.
+    `engine_agent_ref` and the server resolves it.
     """
 
     model_config = _STRICT

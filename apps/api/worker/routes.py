@@ -10,9 +10,7 @@ Pipecat Cloud and cannot reach our Postgres — that database is on the VPS host
 Docker bridge. Of the four options recorded there this is the third, and it is the only one
 that does not put the database holding every client's caller data on the public internet.
 
-**WHY IT IS HERE AND NOT IN `apps/voice-runtime`.** The same contract
-`compliance/caller_data_routes.py` is held by, and for a stronger version of its reason:
-these handlers read `agent_config_versions` and WRITE `calls`, `transcript_turns`,
+**WHY IT IS HERE AND NOT IN `apps/voice-runtime`.** These handlers read `agent_config_versions` and WRITE `calls`, `transcript_turns`,
 `usage_events` and the outbox under a tenant's RLS, they run `apps/workers/redaction` and
 they consult `apps/api/billing/rates`. Hard rule 3 forbids heavy imports and DB writes
 beyond a minimal event row on the latency-critical service by name, and
@@ -37,8 +35,7 @@ this: the OpenAPI snapshot CI freezes describes the surfaces a client consumes, 
 
 **AUTHENTICATION IS THE ONE THING THAT DOES NOT DEGRADE.** Every route answers 401 without
 the deployment's own Bearer token, and a deployment with no token configured answers
-nobody — see `service.authorized`. That posture is `caller_data_routes`', and the stakes are
-higher here: that endpoint reads a nicety, these write the ledger.
+nobody — see `service.authorized`. These routes write the ledger.
 
 HARD RULE 6: ids and counts. Nothing here logs transcript text, and there is no phone
 number on this path to log.
@@ -144,8 +141,7 @@ async def worker_session(
 ) -> WorkerSessionOut:
     """What one published agent is, for a worker about to answer its phone.
 
-    **THE WORKER PRESENTS A REF AND WE ANSWER THE IDS**, which is the direction
-    `caller_data_routes` already resolves that ref in. The worker never asks for a tenant; a
+    **THE WORKER PRESENTS A REF AND WE ANSWER THE IDS.** The worker never asks for a tenant; a
     client that could name a tenant could name somebody else's.
 
     This is also the route `voice_worker/boot.open_runtime` probes at startup, with a ref
@@ -164,9 +160,8 @@ async def worker_caller_memory(
 ) -> CallerMemoryOut:
     """What this agent remembers about the caller now ringing, read as the call is assembled.
 
-    Here rather than on the engine caller-data endpoint for two reasons: the worker then
-    holds one credential instead of two, and the number travels in the body instead of that
-    endpoint's query string, which an access log records. A read, so `writes=False`, for the
+    The number travels in the body rather than a query string, which an access log
+    records. A read, so `writes=False`, for the
     session read's reason.
     """
     _admit(authorization, writes=False)

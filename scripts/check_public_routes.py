@@ -422,25 +422,6 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         # origin in a JSON body; what this refuses is a report about a page we do not serve.
         credential="require_own_console_origin",
     ),
-    "GET /v1/engine/caller-data/{engine}": PublicRoute(
-        why=(
-            "The engine (Bolna) calls this at inbound call setup to ask what the agent "
-            "remembers about the person now ringing, and injects the answer into that "
-            "call's instructions; it holds no Calevate session. It answers ONLY to a "
-            "Bearer token this deployment configured and the engine was given, compared "
-            "in constant time, and a deployment with no token configured answers nobody. "
-            "Every other outcome — an unknown agent, a caller with nothing on file, an "
-            "agent whose account never switched this on, a slow read — is an empty "
-            "object, so a refusal and a stranger are indistinguishable from outside. It "
-            "is a GET that discloses nothing without the token."
-        ),
-        # Not the source-IP allowlist: whether the inbound data-source fetch leaves from
-        # the same egress addresses as their webhooks is UNVERIFIED (OPERATIONS §2 gate
-        # 8c), and a wrong allowlist here would silently disable the whole feature rather
-        # than fail loudly. The token is the vendor's own mechanism for this endpoint
-        # (`inbound-tab.md:38-42`) and it is the credential this row promises.
-        credential="compare_digest",
-    ),
     "GET /v1/worker/session/{engine_agent_ref}": PublicRoute(
         why=(
             "The voice worker (apps/voice-worker, on Pipecat Cloud) reads the published "

@@ -306,30 +306,12 @@ class Settings(BaseSettings):
     #: must never hold `PLATFORM_KEK` and therefore can never open `platform_secrets`.
     #: `apps/api` holds no Gnani client at all: there is nothing here to give a key to.
     gnani_api_key: str | None = None
-    #: The Bearer token the engine presents when it asks us who is ringing (D-513).
-    #:
-    #: On an INBOUND call the engine holds the number and we hold the memory, so it fetches
-    #: caller details from `GET /v1/engine/caller-data/{engine}` at call setup and injects
-    #: the answer into the agent's prompt. Their console takes a Bearer token for that
-    #: endpoint and stores it (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
-    #: agent-setup/inbound-tab.md:38-42,63,78`, read 2 Sep 2026) — so the value is one WE
-    #: choose and paste into their agent, not one they issue.
-    #:
-    #: ABSENT ⇒ THE ENDPOINT ANSWERS NOBODY, which is the safe reading of an unconfigured
-    #: credential rather than an outage: a deployment that has not been wired to the engine
-    #: simply greets every inbound caller generically, exactly as it does today. It is NOT
-    #: `bolna_api_key` reused — that key authenticates US to THEM and would be travelling in
-    #: the opposite direction, so a leak of one would be a leak of the other.
-    bolna_caller_data_token: str | None = Field(default=None, max_length=256)
     #: The credential the VOICE WORKER presents to `/v1/worker/*` (D-621), and the base URL
     #: it presents it to.
     #:
-    #: **A SEPARATE TOKEN FROM `bolna_caller_data_token`, DELIBERATELY.** That one is held by
-    #: a rented engine and opens a READ of caller memory. This one opens the worker's WRITE
-    #: surface — transcript turns, call status and the settlement that carries D-607 — and
-    #: reusing the first would hand a third-party engine the ability to write our ledger. Two
-    #: credentials because they are two blast radii, which is the same reason
-    #: `bolna_caller_data_token` is not `bolna_api_key`.
+    #: It opens the worker's WRITE surface — transcript turns, call status and the
+    #: settlement that carries D-607 — so it is never shared with a credential a third
+    #: party holds.
     #:
     #: CONSOLE-MANAGED, unlike `gnani_api_key`: `apps/api` READS this value to verify the
     #: header, so it has a reader on this host and belongs in the credential store. The SAME
@@ -337,8 +319,7 @@ class Settings(BaseSettings):
     #: instruction that a human puts the value in both places, with nothing fetching one from
     #: the other. `cartesia_api_key` is the existing precedent for that shape.
     #:
-    #: ABSENT => every `/v1/worker/*` route answers 401 to everybody, which is
-    #: `caller_data_routes._authorized`'s posture and for its reason: an unconfigured
+    #: ABSENT => every `/v1/worker/*` route answers 401 to everybody: an unconfigured
     #: deployment authenticates nobody rather than authenticating anybody.
     pipecat_worker_api_token: str | None = Field(default=None, max_length=256)
     #: Where the worker reaches `apps/api`. NOT a secret; read by the worker only, which is

@@ -142,7 +142,6 @@ def _mount_routers(application: FastAPI) -> None:
         router as sender_attestation_router,
     )
     from apps.api.compliance.autodialer_routes import router as autodialer_notice_router
-    from apps.api.compliance.caller_data_routes import router as caller_data_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.carrier_application_routes import (
         admin_router as carrier_application_admin_router,
@@ -298,13 +297,6 @@ def _mount_routers(application: FastAPI) -> None:
     # There is no route on it that CREATES one: a call-back exists because a caller asked
     # for it mid-call, through the in-call tool in `apps/voice-runtime`.
     application.include_router(callbacks_router)
-    # The engine-called inbound caller-details fetch (D-513). Its own literal
-    # `/v1/engine/caller-data` prefix — declared in `core.rbac.PUBLIC_PREFIXES` and in
-    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`, which is the reviewed line
-    # that says why the world may call it. It lives in `apps/api` rather than in
-    # voice-runtime because it derives a keyed caller reference and reads a tenant's
-    # store, which that service's import surface forbids it to hold.
-    application.include_router(caller_data_router)
     # The voice worker's own server half (D-621). Its own literal `/v1/worker` prefix,
     # declared in `core.rbac.PUBLIC_PREFIXES` and row by row in
     # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES` — the worker holds no Calevate

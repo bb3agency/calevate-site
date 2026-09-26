@@ -14,7 +14,7 @@ be true when the seam is finished. Four of them are hard rules:
 2. **AUTHENTICATION DOES NOT DEGRADE** (hard rule 1's neighbour). No token is 401 on every
    route, and — the sharp end — a deployment with NO token configured authenticates nobody,
    because an absent credential is a deployment nobody wired up and never "no authentication
-   required". These routes WRITE the ledger; `caller_data_routes` only reads a nicety.
+   required". These routes WRITE the ledger.
 3. **THE TENANT COMES FROM THE REF AND NOTHING ELSE** (hard rule 1). A call ref the server
    did not mint is refused, and a body claiming a tenant the ref does not name is refused.
 4. **THE SERVER REDACTS, AND A CLIENT'S REDACTION IS NOT STORED** (hard rules 5 and 6). That

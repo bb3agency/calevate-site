@@ -130,9 +130,8 @@ class TestWiring:
 
         RAISED 40 -> 43 by D-621, and this is the largest single jump since the auth slice,
         so it earns the longest note. The three are `/v1/worker/*`: the voice worker's
-        session read and its two writes. They are exempt from the RBAC registry for the same
-        structural reason `/v1/engine/caller-data/` is — a container on Pipecat Cloud holds
-        no Calevate session and no membership a permission could be checked against — and
+        session read and its two writes. They are exempt from the RBAC registry for a
+        structural reason — a container on Pipecat Cloud holds no Calevate session and no membership a permission could be checked against — and
         they present the same class of credential, a Bearer token THIS deployment issued,
         compared in constant time, with an unconfigured deployment answering nobody.
 
@@ -239,9 +238,13 @@ class TestWiring:
         `recall()`, on a second token and with the number in its query string, and its only
         callers were the rented engine (being removed, D-639) and this worker. Here the
         number is an observation in the body, the answer is gated live on the client's switch
-        and the SPDI refusal, and the tenant is parsed from the ref. Removing the caller-data
-        route brings this bound back to 49."""
-        assert len(exempt) <= 50, sorted(exempt)
+        and the SPDI refusal, and the tenant is parsed from the ref.
+
+        LOWERED 50 -> 48 by D-639, which removed two routes with the rented engine that was
+        the last caller of each: the caller-data fetch above, and the in-call action invoke
+        route (`POST /v1/actions/invoke/{engine}/{tool_id}`), whose source-IP gate no
+        remaining engine can pass."""
+        assert len(exempt) <= 48, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

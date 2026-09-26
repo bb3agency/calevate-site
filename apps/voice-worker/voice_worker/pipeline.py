@@ -215,10 +215,9 @@ class SessionConfig:
     #: `agents.engine_agent_ref` holds it. READ rather than rebuilt: this container must not
     #: import the monolith, and a restated format string is two spellings of one handle.
     #:
-    #: It is here because `memory.ApiCallerMemoryReader` needs it — the caller-data endpoint
-    #: resolves `engine_agent_ref → (tenant, agent)` through `engine_agent_routes` and that
-    #: is the contract the rented engine already calls, so this leg reuses it rather than
-    #: adding a second door taking ids. `None` for an agent whose publish predates the
+    #: It is here because `memory.ApiCallerMemoryReader` needs it — the worker API resolves
+    #: `engine_agent_ref → (tenant, agent)` through `engine_agent_routes`, so the worker
+    #: never presents ids. `None` for an agent whose publish predates the
     #: column being read here, which is an agent that recalls nothing rather than an error.
     engine_agent_ref: str | None = None
     #: BCP-47, e.g. `te-IN`. `None` means let Sarvam auto-detect, which is what

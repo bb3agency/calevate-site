@@ -294,9 +294,8 @@ def authorized(header: str | None) -> bool:
 
     **AN UNCONFIGURED DEPLOYMENT AUTHENTICATES NOBODY.** A missing token is not "no
     authentication required" — it is a deployment that has not been wired to its worker yet,
-    and the safe reading of an absent credential is that nothing may pass.
-    `compliance/caller_data_routes._authorized`'s posture, and it matters more here: that
-    endpoint READS a nicety, this one WRITES the ledger.
+    and the safe reading of an absent credential is that nothing may pass. It matters
+    because these routes WRITE the ledger.
     """
     expected = get_settings().pipecat_worker_api_token
     if not expected or not header:

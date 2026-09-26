@@ -973,7 +973,7 @@ def _to_config(
         call_is_recorded=engine.capabilities.records_audio,
         # DOES THIS AGENT REMEMBER ITS CALLERS (D-507/D-513)? It reaches the engine as a
         # PROMPT SECTION and nothing else — the facts are per-call and ride the dial or the
-        # inbound caller-data endpoint, because a fact about ONE person may not be written
+        # worker's inbound caller-memory read, because a fact about ONE person may not be written
         # onto an agent object every caller shares. The same column also governs
         # auto-reschedule callbacks (D-514): one switch, one reader.
         caller_memory_enabled=bool(agent["caller_memory_enabled"]),

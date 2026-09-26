@@ -672,15 +672,10 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # deployment issues it (`pipecat_worker_api_token`), compared in constant time, with an
     # unconfigured deployment answering nobody. It is the widest of the tokens on this
     # list, because it opens a WRITE surface rather than a read, which is why it is its own
-    # credential and not a reuse of `bolna_caller_data_token`. The trailing slash keeps the
+    # credential. The trailing slash keeps the
     # exemption to this surface; all three routes under it are declared in
     # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`.
     "/v1/worker/",
-    # The engine-called INBOUND caller-details fetch (D-513). Unauthenticated in the
-    # registry's sense — its caller holds no Calevate session — and gated by a Bearer
-    # token WE issue (`compliance/caller_data_routes`). The trailing slash keeps this to
-    # the fetch itself.
-    "/v1/engine/caller-data/",
     # The public SELF-SERVE RATE CARD (D-545): the list rate and the credit-pack ladder,
     # read by the marketing site's server to put "from ₹X/min" on `/pricing` and the live
     # rate into the ROI calculator. Unauthenticated because its only reader holds no

@@ -4747,26 +4747,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/engine/caller-data/{engine}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Engine-called: what this agent remembers about the caller now ringing
-         * @description The voice platform calls this when an inbound call arrives and puts the answer into the agent's instructions for that one call. It answers with nothing at all for a caller the agent has not spoken to, for an agent whose account has not switched caller continuity on, and whenever the lookup cannot be completed in time — a returning caller is then greeted normally, which is the right way for this to fail.
-         */
-        get: operations["caller_data_v1_engine_caller_data__engine__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/integrations/credentials": {
         parameters: {
             query?: never;
@@ -26257,45 +26237,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    caller_data_v1_engine_caller_data__engine__get: {
-        parameters: {
-            query: {
-                contact_number: string;
-                agent_id: string;
-                execution_id?: string;
-            };
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                engine: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
             };
             /** @description RFC-9457 problem+json */
             default: {

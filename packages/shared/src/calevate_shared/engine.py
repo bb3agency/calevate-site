@@ -2738,9 +2738,8 @@ VOICE_STYLE_GUIDANCE: Final = (
 
 #: THE VARIABLE THE ENGINE FILLS WITH WHAT WE REMEMBER ABOUT THE PERSON ON THIS CALL.
 #:
-#: One name, three consumers, and that is why it is here rather than in an adapter: the
-#: OUTBOUND dial sends it as a per-call variable (`CallContext.caller_memory` ->
-#: `user_data`), the INBOUND caller-data endpoint returns it under the same key, and
+#: One name, several consumers, and that is why it is here rather than in an adapter: the
+#: OUTBOUND dial sends it as a per-call variable (`CallContext.caller_memory`), and
 #: `CALLER_MEMORY_SLOT` below puts the matching token in the prompt. Three spellings of one
 #: key is the drift D-103/D-105 exist for, and the symptom would be silent — an unfilled
 #: token is not an error, it is an agent reading a placeholder out loud.
@@ -2815,8 +2814,8 @@ CALLER_MEMORY_GUIDANCE: Final = (
 def render_caller_memory(facts: Sequence[str]) -> str:
     """The remembered facts as ONE bounded block, in the shape the prompt slot expects.
 
-    THE ONE RENDERER, because there are two producers — the outbound dial and the inbound
-    caller-data endpoint — and a difference between them would be a difference in what an
+    THE ONE RENDERER, because there are two producers — the outbound dial and the worker's
+    inbound caller-memory read — and a difference between them would be a difference in what an
     agent hears about the same person depending on who rang whom.
 
     A dash list rather than prose: it reads to a model as a set of separate records rather
@@ -3311,8 +3310,8 @@ class AgentConfig(BaseModel):
     #:
     #: It reaches the engine as a PROMPT SECTION and nothing else — see
     #: `compose_engine_prompt`. The facts themselves are per-call and never agent state:
-    #: they ride `CallContext.caller_memory` on an outbound dial and the inbound
-    #: caller-data endpoint on an inbound one, because a fact about ONE person may not be
+    #: they ride `CallContext.caller_memory` on an outbound dial and the worker's
+    #: caller-memory read on an inbound one, because a fact about ONE person may not be
     #: written onto an agent object every caller shares.
     #:
     #: The same flag governs auto-reschedule callbacks — the founder's copy calls memory
