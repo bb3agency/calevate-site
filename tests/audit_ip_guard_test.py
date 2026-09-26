@@ -375,3 +375,110 @@ def test_the_ok_line_states_how_many_rows_it_inspected(tmp_path: Path) -> None:
     )
     result = _run(tmp_path)
     assert "1 human-actor audit row(s) all carrying an address" in result.stdout, result.stdout
+
+
+# --- check 3's two blind spots ---------------------------------------------------
+#
+# Check 3 keyed "a person did this" on `actor=` alone and accepted any `ip=` keyword, so
+# two spellings of the defect it names passed it: a row that says who acted with
+# `actor_type=` rather than with a principal (every authentication event, the self-serve
+# signup, the invitation accept, the operator bootstrap), and an address passed as a
+# literal `None`. The second was live one frame up from `write_audit`: `authn/service.
+# request_step_up` handed `ip=None` to the authentication ledger's wrapper, so every
+# `auth.step_up_requested` row recorded no address while the route had a request to hand.
+
+HUMAN_ACTOR_TYPE_NO_IP = """
+async def accept(session, tenant_id, user_id):
+    await write_audit(
+        session,
+        action="auth.invitation_accepted",
+        actor_type="user",
+        tenant_id=tenant_id,
+        object_type="membership",
+        object_id=str(user_id),
+    )
+"""
+
+HUMAN_ACTOR_LITERAL_NONE_IP = """
+async def set_caps(payload, session, principal):
+    await write_audit(
+        session,
+        action="billing.caps.set",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="plans",
+        object_id="x",
+        ip=None,
+    )
+"""
+
+WRAPPER_FED_A_LITERAL_NONE = """
+async def _audit(*, action, subject_id, ip):
+    await write_audit(
+        session,
+        action=action,
+        actor_type="admin",
+        object_type="auth_subject",
+        object_id=str(subject_id),
+        ip=ip,
+    )
+
+
+async def request_step_up(*, verified):
+    await _audit(action="auth.step_up_requested", subject_id=verified.subject_id, ip=None)
+"""
+
+COLOCATED_TEST_WITH_NONE = """
+async def test_confirm(tools, session, principal):
+    await tools.confirm(session, "tok", principal=principal, ip=None)
+"""
+
+
+def test_a_person_named_by_actor_type_without_an_ip_is_refused(tmp_path: Path) -> None:
+    _tree(
+        tmp_path,
+        resolver=PERMITTED_RESOLVER,
+        extra={"authn/invitations.py": HUMAN_ACTOR_TYPE_NO_IP},
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 1, result.stdout
+    assert "apps/api/authn/invitations.py" in result.stdout
+    assert "`accept`" in result.stdout
+
+
+def test_a_literal_none_is_not_an_address(tmp_path: Path) -> None:
+    _tree(
+        tmp_path,
+        resolver=PERMITTED_RESOLVER,
+        extra={"billing/cap_routes.py": HUMAN_ACTOR_LITERAL_NONE_IP},
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 1, result.stdout
+    assert "apps/api/billing/cap_routes.py" in result.stdout
+    assert "`set_caps`" in result.stdout
+
+
+def test_a_literal_none_handed_to_an_audit_wrapper_is_refused(tmp_path: Path) -> None:
+    """The live shape: the wrapper forwards `ip=ip` and passes on its own, and the caller
+    one frame up threw the address away."""
+    _tree(
+        tmp_path,
+        resolver=PERMITTED_RESOLVER,
+        extra={"authn/service.py": WRAPPER_FED_A_LITERAL_NONE},
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 1, result.stdout
+    assert "apps/api/authn/service.py" in result.stdout
+    assert "`request_step_up`" in result.stdout
+
+
+def test_a_literal_none_in_a_colocated_test_module_is_not_a_finding(tmp_path: Path) -> None:
+    """`apps/api/**/*_test.py` modules call services with no request to hand; the rule is
+    about production code discarding an address it had."""
+    _tree(
+        tmp_path,
+        resolver=PERMITTED_RESOLVER,
+        extra={"copilot/actions_test.py": COLOCATED_TEST_WITH_NONE},
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stdout

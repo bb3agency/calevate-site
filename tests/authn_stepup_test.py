@@ -36,6 +36,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
 from apps.api.core.stepup import step_up_gate
 from apps.api.db.session import credential_session, untenanted_session
+from apps.api.main import app
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from starlette.requests import Request
 
@@ -576,7 +578,7 @@ async def test_the_step_up_flow_restamps_the_factor_without_extending_the_sessio
     issued = await _session_with_factor_aged(operator, REAUTH_MAX_AGE + timedelta(minutes=5))
     stale = (await verify_session(token=issued.token, realm="admin")).require_live()
 
-    await service.request_step_up(verified=stale)
+    await service.request_step_up(verified=stale, ip=None)
     async with credential_session() as session:
         code = (
             await otp.issue_challenge(
@@ -632,7 +634,7 @@ async def test_requesting_a_step_up_code_does_not_retire_a_pending_sign_in_code(
             session, purpose=service.LOGIN_CHALLENGE, realm="admin", subject_id=operator
         )
 
-    await service.request_step_up(verified=live)
+    await service.request_step_up(verified=live, ip=None)
 
     async with credential_session() as session:
         still_live = (
@@ -645,6 +647,36 @@ async def test_requesting_a_step_up_code_does_not_retire_a_pending_sign_in_code(
             )
         ).scalar()
     assert still_live == 1
+
+
+@pytest.mark.asyncio
+async def test_a_step_up_request_records_where_it_came_from(operator: uuid.UUID) -> None:
+    """SEC-COMP §5 asks every audit row for "actor, tenant, at, ip". The service used to
+    hand the authentication ledger `ip=None` although its route held the request, so every
+    `auth.step_up_requested` row -- the first half of lifting the big red switch -- placed
+    the operator nowhere."""
+    issued = await _session_with_factor_aged(operator, REAUTH_MAX_AGE + timedelta(minutes=5))
+    peer = f"2001:db8:{uuid.uuid4().hex[:4]}:{uuid.uuid4().hex[:4]}::1"
+    async with AsyncClient(
+        transport=ASGITransport(app=app, client=(peer, 12345)),
+        base_url="https://api.calevate.tech",
+    ) as http:
+        response = await http.post(
+            "/v1/auth/admin/step-up",
+            cookies={cookie_name("admin", secure=True): issued.token},
+        )
+    assert response.status_code == 202, response.text
+    async with untenanted_session() as session:
+        recorded = (
+            await session.execute(
+                text(
+                    "SELECT ip FROM audit_log WHERE action = 'auth.step_up_requested' "
+                    "AND object_id = :s"
+                ),
+                {"s": str(operator)},
+            )
+        ).scalar_one()
+    assert recorded == peer
 
 
 def test_the_window_is_never_the_loosest_clock_in_the_request() -> None:

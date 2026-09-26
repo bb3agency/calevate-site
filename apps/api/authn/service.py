@@ -438,10 +438,12 @@ async def refresh(*, verified: VerifiedSession, now: datetime | None = None) -> 
 # ──────────────────────── step-up re-authentication ──────────────────────────
 
 
-async def request_step_up(*, verified: VerifiedSession, now: datetime | None = None) -> None:
+async def request_step_up(
+    *, verified: VerifiedSession, ip: str | None, now: datetime | None = None
+) -> None:
     """Mail a fresh step-up code to the mailbox on file for this session's own subject.
 
-    Same shape as `resend_second_factor` and for the same reasons: no address parameter, so
+    Same shape as `resend_second_factor` and for the same reasons: no email parameter, so
     there is nothing to probe and no way to make us mail a stranger; the caller already
     holds a session, so this endpoint grants no capability they lack. What differs is the
     PURPOSE, which keeps this challenge and a pending sign-in challenge from being each
@@ -463,7 +465,7 @@ async def request_step_up(*, verified: VerifiedSession, now: datetime | None = N
             to=subject.email,
             secret=challenge.code,
         )
-    await _audit(action="auth.step_up_requested", realm=realm, subject_id=subject_id, ip=None)
+    await _audit(action="auth.step_up_requested", realm=realm, subject_id=subject_id, ip=ip)
 
 
 async def complete_step_up(
