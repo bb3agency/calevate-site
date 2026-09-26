@@ -38,7 +38,7 @@ making."*
 | Fact | Where it was checked |
 | --- | --- |
 | The worker writes **no money rows today**. `CallMeter.metered_rows` raises `CarrierFactsMissingError` on a missing CDR *before* pricing anything, and there is no CDR (BLOCKER-1). Every production call settles as ONE `call_metering_refusals` row. | `voice_worker/meter.py:686-704`, `runtime.py`'s own "⚠ Today both are `None` on every production call" |
-| A rate card reaches the worker only as a constructor argument, never from the environment — hard rule 7 showing through the bootstrap. | `runtime.WorkerRuntime.from_env` |
+| The worker holds no rate card at all: `CallMeter` records quantities only and the server prices them (`worker/service._price`), so a rupee has one door — hard rule 7 showing through the bootstrap. | `voice_worker/meter.py`, `runtime.WorkerRuntime.from_env` |
 | `transcript_turns` is UNIQUE on `(call_id, idx)`. | `alembic/versions/05bba2f3c19c…:489`, `crm/models.py:213` |
 | Settlement's three writes — call row, ledger-or-refusal, and the outbox row that triggers the post-call pipeline — are ONE transaction, and that is D-607's whole guarantee. | `voice_worker/sink.py`, the `settle` transaction |
 | Turns are buffered and flushed in batches, so the write surface is already batch-shaped. | D-620, this session |
