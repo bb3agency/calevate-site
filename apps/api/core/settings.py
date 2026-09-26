@@ -789,10 +789,9 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
     """
     cfg = settings or get_settings()
     missing: list[str] = []
-    # The engine layer answers for its own vendors (D-104). This was
-    # `if cfg.engine == "bolna" and not cfg.bolna_api_key` — one vendor, hardcoded here —
-    # so `/healthz/ready` was GREEN on a credential-less `ENGINE=cartesia` deployment: a
-    # box that cannot place one call, reporting itself fit for traffic. Imported inside
+    # The engine layer answers for its own vendors (D-104): a per-vendor `if` here is how
+    # `/healthz/ready` once reported a credential-less deployment fit for traffic.
+    # Imported inside
     # the function because `apps.api.engine` imports this module; the same idiom
     # `capabilities._selected_engine` uses.
     from apps.api.engine import missing_engine_credential_keys
@@ -953,8 +952,8 @@ def webhook_receiver_missing_keys(settings: Settings | None = None) -> list[str]
 
     WHY THIS EXISTS AT ALL, AND IT IS NOT A NARROWER COPY OF THE FUNCTION ABOVE.
     `runtime_config_missing_keys` asks the engine layer which credentials the selected
-    vendor needs, and the only way to ask is `build_engine(cfg)` — which imports
-    `apps.api.engine.bolna`, and with it `httpx`. Both are FORBIDDEN in voice-runtime
+    vendor needs, and the only way to ask is `build_engine(cfg)` — which imports a vendor
+    adapter, and with it `httpx`. Both are FORBIDDEN in voice-runtime
     (`tests/voice_runtime_import_surface_test.FORBIDDEN`: "vendor adapters — hard rule 2"
     and "HTTP client — the receiver makes no outbound call"), and the import was measured
     at 381-435ms on a first call — 76-87% of hard rule 3's entire 500ms ack budget, paid
@@ -971,27 +970,16 @@ def webhook_receiver_missing_keys(settings: Settings | None = None) -> list[str]
     * **it can decrypt its console-managed configuration.** `start_config_refresher`
       (this service opts in deliberately — `apps/voice-runtime/main._startup`) applies
       `platform_secrets` rows unwrapped with `PLATFORM_KEK`, and the values it carries are
-      exactly the ones an operator changes without a deploy — the selected engine and the
-      source-IP allowlist that IS the whole authenticity control for an unsigned engine
-      (D-31, TRD §5). Without the KEK those rows are unreadable (`platform_config` alerts
+      exactly the ones an operator changes without a deploy, the selected engine among
+      them. Without the KEK those rows are unreadable (`platform_config` alerts
       `platform_secret_unreadable`) and the process serves on whatever the environment
       last gave it, silently.
-
-    THE ALLOWLIST ITSELF IS NOT REPORTED, AND THAT IS A FINDING RATHER THAN AN OMISSION.
-    The obvious second check — "an engine whose `WEBHOOK_AUTH_BY_ENGINE` method is
-    `source_ip` and whose allowlist resolves empty is unfit" — is UNREACHABLE:
-    `parse_source_ip_allowlist` fails safe, so a blanked or unparseable
-    `BOLNA_WEBHOOK_SOURCE_IPS` falls back to `DEFAULT_BOLNA_SOURCE_IPS` and the resolver
-    can never hand back an empty set. Writing the branch anyway would be a defensive arm
-    no test can enter and a suppression on a hard-rule surface; the operator-facing answer
-    to a WRONG allowlist is `webhook_allowlist_entry_ignored` and the receiver's own
-    rejection alert, both of which already exist.
 
     Everything else `runtime_config_missing_keys` reports belongs to another deployable:
     `SARVAM_API_KEY` to the extraction worker, the object-store credentials to the
     recording copier, the email transport to the admin console's second factor, the audit
-    and idempotency secrets to the api's mutation paths, and `BOLNA_API_KEY` to whatever
-    calls the vendor — which this service never does. Reporting them here would make this
+    and idempotency secrets to the api's mutation paths, and the engine credential to
+    whatever calls the vendor — which this service never does. Reporting them here would make this
     probe red for a fault this process cannot have and cannot fix: the "probe operators
     learn to ignore" the function above declines to become.
     """

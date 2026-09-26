@@ -3,8 +3,8 @@
 **THE HALF OF CALLER MEMORY THAT WAS MISSING ON THIS LEG, AND WHAT IT COST.** The store
 (`apps/api/compliance/caller_memory.py`), the keyed subject ref, both erasure arms, the
 180-day clock, the spoken notice and the hourly distiller that WRITES a fact all shipped
-with D-506/D-507/D-513 — for the rented engine. On that leg the engine substitutes
-`CALLER_MEMORY_SLOT` per call from `user_data` or from `compliance/caller_data_routes.py`.
+with D-506/D-507/D-513 — for the rented engine, which substituted `CALLER_MEMORY_SLOT` per
+call from `user_data` or from an inbound caller-data endpoint (both removed by D-639).
 **On `owned_runtime` there is no engine to substitute anything**, and `pipeline.
 assemble_call` put `config.system_prompt` in front of the model verbatim. So a memory-
 enabled agent running on this worker did two wrong things at once: it recalled nothing, and
@@ -26,10 +26,9 @@ hop on the RING, where nobody is waiting, is not a trade worth making.
 
 So it asks our API, over the worker API and the worker's own credential:
 `POST /v1/worker/agents/{engine_agent_ref}/caller-memory`, answered by `compliance/
-caller_memory.recall` — the same reader the engine caller-data endpoint uses, so a caller
-hears the same thing about themselves whichever way the call is placed. Not that endpoint
-itself: it would put a second credential in this container, and it takes the number in its
-query string, which an access log records. The ref is the one `SessionConfig` carries and
+caller_memory.recall`, so a caller hears the same thing about themselves whichever way
+the call is placed. The number travels in the body, not a query string an access log
+records. The ref is the one `SessionConfig` carries and
 the server parses it, as the session read does.
 
 ═══ THE COMPLIANCE GATE IS THE PROMPT, AND THAT IS THE DESIGN ═══

@@ -118,12 +118,8 @@ from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
 
 log = get_logger(__name__)
 
-#: The minute this cron fires. :52, and the minute it replaces is why the clearance
-#: argument is no longer made here: this said ":50 ... is clear of every other fleet-wide
-#: fan-out" and enumerated four neighbours, while `sweep_engine_violations` was registered
-#: on :50 saying of ITSELF that ":50 is the one slot the other fleet-wide fan-outs leave
-#: free" — two comments each claiming sole ownership of one minute, and the poller and the
-#: FX pull are on it as well. `settings.WALK_SHAPES` now declares each cron's fan-out where
+#: The minute this cron fires. The clearance argument is not made here:
+#: `settings.WALK_SHAPES` declares each cron's fan-out where
 #: its schedule is chosen and `tests/job_registration_test.py` derives the collision check
 #: from that, so no comment has to be trusted for this property.
 #:

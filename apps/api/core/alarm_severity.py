@@ -261,13 +261,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "handoff_brief_channel_absent": "attention",
     "handoff_agent_unmapped": "attention",
     "handoff_unresolved": "attention",
-    # Same reason as the drift alarm and one step worse: a vendor-side semantic route
-    # answers a caller FROM A STATIC STRING without consulting the model, so
-    # `compose_engine_prompt`'s appended truthfulness sentences cannot run at all.
-    "engine_agent_semantic_routes_present": "page",
-    # Speech config drift, not truthfulness drift: a language entry brings its own voice
-    # or transcriber. Wrong, visible, and it says nothing untrue to a caller.
-    "engine_agent_multilingual_speech_override": "attention",
     # A client's number answers nobody. Their whole inbound product is off.
     "engine_inbound_binding_failed": "page",
     "agent_published_answering_no_number": "attention",
@@ -299,11 +292,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_drift_sweep_abandoned": "page",
     "engine_kb_drift_detected": "attention",
     "kb_drift_sweep_abandoned": "attention",
-    # The vendor has raised compliance flags against OUR account. Unanswered, that ends in
-    # a suspended account and every client's calls stopping at once.
-    "engine_violation_open": "page",
-    "engine_violation_sweep_incomplete": "attention",
-    "engine_violation_sweep_abandoned": "attention",
     # The alarm `core/alerting.py`'s own docstring names as "the alarm the whole system
     # exists to raise".
     "postcall_pipeline_stalled": "page",
@@ -314,8 +302,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Hard rule 7: a call metered with no attested price for the voice it spoke.
     "cartesia_call_without_attested_tts_price": "page",
     "call_billable_without_cost": "page",
-    "engine_cost_implausible": "page",
-    "engine_llm_ttft_degraded": "attention",
     "calls_never_finished": "attention",
     # Bookkeeping caveats on another alarm's number ("this count is a FLOOR"), not
     # findings of their own.
@@ -332,7 +318,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "reconciliation_fetch_failed": "record",
     "reconciliation_probe_incomplete": "record",
     "reconciliation_listing_incomplete": "attention",
-    "engine_listing_window_too_wide": "attention",
     # THE BIG RED SWITCH FAMILY, AND ALL OF IT PAGES. Outbound was halted — by an
     # operator, or by a regulator's complaint — and these five each say some version of
     # "dials the vendor already holds may still go out". A halt nobody can prove landed is
@@ -590,23 +575,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "campaign_schedule_kind_unknown": "attention",
     "campaign_recurrence_unreadable": "attention",
     "campaign_recurrence_skipped": "attention",
-    # A SUPERSEDED vendor credential is still live at the engine beside the new one. A
-    # rotation that did not rotate is a security finding, not a config nit.
-    "engine_credential_not_replaced": "page",
     # Our margin, not a client's wallet: the engine is charging for synthesis we already
     # pay Cartesia for. Per call, re-derivable from `usage_events`, and correctable.
     "engine_billed_byok_tts": "attention",
-    "cartesia_voice_incomplete": "attention",
-    # D-629's refusal, and the same rung as the sibling above it. Nobody's call is
-    # dropped — a publish is refused, the live version keeps serving, and the fix is an
-    # operator moving the agent to a voice this engine carries. It pages nobody at 3am.
-    "tts_provider_not_on_this_engine": "attention",
-    "engine_kb_document_missing": "attention",
-    "engine_kb_agent_config_required": "attention",
-    "engine_kb_ambiguous_source": "attention",
-    "engine_kb_processing_failed": "attention",
-    "engine_kb_processing_timeout": "attention",
-    "engine_kb_listing_incomplete": "attention",
     "engine_kb_account_listing_incomplete": "attention",
     "engine_kb_orphans_detected": "attention",
     "kb_orphan_sweep_abandoned": "attention",
@@ -643,7 +614,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # told truthfully it was an AI, an opt-out still worked, nothing is mis-metered and
     # nothing is destroyed — and the failure repeats per call, which is the exact shape
     # D-591 says must not reach an inbox. Its neighbours sit on the same rung for the same
-    # reason (`engine_llm_ttft_degraded`, `call_settled_without_parties`). What makes it
+    # reason (`call_settled_without_parties`). What makes it
     # findable is not loudness but the count beside it on the console.
     "call_ran_without_knowledge": "attention",
     # THE EXTERNAL SEARCH INDEX DISAGREES WITH THE PUBLISHED CORPUS: a publish or a

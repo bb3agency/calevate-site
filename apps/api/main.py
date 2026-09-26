@@ -51,14 +51,13 @@ async def _startup() -> AsyncIterator[None]:
     a catalogue figure that hard rule 7 forbids reaching `unit_cost_paid`.
 
     `start_fx_refresher` is the third, and it puts the PUBLISHED USD→INR rate into this
-    process's memory so `engine/bolna.py::_cost` can convert a vendor's dollars at it
-    without a database round trip. The worker calls it too and needs it more — that is
-    where a call's cost is actually metered — but the API converts on every `list_calls`
-    and cost preview it serves, and a process reading a different rate from its neighbour
-    is exactly the disagreement this seam exists to prevent. voice-runtime deliberately
-    does NOT: it parses a webhook into a `CallEvent` and never meters, so it would inherit
-    a background poll for a number it does not use (hard rule 3), and its parse falls back
-    to the configured rate as it always has.
+    process's memory so a vendor's dollars convert at it without a database round trip. The
+    worker calls it too — that is where recurring charges are metered — and the API converts
+    on every number-rental quote and cost preview it serves, and a process reading a
+    different rate from its neighbour is exactly the disagreement this seam exists to
+    prevent. voice-runtime deliberately does NOT: it parses a webhook into a `CallEvent` and
+    never meters, so it would inherit a background poll for a number it does not use (hard
+    rule 3), and its parse falls back to the configured rate as it always has.
     """
     start_config_refresher()
     start_pricing_refresher()
@@ -143,7 +142,6 @@ def _mount_routers(application: FastAPI) -> None:
         router as sender_attestation_router,
     )
     from apps.api.compliance.autodialer_routes import router as autodialer_notice_router
-    from apps.api.compliance.caller_data_routes import router as caller_data_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.carrier_application_routes import (
         admin_router as carrier_application_admin_router,
@@ -299,13 +297,6 @@ def _mount_routers(application: FastAPI) -> None:
     # There is no route on it that CREATES one: a call-back exists because a caller asked
     # for it mid-call, through the in-call tool in `apps/voice-runtime`.
     application.include_router(callbacks_router)
-    # The engine-called inbound caller-details fetch (D-513). Its own literal
-    # `/v1/engine/caller-data` prefix — declared in `core.rbac.PUBLIC_PREFIXES` and in
-    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`, which is the reviewed line
-    # that says why the world may call it. It lives in `apps/api` rather than in
-    # voice-runtime because it derives a keyed caller reference and reads a tenant's
-    # store, which that service's import surface forbids it to hold.
-    application.include_router(caller_data_router)
     # The voice worker's own server half (D-621). Its own literal `/v1/worker` prefix,
     # declared in `core.rbac.PUBLIC_PREFIXES` and row by row in
     # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES` — the worker holds no Calevate

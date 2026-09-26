@@ -42,9 +42,9 @@ import { Band, Chapter, HOME } from "./band";
  *     publish time (`apps/api/agents/t0.py`, `apps/api/kb/service.py::approve_source`), and
  *     THAT IS NO LONGER THE WHOLE OF IT. Re-read 15 Sep 2026: `POST /v1/kb/sources` is
  *     still text-only (`kb/service.py:77`), but `POST /v1/kb/uploads` takes a document or
- *     a link (D-534), and a published source is attached to the engine's own knowledge
- *     base — `BOLNA_CAPABILITIES.knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`)
- *     and `attach_kb` is built (`bolna.py:5420`, D-488). `docs/TRD.md:802` still says
+ *     a link (D-534), and `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an
+ *     in-process pack search registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).
+ *     `docs/TRD.md:802` still says
  *     "in-call retrieval is T0 and nothing else"; `docs/` is authoritative, so the conflict
  *     is FLAGGED rather than resolved here. The card's copy is UNDERSTATED as a result
  *     rather than false, and understating is the safe direction on a CPA 2019

@@ -9,16 +9,16 @@ Write the corrections:
 
     uv run python -m scripts.correct_cost_unit --currency INR --from 100 --to 1 --apply
 
-WHEN YOU RUN THIS. `engine/bolna.py::_MINOR_UNITS_PER_MAJOR` says how many of the vendor's
-cost units make one unit of the currency they quoted. It is a marked assumption — the
-vendor's OAS says "in cents" and the vendor's own prose says "account currency", and gate 7
-(OPERATIONS §2) is the observation that settles it against one real invoice line. The day
-that observation lands and the constant changes, every row metered before it is wrong by
-the ratio of the two divisors, and `engine_cost_implausible` may well have paged about it
-first (`runbooks/alarm-index.md`).
+WHEN YOU RUN THIS. The rented engine's adapter (deleted by D-639; its rows remain in the
+ledger) held a table saying how many of the vendor's cost units make one unit of the
+currency they quoted. It was a marked assumption — the vendor's OAS says "in cents" and
+the vendor's own prose says "account currency", and gate 7 (OPERATIONS §2) was the
+observation that would settle it against one real invoice line. If that observation ever
+lands, every row metered under the assumption is wrong by the ratio of the two divisors
+(`runbooks/vendor-cost-unit.md`).
 
     --from   the divisor those rows WERE priced with
-    --to     the divisor the adapter now uses for that currency
+    --to     the divisor the observation says is right for that currency
 
 WHY THIS SCRIPT DELETES AND EDITS NOTHING. Hard rule 4: `usage_events` is INSERT-only and a
 database trigger enforces it. That is not an obstacle to route around — the rows are the

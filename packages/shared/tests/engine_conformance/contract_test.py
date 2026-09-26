@@ -57,9 +57,10 @@ VALID_STATUSES: frozenset[str] = frozenset(CallStatus.__args__)  # type: ignore[
 #: campaign launch gate can meet, so the capability clauses must probe it automatically.
 NUMBER_SERIES_VALUES: tuple[NumberSeries, ...] = NumberSeries.__args__  # type: ignore[attr-defined]
 
-# Bolna's documented static egress address (D-31) — the positive case for an adapter
-# whose authenticity control is a source-IP allowlist.
-ALLOWLISTED_SOURCE_IP = "13.203.39.153"
+# An address a delivery arrives from. RFC 5737 TEST-NET-2, so it is nobody's real
+# egress: no adapter in the roster authenticates by address, and one that did would have
+# to name its own allowlist here rather than inherit this.
+KNOWN_SOURCE_IP = "198.51.100.7"
 # RFC 5737 documentation range: the stranger who found the URL. Unroutable, so it can
 # never accidentally become someone's real address.
 UNKNOWN_SOURCE_IP = "203.0.113.9"
@@ -132,7 +133,7 @@ def _agent_config(
         system_prompt=system_prompt,
         opening_line=opening_line,
         models=_byok_models(engine, tier=tier),
-        webhook_url="https://hooks.calevate.tech/v1/engine/bolna",
+        webhook_url="https://hooks.calevate.tech/v1/engine/fake",
         handoff=handoff,
         action_tools=action_tools,
     )
@@ -164,7 +165,7 @@ HANDOFF = HandoffSpec(
     destination_e164="+919000000042",
     trigger="Hand over when the caller asks to speak to a person.",
     spoken_line="Okay, I am putting you through to someone now.",
-    brief_url="https://hooks.calevate.tech/tools/v1/bolna/handoff",
+    brief_url="https://hooks.calevate.tech/tools/v1/fake/handoff",
 )
 
 
@@ -640,13 +641,12 @@ async def test_reading_an_execution_the_engine_never_placed_is_reported(
     """The same clause as `get_agent`'s, one method along — and it was missing while the
     two adapters actively disagreed (P2.6).
 
-    `BolnaEngine` 404s, which `_request` turns into `engine_rejected`. `FakeEngine`
-    fabricated a `status="failed"` snapshot, under a comment claiming it matched the real
-    thing. That answer is worse than an error precisely because it is well-formed: it is
-    indistinguishable from a real failed call, so the poller would record a repair for a
-    phantom execution and `_pipeline_settled` would reason about artefacts for a call the
-    engine has never heard of. Both are conclusions drawn from nothing that look like
-    measurements.
+    A vendor adapter 404s, which its request ladder turns into `engine_rejected`. `FakeEngine`
+    fabricated a `status="failed"` snapshot, under a comment claiming it matched the real thing.
+    That answer is worse than an error precisely because it is well-formed: it is indistinguishable
+    from a real failed call, so the poller would record a repair for a phantom execution and
+    `_pipeline_settled` would reason about artefacts for a call the engine has never heard of. Both
+    are conclusions drawn from nothing that look like measurements.
     """
     reported: Exception | None = None
     try:
@@ -742,8 +742,8 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
     Two answers are conformant and one is not. An adapter that can locate the agent's
     reference field must report it accurately (`knowledge_base_refs_readable=True`, and
     the attached handle really appears). An adapter that cannot must say
-    `knowledge_base_refs_readable=False` — the Bolna adapter's position today, because
-    nothing published says the agent object carries a KB reference or what it is called.
+    `knowledge_base_refs_readable=False` — the position of an adapter whose vendor
+    publishes nothing saying the agent object carries a KB reference or what it is called.
     What is forbidden is the third answer: an empty list presented as knowledge, which
     would close D-41 with "nothing dangles" on no evidence at all.
     """
@@ -813,8 +813,8 @@ async def test_ending_a_call_the_engine_does_not_hold_is_reported(
 ) -> None:
     """`end_call` had NO clause at all, and the adapters disagreed underneath it (D-187).
 
-    Both real adapters POST to the vendor — `/executions/{id}/stop` on Bolna,
-    `/agents/calls/{id}/end` on Cartesia — and surface the 404 as `engine_rejected`.
+    A vendor adapter POSTs to the vendor — `/agents/calls/{id}/end` on Cartesia — and
+    surfaces the 404 as `engine_rejected`.
     `FakeEngine` looked the id up, found nothing and returned None, so the whole pipeline
     running offline (DEV-SETUP §3) reported a hang-up that never happened. Same shape as
     the `get_execution` divergence P2.6 found and the `transfer` one D-93 found, on the
@@ -952,8 +952,8 @@ async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
 
 
 async def test_billable_ready_implies_terminal(engine: VoiceEngine) -> None:
-    """The trap this closes: Bolna's cost/recording/transcript are null until
-    `completed` (~2-3 min after disconnect). A pipeline that triggered on 'terminal'
+    """The trap this closes: a vendor whose cost/recording/transcript are null until
+    `completed`, minutes after disconnect. A pipeline that triggered on 'terminal'
     would meter zeros. `billable_ready` must never be true before `terminal`."""
     handle = await _place_call(engine)
     if handle is None:
@@ -1011,7 +1011,7 @@ async def test_a_full_listing_page_tells_the_caller_it_may_be_truncated(
 ) -> None:
     """THE CLAUSE THE POLLER'S ENTIRE GUARANTEE RESTS ON (D-31).
 
-    Bolna's webhooks are unsigned and lossy, so the executions poller is not a safety net
+    A vendor's webhooks can be unsigned and lossy, so the executions poller is not a safety net
     — it is the mechanism by which a lost call is EVER discovered. If the listing
     paginates and an adapter reads page one, the executions past that page have no
     webhook, no repair, and nothing anywhere that says they existed: they are simply gone,
@@ -1020,10 +1020,7 @@ async def test_a_full_listing_page_tells_the_caller_it_may_be_truncated(
     So an adapter may not return a page-shaped answer as if it were the whole window. It
     does not have to know it was truncated — some vendors publish no pagination contract
     and the honest answer is then "cannot rule it out" — it has to SAY so, in
-    `ExecutionListing.complete`, with a reason the poller can put in an alert. (Bolna DOES
-    publish one, `page_number`/`page_size`/`has_more`, which is why its saturated stub is
-    now a store the adapter walks to its own page cap rather than a single opaque full
-    page — D-350/D-353.)
+    `ExecutionListing.complete`, with a reason the poller can put in an alert.
 
     Note what is NOT asserted: any cursor, page number or link. Those are the adapter's
     business (hard rule 2); what crosses the boundary is the verdict and the rows.
@@ -1131,9 +1128,9 @@ async def test_a_during_call_action_reaches_the_engine_or_the_publish_says_no(
 
 async def test_webhook_verification_reports_its_method(engine: VoiceEngine) -> None:
     """An adapter may not dress an unsigned event up as verified. `method` is how the
-    receiver knows whether it holds proof (`hmac`) or a hint (`source_ip`/`none`)."""
-    verdict = engine.verify_webhook({}, b"{}", ALLOWLISTED_SOURCE_IP)
-    assert verdict.method in ("hmac", "source_ip", "none")
+    receiver knows whether it holds proof (`hmac`) or nothing (`none`)."""
+    verdict = engine.verify_webhook({}, b"{}", KNOWN_SOURCE_IP)
+    assert verdict.method in ("hmac", "none")
     if not verdict.ok:
         assert verdict.reason
 
@@ -1143,10 +1140,10 @@ async def test_a_claimed_verification_method_actually_rejects_somebody(
 ) -> None:
     """The clause the label above is worthless without.
 
-    `method` is a claim, and the receiver acts on it: an event labelled `source_ip` is
+    `method` is a claim, and the receiver acts on it: an event labelled `hmac` is
     recorded as evidence in `webhook_deliveries.signature_valid` and is the entire
     reason the event is processed at all. An adapter that returns `ok=True` for every
-    caller while calling it `source_ip` is not a lenient adapter — it is a public,
+    caller while calling it `hmac` is not a lenient adapter — it is a public,
     unauthenticated write endpoint wearing the word "verified".
 
     So an adapter that names a verification method must be able to fail one. An adapter
@@ -1155,9 +1152,9 @@ async def test_a_claimed_verification_method_actually_rejects_somebody(
     the receiver's own per-engine check is what keeps such an adapter out of production.
     """
     stranger = engine.verify_webhook({}, b"{}", UNKNOWN_SOURCE_IP)
-    claimed = engine.verify_webhook({}, b"{}", ALLOWLISTED_SOURCE_IP).method
+    claimed = engine.verify_webhook({}, b"{}", KNOWN_SOURCE_IP).method
 
-    if claimed in ("hmac", "source_ip"):
+    if claimed == "hmac":
         assert not stranger.ok, (
             f"this adapter claims `{claimed}` verification but accepts an unknown caller"
         )
@@ -1288,12 +1285,11 @@ async def test_a_payload_may_not_name_its_own_tenant_or_its_own_engine(
     whatever the body offers passes it, because the body offered nothing. The clause is
     satisfied by doing nothing, which is not a clause.
 
-    Bolna signs nothing (D-31), so the receiver's authenticity control is a source-IP hint
-    and the BODY is chosen entirely by whoever sends it. A `tenant_id` read out of that
-    body is a cross-tenant write with a webhook for a delivery mechanism: one POST files a
-    call, its transcript and its cost into somebody else's dashboard. `tenant_id` and
-    `agent_id` are ours, resolved by looking `engine_agent_ref` up in the agents table, and
-    an adapter may not shortcut that lookup no matter how convenient the body makes it.
+    An unsigned delivery's BODY is chosen entirely by whoever sends it. A `tenant_id` read out of
+    that body is a cross-tenant write with a webhook for a delivery mechanism: one POST files a
+    call, its transcript and its cost into somebody else's dashboard. `tenant_id` and `agent_id` are
+    ours, resolved by looking `engine_agent_ref` up in the agents table, and an adapter may not
+    shortcut that lookup no matter how convenient the body makes it.
 
     `engine` is here for the same reason and is the same shape of mistake. It decides which
     adapter re-fetches the call and which verifier its deliveries are held to, so a payload
@@ -1677,7 +1673,7 @@ async def test_the_declared_webhook_method_is_the_one_actually_reported(
     mode an at-most-once, unsigned vendor gives you no second chance to notice.
     """
     declared = engine.capabilities.webhook_auth
-    reported = engine.verify_webhook({}, b"{}", ALLOWLISTED_SOURCE_IP).method
+    reported = engine.verify_webhook({}, b"{}", KNOWN_SOURCE_IP).method
     assert declared == reported, (
         f"this adapter declares `{declared}` webhook authentication and reports "
         f"`{reported}` — the receiver and the worker would disagree about the same event"
@@ -1847,9 +1843,8 @@ async def test_every_voice_tier_round_trips_or_is_refused_by_its_own_name(
     1. **Publish it and hold it.** The provider survives the round trip and `holds_speech`
        reports the triple that was sent.
     2. **Refuse it by a name that says what is missing.** An adapter may legitimately be
-       unable to send a provider — the Bolna adapter refuses a Cartesia voice it has no
-       `voice_id` or `model` for (`cartesia_voice_incomplete`), which is exactly what an
-       unpopulated `voices.CARTESIA_CATALOG_SOURCE` produces. A refusal is only acceptable
+       unable to send a provider — refusing a voice it has no `voice_id` or `model` for,
+       which is exactly what an unpopulated catalogue produces. A refusal is only acceptable
        when it NAMES what is missing: an operator reading a generic "the voice platform
        rejected the request" cannot learn which one command fixes it.
     3. **Accept it and hold something else.** THE ONE THIS CLAUSE EXISTS FOR, and it is
@@ -1882,17 +1877,11 @@ async def test_every_voice_tier_round_trips_or_is_refused_by_its_own_name(
             refused = raised
         if refused is not None:
             code = getattr(refused, "code", None)
-            # ⚠ **THE SECOND CODE ARRIVED ON 18 Sep 2026 AND IS NOT A WEAKENING.** The
-            # Sarvam TTS leg's withdrawal left Gnani as a provider the RENTED engine does
-            # not carry at all — its nine voice providers are enumerated in the pinned
-            # mirror and Gnani is not among them — so "I cannot send this provider" became a
-            # real, permanent answer for a real tier, distinct from "I have no voice id for
-            # a provider I do carry". Both name what is missing, which is the rule; a
-            # generic `engine_rejected` still fails here.
-            known = {
-                "cartesia_voice_incomplete": "cartesia",
-                "tts_provider_not_on_this_engine": provider,
-            }
+            # Each code maps to the provider its reason is about. The two codes this held
+            # were raised by the rented engine's adapter (D-639) and no adapter in the tree
+            # refuses a tier today; one that must refuse adds its own named code here. A
+            # generic `engine_rejected` always fails.
+            known: dict[str, str] = {}
             assert code in known, (
                 f"this adapter refused the `{provider}` voice tier with {code!r}. A tier it "
                 "cannot send must be refused by a code naming what is missing; the codes "
@@ -2017,8 +2006,8 @@ async def test_the_llm_leg_round_trips_its_provider_and_endpoint(engine: VoiceEn
             engine,
             name=f"LLM leg {leg.provider}",
             # Distinct per leg AND distinct from every other clause's agent: the fake keys
-            # refs on (tenant_id, agent_id) and the Bolna stub on the agent NAME, so both a
-            # distinct id and a distinct name are needed for the three agents to coexist —
+            # refs on (tenant_id, agent_id) and the Cartesia stub on the agent NAME, so both
+            # a distinct id and a distinct name are needed for the three agents to coexist —
             # and the `11e6` marker keeps them clear of the default id other clauses use.
             agent_id=f"0199a0b0-0000-7000-8000-11e6{index:08d}",
         ).model_copy(update={"models": models})
@@ -2169,7 +2158,7 @@ async def test_transfer_matches_the_declaration_either_way(engine: VoiceEngine) 
     """A transfer that silently does nothing is a caller left on hold forever.
 
     Both directions are asserted because both have been wrong here at once: the `fake`
-    adapter used to record a successful transfer while the Bolna adapter raised, so the
+    adapter used to record a successful transfer while the vendor adapter raised, so the
     two shipped adapters disagreed about whether the platform can transfer a call and
     nothing in the suite could see it. That is the single clearest piece of evidence
     that declarations needed to be checkable.
@@ -2776,7 +2765,7 @@ async def test_an_externally_deployed_engine_claims_no_byok_leg(
     `SpeechControl`'s own docstring is what makes this a contract rule rather than an
     observation about Cartesia: `ours` means *"our provider and model strings REACH THE
     VENDOR and run on OUR key"*. Every path by which they could is a write to an agent
-    record — `_agent_body` on Bolna, `PATCH /agents/{id}` on Cartesia — and on an engine
+    record — `PATCH /agents/{id}` on Cartesia, for one — and on an engine
     whose agents are deployed elsewhere there is no such record and `create_agent`/
     `update_agent` refuse. A leg declared `ours` there is a claim nothing in this suite
     could ever contradict, sitting in the same descriptor as six that are enforced and

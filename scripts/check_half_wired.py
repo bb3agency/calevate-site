@@ -377,14 +377,7 @@ def unconsumed_settings(fields: dict[str, int] | None = None) -> list[str]:
 
 #: Public module-level functions that nothing in the repository references. Shrink-only,
 #: same terms as `WRITE_ONLY_BASELINE`.
-UNREFERENCED_BASELINE: dict[str, str] = {
-    "scripts/pilot/record.py::recorded_fixtures": (
-        "the replay seam for adapter fixtures captured DURING the Bolna pilot. There are "
-        "no fixtures and therefore no replay tests, because no pilot has run — an "
-        "external blocker (a Bolna account with credit, OPERATIONS §2). Closes when the "
-        "first gate is executed and `load_fixture`'s callers arrive with it"
-    ),
-}
+UNREFERENCED_BASELINE: dict[str, str] = {}
 
 #: HTTP verbs: `@<anything>_router.post(...)` is FastAPI dispatch. Matched on the verb
 #: rather than on the receiver, because this repo names its routers `invite_router`,

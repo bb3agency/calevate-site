@@ -1,6 +1,6 @@
-"""ACTIONS feature — DB-free unit tests for the parts that carry the most risk: the Bolna
-declaration shape (an unverified vendor envelope, gate 18), parameter binding, the external
-request builders, and the executor's dispatch/opt-in/egress behaviour.
+"""ACTIONS feature — DB-free unit tests for the parts that carry the most risk: the
+engine-neutral declaration, parameter binding, the external request builders, and the
+executor's dispatch/opt-in/egress behaviour.
 
 These run without Postgres by injecting a fake httpx transport and monkeypatching the two
 DB-backed helpers the executor calls (`resolve_secret`, `read_messaging_consent`). The
@@ -21,84 +21,8 @@ from apps.api.actions.schema import CustomApiConfig, WhatsAppConfig
 from apps.api.actions.service import LoadedTool, _to_spec
 from apps.api.compliance.consent import MessagingConsent
 from apps.api.compliance.service import DispatchDecision
-from apps.api.engine.bolna import _api_tools, _one_api_tool
-from calevate_shared.engine import ActionToolParam, ActionToolSpec
 
 # --------------------------------------------------------------- declaration ----
-
-
-def _spec(**kw: Any) -> ActionToolSpec:
-    base: dict[str, Any] = dict(  # noqa: C408 — kwargs form reads better beside the update
-        name="get_order_status",
-        description="Use when the caller asks about their order.",
-        pre_call_message="Let me check that.",
-        method="POST",
-        url="https://api.calevate.test/v1/actions/invoke/bolna/" + str(uuid4()),
-        params=(
-            ActionToolParam(
-                name="order_id", fill="ai", type="string", description="Order id", required=True
-            ),
-            ActionToolParam(name="qty", fill="ai", type="integer", description="Quantity"),
-            ActionToolParam(name="caller", fill="context", context_ref="{from_number}"),
-        ),
-    )
-    base.update(kw)
-    return ActionToolSpec(**base)  # type: ignore[arg-type]
-
-
-def test_one_api_tool_splits_definition_and_params_with_custom_task() -> None:
-    definition, exec_params = _one_api_tool(_spec())
-    # The LLM-facing definition carries only AI params, with the right JSON-schema types.
-    assert definition["name"] == "get_order_status"
-    assert set(definition["parameters"]["properties"]) == {"order_id", "qty"}
-    assert definition["parameters"]["properties"]["qty"]["type"] == "integer"
-    assert definition["parameters"]["required"] == ["order_id"]
-    # The execution block carries the mandatory fixed key and POST, and maps EVERY param —
-    # ai as a %-format specifier, context as the Bolna system variable — but no credential.
-    assert exec_params["key"] == "custom_task"
-    assert exec_params["method"] == "POST"
-    assert exec_params["param"]["order_id"] == "%(order_id)s"
-    assert exec_params["param"]["qty"] == "%(qty)i"
-    assert exec_params["param"]["caller"] == "{from_number}"
-    assert "api_token" not in exec_params
-    assert exec_params["pre_call_message"] == "Let me check that."
-
-
-def test_api_tools_envelope_is_json_string_plus_named_params() -> None:
-    from calevate_shared.engine import AgentConfig, ModelConfig
-
-    cfg = AgentConfig(
-        tenant_id=str(uuid4()),
-        agent_id=str(uuid4()),
-        name="A",
-        direction="inbound",
-        system_prompt="hi",
-        opening_line="",
-        models=ModelConfig(),
-        action_tools=(_spec(name="tool_a"), _spec(name="tool_b")),
-    )
-    block = _api_tools(cfg)
-    assert block is not None
-    # `tools` is a JSON STRING (the field's own description), decoding to the definitions;
-    # `tools_params` is keyed by tool name (the OAS structure). See the gate-18 note.
-    tools = json.loads(block["tools"])
-    assert {t["name"] for t in tools} == {"tool_a", "tool_b"}
-    assert set(block["tools_params"]) == {"tool_a", "tool_b"}
-
-
-def test_no_actions_emits_no_api_tools_block() -> None:
-    from calevate_shared.engine import AgentConfig, ModelConfig
-
-    cfg = AgentConfig(
-        tenant_id=str(uuid4()),
-        agent_id=str(uuid4()),
-        name="A",
-        direction="inbound",
-        system_prompt="hi",
-        opening_line="",
-        models=ModelConfig(),
-    )
-    assert _api_tools(cfg) is None
 
 
 def _loaded(**kw: Any) -> LoadedTool:
@@ -133,8 +57,8 @@ def test_to_spec_resolves_caller_phone_by_direction_and_injects_agent_ref() -> N
         {"name": "caller", "source": "lead_var", "lead_var": "caller_phone"},
         {"name": "store", "source": "static", "value": "S1"},
     ]
-    inbound = _to_spec(_loaded(params=params), engine="bolna", direction="inbound")
-    outbound = _to_spec(_loaded(params=params), engine="bolna", direction="outbound")
+    inbound = _to_spec(_loaded(params=params), engine="fake", direction="inbound")
+    outbound = _to_spec(_loaded(params=params), engine="fake", direction="outbound")
     names = {p.name: p for p in inbound.params}
     # static param is NOT declared to the engine; ai + lead_var + the injected agent ref are.
     assert "store" not in names

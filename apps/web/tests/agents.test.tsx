@@ -82,7 +82,7 @@ function agent(over: Partial<Agent> = {}): Agent {
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
-    engine: "bolna",
+    engine: "pipecat",
     published: true,
     inbound_number_count: 1,
     extraction_fields: [],

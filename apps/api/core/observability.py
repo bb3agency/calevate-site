@@ -867,7 +867,7 @@ def _instrument_sqlalchemy() -> None:
 
 
 def _instrument_httpx() -> None:
-    """Outbound HTTP — the engine adapter (apps/api/engine/bolna.py), the extractor,
+    """Outbound HTTP — the engine adapters (apps/api/engine/), the extractor,
     client webhook delivery.
 
     Hand-rolled rather than `opentelemetry-instrumentation-httpx` because that package

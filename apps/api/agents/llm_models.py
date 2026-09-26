@@ -302,10 +302,10 @@ def deployment_for(model: str) -> str | None:
     actually populated with. The pairing this field belongs to is stated in `config.py`:
     `azure_openai_model` and `azure_openai_deployment` move together.
 
-    The order matters and is the whole rule: the singular field is what `engine/bolna.py`
-    pushes into the vendor's credential store as `AZURE_OPENAI_MODEL`, so if a stray entry in
-    the map ever named that same model, letting the map win would point published agents at
-    one deployment and the credential store at another. It is ignored instead.
+    The order matters and is the whole rule: the singular field is the deployment the
+    platform's own Azure configuration names, so if a stray entry in the map ever named that
+    same model, letting the map win would point published agents at one deployment and the
+    platform's configuration at another. It is ignored instead.
 
     ⚠ **ASK IT ONLY ABOUT AN AZURE MODEL.** Deployments are an Azure artefact; on the other
     two legs the API addresses the model's own published name and a deployment id has

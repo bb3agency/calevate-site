@@ -2,10 +2,10 @@
 
 WHAT THIS IS FOR
 ----------------
-Every vendor on the cost side of this product invoices in dollars (Bolna, Azure) and
-every figure this product records is rupees: `usage_events.unit_cost_paid` is INR, and
-`engine/bolna.py::_cost` is the one place a dollar becomes one. Until now that
-conversion used `Settings.usd_inr_rate` — a number an operator typed and a restart
+A vendor on the cost side of this product can quote in dollars, and every figure this
+product records is rupees: `usage_events.unit_cost_paid`
+is INR, and `core/fx.usd_inr_rate_now` is the one place a dollar rate is chosen. Before
+this job that conversion used `Settings.usd_inr_rate` — a number an operator typed and a restart
 applied — so the platform's margin drifted with the market and nobody could say by how
 much. This job replaces the typing with a published rate and leaves the typed one as the
 fallback for when the publication is missing.
@@ -59,8 +59,8 @@ the administrator's own statement of its contract and none of it may be quoted a
 
 **THE UNITS DIVISION IS THE WHOLE RISK ON THIS RUNG.** `FxQuote.rate` is INR per ONE
 dollar, and a feed that ever published `"INR / 100 USD"` would, if units were assumed to
-be 1, reprice every invoice by a factor of a hundred — the same defect class as
-`engine/bolna._MINOR_UNITS_PER_MAJOR`, which once metered every call at 1/100th of cost.
+be 1, reprice every invoice by a factor of a hundred — the same defect class as a rented
+engine's minor-unit assumption, which once metered every call at 1/100th of cost (D-411).
 So units are read from the record and divided as `Decimal`, never assumed, and
 `ops/fx_rates.MAX_PLAUSIBLE_MOVE` stands behind the arithmetic as the second guard.
 

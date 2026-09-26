@@ -18,24 +18,9 @@ from typing import Any
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from calevate_shared.config import SOURCE_IP_ALLOWLIST_BY_ENGINE
 from calevate_shared.engine import WEBHOOK_AUTH_BY_ENGINE, WebhookAuthMethod
 
 log = get_logger(__name__)
-
-# Bolna's static egress IP is their ONLY webhook authenticity control (D-31, TRD §5),
-# and it is enforced at nginx AND here: nginx config drifts, this does not.
-#
-# THE SET ITSELF IS NOT DEFINED HERE. It comes from `BOLNA_WEBHOOK_SOURCE_IPS` via
-# `calevate_shared.config.bolna_source_ips`, which is the ONE resolver — the adapter's
-# `verify_webhook` reads the same function, so an operator who rotates the variable
-# during a vendor renumber (the documented recovery path, and the whole reason the
-# setting exists) moves the receiver's answer and the adapter's verdict together. This
-# module used to resolve the value once at import into a `BOLNA_SOURCE_IPS` global while
-# the adapter matched a hardcoded constant; that pair agreed only until the recovery
-# path was used, which is exactly when nobody is re-reading two files.
-#
-# Resolution stays O(1) per delivery: `get_settings` and the parse are both cached.
 
 # WHERE `client_ip` WENT, AND WHY IT IS NOT HERE ANY MORE. It was defined in this file,
 # together with `is_trusted_peer` and `TRUSTED_PROXY_CIDRS`, and `apps/api` had a SECOND
@@ -96,8 +81,8 @@ def engine_label(engine: str) -> str:
 @dataclass(frozen=True, slots=True)
 class IntakeVerdict:
     ok: bool
-    # `WebhookAuthMethod`, not a local `Literal["hmac", "source_ip", "none"]` — which is
-    # what this was, character for character. Two spellings of one vocabulary is how the
+    # `WebhookAuthMethod`, not a local `Literal[...]` — which is what this was, character
+    # for character. Two spellings of one vocabulary is how the
     # receiver ends up reporting a method the adapter cannot express (D-103).
     method: WebhookAuthMethod
     reason: str | None = None
@@ -114,19 +99,13 @@ class IntakeEvent:
 
 def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     """`source_ip` is None when `calevate_shared.client_address.client_ip` could not
-    establish one — see there.
+    establish one — see there. No method reads it today (D-639 deleted the one engine that
+    authenticated by egress address); it stays in the signature because the webhook route
+    records it on every refusal.
 
-    That is a REFUSAL for an allowlisted engine, with its own reason string so the alert
-    tells an operator which half broke: "not allowlisted" is a vendor renumber (rotate
-    `BOLNA_WEBHOOK_SOURCE_IPS`), "client ip not established" is the EDGE (real_ip or the
-    `CF-Connecting-IP` line in `calevate-proxy.conf` is gone, or something is reaching the
-    container without going through nginx). Two very different runbook entries, and an
-    unsigned engine cannot afford them to look alike.
-
-    WHICH METHOD APPLIES IS LOOKED UP, NOT HARD-CODED (D-93). This function used to open
-    `if engine == "bolna":` — a vendor name compiled into the latency-critical receiver,
-    so adopting an engine that SIGNS its webhooks meant editing this service and
-    redeploying it in lockstep with the adapter, which hard rule 3's last clause exists to
+    WHICH METHOD APPLIES IS LOOKED UP, NOT HARD-CODED (D-93). A vendor name compiled into
+    the latency-critical receiver means adopting an engine is an edit to this service,
+    redeployed in lockstep with the adapter, which hard rule 3's last clause exists to
     prevent. `WEBHOOK_AUTH_BY_ENGINE` is the one table both readers share (the adapters'
     own declarations are asserted equal to it by the conformance suite), and reading it
     costs one dict lookup on a path that must ack in under 500ms.
@@ -136,31 +115,6 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     `apps.api.engine` would pull httpx and the vendor client into the ack path.
     """
     method = WEBHOOK_AUTH_BY_ENGINE.get(engine)
-    if method == "source_ip":
-        # WHOSE ALLOWLIST, and the answer is not "whoever asked" (P2.6). The METHOD is
-        # looked up per engine; the ADDRESSES were not — this read `bolna_source_ips` for
-        # any engine declaring `source_ip`, so a second such engine would have been
-        # authenticated against Bolna's egress. That is the identical defect the `hmac`
-        # branch below spends a paragraph refusing ("an allowlist is evidence about a
-        # DIFFERENT engine's egress"), left live one branch above it. Inert today, because
-        # `bolna` is the only engine declaring the method — which is exactly why it was
-        # invisible, and exactly why a lookup with no entry must refuse rather than fall
-        # back to the one entry that exists.
-        resolver = SOURCE_IP_ALLOWLIST_BY_ENGINE.get(engine)
-        if resolver is None:
-            return IntakeVerdict(
-                ok=False, method="source_ip", reason="no source ip allowlist for this engine"
-            )
-        if source_ip is not None and source_ip in resolver(get_settings()):
-            # `source_ip`, not `hmac`: the caller must keep treating this as a hint.
-            return IntakeVerdict(ok=True, method="source_ip")
-        return IntakeVerdict(
-            ok=False,
-            method="source_ip",
-            reason="source ip not allowlisted"
-            if source_ip is not None
-            else "client ip not established",
-        )
     if method == "hmac":
         # DECLARED BY AN ADAPTER, NOT IMPLEMENTED HERE — and refused rather than waved
         # through, which is the only safe direction. Writing a signature verifier for an
@@ -181,9 +135,8 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
         # a wave-through here would not merely accept a forgery — it would FILE one as
         # signed, and a later investigation would read the strongest evidence we can
         # record next to a payload nobody checked. Falling back to the source-IP allowlist
-        # would be the same defect in a friendlier shape: an allowlist is evidence about a
-        # DIFFERENT engine's egress, and reusing it here would authenticate Cartesia
-        # deliveries against Bolna's addresses.
+        # would be the same defect in a friendlier shape: an allowlist is evidence about
+        # one engine's egress and says nothing about another's.
         #
         # The cost of refusing is bounded and known: every delivery 401s and the 10-minute
         # reconciliation poller stays the guarantee of record (D-31). The cost of the other
@@ -194,7 +147,7 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     if method == "none":
         # An engine that declares NO authenticity control at all. Which makes this route an
         # unauthenticated write endpoint, and the route table is identical in every
-        # environment: on a prod box running ENGINE=bolna, `/hooks/v1/engine/fake` would
+        # environment: on a prod box running ENGINE=cartesia, `/hooks/v1/engine/fake` would
         # hand any stranger who found the URL an inbox claim, a forensic row and an ARQ job.
         #
         # TWO GATES (D-615). The first is that the engine IS this deployment's engine —
@@ -222,8 +175,8 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
         # that verifies nothing "is allowed … but it must say so, in `method='none'` … the
         # receiver's own per-engine check is what keeps such an adapter out of production".
         #
-        # It costs nothing on any engine that really is called from outside: `bolna` is
-        # `source_ip` and `cartesia` is `hmac`. What it costs `pipecat` is nothing at all —
+        # It costs nothing on any engine that really is called from outside: `cartesia`
+        # is `hmac`. What it costs `pipecat` is nothing at all —
         # there is no delivery to lose — and what it costs `fake` on a staging or production
         # box is the ability to drive the pipeline by POSTing at it, which is the capability
         # being removed on purpose.
@@ -246,10 +199,10 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     return IntakeVerdict(ok=False, method="none", reason="unknown engine")
 
 
-# The longest a keyable field may be. Bolna's execution ids are uuid-shaped (36 chars)
-# and its status enum's longest member is `call-disconnected` (17), so 128 is several
-# times either — generous enough that a vendor change does not start dropping real
-# events, and far under the ~2704-byte ceiling a btree index tuple has.
+# The longest a keyable field may be. Execution ids are uuid-shaped (36 chars) and a vendor
+# status is a short enum member, so 128 is several times either — generous enough that a
+# vendor change does not start dropping real events, and far under the ~2704-byte ceiling a
+# btree index tuple has.
 #
 # THE CEILING IS NOT COSMETIC. `execution_id` and `raw_status` are concatenated into
 # `webhook_inbox_events.event_key`, which carries a UNIQUE index: a long enough value in

@@ -3,7 +3,7 @@
 `hmac.compare_digest` raises TypeError on a `str` holding any non-ASCII character, and
 header values arrive latin-1-decoded, so one such byte from anybody turned each of these
 checks into an unhandled exception that pages. Every verifier of a caller-supplied secret
-compares bytes; these pin the four that are reachable in production.
+compares bytes; these pin the three that are reachable in production.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from collections.abc import Iterator
 
 import pytest
 from apps.api.billing.payments import verify_checkout_signature, verify_signature
-from apps.api.compliance.caller_data_routes import _authorized as caller_data_authorized
 from apps.api.core.settings import get_settings
 from apps.api.worker.service import authorized as worker_authorized
 
@@ -21,7 +20,6 @@ _HOSTILE = "sha256=\xe9\xe9\xe9"
 
 @pytest.fixture
 def _tokens(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setenv("BOLNA_CALLER_DATA_TOKEN", "caller-data-token")
     monkeypatch.setenv("PIPECAT_WORKER_API_TOKEN", "worker-token")
     get_settings.cache_clear()
     yield
@@ -39,12 +37,6 @@ def test_the_razorpay_checkout_signature_refuses_a_non_ascii_value() -> None:
         )
         is False
     )
-
-
-@pytest.mark.usefixtures("_tokens")
-def test_the_caller_data_token_refuses_a_non_ascii_bearer() -> None:
-    assert caller_data_authorized(f"Bearer {_HOSTILE}") is False
-    assert caller_data_authorized("Bearer caller-data-token") is True
 
 
 @pytest.mark.usefixtures("_tokens")

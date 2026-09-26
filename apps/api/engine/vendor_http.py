@@ -18,7 +18,7 @@ WHAT THE TWO COPIES ACTUALLY DISAGREED ABOUT — measured, not inferred (D-240):
 
 Both halves matter and neither is cosmetic.
 
-* **The throttle.** `bolna._request`'s own comment argues the case — "a throttle says
+* **The throttle.** The argument is the one the first adapter made — "a throttle says
   nothing about the request, so on the campaign path it must not burn a contact's retry
   budget for a reason that has nothing to do with the contact" — and the second adapter
   did precisely that. `apps.workers.pipeline.TRANSIENT_ENGINE_CODES` and
@@ -83,7 +83,7 @@ REQUEST_TIMEOUT_S = 10.0
 #
 # NOTHING CHANGES HERE AS A RESULT, and that is the finding rather than an omission. Our
 # two callers are orders of magnitude inside it — the reconciliation poller fans out one
-# request per agent per page on a ten-minute tick (`bolna._LISTING_PAGE_SIZE`), and the
+# request per agent per page on a ten-minute tick, and the
 # dispatcher cannot exceed `campaign_dispatch.PLATFORM_LINES_TOTAL` dials in flight — so
 # 429 remains a response we meet without warning rather than one we can predict, which is
 # what the ladder is for. Cartesia's are still unpublished (no account at all).
@@ -102,8 +102,7 @@ REQUEST_TIMEOUT_S = 10.0
 #    minutes. A `Retry-After` longer than the ceiling is not slept through: it is
 #    reported as `transient`, which is the caller's cue to reschedule the work.
 #
-# **AND THERE IS NO CIRCUIT BREAKER. This is the paragraph `bolna.py`'s module docstring
-# sends the reader here for, and it used to arrive at a block that discussed only 429.**
+# **AND THERE IS NO CIRCUIT BREAKER.**
 #
 # THE CASE A BREAKER WOULD COVER IS NOT 429, IT IS SLOWNESS. `REQUEST_TIMEOUT_S` bounds
 # ONE call, never the aggregate, so a vendor degrading to nine-second responses trips

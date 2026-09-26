@@ -154,8 +154,8 @@ def _party_e164(raw: str | None) -> str | None:
     """A vendor's spelling of a phone number, in OUR canonical form.
 
     **THE VENDOR'S STRING WAS BEING USED AS A KEY, AND IT IS NOT ONE.** `_first_e164`
-    returns whatever the engine printed — `bolna.py` documents four different places the
-    number can arrive from and normalises none of them — and that string went straight
+    returns whatever the engine printed — a vendor may carry the number in several places
+    and normalise none of them — and that string went straight
     into `calls.from_e164`/`to_e164` and into `leads.phone_e164`, which is a THIRD of
     `UNIQUE(tenant_id, phone_e164, agent_id)`. Every other producer of those columns
     already goes through `ingest.normalize_phone` (the webhook path, `record_call_optout`,
@@ -2152,11 +2152,10 @@ def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: 
     """This call's duration as a quantity we are willing to put on a ledger.
 
     **A NEGATIVE DURATION IS NOT A DURATION, AND IT USED TO REACH THE MONEY PATH.**
-    `ExecutionSnapshot.duration_s` is `int | None` with no floor, and both adapters
-    build it as `int(duration) if isinstance(duration, int | float) else None`
-    (`engine/bolna.py`, `engine/cartesia.py`) — so a vendor's `-1` "unknown" sentinel,
-    or a duration derived from two clocks that disagree, arrives here as a real number
-    and is multiplied through everything.
+    `ExecutionSnapshot.duration_s` is `int | None` with no floor, and a vendor adapter
+    builds it from whatever number the vendor sent (`engine/cartesia.py`) — so a vendor's
+    `-1` "unknown" sentinel, or a duration derived from two clocks that disagree, arrives
+    here as a real number and is multiplied through everything.
 
     Measured on this tree before the guard existed, on a tenant with ₹120.96 already
     accrued for the month (`tests/negative_duration_test.py` is the reproduction):
@@ -2223,19 +2222,18 @@ def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: 
 
 
 # THERE IS NO `_ist_month` HERE ANY MORE, and its removal is a money fix rather than a
-# tidy-up. It read `(moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")`, which
-# is the right arithmetic ONLY for a moment expressed in UTC — `strftime` renders the
-# instant's own naive fields, so a value already carrying +05:30 got shifted a second
-# time. Nothing guarantees UTC: both adapters parse `ended_at` with
-# `datetime.fromisoformat` and PRESERVE whatever offset the vendor sent (`engine/bolna.py
-# ::_parse_dt` — its `replace(tzinfo=UTC)` covers NAIVE values only), and the vendor here
-# is an Indian voice platform. A call at 23:00 IST on the last of the month was therefore
-# counted into the NEXT month's `spend_state` while its own `usage_events` row — read back
-# through `billing.service._IST_MONTH`, which goes via `timestamptz` and is correct — sat
-# in the right one. `billing.plans.ist_billing_month` is the one spelling, converts
-# properly for any aware instant, and refuses a naive one instead of billing a month it
-# guessed. (`tests/billing_month_ordering_test.py` and `tests/one_billing_month_spelling_
-# test.py` are the two halves that keep it that way.)
+# tidy-up. It read `(moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")`, which is
+# the right arithmetic ONLY for a moment expressed in UTC — `strftime` renders the instant's
+# own naive fields, so a value already carrying +05:30 got shifted a second time. Nothing
+# guarantees UTC: an adapter parses `ended_at` with `datetime.fromisoformat` and PRESERVES
+# whatever offset the vendor sent, and a vendor serving India may send +05:30. A call at
+# 23:00 IST on the last of the month was therefore counted into the NEXT month's
+# `spend_state` while its own `usage_events` row — read back through
+# `billing.service._IST_MONTH`, which goes via `timestamptz` and is correct — sat in the
+# right one. `billing.plans.ist_billing_month` is the one spelling, converts properly for
+# any aware instant, and refuses a naive one instead of billing a month it guessed.
+# (`tests/billing_month_ordering_test.py` and `tests/one_billing_month_spelling_test.py`
+# are the two halves that keep it that way.)
 
 
 # --- the spend cap ------------------------------------------------------------
@@ -3997,23 +3995,14 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
 async def reconcile_executions(ctx: dict[str, Any]) -> str:
     """The guarantee of record (D-31), not a safety net.
 
-    **THIS SAID BOLNA DELIVERS AT MOST ONCE WITH NO RETRIES, AND THEIR OWN DOCUMENTATION
-    SAYS OTHERWISE** — *"Expected response | HTTP `200` — return fast; Bolna retries on
-    non-2xx or timeout"* (VERIFIED-VENDOR-DOCS,
-    `bolna-findings/mirror/pages/api-reference/limits.md:61`). D-352 had already corrected
-    the premise from their skills repo; this is the hosted-docs corroboration that
-    `engine/bolna.py` records as missing, and it lands on the Limits page rather than the
-    webhooks guide, which is why a lane reading the webhooks guide could not find it.
-
-    NOTHING ABOUT THIS JOB CHANGES, and that is the finding rather than an omission. Their
-    retry is unspecified in every dimension that would let us rely on it — no count, no
-    schedule, no ceiling, and no statement that it ever gives up other than by silence —
-    so a delivery lost to a deploy is still a call that may never be mentioned again, and
-    a mechanism whose bound is unpublished cannot be the guarantee of record. What the
-    correction DOES bind is the receiver, which must be idempotent under redelivery rather
-    than merely tolerant of it: `voice-runtime` keys the inbox on the
-    `(execution_id, raw_status)` PAIR, never on the execution id, or the vendor's own
-    retry of `completed` is discarded as a duplicate of `queued`.
+    A vendor's webhook retry, where it exists at all, is unspecified in every dimension that
+    would let us rely on it — no count, no schedule, no ceiling, and no statement that it
+    ever gives up other than by silence — so a delivery lost to a deploy is still a call
+    that may never be mentioned again, and a mechanism whose bound is unpublished cannot be
+    the guarantee of record. What a retry DOES bind is the receiver, which must be
+    idempotent under redelivery rather than merely tolerant of it: `voice-runtime` keys the
+    inbox on the `(execution_id, raw_status)` PAIR, never on the execution id, or the
+    vendor's own retry of `completed` is discarded as a duplicate of `queued`.
 
     So: this runs every 10 minutes, lists executions since the last window, and re-drives
     anything the post-call pipeline has not actually finished (`_pipeline_settled`). Every

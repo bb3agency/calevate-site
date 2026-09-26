@@ -255,11 +255,10 @@ def test_placeholder_text_is_refused_even_locally() -> None:
     class of error is the earliest one (D-49's lesson, one step earlier)."""
     example = load_example()
     assert example is not None
-    # `BOLNA_API_KEY`, not the `COHERE_API_KEY` this used to use: D-231 deleted that
-    # Settings field (a knob the ops console offered and nothing read), and an unknown
-    # key carries no placeholder rule — so the assertion below quietly stopped testing
-    # anything. Two sibling tests were repointed with that deletion; this one was missed.
-    env = dict(example) | {"BOLNA_API_KEY": "<your-api-key>"}
+    # A key that IS a `Settings` field: an unknown key carries no placeholder rule, so a
+    # deleted field here (D-231's `COHERE_API_KEY`, D-639's `BOLNA_API_KEY`) quietly stops
+    # the assertion below testing anything.
+    env = dict(example) | {"CARTESIA_API_KEY": "<your-api-key>"}
     assert "placeholder_value" in {f.code for f in evaluate(env, example) if f.severity == REFUSE}
 
 

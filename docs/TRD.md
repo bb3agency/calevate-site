@@ -117,6 +117,13 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 
 ## 3. Voice Stack (locked, with verification gates)
 
+> ⚠ **D-639 (26 Sep 2026): BOLNA IS REMOVED FROM THE PRODUCT.** The founder deleted the
+> Bolna adapter; `ENGINE` accepts `fake`, `cartesia` and `pipecat`, and the engine of record
+> is the owned runtime on Pipecat Cloud (D-592, `docs/PIPECAT-MIGRATION.md`). Everything
+> below that describes Bolna — its API, webhooks, source-IP allowlist, KB, pricing and pilot
+> gates — is the record of the engine this section was written for, not an instruction:
+> do not configure, call or buy from Bolna on its strength.
+
 Primary engine: **Bolna** (api.bolna.ai, Bearer auth; agent CRUD under /v2 — legacy
 unversioned paths are deprecated, never call them; the adapter's typed models are read
 from the vendor's OWN published OpenAPI 3.1 document — `references/openapi.yml` in
@@ -535,6 +542,13 @@ already the fastest figure its vendor publishes. **The honest statement to a cli
 establish is what IS achievable, measured, and that number does not exist yet.
 
 ## 5. VoiceEngine Adapter (the portability contract)
+
+> ⚠ **D-639 (26 Sep 2026): BOLNA IS REMOVED FROM THE PRODUCT.** The founder deleted the
+> Bolna adapter; `ENGINE` accepts `fake`, `cartesia` and `pipecat`, and the engine of record
+> is the owned runtime on Pipecat Cloud (D-592, `docs/PIPECAT-MIGRATION.md`). Everything
+> below that describes Bolna — its API, webhooks, source-IP allowlist, KB, pricing and pilot
+> gates — is the record of the engine this section was written for, not an instruction:
+> do not configure, call or buy from Bolna on its strength.
 
 Nothing outside `engine/` may import a vendor SDK or see a vendor payload shape.
 

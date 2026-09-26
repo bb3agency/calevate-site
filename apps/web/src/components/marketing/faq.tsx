@@ -99,9 +99,7 @@ const QUESTIONS: { q: string; a: string }[] = [
      * Grounds, as the code stands: `POST /v1/kb/sources` is text-only and refuses `url` and
      * `file` (`apps/api/kb/service.py:77`). Everything else has moved and the copy below is
      * therefore CONSERVATIVE rather than false —
-     * `BOLNA_CAPABILITIES.knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`),
-     * `attach_kb` uploads an approved document to the engine's own store (`bolna.py:5420`,
-     * D-488), this console has a file input
+     * this console has a file input
      * (`app/c/[slug]/knowledge/AddDocument.tsx:133`, behind `POST /v1/kb/uploads`, D-534),
      * and `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an in-process pack search
      * registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).

@@ -142,8 +142,8 @@ function configList(
 const SECRETS: SecretsList = {
   secrets: [
     {
-      key: "bolna_api_key",
-      env_var: "BOLNA_API_KEY",
+      key: "cartesia_api_key",
+      env_var: "CARTESIA_API_KEY",
       installed: true,
       version: 2,
       versions: 2,
@@ -1283,7 +1283,7 @@ function noticeToneOf(title: HTMLElement): string {
 
 function testVerdict(over: Partial<SecretTest> = {}): SecretTest {
   return {
-    key: "bolna_api_key",
+    key: "cartesia_api_key",
     outcome: "accepted",
     status: 200,
     detail: "The vendor accepted this credential for one authenticated read.",
@@ -1308,9 +1308,9 @@ async function openSecretFormAndTest(
   candidate = CANDIDATE,
 ) {
   const rendered = renderOps(
-    opsRoutes({ [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: verdict }),
+    opsRoutes({ [`POST ${OPS_SECRETS_PATH}/cartesia_api_key/test`]: verdict }),
   );
-  await screen.findByText("bolna_api_key");
+  await screen.findByText("cartesia_api_key");
   fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
   fireEvent.change(secretInput(), { target: { value: candidate } });
   fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
@@ -1441,7 +1441,7 @@ describe("the four outcomes of a test, kept apart", () => {
       }),
     );
 
-    await screen.findByText("bolna_api_key");
+    await screen.findByText("cartesia_api_key");
     fireEvent.click(
       screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
     );
@@ -1469,7 +1469,7 @@ describe("installing a credential", () => {
   it("reports the last four the SERVER holds, and its version", async () => {
     renderOps(
       opsRoutes({
-        [`PUT ${OPS_SECRETS_PATH}/bolna_api_key`]: {
+        [`PUT ${OPS_SECRETS_PATH}/cartesia_api_key`]: {
           ...SECRETS.secrets[0],
           version: 3,
           versions: 3,
@@ -1478,7 +1478,7 @@ describe("installing a credential", () => {
       }),
     );
 
-    await screen.findByText("bolna_api_key");
+    await screen.findByText("cartesia_api_key");
     fireEvent.click(
       screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
     );
@@ -1488,8 +1488,8 @@ describe("installing a credential", () => {
     fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
       target: { value: "vendor breach notice" },
     });
-    fireEvent.change(screen.getByPlaceholderText("BOLNA_API_KEY"), {
-      target: { value: "BOLNA_API_KEY" },
+    fireEvent.change(screen.getByPlaceholderText("CARTESIA_API_KEY"), {
+      target: { value: "CARTESIA_API_KEY" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^Rotate$/ }));
 
@@ -1504,7 +1504,7 @@ describe("installing a credential", () => {
         [OPS_SECRETS_PATH]: {
           secrets: [{ ...SECRETS.secrets[0], shadowed_by_env: true }],
         } satisfies SecretsList,
-        [`PUT ${OPS_SECRETS_PATH}/bolna_api_key`]: {
+        [`PUT ${OPS_SECRETS_PATH}/cartesia_api_key`]: {
           ...SECRETS.secrets[0],
           shadowed_by_env: true,
           version: 3,
@@ -1514,7 +1514,7 @@ describe("installing a credential", () => {
       }),
     );
 
-    await screen.findByText("bolna_api_key");
+    await screen.findByText("cartesia_api_key");
     fireEvent.click(
       screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
     );
@@ -1524,8 +1524,8 @@ describe("installing a credential", () => {
     fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
       target: { value: "vendor breach notice" },
     });
-    fireEvent.change(screen.getByPlaceholderText("BOLNA_API_KEY"), {
-      target: { value: "BOLNA_API_KEY" },
+    fireEvent.change(screen.getByPlaceholderText("CARTESIA_API_KEY"), {
+      target: { value: "CARTESIA_API_KEY" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^Rotate$/ }));
 
@@ -1533,7 +1533,7 @@ describe("installing a credential", () => {
     // said "stored" would be true and useless.
     const receipt = await screen.findByRole("status");
     expect(receipt.textContent).toContain("It is not in force");
-    expect(receipt.textContent).toContain("BOLNA_API_KEY");
+    expect(receipt.textContent).toContain("CARTESIA_API_KEY");
   });
 });
 

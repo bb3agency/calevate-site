@@ -84,10 +84,10 @@ three are built, and each is worth knowing where to find:
    alone cannot say "looked at, nothing owed" — `kb_documents.gloss_state` is the worked
    example of why that third state has to exist.
 
-**AND A THIRD DOOR OUT NOW EXISTS**, which matters for anything added to this module:
-`compliance/caller_data_routes.py` answers the ENGINE at inbound call setup. It reads
-through `recall()` like every other reader, which is the property that makes the gate below
-worth having in one place.
+**AND A THIRD DOOR OUT EXISTS**, which matters for anything added to this module: the
+worker API's caller-memory read answers the owned runtime at inbound call setup (D-641). It
+reads through `recall()` like every other reader, which is the property that makes the gate
+below worth having in one place.
 
 **WHAT IS NOT DECIDED HERE.** How a fact is produced from a call is the distillation
 worker's business (`workers/caller_memory_distil.py`, built to `workers/copilot_memory.py`'s
@@ -199,8 +199,8 @@ CALLER_MEMORY_STATES: Final[tuple[str, ...]] = (
 #: `copilot/prompt._RULE_RUN` is the same regex against the same class of attack on the
 #: dashboard leg, and this is deliberately NOT a second reader of it. It is applied at a
 #: different SEAM for a reason that only holds here: `remember()` is the ONE door into this
-#: store and there are three doors out (the dial, the inbound caller-data endpoint, the
-#: copilot), one of which runs in a service that may not import `apps.api.copilot` at all
+#: store and there are three doors out (the dial, the worker's inbound caller-memory read,
+#: the copilot), one of which runs in a service that may not import `apps.api.copilot` at all
 #: (hard rule 3). Neutering at the read would put the control in three places and the
 #: exploit is whichever one forgets. Neutering at the write puts it in one, and every
 #: reader inherits it for free — including readers not yet written.

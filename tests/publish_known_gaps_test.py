@@ -1,20 +1,19 @@
 """Publish-verification defects that are OPEN, recorded so they cannot be rediscovered.
 
-Every entry below was found while taking "what does `live` actually claim?" end to end,
-is real, and could not be closed from inside this slice. Each names the specific reason
-and the specific act that closes it — and unlike the reliability register next door, the
-one entry left is genuinely waiting on a VENDOR ACCOUNT rather than on a file. That
-distinction is the whole point of naming it: an engineering task has no timeline, and an
-external blocker is nobody's to code around.
+Every entry is found while taking "what does `live` actually claim?" end to end, is
+real, and cannot be closed from inside the slice that found it. Each names the specific
+reason and the specific act that closes it.
 
-THE OTHER TWO ENTRIES ARE GONE BECAUSE THE DEFECTS ARE (D-123), and the distinction above
-is what predicted which. `no_delete_agent_on_the_protocol` looked vendor-blocked and was
-not: Bolna publishes `DELETE /v2/agent/{agent_id}`, so what remained was a Protocol
-method, three adapters, a conformance clause and a MARKED ASSUMPTION about the one thing
-the docs do not answer (what a repeat delete returns) — an engineering task, done.
-`no_scheduled_drift_reconciliation` was never vendor-blocked at all and closed with one
-ARQ cron. What is left below is the entry where guessing would ship a fabricated
-guarantee, which is the only kind of waiting this file is for.
+THE REGISTER IS EMPTY, AND THE MACHINERY STAYS FOR THE NEXT ENTRY. Its last entry,
+`create_agent_is_not_idempotent`, was about a publish that creates a VENDOR-SIDE agent and
+fails before our write of `engine_agent_ref` commits. D-639 deleted the one adapter that
+did that: Cartesia refuses `create_agent` by name (its agents are deployed programs), and
+the owned runtime's agent is a row in our own database, written in the publish's own
+transaction.
+
+Two earlier entries closed with D-123 (`no_delete_agent_on_the_protocol`,
+`no_scheduled_drift_reconciliation`); `test_the_two_gaps_that_closed_are_provably_closed`
+keeps their probes as assertions in the opposite direction.
 
 **THE ASSERTION IS AN EQUALITY**, the shape `tests/reliability_known_gaps_test.py` and
 `tests/engine_name_drift_test.py::KNOWN_OPEN_COPIES` established. Each key has a probe
@@ -25,52 +24,19 @@ forces the entry's deletion in the same change — and a TODO, which can, is not
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Callable
 from pathlib import Path
 
-from apps.api.engine import bolna, cartesia, fake
+from apps.api.engine import cartesia, fake, pipecat
 from calevate_shared.engine import VoiceEngine
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Gap key → why it is open, and WHAT CLOSES IT.
-KNOWN_OPEN_PUBLISH_GAPS: dict[str, str] = {
-    "create_agent_is_not_idempotent": (
-        "A publish that creates a vendor-side agent and then fails before our write of "
-        "`engine_agent_ref` commits leaves an object we are billed for and can no longer "
-        "address. `agents/service.py::_reclaim_orphan` now DELETES that object (D-123) "
-        "and `_load_agent(for_update=True)` closes the concurrent-publish cause outright "
-        "— but neither touches this case, and that is the point: a retry of a create "
-        "whose RESPONSE was lost makes a SECOND vendor object whose id we never saw, so "
-        "there is nothing for the compensator to name. The standard remedy is an "
-        "idempotency key on the create, and "
-        "whether either vendor honours one is unknown: every vendor host is refused by "
-        "this environment's egress proxy (CONNECT -> 403), so writing the header would be "
-        "a guess shipped as a guarantee. "
-        "CLOSED BY: a Bolna account (and a Cartesia one) to establish whether "
-        "`POST /v2/agent` accepts an idempotency key and what it does with a repeat — "
-        "then the header in both adapters and a conformance clause that replays a create."
-    ),
-}
+KNOWN_OPEN_PUBLISH_GAPS: dict[str, str] = {}
 
-
-def _create_agent_carries_no_idempotency_key() -> bool:
-    """No adapter's create sends anything that would make a retry safe.
-
-    Read from the SOURCE of the two real adapters rather than from a call, because the
-    absence being recorded is the absence of a header on a request we cannot make here.
-    """
-    sources = [
-        inspect.getsource(bolna.BolnaEngine.create_agent),
-        inspect.getsource(cartesia.CartesiaEngine.create_agent),
-    ]
-    return not any("idempotency" in source.lower() for source in sources)
-
-
-PROBES: dict[str, Callable[[], bool]] = {
-    "create_agent_is_not_idempotent": _create_agent_carries_no_idempotency_key,
-}
+#: Gap key → a probe answering "is this still true?".
+PROBES: dict[str, Callable[[], bool]] = {}
 
 
 def test_the_two_gaps_that_closed_are_provably_closed() -> None:
@@ -87,7 +53,7 @@ def test_the_two_gaps_that_closed_are_provably_closed() -> None:
     it names, on every adapter) and `tests/engine_drift_reconciliation_test.py` (the sweep
     finds both drifts a publish-time check cannot).
     """
-    adapters = (fake.FakeEngine, bolna.BolnaEngine, cartesia.CartesiaEngine)
+    adapters = (fake.FakeEngine, cartesia.CartesiaEngine, pipecat.PipecatEngine)
     assert hasattr(VoiceEngine, "delete_agent"), "an orphan is un-compensable again"
     for adapter in adapters:
         assert hasattr(adapter, "delete_agent"), f"{adapter.__name__} cannot remove an agent"

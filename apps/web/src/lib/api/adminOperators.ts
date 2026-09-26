@@ -266,7 +266,7 @@ export function useResendOperatorSetupLink() {
  *
  * Kept beside the control that sets it rather than in a tooltip, exactly as `ROLE_COPY`
  * is on the client realm's team screen: "superadmin" and "operator" are OUR words, and
- * somebody choosing between them is deciding whether this person can replace the Bolna
+ * somebody choosing between them is deciding whether this person can replace a vendor
  * key and add further administrators without being told so anywhere else.
  *
  * The `cannot` line mirrors `core/rbac.SUPERADMIN_ONLY_PERMISSIONS` — the four

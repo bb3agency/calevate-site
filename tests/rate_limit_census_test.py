@@ -304,22 +304,18 @@ def test_the_middleware_still_has_no_second_profile_table() -> None:
     assert not hasattr(RateLimitMiddleware, "EXEMPT")
 
 
-#: Routes whose CALLER is a vendor rather than a person or a browser: the voice engine's
-#: in-call door and the lead-intake receiver. Named here rather than detected, because
+#: Routes whose CALLER is a vendor rather than a person or a browser: the lead-intake
+#: receiver. Named here rather than detected, because
 #: what makes a route belong on this list is who dials it, which no amount of reading the
 #: path can tell you.
-VENDOR_CALLED = (
-    ("/v1/actions/invoke/{engine}/{tool_id}", "POST"),
-    ("/hooks/v1/ingest/{webhook_id}", "POST"),
-)
+VENDOR_CALLED = (("/hooks/v1/ingest/{webhook_id}", "POST"),)
 
 
 @pytest.mark.parametrize(("path", "method"), VENDOR_CALLED)
 def test_a_surface_a_vendor_dials_is_not_bounded_by_its_caller_alone(
     path: str, method: str
 ) -> None:
-    """THE PROPERTY EVERY OTHER ASSERTION IN THIS FILE IS BLIND TO, and it cost the
-    in-call action route its availability.
+    """THE PROPERTY EVERY OTHER ASSERTION IN THIS FILE IS BLIND TO.
 
     `per_client` keys on the bearer fingerprint when there is one and the IP otherwise.
     On a surface a PERSON calls that is one person, which is what every ceiling in
@@ -328,11 +324,11 @@ def test_a_surface_a_vendor_dials_is_not_bounded_by_its_caller_alone(
     abuse and becomes a global cap on throughput, and the tenant with the busiest morning
     429s the rest.
 
-    `/v1/actions/invoke/**` resolved to `client_api` (240/min) keyed on the engine's
-    single egress address: ~4 in-call actions a second for the WHOLE platform, each
-    holding a synchronous vendor round trip, with the refusal arriving mid-call as
-    silence. `webhook_ingest` had the argument written down and the mechanism built —
-    `tenant_from_last_path_segment` — and the newer surface simply never used it.
+    An in-call action route (deleted by D-639) once resolved to `client_api` (240/min)
+    keyed on the engine's single egress address: ~4 in-call actions a second for the
+    WHOLE platform, with the refusal arriving mid-call as silence. `webhook_ingest` had the
+    argument written down and the mechanism built — `tenant_from_last_path_segment` — and
+    the newer surface simply never used it.
 
     So: a vendor-dialled route must derive a tenant dimension from its own path. That is
     both halves — the flag, and a `per_tenant` for it to bound — because either alone is

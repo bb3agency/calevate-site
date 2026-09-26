@@ -993,8 +993,8 @@ const PLATFORM = {
 const OPS_SECRETS = {
   secrets: [
     {
-      key: "bolna_api_key",
-      env_var: "BOLNA_API_KEY",
+      key: "cartesia_api_key",
+      env_var: "CARTESIA_API_KEY",
       installed: true,
       version: 2,
       versions: 2,
@@ -3220,7 +3220,7 @@ const ADMIN_SCREENS: Screen[] = [
         complete: false,
         groups: [
           {
-            engine: "bolna",
+            engine: "pipecat",
             region: "us",
             calls: 12,
             turns: 240,
@@ -3278,7 +3278,7 @@ const ADMIN_SCREENS: Screen[] = [
             ],
           },
           {
-            engine: "bolna",
+            engine: "pipecat",
             region: null,
             calls: 1,
             turns: 3,

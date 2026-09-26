@@ -79,8 +79,8 @@ worse than none:**
    three round trips per enqueue (arq's `enqueue_job` with `_job_id` does WATCH, EXISTS,
    then MULTI/PSETEX/ZADD/EXEC). Postgres is untouched because the handler never reaches
    it — that is a property of the code, asserted below, not an omission from the harness.
-   `Settings()` is constructed before the cold sample by the `source_ip_allowlist`
-   fixture, so the cold number is a cold ARQ POOL, not a cold process.
+   `Settings()` is constructed before the cold sample, so the cold number is a cold ARQ
+   POOL, not a cold process.
 5. **One box, one process, one event loop.** The numbers do not generalise to the target
    host. The SHAPE does: a flat distribution stays flat wherever the loop is.
 
@@ -122,7 +122,7 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -137,7 +137,9 @@ from tests import ack_harness
 ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
 EDGE_PROXY_IP = "127.0.0.1"
-TOOL = "/tools/v1/bolna/opt-out"
+TOOL = "/tools/v1/fake/opt-out"
+#: A signing engine's tool path: refused until a verifier exists, so it is the refusal path.
+REFUSED_TOOL = "/tools/v1/cartesia/opt-out"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 #: TRD §6.2's in-call retrieval budget, restated rather than imported. There is nothing to
@@ -145,11 +147,6 @@ HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 #: was never measured. Stated here so the docstring's arithmetic has a named constant
 #: behind it.
 IN_CALL_BUDGET_MS = 100.0
-
-
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:
@@ -244,14 +241,14 @@ async def test_the_accepted_tool_call_reaches_postgres_zero_times(trips: _Trips)
 
 
 async def test_a_refused_tool_call_costs_nothing_at_all(trips: _Trips) -> None:
-    """A stranger who found the URL must be answerable from the socket and the headers.
+    """A refused call must be answerable from the socket and the headers.
 
     The receiver asserts this for its own path and the reason is identical: an
     unauthenticated endpoint whose REJECTION costs a database round trip is a free
     amplification vector into a pool shared with the path that carries live calls.
     """
     async with _client(ATTACKER_IP) as http:
-        refused = await http.post(TOOL, json=_body())
+        refused = await http.post(REFUSED_TOOL, json=_body())
 
     assert refused.status_code == 401
     assert trips.statements == []
@@ -395,7 +392,7 @@ async def test_a_refused_tool_call_is_measured_into_the_tool_series_too(
     """
     with caplog.at_level(logging.INFO, logger="calevate.metric"):
         async with _client(ATTACKER_IP) as stranger:
-            assert (await stranger.post(TOOL, json=_body())).status_code == 401
+            assert (await stranger.post(REFUSED_TOOL, json=_body())).status_code == 401
         async with _client() as http:
             assert (await http.post(TOOL, json={}, headers=HEADERS)).status_code == 422
 

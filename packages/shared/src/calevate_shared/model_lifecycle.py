@@ -775,9 +775,9 @@ TTS_MODEL_LIFECYCLE: Final[dict[str, TtsModelLifecycle]] = {
                 '`CartesiaSynthesizer.__init__` defaults `model="sonic-english"`, which '
                 "Cartesia sunset 1 Jun 2026 (VERIFIED-OSS, `cartesia_synthesizer.py`"
                 "@`feac358e`) — so an omitted `model` key falls back to a dead model rather "
-                "than to a current one, and `engine/bolna._cartesia_synthesizer_config` "
-                "refuses rather than defaults. Whether the HOSTED platform runs that commit "
-                "is UNKNOWN: OPERATIONS §2 gate 52."
+                "than to a current one, and the rented engine's adapter (deleted by D-639) "
+                "refused rather than defaulted. Whether the HOSTED platform ran that commit "
+                "was UNKNOWN: OPERATIONS §2 gate 52."
             ),
         ),
     ),

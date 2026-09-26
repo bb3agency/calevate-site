@@ -2605,8 +2605,8 @@ def readiness_claim_drift(paths: Iterable[Path] | None = None) -> list[str]:
 #
 # WHAT IT COMPARES. The gate ROSTER comes from OPERATIONS §2, which the scorecard itself
 # calls authoritative; the VERDICTS come from `docs/evidence/bolna-pilot-scorecard.md`,
-# which is generated from typed results and drift-guarded against them
-# (`scripts/pilot/scorecard.py --check`). A citation is judged only when it sits in a
+# which was generated from typed results by the pilot harness (deleted by D-639; the
+# scorecard is now a frozen record). A citation is judged only when it sits in a
 # sentence that MARKS AN ASSUMPTION — "assumed", "unverified", "inferred", "undocumented"
 # and the rest of `_OPEN_ASSUMPTION` — because a sentence that merely says "gate 6 measures
 # the page size" describes the gate and cannot be stale.
@@ -2631,7 +2631,7 @@ _SCORECARD_DOC = REPO_ROOT / "docs" / "evidence" / "bolna-pilot-scorecard.md"
 #: `| 7 **H** *(was S — raised by D-261)* |` because D-261 raised it, and a pattern
 #: demanding a bare `H` silently drops that row. It dropped it while this section was
 #: being ported: the roster came back 27 gates instead of 28 and every "assumed … gate 7"
-#: sentence in the tree — including one in `engine/bolna.py` — was reported as citing a
+#: sentence in the tree — including one in an engine adapter — was reported as citing a
 #: gate that does not exist. A roster that loses a row is the failure mode this whole
 #: section is about, one level down.
 _GATE_ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s+\*{0,2}([A-Z])\*{0,2}\b")

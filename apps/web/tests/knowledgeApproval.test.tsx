@@ -465,7 +465,7 @@ describe("what the screen says the agent does with the text", () => {
     //
     // It read "there is nothing on this screen that accepts one", which was true of the
     // console for as long as `attach_kb` raised. It does not raise any more: the engine's
-    // knowledge base is on (`apps/api/engine/bolna.py:3261`, `knowledge_base=True`), a PDF
+    // knowledge base is on (`knowledge_base=True` on every adapter), a PDF
     // is handed to it as the artefact a person approved, and D-534 built the six `/v1/kb`
     // routes this screen now offers. The ban would now fail on the control the founder
     // asked for. What must NOT come back is the CLAIM above it — that something is looked

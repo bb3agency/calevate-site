@@ -8,8 +8,8 @@ Two questions, one file:
    cost real money or break a real guarantee — and asserts the suite catches each. A
    saboteur that slips through is a hole in the contract, not a clever adapter.
 
-2. **Is the receiver's every response a deliberate one?** Bolna signs nothing (D-31),
-   so anyone who learns the URL can POST anything at it: 30MB of JSON, 10,000 nested
+2. **Is the receiver's every response a deliberate one?** The URL is public, so anyone
+   who learns it can POST anything at it: 30MB of JSON, 10,000 nested
    arrays, a body that is not JSON at all, an engine name we never deployed. None of
    those may 500, and every one of them must be answerable from `X-Ack-Ms`.
 
@@ -28,7 +28,6 @@ import sys
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -42,7 +41,7 @@ from apps.api.core.redis import get_redis
 from apps.api.db.session import get_engine as get_db_engine
 from apps.api.db.session import untenanted_session
 from apps.api.engine import vendor_http
-from apps.api.engine.bolna import BolnaEngine
+from apps.api.engine.cartesia import CartesiaEngine
 from apps.api.engine.fake import (
     DEFAULT_FAKE_CAPABILITIES,
     EXTERNAL_DEPLOYMENT_CAPABILITIES,
@@ -50,11 +49,6 @@ from apps.api.engine.fake import (
 )
 from apps.api.reliability import service as reliability
 from apps.api.reliability.service import body_hash
-from calevate_shared.config import (
-    DEFAULT_BOLNA_SOURCE_IPS,
-    Settings,
-    parse_source_ip_allowlist,
-)
 from calevate_shared.engine import (
     AgentConfig,
     AgentSnapshot,
@@ -72,15 +66,9 @@ from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 from sqlalchemy import event, text
 
-# RELATIVE TO NOW, NOT A LITERAL DATE — the same time bomb `bolna_listing_test.SINCE`
-# defused, in the file that inherited it. This was `datetime(2026, 8, 10)`, correct on the
-# day it was written and stale the moment `list_executions` grew `_LISTING_MAX_WINDOW`: a
-# fixture pinned to a fixed past instant drifts further from `now()` every day until the
-# window it asks for is one the vendor will not serve. The whole file then fails on
-# `engine_listing_window_too_wide` — a refusal that is CORRECT — and it fails in a test
-# about PII redaction, which has nothing to do with listing windows. Nothing here asserts
-# the absolute value; the call only has to be inside the served window.
-_LISTING_SINCE = datetime.now(UTC)
+# RELATIVE TO NOW, NOT A LITERAL DATE: a fixture pinned to a fixed past instant drifts
+# further from `now()` every day until the window it asks for is one an adapter refuses.
+_LISTING_SINCE = datetime.now(UTC) - timedelta(hours=1)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFORMANCE_DIR = REPO_ROOT / "packages" / "shared" / "tests" / "engine_conformance"
@@ -91,7 +79,11 @@ ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
 EDGE_PROXY_IP = "127.0.0.1"
 
-HOOK = "/hooks/v1/engine/bolna"
+HOOK = "/hooks/v1/engine/fake"
+#: A signing engine's hook. The receiver refuses every delivery to it (`engine_intake`'s
+#: `hmac` branch: no verifier is implemented), which makes it the refusal path these tests
+#: can drive now that no engine is authenticated by source address.
+SIGNED_HOOK = "/hooks/v1/engine/cartesia"
 
 
 # =============================================================================
@@ -155,14 +147,14 @@ async def _conformance_failures(engine: VoiceEngine) -> list[str]:
 class _AcceptsAnySource(FakeEngine):
     """Claims a real verification method, then waves everyone through.
 
-    This is THE adapter bug that matters at an unsigned endpoint: `method="source_ip"`
-    is what tells the receiver it holds evidence, and here the evidence is fiction.
+    This is THE adapter bug that matters at a public endpoint: `method="hmac"` is what
+    tells the receiver it holds evidence, and here the evidence is fiction.
     """
 
     def verify_webhook(
         self, headers: dict[str, str], body: bytes, source_ip: str
     ) -> WebhookVerdict:
-        return WebhookVerdict(ok=True, method="source_ip")
+        return WebhookVerdict(ok=True, method="hmac")
 
 
 class _DropsAgentRef(FakeEngine):
@@ -252,11 +244,11 @@ class _EverythingIsInbound(FakeEngine):
 class _TakesATenantFromThePayload(FakeEngine):
     """Reads `tenant_id` out of the request body.
 
-    Bolna signs nothing (D-31), so the body is chosen by whoever found the URL. A tenant
-    read out of it is a cross-tenant write (hard rule 1) with a webhook for a delivery
-    mechanism: one POST files a call, its transcript and its cost into another client's
-    dashboard. The lookup this shortcuts — `engine_agent_ref` in the agents table — is the
-    only thing that ties a delivery to an account.
+    An unsigned body is chosen by whoever found the URL. A tenant read out of it is a
+    cross-tenant write (hard rule 1) with a webhook for a delivery mechanism: one POST files
+    a call, its transcript and its cost into another client's dashboard. The lookup this
+    shortcuts — `engine_agent_ref` in the agents table — is the only thing that ties a
+    delivery to an account.
     """
 
     def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
@@ -638,8 +630,8 @@ SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     "transcript-of-another-call": _ForeignTranscript,
     "listing-transcript-of-another-call": _ListingTranscriptOfAnotherCall,
     "forgets-raw-status": _ForgetsRawStatus,
-    # What an unsigned endpoint's SENDER can put in the body. Bolna signs nothing
-    # (D-31), so every field below is chosen by whoever found the URL.
+    # What an unsigned endpoint's SENDER can put in the body: every field below is chosen
+    # by whoever found the URL.
     "takes-a-tenant-from-the-payload": _TakesATenantFromThePayload,
     "wears-the-senders-engine-name": _WearsTheSendersEngineName,
     "settles-a-status-that-is-not-a-string": _SettlesAStatusThatIsNotAString,
@@ -652,7 +644,7 @@ SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     # Declares a webhook method it does not use. The receiver reads the DECLARATION
     # (through `WEBHOOK_AUTH_BY_ENGINE`) while the worker reads the adapter's verdict, so
     # a mismatch means the two services authenticate the same delivery differently.
-    "declares-a-webhook-method-it-does-not-use": _with_capabilities(webhook_auth="source_ip"),
+    "declares-a-webhook-method-it-does-not-use": _with_capabilities(webhook_auth="hmac"),
     # Claims an engine-side capability the Protocol has no method for, and which our
     # dispatch does not use. Unfalsifiable by construction, which is why the suite
     # refuses the claim outright rather than pretending to test it.
@@ -689,7 +681,7 @@ async def test_the_conformance_suite_rejects_a_deliberately_broken_adapter(
 LADDER_PARAM = "ladder"
 
 
-class _DriftedLadder(BolnaEngine):
+class _DriftedLadder(CartesiaEngine):
     """A real HTTP adapter whose transport ladder has drifted back to where it was.
 
     This is not an invention: it is `cartesia._request` as it stood before D-240 —
@@ -727,12 +719,12 @@ class _DriftedLadder(BolnaEngine):
         return payload if isinstance(payload, dict) else {"data": payload}
 
 
-def _drifted_ladder(handler: Callable[[httpx.Request], httpx.Response]) -> BolnaEngine:
+def _drifted_ladder(handler: Callable[[httpx.Request], httpx.Response]) -> CartesiaEngine:
     return _DriftedLadder(
         api_key="test-key",
-        fx_rate=Decimal("88.00"),
+        from_number_id="num_test",
         client=httpx.AsyncClient(
-            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
+            base_url="https://api.cartesia.test", transport=httpx.MockTransport(handler)
         ),
     )
 
@@ -785,7 +777,7 @@ async def test_the_transport_clauses_pass_every_shipped_adapter() -> None:
 
 async def test_the_shipped_adapters_still_pass_the_suite() -> None:
     """The other half: tightening the contract must not have been done by inventing a
-    rule the real adapters break. Both shipped adapters pass every clause, unchanged."""
+    rule the real adapters break. Every shipped adapter passes every clause, unchanged."""
     fixtures = _suite_fixtures()
     for engine_id in fixtures.ENGINE_IDS:
         engine = fixtures.make_engine(engine_id)
@@ -795,13 +787,6 @@ async def test_the_shipped_adapters_still_pass_the_suite() -> None:
 # =============================================================================
 # Section 2 — the receiver
 # =============================================================================
-
-
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    """Point the allowlist at a documentation IP, exactly as the security suite does —
-    these tests must never encode a vendor's current egress address."""
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:
@@ -832,7 +817,7 @@ async def _inbox_row(execution_id: str, raw_status: str) -> tuple[str, int] | No
             await session.execute(
                 text(
                     "SELECT status, duplicate_count FROM webhook_inbox_events "
-                    "WHERE provider = 'bolna' AND event_key = :k"
+                    "WHERE provider = 'fake' AND event_key = :k"
                 ),
                 {"k": f"{execution_id}:{raw_status}"},
             )
@@ -844,8 +829,8 @@ async def _inbox_row(execution_id: str, raw_status: str) -> tuple[str, int] | No
 
 
 async def test_x_ack_ms_is_reported_on_every_response_path() -> None:
-    """Hard rule 3 puts a NUMBER on this endpoint, and Bolna does not retry: a receiver
-    that drifts past 500ms silently loses calls. `X-Ack-Ms` is the only per-request
+    """Hard rule 3 puts a NUMBER on this endpoint, and a vendor that does not retry loses
+    calls to a receiver that drifts past 500ms. `X-Ack-Ms` is the only per-request
     evidence anyone has.
 
     The paths that return early are exactly the ones a flood would take — a duplicate
@@ -859,7 +844,7 @@ async def test_x_ack_ms_is_reported_on_every_response_path() -> None:
         accepted = await http.post(HOOK, json=body, headers=_engine_headers())
         duplicate = await http.post(HOOK, json=body, headers=_engine_headers())
         ignored = await http.post(HOOK, json={"status": "completed"}, headers=_engine_headers())
-        rejected = await http.post(HOOK, json=body)  # peer is trusted, forwarded IP absent
+        rejected = await http.post(SIGNED_HOOK, json=body)  # no verifier: refused
 
     assert accepted.json()["status"] == "accepted"
     assert duplicate.json()["status"] == "duplicate"
@@ -890,7 +875,7 @@ async def _inbox_payload_hash(execution_id: str, raw_status: str) -> str | None:
             await session.execute(
                 text(
                     "SELECT payload_hash FROM webhook_inbox_events "
-                    "WHERE provider = 'bolna' AND event_key = :k"
+                    "WHERE provider = 'fake' AND event_key = :k"
                 ),
                 {"k": f"{execution_id}:{raw_status}"},
             )
@@ -905,8 +890,8 @@ async def test_a_deeply_nested_payload_is_answered_not_crashed() -> None:
     document, so a handler that catches only the decode error turns 20KB of `[[[[`
     into a 500.
 
-    A 500 here is not merely ugly. Bolna delivers at most once and swallows errors, so
-    the receiver crashing on one hostile POST is indistinguishable from the receiver
+    A 500 here is not merely ugly. A vendor that delivers at most once swallows errors,
+    so the receiver crashing on one hostile POST is indistinguishable from the receiver
     crashing on the real call that arrives in the same second.
     """
     depth = 20_000
@@ -982,7 +967,7 @@ async def test_the_fake_engine_hook_is_closed_when_the_deployment_runs_a_real_en
 ) -> None:
     """`verify_source` accepts the `fake` engine from ANY source IP — correct for local
     work, catastrophic in production. The route is mounted in every environment, so on
-    a prod box running ENGINE=bolna a stranger can still POST `/hooks/v1/engine/fake`
+    a prod box running ENGINE=cartesia a stranger can still POST `/hooks/v1/engine/fake`
     and get an inbox claim, a forensic row and an ARQ job for free.
 
     An unauthenticated queue-write is exactly the thing hard rule 3's verification step
@@ -993,7 +978,7 @@ async def test_the_fake_engine_hook_is_closed_when_the_deployment_runs_a_real_en
     monkeypatch.setattr(
         engine_intake,
         "get_settings",
-        lambda: real_settings.model_copy(update={"engine": "bolna"}),
+        lambda: real_settings.model_copy(update={"engine": "cartesia"}),
     )
 
     execution_id, _status, body = _event()
@@ -1028,8 +1013,8 @@ async def test_the_fake_engine_hook_still_works_where_the_fake_engine_is_the_eng
 
 
 async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload() -> None:
-    """Bolna fires a webhook on every status transition (TRD §5): queued → in-progress
-    → completed, all carrying the SAME execution id and DIFFERENT bodies.
+    """An engine fires a webhook on every status transition (TRD §5): queued →
+    in-progress → completed, all carrying the SAME execution id and DIFFERENT bodies.
 
     The receiver hands the inbox a hash of the whole delivery, and the inbox treats
     'same key, different hash' as evidence of a replayed doctored payload — a 409 plus
@@ -1095,7 +1080,7 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
             cached = await http.post(HOOK, json=retry, headers=_engine_headers())
             # THEN with the key removed, so the inbox — where the tautology above lives —
             # is exercised rather than assumed.
-            settled = f"calevate:wh:bolna:{execution_id}:{completed}"
+            settled = f"calevate:wh:fake:{execution_id}:{completed}"
             assert await get_redis().delete(settled) == 1, "the accepted transition was not cached"
             repeated = await http.post(HOOK, json=retry, headers=_engine_headers())
 
@@ -1128,7 +1113,7 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
 
     # The inbox is handed a hash of the UNIT OF WORK. Recomputed from the receiver's own
     # helper for both bodies: identical, therefore no body can ever produce a mismatch.
-    unit = {"engine": "bolna", "execution_id": execution_id, "raw_status": completed}
+    unit = {"engine": "fake", "execution_id": execution_id, "raw_status": completed}
     assert body_hash(unit) == body_hash(dict(unit)), "the hash must not depend on identity"
     assert body_hash(later) != body_hash(retry), "the premise: the two BODIES do differ"
     row = await _inbox_row(execution_id, completed)
@@ -1143,192 +1128,25 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     # And the divergence nobody could see before: two replays with rewritten bytes, one
     # through the cache. Only the cached one can report it — the durable layer has no body
     # to compare — which is exactly why the signal lives where it does.
-    assert divergences == ["bolna"], (
+    assert divergences == ["fake"], (
         "a replay with different bytes must be counted at the fast path; without it an "
         f"unsigned endpoint has no replay signal at all: {divergences}"
     )
 
 
-# --- 2e. the allowlist is operable ------------------------------------------
-
-
-async def test_the_source_ip_allowlist_comes_from_configuration() -> None:
-    """The vendor's egress IP is a value THEY change, on their schedule, with no notice
-    to us — and while it is wrong, every webhook 401s and every call falls back to the
-    10-minute poller.
-
-    Recovering from that must not require editing Python, opening a PR and shipping a
-    deploy of the one service whose deploys are deliberately rare (main.py: 'never
-    redeployed casually'). It must be a config value.
-
-    Note what this does NOT do: it does not widen trust. The default is the same single
-    documented address, entries must parse as IP addresses, and an empty or unusable
-    setting falls back to the built-in default rather than to 'allow everything'.
-    """
-    parse = parse_source_ip_allowlist
-    assert parse("198.51.100.7") == frozenset({"198.51.100.7"})
-    assert parse(" 198.51.100.7 , 203.0.113.9 ") == frozenset({"198.51.100.7", "203.0.113.9"})
-    # Fail SAFE, not open: nonsense must not empty the allowlist, and a CIDR is not an
-    # entry format this check understands — it must not silently become a wildcard.
-    assert parse("") == DEFAULT_BOLNA_SOURCE_IPS
-    assert parse("0.0.0.0/0") == DEFAULT_BOLNA_SOURCE_IPS
-    assert parse("*") == DEFAULT_BOLNA_SOURCE_IPS
-    assert parse("not-an-ip, 198.51.100.7") == frozenset({"198.51.100.7"})
-    # The default and the field default are the same statement, not two.
-    assert (
-        parse(Settings.model_fields["bolna_webhook_source_ips"].default) == DEFAULT_BOLNA_SOURCE_IPS
-    )
-
-
-def _bolna_adapter() -> BolnaEngine:
-    """An adapter instance with no HTTP identity — `verify_webhook` needs none."""
-    return BolnaEngine(api_key=None, fx_rate=Decimal("88.00"))
-
-
-def test_the_adapter_and_the_receiver_read_one_allowlist(
-    source_ip_allowlist: Callable[..., None],
-) -> None:
-    """THE BUG THIS SECTION EXISTS FOR. `BolnaEngine.verify_webhook` used to match a
-    module constant while the receiver matched `BOLNA_WEBHOOK_SOURCE_IPS`. They agreed
-    while the setting held its default and diverged the moment anyone used the recovery
-    path the setting exists for — a vendor renumber, rotate the variable, restart — so
-    the adapter's `WebhookVerdict` would keep blessing an address the door rejects, or
-    reject one the door admits. Neither direction announces itself.
-
-    So this asserts the two agree under a WIDENED allowlist and under a NARROWED one,
-    not merely under the shipped default: a test of the default is exactly the test that
-    could never fail while the bug was present.
-    """
-    adapter = _bolna_adapter()
-    rotated = "203.0.113.77"  # RFC 5737 TEST-NET-3: the "vendor renumbered" address
-
-    # 1. WIDENED — an operator adds the new egress beside the old one.
-    source_ip_allowlist(ENGINE_EGRESS_IP, rotated)
-    assert adapter.verify_webhook({}, b"{}", rotated).ok, (
-        "the adapter still refuses an address the operator allowlisted — it is reading "
-        "a second allowlist"
-    )
-    assert engine_intake.verify_source("bolna", rotated).ok
-    assert adapter.verify_webhook({}, b"{}", ENGINE_EGRESS_IP).ok
-    assert engine_intake.verify_source("bolna", ENGINE_EGRESS_IP).ok
-
-    # 2. NARROWED — the old address is retired. Divergence in THIS direction is the
-    #    dangerous one: the adapter would keep calling a retired address authentic.
-    source_ip_allowlist(rotated)
-    assert not adapter.verify_webhook({}, b"{}", ENGINE_EGRESS_IP).ok, (
-        "the adapter still accepts an address the operator removed — a retired egress "
-        "stays trusted for as long as nobody redeploys"
-    )
-    assert not engine_intake.verify_source("bolna", ENGINE_EGRESS_IP).ok
-    assert adapter.verify_webhook({}, b"{}", rotated).ok
-    assert engine_intake.verify_source("bolna", rotated).ok
-
-    # 3. The verdict still says what it is: an IP check, never dressed up as a signature.
-    assert adapter.verify_webhook({}, b"{}", rotated).method == "source_ip"
-    assert adapter.verify_webhook({}, b"{}", ENGINE_EGRESS_IP).method == "source_ip"
-
-
-def test_a_second_source_ip_engine_is_not_authenticated_against_bolnas_addresses(
-    monkeypatch: pytest.MonkeyPatch,
-    source_ip_allowlist: Callable[..., None],
-) -> None:
-    """P2.6. The METHOD was looked up per engine; the ADDRESSES never were.
-
-    `verify_source` read `bolna_source_ips` for ANY engine declaring `source_ip`, so
-    adopting a second unsigned engine would have authenticated its deliveries against
-    Bolna's egress — which is verbatim the thing the `hmac` branch two lines down refuses
-    in a paragraph of its own ("an allowlist is evidence about a DIFFERENT engine's
-    egress"). It was inert because `bolna` is the only engine declaring the method, and
-    that is precisely why nothing caught it.
-
-    Simulated by DECLARING a second such engine rather than by adding one: this is a
-    property of the lookup, and waiting for a real second vendor to prove it is waiting
-    for the outage. The allowlist table gets no entry for it, so the only safe answer is
-    a refusal — and a fallback to the single entry that exists is the defect.
-    """
-    monkeypatch.setitem(engine_intake.WEBHOOK_AUTH_BY_ENGINE, "notbolna", "source_ip")
-    # And NO entry in the allowlist table, which is the condition under test.
-    source_ip_allowlist(ENGINE_EGRESS_IP)
-
-    verdict = engine_intake.verify_source("notbolna", ENGINE_EGRESS_IP)
-    assert not verdict.ok, (
-        "a second source-ip engine was accepted from BOLNA's egress address — the "
-        "receiver authenticated one vendor's delivery with another vendor's evidence"
-    )
-    assert verdict.reason == "no source ip allowlist for this engine", verdict.reason
-    # And the engine that DOES have an entry is unaffected: the refusal is a missing
-    # entry, not a disabled branch.
-    assert engine_intake.verify_source("bolna", ENGINE_EGRESS_IP).ok
-
-
-def test_no_second_source_ip_allowlist_has_grown_back(
-    source_ip_allowlist: Callable[..., None],
-) -> None:
-    """A guard against the shape of the defect, not just this instance of it.
-
-    The vendor's documented egress may be WRITTEN in several places — docs, `.env.example`,
-    `scripts/pilot/gates_api.py` (deliberately, so the gate is not tautological) — but no
-    runtime path may DECIDE with a copy of it. The check: with the setting pointed at
-    documentation addresses only, nothing that answers the authenticity question may
-    still accept the shipped default.
-    """
-    documented = next(iter(DEFAULT_BOLNA_SOURCE_IPS))
-    source_ip_allowlist(ENGINE_EGRESS_IP)
-
-    assert not engine_intake.verify_source("bolna", documented).ok, (
-        "the receiver accepts the built-in default while the setting names another "
-        "address — something is still deciding from a hardcoded copy"
-    )
-    assert not _bolna_adapter().verify_webhook({}, b"{}", documented).ok, (
-        "the adapter accepts the built-in default while the setting names another "
-        "address — the module constant is back"
-    )
-
-    # And no runtime module carries the literal as CODE. Comments and docstrings may
-    # name it — `client_ip`'s docstring uses it in its worked example of a spoofed
-    # forwarded header, and a rule that forbade explaining the value would be a rule
-    # against writing down why it matters. Parsed rather than grepped for exactly that
-    # reason: the question is "does anything compare against a copy", and only a string
-    # the interpreter evaluates can.
-    for path in (Path("apps/api/engine/bolna.py"), Path("apps/voice-runtime/engine_intake.py")):
-        tree = ast.parse((REPO_ROOT / path).read_text(encoding="utf-8"))
-        docstrings = {
-            id(node.body[0].value)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
-            and node.body
-            and isinstance(node.body[0], ast.Expr)
-            and isinstance(node.body[0].value, ast.Constant)
-        }
-        offending = [
-            node.lineno
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and documented in node.value
-            and id(node) not in docstrings
-        ]
-        assert not offending, (
-            f"{path} carries the vendor's egress address as a code literal at line(s) "
-            f"{offending}. It belongs to `calevate_shared.config.DEFAULT_BOLNA_SOURCE_IPS` "
-            "and to the `BOLNA_WEBHOOK_SOURCE_IPS` setting, nowhere else."
-        )
+# --- 2e. a refusal is attributable -----------------------------------------
 
 
 async def test_a_rejected_caller_is_named_in_the_alert(caplog: pytest.LogCaptureFixture) -> None:
-    """The incident this alert exists for is "the vendor renumbered": every webhook
-    401s, every call silently falls back to the 10-minute poller, and the fix is one
-    value in one config line.
-
-    An alert that says `source ip not allowlisted` without saying WHICH source ip makes
-    an operator run tcpdump on a production voice box to learn it. The address is a
-    machine caller's, not a subscriber's — nothing hard rule 6 protects — and it stays
-    out of the response body, where it would leak the allowlist to a prober.
+    """An alert that says a delivery was refused without saying WHO sent it makes an
+    operator run tcpdump on a production voice box to learn it. The address is a machine
+    caller's, not a subscriber's — nothing hard rule 6 protects — and it stays out of the
+    response body, where it would confirm something to a prober.
     """
     _execution_id, _status, body = _event()
     with caplog.at_level("ERROR", logger="calevate.alert"):
         async with _client(ATTACKER_IP) as http:
-            response = await http.post(HOOK, json=body)
+            response = await http.post(SIGNED_HOOK, json=body)
 
     assert response.status_code == 401
     assert ATTACKER_IP not in response.text, "the response must not confirm anything to a prober"
@@ -1463,24 +1281,38 @@ async def test_the_ack_path_writes_only_the_minimal_event_rows() -> None:
 # =============================================================================
 
 
-def _throttling_engine(
-    responses: list[httpx.Response],
-) -> tuple[BolnaEngine, list[httpx.Request]]:
-    """A Bolna adapter whose transport returns a scripted sequence of responses."""
-    seen: list[httpx.Request] = []
+class _Scripted:
+    """The shared vendor ladder (`vendor_http.vendor_request`, D-240) over a transport that
+    returns a scripted sequence of responses. Every HTTP-speaking adapter's round trip goes
+    through this one function, so it is measured here directly rather than through one
+    adapter's method names."""
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return responses[min(len(seen) - 1, len(responses) - 1)]
+    def __init__(self, responses: list[httpx.Response]) -> None:
+        self.seen: list[httpx.Request] = []
 
-    engine = BolnaEngine(
-        api_key="test-key",
-        fx_rate=Decimal("88.00"),
-        client=httpx.AsyncClient(
-            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
-        ),
-    )
-    return engine, seen
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.seen.append(request)
+            return responses[min(len(self.seen) - 1, len(responses) - 1)]
+
+        self._client = httpx.AsyncClient(
+            base_url="https://api.vendor.test", transport=httpx.MockTransport(handler)
+        )
+
+    async def dial(self) -> dict[str, Any]:
+        """A POST that DIALS A HUMAN — the call whose retry policy matters most."""
+        return await vendor_http.vendor_request(
+            self._client, "POST", "/call", engine="test", json={"to": "+919876543210"}
+        )
+
+    async def read(self) -> dict[str, Any]:
+        return await vendor_http.vendor_request(
+            self._client, "GET", "/executions/exec_abc123", engine="test"
+        )
+
+
+def _throttling_engine(responses: list[httpx.Response]) -> tuple[_Scripted, list[httpx.Request]]:
+    scripted = _Scripted(responses)
+    return scripted, scripted.seen
 
 
 def _instant_backoff(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, float | None]]:
@@ -1516,11 +1348,9 @@ async def test_a_rate_limited_request_is_retried_rather_than_failed(
             httpx.Response(200, json={"execution_id": "exec_after_throttle"}),
         ]
     )
-    handle = await engine.start_outbound_call(
-        "agent_xyz", "+919876543210", CallContext(lead_name="Ravi")
-    )
+    answered = await engine.dial()
 
-    assert handle == "exec_after_throttle"
+    assert answered == {"execution_id": "exec_after_throttle"}
     assert len(seen) == 2, "the throttled request was not retried"
     assert waits == [(0, None)], "a retry with no backoff is a faster way to be throttled"
 
@@ -1536,7 +1366,7 @@ async def test_an_exhausted_throttle_is_reported_as_transient_not_as_a_rejection
 
     engine, seen = _throttling_engine([httpx.Response(429, json={"error": "slow down"})])
     with pytest.raises(ProblemError) as raised:
-        await engine.get_execution("exec_abc123")
+        await engine.read()
 
     assert raised.value.kind == "transient"
     assert raised.value.code == "engine_rate_limited"
@@ -1555,7 +1385,7 @@ async def test_a_non_throttle_failure_is_never_retried() -> None:
     for status in (500, 502, 503, 504, 400, 404):
         engine, seen = _throttling_engine([httpx.Response(status, json={"error": "nope"})])
         with pytest.raises(ProblemError) as raised:
-            await engine.start_outbound_call("agent_xyz", "+919876543210", CallContext())
+            await engine.dial()
         assert len(seen) == 1, f"a {status} caused a second POST /call — that dials twice"
         assert raised.value.code == "engine_rejected"
 
@@ -1592,7 +1422,7 @@ async def test_the_vendors_own_error_code_and_its_bounded_message_reach_the_log(
         ]
     )
     with caplog.at_level("DEBUG"), pytest.raises(vendor_http.EngineRejectedError) as raised:
-        await engine.start_outbound_call("agent_xyz", "+919876543210", CallContext())
+        await engine.dial()
 
     assert raised.value.vendor_error == 1001, "the vendor's own code was parsed past"
     assert raised.value.vendor_status == 400
@@ -1625,7 +1455,7 @@ async def test_a_non_integer_error_field_is_refused_rather_than_logged(
     ):
         engine, _ = _throttling_engine([httpx.Response(400, json=body)])
         with caplog.at_level("DEBUG"), pytest.raises(vendor_http.EngineRejectedError) as raised:
-            await engine.get_agent("agent_xyz")
+            await engine.read()
         assert raised.value.vendor_error is None, body
     assert "919876543210" not in " ".join(f"{r.__dict__}" for r in caplog.records)
 
@@ -1641,7 +1471,7 @@ async def test_a_documented_refusal_is_told_apart_from_an_ambiguous_failure() ->
     for status in (400, 401, 403, 404):
         engine, seen = _throttling_engine([httpx.Response(status, json={"error": 7})])
         with pytest.raises(vendor_http.EngineRejectedError) as raised:
-            await engine.start_outbound_call("agent_xyz", "+919876543210", CallContext())
+            await engine.dial()
         assert raised.value.request_refused is True, status
         assert raised.value.code == "engine_rejected", "the shared code must not fork"
         assert len(seen) == 1, f"a {status} was retried — that is what dials twice"
@@ -1649,7 +1479,7 @@ async def test_a_documented_refusal_is_told_apart_from_an_ambiguous_failure() ->
     for status in (408, 409, 413, 422, 500, 502, 503, 504):
         engine, _ = _throttling_engine([httpx.Response(status, json={"error": 7})])
         with pytest.raises(vendor_http.EngineRejectedError) as raised:
-            await engine.start_outbound_call("agent_xyz", "+919876543210", CallContext())
+            await engine.dial()
         assert raised.value.request_refused is False, status
 
 
@@ -1685,7 +1515,7 @@ async def test_a_long_retry_after_fails_fast_instead_of_holding_the_request_open
         [httpx.Response(429, headers={"Retry-After": "120"}, json={"error": "slow down"})]
     )
     with pytest.raises(ProblemError) as raised:
-        await engine.get_execution("exec_abc123")
+        await engine.read()
 
     assert raised.value.code == "engine_rate_limited"
     assert waits == [], "the adapter would have slept through a two-minute Retry-After"
@@ -1717,202 +1547,18 @@ async def test_a_long_retry_after_fails_fast_instead_of_holding_the_request_open
 #: are a vendor's nouns; `status` and `duration` are everybody's.
 _VENDOR_ONLY_KEYS = frozenset(
     {
-        # Bolna, read in their own pinned OpenAPI document (D-350,
-        # `docs/vendor/bolna/hosted-oas.md`) rather than hand-maintained from prose.
-        "agent_config",
-        "agent_name",
-        "agent_prompts",
-        "agent_type",
-        # The vendor's name for the uploaded document on a knowledge-base listing row
-        # (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md:55-110`).
-        # VENDOR-ONLY rather than shared: we WRITE into it (the upload sends
-        # `calevate-kb-<source id>.pdf`, which is what the orphan sweep reads back to
-        # attribute a row), but we hold no `file_name` of our own anywhere outside the
-        # engine boundary — no column, no model field, no domain term.
-        "file_name",
-        # The greeting field — Bolna's own noun for it. Read since P3.3, because the
-        # disclosure verdict has to be scored against the field that SPEAKS.
-        "agent_welcome_message",
-        # THE VENDOR'S CONFIG-KEY FOR AN AGENT'S IN-CALL ACTIONS BLOCK (Actions lane).
-        # Bolna nests it at `tasks[].tools_config.api_tools`; OUR word for the same concept
-        # is `action_tools` (`AgentConfig.action_tools`, `ActionToolSpec`), so `api_tools`
-        # appearing as a key outside the adapter would be a vendor spelling that escaped —
-        # exactly `call_type`'s case. It is read (written) only in `bolna.py::_agent_body`;
-        # every other shipped mention is prose explaining the vendor, which the AST reader
-        # ignores.
-        "api_tools",
-        # THE HUMAN-HANDOFF TOOL, IN THE VENDOR'S FIVE NOUNS (D-533). Bolna keeps the
-        # tools' execution config beside their definitions at
-        # `tools_config.api_tools.tools_params`, keyed by tool name, and the destination
-        # inside a stringified `param` blob as `call_transfer_number`; the notification is
-        # configured with `pre_call_webhook_url` / `pre_call_webhook_param`
-        # (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:1036-1062`,
-        # `bolna-findings/mirror/pages/tool-calling/transfer-calls.md`). OUR words for the
-        # same concepts are `HandoffSpec.destination_e164` and `.brief_url`, so any of
-        # these five appearing outside the adapter would be a vendor spelling that escaped
-        # — `api_tools`' case exactly, one level deeper.
-        "call_transfer_number",
-        "param",
-        "pre_call_webhook_param",
-        "pre_call_webhook_url",
-        "tools_params",
-        # THE KNOWLEDGE LINKAGE, IN THE VENDOR'S FOUR NOUNS (D-488). The agent references
-        # a knowledge base through `llm_config.vector_store.provider_config.vector_ids`
-        # (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:806-817,1164-1195`),
-        # with `vector_id` the legacy singular. OUR word for the same thing is
-        # `EngineKBRef` — an opaque handle — and `apps/api/kb/` is written so that not one
-        # of these four appears in it (`tests/kb_boundaries_test.py` scans that directory
-        # as text). So they are vendor-only by exactly `call_type`'s argument: the concept
-        # is ours, the spelling and the nesting are theirs, and either escaping the
-        # adapter would be a payload shape above the boundary.
-        "provider_config",
-        "vector_id",
-        "vector_ids",
-        "vector_store",
-        # THE VENDOR'S NOUN FOR THE PER-LANGUAGE PROMPT BLOCK (D-494). Bolna keeps a
-        # `system_prompt` per language under `tools_config.multilingual_config` and swaps
-        # the ACTIVE prompt mid-call, which is how a console-added language could carry a
-        # prompt with no truthful-answer directive in it while the base prompt read back
-        # clean. We read it to score the compliance floor against every prompt the engine
-        # will actually run. OUR word for what comes back is `AgentSnapshot.
-        # alternate_prompts` — a plain tuple of prompt strings with no vendor shape left
-        # on it — so this compound noun appearing outside the adapter would be exactly the
-        # escape hard rule 2 bans. (`languages` and `enabled`, the two keys nested inside
-        # it, are in `_SHARED_PAYLOAD_KEYS`: both are words we use ourselves.)
-        "multilingual_config",
-        # THE DIRECTION OF A CALL, IN THE VENDOR'S SPELLING (D-359). Bolna puts it on
-        # `telephony_data.call_type` as `"inbound"`/`"outbound"`; OUR word for the same
-        # thing is `direction`, on `CallEvent` and `ExecutionSnapshot`. That is exactly
-        # what makes this a vendor-only noun rather than a shared one: the concept is
-        # ours, the spelling is theirs, and `direction` appearing outside the adapter is
-        # normal while `call_type` appearing there would be a vendor shape that escaped.
-        "call_type",
-        # THE VOICE-CONFIG LOOKUP'S OWN TWO NOUNS (D-585). Bolna's
-        # `GET /api/v1/voice-config/tts` marks each provider and each model
-        # `is_supported`, and addresses a model by an opaque `model_id` UUID that is NOT
-        # the model string — `bulbul:v3` is the `model_id` field's sibling, not its value
-        # (`bolna-findings/mirror/pages/api-reference/voice/get_all.md:44-59`). Both are
-        # vendor-only: we have no `is_supported` anywhere (our equivalent question is
-        # `Voice.verified` and `voice_offer.unofferable_reason`), and we address a model by
-        # its STRING through `TtsModel`, never by a vendor UUID. Either appearing outside
-        # the adapter would be the vendor's provider table leaking into our catalogue.
-        "is_supported",
-        "model_id",
-        # THE PER-TURN TIMING BLOCK AND ITS TWO COMPOUND NOUNS. `latency_data`,
-        # `time_to_first_audio` and `turn_latency` are Bolna's spellings for things we now
-        # carry under our own names (`CallLatency`, `time_to_first_audio_ms`, and a plain
-        # list of `TurnLatency`), so any of the three appearing outside the adapter is a
-        # vendor shape that escaped — which is precisely what this list is for.
-        "latency_data",
-        "time_to_first_audio",
-        "turn_latency",
-        # THE PHONE-NUMBER RESOURCE'S FIVE VENDOR NOUNS (D-537). Each is Bolna's own
-        # spelling for something we already have a word for, which is what makes them
-        # vendor-only rather than shared:
-        #   `bolna_owned` / `rented` -> ours is `engine_owned`, one column for one question
-        #   `telephony_provider` -> ours is plain `provider`, which IS shared and is below
-        #   `locality` -> a Twilio-shaped subdivision of `region`; we model only `region`
-        # Any of them appearing outside the adapter is a vendor shape that escaped — and
-        # `bolna_owned` in particular names the VENDOR in a column value, which is the kind
-        # of thing hard rule 2 exists to keep behind the boundary.
-        "bolna_owned",
-        "locality",
-        "rented",
-        "telephony_provider",
-        "conversation_duration",
-        "cost_breakdown",
-        "cost_currency",
-        "executions",
-        "extracted_data",
-        # `knowledgebases` left with `list_kb`'s account-wide listing (D-354): the vendor's
-        # knowledge base carries no agent, so that listing could never answer the question
-        # this port asks, and the capability is now declared absent.
-        #
-        # `has_more` IS LISTED ONCE FOR BOTH VENDORS, and it is the only entry that has to
-        # be. Bolna's `AgentExecutionV2List.has_more` (VERIFIED-OAS, D-353) and Cartesia's
-        # pagination flag are the same word, so a second entry down in the Cartesia block
-        # was a duplicate a frozenset silently absorbed — ruff's B033 caught it. It stays
-        # HERE rather than there because this is the first block: the set is a ban list,
-        # not a per-vendor inventory, and a word only has to be banned once.
-        # THE CALLER ID, IN THE VENDOR'S SPELLING (D-420) — `recipient_phone_number`'s
-        # opposite number, and banned for exactly its reason. OUR word for the header a dial
-        # presents is `from_e164`, on `CallContext`; theirs is this. The concept is ours, the
-        # spelling is theirs, so `from_e164` outside the adapter is ordinary while
-        # `from_phone_number` there would be a vendor shape that escaped. (The conformance
-        # suite's stub uses it freely — that stub IS a pretend Bolna, and this guard reads
-        # shipped modules, not test doubles.)
-        "from_phone_number",
-        "has_more",
-        # THE VENDOR'S OWN WRAPPER AROUND AN AGENT'S MODEL LEG AND ITS SEMANTIC ROUTES
-        # (D-420). `llm_agent` holds `routes`, and each route carries a `route_name`; the
-        # adapter reads all three ONLY to alarm that a console-set route exists, because a
-        # route answers from a static response with the LLM never consulted — which would
-        # bypass `TRUTHFUL_ANSWER_DIRECTIVE`. `route_name` is the one field of a route this
-        # repo may touch: it names the route without carrying what the route SAYS, which is
-        # what keeps the alarm inside hard rule 6.
-        "llm_agent",
-        "llm_config",
-        "route_name",
-        # THE TWO HALVES OF A BOLNA DISPOSITION, read since the extraction-flattening fix.
-        # Their `extracted_data` nests `{category: {field: {"subjective": ..., "objective":
-        # ...}}}` while OUR `engine_extracted` is a FLAT `{field: value}`, so the adapter
-        # reaches through both words to get at a value. They are vendor-only for
-        # `call_type`'s reason rather than `currency`'s: the CONCEPT is ours — the value of
-        # an extracted field — but the spelling is entirely theirs, and neither word appears
-        # in a single shipped module outside the adapter (measured: 0 files each). A
-        # `subjective` in `apps/workers` would be a vendor shape that escaped, which is what
-        # this list exists to catch.
-        "objective",
-        "rag_id",
-        "recipient_phone_number",
-        "subjective",
-        "synthesizer",
-        "task_1",
-        # WHICH OF AN AGENT'S TASKS IS THE ONE THE CALLER TALKS TO. Bolna's agent holds an
-        # array of tasks — `conversation` / `extraction` / `summarization` — each with its
-        # OWN `tools_config`, so `_agent_models` has to pick before it can report which
-        # model, voice and transcriber are running. Ours is not a word: this repo has one
-        # conversation per agent and no vocabulary for a task at all, which is exactly what
-        # makes the noun theirs.
-        "task_type",
-        "tasks",
-        "telephony_data",
-        "tools_config",
-        "total_cost",
-        # A SECOND CALL LEG, AND WHY IT IS ALARMED RATHER THAN PARSED. When an agent
-        # transfers to a human, Bolna attaches a whole nested record under this key — its
-        # own `recording_url`, `cost` and `duration`. Nothing in this repository models it:
-        # that audio would never be copied, never retained under our policy, and
-        # unreachable by a DPDP erasure. `_check_transfer_leg` therefore pages on its
-        # PRESENCE rather than reading its contents, and this entry keeps the noun from
-        # spreading past the adapter while that stays true.
-        "transfer_call_data",
-        "transcriber",
-        # THE TWO PHONE NUMBERS, IN THE SPELLING THE VENDOR'S CAPTURED EXAMPLES USE.
-        # `from_number`/`to_number` are shared words (they sit in `_SHARED_PAYLOAD_KEYS`
-        # beside our own `calls.from_e164`/`to_e164` columns); these two are not. They are
-        # ROLE names — the human end and the agent end — which is a way of describing a
-        # call nothing in this repository has a word for, and reading either outside the
-        # adapter would mean a caller had taken on the job of deciding which party is
-        # which. `_party_numbers` is where that decision lives, and it needs the call's
-        # direction to make it.
-        "agent_number",
-        "user_number",
-        "user_data",
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
         # `docs/vendor/cartesia/` carries the citations since D-270).
         "agent_call_id",
         "duration_seconds",
         "from_number_id",
-        # (`has_more` is Cartesia's too — listed once, up in the Bolna block.)
         # Their pagination cursor parameter, read at source in their generated client.
         # Nothing of ours is called this. (`summaries`, the envelope `GET /agents` answers
         # with, is NOT here — see `_SHARED_PAYLOAD_KEYS`.)
         "starting_after",
-        # `telephony_params` is Cartesia's noun for the same thing Bolna calls
-        # `telephony_data`, which is already banned two lines up — the pair is the
-        # clearest example in this list of why the ban is per vendor noun rather than per
-        # concept.
+        # `telephony_params` is Cartesia's noun for the caller and callee numbers; ours
+        # are `from_e164`/`to_e164`, so the vendor's container escaping the adapter would
+        # be a payload shape above the boundary.
         "telephony_params",
         # `introduction` AND `document_ids` USED TO BE HERE and were removed by D-281,
         # which is the third way an entry can go stale and the one the clause below could
@@ -1931,30 +1577,6 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Ordinary-looking English words, banned for `introduction`'s reason.
         "start_time",
         "end_time",
-        # THE LLM ENDPOINT, IN THE VENDOR'S SPELLING (D-400/D-404, re-aimed by D-410), and
-        # it is `call_type`'s case exactly: the concept is ours and the spelling is theirs.
-        # OUR word is `llm_base_url` — on `ModelConfig`, built by `azure_openai_base_url()`
-        # and validated there against the one endpoint shape that builder emits — while
-        # bare `base_url` is the key inside Bolna's `SimpleLlmAgent`. That distinction is
-        # load-bearing rather than tidy: this field carries the RESIDENCY guarantee, so a
-        # shipped module outside the adapter reading a raw `base_url` off a payload is
-        # reading an unvalidated endpoint, which is the one shape `ModelConfig`'s validator
-        # exists to make impossible.
-        #
-        # IT MATTERS MORE UNDER AZURE, NOT LESS, and that is worth the extra line. A Vertex
-        # URL wore its region in the host and the path, so an unvalidated one could at
-        # least be EYEBALLED; `<resource>.openai.azure.com` names no region at all, so the
-        # only thing standing between a stray `base_url` and an out-of-region resource is
-        # the validator this ban keeps callers funnelled through.
-        "base_url",
-        # Bolna's credential store (D-404, no longer rotating since D-410). `provider_id`
-        # is how `set_llm_credential` tells a superseded entry from the one it just wrote —
-        # the store MASKS `provider_value`, so identity is the only thing it will answer
-        # honestly about. Both are their nouns and neither has a Calevate counterpart: our
-        # vocabulary for this has no id at all, because the credential lives in the secrets
-        # manager and in the vendor's store, and nowhere of ours.
-        "provider_id",
-        "provider_name",
     }
 )
 # `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
@@ -2178,7 +1800,6 @@ _SHIPPED_ROOTS = ("apps", "packages/shared/src", "scripts")
 _ADAPTER_PACKAGE = "apps/api/engine"
 
 _ADAPTER_SOURCES = (
-    "apps/api/engine/bolna.py",
     "apps/api/engine/cartesia.py",
     "apps/api/engine/fake.py",
 )
@@ -2358,32 +1979,25 @@ _PII_EXTRACTED_VALUE = "zzq-extracted-field-value"
 
 
 def _pii_execution(execution_id: str) -> dict[str, Any]:
-    """A completed execution in Bolna's documented shape, carrying the three things hard
-    rule 6 names: a caller's number, transcript text and an extraction payload."""
+    """A completed Line call in Cartesia's documented shape (`AgentCall`, the same shape the
+    conformance stub serves), carrying a caller's number and transcript text."""
+    started = datetime.now(UTC) - timedelta(minutes=5)
     return {
         "id": execution_id,
         "agent_id": "agent_pii",
         "status": "completed",
-        "direction": "inbound",
-        "created_at": "2026-08-10T09:15:00Z",
-        "ended_at": "2026-08-10T09:16:35Z",
-        "conversation_duration": 95,
-        "total_cost": 8.5,
-        # An unconvertible currency, so `engine_cost_currency_unsupported` fires on a
-        # payload that also holds the number and the transcript.
-        "currency": "XAU",
-        "telephony_data": {
-            "from_number": _PII_NUMBER,
-            "to_number": "+911140000000",
-            "recording_url": f"https://s3.example.invalid/{execution_id}.wav?token=zzq-secret",
-        },
-        # The FIRST line carries no speaker prefix, so `parse_transcript` can place it
-        # nowhere and counts it as lost — the branch whose whole promise is that what
-        # cannot become a `TranscriptTurn` is COUNTED and discarded, never kept for
-        # inspection. It holds the caller's number so the discard is measured with real
-        # material rather than with filler.
-        "transcript": f"{_PII_NUMBER} {_PII_TRANSCRIPT_TURN}\nuser: {_PII_TRANSCRIPT_TURN}",
-        "extracted_data": {"lead_name": _PII_EXTRACTED_VALUE},
+        "start_time": started.isoformat().replace("+00:00", "Z"),
+        "end_time": (started + timedelta(seconds=95)).isoformat().replace("+00:00", "Z"),
+        "summary": f"caller {_PII_NUMBER} said {_PII_EXTRACTED_VALUE}",
+        "telephony_params": {"from": _PII_NUMBER, "to": "+911140000000"},
+        "transcript": [
+            {
+                "role": "user",
+                "text": _PII_TRANSCRIPT_TURN,
+                "start_timestamp": 0.0,
+                "end_timestamp": 2.0,
+            },
+        ],
     }
 
 
@@ -2392,17 +2006,15 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
 ) -> None:
     """HARD RULE 6, DRIVEN THROUGH THE PATHS THAT ACTUALLY LOG.
 
-    A quiet adapter proves nothing: every log site in `apps/api/engine/` sits on a failure
+    A quiet adapter proves nothing: every log site on the adapter surface sits on a failure
     branch, so a run that never fails never reaches one. This drives the branches on
-    purpose — an unconvertible currency, an off-origin continuation link, an exhausted
-    throttle, a vendor rejection, an unparseable transcript line — with a payload that
-    carries a caller's number, a spoken line and an extracted value.
+    purpose — an exhausted throttle and a vendor rejection whose bodies carry a caller's
+    number — around a successful read of a payload that carries a number, a spoken line
+    and a summary.
 
     The captured record is searched WHOLE, attributes included, not just its message:
     `log.warning("x", extra={"payload": ...})` puts the leak in a field, which is exactly
-    how one arrives. The presigned recording URL is in the fixture for the same reason —
-    it is a credential in a query string (`scripts/pilot/record.py` says so), and it rides
-    on the same object.
+    how one arrives.
 
     READ AT THE RECORD, NOT AT THE FORMATTED LINE, and that is the one place this differs
     from `tests/pii_logging_sweep_test.py` — deliberately, because the two are asking
@@ -2410,67 +2022,52 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
     because redaction lives in `JsonFormatter.format`, and what it proves is that nothing
     reaches the log STREAM. This asks whether the adapter HANDED the logger a caller's
     number in the first place, which the redactor would then have to catch — so it must
-    look before the redactor runs, and it is strictly the stricter of the two on this
-    surface. A leak the formatter happens to scrub is still an adapter bug: it is one
-    redaction-pattern change away from being a live one.
+    look before the redactor runs. A leak the formatter happens to scrub is still an
+    adapter bug: it is one redaction-pattern change away from being a live one.
     """
     listings = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal listings
         path = request.url.path
-        if path == "/v2/agent/all":
+        if path == "/agents" and request.method == "GET":
             listings += 1
             if listings > 1:
-                # The second `list_executions` call: throttled forever from its very first
-                # request, so the ladder logs `engine_throttled` and then
-                # `engine_throttle_exhausted` — both with a vendor body full of PII.
+                # The second listing: throttled forever from its very first request, so
+                # the ladder logs `engine_throttled` and then `engine_throttle_exhausted`
+                # — both with a vendor body full of PII.
                 return httpx.Response(429, json={"error": f"slow down, {_PII_NUMBER}"})
-            return httpx.Response(200, json=[{"id": "agent_pii_listed"}])
-        if path.endswith("/executions") and path.startswith("/v2/agent/"):
-            # `has_more: true` on a page that re-serves what we already hold, so the walk
-            # stops with `next_link_no_progress` and `engine_listing_incomplete` is logged
-            # for a window whose every row carries a number and a transcript.
-            return httpx.Response(
-                200,
-                json={
-                    "has_more": True,
-                    "data": [_pii_execution(f"exec_pii_{i}") for i in range(10)],
-                },
-            )
-        if path.startswith("/executions/"):
+            return httpx.Response(200, json={"summaries": [{"id": "agent_pii_listed"}]})
+        if path == "/agents/calls" and request.method == "GET":
+            return httpx.Response(200, json={"data": [_pii_execution("exec_pii_listed")]})
+        if path.startswith("/agents/calls/") and request.method == "GET":
             return httpx.Response(200, json=_pii_execution("exec_pii_one"))
         # Every other route refuses, so `engine_error` fires with a body that carries PII.
         return httpx.Response(
             400, json={"error": f"bad request for {_PII_NUMBER}: {_PII_TRANSCRIPT_TURN}"}
         )
 
-    engine = BolnaEngine(
+    engine = CartesiaEngine(
         api_key="test-key",
-        fx_rate=Decimal("88.00"),
+        from_number_id="num_test",
         client=httpx.AsyncClient(
-            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
+            base_url="https://api.cartesia.test", transport=httpx.MockTransport(handler)
         ),
     )
     monkeypatch.setattr(vendor_http, "throttle_delay_s", lambda *a, **k: 0.0)
 
     with caplog.at_level("DEBUG"):
         snapshot = await engine.get_execution("exec_pii_one")
-        listing = await engine.list_executions(since=_LISTING_SINCE)
+        await engine.list_executions(since=_LISTING_SINCE)
         with pytest.raises(ProblemError):
             await engine.list_executions(since=_LISTING_SINCE)
         with pytest.raises(ProblemError):
-            await engine.get_agent("agent_pii")
-        engine.parse_webhook(_pii_execution("exec_pii_hook"))
+            await engine.end_call("exec_pii_one")
         engine.verify_webhook({}, b"{}", ATTACKER_IP)
 
     # The run really did reach the material: without this the test could pass on an
     # adapter that logged nothing because it parsed nothing.
-    assert snapshot.from_e164 == _PII_NUMBER, "the fixture did not carry a caller's number"
     assert any(_PII_TRANSCRIPT_TURN in turn.text for turn in snapshot.transcript)
-    assert snapshot.transcript_lines_unparsed == 1, "the unparseable-line branch was not reached"
-    assert snapshot.cost is None, "the unsupported-currency branch was not reached"
-    assert not listing.complete, "the listing branches were not reached"
 
     emitted = "\n".join(
         f"{record.getMessage()} {sorted(vars(record).items(), key=str)}"
@@ -2480,7 +2077,6 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
     for secret, what in (
         (_PII_NUMBER, "a caller's phone number"),
         (_PII_TRANSCRIPT_TURN, "transcript text"),
-        (_PII_EXTRACTED_VALUE, "an extracted field value"),
-        ("zzq-secret", "a presigned recording credential"),
+        (_PII_EXTRACTED_VALUE, "a summary of what the caller said"),
     ):
         assert secret not in emitted, f"an adapter logged {what} (hard rule 6)"

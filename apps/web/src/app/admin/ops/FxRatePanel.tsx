@@ -23,7 +23,7 @@ import { useFxRate, type FxRate } from "@/lib/api/opsFxRate";
  *
  * ## Why an operator needs this screen at all
  *
- * Bolna and Azure invoice this business in dollars; every figure the platform records is
+ * Cartesia and Azure invoice this business in dollars; every figure the platform records is
  * rupees. One multiplier stands between the two, and until it was pulled automatically it
  * was a number somebody typed months ago that quietly drifted with the market. The pull
  * fixed the drift and introduced a new way to be wrong — a feed that stops — so this panel

@@ -3,7 +3,7 @@
 This module owns the RULES of the ACTIONS feature that are not vendor-specific:
 what a valid tool looks like, how its parameter bindings cross-check against its config,
 which tools become engine functions at publish, and how a stored tool is loaded for
-execution. The vendor rendering is in `engine/bolna.py` (hard rule 2); the external calls
+execution. The vendor rendering is an adapter's (hard rule 2); the external calls
 are in `whatsapp.py` / `calendar.py` / the custom-API path in `execution.py`.
 """
 
@@ -34,7 +34,7 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.integrations.egress_guard import assert_public_http_url
 
-# A function name the LLM can call and Bolna accepts: snake_case, so it cannot collide with
+# A function name the LLM can call: snake_case, so it cannot collide with
 # the format specifiers or carry spaces (custom-function-calls.md best practice, "use
 # snake_case e.g. get_order_status").
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
@@ -241,23 +241,11 @@ async def get_agent_tool(
 ) -> LoadedTool | None:
     """A tool that belongs to THIS agent, or nothing.
 
-    ═══ THE ROUTES CLAIMED THIS CHECK AND DID NOT MAKE IT. ═══
-
-    `routes.invoke_action` carried the comment "Also refuse a disabled tool or one
-    belonging to a different agent than the ref resolved" above a line that read
-    `if tool is None or not tool.enabled`. There was no agent comparison anywhere: the
-    bridge query selected `tenant_id` only, and `get_tool` is a bare `WHERE id = :id`.
-    So an in-call tool call carrying agent A's ref could execute a tool configured for
-    agent B — including one on an agent whose actions are switched off — and use that
-    tool's `integration_credentials` through a binding nobody verified. The three sibling
-    routes (`enabled`, `delete`, `test`) had the same shape: `_assert_agent` proved the
-    AGENT was the caller's and then the tool was fetched by id, so any agent id in the
-    URL paired with any tool id.
-
-    RLS keeps this inside one tenant, so it is not a cross-tenant hole (hard rule 1 is
-    intact). What it broke is that the URL did not mean what it said, and a comment
-    asserted a control that was never written — which is the more expensive half, because
-    the next reader budgets for it.
+    The failure it prevents: `_assert_agent` proves the AGENT in a route's URL is the
+    caller's, and a tool fetched by id alone (`get_tool`) then pairs any agent id with any
+    tool id in the same tenant — so a route could toggle, delete or test a tool configured
+    for a different agent. RLS keeps that inside one tenant (hard rule 1 is intact); what it
+    breaks is that the URL does not mean what it says.
 
     A FILTER RATHER THAN A COMPARISON, deliberately: `... WHERE id = :id AND agent_id =
     :agent_id` cannot be forgotten by a caller the way an `if` can, and a mismatch returns
@@ -515,18 +503,20 @@ async def set_actions_enabled(session: AsyncSession, *, agent_id: UUID, enabled:
 
 
 def action_tool_url(engine: str, tool_id: UUID) -> str:
-    """The apps/api endpoint Bolna calls for this tool. ONE spelling, shared with the route
-    that serves it (`apps/api/actions/routes.invoke_action`).
+    """The apps/api address an engine would call to execute this tool mid-call.
 
-    It is apps/api, NOT voice-runtime: executing a data-returning action makes a synchronous
-    external call plus a credential decrypt, which hard rule 3 keeps off the latency-critical
-    receiver. `actions_callback_base_url` is that origin (see the setting)."""
+    ⚠ NOTHING SERVES IT TODAY. The route was the rented engine's and D-639 deleted it with
+    that engine; the only adapter that accepts action tools is the fake, which never dials
+    the URL, and the owned runtime refuses action tools by capability. It is still built
+    because `ActionToolSpec.url` is a required field of the engine-neutral declaration.
+    D-639 names what closes it: an engine that executes during-call actions, bringing its
+    own authenticated route. `actions_callback_base_url` is the origin (see the setting)."""
     base = get_settings().actions_callback_base_url.rstrip("/")
     return f"{base}/v1/actions/invoke/{engine}/{tool_id}"
 
 
 def _context_ref(lead_var: str, direction: str) -> str:
-    """The Bolna system variable a lead-var binding substitutes, resolved per direction.
+    """The call-context variable a lead-var binding substitutes, resolved per direction.
 
     `caller_phone` is the other party on the call, which is `from_number` on an inbound
     call and `to_number` on an outbound one (using-context.md:47-49). A `both`-direction
@@ -587,12 +577,10 @@ def _to_spec(tool: LoadedTool, *, engine: str, direction: str) -> ActionToolSpec
                     context_ref=_context_ref(spec.lead_var, direction),
                 )
             )
-    # Always inject the agent ref so our endpoint can resolve the tenant WITHOUT a session
-    # (the tool endpoint is unauthenticated + source-IP gated, like the webhook receiver).
-    # Bolna substitutes `{agent_id}` — its own agent id, which is our `engine_agent_ref` —
-    # and `apps/api/actions/routes.invoke_action` maps it through `engine_agent_routes`
-    # (the same non-RLS bridge the webhook path uses) to the tenant, then loads the tool
-    # under that tenant's RLS. A reserved underscore name so no client param collides.
+    # Always inject the agent ref so an executing endpoint can resolve the tenant WITHOUT a
+    # session: the engine substitutes `{agent_id}` — its own agent id, which is our
+    # `engine_agent_ref` — and `engine_agent_routes` maps it to the tenant. A reserved
+    # underscore name so no client param collides.
     engine_params.append(
         ActionToolParam(name="_agent_ref", fill="context", context_ref="{agent_id}")
     )

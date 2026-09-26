@@ -8545,7 +8545,7 @@
       },
       "ErasureProofOut": {
         "additionalProperties": false,
-        "description": "The certificate the subject can be shown. Carries no personal data by\nconstruction: a subject hash, timestamps, counts, and plain statements of what was\ndone to each table.\n\n`engine_deletion` is a status string rather than a boolean because the honest answer\ntoday is neither true nor false \u2014 Bolna's deletion API is undocumented (a pilot\ngate), and a certificate that claimed an engine-side deletion we cannot demonstrate\nwould be the one lie a compliance document must not contain.\n\nThe last four fields are why this is a certificate and not a database row. The proof\nis the DURABLE artifact \u2014 filed, forwarded to a regulator, read years later by\nsomeone who cannot ask us what it meant \u2014 so it has to state its own limits. It used\nto state only what it cleared, with `limitations` riding the envelope beside it;\nanyone who filed the proof alone filed a document that says the recording pointer was\ncleared and is silent about the audio still existing. `deletion_proof.certificate`\nbuilds all four from `deletion.ERASURE_LIMITATIONS`/`ERASURE_EXCEPTIONS`.",
+        "description": "The certificate the subject can be shown. Carries no personal data by\nconstruction: a subject hash, timestamps, counts, and plain statements of what was\ndone to each table.\n\n`engine_deletion` is a status string rather than a boolean because the honest answer\ntoday is neither true nor false \u2014 no engine's deletion has been demonstrated, and a\ncertificate that claimed an engine-side deletion we cannot demonstrate\nwould be the one lie a compliance document must not contain.\n\nThe last four fields are why this is a certificate and not a database row. The proof\nis the DURABLE artifact \u2014 filed, forwarded to a regulator, read years later by\nsomeone who cannot ask us what it meant \u2014 so it has to state its own limits. It used\nto state only what it cleared, with `limitations` riding the envelope beside it;\nanyone who filed the proof alone filed a document that says the recording pointer was\ncleared and is silent about the audio still existing. `deletion_proof.certificate`\nbuilds all four from `deletion.ERASURE_LIMITATIONS`/`ERASURE_EXCEPTIONS`.",
         "properties": {
           "actions": {
             "additionalProperties": {
@@ -27107,57 +27107,6 @@
         "x-calevate-permission": "org:read"
       }
     },
-    "/v1/actions/invoke/{engine}/{tool_id}": {
-      "post": {
-        "description": "Bolna calls this for a during-call tool. Verifies the source, resolves the tenant\nfrom the injected agent ref, loads the tool under that tenant's RLS, and executes.\n\nThe response body IS the tool result the LLM reads back. Failures are returned as a\nstructured payload (not a 5xx) so the agent can relay them to the caller rather than the\ncall hearing dead air.",
-        "operationId": "invoke_action_v1_actions_invoke__engine___tool_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "engine",
-            "required": true,
-            "schema": {
-              "title": "Engine",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tool_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Tool Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Invoke Action V1 Actions Invoke  Engine   Tool Id  Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Engine-called: run one in-call action and return its result to the LLM",
-        "tags": [
-          "actions"
-        ]
-      }
-    },
     "/v1/admin/client-health": {
       "get": {
         "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.",
@@ -37642,96 +37591,6 @@
           "compliance"
         ],
         "x-calevate-permission": "leads:dispatch"
-      }
-    },
-    "/v1/engine/caller-data/{engine}": {
-      "get": {
-        "description": "The voice platform calls this when an inbound call arrives and puts the answer into the agent's instructions for that one call. It answers with nothing at all for a caller the agent has not spoken to, for an agent whose account has not switched caller continuity on, and whenever the lookup cannot be completed in time \u2014 a returning caller is then greeted normally, which is the right way for this to fail.",
-        "operationId": "caller_data_v1_engine_caller_data__engine__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "engine",
-            "required": true,
-            "schema": {
-              "title": "Engine",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "contact_number",
-            "required": true,
-            "schema": {
-              "maxLength": 32,
-              "title": "Contact Number",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "maxLength": 128,
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "execution_id",
-            "required": false,
-            "schema": {
-              "default": "",
-              "maxLength": 128,
-              "title": "Execution Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Caller Data V1 Engine Caller Data  Engine  Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Engine-called: what this agent remembers about the caller now ringing",
-        "tags": [
-          "in-call-tools"
-        ]
       }
     },
     "/v1/integrations/credentials": {

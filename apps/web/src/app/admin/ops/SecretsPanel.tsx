@@ -192,7 +192,7 @@ export function SecretsPanel({
 /**
  * A plain name for a credential, shown above its machine key.
  *
- * The key IS fairly self-describing (`bolna_api_key`), but a person reads "Bolna API key"
+ * The key IS fairly self-describing (`cartesia_api_key`), but a person reads "Cartesia API key"
  * faster than the snake_case, and the machine key is always printed beneath it so nothing
  * is hidden. This only reshapes the key's own words — it makes no claim about the vendor —
  * so a new credential the console has never seen still gets a readable title.

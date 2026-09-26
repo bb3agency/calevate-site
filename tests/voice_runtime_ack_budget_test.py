@@ -53,7 +53,7 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any
@@ -74,13 +74,10 @@ from tests import ack_harness
 ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
 EDGE_PROXY_IP = "127.0.0.1"
-HOOK = "/hooks/v1/engine/bolna"
+HOOK = "/hooks/v1/engine/fake"
+#: A signing engine's hook: refused until a verifier exists, so it is the refusal path.
+SIGNED_HOOK = "/hooks/v1/engine/cartesia"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
-
-
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP, *, tolerate_crash: bool = False) -> AsyncClient:
@@ -238,7 +235,7 @@ async def test_the_accepted_path_spends_three_db_round_trips_and_two_redis_ops(
 async def test_a_duplicate_costs_one_redis_read_and_nothing_else(trips: _Trips) -> None:
     """The point of the fast path: a replay storm must not reach Postgres.
 
-    Bolna does not retry, so real duplicates arrive from replays and from poller
+    A vendor that does not retry sends real duplicates only as replays and as poller
     rediscoveries later in time — i.e. after the first delivery's transaction has long
     committed, which is exactly the population this key absorbs.
     """
@@ -260,15 +257,15 @@ async def test_a_duplicate_costs_one_redis_read_and_nothing_else(trips: _Trips) 
 
 
 async def test_a_refused_caller_costs_nothing_at_all(trips: _Trips) -> None:
-    """A scanner hammering the URL from off the allowlist must be answerable from the
-    socket and the headers alone. If a rejection cost a database round trip, the
+    """A scanner hammering a refused engine's URL must be answerable from the socket
+    and the headers alone. If a rejection cost a database round trip, the
     unauthenticated endpoint would be a free amplification vector into our connection
     pool — and the pool is shared with the path that carries live calls.
     """
     execution_id, status, _ = _event()
 
     async with _client(ATTACKER_IP) as http:
-        refused = await http.post(HOOK, json=_body(execution_id, status))
+        refused = await http.post(SIGNED_HOOK, json=_body(execution_id, status))
 
     assert refused.status_code == 401
     assert trips.statements == []
@@ -358,7 +355,7 @@ async def test_breaching_the_budget_raises_the_incident_signal_and_still_acks(
         fields,
         acked.headers["X-Ack-Ms"],
     )
-    assert fields["engine"] == "bolna", fields
+    assert fields["engine"] == "fake", fields
 
 
 async def test_an_ack_inside_the_budget_raises_nothing(
@@ -677,7 +674,7 @@ async def test_a_refusal_is_measured_too_and_is_the_cheapest_path_there_is(
     async def one() -> Response:
         execution_id, status, _ = _event()
         return await http.post(
-            HOOK,
+            SIGNED_HOOK,
             json=_body(execution_id, status),
             headers={"CF-Connecting-IP": ATTACKER_IP},
         )
@@ -750,7 +747,7 @@ async def test_a_stalled_database_is_abandoned_at_the_deadline_not_waited_on(
         ).scalar()
     assert rows == 0, "an abandoned claim must roll back"
 
-    keys = [k async for k in get_redis().scan_iter(f"calevate:wh:bolna:{execution_id}:*")]
+    keys = [k async for k in get_redis().scan_iter(f"calevate:wh:fake:{execution_id}:*")]
     assert keys == [], "a fast-path key over work that never landed is a permanently lost event"
 
 
@@ -811,7 +808,7 @@ async def test_a_queue_that_refuses_the_job_produces_an_error_never_an_ack(
         ).scalar()
     assert (inbox, deliveries) == (0, 0), "the claim and the forensic row roll back with the job"
 
-    keys = [k async for k in get_redis().scan_iter(f"calevate:wh:bolna:{execution_id}:*")]
+    keys = [k async for k in get_redis().scan_iter(f"calevate:wh:fake:{execution_id}:*")]
     assert keys == [], (
         "the fast-path key must not outlive a transaction that failed — a key with no job "
         "behind it answers every future copy of this delivery 'duplicate'"
@@ -1020,7 +1017,7 @@ async def _post_with_disconnect(path: str, sent: bytes) -> tuple[int, dict[str, 
     ("label", "path", "sent", "series"),
     [
         ("receiver", HOOK, b'{"execution_id":"exec_cut","status":"comp', "webhook_ack_ms"),
-        ("in-call tool", "/tools/v1/bolna/opt-out", b'{"execution_id":"exec_cut"', "tool_ack_ms"),
+        ("in-call tool", "/tools/v1/fake/opt-out", b'{"execution_id":"exec_cut"', "tool_ack_ms"),
     ],
 )
 async def test_a_caller_that_hangs_up_mid_body_is_answered_not_crashed(
@@ -1094,9 +1091,9 @@ async def test_every_non_ack_exit_reports_and_records_its_ack(
         raise RuntimeError("the driver fell over")
 
     with caplog.at_level(logging.INFO, logger="calevate.metric"):
-        # 401 — off the allowlist; already measured, asserted here so the set is complete.
+        # 401 — a refused engine; already measured, asserted here so the set is complete.
         async with _client(ATTACKER_IP) as stranger:
-            refused = await stranger.post(HOOK, json=_body(execution_id, status))
+            refused = await stranger.post(SIGNED_HOOK, json=_body(execution_id, status))
         async with _client(tolerate_crash=True) as http:
             # 413 — over the cap.
             oversized = await http.post(HOOK, content=b"x" * 2_000_000, headers=HEADERS)
@@ -1126,7 +1123,7 @@ async def test_every_non_ack_exit_reports_and_records_its_ack(
         "every response is one sample in the ack series, refusals and crashes included; "
         f"saw {len(samples)}"
     )
-    assert {str(record.provider) for record in samples} == {"bolna"}
+    assert {str(record.provider) for record in samples} == {"cartesia", "fake"}
 
 
 # --- 4. the third unbounded wait: the fast path itself ------------------------

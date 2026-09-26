@@ -118,7 +118,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -134,7 +134,9 @@ from sqlalchemy import event, text
 
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
-HOOK = "/hooks/v1/engine/bolna"
+HOOK = "/hooks/v1/engine/fake"
+#: A signing engine's hook: refused until a verifier exists, so it is the refusal path.
+SIGNED_HOOK = "/hooks/v1/engine/cartesia"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 # Storm widths. Chosen against the pool, not against a wish for a big number: the async
@@ -165,11 +167,6 @@ STATEMENTS_PER_DELIVERY = 4
 # the minimal event row"). Anything else appearing under load is the regression this
 # file exists to catch.
 ALLOWED_TABLES = ("webhook_inbox_events", "webhook_deliveries")
-
-
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client() -> AsyncClient:
@@ -326,7 +323,7 @@ async def _durable_counts(delivery: Delivery) -> tuple[int, int, int]:
             await session.execute(
                 text(
                     "SELECT count(*), COALESCE(sum(duplicate_count), 0) "
-                    "FROM webhook_inbox_events WHERE provider = 'bolna' AND event_key = :k"
+                    "FROM webhook_inbox_events WHERE provider = 'fake' AND event_key = :k"
                 ),
                 {"k": delivery.event_key},
             )
@@ -342,13 +339,13 @@ async def _durable_counts(delivery: Delivery) -> tuple[int, int, int]:
 
 async def _queued_jobs(delivery: Delivery) -> list[str]:
     """ARQ job keys that exist for this transition, read from the real queue."""
-    pattern = f"arq:job:{webhook_routes.INGEST_JOB}:bolna:{delivery.execution_id}:*"
+    pattern = f"arq:job:{webhook_routes.INGEST_JOB}:fake:{delivery.execution_id}:*"
     return [key async for key in get_redis().scan_iter(pattern)]
 
 
 async def _fast_path_keys(delivery: Delivery) -> list[str]:
     return [
-        key async for key in get_redis().scan_iter(f"calevate:wh:bolna:{delivery.execution_id}:*")
+        key async for key in get_redis().scan_iter(f"calevate:wh:fake:{delivery.execution_id}:*")
     ]
 
 
@@ -500,7 +497,7 @@ async def test_a_storm_of_distinct_transitions_loses_nothing(trips: _Trips) -> N
         claimed = (
             await session.execute(
                 text(
-                    "SELECT count(*) FROM webhook_inbox_events WHERE provider = 'bolna' "
+                    "SELECT count(*) FROM webhook_inbox_events WHERE provider = 'fake' "
                     "AND event_key = ANY(:keys) AND status = 'enqueued'"
                 ),
                 {"keys": [d.event_key for d in storm]},
@@ -642,8 +639,8 @@ async def test_a_storm_that_all_times_out_leaks_no_connection_and_loses_no_event
 
 
 async def test_a_storm_the_receiver_refused_costs_the_database_nothing(trips: _Trips) -> None:
-    """The flood shape that needs no vendor at all: the URL is public and unsigned, so a
-    scanner can send this whenever it likes. Refusals must stay answerable from the socket
+    """The flood shape that needs no vendor at all: the URL is public, so a scanner can
+    send this whenever it likes. Refusals must stay answerable from the socket
     and the headers, at width — otherwise the endpoint is a free amplifier into the
     connection pool that carries live calls.
     """
@@ -656,7 +653,7 @@ async def test_a_storm_the_receiver_refused_costs_the_database_nothing(trips: _T
     async def _one(delivery: Delivery) -> Response:
         async with AsyncClient(transport=attacker, base_url="http://runtime") as http:
             await gate.wait()
-            return await http.post(HOOK, json=delivery.body)
+            return await http.post(SIGNED_HOOK, json=delivery.body)
 
     async with asyncio.TaskGroup() as group:
         tasks = [group.create_task(_one(d)) for d in storm]

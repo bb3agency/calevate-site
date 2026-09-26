@@ -17,8 +17,8 @@ not two code paths.
 
 THE TWO GATES, AND WHY THEY ARE DIFFERENT KINDS OF FACT
 -------------------------------------------------------
-1. **CAN the engine sell us one?** `EngineCapabilities.number_series`. Bolna answers
-   "standard, and no DLT class" (`engine/bolna.py`); Cartesia answers "none". This is a
+1. **CAN the engine sell us one?** `EngineCapabilities.number_series`. Cartesia answers
+   "none"; the owned runtime buys through the carrier instead. This is a
    VENDOR capability, read from the descriptor, never from a settings key.
 2. **MAY WE?** `Settings.number_resale_authorization`. The playbook's condition on this
    decision is not waived, it is SEQUENCED: *"A future 'we provision the number for
@@ -131,16 +131,16 @@ NOT_AUTHORIZED_REASON: Final = "number_resale_not_authorized"
 #: KYC blockers on purpose — `assert_holder_verified_for_activation` argues it.
 NOT_ACTIVATED_RULE: Final = "number_not_activated"
 
-# **STILL FALSE, AND D-537 DID NOT FLIP IT — READ WHAT IT MEANS BEFORE ASSUMING IT
-# SHOULD HAVE.** This constant marks whether a CARRIER-DIRECT provisioning adapter exists:
-# a client of Exotel's or Plivo's own API, holding that carrier's auth id and auth token,
-# asking a telecom operator for a number. None exists, none is wanted, and D-537 did not
-# write one — the numbers this product now buys are bought THROUGH THE VOICE ENGINE, on
-# the engine's own carrier account, over `VoiceEngine.provision_number`. So "this
-# repository holds no telephony credential of any kind" stays true and stays load-bearing
-# elsewhere (`engine/bolna.py`'s note on the transfer webhook, `agents/handoff.py`'s note
-# on why a whisper is unachievable): both of those rest on the ABSENCE OF A CARRIER
-# CREDENTIAL, which this names, and neither is affected by buying through the engine.
+# **STILL FALSE, AND D-537 DID NOT FLIP IT — READ WHAT IT MEANS BEFORE ASSUMING IT SHOULD
+# HAVE.** This constant marks whether a CARRIER-DIRECT provisioning adapter exists: a client
+# of Exotel's or Plivo's own API, holding that carrier's auth id and auth token, asking a
+# telecom operator for a number. None exists, none is wanted, and D-537 did not write one —
+# the numbers this product now buys are bought THROUGH THE VOICE ENGINE, on the engine's own
+# carrier account, over `VoiceEngine.provision_number`. So "this repository holds no
+# telephony credential of any kind" stays true and stays load-bearing elsewhere
+# (`agents/handoff.py`'s note on why a whisper is unachievable): both of those rest on the
+# ABSENCE OF A CARRIER CREDENTIAL, which this names, and it is not affected by buying
+# through the engine.
 #
 # It is therefore deliberately NOT consulted by `number_provisioning_capability()` any
 # more. Two questions, two answers: "can we call a carrier directly" (no, and no plans)

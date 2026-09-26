@@ -105,17 +105,15 @@ class TestWiring:
         assert any("voice-runtime" in str(path) for path in scanned)
 
     def test_it_sees_the_scripts_tree(self) -> None:
-        """`scripts/` holds the ONE program in this repo that dials a telephone on
-        purpose (`scripts/pilot/`), and both censuses of "everything that can ring a
-        phone" walked `apps/` only — so the harness's two live engine reaches were
-        outside every check that claims to enumerate them. They are legitimate and now
-        they are WRITTEN DOWN; what this pins is that the next operational script cannot
-        be neither."""
+        """Both censuses of "everything that can ring a phone" once walked `apps/` only,
+        while `scripts/` held a program that dialled on purpose. The pilot harness that did
+        is gone (D-639); what this pins is that the next operational script that reaches
+        an engine is SEEN, and today that no script does."""
         scanned = set(guard._python_files(guard.SCAN_ROOTS))
-        assert any(path.parts[-3:-1] == ("scripts", "pilot") for path in scanned)
+        assert any(path.parts[-2] == "scripts" for path in scanned)
         assert {
             site.qualname for site in guard._engine_sites() if site.path.startswith("scripts/")
-        } == {"scripts/pilot/gates_api.py::run_gate_2", "scripts/pilot/concurrency.py::dial"}
+        } == set()
 
     def test_the_real_tree_is_clean(self) -> None:
         assert guard.engine_reach() == []
@@ -130,7 +128,7 @@ class TestWiring:
         function. A discovery walk that found none would pass by matching nothing —
         which is the failure mode this whole file is written against."""
         adapters = {path.name for path in guard._adapter_files()}
-        assert {"bolna.py", "cartesia.py", "fake.py"} <= adapters, adapters
+        assert {"cartesia.py", "fake.py", "pipecat.py"} <= adapters, adapters
 
     def test_the_live_schema_is_clean(self, engine: Engine) -> None:
         assert guard.evaluate_schema(guard.fetch_schema(engine)) == []
@@ -267,9 +265,8 @@ class TestEngineReach:
         Asserted as a SET EQUALITY in both directions, which is the property the list
         exists for: `stale_exemptions` already refuses an entry that names no live reach,
         and this refuses a live reach that names no entry. A hardcoded one-line expected
-        value could only ever pin the first half, and it stopped being true the moment
-        `scripts/` joined the scan roots and the pilot harness's two dial sites became
-        visible — which is exactly the census this file is here to keep honest.
+        value could only ever pin the first half — which is exactly the census this file is
+        here to keep honest.
         """
         offenders = guard.engine_reach(exemptions={})
         named = {offender.split(" reaches", 1)[0] for offender in offenders}
@@ -432,22 +429,22 @@ class TestTruthfulAnswerIsNotSwitchable:
     def test_catches_an_adapter_that_builds_its_own_prompt(self, tmp_path: Path) -> None:
         """The one way the rule goes missing on ONE vendor and nowhere else. Mirrors the
         real adapter and takes the composer back out of it."""
-        root = _mirror(tmp_path, "apps/api/engine/bolna.py")
+        root = _mirror(tmp_path, "apps/api/engine/fake.py")
         _edit(
             root,
-            "apps/api/engine/bolna.py",
-            "prompt = compose_engine_prompt(cfg)",
-            'prompt = f"{cfg.opening_line}\\n\\n{cfg.system_prompt}"',
+            "apps/api/engine/fake.py",
+            "system_prompt=compose_engine_prompt(cfg),",
+            'system_prompt=f"{cfg.opening_line}\\n\\n{cfg.system_prompt}",',
         )
         offenders = guard.truthful_answer_unfalsifiable(roots=(root,))
-        assert any("bolna.py renders an agent without" in o for o in offenders), offenders
+        assert any("fake.py renders an agent without" in o for o in offenders), offenders
 
     def test_it_does_not_cry_wolf_on_an_adapter_that_only_imports_the_composer(
         self, tmp_path: Path
     ) -> None:
         """The check is a CALL check, not a substring one — and the mirror proves the
         difference matters: the doctored adapter above still imports the name."""
-        root = _mirror(tmp_path, "apps/api/engine/bolna.py", "apps/api/engine/fake.py")
+        root = _mirror(tmp_path, "apps/api/engine/cartesia.py", "apps/api/engine/fake.py")
         assert guard.truthful_answer_unfalsifiable(roots=(root,)) == []
 
     def test_it_does_not_cry_wolf_on_the_module_that_owns_the_constant(self) -> None:

@@ -186,6 +186,14 @@ NOT_A_SUBPROCESSOR: dict[str, str] = {
 #: published. The other direction of the same rule: a vendor that left the code and stayed
 #: on the page is the Clerk/Vertex drift the register's own header records.
 REGISTER_ONLY: dict[str, str] = {
+    "Bolna": (
+        "The rented voice engine D-639 removed from the code on 26 Sep 2026: no adapter, no "
+        "credential and no route remains. The row stays until the register's next change "
+        "notice retires it, because a register that over-discloses a vendor the product no "
+        "longer uses errs in the safe direction and one that drops a row without notice "
+        "does not. Changing its words is a new legal revision (versions.ts + "
+        "legal/catalogue.py), which is the legal lane's call, not this guard's."
+    ),
     "Exotel": (
         "A candidate carrier. No account, no credential and no adapter — the only carrier "
         "with code in the tree is Plivo. Published because the carrier is not chosen yet "
@@ -234,8 +242,6 @@ def _engine_vendor(engine: str) -> str | None:
     """
     if engine == "fake":
         return None  # an in-process double; there is no company behind it.
-    if engine == "bolna":
-        return "Bolna"
     if engine == "cartesia":
         return "Cartesia"
     if engine == "pipecat":
@@ -253,7 +259,7 @@ def _engine_vendor(engine: str) -> str | None:
 VENDOR_OF.update({name: _engine_vendor(name) for name in get_args(EngineName)})
 
 SETTINGS_ANCHORS = frozenset({"sarvam", "sentry"})
-REGISTER_ANCHORS = frozenset({"Bolna", "Microsoft", "Sarvam"})
+REGISTER_ANCHORS = frozenset({"Cartesia", "Microsoft", "Sarvam"})
 
 _FIELD = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -348,7 +354,7 @@ def register_identities(path: Path = REGISTER_SOURCE) -> set[str]:
     register's own `SUBPROCESSOR_NAMES` is derived from, it is a literal in every row, and
     a real TS parser in a Python guard would be a second toolchain to keep alive. The
     anchors below are what makes the shallow read safe — if the shape ever changes, this
-    stops finding Bolna and refuses to score.
+    stops finding its anchors and refuses to score.
     """
     text = path.read_text(encoding="utf-8")
     identities: set[str] = set()

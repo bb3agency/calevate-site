@@ -656,13 +656,6 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/healthz",
     "/hooks",
     "/v1/auth/",
-    # The engine-called in-call ACTION execution endpoint. Unauthenticated by nature — Bolna
-    # holds no Calevate session — and gated exactly like the webhook receiver: source-IP
-    # allowlist, then the tenant is resolved from the injected agent ref through
-    # `engine_agent_routes` and the tool is loaded under that tenant's RLS
-    # (`apps/api/actions/routes.invoke_action`). The trailing slash keeps this to the invoke
-    # path; the client-realm `/v1/actions/calendar/**` routes declare `org:manage` normally.
-    "/v1/actions/invoke/",
     # The Content-Security-Policy violation collector (D-541). Unauthenticated in a
     # stronger sense than anything else on this list: a browser's reporting agent holds no
     # credential and cannot be given one, so there is no signature, no shared secret, no
@@ -679,16 +672,10 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # deployment issues it (`pipecat_worker_api_token`), compared in constant time, with an
     # unconfigured deployment answering nobody. It is the widest of the tokens on this
     # list, because it opens a WRITE surface rather than a read, which is why it is its own
-    # credential and not a reuse of `bolna_caller_data_token`. The trailing slash keeps the
+    # credential. The trailing slash keeps the
     # exemption to this surface; all three routes under it are declared in
     # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`.
     "/v1/worker/",
-    # The engine-called INBOUND caller-details fetch (D-513). Same class as the invoke
-    # path one line up and unauthenticated for the same reason — Bolna holds no Calevate
-    # session — but its credential is a Bearer token WE choose and paste into their agent
-    # (`compliance/caller_data_routes`), because that is the mechanism their inbound data
-    # -source feature offers. The trailing slash keeps this to the fetch itself.
-    "/v1/engine/caller-data/",
     # The public SELF-SERVE RATE CARD (D-545): the list rate and the credit-pack ladder,
     # read by the marketing site's server to put "from ₹X/min" on `/pricing` and the live
     # rate into the ROI calculator. Unauthenticated because its only reader holds no

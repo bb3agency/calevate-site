@@ -75,7 +75,6 @@ whatever the DEFAULT is, which keeps working the next time it moves.
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 from typing import Final
 
@@ -93,8 +92,8 @@ from calevate_shared.engine import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: Where a model identifier can reach the vendor. `scripts/` is IN, and it is the reason
-#: this test exists in this shape: `scripts/pilot/gates_api.py` places real calls against
-#: a real Bolna account, so a dead model there burns a pilot gate and a telephone minute.
+#: this test exists in this shape: the defect it was written for sat in a script that
+#: placed real calls, where a dead model burns a telephone minute.
 #: `tests/` is out — a test naming a retired identifier is usually asserting about it.
 SCANNED_TREES: tuple[str, ...] = ("apps", "packages/shared/src", "scripts")
 
@@ -217,30 +216,6 @@ def test_the_platform_default_transcriber_does_not_translate() -> None:
     )
 
 
-def test_the_platform_default_transcriber_is_a_model_the_engine_lists() -> None:
-    """The second half of "the default is real": the engine has to accept it.
-
-    VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/transcriber/sarvam.md`
-    (fetched 20 Aug 2026) — the four Sarvam STT models Bolna's own page lists. That page is
-    read here rather than restated, so a default that drifts to an identifier their engine
-    does not list (`saaras:v3-realtime`, say, which is Sarvam-direct and beta) fails in CI
-    instead of arriving as a vendor rejection at agent-create time on a live account.
-
-    NOT an assertion that the SDK enum and this list agree — they do not, and neither is
-    wrong. See `SARVAM_DEFAULT_STT`'s own comment: Bolna's page says what their engine
-    ACCEPTS, the SDK says what Sarvam currently SHIPS, and `saaras:v3` is in both.
-    """
-    page = (REPO_ROOT / "bolna-findings/mirror/pages/providers/transcriber/sarvam.md").read_text(
-        encoding="utf-8"
-    )
-    listed = set(re.findall(r"\b(?:saaras|saarika):v[0-9.]+", page))
-    assert listed, "the vendor page named no Sarvam STT model — has the mirror moved?"
-    assert SARVAM_DEFAULT_STT in listed, (
-        f"{SARVAM_DEFAULT_STT} is what every agent publishes and the engine's own "
-        f"transcriber page does not list it. It lists: {sorted(listed)}."
-    )
-
-
 # THERE IS NO AZURE EQUIVALENT OF THE TEST ABOVE, AND THE ABSENCE IS DELIBERATE.
 # "the default is one this platform ships" is `AZURE_OPENAI_DEFAULT_MODEL in
 # AZURE_OPENAI_MODELS`, and mypy strict already proves it: the constant infers a `Literal`,
@@ -252,8 +227,8 @@ def test_the_platform_default_transcriber_is_a_model_the_engine_lists() -> None:
 # half needs the assertion and this half does not.
 
 
-def test_the_extractor_and_the_pilot_gate_agree_with_the_constant() -> None:
-    """Both sites resolve to the shared answer at RUNTIME, not merely by looking similar.
+def test_the_extractor_agrees_with_the_constant() -> None:
+    """The extractor resolves to the shared answer at RUNTIME, not merely by looking similar.
 
     The scan proves no retired literal is present; it cannot prove a site was rewired
     rather than just edited. A file that swapped `"sarvam-m"` for `"sarvam-105b"` in place
@@ -262,16 +237,6 @@ def test_the_extractor_and_the_pilot_gate_agree_with_the_constant() -> None:
     from apps.workers.extraction import SarvamExtractor
 
     assert SarvamExtractor(api_key="k").model_name == SARVAM_DEFAULT_LLM
-
-    # Imported here rather than at module scope: `scripts.pilot` pulls in the pilot
-    # harness, which is heavier than this file needs for its other three cases.
-    from scripts.pilot.gates_api import __file__ as gates_source
-
-    gates_literals = _string_literals(Path(gates_source))
-    assert SARVAM_DEFAULT_LLM not in gates_literals, (
-        "scripts/pilot/gates_api.py spells the model identifier instead of importing it — "
-        "which passes the retired-name scan and breaks on the next retirement"
-    )
 
 
 def test_no_shipped_module_names_a_gemini_model_at_all() -> None:

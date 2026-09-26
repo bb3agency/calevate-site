@@ -12,7 +12,7 @@ import shutil
 import sys
 import tempfile
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -507,18 +507,17 @@ def _no_ambient_credentials() -> Iterator[None]:
     """
     # THE VENDOR KEYS ARE STRIPPED TOO, and they arrived through a door the original
     # sweep did not cover: `.env`, not an exported shell variable. A developer who put a
-    # real `BOLNA_API_KEY` in this repo's `.env` was running a DIFFERENT suite from CI —
-    # `engine_readiness_credentials_test.test_bolna_still_answers_exactly_as_it_did` and
-    # `pilot_cli_test.test_preflight_names_the_gates_each_missing_item_blocks` both assert
-    # a key is ABSENT, and both failed on that machine and nowhere else. Same class as the
-    # `COHERE_API_KEY` case this fixture was written for; same fix, one layer wider.
+    # real engine key in this repo's `.env` was running a DIFFERENT suite from CI — the
+    # readiness tests assert a key is ABSENT, and failed on that machine and nowhere else.
+    # Same class as the `COHERE_API_KEY` case this fixture was written for; same fix, one
+    # layer wider.
     #
     # DERIVED from the adapters (`engine.all_credential_env_keys`), not retyped: a fourth
     # engine's key is stripped by the code that already exists.
     #
     # AND FROM THE MANAGED SECRET SET, which is the wider door and the one D-410 walked
     # through. `all_credential_env_keys()` covers the ENGINE adapters only — today
-    # `BOLNA_API_KEY` and `CARTESIA_API_KEY` — so every non-engine vendor credential was
+    # `CARTESIA_API_KEY` — so every non-engine vendor credential was
     # still borrowable from a developer's `.env`. That went unnoticed while the model
     # vendor's credential was a service-account JSON nobody exported; D-410 replaced it
     # with three ordinary strings (`AZURE_OPENAI_RESOURCE`, `AZURE_OPENAI_DEPLOYMENT`,
@@ -672,34 +671,6 @@ def _voice_catalogue_snapshot_is_restored() -> Iterator[None]:
     yield
     if catalogue() is not installed:
         install_voice_catalogue(installed or None)
-
-
-@pytest.fixture
-def source_ip_allowlist(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
-    """Point the Bolna webhook source-IP allowlist at documentation addresses.
-
-    Every receiver suite needs this: a test must never encode the vendor's CURRENT
-    egress address, which is a value they change without asking us.
-
-    It sets the ENVIRONMENT VARIABLE rather than patching a module attribute, because
-    `BOLNA_WEBHOOK_SOURCE_IPS` is now the single source of truth that both
-    `engine_intake.verify_source` and `BolnaEngine.verify_webhook` resolve through
-    (`calevate_shared.config.bolna_source_ips`). The old fixtures patched
-    `engine_intake.BOLNA_SOURCE_IPS`, which is precisely why they could never have
-    caught the two halves disagreeing: they moved one of them.
-
-    `get_settings` is `lru_cache`d, so the cache is cleared on the way in and out — and
-    PRIMED on the way in, so no test measuring the ack budget or the per-request import
-    surface pays for the first `Settings()` construction inside its own request.
-    """
-
-    def _set(*ips: str) -> None:
-        monkeypatch.setenv("BOLNA_WEBHOOK_SOURCE_IPS", ",".join(ips))
-        get_settings.cache_clear()
-        get_settings()
-
-    yield _set
-    get_settings.cache_clear()
 
 
 # --- the object store, faked -------------------------------------------------------

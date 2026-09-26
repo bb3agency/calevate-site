@@ -18,7 +18,7 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
  * The engine-latency report — the console half of `GET /v1/ops/engine-latency`.
  *
  * The endpoint landed with no path in the console, so OPERATIONS §2 gate 4 and
- * `runbooks/alarm-index.md::engine_llm_ttft_degraded` both told an operator to
+ *  a latency alarm (since removed, D-639) both told an operator to
  * hand-assemble a curl against production, mid-incident. What this screen must get right
  * is therefore not layout — it is the set of claims it is allowed to make about a
  * measurement, ranked here by what each failure costs:
@@ -137,7 +137,7 @@ function tooFewLeg(
 /** A group with a measured summary for every stage. */
 function measured(over: Partial<LatencyGroup> = {}): LatencyGroup {
   return {
-    engine: "bolna",
+    engine: "pipecat",
     region: "us",
     calls: 12,
     turns: 240,
@@ -154,7 +154,7 @@ function measured(over: Partial<LatencyGroup> = {}): LatencyGroup {
 /** A group the server could summarise on no stage at all. */
 function tooFew(over: Partial<LatencyGroup> = {}): LatencyGroup {
   return {
-    engine: "bolna",
+    engine: "pipecat",
     region: null,
     calls: 1,
     turns: 3,

@@ -1,9 +1,9 @@
 """Execute one in-call action — the single place bindings, credentials, SSRF vetting and
 the external call meet.
 
-Called synchronously from the voice-runtime tool endpoint (during a call) and from the
-post-call worker (after-call triggers) and from the Test harness. Bolna blocks on the
-response and feeds it back to the LLM, with the tool's `pre_call_message` masking the round
+Called from the post-call worker (after-call triggers) and from the Test harness. The
+during-call caller left with the rented engine (D-639); that engine blocked on the
+response and fed it back to the LLM, with the tool's `pre_call_message` masking the round
 trip to the caller — so this returns the external system's answer, it does not defer it. The
 one thing that IS deferred is the audit row: it goes to ARQ so this path writes no DB row of
 its own, matching the opt-out tool's discipline (hard rule 3).
@@ -11,8 +11,8 @@ its own, matching the opt-out tool's discipline (hard rule 3).
 WHY A SYNCHRONOUS EXTERNAL CALL IS ALLOWED HERE. A data-returning in-call tool cannot defer
 its result — the whole point is to hand the LLM the order status / the availability. CLAUDE.md
 carves exactly this out ("except the in-call RAG tool endpoint which has a 100ms budget —
-measure it"); an action's ceiling is Bolna's undocumented tool timeout (OPERATIONS §2 gate 8),
-which `pre_call_message` is the vendor's own answer to. The call is bounded by `_TIMEOUT_S`
+measure it"); an action's ceiling is the engine's tool timeout, which `pre_call_message`
+masks. The call is bounded by `_TIMEOUT_S`
 and vetted by the egress guard so a hostile config cannot turn it into an SSRF primitive.
 
 HARD RULE 6. Nothing here logs a phone number, a message body or an external payload. The
@@ -64,7 +64,7 @@ _IST = timezone(IST)
 
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
-    """What the tool endpoint returns to Bolna (and the LLM). `ok` is for our own
+    """What an execution returns to its caller (and, during a call, the LLM). `ok` is for our own
     accounting; `payload` is the JSON the model reads."""
 
     ok: bool
@@ -75,7 +75,7 @@ class ExecutionResult:
 
 def resolve_values(params: list[dict[str, Any]], received: dict[str, Any]) -> dict[str, Any]:
     """The value of every binding by name: static from the spec, ai/lead_var from what
-    Bolna sent us. A missing ai/lead_var value resolves to None and the field is dropped
+    the engine sent us. A missing ai/lead_var value resolves to None and the field is dropped
     downstream rather than sent as the string "None"."""
     values: dict[str, Any] = {}
     for raw in params:

@@ -48,8 +48,9 @@ import { lookup } from "@/lib/lookup";
  *
  * The endpoint shipped with no path in the console, so the two documents that need it
  * pointed at a curl: OPERATIONS §2 gate 4 ("place the calls, read `GET
- * /v1/ops/engine-latency` grouped by `region`") and `runbooks/alarm-index.md`, whose entry
- * for `engine_llm_ttft_degraded` opens *"Read `GET /v1/ops/engine-latency` first"*. That is
+ * /v1/ops/engine-latency` grouped by `region`") and a latency alarm's runbook entry, which
+ * opened *"Read `GET /v1/ops/engine-latency` first"* (the alarm left with the rented
+ * engine, D-639). That is
  * an operator hand-assembling a request against production, mid-incident, from the
  * document people follow when they are least careful — the exact argument
  * `app/admin/ops/page.tsx` makes for why the load-shed switch, the outbox replay and the
@@ -154,9 +155,8 @@ export default function EngineLatencyPage() {
    * else is refused server-side against the declared options rather than setting a window
    * the endpoint would reject.
    *
-   * The per-leg breach counts go, because they are the answer to the question
-   * `runbooks/alarm-index.md` sends people here with ("read this first" on
-   * `engine_llm_ttft_degraded`). Whether the unit was VERIFIED goes with them — an
+   * The per-leg breach counts go, because they are the answer to the question an operator
+   * comes here with. Whether the unit was VERIFIED goes with them — an
    * unverified figure that reaches a model as a bare number becomes a fact somebody
    * repeats, which is hard rule 11's whole subject.
    */
@@ -504,8 +504,7 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
           label="Looking something up"
           value={budget.retrieval_ms}
           /* A mid-reply lookup CAN happen — `knowledge_base` is `True` on every engine
-             this deployment can select (D-488 built Bolna's `attach_kb`, and
-             `PIPECAT_CAPABILITIES.knowledge_base` is True with an in-process pack search
+             this deployment can select (`PIPECAT_CAPABILITIES.knowledge_base` is True with an in-process pack search
              registered as a call tool, `docs/PIPECAT-MIGRATION.md` §8.1). What nothing does
              is TIME it: `LatencyLeg` has no `retrieval` member, the rented engine publishes
              no block for it and the owned runtime reports no per-turn timings, so this

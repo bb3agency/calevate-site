@@ -859,7 +859,7 @@ class PipecatEngine:
     name = "pipecat"
     capabilities = PIPECAT_CAPABILITIES
 
-    #: EMPTY, and the annotation is load-bearing on every adapter (`bolna.py`): without
+    #: EMPTY, and the annotation is load-bearing on every adapter: without
     #: `tuple[str, ...]` mypy infers a one-element tuple type, a Protocol's mutable
     #: attributes are invariant, and the class stops satisfying `VoiceEngine` the day a
     #: second key is added.
@@ -1404,8 +1404,8 @@ class PipecatEngine:
         # carrying no status at all as a success. `status` is what decides whether a call
         # is settled, metered and extracted, so that is the one wrong answer with a cost.
         #
-        # `or ""` is the shape `bolna.py::_snapshot` and `cartesia.py` already use (both
-        # map the empty string through their table and land on `failed`), so this is the
+        # `or ""` is the shape `cartesia.py` already uses (it maps the empty string
+        # through its table and lands on `failed`), so this is the
         # existing answer applied rather than a second one invented. The empty `raw_status`
         # that results is honest: the sender said nothing, and the forensic row records
         # that rather than a word we supplied on its behalf.

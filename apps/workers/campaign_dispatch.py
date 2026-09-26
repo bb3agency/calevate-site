@@ -129,8 +129,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
-# may cross this line and an HTTP status is on the safe side of it. Same standing as
-# `engine_violations.py`'s import of `apps.api.engine.violations`.
+# may cross this line and an HTTP status is on the safe side of it.
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.integrations import service as integrations
 

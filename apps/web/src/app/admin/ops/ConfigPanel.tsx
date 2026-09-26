@@ -164,7 +164,7 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     // renders no group — `grouped()` filters to the titles that got fields. It is here so
     // that the console-managed half, when it lands, appears under the engine rather than
     // under "Other", whose hint tells an operator the console has no opinion about it.
-    prefixes: ["engine", "bolna_", "cartesia_", "plivo_", "webhook_base_url"],
+    prefixes: ["engine", "cartesia_", "plivo_", "webhook_base_url"],
   },
   {
     // THE SPEECH LEGS, WHICH BECAME OURS TO SET AND HAD NO GROUP (D-592). `sarvam_stt_model`
@@ -213,10 +213,6 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     // a client's screen (`billing/ai_quota.assist_nominal_inr` derives the estimate per
     // model) and every in-call token bill. A change with that blast radius filed under
     // "no group yet" is the console under-stating what an operator is about to do.
-    //
-    // `bolna_llm_credential_name` deliberately stays under Voice engine: it names a
-    // credential in BOLNA's console, so an operator correcting it is working on the
-    // engine's side of the seam, not ours.
     //
     // ⚠ `platform_llm_model` BELONGS HERE AND WAS IN "Other". It is the platform rung of
     // `agent → organization → platform` and it is a LIVE setting, so it decides which model
@@ -967,7 +963,7 @@ function WriteReceipt({
  *
  * Three choices and no fourth, because the fourth is the defect: there is no "retry".
  * Re-sending the same body against a value that has since changed is last-write-wins
- * wearing a confirmation step, and these are scalars — an `engine` of `bolna` and one of
+ * wearing a confirmation step, and these are scalars — an `engine` of `pipecat` and one of
  * `cartesia` have no merge, so offering one would be inventing a third state neither
  * operator asked for.
  *

@@ -36,9 +36,15 @@ from typing import Any
 
 import pytest
 from apps.api.core import fx as fx_module
-from apps.api.core.fx import MAX_QUOTE_AGE, FxQuote, current_fx_quote, fx_scope, install_fx_quote
+from apps.api.core.fx import (
+    MAX_QUOTE_AGE,
+    FxQuote,
+    current_fx_quote,
+    fx_scope,
+    install_fx_quote,
+    usd_inr_rate_now,
+)
 from apps.api.db.session import untenanted_session
-from apps.api.engine.bolna import BolnaEngine
 from apps.api.ops.fx_rates import (
     ImplausibleRateError,
     latest_observation,
@@ -125,47 +131,7 @@ async def _clean() -> AsyncIterator[None]:
     await _purge()
 
 
-def _engine() -> BolnaEngine:
-    """An adapter carrying the CONFIGURED fallback, exactly as `build_engine` constructs it."""
-    return BolnaEngine(api_key="k", fx_rate=FALLBACK)
-
-
-def _cost_payload(total_cents: int = 100, **overrides: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "id": "exec-1",
-        "total_cost": total_cents,
-        "cost_breakdown": {"platform": 60, "network": 40},
-    }
-    payload.update(overrides)
-    return payload
-
-
 # --- 1. one unit of work, one rate ----------------------------------------------------
-
-
-def test_a_costing_uses_one_rate_for_the_total_and_every_leg() -> None:
-    """The property the ledger depends on: `total_inr` and its parts are one conversion.
-
-    Asserted as EXACT arithmetic rather than "close enough": a few paise of disagreement
-    between a total and its own legs is precisely the size of defect that gets dismissed.
-    """
-    install_fx_quote(
-        FxQuote(
-            rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
-        )
-    )
-    cost = _engine()._cost(_cost_payload())
-    assert cost is not None
-    assert cost.fx_rate == PUBLISHED
-    # 100 cents = 1 USD; 60 + 40 cents = the same dollar, split. Quantized to
-    # NUMERIC(12,4) — `unit_cost_paid`'s own scale — with ROUND_HALF_UP (`billing/rates
-    # .ROUNDING`), never the ambient decimal context's banker's rounding.
-    assert cost.total_inr == Decimal("88.4275")
-    assert cost.platform_inr == Decimal("53.0565")
-    assert cost.network_inr == Decimal("35.3710")
-    assert cost.source_amount is not None
-    assert cost.source_amount * cost.fx_rate == cost.total_inr
-    assert cost.platform_inr + cost.network_inr == cost.total_inr
 
 
 def test_a_rate_installed_mid_job_does_not_reach_a_job_already_running() -> None:
@@ -186,8 +152,7 @@ def test_a_rate_installed_mid_job_does_not_reach_a_job_already_running() -> None
             )
         )
         assert current_fx_quote() is first, "the pin must survive an install"
-        cost = _engine()._cost(_cost_payload())
-        assert cost is not None and cost.fx_rate == PUBLISHED
+        assert usd_inr_rate_now(FALLBACK).rate == PUBLISHED
     # Outside the scope the process has moved on — the next unit of work gets the new rate.
     after = current_fx_quote()
     assert after is not None and after.rate == Decimal("95.0000")
@@ -223,8 +188,7 @@ def test_the_pin_distinguishes_no_usable_rate_from_no_scope() -> None:
             )
         )
         assert current_fx_quote() is None
-        cost = _engine()._cost(_cost_payload())
-        assert cost is not None and cost.fx_rate == FALLBACK
+        assert usd_inr_rate_now(FALLBACK).rate == FALLBACK
 
 
 # --- 2. the staleness ceiling ---------------------------------------------------------
@@ -242,11 +206,10 @@ def test_a_rate_past_the_ceiling_is_refused_on_the_read_not_at_install() -> None
     install_fx_quote(stale)
     assert stale.usable() is False
     assert current_fx_quote() is None
-    cost = _engine()._cost(_cost_payload())
-    assert cost is not None
-    assert cost.fx_rate == FALLBACK, "past the ceiling, money converts at the configured rate"
-    assert cost.fx_source == "configured:usd_inr_rate"
-    assert cost.fx_as_of is None
+    resolved = usd_inr_rate_now(FALLBACK)
+    assert resolved.rate == FALLBACK, "past the ceiling, money converts at the configured rate"
+    assert resolved.source == "configured:usd_inr_rate"
+    assert resolved.as_of is None
 
 
 def test_the_ceiling_is_measured_from_the_end_of_the_publication_day() -> None:
@@ -275,22 +238,9 @@ def test_a_conversion_records_which_rate_it_used() -> None:
     install_fx_quote(
         FxQuote(rate=PUBLISHED, as_of=as_of, source=TEST_SOURCE, observed_at=datetime.now(UTC))
     )
-    cost = _engine()._cost(_cost_payload())
-    assert cost is not None
-    assert cost.fx_source == TEST_SOURCE
-    assert cost.fx_as_of == as_of
-
-
-def test_an_inr_payload_is_never_multiplied_by_any_rate() -> None:
-    """The 83x error the branch exists to prevent, re-asserted now that the rate is live:
-    an INR-denominated payload must be untouched by whatever the feed is doing. It is
-    refused for the separate unit reason (D-411), and never converted."""
-    install_fx_quote(
-        FxQuote(
-            rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
-        )
-    )
-    assert _engine()._cost(_cost_payload(currency="INR")) is None
+    resolved = usd_inr_rate_now(FALLBACK)
+    assert resolved.source == TEST_SOURCE
+    assert resolved.as_of == as_of
 
 
 # --- 3/4. the parse: NUMERIC end to end, and refusal over guessing --------------------
@@ -507,8 +457,8 @@ async def test_the_refresh_installs_the_stored_rate_for_the_conversion_to_read()
         )
     quote = await refresh_fx_snapshot()
     assert quote is not None and quote.rate == PUBLISHED
-    cost = _engine()._cost(_cost_payload())
-    assert cost is not None and cost.fx_rate == PUBLISHED
+    cost = usd_inr_rate_now(FALLBACK)
+    assert cost is not None and cost.rate == PUBLISHED
 
 
 async def test_a_failed_pull_retries_then_alerts_rather_than_reporting_success() -> None:
@@ -720,8 +670,8 @@ async def test_the_preferred_rung_serves_and_the_fallback_is_never_asked(
     assert summary["source"] == "test:fbil"
     assert summary["rate"] == "94.491400"
     assert alerts == []
-    cost = _engine()._cost(_cost_payload())
-    assert cost is not None and cost.fx_source == "test:fbil" and cost.fx_rate == FBIL_RATE
+    cost = usd_inr_rate_now(FALLBACK)
+    assert cost is not None and cost.source == "test:fbil" and cost.rate == FBIL_RATE
 
 
 async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
@@ -764,11 +714,11 @@ async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
 
     # And the conversion actually follows: `latest_observation` picks the newest
     # publication, which is the serving rung, with no second spelling of the ladder in SQL.
-    cost = _engine()._cost(_cost_payload())
+    cost = usd_inr_rate_now(FALLBACK)
     assert cost is not None
-    assert cost.fx_rate == DEFAULT_RATE
-    assert cost.fx_source == "test:default", "the ROW says which rung priced this minute"
-    assert cost.fx_as_of == date.today()
+    assert cost.rate == DEFAULT_RATE
+    assert cost.source == "test:default", "the ROW says which rung priced this minute"
+    assert cost.as_of == date.today()
 
 
 async def test_a_preferred_rung_that_does_not_answer_still_reaches_the_fallback(
@@ -835,11 +785,11 @@ async def test_the_typed_constant_serves_only_when_every_published_rung_is_stale
     assert "fx_source_degraded" not in codes, "nothing is degraded when nothing is serving"
     assert "fx_pull_failed" not in codes, "the feeds answered — they are behind, not broken"
 
-    cost = _engine()._cost(_cost_payload())
+    cost = usd_inr_rate_now(FALLBACK)
     assert cost is not None
-    assert cost.fx_rate == FALLBACK
-    assert cost.fx_source == "configured:usd_inr_rate"
-    assert cost.fx_as_of is None, "a typed number has no publication date"
+    assert cost.rate == FALLBACK
+    assert cost.source == "configured:usd_inr_rate"
+    assert cost.as_of is None, "a typed number has no publication date"
 
 
 async def test_the_plausibility_band_applies_to_the_fallback_rung(
@@ -1281,8 +1231,8 @@ async def test_the_ladder_descends_past_two_stale_rungs_to_the_third(
     assert alerts[0][1]["preferred_source"] == "test:direct"
     assert alerts[0][1]["reason"] == "stale_publication"
 
-    cost = _engine()._cost(_cost_payload())
-    assert cost is not None and cost.fx_source == "test:default"
+    cost = usd_inr_rate_now(FALLBACK)
+    assert cost is not None and cost.source == "test:default"
 
 
 def test_an_empty_fbil_array_is_a_quiet_feed_and_names_the_window() -> None:

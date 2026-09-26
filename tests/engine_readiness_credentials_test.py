@@ -1,9 +1,7 @@
-"""`/healthz/ready` answers for whichever engine is selected, not for Bolna (D-104).
+"""`/healthz/ready` answers for whichever engine is selected, not for one vendor (D-104).
 
-THE DEFECT. `runtime_config_missing_keys` carried one line about one vendor:
-
-    if cfg.engine == "bolna" and not cfg.bolna_api_key:
-        missing.append("BOLNA_API_KEY")
+THE DEFECT. `runtime_config_missing_keys` carried one line about one vendor: if the
+engine was the rented one (removed by D-639) and its API key was blank, name that key.
 
 D-93/D-94 made `cartesia` a value `ENGINE=` accepts and wired the adapter behind it. That
 line did not grow a second clause, so a deployment running `ENGINE=cartesia` with no
@@ -15,7 +13,7 @@ the correct answer already existed and readiness asked a different question of a
 authority.
 
 WHY THE FIX IS NOT A SECOND `if`. That shape is what produced the bug, and a third engine
-would need a third clause. Worse, it puts "Bolna needs BOLNA_API_KEY" in `core/settings.py`
+would need a third clause. Worse, it puts "vendor X needs key Y" in `core/settings.py`
 — a fact about a vendor, in a module hard rule 2 says may not hold one. So the adapter
 answers both halves: `holds_credentials()` for the verdict (already the single authority
 `engine_availability` derives from) and `credential_env_keys` for the NAME, because "not
@@ -115,17 +113,6 @@ def test_a_credentialled_cartesia_deployment_is_ready() -> None:
     assert runtime_config_missing_keys(_settings(engine="cartesia", cartesia_api_key="k")) == []
 
 
-def test_bolna_still_answers_exactly_as_it_did() -> None:
-    """The behaviour that already worked, pinned before it was generalised away.
-
-    This is the regression the refactor could plausibly cause: the hardcoded clause was
-    correct for Bolna, and replacing correct-for-one with general-for-all is only an
-    improvement if the one still holds.
-    """
-    assert runtime_config_missing_keys(_settings(engine="bolna")) == ["BOLNA_API_KEY"]
-    assert runtime_config_missing_keys(_settings(engine="bolna", bolna_api_key="k")) == []
-
-
 def test_the_fake_engine_never_holds_readiness_down() -> None:
     """`ENGINE=fake` IS its own vendor (DEV-SETUP §3). An empty `credential_env_keys` and a
     permanently-True `holds_credentials` must combine to report nothing, or local
@@ -185,7 +172,7 @@ def test_the_engine_clause_is_gone_from_core_settings() -> None:
     source = (Path(__file__).resolve().parents[1] / "apps/api/core/settings.py").read_text(
         encoding="utf-8"
     )
-    for vendor_key in ("BOLNA_API_KEY", "CARTESIA_API_KEY"):
+    for vendor_key in ("CARTESIA_API_KEY",):
         assert f'"{vendor_key}"' not in source, (
             f"{vendor_key} is named in core/settings.py again — vendor credential names "
             "belong to the adapter that reads them (apps/api/engine/), not to a core "

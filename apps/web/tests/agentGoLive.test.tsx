@@ -142,14 +142,14 @@ describe("putting an agent on the voice platform for the first time", () => {
     const { calls } = await render({
       [`POST ${PUBLISH_PATH}`]: {
         agent_id: AGENT,
-        engine_agent_ref: "bolna_agent_7f21",
+        engine_agent_ref: "pipecat_agent_7f21",
         status: "live",
       },
     });
 
     fireEvent.click(await publishButton());
 
-    await screen.findByText(/bolna_agent_7f21/);
+    await screen.findByText(/pipecat_agent_7f21/);
     const posted = calls.filter(
       (call) => call.path === PUBLISH_PATH && call.method === "POST",
     );

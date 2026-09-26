@@ -842,18 +842,13 @@ def test_the_worker_declares_no_database_driver() -> None:
 
 def test_the_client_is_the_only_way_the_worker_reaches_the_platform() -> None:
     """One door, so there is one place the Bearer header, the wall-clock bound and the hard
-    rule 6 error handling live.
-
-    `memory.py` is the ONE sanctioned exception and it is named rather than excluded by
-    accident: it predates this seam, it calls a DIFFERENT endpoint that the rented engine
-    also calls (`/v1/engine/caller-data/{engine}`), and it fails OPEN where everything on
-    this client fails loud. Folding it in would mean widening that endpoint or narrowing this
-    client's posture; both are worse than one named exception.
+    rule 6 error handling live. `memory.py` reads caller memory through this client too
+    (D-641), so it is no longer an exception.
     """
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[1] / "apps" / "voice-worker"
-    allowed = {"voice_worker/api_client.py", "voice_worker/memory.py", "voice_worker/embedding.py"}
+    allowed = {"voice_worker/api_client.py", "voice_worker/embedding.py"}
     offenders = sorted(
         str(path.relative_to(root))
         for path in root.rglob("*.py")

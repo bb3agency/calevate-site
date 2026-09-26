@@ -232,31 +232,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/actions/invoke/{engine}/{tool_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Engine-called: run one in-call action and return its result to the LLM
-         * @description Bolna calls this for a during-call tool. Verifies the source, resolves the tenant
-         *     from the injected agent ref, loads the tool under that tenant's RLS, and executes.
-         *
-         *     The response body IS the tool result the LLM reads back. Failures are returned as a
-         *     structured payload (not a 5xx) so the agent can relay them to the caller rather than the
-         *     call hearing dead air.
-         */
-        post: operations["invoke_action_v1_actions_invoke__engine___tool_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/client-health": {
         parameters: {
             query?: never;
@@ -4767,26 +4742,6 @@ export interface paths {
          *     which is the answer this repo already gives for a delete with nothing to report.
          */
         delete: operations["remove_v1_dnc__entry_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/engine/caller-data/{engine}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Engine-called: what this agent remembers about the caller now ringing
-         * @description The voice platform calls this when an inbound call arrives and puts the answer into the agent's instructions for that one call. It answers with nothing at all for a caller the agent has not spoken to, for an agent whose account has not switched caller continuity on, and whenever the lookup cannot be completed in time — a returning caller is then greeted normally, which is the right way for this to fail.
-         */
-        get: operations["caller_data_v1_engine_caller_data__engine__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -10665,8 +10620,8 @@ export interface components {
          *     done to each table.
          *
          *     `engine_deletion` is a status string rather than a boolean because the honest answer
-         *     today is neither true nor false — Bolna's deletion API is undocumented (a pilot
-         *     gate), and a certificate that claimed an engine-side deletion we cannot demonstrate
+         *     today is neither true nor false — no engine's deletion has been demonstrated, and a
+         *     certificate that claimed an engine-side deletion we cannot demonstrate
          *     would be the one lie a compliance document must not contain.
          *
          *     The last four fields are why this is a certificate and not a database row. The proof
@@ -18842,40 +18797,6 @@ export interface operations {
             };
         };
     };
-    invoke_action_v1_actions_invoke__engine___tool_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                engine: string;
-                tool_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     read_client_health_v1_admin_client_health_get: {
         parameters: {
             query?: never;
@@ -26316,45 +26237,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    caller_data_v1_engine_caller_data__engine__get: {
-        parameters: {
-            query: {
-                contact_number: string;
-                agent_id: string;
-                execution_id?: string;
-            };
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                engine: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
             };
             /** @description RFC-9457 problem+json */
             default: {

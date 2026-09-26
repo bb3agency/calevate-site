@@ -174,8 +174,8 @@ class ErasureProofOut(Strict):
     done to each table.
 
     `engine_deletion` is a status string rather than a boolean because the honest answer
-    today is neither true nor false — Bolna's deletion API is undocumented (a pilot
-    gate), and a certificate that claimed an engine-side deletion we cannot demonstrate
+    today is neither true nor false — no engine's deletion has been demonstrated, and a
+    certificate that claimed an engine-side deletion we cannot demonstrate
     would be the one lie a compliance document must not contain.
 
     The last four fields are why this is a certificate and not a database row. The proof

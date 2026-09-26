@@ -1,7 +1,8 @@
 """Restate calls metered under a superseded cost-UNIT assumption — by APPENDING (D-411).
 
-WHY THIS EXISTS AT ALL. `engine/bolna.py` turns the vendor's cost figure into rupees using
-two things nothing first-party states outright: which CURRENCY the number is in, and how
+WHY THIS EXISTS AT ALL. The rented engine's adapter (deleted by D-639; its rows are still
+in the ledger) turned the vendor's cost figure into rupees using two things nothing
+first-party states outright: which CURRENCY the number is in, and how
 many of its units make one major unit (`_MINOR_UNITS_PER_MAJOR`). Both are marked
 assumptions, gate 7 (OPERATIONS §2) is where they stop being assumptions, and the adapter
 now REFUSES a currency whose unit it has no evidence for rather than dividing it by
@@ -62,7 +63,7 @@ COST_UNIT_CORRECTION_META_KIND = "cost_unit_restatement"
 
 #: WHICH ROWS WERE PRICED BY THE ADAPTER'S DIVISOR. `pipeline._meter` stamps
 #: `meta.source_currency` on every row it writes from a `CostBreakdown`, and the divisor is
-#: a function of that currency (`bolna._MINOR_UNITS_PER_MAJOR`), so the currency is enough
+#: a function of that currency (the adapter's minor-units table), so the currency is enough
 #: to identify the population without a second column on a ledger that cannot be altered.
 #:
 #: IT IS ALSO WHY A CORRECTION ROW MUST NOT CARRY THIS KEY. The rows this module writes

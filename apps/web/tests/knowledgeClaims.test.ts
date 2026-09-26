@@ -17,13 +17,12 @@ import { relPosix } from "./repoPaths";
  * that had become TRUE. What it said, and what the tree says now — each re-read at source
  * this session rather than carried forward:
  *
- * - "`apps/api/engine/bolna.py:2484` — `BOLNA_CAPABILITIES.knowledge_base = False`" —
- *   it is `True` (`apps/api/engine/bolna.py:3636`).
- * - "`attach_kb` RAISES" — it does not. D-488 built the real one
- *   (`apps/api/engine/bolna.py:5420`): the approved document is uploaded, waited for, and
- *   the agent's `vector_ids` are PATCHed to reference it. `kb/service.publish_source`
- *   calls it behind `require_capability("knowledge_base")` (`kb/service.py:1643,1731`), so
- *   a published source really is in the engine's own store.
+ * - "the engine's `knowledge_base` capability is False" — every adapter in the tree
+ *   declares it `True` today (the rented engine that once declared False was removed by
+ *   D-639).
+ * - "`attach_kb` RAISES" — it does not. `kb/service.publish_source` calls it behind
+ *   `require_capability("knowledge_base")`, so a published source really reaches the
+ *   engine.
  * - "the vector store is explicitly NOT ours" — D-502 reversed D-28; `pgvector` is an
  *   extension in the Postgres this repo already runs.
  * - "This console has no file input at all: `grep 'type=\"file\"' apps/web/src` is empty" —

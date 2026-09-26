@@ -570,7 +570,7 @@ async def test_a_plain_config_key_cannot_be_stored_as_a_secret() -> None:
         response = await http.put(
             "/v1/ops/secrets/engine",
             headers=_auth(token, secret_confirmation("engine")),
-            json={"value": "bolna", "reason": "not a credential"},
+            json={"value": "cartesia", "reason": "not a credential"},
         )
     assert response.status_code == 422
     assert response.json()["type"].endswith("/secret_key_is_plain_config")
@@ -608,7 +608,7 @@ async def test_a_credential_is_validated_against_its_own_field_not_just_for_empt
     stored". True for `config_service.set_value`, false here.
 
     The length is the instance; the CLASS is what this pins. The next `pattern=` added to
-    a credential field — the shape that already caught `bolna_llm_credential_name` — would
+    a credential field would
     silently do nothing without this, and nothing anywhere would go red.
     """
     async with untenanted_session() as session:
@@ -697,7 +697,7 @@ async def test_the_probe_reports_a_refusal_and_an_outage_differently(
         monkeypatch.setattr(
             secret_probes.httpx, "AsyncClient", lambda *_, _s=status, **__: _Client(_s)
         )
-        result = await secret_probes.probe_credential("bolna_api_key", "candidate-value")
+        result = await secret_probes.probe_credential("cartesia_api_key", "candidate-value")
         assert result.outcome == expected, status
         assert result.status == status
 
@@ -718,7 +718,7 @@ async def test_an_unreachable_vendor_is_never_reported_as_a_bad_key(
             raise OSError("dns is down")
 
     monkeypatch.setattr(secret_probes.httpx, "AsyncClient", lambda *_, **__: _Exploding())
-    result = await secret_probes.probe_credential("bolna_api_key", "candidate-value")
+    result = await secret_probes.probe_credential("cartesia_api_key", "candidate-value")
     assert result.outcome == "unreachable"
     assert "NOT been checked" in result.detail
 
@@ -753,15 +753,7 @@ def test_every_probe_authenticates_the_way_its_adapter_does() -> None:
     is what matters, and a comment that merely mentions the old name must not fail this.
     """
     from apps.api.engine import cartesia as cartesia_module
-    from apps.api.engine.bolna import BASE_URL as BOLNA_BASE_URL
     from apps.api.ops.secret_probes import PROBES
-
-    bolna = PROBES["bolna_api_key"]
-    assert bolna.url.startswith(BOLNA_BASE_URL + "/"), (
-        "the Bolna probe must be aimed at the host the adapter actually calls; it cites "
-        f"`BASE_URL`, which is {BOLNA_BASE_URL!r}"
-    )
-    assert bolna.headers("k") == {"Authorization": "Bearer k"}
 
     cartesia = PROBES["cartesia_api_key"]
     assert cartesia.url.startswith(cartesia_module.BASE_URL + "/")
@@ -1098,7 +1090,7 @@ async def test_an_undecryptable_row_alerts_the_operator_by_name(
 def test_the_aad_namespaces_platform_secrets_away_from_tenant_secrets() -> None:
     """§11's `tenant_secrets` reuses this envelope. The context prefix is what stops a
     tenant's sealed credential ever being swapped into a platform row."""
-    assert secret_context("bolna_api_key") == "platform_secret:bolna_api_key"
+    assert secret_context("cartesia_api_key") == "platform_secret:cartesia_api_key"
     assert not secret_context("x").startswith("tenant_secret:")
 
 

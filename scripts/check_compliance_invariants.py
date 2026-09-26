@@ -199,28 +199,6 @@ ENGINE_REACH_EXEMPTIONS: dict[str, str] = {
         "guardrail has a single place to point at. Its own callers are what section 2 "
         "judges; adding a second entry here is how that stops being true"
     ),
-    "scripts/pilot/gates_api.py::run_gate_2": (
-        "The pilot harness, which OPERATIONS §2 gate 2 requires to place a call through "
-        "our own adapter, and which cannot pass the gate because it holds no database "
-        "session to pass it with — `scripts/pilot/safety.py` calls that absence its "
-        "fourth defence and `tests/pilot_safety_test.py` asserts it against the package "
-        "source, so the harness structurally cannot enumerate contacts or discover any "
-        "number other than the single `--to` an operator typed. In place of the gate it "
-        "carries: dry run by default behind `--yes-place-real-calls-and-spend-money`, a "
-        "mandatory `--max-calls` under a hard ceiling of 25 enforced at "
-        "`GateContext.spend_a_call`, and a refusal to run at all against a "
-        "production-shaped configuration. CLOSED BY: the harness growing a session, a "
-        "contact list, or any destination it was not handed — at which point it is a "
-        "dialler and takes the gate like every other"
-    ),
-    "scripts/pilot/concurrency.py::dial": (
-        "The same harness, same controls, same budget counter — OPERATIONS §2 gate 13 "
-        "ramps concurrent calls to the SAME single `--to` destination to find the line "
-        "ceiling, and hangs each probe up immediately. Exempt for the reason "
-        "`run_gate_2` is and closed by the same change; listed separately rather than "
-        "per-module because a module-level entry would cover the next function somebody "
-        "adds to it"
-    ),
 }
 
 # WHO MAY DECIDE WHETHER AN AGENT EXISTS AND WHAT STATE IT IS IN (D-440, hard rule 5).

@@ -27,7 +27,7 @@ one.
 WHAT DOES *NOT* COUNT, and each exclusion is a decision:
 
 * **429 / throttling.** It is the vendor working as designed and it has its own ladder
-  (`bolna.THROTTLE_MAX_ATTEMPTS`) and its own transient error code. Rate limiting is a
+  (`vendor_http.THROTTLE_MAX_ATTEMPTS`) and its own transient error code. Rate limiting is a
   capacity conversation, not an outage.
 * **4xx other than 429.** `engine_rejected` on a 400 or a 404 is OUR request being
   wrong. It deserves the log line it already gets and would drown this signal.
@@ -165,7 +165,7 @@ async def record_engine_failure(engine: str, *, kind: FailureKind) -> None:
             f"({server_errors} answered 5xx, {unreachable} got no answer); "
             f"threshold is {SPIKE_THRESHOLD}"
         ),
-        # The engine NAME, which is ours (`bolna`, `cartesia`), never a route, a payload
+        # The engine NAME, which is ours (`cartesia`, `pipecat`), never a route, a payload
         # or a vendor error string — hard rule 6, and the same reason `_request` refuses
         # to echo a vendor body to a client.
         engine=engine,

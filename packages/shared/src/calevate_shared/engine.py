@@ -135,7 +135,12 @@ def parse_owned_runtime_agent_ref(ref: EngineAgentRef) -> tuple[UUID, UUID] | No
 #: on purpose: what an adapter DECLARES and what it REPORTS are the same vocabulary, so
 #: the conformance suite can compare them (an adapter that claims `hmac` and answers
 #: `none` is caught by a `==`, not by a reviewer).
-WebhookAuthMethod = Literal["hmac", "source_ip", "none"]
+#:
+#: There is no source-IP member. The one engine that authenticated by egress address
+#: alone was the rented engine D-639 deleted; an allowlist is weaker evidence than a
+#: signature and an engine that needs one brings the member, its resolver and the
+#: receiver branch together.
+WebhookAuthMethod = Literal["hmac", "none"]
 
 #: Who chooses one speech/model leg.
 #:
@@ -557,21 +562,17 @@ class EngineCapabilities(BaseModel):
 
 
 #: The webhook authenticity method of each engine we ship, as DATA — one definition, two
-#: readers, exactly the doctrine `calevate_shared.config.bolna_source_ips` established
-#: for the allowlist ("ONE ALLOWLIST, TWO READERS").
+#: readers.
 #:
 #: The second reader is `apps/voice-runtime/engine_intake.py`, which must decide how to
 #: authenticate a delivery WITHOUT importing an adapter: hard rule 3 forbids the heavy
-#: import on the ack path, and the receiver runs as its own deployable. It used to answer
-#: with `if engine == "bolna"` — a vendor name hard-coded into the receiver, so a signed
-#: engine meant editing the latency-critical service.
+#: import on the ack path, and the receiver runs as its own deployable. The alternative,
+#: a vendor name hard-coded into the receiver, means a new engine is an edit to the
+#: latency-critical service.
 #:
 #: The conformance suite asserts `adapter.capabilities.webhook_auth == this[adapter.name]`
 #: for every adapter, so the table cannot drift from the adapters it describes.
 WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
-    # Bolna signs nothing (D-31, TRD §5): a source-IP allowlist plus execution-id dedupe,
-    # payloads as hints, the List-Executions poller as truth.
-    "bolna": "source_ip",
     # The fake engine verifies NOTHING by design, which is how the pipeline runs offline.
     # `method="none"` is what stops a caller mistaking it for evidence.
     "fake": "none",
@@ -603,17 +604,17 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # `ENGINE=` (`config.EngineName` does not include it), so it can reach no deployment.
     "fake-owned-runtime": "none",
     # Cartesia Line's webhooks are AUTHENTICATED BY SOMETHING WE CANNOT CHECK YET, and
-    # `hmac` is this Literal's only value that fails CLOSED. What is read at source is
-    # that webhooks exist at all (`AgentSummary.webhook_id` in their generated client);
-    # no Cartesia SDK carries a signing scheme, and the only description of one is a
-    # search snippet naming an `x-webhook-secret` SHARED SECRET header — which is not an
-    # HMAC (D-270, `docs/vendor/cartesia/webhooks-cost-and-kb.md`). So
+    # `hmac` is this Literal's only value that fails CLOSED. What is read at source is that
+    # webhooks exist at all (`AgentSummary.webhook_id` in their generated client); no
+    # Cartesia SDK carries a signing scheme, and the only description of one is a search
+    # snippet naming an `x-webhook-secret` SHARED SECRET header — which is not an HMAC
+    # (D-270, `docs/vendor/cartesia/webhooks-cost-and-kb.md`). So
     # `CartesiaEngine.verify_webhook` fails CLOSED rather than guessing a header and a
     # digest, and the receiver refuses `hmac` deliveries until a real verifier exists.
     # Declared here anyway because the declaration is what the receiver reads, and
-    # "authenticated, and we cannot check it yet" must not be recorded as "unsigned, so
-    # an IP allowlist will do". If the scheme turns out to be a shared secret, a
-    # `shared_secret` member lands in `WebhookAuthMethod` and in both halves together.
+    # "authenticated, and we cannot check it yet" must not be recorded as "unsigned". If the
+    # scheme turns out to be a shared secret, a `shared_secret` member lands in
+    # `WebhookAuthMethod` and in both halves together.
     "cartesia": "hmac",
     # THE ENGINE WE RUN (D-592, `docs/PIPECAT-MIGRATION.md` §3D). `none` because there is
     # no counterpart: nothing external calls us — the worker is inside our own trust
@@ -636,8 +637,8 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
 #: The D-36 canonical LLM, as the vendor spells it (D-105).
 #:
 #: WHY THIS IS A CONSTANT AND NOT A STRING AT TWO CALL SITES. It was
-#: `model: str = "sarvam-m"` in `workers/extraction.py` and `llm_model="sarvam-m"` in
-#: `scripts/pilot/gates_api.py`, and **Sarvam retired `sarvam-m`** — their changelog says
+#: `model: str = "sarvam-m"` in `workers/extraction.py` and `llm_model="sarvam-m"` in the
+#: pilot harness (deleted by D-639), and **Sarvam retired `sarvam-m`** — their changelog says
 #: a Chat Completions request carrying it FAILS. So post-call extraction was aimed at a
 #: model that no longer answers, and pilot gate 1 would have configured a live agent with
 #: a dead LLM. Neither site was wrong when it was written; there was simply nowhere for
@@ -703,8 +704,7 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: The vendor NAME the speech-to-text leg is looked up under on the engine's own provider
 #: table. `sarvam` is the string Bolna's transcriber page is written about
 #: (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers/transcriber/sarvam.md`,
-#: fetched 20 Aug 2026), and it is the same spelling `scripts/pilot/gates_api.py` already
-#: configures by hand for pilot gate 1.
+#: fetched 20 Aug 2026).
 SARVAM_STT_PROVIDER: Final = "sarvam"
 
 #: THE PLATFORM DEFAULT IN-CALL TRANSCRIBER, and it exists because there was none.
@@ -713,7 +713,8 @@ SARVAM_STT_PROVIDER: Final = "sarvam"
 #:
 #: `agents.stt_provider` / `agents.stt_model` are nullable Text columns with **no writer
 #: anywhere in this tree** — no route, no service, no seed, no migration default. Every
-#: read site (`agents/service.py::_to_config`, `engine/bolna.py`) faithfully forwarded the
+#: read site (`agents/service.py::_to_config`, the rented engine's adapter) faithfully
+#: forwarded the
 #: NULL, so every published agent sent `{"provider": null, "model": null}` in its
 #: `transcriber` block and the engine chose its own default transcriber. On a Telugu-first
 #: product that is not a cosmetic omission: what the caller actually SAID is the input to
@@ -944,8 +945,8 @@ OPENAI_DATA_RESIDENCY: Final = "us"
 #: three spellings nearly match is exactly why it is worth saying. The engine's wire values
 #: are `"azure-openai"`, `"openai"` and `"google"` — VERIFIED twice each, to the vendor's own
 #: `LLMProvider` enum AND to a copy-pasteable body in their docs
-#: (`docs/evidence/llm-provider-postures.md` §1) — and mapping ours onto theirs is
-#: `apps/api/engine/bolna.py::_llm_routing`'s job. D-417 is the row about what happens when a
+#: (`docs/evidence/llm-provider-postures.md` §1) — and mapping ours onto theirs was that
+#: engine's adapter's job (deleted by D-639). D-417 is the row about what happens when a
 #: wire value is read off a human-readable label instead: the shipped string was `"azure"`
 #: and would have reached a different client class.
 #:
@@ -1016,11 +1017,11 @@ _TRAP_READ_ON: Final = date(2026, 8, 22)
 
 #: GPT-5-SERIES MODELS ACCEPT EXACTLY ONE TEMPERATURE, AND WE SEND `0.1`.
 #:
-#: `apps/api/engine/bolna.py::_agent_body` sends `temperature: 0.1` on every publish, and the
-#: engine's schema documents the refusal verbatim: *"GPT-5-series models require exactly `1`
-#: — any other value is rejected with `400 For GPT-5 models, temperature must be 1`"*. It is
-#: latent today only because no shipped identifier starts with `gpt-5`; the moment one is
-#: SELECTABLE, every publish of an agent on it 400s.
+#: The rented engine's adapter (deleted by D-639) sent `temperature: 0.1` on every publish,
+#: and that engine's schema documents the refusal verbatim: *"GPT-5-series models require
+#: exactly `1` — any other value is rejected with `400 For GPT-5 models, temperature must be
+#: 1`"*. It is latent today only because no shipped identifier starts with `gpt-5`; the
+#: moment one is SELECTABLE, every publish of an agent on it 400s.
 TEMPERATURE_MUST_BE_ONE: Final = LlmModelTrap(
     name="temperature-must-be-one",
     what_breaks=(
@@ -1189,11 +1190,13 @@ AzureOpenAIModel = Literal["gpt-4o-mini", "gpt-4.1-mini"]
 #: because the Literal is where somebody is tempted to add one.
 #:
 #: ⚠ BOTH ARE GPT-5-CLASS, so both carry `TEMPERATURE_MUST_BE_ONE` and
-#: `MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS` — and BOTH ARE NOW MITIGATED AT THE WIRE
-#: rather than used as a reason to withhold them. `apps/api/engine/bolna.py` reads
-#: `LlmModelSpec.traps` and sends `temperature: 1` and an explicit `reasoning_effort: "none"`
-#: (which both models accept — `openai.md:87`, `constants.py:323,329`) on exactly the models
-#: that carry them. The engine's Responses-API path force-closes the temperature at runtime,
+#: `MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS` — and both were MITIGATED AT THE WIRE rather
+#: than used as a reason to withhold them: the rented engine's adapter (deleted by D-639)
+#: read `LlmModelSpec.traps` and sent `temperature: 1` and an explicit
+#: `reasoning_effort: "none"` (which both models accept — `openai.md:87`,
+#: `constants.py:323,329`) on exactly the models that carry them. ⚠ The owned runtime sends no
+#: temperature at all (`voice_worker/pipeline.py`); `ModelConfig.llm_traps` still carries the
+#: traps to it. The engine's Responses-API path force-closes the temperature at runtime,
 #: but agent CREATE is validated against the raw body, so an unmitigated publish 400s before
 #: a call is ever placed.
 OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
@@ -1222,7 +1225,9 @@ OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
 #:   `google/genai/types.py:5700-5704`). That is not a mitigation we hope holds; it is the
 #:   trap ELIMINATED, proved from both sides of the wire. ⚠ It also means we must never send
 #:   a non-zero `thinking_budget`, which would switch thinking back ON through that
-#:   function's first branch — `apps/api/engine/bolna.py` sends none, by construction.
+#:   function's first branch. ⚠ That elimination is a property of the RENTED engine this
+#:   repository adapted (deleted by D-639); the owned runtime reaches Gemini over the
+#:   OpenAI-compat surface, where the same guarantee has not been read (D-639).
 #: * `gemini-3.1-flash-lite` and `gemini-3.5-flash` are **REFUSED**, and the ground is
 #:   correctness rather than price or residency. On `gemini-3.*` the engine sends
 #:   `thinking_level` instead, whose vendor enum has **no zero at all** — `MINIMAL` is the
@@ -1306,10 +1311,10 @@ LlmModelName = AzureOpenAIModel | OpenAIDirectModel | GoogleDirectModel
 #: cost per minute and, because `is_surchargeable_llm_model` compares against
 #: `BASE_RATE_LLM_MODEL` and not against this, it changes no client's bill and re-classifies
 #: no account's charge. Its trap (`THINKING_TOKENS_SHARE_THE_REPLY_BUDGET`) is the one the
-#: engine ELIMINATES on exactly the 2.5 flash pair by sending `thinking_budget=0` itself, and
-#: `engine/bolna.py::_llm_trap_settings` renders it as a deliberate empty arm — so this
-#: default sends nothing the vendor can refuse and cannot produce the dead-air failure that
-#: keeps every `gemini-3.*` unselectable.
+#: rented engine eliminated on exactly the 2.5 flash pair by sending `thinking_budget=0`
+#: itself — so on that engine this default sent nothing the vendor could refuse and could not
+#: produce the dead-air failure that keeps every `gemini-3.*` unselectable. ⚠ On the owned
+#: runtime the same property has not been re-read (D-639).
 #:
 #: ⚠ **A DEPLOYMENT MUST HOLD A GOOGLE KEY AND AN ATTESTED PRICE BEFORE ANY CLIENT CAN BE
 #: PUT ON IT.** Offerability is a live property of a deployment, never of a constant
@@ -1653,8 +1658,8 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
         # point of recording it. The elimination is a branch in somebody else's repository at
         # a pinned commit (`gemini_llm.py:202-206`), not a term of any contract: the day that
         # branch narrows, this model joins its 3.x siblings and the entry a reader needs is
-        # already here. `apps/api/engine/bolna.py` reads this tuple and is what guarantees we
-        # never send the `thinking_budget` that would switch thinking back on.
+        # already here. Whichever adapter builds the wire reads this tuple through
+        # `ModelConfig.llm_traps`.
         traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
         selectable=True,
         withdrawn_reason=None,
@@ -2207,9 +2212,9 @@ class PostureLeg:
         in-call engine takes our base URL" were the same set of legs and either test worked.
         D-478 gave the google leg a builder for the DASHBOARD copilot's OpenAI-compat surface
         (`google_openai_compat_base_url`, `copilot/service.py`), which does NOT make its
-        IN-CALL endpoint ours: the engine has a first-class `google` provider and dials Google
-        itself (`engine/bolna.py` route; the leg's only agent-object identifier is the model
-        name), so a base URL on the in-call google leg is a value nothing sends. This property
+        IN-CALL endpoint ours: the rented engine had a first-class `google` provider and
+        dialled Google itself (the leg's only agent-object identifier was the model name), so
+        a base URL on the in-call google leg is a value nothing sends. This property
         is that fact stated once, read by `ModelConfig._llm_endpoint_is_coherent` here and by
         `agents/service.py::in_call_llm` — the two places that used to spell it as a builder
         test and would otherwise drift apart.
@@ -2734,9 +2739,8 @@ VOICE_STYLE_GUIDANCE: Final = (
 
 #: THE VARIABLE THE ENGINE FILLS WITH WHAT WE REMEMBER ABOUT THE PERSON ON THIS CALL.
 #:
-#: One name, three consumers, and that is why it is here rather than in an adapter: the
-#: OUTBOUND dial sends it as a per-call variable (`CallContext.caller_memory` ->
-#: `user_data`), the INBOUND caller-data endpoint returns it under the same key, and
+#: One name, several consumers, and that is why it is here rather than in an adapter: the
+#: OUTBOUND dial sends it as a per-call variable (`CallContext.caller_memory`), and
 #: `CALLER_MEMORY_SLOT` below puts the matching token in the prompt. Three spellings of one
 #: key is the drift D-103/D-105 exist for, and the symptom would be silent — an unfilled
 #: token is not an error, it is an agent reading a placeholder out loud.
@@ -2811,8 +2815,8 @@ CALLER_MEMORY_GUIDANCE: Final = (
 def render_caller_memory(facts: Sequence[str]) -> str:
     """The remembered facts as ONE bounded block, in the shape the prompt slot expects.
 
-    THE ONE RENDERER, because there are two producers — the outbound dial and the inbound
-    caller-data endpoint — and a difference between them would be a difference in what an
+    THE ONE RENDERER, because there are two producers — the outbound dial and the worker's
+    inbound caller-memory read — and a difference between them would be a difference in what an
     agent hears about the same person depending on who rang whom.
 
     A dash list rather than prose: it reads to a model as a set of separate records rather
@@ -3307,8 +3311,8 @@ class AgentConfig(BaseModel):
     #:
     #: It reaches the engine as a PROMPT SECTION and nothing else — see
     #: `compose_engine_prompt`. The facts themselves are per-call and never agent state:
-    #: they ride `CallContext.caller_memory` on an outbound dial and the inbound
-    #: caller-data endpoint on an inbound one, because a fact about ONE person may not be
+    #: they ride `CallContext.caller_memory` on an outbound dial and the worker's
+    #: caller-memory read on an inbound one, because a fact about ONE person may not be
     #: written onto an agent object every caller shares.
     #:
     #: The same flag governs auto-reschedule callbacks — the founder's copy calls memory
@@ -4198,8 +4202,8 @@ STT_BUDGET_MS: Final[float] = 70.0
 #: into a result. It lives here rather than in an adapter because it is a property of the
 #: product, not of whoever is renting us the audio path this quarter.
 #:
-#: **THE NAME SAYS TTFT AND NOT A FIGURE** — it is imported by `apps/api/engine/bolna.py`
-#: and `apps/api/ops/engine_latency.py` and cited by name across the tree, so the number
+#: **THE NAME SAYS TTFT AND NOT A FIGURE** — it is imported by
+#: `apps/api/ops/engine_latency.py` and cited by name across the tree, so the number
 #: moves here and nowhere else. 150ms is the engine's own published typical TTFT for a model we
 #: offer: *"OpenAI gpt-4.1-mini | ~150ms"* (VERIFIED-VENDOR-DOCS: `latency.md:66`; the same
 #: table gives `gemini-2.5-flash` ~150ms and gpt-4.1 ~200ms). Their stage diagram's range
@@ -4228,8 +4232,7 @@ LLM_TTFT_BUDGET_MS: Final[float] = 150.0
 
 #: OUR budget for the TEXT-TO-SPEECH leg of one turn — time to first AUDIO, not to first
 #: token. The streaming qualifier is the whole number: a synthesizer that returns the
-#: finished utterance cannot meet it at any speed, and the adapter sends `stream: true`
-#: (`apps/api/engine/bolna.py`, `synthesizer.stream`).
+#: finished utterance cannot meet it at any speed.
 #:
 #: 80ms is the floor of the engine's own stage range, *"Synthesis first chunk
 #: (80-200ms)"* (`latency.md:24`).
@@ -4281,8 +4284,8 @@ INDIA_US_TRANSIT_FLOOR_MS: Final[float] = 100.0
 #: `bolna-findings/mirror/pages/api-reference/agent/v2/create.md:1055-1058` and `:418-427`.
 #: Their console documents the same pair as the two "Response Latency" controls and
 #: recommends *"Endpointing around 200-300ms and Linear Delay around 400-500ms"* for
-#: natural conversation (`agent-setup/engine-tab.md:56,64`). Our agent payload sends
-#: neither key (`apps/api/engine/bolna.py`), so every published agent inherits both.
+#: natural conversation (`agent-setup/engine-tab.md:56,64`). The rented engine's agent
+#: payload sent neither key, so every agent published there inherited both.
 #:
 #: DECLARED HERE, NOT SILENTLY, because it is the single largest term in the gap and it is
 #: the one term that is a CONFIGURATION rather than a physical cost. It is not part of
@@ -4493,9 +4496,7 @@ class TurnLatency(BaseModel):
         """STT + LLM TTFT + TTS TTFA, or NOTHING.
 
         A partial sum is not a smaller latency, it is a different quantity wearing the same
-        name — so a turn missing any leg contributes to no comparison at all. Same rule as
-        `scripts/pilot/latency.VendorTurnLatency`, which compares this sum against a
-        stopwatch at pilot gate 4.
+        name — so a turn missing any leg contributes to no comparison at all.
         """
         parts = (self.stt_ms, self.llm_ttft_ms, self.tts_ttfa_ms)
         if any(part is None for part in parts):
@@ -4827,12 +4828,12 @@ class ExecutionListing(BaseModel):
 
 
 class WebhookVerdict(BaseModel):
-    """Per-engine authenticity result. Bolna signs nothing (D-31), so `method` is how
-    we say what evidence we actually have — an unsigned event is accepted only as a
-    HINT, and the poller remains the guarantee of record."""
+    """Per-engine authenticity result. `method` is how we say what evidence we actually
+    have — an unsigned event is accepted only as a HINT, and the poller remains the
+    guarantee of record."""
 
     ok: bool
-    method: Literal["hmac", "source_ip", "none"]
+    method: WebhookAuthMethod
     reason: str | None = None
 
 
@@ -5034,11 +5035,10 @@ class VoiceEngine(Protocol):
     #: operator should set them (D-104). Empty for an adapter that IS its own vendor.
     #:
     #: This is the NAME half of `holds_credentials`, and it lives here for the same reason
-    #: `capabilities` does: "Bolna needs `BOLNA_API_KEY`" is a fact about a vendor, and
-    #: hard rule 2 says only `apps/api/engine/` may hold one. It used to live in
-    #: `core/settings.py` as `if cfg.engine == "bolna"`, which is why `/healthz/ready` was
-    #: green on a credential-less Cartesia deployment — the second vendor arrived and the
-    #: hardcoded first one still answered for it.
+    #: `capabilities` does: "Cartesia needs `CARTESIA_API_KEY`" is a fact about a vendor,
+    #: and hard rule 2 says only `apps/api/engine/` may hold one. A per-vendor `if` in
+    #: `core/settings.py` is how `/healthz/ready` once went green on a credential-less
+    #: deployment — the second vendor arrived and the hardcoded first one still answered.
     #:
     #: It must name what `holds_credentials` actually gates on and nothing more: a key the
     #: adapter merely PREFERS (Cartesia's `CARTESIA_FROM_NUMBER_ID`, needed to dial out but

@@ -2,7 +2,7 @@
 
 WHAT THIS SERVES AND WHAT IT MUST NOT. The dashboard copilot, and later CRM semantic search
 and caller memory — paths whose budget is seconds. **NOT the call.** `docs/evidence/
-kb-retrieval-bakeoff.md` §5.1 is binding: in-call retrieval stays T0 and Bolna's own KB,
+kb-retrieval-bakeoff.md` §5.1 is binding: in-call retrieval stays T0 and the engine's own KB,
 and `tests/kb_tiers_test.py:156` pins `apps/voice-runtime`'s route inventory as an equality
 so a retrieval endpoint cannot appear on the audio path by accident. Nothing here is
 imported by voice-runtime.

@@ -519,10 +519,7 @@ describe("the qualification-layer section", () => {
  *
  * **The facts, as the code stands.** `POST /v1/kb/sources` takes TEXT only: `kind="url"`
  * and `kind="file"` are declared on the wire and REFUSED by the service
- * (`apps/api/kb/service.py:77`). Everything else has moved: `BOLNA_CAPABILITIES.
- * knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`), `attach_kb` uploads an
- * approved document to the engine's own store (`bolna.py:5420`, D-488, reached from
- * `kb/service.publish_source`), this console has a file input
+ * (`apps/api/kb/service.py:77`). Everything else has moved: this console has a file input
  * (`app/c/[slug]/knowledge/AddDocument.tsx:133`, behind `POST /v1/kb/uploads`, D-534), and
  * `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an in-process pack search registered
  * as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1). The COPY below is therefore

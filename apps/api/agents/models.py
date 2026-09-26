@@ -75,8 +75,8 @@ AgentStatus = Literal["draft", "live", "paused", "archived"]
 #: changes neither.
 AGENT_STATUSES: tuple[AgentStatus, ...] = get_args(AgentStatus)
 
-#: Derived, never retyped (D-104). This WAS `("fake", "bolna")`, spelled here by hand, and
-#: it is the copy that had teeth: it renders `ck_agents_engine_enum`, and
+#: Derived, never retyped (D-104). This WAS a hand-typed pair, and it is the copy that had
+#: teeth: it renders `ck_agents_engine_enum`, and
 #: `agents/lifecycle.py::create_agent` writes `get_settings().engine` into that column
 #: on every agent, the tenant's first included. So on a deployment running
 #: `ENGINE=cartesia` — a value
@@ -281,9 +281,8 @@ class Agent(PKMixin, TimestampMixin, Base):
     # both read as "we cannot prove the engine holds the configured voice".
     #
     # The provider is mirrored alongside because the pair is only meaningful together:
-    # the adapter sends `synthesizer.provider` and `synthesizer.provider_config.voice`
-    # as one object (engine/bolna.py), and a mirror of half of it can lie about the
-    # other half.
+    # an adapter sends the voice provider and the voice as one object, and a mirror of
+    # half of it can lie about the other half.
     live_tts_voice: Mapped[str | None] = mapped_column(Text)
     live_tts_provider: Mapped[str | None] = mapped_column(Text)
     # WHICH FROZEN KNOWLEDGE THE CALL PATH LOADS (D-599, migration b5d3a91e7c64): the
@@ -992,7 +991,7 @@ class PlatformVoiceCatalogEntry(Base):
     catalogue is read from the engine (`VoiceEngine.list_voices`) and cached here.
 
     **WHY THERE IS NO `tenant_id`, AND WHY THAT IS NOT AN OMISSION (hard rule 1).** This is
-    a property of OUR engine ACCOUNT, not of a client: one Bolna account serves every
+    a property of OUR engine ACCOUNT, not of a client: one engine account serves every
     tenant, its voice list is the same list for all of them, and there is no tenant whose
     row any of these could be. It is the same shape and the same argument as
     `platform_model_prices`, `platform_tts_prices` and `platform_engine_health`, and the

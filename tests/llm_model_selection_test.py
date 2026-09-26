@@ -72,7 +72,6 @@ from calevate_shared.engine import (
     PLATFORM_DEFAULT_LLM_MODEL,
     SELECTABLE_LLM_MODELS,
     AgentConfig,
-    ModelConfig,
 )
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -167,16 +166,15 @@ def test_the_account_default_answers_when_the_agent_has_not_chosen() -> None:
 
 
 def test_the_shipped_platform_default_is_the_founders_model_and_is_safe_to_send() -> None:
-    """**THE FOUNDER'S DECISION (4 Sep 2026), AND THE TWO THINGS THAT MAKE IT SAFE.**
+    """**THE FOUNDER'S DECISION (4 Sep 2026).**
 
-    1. It is a model this repository permits on merit. A default that is `selectable=False`
-       would be refused at every publish by the same predicate that offers the picker.
-    2. Its trap is the one the ENGINE eliminates. `THINKING_TOKENS_SHARE_THE_REPLY_BUDGET` is
-       unmitigable on `gemini-3.*` — the engine's own terminal branch logs "Dead turn
-       detected" and yields nothing, which on a phone call is silence — and is eliminated on
-       exactly the 2.5 flash pair, where the engine sends `thinking_budget=0` itself. So the
-       mitigation is to send NOTHING, and `engine/bolna.py::_llm_trap_settings` renders it as
-       a deliberate empty arm: the default cannot 400 at agent-create and cannot go quiet.
+    It is a model this repository permits on merit. A default that is `selectable=False`
+    would be refused at every publish by the same predicate that offers the picker.
+
+    ⚠ The second half of this test — that the default's trap needed nothing on the wire —
+    was a property of the rented engine, which sent `thinking_budget=0` itself on the 2.5
+    flash pair. That adapter is gone (D-639) and the owned runtime has not been shown to do
+    the same, so nothing here asserts it.
 
     ⚠ IT IS NOT AN ASSERTION THAT ANY DEPLOYMENT CAN RUN IT. Offerability is live — a Google
     key and an attested price — and `PLATFORM_DEFAULT_LLM_MODEL`'s own comment says so.
@@ -185,15 +183,6 @@ def test_the_shipped_platform_default_is_the_founders_model_and_is_safe_to_send(
     spec = LLM_MODELS[PLATFORM_DEFAULT_LLM_MODEL]
     assert spec.selectable and PLATFORM_DEFAULT_LLM_MODEL in SELECTABLE_LLM_MODELS
     assert spec.provider == "google"
-    # The wire settings for this model's traps add nothing — no `thinking_budget` of ours,
-    # which would switch thinking back ON through the engine's first branch.
-    from apps.api.engine.bolna import _llm_trap_settings
-
-    plain = _llm_trap_settings(ModelConfig(llm_model=None, llm_traps=()))
-    defaulted = _llm_trap_settings(
-        ModelConfig(llm_model=None, llm_traps=tuple(trap.name for trap in spec.traps))
-    )
-    assert defaulted == plain
 
 
 def test_the_platform_default_and_the_azure_deployments_model_are_two_settings(

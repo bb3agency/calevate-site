@@ -31,7 +31,6 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -610,13 +609,8 @@ async def test_a_typed_entry_can_never_weaken_a_callers_optout() -> None:
 ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
 EDGE_PROXY_IP = "127.0.0.1"
-TOOL = "/tools/v1/bolna/opt-out"
+TOOL = "/tools/v1/fake/opt-out"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
-
-
-@pytest.fixture
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _tool_client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:
@@ -633,10 +627,9 @@ def test_the_endpoint_and_the_worker_name_the_same_job() -> None:
     assert tool_routes.OPTOUT_JOB == OPTOUT_JOB
 
 
-async def test_a_stranger_cannot_suppress_a_clients_number(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The endpoint is unsigned, so the source check is the whole authenticity control.
+async def test_a_stranger_cannot_suppress_a_clients_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A call the receiver cannot authenticate queues nothing — driven here through a
+    signing engine's path, which `verify_source` refuses until a verifier exists.
     An open one would be a denial-of-service against a client's own contact list,
     dressed as compliance."""
     enqueued: list[str] = []
@@ -650,7 +643,7 @@ async def test_a_stranger_cannot_suppress_a_clients_number(
     monkeypatch.setattr(tool_routes, "enqueue", _spy)
     async with _tool_client() as http:
         response = await http.post(
-            TOOL,
+            "/tools/v1/cartesia/opt-out",
             json={"execution_id": "exec_x"},
             headers={"CF-Connecting-IP": ATTACKER_IP},
         )
@@ -660,7 +653,7 @@ async def test_a_stranger_cannot_suppress_a_clients_number(
 
 
 async def test_an_engine_tool_call_queues_the_work_and_writes_nothing(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Hard rule 3: ack fast, defer everything. The endpoint may not resolve a tenant,
     may not touch the database, and may not answer "done" for work a worker has not
@@ -690,7 +683,7 @@ async def test_an_engine_tool_call_queues_the_work_and_writes_nothing(
 
 
 async def test_a_tool_call_that_names_no_execution_is_refused_not_acked(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The one place this endpoint deliberately differs from the webhook receiver: an
     unkeyable webhook is acked because the poller recovers it, and an unkeyable TOOL
@@ -709,7 +702,7 @@ async def test_a_tool_call_that_names_no_execution_is_refused_not_acked(
 
 
 async def test_a_body_that_is_not_json_is_refused_by_name_and_never_500s(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An allowlisted source is not a well-formed sender, and a tool call this endpoint
     cannot read must come back as the SAME named 422 an empty one does — never a 500,
@@ -742,7 +735,7 @@ async def test_a_body_that_is_not_json_is_refused_by_name_and_never_500s(
 
 
 async def test_a_tool_body_above_the_cap_is_refused_at_the_tools_own_size(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """This endpoint refuses at ITS plausible size (4KB), not at the receiver's megabyte.
 
@@ -773,7 +766,7 @@ async def test_a_tool_body_above_the_cap_is_refused_at_the_tools_own_size(
 
 
 async def test_a_queue_that_does_not_answer_tells_the_agent_so_rather_than_acking(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`{"status": "accepted"}` is a promise that the suppression is durable, and the
     only thing behind that promise is the queue accepting the job.

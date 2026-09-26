@@ -293,8 +293,7 @@ async def sync_voice_catalogue(
     the operator attesting a voice — the only authority left once the vendor is gone.
     """
     if not engine.capabilities.lists_voices_independently():
-        # A STATED NO-OP, the shape `workers/engine_violations._sweep` uses for an engine
-        # with no violations surface: the caller gets a result that says which of "nothing
+        # A STATED NO-OP: the caller gets a result that says which of "nothing
         # to do" and "we could not look" happened, rather than a zero that reads like both.
         reason = (
             "this voice platform has no catalogue of its own — its voices are the ones an "
@@ -463,9 +462,8 @@ async def read_cached_catalogue(session: AsyncSession) -> tuple[Voice, ...]:
       at all cannot be kept;
     * `speech_for_voice_id` returned `(None, "sonic-3.5:b6dafaa0-…")`, so the next publish
       would have sent our own COMPOSED catalogue id in the vendor's speaker slot with no
-      model beside it — which on the Cartesia arm is a refused publish
-      (`engine/bolna._refuse_cartesia_voice_incomplete`) and on the Sarvam arm is a string
-      no vendor has ever heard of.
+      model beside it — a refused publish on the rented engine's Cartesia arm, and on the
+      Sarvam arm a string no vendor has ever heard of.
 
     **NOTHING BECOMES OFFERABLE BY THIS**, which is why the fix belongs here and not in a
     screen. `voice_curation.read_curation()` still excludes withdrawn rows, so a withdrawn

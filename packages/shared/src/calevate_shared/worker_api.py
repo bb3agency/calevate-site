@@ -195,8 +195,7 @@ class WorkerSessionOut(BaseModel):
 
     Replaces the SELECT in `voice_worker/config.py`, field for field. `tenant_id` and
     `agent_id` are ANSWERED rather than asked for: the worker presents an
-    `engine_agent_ref` and the server resolves it, which is the same direction
-    `compliance/caller_data_routes.py` already resolves that ref in.
+    `engine_agent_ref` and the server resolves it.
     """
 
     model_config = _STRICT
@@ -216,8 +215,7 @@ class WorkerSessionOut(BaseModel):
     #: Hard rule 5's sentence, carried so the worker can prove it is in the prompt it runs.
     ai_disclosure_line: str | None = None
     #: HOW LONG THIS AGENT'S CALLS MAY RUN, IN SECONDS — the cap the console already writes
-    #: (`agents/publishing_routes.py:403`) and the rented engine already pushes as
-    #: `call_terminate` (`engine/bolna.py:4106`).
+    #: (`agents/publishing_routes.py:403`).
     #:
     #: ⚠ **NOTHING ELSE ENFORCES IT ON THIS ENGINE.** `assemble_call` sets
     #: `idle_timeout_secs=None` deliberately (a phone call has its own end), so without this

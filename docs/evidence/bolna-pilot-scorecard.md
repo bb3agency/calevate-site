@@ -5,7 +5,7 @@
 
 Gates and pass criteria: OPERATIONS.md §2 (authoritative — this document reports results, it does not restate criteria). Decisions: D-31 (Bolna primary, no fallback engine designated), D-32 (evaluation doctrine). Committed under ENGINEERING-PRACTICES §2 ("evidence artifacts": DR drills, stress runs and vendor scorecards live in the repo).
 
-This file is generated from typed gate results by `uv run python -m scripts.pilot.scorecard --out docs/evidence/bolna-pilot-scorecard.md`. The verdict below is DERIVED from the gate rows — it is not a field anybody can set, and a hard gate that is red or unrun cannot sit under a green headline.
+This file was generated from typed gate results by the pilot scorecard generator (`scripts/pilot/scorecard.py`, deleted with the Bolna adapter by D-639 — this file is now a frozen record and will not be regenerated). The verdict below is DERIVED from the gate rows — it is not a field anybody can set, and a hard gate that is red or unrun cannot sit under a green headline.
 
 It contains no caller numbers, no transcript text and no recording links, by construction rather than by care: every free-text field is refused at construction if it carries PII or a URL, and the whole rendered document is re-scanned before it is written (hard rules 5 and 6).
 

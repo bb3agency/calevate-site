@@ -301,8 +301,8 @@ function secretsList(over: Partial<SecretsList> = {}): SecretsList {
 const SECRETS_FIXTURE: SecretsList = {
   secrets: [
     {
-      key: "bolna_api_key",
-      env_var: "BOLNA_API_KEY",
+      key: "cartesia_api_key",
+      env_var: "CARTESIA_API_KEY",
       installed: true,
       version: 2,
       versions: 2,
@@ -2619,8 +2619,8 @@ describe("the credentials panel", () => {
     const { container, calls } = renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
-        [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
-          key: "bolna_api_key",
+        [`POST ${OPS_SECRETS_PATH}/cartesia_api_key/test`]: {
+          key: "cartesia_api_key",
           outcome: "accepted",
           status: 200,
           detail:
@@ -2631,7 +2631,7 @@ describe("the credentials panel", () => {
       }),
     );
 
-    await screen.findByText("bolna_api_key");
+    await screen.findByText("cartesia_api_key");
     fireEvent.click(
       screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
     );
@@ -2657,8 +2657,8 @@ describe("the credentials panel", () => {
     const { container } = renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
-        [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
-          key: "bolna_api_key",
+        [`POST ${OPS_SECRETS_PATH}/cartesia_api_key/test`]: {
+          key: "cartesia_api_key",
           outcome: "rejected",
           status: 401,
           detail: "The vendor refused this credential.",
@@ -2667,7 +2667,7 @@ describe("the credentials panel", () => {
         },
       }),
     );
-    await screen.findByText("bolna_api_key");
+    await screen.findByText("cartesia_api_key");
     fireEvent.click(
       screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
     );
@@ -2693,7 +2693,7 @@ describe("the credentials panel", () => {
     await screen.findByText(
       "We could not read which credentials are installed",
     );
-    expect(screen.queryByText("bolna_api_key")).toBeNull();
+    expect(screen.queryByText("cartesia_api_key")).toBeNull();
   });
 
   it("says when a stored credential is inert because the environment sets it", async () => {
@@ -2709,14 +2709,14 @@ describe("the credentials panel", () => {
     const { calls } = renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
-        [`PUT ${OPS_SECRETS_PATH}/bolna_api_key`]: {
+        [`PUT ${OPS_SECRETS_PATH}/cartesia_api_key`]: {
           ...SECRETS_FIXTURE.secrets[0],
           version: 3,
           versions: 3,
         },
       }),
     );
-    await screen.findByText("bolna_api_key");
+    await screen.findByText("cartesia_api_key");
     fireEvent.click(
       screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
     );
@@ -2726,8 +2726,8 @@ describe("the credentials panel", () => {
     fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
       target: { value: "vendor breach notice" },
     });
-    fireEvent.change(screen.getByPlaceholderText("BOLNA_API_KEY"), {
-      target: { value: "BOLNA_API_KEY" },
+    fireEvent.change(screen.getByPlaceholderText("CARTESIA_API_KEY"), {
+      target: { value: "CARTESIA_API_KEY" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^Rotate$/ }));
 
@@ -2735,14 +2735,14 @@ describe("the credentials panel", () => {
       expect(calls.some((c) => c.method === "PUT")).toBe(true),
     );
     const write = calls.find((c) => c.method === "PUT");
-    // THE LITERAL, not `secretConfirmation("bolna_api_key")`. Comparing the header
+    // THE LITERAL, not `secretConfirmation("cartesia_api_key")`. Comparing the header
     // against the same function that produced it asserts nothing — a sabotage that
     // unbound the string left this green, because both sides moved together. The API
     // owns this vocabulary (`ops/secret_routes.secret_confirmation`) and a runbook
     // prints it, so the console's copy is pinned to the literal it must match.
-    expect(write?.headers["X-Confirm-Action"]).toBe("set_secret:bolna_api_key");
-    expect(secretConfirmation("bolna_api_key")).toBe(
-      "set_secret:bolna_api_key",
+    expect(write?.headers["X-Confirm-Action"]).toBe("set_secret:cartesia_api_key");
+    expect(secretConfirmation("cartesia_api_key")).toBe(
+      "set_secret:cartesia_api_key",
     );
   });
 });
@@ -2823,10 +2823,10 @@ describe("the key-management panel", () => {
       screen.queryByRole("button", { name: /Re-lock every key/ }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: /Install/ })).toBeNull();
-    // NOT AN INVENTORY. The fixture holds a Bolna key and a missing Sarvam one; a
+    // NOT AN INVENTORY. The fixture holds a Cartesia key and a missing Sarvam one; a
     // withheld panel that leaked either — the name, the last four, or a count — would be
     // the oracle the permission exists to withhold.
-    expect(container.textContent).not.toContain("bolna_api_key");
+    expect(container.textContent).not.toContain("cartesia_api_key");
     expect(container.textContent).not.toContain("sarvam_api_key");
     expect(container.textContent).not.toContain("Not installed");
     expect(calls.some((call) => call.path.startsWith(OPS_SECRETS_PATH))).toBe(

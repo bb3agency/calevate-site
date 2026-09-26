@@ -199,9 +199,9 @@ class CarrierAnswerContract:
     calling_party_evidence_class: EvidenceClass
     calling_party_evidence: str
 
-    #: The carrier's published egress addresses, as `parse_source_ip_allowlist` spells
-    #: them. EMPTY means no allowlist is declared, and `verify_answer_source` then reports
-    #: method `"none"` rather than refusing — see there for why that is not a fail-open.
+    #: The carrier's published egress addresses, as literal IPs. EMPTY means no allowlist is
+    #: declared, and `verify_answer_source` then reports method `"none"` rather than
+    #: refusing — see there for why that is not a fail-open.
     source_ip_allowlist: tuple[str, ...]
     source_ip_evidence_class: EvidenceClass
     source_ip_evidence: str
@@ -378,15 +378,14 @@ def verify_answer_source(carrier: str, source_ip: str | None) -> AnswerSourceVer
     reason says so in the log line.
 
     **`"none"` IS NOT A FAIL-OPEN DRESSED UP, and the distinction is worth stating.** An
-    empty allowlist enforced would refuse every call with no remedy available to an
-    operator (`calevate_shared.config:396` makes the same argument: "an empty allowlist is
-    an outage"), and the remedy — the carrier's published ranges — is a vendor fact, not a
-    setting. What this route actually exposes to an unauthenticated stranger is bounded and
-    is stated rather than assumed: the response is a stream URL the requester could have
-    constructed from the ref they already had, it holds no secret, no PII and no number,
-    and serving it warms NOTHING — a Pipecat Cloud container is started by a WebSocket
-    connection, which a stranger can attempt with or without this route, and which
-    `voice_worker.carrier.route_of` refuses when the token names no agent. The refusal
+    empty allowlist enforced would refuse every call with no remedy available to an operator
+    — an empty allowlist is an outage — and the remedy — the carrier's published ranges — is
+    a vendor fact, not a setting. What this route actually exposes to an unauthenticated
+    stranger is bounded and is stated rather than assumed: the response is a stream URL the
+    requester could have constructed from the ref they already had, it holds no secret, no
+    PII and no number, and serving it warms NOTHING — a Pipecat Cloud container is started
+    by a WebSocket connection, which a stranger can attempt with or without this route, and
+    which `voice_worker.carrier.route_of` refuses when the token names no agent. The refusal
     below still comes before the URL is minted, so an unparseable ref learns nothing.
     """
     contract = CARRIER_ANSWER_CONTRACT.get(carrier)

@@ -5,23 +5,17 @@ double-metered call or a synchronous pipeline in the ack path could ship. Suffix
 `_security_test` per BACKEND-PATTERNS §9.
 
 The receiver is the only unauthenticated write surface Calevate exposes to the public
-internet, and D-31 chose an engine that signs NOTHING. That makes the whole authenticity
-story two facts: the packet came from the engine's static egress IP, and the execution id
-has not been seen before. Everything below is a test of one of those two facts, or of
-hard rule 3's promise that nothing else happens on this path.
+internet. Which deliveries it admits is decided per engine by `WEBHOOK_AUTH_BY_ENGINE`
+(`engine_intake.verify_source`): a signing engine is refused until a verifier exists, and
+an engine that verifies nothing is admitted only where it is this deployment's engine
+under `APP_ENV=local`. So the suite drives the `fake` engine's hook for everything that
+happens AFTER admission — dedupe, the ack budget, hostile payloads — and the `cartesia`
+hook for the refusal path. No engine is authenticated by source address (D-639 deleted the
+one that was); `tests/client_address_test.py` owns how the caller's address is read.
 
-Notes for whoever reads this next:
-
-- **The allowlist is a SETTING, and it is the only one.** `BOLNA_WEBHOOK_SOURCE_IPS`
-  is what both `engine_intake.verify_source` and `BolnaEngine.verify_webhook` resolve
-  through (`calevate_shared.config.bolna_source_ips`), so the `source_ip_allowlist`
-  fixture in `conftest.py` sets the environment variable. It used to patch a module
-  constant here while the adapter matched a different hardcoded one — two allowlists
-  answering one question, agreeing only until an operator used the documented recovery
-  path. `engine_audit_test.py` §2e is what holds them together now.
-- **The peer IP is `scope["client"]`**, which `httpx.ASGITransport` lets us set. That is
-  exactly the TCP peer nginx or Cloudflare would present, so `_client(ip)` below is a
-  faithful stand-in for "who actually opened the socket".
+**The peer IP is `scope["client"]`**, which `httpx.ASGITransport` lets us set. That is
+exactly the TCP peer nginx or Cloudflare would present, so `_client(ip)` below is a
+faithful stand-in for "who actually opened the socket".
 """
 
 from __future__ import annotations
@@ -33,7 +27,7 @@ import secrets
 import time
 import urllib.parse
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import Any
 
@@ -45,7 +39,6 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.api.reliability.service import InboxClaim, body_hash
-from calevate_shared.client_address import client_ip, is_trusted_peer
 from engine_intake import KNOWN_ENGINES, execution_key, extract, scalar_hint, verify_source
 from fastapi import Response
 from httpx import ASGITransport, AsyncClient
@@ -54,22 +47,13 @@ from sqlalchemy import event, text
 
 # RFC 5737 documentation ranges: unroutable, so a copy-paste of any of these into a real
 # config is inert rather than dangerous.
-ENGINE_EGRESS_IP = "198.51.100.7"  # stands in for Bolna's static egress IP
+ENGINE_EGRESS_IP = "198.51.100.7"  # an engine's egress address, as the edge relays it
 ATTACKER_IP = "203.0.113.9"  # some box on the internet that found the URL
 EDGE_PROXY_IP = "127.0.0.1"  # inside TRUSTED_PROXY_CIDRS — our own nginx
 
-HOOK = "/hooks/v1/engine/bolna"
-
-
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    """Point the allowlist at a documentation IP for the duration of each test.
-
-    Through the SETTING, which is what `verify_source` resolves at call time — and it
-    keeps these tests from encoding a vendor's current egress IP, a value that changes
-    without our permission.
-    """
-    source_ip_allowlist(ENGINE_EGRESS_IP)
+HOOK = "/hooks/v1/engine/fake"
+#: A signing engine's hook: refused until a verifier exists, so it is the refusal path.
+SIGNED_HOOK = "/hooks/v1/engine/cartesia"
 
 
 def _client(peer_ip: str, *, tolerate_crash: bool = False) -> AsyncClient:
@@ -101,12 +85,12 @@ def _event() -> tuple[str, str, dict[str, Any]]:
     return execution_id, status, {"execution_id": execution_id, "status": status}
 
 
-async def _counts(*, execution_id: str, event_type: str, engine: str = "bolna") -> tuple[int, int]:
+async def _counts(*, execution_id: str, event_type: str, engine: str = "fake") -> tuple[int, int]:
     """(inbox rows, forensic delivery rows) — both infra tables, neither tenant-scoped,
     so `untenanted_session` sees them honestly.
 
     The inbox key is `{execution_id}:{raw_status}`, because the unit of work is the
-    TRANSITION, not the execution: Bolna fires one webhook per status change and the
+    TRANSITION, not the execution: an engine fires one webhook per status change and the
     ARQ job id is keyed the same way. Counting by execution id alone would report the
     row for `queued` while asserting about `completed`.
     """
@@ -152,7 +136,7 @@ async def _seed_route(engine_agent_ref: str) -> uuid.UUID:
                 "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
                 "'Receptionist', 'inbound', 'Idi AI assistant. Call record avutundi.', 'Idi AI "
                 "assistant. Call record avutundi.', 'This call is being recorded.', 'I keep a "
-                "short note of what you ask about.', 'live', 'bolna', :ref, now(), now())"
+                "short note of what you ask about.', 'live', 'fake', :ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": engine_agent_ref},
         )
@@ -160,7 +144,7 @@ async def _seed_route(engine_agent_ref: str) -> uuid.UUID:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
-                "active, created_at, updated_at) VALUES ('bolna', :ref, :tid, :aid, true, now(), "
+                "active, created_at, updated_at) VALUES ('fake', :ref, :tid, :aid, true, now(), "
                 "now())"
             ),
             {"ref": engine_agent_ref, "tid": tenant_id, "aid": agent_id},
@@ -168,244 +152,33 @@ async def _seed_route(engine_agent_ref: str) -> uuid.UUID:
     return tenant_id
 
 
-# --- 1. the allowlist ---------------------------------------------------------
+# --- 1. a refusal leaves nothing behind ----------------------------------------
 
 
-async def test_a_caller_outside_the_allowlist_is_rejected_and_writes_nothing() -> None:
-    """Bolna signs nothing (D-31), so the source-IP allowlist is the ENTIRE authenticity
-    control. A stranger who guesses the URL must get a 401 and must not leave a row —
-    otherwise the inbox becomes an attacker-controlled table and the `webhook_deliveries`
-    forensic trail becomes noise the moment someone runs a scanner at us.
+async def test_a_refused_delivery_writes_nothing() -> None:
+    """A delivery the receiver cannot authenticate must get a 401 and must not leave a row
+    — otherwise the inbox becomes an attacker-controlled table and the
+    `webhook_deliveries` forensic trail becomes noise the moment someone runs a scanner at
+    us.
     """
     execution_id, status, body = _event()
 
     async with _client(ATTACKER_IP) as http:
-        response = await http.post(HOOK, json=body)
+        response = await http.post(SIGNED_HOOK, json=body)
 
     assert response.status_code == 401, response.text
     assert response.headers["content-type"].startswith("application/problem+json")
     problem = response.json()
     assert problem["kind"] == "auth"
     assert problem["retryable"] is False
-    # User-safe message: no allowlist contents, no peer IP, no internals leaked back.
-    assert ENGINE_EGRESS_IP not in response.text
+    # User-safe message: no peer IP, no internals leaked back.
+    assert ATTACKER_IP not in response.text
 
-    inbox, deliveries = await _counts(execution_id=execution_id, event_type=status)
+    inbox, deliveries = await _counts(
+        execution_id=execution_id, event_type=status, engine="cartesia"
+    )
     assert inbox == 0, "a rejected caller must not be able to claim an inbox key"
     assert deliveries == 0, "nor to write a forensic row"
-
-
-# --- 2. the forged forwarded header (D-27's real_ip point) --------------------
-
-
-async def test_a_forged_forwarded_header_from_an_untrusted_peer_does_not_get_through() -> None:
-    """THE test in this file. `CF-Connecting-IP` is a plain request header: anyone can
-    type it. If the receiver believed it unconditionally, the allowlist would be a
-    one-line bypass — `curl -H 'CF-Connecting-IP: <engine ip>'` and every downstream
-    guarantee (dedupe, metering, the tenant a call gets attributed to) is attacker
-    input.
-
-    So the rule is: a forwarded header is believed ONLY when the immediate peer is
-    itself a trusted proxy. Here the peer is a stranger, so the header is ignored and
-    the real peer decides — 401 both times.
-    """
-    for header in ("CF-Connecting-IP", "X-Forwarded-For"):
-        execution_id, status, body = _event()
-
-        async with _client(ATTACKER_IP) as http:
-            response = await http.post(HOOK, json=body, headers={header: ENGINE_EGRESS_IP})
-
-        assert response.status_code == 401, f"{header} was believed from an untrusted peer"
-        assert response.json()["kind"] == "auth"
-
-        inbox, deliveries = await _counts(execution_id=execution_id, event_type=status)
-        assert (inbox, deliveries) == (0, 0), f"a spoofed {header} left a row behind"
-
-    # The chained form too: an attacker prepending the engine's IP to a list is the
-    # same attack wearing a hat.
-    execution_id, status, body = _event()
-    async with _client(ATTACKER_IP) as http:
-        chained = await http.post(
-            HOOK, json=body, headers={"X-Forwarded-For": f"{ENGINE_EGRESS_IP}, {ATTACKER_IP}"}
-        )
-    assert chained.status_code == 401
-    assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
-
-
-# --- 2b. the leftmost X-Forwarded-For entry is not an address, it is a wish ----
-
-
-async def test_a_leftmost_forwarded_for_entry_is_never_believed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The spoofing test. `X-Forwarded-For` is APPENDED to by every hop, so entry 0 is
-    whatever the original caller typed — MDN's rule is that a security control may only
-    use addresses "added by a trusted proxy", and this receiver's control is the whole
-    authenticity story for an unsigned engine (D-31).
-
-    The dangerous shape is not the untrusted-peer one above (test 2), which the old code
-    also refused. It is this one: the request DOES arrive through a trusted hop — exactly
-    as every genuine request does — carrying a header the hop did not write. `client_ip`
-    used to prefer `CF-Connecting-IP` and fall back to XFF's leftmost entry, so anything
-    that could reach nginx without Cloudflare setting the header (an on-box process, a
-    relaxed origin lock, a future edge) could name its own source IP and be believed.
-
-    Both environments are asserted, because "the fallback is unreachable in prod" is the
-    argument that made the old code look safe.
-    """
-    settings = get_settings()
-    for env in ("prod", "local"):
-        monkeypatch.setattr(settings, "app_env", env)
-        execution_id, status, body = _event()
-        async with _client(EDGE_PROXY_IP) as http:
-            forged = await http.post(
-                HOOK,
-                json=body,
-                headers={"X-Forwarded-For": f"{ENGINE_EGRESS_IP}, {ATTACKER_IP}"},
-            )
-        assert forged.status_code == 401, (
-            f"[{env}] an X-Forwarded-For entry no trusted hop wrote must never clear the allowlist"
-        )
-        assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
-
-        # And the single-entry form, which is what a naive leftmost parse reads as "the
-        # client" without there being a list to look suspicious.
-        execution_id, status, body = _event()
-        async with _client(EDGE_PROXY_IP) as http:
-            single = await http.post(HOOK, json=body, headers={"X-Forwarded-For": ENGINE_EGRESS_IP})
-        assert single.status_code == 401, f"[{env}] XFF is not read at all"
-        assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
-
-
-# --- 2c. outside local, an unestablished client IP is a refusal ---------------
-
-
-async def test_outside_local_a_missing_or_unusable_edge_header_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Fail closed. In staging/prod every request arrives Cloudflare -> nginx -> here and
-    nginx writes `CF-Connecting-IP` from the real-ip-restored peer (DEPLOYMENT §5,
-    `infra/nginx/snippets/calevate-proxy.conf`). If that header is absent, blank or not a
-    single literal IP, the deployment's one promise about who is calling has been broken —
-    by a stripped header, a missing `real_ip` block, or a path into the container that does
-    not pass through nginx at all.
-
-    The only acceptable answer is 401. Attributing the request to the peer, to a default,
-    or to anything the caller supplied would turn an unsigned engine's sole authenticity
-    control into "we could not tell, so we accepted it". The cost of refusing is bounded
-    and known: the 10-minute reconciliation poller is the guarantee of record (D-31).
-    """
-    settings = get_settings()
-    monkeypatch.setattr(settings, "app_env", "staging")
-
-    for label, headers in (
-        ("absent", {}),
-        ("blank", {"CF-Connecting-IP": "   "}),
-        ("not an ip", {"CF-Connecting-IP": "not-an-ip"}),
-        # CF sends exactly one address; a list here means something else wrote it.
-        ("a list", {"CF-Connecting-IP": f"{ENGINE_EGRESS_IP}, {ATTACKER_IP}"}),
-        ("host:port", {"CF-Connecting-IP": f"{ENGINE_EGRESS_IP}:443"}),
-    ):
-        execution_id, status, body = _event()
-        async with _client(EDGE_PROXY_IP) as http:
-            response = await http.post(HOOK, json=body, headers=headers)
-        assert response.status_code == 401, f"{label}: an unestablished client IP must refuse"
-        assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
-
-    # A peer that is not a trusted proxy cannot be the caller either: outside local,
-    # nothing reaches this container except through nginx on the bridge network.
-    execution_id, status, body = _event()
-    async with _client(ENGINE_EGRESS_IP) as http:
-        direct = await http.post(HOOK, json=body)
-    assert direct.status_code == 401, (
-        "a direct connection is a broken perimeter, not a credential — even from the "
-        "engine's own address"
-    )
-    assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
-
-    # The genuine Cloudflare shape still gets in, which is the half that keeps this from
-    # being a very secure outage.
-    execution_id, status, body = _event()
-    async with _client(EDGE_PROXY_IP) as http:
-        genuine = await http.post(
-            HOOK,
-            json=body,
-            # As nginx sends it: the edge header set, XFF appended and irrelevant.
-            headers={
-                "CF-Connecting-IP": ENGINE_EGRESS_IP,
-                "X-Forwarded-For": f"{ATTACKER_IP}, {ENGINE_EGRESS_IP}",
-            },
-        )
-    assert genuine.status_code == 202, genuine.text
-    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
-
-
-async def test_the_local_path_still_works_without_an_edge(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`local` is the one environment with no edge in front, so the socket peer IS the
-    caller and a header from a loopback peer is a developer's own curl, not a stranger's
-    claim (D-49 made `APP_ENV` explicit precisely so this branch cannot be reached by a
-    production deploy that merely forgot to set the variable).
-
-    Asserted so nobody hardens this into a state where the offline pipeline cannot be
-    exercised — the pressure to add a "just for testing" bypass in production comes from
-    exactly that.
-    """
-    settings = get_settings()
-    monkeypatch.setattr(settings, "app_env", "local")
-
-    execution_id, status, body = _event()
-    async with _client(EDGE_PROXY_IP) as http:
-        accepted = await http.post(HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP})
-    assert accepted.status_code == 202, accepted.text
-    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
-
-    # A peer that IS the allowlisted address needs no header at all locally.
-    execution_id, status, body = _event()
-    async with _client(ENGINE_EGRESS_IP) as http:
-        by_peer = await http.post(HOOK, json=body)
-    assert by_peer.status_code == 202, by_peer.text
-    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
-
-
-# --- 3. the other half: a real edge proxy must still work ---------------------
-
-
-async def test_a_trusted_proxy_forwarded_header_is_honoured() -> None:
-    """The mirror of the test above, and the reason it cannot simply be "ignore all
-    forwarded headers": in production the socket is opened by our own nginx (or
-    Cloudflare), so `request.client.host` is ALWAYS an edge address. Without honouring
-    the forwarded header from a trusted peer the allowlist would reject 100% of real
-    engine traffic — a total outage with no error anyone would think to look for.
-
-    Two halves, both required:
-      - trusted peer + allowlisted forwarded IP  -> accepted;
-      - trusted peer + NON-allowlisted forwarded IP -> still rejected, i.e. being behind
-        the edge is not itself a credential.
-    """
-    execution_id, status, body = _event()
-    async with _client(EDGE_PROXY_IP) as http:
-        accepted = await http.post(HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP})
-    assert accepted.status_code == 202, accepted.text
-    assert accepted.json()["status"] == "accepted"
-    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
-
-    other_id, other_status, other_body = _event()
-    async with _client(EDGE_PROXY_IP) as http:
-        relayed_stranger = await http.post(
-            HOOK, json=other_body, headers={"CF-Connecting-IP": ATTACKER_IP}
-        )
-    assert relayed_stranger.status_code == 401, "the edge relays traffic, it does not vouch for it"
-    assert await _counts(execution_id=other_id, event_type=other_status) == (0, 0)
-
-    # And a trusted peer with no forwarded header at all falls back to the peer itself,
-    # which is not on the allowlist. Nothing about being local is a credential either.
-    bare_id, bare_status, bare_body = _event()
-    async with _client(EDGE_PROXY_IP) as http:
-        bare = await http.post(HOOK, json=bare_body)
-    assert bare.status_code == 401
-    assert await _counts(execution_id=bare_id, event_type=bare_status) == (0, 0)
 
 
 # --- 4. dedupe ----------------------------------------------------------------
@@ -451,7 +224,7 @@ async def test_a_repeated_delivery_yields_one_inbox_row_and_one_job(
     # the delivery body as well, which made the cache and the claim disagree about what a
     # duplicate is: a replay with one byte changed missed the cache and opened a Postgres
     # transaction every time (D-147).
-    fast_path_key = f"calevate:wh:bolna:{execution_id}:{status}"
+    fast_path_key = f"calevate:wh:fake:{execution_id}:{status}"
     assert await get_redis().delete(fast_path_key) == 1, (
         "the key the receiver wrote is not the one this test knows about"
     )
@@ -470,7 +243,7 @@ async def test_a_repeated_delivery_yields_one_inbox_row_and_one_job(
             await session.execute(
                 text(
                     "SELECT status, duplicate_count FROM webhook_inbox_events "
-                    "WHERE provider = 'bolna' AND event_key = :k"
+                    "WHERE provider = 'fake' AND event_key = :k"
                 ),
                 {"k": f"{execution_id}:{status}"},
             )
@@ -484,9 +257,9 @@ async def test_a_repeated_delivery_yields_one_inbox_row_and_one_job(
 
 
 async def test_the_ack_is_measured_and_carries_no_pipeline_work() -> None:
-    """Hard rule 3 puts a number on this path — ack < 500ms — because Bolna's delivery
-    is at-most-once with no retries: a slow receiver does not get retried, it LOSES the
-    call. `X-Ack-Ms` is how a regression shows up as a number rather than as a mystery.
+    """Hard rule 3 puts a number on this path — ack < 500ms — because a vendor that
+    delivers at most once does not retry a slow receiver: it LOSES the call. `X-Ack-Ms` is
+    how a regression shows up as a number rather than as a mystery.
 
     Deliberately NOT asserted: a hard millisecond bound. A CI box under load would make
     that flaky, and flaky latency assertions get deleted, which is worse than not having
@@ -495,7 +268,7 @@ async def test_the_ack_is_measured_and_carries_no_pipeline_work() -> None:
     resolvable (org + agent + routing row all exist), so an empty `calls` table is
     evidence of deferral rather than of a lookup that could not have succeeded.
     """
-    agent_ref = f"bolna_agent_{uuid.uuid4().hex[:8]}"
+    agent_ref = f"fake_agent_{uuid.uuid4().hex[:8]}"
     tenant_id = await _seed_route(agent_ref)
     execution_id, status, body = _event()
     body["agent_id"] = agent_ref
@@ -540,10 +313,10 @@ async def test_an_unknown_engine_agent_ref_is_still_acked() -> None:
 
     The receiver does not resolve tenants at all, and that is the point — a 500 here
     would make an offboarded agent, a stale engine-side config or a typo look like an
-    outage to the vendor, and Bolna does not retry. Every OTHER call arriving in that
+    outage to the vendor, and a vendor may not retry. Every OTHER call arriving in that
     window would be lost with it.
     """
-    orphan_ref = f"bolna_agent_nobody_{uuid.uuid4().hex[:8]}"
+    orphan_ref = f"fake_agent_nobody_{uuid.uuid4().hex[:8]}"
     execution_id, status, body = _event()
     body["agent_id"] = orphan_ref
 
@@ -656,7 +429,7 @@ async def test_a_hostile_dedupe_key_is_refused_deliberately_not_with_a_500(
     both are copied verbatim out of the payload into `webhook_inbox_events.event_key`,
     which is covered by a UNIQUE index, and neither is bounded or checked.
 
-    Why a 500 here is not cosmetic. Bolna's delivery is at-most-once with no retry, so a
+    Why a 500 here is not cosmetic. An at-most-once delivery with no retry means a
     5xx does not get redelivered — it LOSES the call until the 10-minute poller. And the
     receiver has no per-request isolation from its own crashes: the same POST that kills
     this request is indistinguishable, from the vendor's side, from the receiver being
@@ -665,9 +438,7 @@ async def test_a_hostile_dedupe_key_is_refused_deliberately_not_with_a_500(
     let the poller be the truth (D-31). A key we cannot STORE is the same situation and
     deserves the same answer.
 
-    Reachability, stated honestly: on a bolna deployment the source-IP allowlist stands
-    in front of this, so the hostile sender is the vendor (or anything that gets to
-    source-spoof past the edge). On a `fake`-engine deployment `verify_source` checks
+    Reachability, stated honestly: on a `fake`-engine deployment `verify_source` checks
     nothing at all, and this endpoint is reachable by anyone who learns the URL — which
     is exactly the configuration every developer machine and CI box runs.
     """
@@ -774,7 +545,7 @@ async def test_the_same_transition_with_a_different_body_is_deduped_not_conflict
         # about what a duplicate is, so any body-varying replay opened a Postgres
         # transaction. Now the key is the transition, the cache absorbs the replay — and
         # this test would pass without ever exercising the claim if it did not do this.
-        deleted = await get_redis().delete(f"calevate:wh:bolna:{execution_id}:{status}")
+        deleted = await get_redis().delete(f"calevate:wh:fake:{execution_id}:{status}")
         assert deleted == 1, "the fast path did not settle the first delivery"
         second = await http.post(HOOK, json=doctored, headers=headers)
 
@@ -824,29 +595,29 @@ async def test_an_inbox_payload_mismatch_surfaces_as_409_not_500(
     # Nothing was written and nothing was remembered: a conflicted claim rolls back with
     # the transaction, and the fast-path key is only ever written past the commit.
     assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
-    assert await get_redis().get(f"calevate:wh:bolna:{execution_id}:{body_hash(body)[:16]}") is None
+    assert await get_redis().get(f"calevate:wh:fake:{execution_id}:{body_hash(body)[:16]}") is None
 
 
 # --- 10. the fake engine's open door stays shut where it matters --------------
 
 
-async def test_the_fake_engine_hook_is_closed_on_a_deployment_that_runs_bolna(
+async def test_the_fake_engine_hook_is_closed_on_a_deployment_that_runs_another_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`/hooks/v1/engine/fake` verifies NOTHING by design — that is how the pipeline runs
     offline. The route table is identical in every environment, so the only thing standing
     between a stranger and an inbox claim on a prod box is `settings.engine != "fake"`.
 
-    This test is the guard on that one comparison. It runs from an IP on no allowlist,
+    This test is the guard on that one comparison. It runs from a stranger's address,
     which is precisely the caller the gate exists for.
     """
     settings = get_settings()
     execution_id, status, body = _event()
 
-    monkeypatch.setattr(settings, "engine", "bolna")
+    monkeypatch.setattr(settings, "engine", "pipecat")
     async with _client(ATTACKER_IP) as http:
         refused = await http.post("/hooks/v1/engine/fake", json=body)
-    assert refused.status_code == 401, "the fake hook must be shut on a bolna deployment"
+    assert refused.status_code == 401, "the fake hook must be shut on a pipecat deployment"
     assert await _counts(execution_id=execution_id, event_type=status, engine="fake") == (0, 0)
 
     # And the mirror, so the offline pipeline is proven to still work rather than merely
@@ -857,45 +628,6 @@ async def test_the_fake_engine_hook_is_closed_on_a_deployment_that_runs_bolna(
     assert accepted.status_code == 202, accepted.text
     assert accepted.json()["status"] == "accepted"
     assert await _counts(execution_id=execution_id, event_type=status, engine="fake") == (1, 1)
-
-
-# --- 11. a peer the socket cannot name ----------------------------------------
-
-
-async def test_a_delivery_whose_peer_we_cannot_see_is_refused_however_good_its_header(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No peer address, no trusted hop — and therefore no caller we can vouch for.
-
-    ASGI omits `client` when the connection has no address to report: a unix-socket
-    upstream is the shape that does it in production (uvicorn sets `client` to None on a
-    UDS), and `is_trusted_peer` is then asked about the empty string. It must answer
-    False rather than raise, because the alternative on this path is a 500 out of the
-    authenticity check on the only unauthenticated endpoint we expose.
-
-    The header is deliberately PERFECT here — `CF-Connecting-IP` naming the allowlisted
-    egress address, exactly what a genuine delivery carries. It still must not get in:
-    the header means something only because a trusted hop wrote it, and a connection
-    with no visible peer is a connection where nothing proved that hop exists. Believing
-    it would turn the header into a password that anyone who read DEPLOYMENT §5 knows.
-    """
-    monkeypatch.setattr(get_settings(), "app_env", "staging")
-
-    # The unit answer first, so a regression says which half moved.
-    assert client_ip(None, {"cf-connecting-ip": ENGINE_EGRESS_IP}, app_env="staging") is None
-    assert is_trusted_peer("") is False, "an unparseable peer is not a trusted proxy"
-    assert is_trusted_peer("not-an-ip") is False
-
-    execution_id, status, body = _event()
-    peerless = AsyncClient(
-        transport=ASGITransport(app=voice_app, client=None),
-        base_url="http://runtime",
-    )
-    async with peerless as http:
-        response = await http.post(HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP})
-
-    assert response.status_code == 401, response.text
-    assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
 
 
 # --- 12. the engine name decides the METHOD, and two of them are refusals ------
@@ -925,8 +657,7 @@ def test_an_engine_that_signs_is_refused_until_a_verifier_exists_not_waved_throu
     # The declaration is what makes it hmac — not the engine's name — so the fixture
     # adapter that declares the same method gets the same answer.
     assert verify_source("fake-restricted", ENGINE_EGRESS_IP).ok is False
-    # And an allowlisted source address does not rescue it: source-IP evidence is not
-    # signature evidence, and treating one as the other is the whole point of the table.
+    # And the caller's address does not rescue it: an address is not signature evidence.
     assert verify_source("cartesia", ENGINE_EGRESS_IP) == verify_source("cartesia", ATTACKER_IP)
 
 
@@ -956,8 +687,8 @@ def test_an_engine_this_deployment_never_heard_of_is_refused_and_never_labelled(
         record=lambda elapsed, *, provider: labels.append(provider),
     )
     webhook_routes._refuse(time.perf_counter(), "twilio", meter=spy)
-    webhook_routes._refuse(time.perf_counter(), "bolna", meter=spy)
-    assert labels == ["unknown", "bolna"], "a stranger's engine name must not become a label"
+    webhook_routes._refuse(time.perf_counter(), "cartesia", meter=spy)
+    assert labels == ["unknown", "cartesia"], "a stranger's engine name must not become a label"
 
 
 async def test_a_strangers_engine_name_reaches_no_alert_field_either(
@@ -1136,7 +867,7 @@ async def test_a_replay_whose_body_changed_is_absorbed_without_touching_postgres
         "a settled transition must be answered from Redis however the body varies; these "
         f"replays reached Postgres {len(statements)} times: {statements}"
     )
-    assert divergences == ["bolna"] * 5, (
+    assert divergences == ["fake"] * 5, (
         "each rewritten replay must be counted where it is absorbed; a cache that hides "
         f"the divergence is worse than the round trip it saves: {divergences}"
     )
@@ -1359,7 +1090,7 @@ async def test_a_container_reason_is_not_filed_as_the_words_a_caller_used() -> N
         patch.setattr(tool_routes, "enqueue", _spy)
         async with _client(EDGE_PROXY_IP) as http:
             response = await http.post(
-                "/tools/v1/bolna/opt-out",
+                "/tools/v1/fake/opt-out",
                 json={
                     "execution_id": f"exec_{uuid.uuid4().hex[:12]}",
                     "reason": {"nested": ["do not call"]},
@@ -1429,7 +1160,7 @@ async def test_a_deeply_nested_body_is_answered_rather_than_crashed(
             headers=headers,
         )
         tool = await http.post(
-            "/tools/v1/bolna/opt-out",
+            "/tools/v1/fake/opt-out",
             content=f'{{"execution_id":"exec_{token}","reason":{payload}}}'.encode(),
             headers=headers,
         )
@@ -1460,9 +1191,9 @@ def test_an_acked_response_cannot_mint_a_metric_label_either() -> None:
         Response(), time.perf_counter(), "../../etc/passwd\n", {"status": "ignored"}, meter=meter
     )
     webhook_routes._ack(
-        Response(), time.perf_counter(), "bolna", {"status": "ignored"}, meter=meter
+        Response(), time.perf_counter(), "cartesia", {"status": "ignored"}, meter=meter
     )
-    assert labels == ["unknown", "bolna"], labels
+    assert labels == ["unknown", "cartesia"], labels
 
 
 # --- 15. a claimed transition with no job behind it --------------------------
@@ -1518,9 +1249,9 @@ async def test_the_ack_is_the_same_for_a_real_agent_ref_and_an_invented_one() ->
     agent ref is the vendor's identifier for a CLIENT's agent, so an oracle over it
     enumerates our customers.
     """
-    known_ref = f"bolna-agent-{uuid.uuid4().hex[:10]}"
+    known_ref = f"fake-agent-{uuid.uuid4().hex[:10]}"
     await _seed_route(known_ref)
-    unknown_ref = f"bolna-agent-{uuid.uuid4().hex[:10]}"
+    unknown_ref = f"fake-agent-{uuid.uuid4().hex[:10]}"
 
     answers = []
     async with _client(EDGE_PROXY_IP) as http:

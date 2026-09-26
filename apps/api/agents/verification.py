@@ -110,8 +110,8 @@ class PublishVerification:
     disclosure_applied: bool | None
     #: The disclosure in the PROMPT — the second copy, and the weaker evidence: an
     #: instruction the model may reorder or drop, not an utterance that is played.
-    #: Recorded because both adapters deliberately send it in both places (belt and
-    #: braces, `bolna._agent_body` argues it), so an engine holding one and not the
+    #: Recorded because an adapter may deliberately send it in both places (belt and
+    #: braces), so an engine holding one and not the
     #: other is a fact worth being able to see rather than one to average away. Only an
     #: engine that HOLDS an agent record reaches this at all — `control_plane`, and
     #: `owned_runtime` where the record is ours and the worker's attestation is the
@@ -333,14 +333,14 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         snapshot.carries_prompt_marker(cfg.opening_line) if cfg.opening_line.strip() else None
     )
     # EVERY prompt the engine will run, not only the one we published. On Bolna a
-    # console-added language carries its own `system_prompt` that the platform switches
-    # to mid-call, and nothing in this tree ever wrote the floor into it — so scoring the
-    # base prompt alone answered `True` about a string that is not in the path for the
-    # language the caller switched into (`AgentSnapshot.alternate_prompts`,
-    # `bolna._agent_alternate_prompts`). The script and disclosure checks deliberately
-    # stay on `carries_prompt_marker`: a translated prompt is not obliged to contain the
-    # client's base script, and refusing it would be a refusal about translation rather
-    # than about compliance. The FLOOR is ours and belongs in all of them.
+    # console-added language carries its own `system_prompt` that the platform switches to
+    # mid-call, and nothing in this tree ever wrote the floor into it — so scoring the base
+    # prompt alone answered `True` about a string that is not in the path for the language
+    # the caller switched into (`AgentSnapshot.alternate_prompts`). The script and
+    # disclosure checks deliberately stay on `carries_prompt_marker`: a translated prompt is
+    # not obliged to contain the client's base script, and refusing it would be a refusal
+    # about translation rather than about compliance. The FLOOR is ours and belongs in all
+    # of them.
     truthful = snapshot.every_prompt_carries(TRUTHFUL_ANSWER_MARKER)
     handoff = _handoff_verdict(engine, cfg, snapshot)
     voice = _voice_verdict(engine, cfg, snapshot)

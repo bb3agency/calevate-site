@@ -51,16 +51,15 @@ QUOTE_CURRENCY = "INR"
 
 #: How far one observation may move from the previous one before it is REFUSED.
 #:
-#: USD/INR does not move 10% in a day — the 2013 taper-tantrum slide, the sharpest move
-#: in the pair's modern history, took months — so a jump this size is not a market event,
-#: it is a changed unit, a changed pair, or a parser reading the wrong field. This repo
-#: has already paid for exactly that class of defect once on the cost path
-#: (`engine/bolna._MINOR_UNITS_PER_MAJOR`: a vendor's minor-unit assumption metered every
-#: call at 1/100th of cost), and an FX feed is the same hazard with a bigger blast radius.
-#: So the new observation is refused, the previous one keeps serving until it ages out on
-#: its own, and an operator is paged — the fail-safe direction, because a rejected real
-#: move costs a few paise of drift for a day and an accepted wrong one reprices every
-#: invoice.
+#: USD/INR does not move 10% in a day — the 2013 taper-tantrum slide, the sharpest move in
+#: the pair's modern history, took months — so a jump this size is not a market event, it is
+#: a changed unit, a changed pair, or a parser reading the wrong field. This repo has
+#: already paid for exactly that class of defect once on the cost path (a rented engine's
+#: minor-unit assumption metered every call at 1/100th of cost, D-411), and an FX feed is
+#: the same hazard with a bigger blast radius. So the new observation is refused, the
+#: previous one keeps serving until it ages out on its own, and an operator is paged — the
+#: fail-safe direction, because a rejected real move costs a few paise of drift for a day
+#: and an accepted wrong one reprices every invoice.
 MAX_PLAUSIBLE_MOVE = Decimal("0.10")
 
 #: Sanity bounds on the number itself, mirroring `Settings.usd_inr_rate`'s field bounds

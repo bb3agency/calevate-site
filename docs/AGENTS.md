@@ -6,8 +6,10 @@ authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments
 
 ## Project
 
-Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bolna —
-D-31) + BYOK models. **Speech is TWO VENDORS ON TWO DIFFERENT LEGS, and the TTS half is
+Multi-tenant AI voice-agent SaaS (India, Telugu-first). Our own Pipecat conversation loop
+(`apps/voice-worker`, D-592) + BYOK models; the rented Bolna engine (D-31) was deleted from
+the code by D-639 (26 Sep 2026), so every Bolna-specific wire detail below is the record of
+that leg and not an instruction. **Speech is TWO VENDORS ON TWO DIFFERENT LEGS, and the TTS half is
 chosen PER AGENT (D-547)** — STT is Sarvam Saaras throughout, TTS is
 `apps/api/agents/voices.py::TtsModel`, which is `Literal["sonic-3.5", "timbre-v2.5"]`:
 Cartesia Sonic 3.5 (**Studio**, ₹2.06–3.09 per call-minute, TRD §10.1) or Gnani Timbre v2.5

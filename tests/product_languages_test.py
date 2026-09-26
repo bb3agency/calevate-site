@@ -65,7 +65,6 @@ from apps.api.compliance import disclosure
 from apps.api.copilot.agent_actions import AGENT_CREATE
 from apps.api.core.errors import install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.bolna import _VOICE_LANGUAGES
 from calevate_shared.languages import (
     LANGUAGES,
     OFFERED_LANGUAGE_IDS,
@@ -134,20 +133,13 @@ def test_the_copilot_offers_the_assistant_exactly_what_the_api_accepts() -> None
         )
 
 
-def test_the_engine_adapters_language_map_derives_its_values() -> None:
-    """Hard rule 2 keeps the MAP in the adapter — their filter takes a bare subtag and
-    that is a vendor fact. Its VALUES are ours and derive."""
-    assert tuple(_VOICE_LANGUAGES.values()) == offered_language_tags()
-    assert tuple(_VOICE_LANGUAGES) == tuple(tag.split("-", 1)[0] for tag in offered_language_tags())
-
-
 def test_no_offered_language_has_a_vendor_spelling_of_its_own() -> None:
     """What makes the subtag split above SAFE, stated as the property it depends on.
 
     Sarvam spells Odia `od-IN` where BCP-47 says `or-IN` (`KNOWN_WIRE_CODE_ANOMALIES`),
     and Odia is conversational — so the day it is offered, a map keyed by "the primary
     subtag of our tag" starts describing a language the vendor names differently. This
-    fails then, which is before a call, rather than in `engine/bolna.py` at listing time.
+    fails then, which is before a call, rather than in an adapter at listing time.
     """
     for row in offered_languages():
         for (vendor, leg), code in row.codes.items():

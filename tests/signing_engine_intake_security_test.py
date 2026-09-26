@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -52,16 +51,6 @@ EDGE_PROXY_IP = "127.0.0.1"  # inside TRUSTED_PROXY_CIDRS — our own nginx
 SIGNING_ENGINES = sorted(n for n, method in WEBHOOK_AUTH_BY_ENGINE.items() if method == "hmac")
 
 
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    """Point the Bolna allowlist at a documentation address.
-
-    Present so the source-IP evidence a genuine Bolna delivery would carry is available to
-    these tests — the point being that it buys a signing engine exactly nothing.
-    """
-    source_ip_allowlist(ENGINE_EGRESS_IP)
-
-
 def _client(peer_ip: str) -> AsyncClient:
     return AsyncClient(
         transport=ASGITransport(app=voice_app, client=(peer_ip, 44444)),
@@ -83,11 +72,9 @@ def _event() -> tuple[str, str, dict[str, Any]]:
 def test_a_signing_engine_is_refused_from_every_source_address(engine: str) -> None:
     """No source address is signature evidence, including the good one.
 
-    Three callers: the allowlisted egress address a genuine Bolna delivery arrives from,
-    a stranger, and a delivery whose client IP could not be established at all. The verdict
-    must be byte-identical across all three — if it is not, some source-IP reasoning has
-    leaked into the signature branch, and the allowlist it leaked from describes a
-    DIFFERENT vendor's egress.
+    Three callers: a plausible engine egress address, a stranger, and a delivery whose
+    client IP could not be established at all. The verdict must be byte-identical across all
+    three — if it is not, some source-IP reasoning has leaked into the signature branch.
     """
     allowlisted = verify_source(engine, ENGINE_EGRESS_IP)
     assert allowlisted.ok is False
@@ -267,10 +254,10 @@ def test_a_refused_cartesia_delivery_is_labelled_cartesia_and_not_unknown() -> N
     every single delivery would 401 and every one of those 401s would be attributed to
     `unknown`, i.e. to a prober rather than to our own unimplemented verifier.
 
-    That is the exact failure `_refuse` was written to prevent for Bolna: its docstring
-    argues that unmeasured refusals make `webhook_ack_ms` go SILENT rather than spike, and
-    a silent graph is indistinguishable from a quiet night. A MISATTRIBUTED graph is worse
-    — it points at the wrong incident.
+    That is the exact failure `_refuse` was written to prevent: its docstring argues that
+    unmeasured refusals make `webhook_ack_ms` go SILENT rather than spike, and a silent
+    graph is indistinguishable from a quiet night. A MISATTRIBUTED graph is worse — it
+    points at the wrong incident.
 
     The bound still holds where it must: a name nothing in the tree ships is still
     collapsed to `unknown`.
@@ -284,10 +271,10 @@ def test_a_refused_cartesia_delivery_is_labelled_cartesia_and_not_unknown() -> N
         webhook_routes.WEBHOOK_ACK,
         record=lambda elapsed, *, provider: labels.append(provider),
     )
-    for engine in ("cartesia", "bolna", "twilio"):
+    for engine in ("cartesia", "fake", "twilio"):
         webhook_routes._refuse(time.perf_counter(), engine, meter=spy)
 
-    assert labels == ["cartesia", "bolna", "unknown"]
+    assert labels == ["cartesia", "fake", "unknown"]
 
 
 def test_the_set_the_receiver_labels_is_the_set_it_authenticates() -> None:

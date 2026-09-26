@@ -8,11 +8,12 @@ when it is not, and every converted figure records which.
 
 ## Why a holder in `core/` with no IO in it
 
-The conversion happens inside `engine/bolna.py::_cost`, which is SYNCHRONOUS: it hangs
-off `_snapshot`, which every adapter also reaches from the `VoiceEngine` protocol's
-`parse_webhook` — a normalizer that must stay IO-free, because the deployable that owns
-webhooks may not touch a database on that path (hard rule 3). A sync reader physically
-cannot await a query, so the rate has to already be in memory when it is asked for.
+A conversion can happen inside an adapter's SYNCHRONOUS snapshot builder, which every
+adapter also reaches from the `VoiceEngine` protocol's `parse_webhook` — a normalizer that
+must stay IO-free, because the deployable that owns webhooks may not touch a database on
+that path (hard rule 3) — and inside request handlers pricing a number rental or a cost
+preview. A sync reader physically cannot await a query, so the rate has to already be in
+memory when it is asked for.
 That is the same argument `core/settings.py` makes for
 `_platform_overrides` and `ops/pricing_snapshot.py` makes for the attested prices, and
 this module is deliberately the same shape as the first of those: **core owns nothing
@@ -168,9 +169,9 @@ CONFIGURED_FX_SOURCE: Final = "configured:usd_inr_rate"
 def usd_inr_rate_now(configured: Decimal, now: datetime | None = None) -> UsdInrRate:
     """The rate a dollar figure converts at RIGHT NOW, and where it came from.
 
-    **ONE SPELLING OF THE FALLBACK RULE, for every writer of money.** It was written twice
-    — once inside `engine/bolna.py::_conversion_rate` for a call's cost, and again the day
-    a recurring number rental needed converting (D-537) — and two copies of "use the
+    **ONE SPELLING OF THE FALLBACK RULE, for every writer of money.** It was once written
+    twice — once for a call's engine cost, and again the day a recurring number rental
+    needed converting (D-537) — and two copies of "use the
     published rate while it is fresh, else the operator's typed one" is two places the
     fallback can quietly stop happening. The engine adapter still owns the question this
     does NOT answer: whether the vendor quoted in dollars at all.

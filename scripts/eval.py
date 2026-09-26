@@ -127,6 +127,8 @@ from apps.workers.extraction import (
 from apps.workers.redaction import redact, spoken_digit_runs
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
 
+from scripts.evidence_redact import scrub_text
+
 _FIXTURE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 FIXTURES = _FIXTURE_DIR / "golden_transcripts.json"
 BASELINE = _FIXTURE_DIR / "eval_baseline.json"
@@ -942,17 +944,10 @@ def write_evidence(out: Path, document: str) -> None:
     """Write an artefact to `docs/evidence/`, or refuse.
 
     `_safe` already masks every value on the way into a failure line, so the second sweep
-    here should never have anything to do. That is exactly why it runs: `scripts/pilot/
-    redact.py` is this repo's one answer to "the last thing before bytes leave to
-    docs/evidence", it owns the free-standing-digit-run rule, and a non-zero count from it
-    means layer 1 has a hole. Git is forever and the repo is shared, so the refusal is the
-    cheap outcome — the pilot harness's own words: a leak in a committed artefact is
-    permanent, a refused write is a minute of someone's day.
-
-    Imported inside the function because `scripts.pilot` pulls in the vendor pilot's
-    dependency surface and this CLI's normal path never touches it.
+    here should never have anything to do. That is exactly why it runs: a non-zero count
+    from `scripts/evidence_redact.py` means the first layer has a hole, and a leak in a
+    committed artefact is permanent while a refused write is a minute of someone's day.
     """
-    from scripts.pilot.redact import scrub_text
 
     scrubbed, masked = scrub_text(document)
     if masked:

@@ -63,7 +63,7 @@ import { examplesFor } from "@/lib/verticalExamples";
  * New-client wizard, steps 1, 3 and 8 (FLOWS §1).
  *
  * Two of the middle steps are still deliberately absent rather than stubbed: number
- * provisioning (6) and the test-call gate (7) both depend on the Bolna pilot, and a
+ * provisioning (6) and the test-call gate (7) both depend on a first real call, and a
  * greyed-out button that does nothing is worse than a documented gap — so the checklist
  * in step 8 says what is still manual instead.
  *

@@ -102,7 +102,7 @@ forbidden_modules = ["apps"]
 # of_the_tree` there was nothing reading it — so an adapter added to `engine/` and left
 # off this list was covered by a rule that pointed at a list that did not contain it,
 # with `lint-imports` green. That is the same omission the rule's own text records
-# (it shipped naming "(bolna, fake)" while `engine/cartesia.py` already existed), one
+# (it shipped naming two adapters while `engine/cartesia.py` already existed), one
 # layer down. That test derives the expected set from the FILES in `apps/api/engine/`.
 [[tool.importlinter.contracts]]
 name = "engine isolation: only engine/ may see vendor payload shapes"
@@ -144,7 +144,6 @@ source_modules = [
     "apps.workers",
 ]
 forbidden_modules = [
-    "apps.api.engine.bolna",
     "apps.api.engine.cartesia",
     "apps.api.engine.fake",
     # AHEAD OF ITS MODULE, deliberately: `apps/api/engine/pipecat.py` is step 3 of

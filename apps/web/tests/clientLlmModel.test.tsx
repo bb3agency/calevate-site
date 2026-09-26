@@ -610,7 +610,7 @@ function agent(over: Partial<AgentWithLlm> = {}): AgentWithLlm {
     direction: "inbound",
     status: "live",
     published: true,
-    engine: "bolna",
+    engine: "pipecat",
     language_primary: "te-IN",
     disclosure_line:
       "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",

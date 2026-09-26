@@ -2,9 +2,9 @@
 
 "Never log phone numbers, transcript text or extraction payloads — log ids." Everywhere
 else in this repo that rule is about data we assembled ourselves. Here it is about a
-document a vendor POSTs at us: Bolna's execution payload carries
-`recipient_phone_number`, a prefix-tagged transcript and `extracted_data` (TRD §5), and
-this handler holds all of it in memory as `payload` while deciding what to do.
+document a vendor POSTs at us: an engine's execution payload can carry the caller's
+number, a transcript and extracted fields (TRD §5), and this handler holds all of it in
+memory as `payload` while deciding what to do.
 
 It is also the service where a leak would be least visible. voice-runtime has no
 dashboard, no reviewer and no request log anybody reads; its output goes to stdout on a
@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -40,7 +40,9 @@ from main import app as voice_app
 ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
 EDGE_PROXY_IP = "127.0.0.1"
-HOOK = "/hooks/v1/engine/bolna"
+HOOK = "/hooks/v1/engine/fake"
+#: A signing engine's hook: refused until a verifier exists, so it is the refusal path.
+SIGNED_HOOK = "/hooks/v1/engine/cartesia"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 # The PII an execution payload actually carries. Every one of these must be absent from
@@ -54,8 +56,8 @@ SECRETS = (CALLER_PHONE, AGENT_PHONE, TRANSCRIPT, EXTRACTED_NAME, EXTRACTED_EMAI
 
 
 def _execution_payload(execution_id: str, status: str) -> dict[str, Any]:
-    """A Bolna execution payload with everything filled in, shaped from TRD §5's
-    description of what arrives at `completed`."""
+    """An execution payload with everything filled in, shaped from TRD §5's description of
+    what arrives at `completed`."""
     return {
         "execution_id": execution_id,
         "status": status,
@@ -103,11 +105,6 @@ def logs() -> Iterator[_Capture]:
     finally:
         root.removeHandler(capture)
         root.setLevel(previous_level)
-
-
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP, *, tolerate_crash: bool = False) -> AsyncClient:
@@ -248,15 +245,15 @@ async def test_the_metric_and_alert_lines_carry_ids_and_labels_only(logs: _Captu
     status = f"completed-{uuid.uuid4().hex[:6]}"
 
     async with _client(ATTACKER_IP) as stranger:
-        await stranger.post(HOOK, json=_execution_payload(execution_id, status))
+        await stranger.post(SIGNED_HOOK, json=_execution_payload(execution_id, status))
 
     rejected = [line for line in logs.lines if "webhook_source_rejected" in line]
-    assert rejected, "a caller off the allowlist must be alerted on"
+    assert rejected, "a refused delivery must be alerted on"
     for line in rejected:
         for secret in SECRETS:
             assert secret not in line
-    # The alert names the caller's address on purpose (a renumbered vendor is the
-    # incident it exists for) and nothing else about them.
+    # The alert names the caller's address on purpose (an operator needs to know who was
+    # refused) and nothing else about them.
     assert ATTACKER_IP in "\n".join(rejected), "the alert must name the source ip to be actionable"
 
     metrics = [line for line in logs.lines if '"metric": "webhook_ack_ms"' in line]

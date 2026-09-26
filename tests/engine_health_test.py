@@ -22,7 +22,6 @@ against an in-memory fake would have proved nothing about that.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -31,7 +30,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import untenanted_session
 from apps.api.engine import health
-from apps.api.engine.bolna import BolnaEngine
+from apps.api.engine.cartesia import CartesiaEngine
 from sqlalchemy import text
 
 
@@ -74,13 +73,13 @@ async def _counts(engine_name: str) -> tuple[int, int]:
     return int(row[0]), int(row[1])
 
 
-def _bolna(handler: Any) -> BolnaEngine:
-    """A real adapter over a mock transport, so `_request`'s own branches are exercised —
-    the throttle ladder, the 4xx/5xx split and the `absent_is_success` case all live there
-    and a stubbed adapter would test none of them."""
-    return BolnaEngine(
+def _vendor(handler: Any) -> CartesiaEngine:
+    """A real adapter over a mock transport, so the shared ladder's own branches are
+    exercised — the throttle ladder, the 4xx/5xx split and the `absent_is_success` case all
+    live in `vendor_http` and a stubbed adapter would test none of them."""
+    return CartesiaEngine(
         api_key="test-key",
-        fx_rate=Decimal("83"),
+        from_number_id="num_test",
         client=httpx.AsyncClient(
             base_url="https://api.example.invalid",
             transport=httpx.MockTransport(handler),
@@ -130,37 +129,37 @@ async def test_an_engine_that_answers_nothing_still_trips_the_alarm(alerts: _Ale
 async def test_the_adapter_counts_a_5xx_and_not_a_4xx(alerts: _Alerts) -> None:
     """The wiring, through the real `_request`. A 4xx is OUR request being wrong and would
     drown the signal; only the 5xx may be counted."""
-    await _clear("bolna")
+    await _clear("cartesia")
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"detail": "no"})
 
-    engine = _bolna(handler)
+    engine = _vendor(handler)
     with pytest.raises(ProblemError):
-        await engine.get_agent("agent-1")
-    assert await _counts("bolna") == (0, 0)
+        await engine.get_execution("call-1")
+    assert await _counts("cartesia") == (0, 0)
 
     def failing(request: httpx.Request) -> httpx.Response:
         return httpx.Response(502, text="bad gateway")
 
-    engine = _bolna(failing)
+    engine = _vendor(failing)
     with pytest.raises(ProblemError):
-        await engine.get_agent("agent-1")
-    assert await _counts("bolna") == (1, 0)
-    await _clear("bolna")
+        await engine.get_execution("call-1")
+    assert await _counts("cartesia") == (1, 0)
+    await _clear("cartesia")
 
 
 async def test_a_transport_failure_is_counted_as_unreachable() -> None:
-    await _clear("bolna")
+    await _clear("cartesia")
 
     def refused(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
-    engine = _bolna(refused)
+    engine = _vendor(refused)
     with pytest.raises(ProblemError):
-        await engine.get_agent("agent-1")
-    assert await _counts("bolna") == (0, 1)
-    await _clear("bolna")
+        await engine.get_execution("call-1")
+    assert await _counts("cartesia") == (0, 1)
+    await _clear("cartesia")
 
 
 async def test_a_broken_database_costs_the_signal_and_never_the_caller(

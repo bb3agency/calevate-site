@@ -1,7 +1,8 @@
 """Cartesia Line adapter — the second REAL vendor, and the first that disagrees with us.
 
 Adopted as a build-for-the-switch exercise under TRD §10.5 ("make switching a
-configuration change"), NOT as an adoption decision. D-31 still rents Bolna.
+configuration change"), NOT as an adoption decision. The rented engine D-31 chose was
+removed by D-639; the owned runtime (D-592) is the engine of record.
 
 READ THIS BEFORE WIRING IT TO A LIVE ACCOUNT
 =============================================
@@ -211,8 +212,8 @@ VERSION_HEADER: Final = "Cartesia-Version"
 _LISTING_PAGE_SIZE: Final = 100
 
 # Our own bound on how many call pages one reconciliation tick will read, across ALL
-# agents. `BolnaEngine._LISTING_MAX_PAGES` is the same idea for the same reason: a walk
-# with no bound is an outage against the vendor the first time their cursor misbehaves.
+# agents. A walk with no bound is an outage against the vendor the first time their cursor
+# misbehaves.
 # Hitting it is reported as `page_cap_reached`, never as completeness.
 _LISTING_MAX_PAGES: Final = 20
 
@@ -537,7 +538,7 @@ class CartesiaEngine:
             if not self._api_key:
                 # The credential check is HERE as well as in readiness, because a
                 # deployment can be misconfigured after readiness ran. Through the shared
-                # builder for the reason `bolna._http` states (P2.6).
+                # builder so every adapter refuses with the same code (P2.6).
                 raise engine_not_configured(f"{NO_CREDENTIALS_REASON}:{self.name}")
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
@@ -557,8 +558,8 @@ class CartesiaEngine:
         self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
     ) -> dict[str, Any]:
         """One round trip. `absent_is_success` is `delete_agent`'s and nothing else's —
-        see `BolnaEngine._request`, which carries the argument for why it is opt-in per
-        call site rather than a blanket 404 policy."""
+        see `vendor_http.vendor_request`, which carries the argument for why it is opt-in
+        per call site rather than a blanket 404 policy."""
         # THE LADDER ITSELF LIVES IN `vendor_http.vendor_request` (D-240): it was two
         # copies here that had drifted apart, and the divergence was invisible because
         # no fixture ever made a vendor misbehave.
@@ -912,7 +913,7 @@ class CartesiaEngine:
         refusal is `require_capability` rather than an empty list DELIBERATELY: an empty
         result reads as "no inventory today" and would put an operator on a screen that
         looks like it works and never will, which is the precise failure D-537 added this
-        method to avoid on the engine that CAN sell (see `BolnaEngine.search_numbers`).
+        method to avoid on an engine that CAN sell.
         """
         require_capability("numbers", engine=self)
         raise AssertionError("unreachable while `number_series` is empty")  # pragma: no cover
@@ -1232,7 +1233,8 @@ class CartesiaEngine:
         guessing a parameter onto a path that does not declare one. Gate 19(b).
 
         Carries the vendor's own document out as bytes for D-126's archive, on this path
-        only — `list_executions` builds no document per row, for `BolnaEngine`'s reason.
+        only — `list_executions` builds no document per row: the archive is per call, and a
+        listing is a reconciliation walk, not a capture.
         """
         payload = await self._request("GET", f"/agents/calls/{call_id}")
         return self._snapshot(payload).model_copy(

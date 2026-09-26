@@ -14,7 +14,7 @@ be true when the seam is finished. Four of them are hard rules:
 2. **AUTHENTICATION DOES NOT DEGRADE** (hard rule 1's neighbour). No token is 401 on every
    route, and — the sharp end — a deployment with NO token configured authenticates nobody,
    because an absent credential is a deployment nobody wired up and never "no authentication
-   required". These routes WRITE the ledger; `caller_data_routes` only reads a nicety.
+   required". These routes WRITE the ledger.
 3. **THE TENANT COMES FROM THE REF AND NOTHING ELSE** (hard rule 1). A call ref the server
    did not mint is refused, and a body claiming a tenant the ref does not name is refused.
 4. **THE SERVER REDACTS, AND A CLIENT'S REDACTION IS NOT STORED** (hard rules 5 and 6). That
@@ -372,7 +372,7 @@ async def test_a_ref_this_engine_never_minted_is_refused_before_any_row_is_touch
     tenant_id, agent_id, _ = await published_agent()
     async with worker_client() as api:
         with pytest.raises(WorkerApiError) as refused:
-            await api.post_observations("bolna:whatever", batch("c", tenant_id, agent_id))
+            await api.post_observations("cartesia:whatever", batch("c", tenant_id, agent_id))
     assert "404" in str(refused.value)
 
 
@@ -1137,7 +1137,7 @@ async def test_the_writing_routes_refuse_a_deployment_running_another_engine(
 
     tenant_id, agent_id, agent_ref = await published_agent()
     call_id, ref = call_ref(tenant_id)
-    monkeypatch.setenv("ENGINE", "bolna")
+    monkeypatch.setenv("ENGINE", "cartesia")
     _settings.cache_clear()
 
     async with worker_client() as api:

@@ -43,12 +43,12 @@ def build_engine(cfg: Settings) -> VoiceEngine:
 
     Split out of `get_engine` (D-104) so a caller that must not see a cached answer has
     somewhere honest to go. `get_engine` keys its cache on the engine NAME alone, which is
-    right for the request path — one process serves one deployment, and `bolna_api_key` is
-    classified `on_restart` precisely because the adapter copies it at construction. It is
-    WRONG for a caller that hands in a `Settings` it built itself: it would get back an
-    adapter constructed from a different one and never know. `runtime_config_missing_keys`
-    is exactly that caller, and readiness answering about the wrong configuration is worse
-    than readiness not answering.
+    right for the request path — one process serves one deployment, and an adapter that
+    copies a credential at construction (`cartesia_api_key` is `on_restart` for that reason)
+    keeps it for the life of the process. It is WRONG for a caller that hands in a
+    `Settings` it built itself: it would get back an adapter constructed from a different
+    one and never know. `runtime_config_missing_keys` is exactly that caller, and readiness
+    answering about the wrong configuration is worse than readiness not answering.
 
     The `EngineName` annotation is load-bearing again: it was widened to `str` while
     `cartesia` was missing from the literal, and mypy's `warn_unreachable` now proves the
@@ -56,10 +56,6 @@ def build_engine(cfg: Settings) -> VoiceEngine:
     here is a type error rather than a silently-fake engine.
     """
     name: EngineName = cfg.engine
-    if name == "bolna":
-        from apps.api.engine.bolna import BolnaEngine
-
-        return BolnaEngine(api_key=cfg.bolna_api_key, fx_rate=cfg.usd_inr_rate)
     if name == "cartesia":
         from apps.api.engine.cartesia import CartesiaEngine
 
@@ -97,14 +93,11 @@ def get_engine(settings: Settings | None = None) -> VoiceEngine:
 def missing_engine_credential_keys(cfg: Settings) -> tuple[str, ...]:
     """The environment keys the SELECTED engine needs and does not have.
 
-    THE DEFECT THIS REPLACES (D-104). `runtime_config_missing_keys` carried
-    `if cfg.engine == "bolna" and not cfg.bolna_api_key` — one vendor, hardcoded, in
-    `core/settings.py`. So `/healthz/ready` was GREEN on a credential-less
-    `ENGINE=cartesia` deployment: a box that cannot place a single call, reporting itself
-    fit to take traffic. The obvious patch is a second `if` for Cartesia, and that is the
-    shape that produced the bug — the third engine would need a third, and whoever adds it
-    is editing a core module to record a fact about a vendor, which hard rule 2 says only
-    `apps/api/engine/` may hold.
+    WHY THE ADAPTER ANSWERS (D-104). The alternative is one `if cfg.engine == ...` per
+    vendor in `core/settings.py`, which is how `/healthz/ready` once reported a
+    credential-less deployment fit to take traffic: every new engine needs another branch,
+    and whoever adds it is editing a core module to record a fact about a vendor, which
+    hard rule 2 says only `apps/api/engine/` may hold.
 
     So the adapter answers both halves: `holds_credentials()` for whether it can reach its
     vendor (this is the one authority; the second, uncalled one is gone — P2.6), and
@@ -134,20 +127,17 @@ def all_credential_env_keys() -> tuple[str, ...]:
     `tests/harness_ambient_env_test.py` was written to end, arriving through a door that
     file did not cover.
     """
-    from apps.api.engine.bolna import BolnaEngine
     from apps.api.engine.cartesia import CartesiaEngine
     from apps.api.engine.fake import FakeEngine
     from apps.api.engine.pipecat import PipecatEngine
 
-    # KEYED OFF EACH ADAPTER'S OWN `name`, and NEVER a literal set of engine names here.
-    # The first version of this wrote `{"bolna": ..., "cartesia": ..., "fake": ...}` and
-    # `tests/engine_name_drift_test.py` failed it immediately, correctly: this repo has
+    # KEYED OFF EACH ADAPTER'S OWN `name`, and NEVER a literal set of engine names here:
+    # `tests/engine_name_drift_test.py` fails a third spelling, because this repo has
     # exactly two homes for that set — `EngineName`/`SELECTABLE_ENGINES` (which names
     # `ENGINE=` may take) and `WEBHOOK_AUTH_BY_ENGINE` (which names have an authenticity
     # story) — and a third spelling drifts the first time either grows. The adapters
     # already declare `name`, so the mapping is derivable and the literal bought nothing.
     adapters: tuple[type[VoiceEngine], ...] = (
-        BolnaEngine,
         CartesiaEngine,
         FakeEngine,
         PipecatEngine,
