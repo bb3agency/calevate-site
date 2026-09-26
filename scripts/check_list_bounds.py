@@ -81,6 +81,20 @@ class BoundedByConstruction:
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # --- bounded by a constant or a registry in this repo ---------------------------
+    "GET /v1/compliance/autodialer-notice": BoundedByConstruction(
+        by=(
+            "`declared_clis` is capped at `compliance/autodialer.MAX_DECLARED_CLIS` (20) by "
+            "the recorder, and `undeclared_clis` is the account's agent-bound rows in "
+            "`phone_numbers` that the notice does not name, so it is bounded by the "
+            "connections the account holds, each a rented number or a registered header "
+            "added one at a time. It takes no `limit` because it is the list a notice must "
+            "name in full: a page of it would leave calls refused from numbers the client "
+            "was never shown."
+        )
+    ),
+    "POST /v1/compliance/autodialer-notice": BoundedByConstruction(
+        by="the same two lists as `GET /v1/compliance/autodialer-notice`, which it returns."
+    ),
     "GET /v1/ops/kb-orphans": BoundedByConstruction(
         by=(
             "`kb/orphans.MAX_ORPHAN_ROWS` (200), applied inside `reconcile_account_kb` "
