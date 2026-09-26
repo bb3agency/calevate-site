@@ -391,6 +391,75 @@ async def test_the_tick_is_bounded_across_tenants(stub_provider: Any) -> None:
     assert provider.calls_for(marker) == copilot_memory.MAX_GROUPS_PER_TENANT
 
 
+async def test_a_later_group_failing_does_not_unrecord_a_group_already_paid_for(
+    stub_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hard rule 7, and the idempotency stamp, per GROUP rather than per tenant.
+
+    A tenant's groups used to share ONE transaction, so a provider error on the second
+    group rolled back the first group's facts, its `distilled_at` stamp AND its
+    `usage_events` rows — after its model call had been paid for. The next tick paid for
+    the same conversation again, and a conversation the provider keeps refusing made that
+    an hourly, unmetered spend.
+    """
+    import httpx
+
+    tenant_id, user_id = await _tenant_with_user()
+    paid = f"mk{uuid.uuid4().hex[:10]}"
+    refused = f"mk{uuid.uuid4().hex[:10]}"
+    for turn in range(copilot_memory.MIN_EPISODES):
+        await _write(
+            tenant_id,
+            user_id,
+            f"Asked: turn {turn} {paid}",
+            route="/first",
+            age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 60,
+        )
+        await _write(
+            tenant_id,
+            user_id,
+            f"Asked: turn {turn} {refused}",
+            route="/second",
+            age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 5,
+        )
+    provider = stub_provider(["The clinic opens at nine."])
+    succeed = provider.complete
+
+    async def complete(leg: Any, messages: Any, **kwargs: Any) -> chat.ChatOutcome:
+        if any(refused in str(message.get("content", "")) for message in messages):
+            raise httpx.ConnectError("provider unavailable")
+        return await succeed(leg, messages, **kwargs)
+
+    monkeypatch.setattr(copilot_memory.chat, "complete", complete)
+
+    await copilot_memory.distil_copilot_memories({})
+
+    assert provider.calls_for(paid) == 1
+    async with tenant_session(tenant_id) as session:
+        stamped = (
+            await session.execute(
+                text(
+                    "SELECT screen_route, count(*) FILTER (WHERE distilled_at IS NOT NULL) "
+                    "FROM copilot_memories WHERE kind = 'episodic' GROUP BY screen_route"
+                )
+            )
+        ).all()
+        metered = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM usage_events WHERE unit_type LIKE 'ai_assist_ktok%' "
+                    "AND meta ->> 'feature' = 'copilot_memory_distillation'"
+                )
+            )
+        ).scalar_one()
+    assert {str(r[0]): int(r[1]) for r in stamped} == {
+        "/first": copilot_memory.MIN_EPISODES,
+        "/second": 0,
+    }, "the paid group is done; the refused one is left for the next tick"
+    assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 1
+    assert int(metered) > 0, "the model call that was paid for is on the ledger"
+
+
 async def test_the_job_meters_what_it_spent(stub_provider: Any) -> None:
     """Hard rule 7. A model call that spent our credential is recorded, even though no
     client asked for it — and under its OWN feature name, so an operator can separate

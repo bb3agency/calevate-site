@@ -393,11 +393,17 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
                         },
                     )
                 ).all()
-                for group in groups:
-                    if budget <= 0:
-                        break
-                    budget -= 1
-                    distilled_groups += 1
+            for group in groups:
+                if budget <= 0:
+                    break
+                budget -= 1
+                distilled_groups += 1
+                # ONE TRANSACTION PER GROUP, not per tenant. Each group's model call is paid
+                # for the moment it returns, and its facts, stamp and `usage_events` rows
+                # must commit with it: sharing the tenant's transaction let a provider error
+                # on a LATER group roll all three back, so the spend went unrecorded (hard
+                # rule 7) and the next tick paid for the same conversation again.
+                async with tenant_session(tenant_id) as session:
                     facts_written += await _distil_group(
                         session,
                         tenant_id=tenant_id,
