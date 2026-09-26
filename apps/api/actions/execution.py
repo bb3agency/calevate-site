@@ -234,6 +234,18 @@ async def _run_whatsapp(
     recipient = values.get(config.recipient_param)
     if not recipient:
         return ExecutionResult(ok=False, payload={"error": "no_recipient"}, status="no_recipient")
+    # Template variables are positional ({{1}}, {{2}}, ...): sending without one would move
+    # every later value into its slot. Refused with the names, so the model can ask for them.
+    template_bindings = ([config.header_param] if config.header_param else []) + list(
+        config.body_params
+    )
+    missing = [name for name in template_bindings if values.get(name) is None]
+    if missing:
+        return ExecutionResult(
+            ok=False,
+            payload={"error": "missing_template_value", "missing": missing},
+            status="missing_template_value",
+        )
     # The dispatch gate AND the caller's messaging consent, in that order — the same two
     # questions `workers/whatsapp._send_escalation` asks, because one outbound channel
     # may not have two answers to "may we contact this person" (hard rule 5). This path
@@ -255,14 +267,8 @@ async def _run_whatsapp(
     secret = await _credential_secret(session, tool)
     if secret is None and tool.provider != "custom":
         return ExecutionResult(ok=False, payload={"error": "no_credential"}, status="no_credential")
-    header_value = (
-        _stringify(values[config.header_param])
-        if config.header_param and values.get(config.header_param) is not None
-        else None
-    )
-    body_values = [
-        _stringify(values[name]) for name in config.body_params if values.get(name) is not None
-    ]
+    header_value = _stringify(values[config.header_param]) if config.header_param else None
+    body_values = [_stringify(values[name]) for name in config.body_params]
 
     if tool.provider == "aisensy":
         request = wa.build_aisensy(

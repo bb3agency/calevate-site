@@ -438,6 +438,56 @@ async def test_whatsapp_send_is_addressed_to_the_number_the_gate_cleared(
     assert sent["destination"] == "+919876543210"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["aisensy", "meta_cloud", "interakt"])
+async def test_a_missing_template_value_is_not_filled_by_the_next_one(
+    monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    """Template variables are POSITIONAL ({{1}}, {{2}}, ...). Dropping the one the model did
+    not supply shifts every later value into its slot, so "Hi {{1}}, see you at {{2}}"
+    would greet the customer by the appointment time. Nothing may be sent; the model is
+    told which value it still needs, so it can ask the caller."""
+    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
+    monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
+    tool = _loaded(
+        kind="whatsapp",
+        provider=provider,
+        credential_id=uuid4(),
+        config=WhatsAppConfig(
+            recipient_param="caller",
+            template="booking_confirmed",
+            language="en",
+            phone_number_id="1234567890",
+            body_params=["customer_name", "slot"],
+        ).model_dump(),
+        params=[
+            {"name": "caller", "source": "lead_var", "lead_var": "caller_phone"},
+            {"name": "customer_name", "source": "ai", "type": "string", "description": "name"},
+            {"name": "slot", "source": "ai", "type": "string", "description": "time"},
+        ],
+    )
+    sent: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.content)
+        return httpx.Response(200, json={"ok": True})
+
+    async with _mock_client(handler) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"caller": "+919000000000", "slot": "10:30 AM"},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert sent == [], "a template with a value in the wrong slot was sent to a customer"
+    assert result.ok is False
+    assert result.status == "missing_template_value"
+    assert result.payload == {"error": "missing_template_value", "missing": ["customer_name"]}
+
+
 # ------------------------------------------------------------------ helpers ----
 
 
