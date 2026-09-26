@@ -650,15 +650,45 @@ async def confirm_password_reset(
     row was still there, so a token outliving a deleted account raised a driver error and
     became a 500. Here a `None` subject is a clean, actionable refusal — and the token is
     already spent, which is correct: a token naming a dead account should not stay live.
+
+    THE BURN AND THE NEW PASSWORD SHARE ONE TRANSACTION, so a password the policy refuses
+    rolls the burn back. `ResetConfirmIn` admits `hashing.MIN_PASSWORD_CHARS` while the
+    client realm's floor is higher and the blocklist applies at any length, so a request can
+    pass the schema and fail `set_password`; the refusal tells the person to choose another
+    password, and the link they hold has to still work when they do. The refusals that are
+    about the TOKEN (wrong realm, dead subject) are raised after the transaction commits,
+    so those burns stand.
     """
     _refuse_unknown_realm(realm)
     at = now or datetime.now(UTC)
+    subject: Subject | None = None
     async with credential_session() as session:
         redeemed = await tokens.redeem_token(session, purpose="password_reset", token=token, now=at)
+        if redeemed is not None and redeemed.subject_id is not None and redeemed.realm == realm:
+            subject = await load_subject(realm, redeemed.subject_id)
+        if subject is not None:
+            await set_password(
+                session,
+                realm=realm,
+                subject_id=subject.subject_id,
+                password=password,
+                # The blocklist's context half: NIST names "the username, and derivatives
+                # thereof". The address is already in hand from `load_subject`.
+                email=subject.email,
+                now=at,
+            )
+            await tokens.invalidate_outstanding(
+                session,
+                purpose="password_reset",
+                realm=realm,
+                subject_id=subject.subject_id,
+                now=at,
+            )
+            await revoke_subject_sessions(
+                session, realm=realm, subject_id=subject.subject_id, now=at
+            )
     if redeemed is None or redeemed.subject_id is None or redeemed.realm != realm:
         raise _bad_token()
-
-    subject = await load_subject(realm, redeemed.subject_id)
     if subject is None:
         # Deleted, deactivated, or removed from the operator allowlist since the link was
         # sent. A refusal a person can act on, NOT a 500 — see the docstring.
@@ -667,26 +697,6 @@ async def confirm_password_reset(
             extra={"realm": realm, "subject_id": str(redeemed.subject_id)},
         )
         raise _bad_token()
-
-    async with credential_session() as session:
-        await set_password(
-            session,
-            realm=realm,
-            subject_id=subject.subject_id,
-            password=password,
-            # The blocklist's context half: NIST names "the username, and derivatives
-            # thereof". The address is already in hand from `load_subject`.
-            email=subject.email,
-            now=at,
-        )
-        await tokens.invalidate_outstanding(
-            session,
-            purpose="password_reset",
-            realm=realm,
-            subject_id=subject.subject_id,
-            now=at,
-        )
-        await revoke_subject_sessions(session, realm=realm, subject_id=subject.subject_id, now=at)
     await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
     # And the REQUEST budget, because this link being redeemed is proof the person asking
     # for the links is the person who owns the mailbox. Leaving it spent would mean somebody

@@ -250,6 +250,30 @@ async def test_a_consumed_link_cannot_be_replayed(bare_deployment: BareDeploymen
 
 
 @pytest.mark.asyncio
+async def test_a_refused_password_does_not_spend_the_link(
+    bare_deployment: BareDeployment,
+) -> None:
+    """The policy refusal says "choose a different password"; the link must survive it.
+
+    Otherwise the first operator of a fresh deployment, told their password is too
+    guessable, is then told the setup link is no longer usable — and on a bare deployment
+    there is nobody in the console to send another.
+    """
+    result = await bootstrap_first_admin(email=bare_deployment.email, name=None)
+    with pytest.raises(ProblemError) as caught:
+        await confirm_bootstrap(token=result.token, password="calevate2026!!!!!", ip=None)
+    assert caught.value.code == "password_unacceptable"
+
+    assert await confirm_bootstrap(token=result.token, password=PASSWORD, ip=None) == (
+        result.admin_id
+    )
+    outcome = await service.sign_in(
+        realm=REALM, email=bare_deployment.email, password=PASSWORD, ip=None
+    )
+    assert outcome.subject_id == result.admin_id
+
+
+@pytest.mark.asyncio
 async def test_an_expired_link_is_refused(bare_deployment: BareDeployment) -> None:
     """The TTL, driven by minting a token in the past rather than by waiting an hour."""
     result = await bootstrap_first_admin(email=bare_deployment.email, name=None)
