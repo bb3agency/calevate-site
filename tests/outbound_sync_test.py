@@ -88,6 +88,10 @@ def test_the_signature_covers_the_timestamp_so_a_replay_expires() -> None:
     forged = f"t={now},v1={stale.split('v1=')[1]}"
     assert not service.verify_signature(SECRET, header=forged, body=body)
 
+    # A non-ASCII byte in the presented digest is a forgery, not a crash: the receiver
+    # this function documents answers it with a refusal rather than a TypeError.
+    assert not service.verify_signature(SECRET, header=f"t={now},v1=\xe9", body=body)
+
 
 def test_a_malformed_signature_header_is_rejected_not_crashed() -> None:
     body = "{}"

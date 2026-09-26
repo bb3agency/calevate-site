@@ -408,7 +408,10 @@ def verify_signature(*, app_secret: str, body: bytes, header: str | None) -> boo
     if not digest:
         return False
     expected = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(digest, expected)
+    # Bytes, not `str`: `compare_digest` raises TypeError on a `str` holding any non-ASCII
+    # character, and header values arrive latin-1-decoded — one such byte from anybody
+    # would otherwise turn this 401 into a paging 500.
+    return hmac.compare_digest(digest.encode("utf-8"), expected.encode("ascii"))
 
 
 def verify_token_for(*, webhook_id: UUID, app_secret: str) -> str:

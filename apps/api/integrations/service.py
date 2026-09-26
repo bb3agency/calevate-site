@@ -272,7 +272,8 @@ def verify_signature(secret: str, *, header: str, body: str, tolerance_s: int = 
     if age > tolerance_s:
         return False
     expected = hmac.new(secret.encode(), f"{timestamp}.{body}".encode(), hashlib.sha256)
-    return hmac.compare_digest(expected.hexdigest(), provided)
+    # Bytes: `compare_digest` raises TypeError on a `str` with any non-ASCII character.
+    return hmac.compare_digest(expected.hexdigest().encode("ascii"), provided.encode("utf-8"))
 
 
 def build_envelope(
