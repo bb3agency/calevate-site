@@ -88,7 +88,9 @@ class FakeIdentityProvider:
         presented = headers.get(SIGNATURE_HEADER)
         if not presented:
             return False
-        return hmac.compare_digest(presented.strip(), sign(secret=self._secret, body=raw))
+        return hmac.compare_digest(
+            presented.strip().encode(), sign(secret=self._secret, body=raw).encode()
+        )
 
     def parse_outcome(self, *, raw: bytes) -> VerificationOutcome:
         body: Any = json.loads(raw or b"{}")

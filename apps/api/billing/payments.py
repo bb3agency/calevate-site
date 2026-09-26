@@ -521,7 +521,7 @@ def verify_signature(*, secret: str, body: bytes, signature: str | None) -> bool
     if not signature:
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(signature.strip(), expected)
+    return hmac.compare_digest(signature.strip().encode(), expected.encode())
 
 
 def verify_checkout_signature(
@@ -550,7 +550,7 @@ def verify_checkout_signature(
         return False
     message = f"{order_id}|{payment_id}".encode()
     expected = hmac.new(key_secret.encode(), message, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(signature.strip(), expected)
+    return hmac.compare_digest(signature.strip().encode(), expected.encode())
 
 
 def paise_to_inr(amount: Any) -> Decimal:

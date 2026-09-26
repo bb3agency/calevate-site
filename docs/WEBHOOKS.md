@@ -123,7 +123,7 @@ def verify(secret: str, signature_header: str, raw_body: bytes) -> bool:
         return False
     signed = ts.encode() + b"." + raw_body
     expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, provided)  # constant-time compare
+    return hmac.compare_digest(expected.encode(), provided.encode())  # constant-time; bytes, since a str with a non-ASCII char raises
 ```
 
 Three rules that matter:

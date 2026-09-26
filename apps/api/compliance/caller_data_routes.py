@@ -122,7 +122,7 @@ def _authorized(header: str | None) -> bool:
     scheme, _, presented = header.partition(" ")
     if scheme.lower() != "bearer" or not presented:
         return False
-    return hmac.compare_digest(presented.strip(), expected)
+    return hmac.compare_digest(presented.strip().encode(), expected.encode())
 
 
 async def _resolve_agent(engine: str, engine_agent_ref: str) -> tuple[UUID, UUID] | None:

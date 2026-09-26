@@ -1410,7 +1410,7 @@ class FakeEngine:
         # `compare_digest`, not `==`: a byte-at-a-time comparison leaks the correct
         # prefix through timing, and a signature check that can be walked one character
         # at a time is not a signature check.
-        if not hmac.compare_digest(presented, expected):
+        if not hmac.compare_digest(presented.encode(), expected.encode()):
             return WebhookVerdict(ok=False, method="hmac", reason="signature mismatch")
         return WebhookVerdict(ok=True, method="hmac")
 

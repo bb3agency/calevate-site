@@ -301,7 +301,7 @@ def authorized(header: str | None) -> bool:
     scheme, _, presented = header.partition(" ")
     if scheme.lower() != "bearer" or not presented:
         return False
-    return hmac.compare_digest(presented.strip(), expected)
+    return hmac.compare_digest(presented.strip().encode(), expected.encode())
 
 
 def engine_enabled() -> bool:
