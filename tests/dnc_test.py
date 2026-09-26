@@ -669,6 +669,57 @@ async def test_a_removal_that_deletes_no_row_reports_not_found_rather_than_succe
     assert "dnc entry" in caught.value.detail.lower(), caught.value.detail
 
 
+async def test_a_removal_racing_the_callers_own_opt_out_never_deletes_the_opt_out() -> None:
+    """The client presses delete on a number they typed in; at the same moment that person
+    is on a call saying "stop calling me", and `add_to_dnc` upgrades the SAME row from
+    `manual` to `call_optout` in place (D-189). The removal read `manual` and decided the
+    row was deletable; a DELETE keyed on the id alone then removed the caller's opt-out
+    and put the number back in the dial pool.
+
+    Staged with the upgrade holding its row lock while the removal runs, so the removal's
+    DELETE waits on it and executes against the upgraded version.
+    """
+    from apps.api.compliance.service import add_to_dnc
+
+    tenant_id, _agent_id, _slug, _token = await _tenant()
+    phone = _number()
+    async with tenant_session(tenant_id) as session:
+        await dnc.add_numbers(session, tenant_id=tenant_id, raw_numbers=[phone], source="manual")
+        entry_id = uuid.UUID(
+            str(
+                (
+                    await session.execute(
+                        text("SELECT id FROM dnc_list WHERE phone_e164 = :p"), {"p": phone}
+                    )
+                ).scalar()
+            )
+        )
+
+    async def remove() -> dnc.Removal:
+        async with tenant_session(tenant_id) as session:
+            return await dnc.remove_entry(session, entry_id=entry_id)
+
+    async with tenant_session(tenant_id) as upgrading:
+        await add_to_dnc(upgrading, tenant_id=tenant_id, phone_e164=phone, source="call_optout")
+        removal = asyncio.create_task(remove())
+        # Long enough for the removal to read the committed `manual` row and block on
+        # the upgrade's row lock; the upgrade commits when this block exits.
+        await asyncio.sleep(0.5)
+        assert not removal.done(), "the removal must be waiting on the upgrade's row lock"
+
+    with pytest.raises(ProblemError) as refused:
+        await removal
+    assert refused.value.code == "dnc_consumer_optout"
+
+    async with tenant_session(tenant_id) as session:
+        source = (
+            await session.execute(
+                text("SELECT source FROM dnc_list WHERE id = :i"), {"i": entry_id}
+            )
+        ).scalar()
+    assert source == "call_optout", "the caller's opt-out was deleted"
+
+
 async def test_the_raising_gate_refuses_a_suppressed_number_by_name_and_logs_no_digits(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
