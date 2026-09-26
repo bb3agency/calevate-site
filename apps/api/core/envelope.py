@@ -407,7 +407,7 @@ def seal(plaintext: str, *, context: str, ring: KekRing | None = None) -> Envelo
     """Encrypt one secret under a fresh DEK, wrapped under the active KEK.
 
     `context` IS REQUIRED AND IS AUTHENTICATED (it is GCM's additional authenticated
-    data). It binds the ciphertext to where it belongs — `platform_secret:bolna_api_key`,
+    data). It binds the ciphertext to where it belongs — `platform_secret:cartesia_api_key`,
     `tenant_secret:<tenant_id>:meta_page_token` — so a row cannot be MOVED. Without it,
     an attacker with database write access could copy the ciphertext of a key they
     control into the Sarvam key's row: every tag would verify, every check would pass,

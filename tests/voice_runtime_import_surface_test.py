@@ -16,8 +16,8 @@ engine-isolation contract — "the voice-runtime twin is its own tiny module ...
 imports an adapter either" — was therefore a statement of intent with nothing behind it.
 This file is the thing behind it.
 
-WHY THE IMPORT SURFACE AND NOT A TIMER. The ack budget is 500ms and Bolna's delivery is
-at-most-once with no retry (D-31), so a slow receiver does not get retried — it loses
+WHY THE IMPORT SURFACE AND NOT A TIMER. The ack budget is 500ms and an at-most-once
+delivery with no retry (D-31) means a slow receiver does not get retried — it loses
 calls. But a wall-clock assertion on a CI box is flaky, and flaky latency assertions get
 deleted. What is NOT flaky is the set of modules the process holds: an LLM SDK, an
 engine adapter or the ORM model registry cannot appear in it by accident, and each one
@@ -41,7 +41,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -57,11 +57,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
-HOOK = "/hooks/v1/engine/bolna"
-TOOL = "/tools/v1/bolna/opt-out"
-BOOK = "/tools/v1/bolna/callback"
-CANCEL_CALLBACK = "/tools/v1/bolna/callback/cancel"
-HANDOFF = "/tools/v1/bolna/handoff"
+HOOK = "/hooks/v1/engine/fake"
+TOOL = "/tools/v1/fake/opt-out"
+BOOK = "/tools/v1/fake/callback"
+CANCEL_CALLBACK = "/tools/v1/fake/callback/cancel"
+HANDOFF = "/tools/v1/fake/handoff"
 
 #: A date the booking endpoint will accept as "far enough ahead", computed rather than
 #: written down: a literal would silently start failing `too_soon` the day it passed, and
@@ -521,9 +521,7 @@ async def _hang_up_mid_body(path: str) -> None:
     await voice_app(scope, receive, send)
 
 
-async def test_no_module_is_imported_while_serving_a_request(
-    source_ip_allowlist: Callable[..., None],
-) -> None:
+async def test_no_module_is_imported_while_serving_a_request() -> None:
     """A module imported lazily INSIDE the handler is a heavy import that hid from the
     boot graph — and it is worse than one paid at startup, because the first request
     after every deploy pays it while a call is in flight.
@@ -547,8 +545,6 @@ async def test_no_module_is_imported_while_serving_a_request(
     rather than against everything — the first request legitimately faults in framework
     internals, and a banned module is never legitimate at any point in the process's life.
     """
-    source_ip_allowlist(ENGINE_EGRESS_IP)
-
     cold = set(sys.modules)
     async with _client(EDGE_PROXY_IP) as http:
         await _drive(http, uuid.uuid4().hex[:12])  # warm-up
@@ -700,7 +696,7 @@ before = sorted(sys.modules)
 # code meant the second probe within fifteen minutes was suppressed before it reached the
 # transport, and measured an import set with the transport missing. Uniqueness makes the
 # probe hermetic without depending on Redis being reachable or resettable.
-alert("ROUTE_HANDLER", f"import_surface_probe_{uuid.uuid4().hex}", engine="bolna")
+alert("ROUTE_HANDLER", f"import_surface_probe_{uuid.uuid4().hex}", engine="fake")
 flushed = flush_alerts(timeout=20.0)
 after = sorted(sys.modules)
 # `flush_alerts` only proves the QUEUE drained, which is also what a suppressed notice

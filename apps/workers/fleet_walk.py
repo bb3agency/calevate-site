@@ -111,7 +111,7 @@ class WalkBudget:
 #     table instead of the directory.
 #   * An AST call-graph scan for `tenant_session` opened inside a loop — measured at 22
 #     of 31 crons, including per-ROW jobs bounded by an explicit `limit` (`sweep_kb_uploads`,
-#     `issue_one_time_charges`), and still missing `sweep_engine_violations`. A signal
+#     `issue_one_time_charges`), and still missing a vendor-listing sweep. A signal
 #     with that error rate buys a hand-maintained EXEMPTION list, which is the same defect
 #     with the sign flipped.
 #

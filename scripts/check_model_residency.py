@@ -650,8 +650,8 @@ KNOWN_VENDOR_TOKENS: Final[frozenset[str]] = frozenset(
     token for leg in KNOWN_LEGS for token in leg.vendor_tokens
 )
 
-#: Where a URL literal can ship. `scripts/` is in for `sarvam_model_identifier_test`'s
-#: reason: `scripts/pilot/` drives a real vendor account and reads like a fixture.
+#: Where a URL literal can ship. `scripts/` is in because a harness that drives a real
+#: vendor account reads like a fixture and ships like code.
 SCANNED_TREES: Final[tuple[str, ...]] = ("apps", "packages", "scripts")
 
 #: Directory names never scanned. `tests`/`fixtures` are out because a test naming a

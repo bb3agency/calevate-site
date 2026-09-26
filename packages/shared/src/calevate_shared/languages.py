@@ -5,7 +5,7 @@ WHY THIS FILE EXISTS. Nothing in this repository declared an agent's languages. 
 existed instead was the same three strings spelled independently in TWELVE places —
 `agents/voices.py::Language`, `agents/voice_sync._PRODUCT_LANGUAGES`,
 `copilot/agent_actions._LANGUAGES` and a second `_LANGUAGE_LABELS`,
-`engine/bolna._VOICE_LANGUAGES`, `admin/routes.CreateOrgIn.language`,
+a rented engine adapter's voice-language map, `admin/routes.CreateOrgIn.language`,
 `tenancy/signup_routes.Language`, and three tables of labels in the frontend
 (`admin/new/languages.ts`, `lib/api/signup.ts`, `lib/agentState.ts`) plus a union
 hand-written twice in `admin/ops/voices/page.tsx` — each its own `te-IN`/`hi-IN`/`en-IN`

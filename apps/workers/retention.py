@@ -359,9 +359,8 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
 # THE CALL'S RETENTION CLOCK — and why it is not simply `ended_at`.
 #
 # Every arm of this sweep dates a call's data from when the call ENDED. `calls.ended_at`
-# is nullable and VENDOR-SUPPLIED: the Bolna adapter reads it out of the execution
-# payload (`ended_at` or `updated_at`, else None — apps/api/engine/bolna.py), and the
-# pipeline's upsert keeps NULL when the vendor never sends one
+# is nullable and VENDOR-SUPPLIED: an adapter reads it out of the execution payload when
+# the vendor sends one, and the pipeline's upsert keeps NULL when the vendor never sends one
 # (`ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at)`). Transcript turns, the
 # recording pointer and the summary are all written regardless.
 #

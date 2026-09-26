@@ -1109,13 +1109,6 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "`tests/admin_copilot_billing_test.py` and the redaction guard the route shares "
         "with its client twin."
     ),
-    "POST /v1/actions/invoke/{engine}/{tool_id}": (
-        "the engine-called in-call action endpoint (source-IP gated like the webhook "
-        "receiver, never a client dashboard route). The body IS the tool result the LLM "
-        "reads back, and its shape is whatever the tenant-configured external API returns "
-        "or a structured failure — genuinely open-ended, so there is no model to declare. "
-        "It carries no Calevate-stored tenant data; the recipient is the engine/LLM."
-    ),
 }
 
 

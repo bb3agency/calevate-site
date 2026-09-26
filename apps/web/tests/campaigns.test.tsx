@@ -86,7 +86,7 @@ const AGENT: Agent = {
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
-  engine: "bolna",
+  engine: "pipecat",
   published: true,
   // D-440 widened `AgentOut`: an agent knows when it was retired (NULL until it is) and
   // how many lines it answers in parallel, which is the one honest per-agent deployment

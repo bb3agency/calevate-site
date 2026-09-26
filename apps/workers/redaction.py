@@ -61,7 +61,7 @@ _CARD_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 # landline is masked only when the text SAYS it is a phone: a `+` country code or the
 # trunk `0` (`04023456789`, `+914023456789`). A bare `4023456789` therefore still passes
 # through, deliberately: masking it would mean masking every ten-digit reference number
-# a clinic reads back to a caller. The digit sweep in `scripts/pilot/redact.py` is the
+# a clinic reads back to a caller. The digit sweep in `scripts/evidence_redact.py` is the
 # right answer for contexts where that trade goes the other way.
 #
 # History: the `\b` after an optional `+91` CANNOT MATCH when the prefix is present with

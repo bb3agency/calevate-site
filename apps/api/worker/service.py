@@ -311,9 +311,9 @@ def engine_enabled() -> bool:
     CONSUMER OF WHAT THEY WRITE DOES NOT ASK (D-627).** `settle_call` enqueues a post-call
     job whose payload names `"engine": "pipecat"`, and `workers/pipeline._post_call_target`
     never reads that key — it resolves the adapter from the process-wide `ENGINE` through
-    `get_engine()`. So on a deployment running `ENGINE=bolna`, a settlement accepted here
+    `get_engine()`. So on a deployment running another engine, a settlement accepted here
     minted `calls` rows, `usage_events` rows and an outbox promise whose pipeline then asked
-    BOLNA for a `pipecat:` execution id, and the call's extraction, CRM columns and lead were
+    THAT engine for a `pipecat:` execution id, and the call's extraction, CRM columns and lead were
     lost to a vendor lookup that could never resolve.
 
     Two fixes were available and the SMALLER one is this: refuse the write. Teaching the
@@ -476,8 +476,8 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         # `effective_call_cap` before this config version is composed, so the published
         # config always carries a real integer and nothing here defaults anything. It was
         # in the row the whole time and no reader on this leg had ever asked for it: the
-        # Bolna adapter pushes it as `call_terminate` (`engine/bolna.py:4106`) and
-        # `engine/pipecat.py` mentions it nowhere, so an `owned_runtime` call ran until
+        # rented engine's adapter pushed it as the vendor's call-terminate setting and
+        # `engine/pipecat.py` mentioned it nowhere, so an `owned_runtime` call ran until
         # somebody hung up — against a cap its owner had set and been shown (hard rule 7).
         max_call_duration_s=published.max_call_duration_s,
     )

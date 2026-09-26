@@ -599,7 +599,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
         </p>
 
         {/* WHAT THE TIER MEANS, ABOVE THE BUTTON — the sentence somebody is actually
-            deciding on. A super admin can replace the Bolna key and add further admins;
+            deciding on. A super admin can replace a vendor key and add further admins;
             nothing else on this screen says so. */}
         <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
           {role === "superadmin" ? (

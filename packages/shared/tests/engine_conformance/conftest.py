@@ -2,9 +2,10 @@
 
 The suite lives in `packages/shared` on purpose — it tests the CONTRACT, not an
 implementation, so it belongs next to the Protocol rather than inside `apps/api`.
-Bolna is exercised against a transport stub (`httpx.MockTransport`) fed payload
-shapes captured from their docs; the fake engine runs as itself. Neither test touches
-the network — `make conformance` must be runnable on a plane.
+Cartesia is exercised against a transport stub (`httpx.MockTransport`) fed payload
+shapes from its generated client; Pipecat runs over an in-memory double of its database
+and worker; the fake engine runs as itself. None touches the network —
+`make conformance` must be runnable on a plane.
 
 Adding an engine = adding one entry to `ENGINE_IDS` and a factory below. If the new
 adapter cannot pass unchanged, the contract is wrong or the adapter is leaking.
@@ -16,16 +17,13 @@ import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from apps.api.agents.config_versions import Attestation, model_config_digest, prompt_digest
-from apps.api.engine import bolna as bolna_module
 from apps.api.engine import cartesia as cartesia_module
-from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.cartesia import CartesiaEngine
 from apps.api.engine.fake import (
     DICTATED_SPEECH_CAPABILITIES,
@@ -49,15 +47,14 @@ from calevate_shared.engine import (
 )
 from calevate_shared.events import TranscriptTurn
 
-#: SIX SUBJECTS, TWO OF THEM REAL ADAPTERS (D-93).
+#: SIX SUBJECTS, TWO OF THEM REAL ADAPTERS (D-93, D-639).
 #:
-#: `cartesia` is the second real vendor and the first that DISAGREES with us: it dictates
-#: its own STT and TTS, signs its webhooks, and provisions no Indian number class. It is
-#: what makes "the contract is vendor-neutral" a measurement rather than a hope — that
-#: claim and "the contract is Bolna-shaped" are indistinguishable while only one vendor
-#: exists. Its stub below is fed the same shapes the adapter documents, at the same
-#: evidence standing, so the suite proves OUR mapping and our contract; it proves nothing
-#: about Cartesia, and `apps/api/engine/cartesia.py` says so at every line.
+#: `cartesia` is a real vendor that DISAGREES with us: it dictates its own STT and TTS, signs its
+#: webhooks, and provisions no Indian number class. It is what makes "the contract is
+#: vendor-neutral" a measurement rather than a hope. Its stub below is fed the same shapes the
+#: adapter documents, at the same evidence standing, so the suite proves OUR mapping and our
+#: contract; it proves nothing about Cartesia, and `apps/api/engine/cartesia.py` says so at every
+#: line.
 #:
 #: `fake-restricted` is retained as the FAST TEST DOUBLE for the same capability profile:
 #: the `FakeEngine` class running an engine-dictates-speech, no-knowledge-base,
@@ -102,57 +99,9 @@ ENGINE_IDS = [
     "fake-restricted",
     "fake-deployed",
     "fake-owned-runtime",
-    "bolna",
     "cartesia",
     "pipecat",
 ]
-
-# A completed execution in the shape the vendor's own OpenAPI document declares
-# (`AgentExecution`, D-350): cent-denominated costs with the five-key per-leg breakdown,
-# prefix-tagged transcript text, recording nested under `telephony_data`.
-#
-# `telephony_data.call_type` IS THE DIRECTION, and this fixture used to carry a top-level
-# `"direction": "inbound"` instead (D-359). No such field exists on `AgentExecution`; it
-# was invented here at the same time as the adapter's read of it, from the same guess, so
-# the stub and the adapter agreed and this suite confirmed the agreement while every real
-# inbound call would have normalized as outbound. The old key is deliberately NOT kept: a
-# fixture that carries both cannot tell which one the adapter read.
-BOLNA_COMPLETED: dict[str, Any] = {
-    "id": "exec_abc123",
-    "agent_id": "agent_xyz",
-    "status": "completed",
-    "created_at": "2026-08-10T09:15:00Z",
-    # `updated_at`, NOT `ended_at` (D-361). The vendor's execution object carries exactly
-    # two timestamps — `created_at` and `updated_at` — and `ended_at` is in neither the
-    # pinned OAS nor `references/execution-payload.md`. This fixture used to carry the
-    # invented spelling, which is the `direction` mistake in a second place: the adapter
-    # reads `ended_at or updated_at`, the stub supplied `ended_at`, so the suite exercised
-    # a branch no live payload can take and the branch that ALL of them take was never run.
-    "updated_at": "2026-08-10T09:16:35Z",
-    "conversation_duration": 95,
-    "total_cost": 8.5,
-    "cost_breakdown": {
-        "platform": 5.0,
-        "network": 1.5,
-        "llm": 0.0,
-        "synthesizer": 1.4,
-        "transcriber": 0.6,
-    },
-    "telephony_data": {
-        "call_type": "inbound",
-        "from_number": "+919876543210",
-        "to_number": "+911140000000",
-        "recording_url": "https://s3.us-east-1.amazonaws.com/bolna/exec_abc123.wav",
-    },
-    "transcript": (
-        "assistant: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.\n"
-        "user: Naaku appointment kavali.\n"
-        "assistant: Tappakunda, ee roju evening 6 gantalaku doctor available unnaru.\n"
-        "user: Sare, naa peru Ravi."
-    ),
-    "extracted_data": {},
-}
-
 
 # A completed Line call in the shape Cartesia's OWN GENERATED CLIENT declares (D-270).
 # Every key below is read at source in `cartesia-python/src/cartesia/types/agents/
@@ -210,621 +159,6 @@ def _cartesia_completed(call_id: str = "cart_call_1") -> dict[str, Any]:
 # engine's configured page size, so one more call than this is a truncated window.
 FULL_LISTING_PAGE = 10
 
-#: How many executions the Bolna stub holds when the suite wants a TRUNCATED listing.
-#: One more than the adapter can reach: it pages `_LISTING_PAGE_SIZE` rows at a time and
-#: stops at `_LISTING_MAX_PAGES`, so this is the smallest store it provably cannot finish.
-#: Derived from the adapter's own constants rather than typed, for `CARTESIA_FULL_PAGE`'s
-#: reason — a hand-copied number stops saturating the moment either constant moves, and a
-#: saturation fixture that no longer saturates fails nothing.
-BOLNA_SATURATION_ROWS = bolna_module._LISTING_PAGE_SIZE * bolna_module._LISTING_MAX_PAGES + 1
-
-
-def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.Response]:
-    """A stub of their API, built fresh per engine so each test gets clean vendor state.
-
-    **THE AGENT STORE NOW CARRIES THE KNOWLEDGE REFERENCE, AND THIS DOCSTRING USED TO SAY
-    IT DELIBERATELY DID NOT (D-488).** It read: "Nothing in Bolna's published
-    documentation says the agent carries one or what it would be called ... inventing a
-    `rag_id` field here would make the suite assert our own guess back at us." The mirror
-    says where it lives — `tasks[].tools_config.llm_agent.llm_config.vector_store
-    .provider_config.vector_ids` (`bolna-findings/mirror/pages/api-reference/agent/v2/
-    get.md:806-817,1164-1195`) — so it is no longer a guess, and NOT modelling it would
-    make every KB clause pass vacuously. The stub stores what a `PUT` sends and returns it
-    on a `GET`, which is the whole mechanism `attach_kb`/`detach_kb`/`list_kb` rest on.
-
-    THE `PUT` REPLACES THE WHOLE OBJECT, exactly as the vendor documents (*"replaces the
-    entire agent configuration"*, `.../agent/v2/patch_update.md:9`). That is not a detail
-    of the fixture: it is what makes `update_agent`'s read-then-write provable here — an
-    adapter that stopped preserving the vector ids would wipe the agent's knowledge on the
-    next republish, and this stub is where that is caught.
-
-    The knowledge-base routes are STATEFUL on purpose. A stub that answered every
-    `POST /knowledgebase` with the same `rag_id` and every `DELETE` with 200 would let
-    an adapter that never detaches anything sail through the suite — the exact defect
-    the KB clause exists to catch. So this keeps a store: creates mint distinct ids and a
-    distinct `vector_id`, the listing reflects it, and deleting an id the store does not
-    hold 404s, which is what their `rag_id`-addressed CRUD API does.
-
-    IT ANSWERS THE FIRST READ WITH `processing`, ON PURPOSE. Their create response says
-    *"Initially the status would be `processing`"* and carries no `vector_id`
-    (`.../knowledgebase/create.md:105-127`), and an adapter that returned on the create
-    would have uploaded a document nothing can retrieve from. Making the FIRST
-    `GET /knowledgebase/{rag_id}` say `processing` is what forces the wait to exist.
-    """
-    #: The numbers this stub has been asked to dial, so each dial gets its own execution
-    #: id. See the `POST /call` branch.
-    placed: list[str] = []
-    #: Every execution id this stub has minted or listed. The `GET /executions/{id}`
-    #: branch answers 404 for anything else — see there.
-    executions: set[str] = set()
-    #: THE CALLER ID EACH DIAL ASKED FOR, so `GET /executions/{id}` can echo it back as
-    #: `telephony_data.from_number` (D-420). Without this the suite could not tell an
-    #: adapter that SENDS `from_phone_number` from one that drops it: `start_outbound_call`
-    #: returns a handle and nothing else, which is the same blind spot the per-call prompt
-    #: has. Echoing the value a vendor was given is what a real one does — the number the
-    #: callee saw is a property of the execution.
-    dialled_from: dict[str, str] = {}
-    #: `phone_number_id → agent_id` — this stub's inbound routing table (D-420). Stateful
-    #: for the reason the agent store is: a stub that answered every `POST /inbound/setup`
-    #: with 200 would let an adapter that binds nothing pass the clause that checks it.
-    inbound: dict[str, str] = {}
-    # The AGENT store, and it is stateful for the same reason the KB routes are: a stub
-    # that answered every `GET /v2/agent/{id}` with the body of the last write would let
-    # an adapter that echoes what it was handed pass the read-back clause, which is the
-    # one defect that clause exists to catch. So writes are filed under an id derived
-    # from the agent's NAME — stable across a re-create (the ref-stability clause needs
-    # that) and distinct per agent (the read-back clause needs that) — and the GET
-    # returns the stored object in the `{"agent_id": ..., "data": {...}}` envelope their
-    # OSS server's `GET /all` is documented to use.
-    #
-    # PRE-SEEDED with the agent `BOLNA_COMPLETED` names. The listing is now per agent and
-    # is discovered through `GET /v2/agent/all` (D-353), so an account with no agents lists
-    # nothing — which would make every listing clause pass vacuously on a stub that had not
-    # been asked to create one first.
-    agents: dict[str, dict[str, Any]] = {str(BOLNA_COMPLETED["agent_id"]): {}}
-    # THE CREDENTIAL STORE (D-404), and it is stateful and REPLACE-IN-PLACE — keyed on
-    # `provider_name` — because that is the semantics the adapter is built to VERIFY
-    # rather than to assume. Their published spec documents `POST /providers` with a
-    # status enum whose only member is `added`, so what a second write under one name does
-    # is not written down. Modelling replacement here is what makes the conformance clause
-    # assert the good case honestly; `tests/bolna_contract_test.py` drives the append case
-    # against a stub that appends, which is the arm that must raise.
-    #
-    # Pre-seeded with an UNRELATED provider, because the store holds every vendor key the
-    # account has: counting somebody else's `SARVAM` entry as a superseded copy of ours
-    # would report append semantics on a store that replaced perfectly well.
-    providers: dict[str, dict[str, str]] = {
-        "SARVAM": {"provider_id": "prov_sarvam", "provider_name": "SARVAM"}
-    }
-    #: `rag_id -> row`, the account's knowledge bases. `reads` counts how many times each
-    #: has been read back, so the first look can answer `processing` and the second
-    #: `processed` — see the docstring.
-    knowledge: dict[str, dict[str, Any]] = {}
-    reads: dict[str, int] = {}
-
-    #: Numbers this stub has SOLD, `phone_number -> id`. Stateful for the reason the
-    #: agent map is: a stub that forgot a purchase could not fail a double-buy or an
-    #: unreleased rental, which are the two failures that cost money (D-537).
-    bought: dict[str, str] = {}
-
-    def agent_id_for(body: dict[str, Any]) -> str:
-        config = body.get("agent_config") or {}
-        name = str(config.get("agent_name") or "")
-        return "agent_" + hashlib.sha256(name.encode()).hexdigest()[:8]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path == "/knowledgebase" and request.method == "POST":
-            # MULTIPART, AND THE ASSERTIONS ARE THE POINT. The route takes a file or a
-            # url and never JSON, so a stub that accepted anything would let the body that
-            # shipped before D-354 — `{agent_id, name, text}` — pass again.
-            assert request.headers["content-type"].startswith("multipart/form-data"), (
-                "`POST /knowledgebase` is multipart/form-data, not JSON"
-            )
-            body = request.content
-            assert b'name="file"' in body, "the upload must carry a `file` part"
-            assert b'name="url"' not in body, "`file` or `url`, never both"
-            assert b"%PDF" in body, "the file part must be the rendered document"
-            assert b'name="language_support"' in body, (
-                "`language_support` is fixed at upload and cannot be changed later"
-            )
-            rag_id = f"rag_{len(knowledge) + 1}"
-            knowledge[rag_id] = {
-                "rag_id": rag_id,
-                "file_name": "calevate-kb.pdf",
-                "vector_id": f"vec_{len(knowledge) + 1}",
-                "status": "processing",
-                "language_support": "multilingual",
-            }
-            reads[rag_id] = 0
-            # NO `vector_id` ON THE CREATE RESPONSE, which is what their spec declares
-            # (`create.md:105-127`) and what makes the follow-up GET load-bearing.
-            return httpx.Response(
-                200,
-                json={
-                    "rag_id": rag_id,
-                    "file_name": "calevate-kb.pdf",
-                    "source_type": "pdf",
-                    "status": "processing",
-                    "language_support": "multilingual",
-                },
-            )
-        if path == "/knowledgebase/all" and request.method == "GET":
-            # A BARE ARRAY: `KnowledgebaseList` is `type: array` of `Knowledgebase`
-            # (`get_knowledgebases.md:47-51`), which the adapter reads through
-            # `vendor_request`'s top-level-array wrapper.
-            return httpx.Response(200, json=list(knowledge.values()))
-        if path.startswith("/knowledgebase/") and request.method == "GET":
-            rag_id = path.rsplit("/", 1)[-1]
-            row = knowledge.get(rag_id)
-            if row is None:
-                return httpx.Response(404, json={"error": "unknown knowledgebase"})
-            reads[rag_id] += 1
-            if reads[rag_id] > 1:
-                row["status"] = "processed"
-            return httpx.Response(200, json=row)
-        if path.startswith("/knowledgebase/") and request.method == "DELETE":
-            rag_id = path.rsplit("/", 1)[-1]
-            if knowledge.pop(rag_id, None) is None:
-                # Their delete must 404 an id we never issued, or `detach_kb` can never
-                # be shown to have removed anything.
-                return httpx.Response(404, json={"error": "unknown knowledgebase"})
-            return httpx.Response(200, json={"message": "success", "state": "deleted"})
-        if path == "/api/v1/voice-config/tts" and request.method == "GET":
-            # THE TWO-STEP LOOKUP'S FIRST STEP, shaped from their own example
-            # (VERIFIED-VENDOR-DOCS, `api-reference/voice/get_providers.md`, read 11 Sep
-            # 2026): providers[] each with models[], the ids being the PLATFORM's UUIDs
-            # while the strings we know (`cartesia`, `sonic-3.5`) are `name`/`model_id`.
-            #
-            # FOUR PROVIDERS, AND EACH IS A DIFFERENT REASON A ROW MUST OR MUST NOT REACH
-            # OUR CATALOGUE. An adapter that ignored any one of them passes every other
-            # fixture in this file:
-            #
-            #   Cartesia    — supported, `sonic-3.5`: THE offerable one. Its second model
-            #                 carries `is_supported: false` at the MODEL level, which is a
-            #                 different flag from the provider's and is honoured separately
-            #                 (`engine/bolna.py`).
-            #   Sarvam      — supported by the ACCOUNT, and `bulbul:v3` is a model this
-            #                 product no longer runs. ⚠ **THIS ROW IS NEW IN SPIRIT
-            #                 (18 Sep 2026)**: the founder withdrew the Sarvam TEXT-TO-SPEECH
-            #                 leg, so the engine still lists it and we must not enumerate it.
-            #                 It is the regression guard for exactly that removal — and it is
-            #                 a true statement about the vendor, whose own page for this
-            #                 provider is in the pinned mirror. (Sarvam STT is untouched and
-            #                 is not a voice-config provider at all.)
-            #   ElevenLabs  — supported, and no `TtsModel` names it: a provider we do not run.
-            #   Rime        — `is_supported: false` at the PROVIDER level, i.e. not available
-            #                 for this account, so a voice under it would 400 at publish.
-            return httpx.Response(
-                200,
-                json={
-                    "language": request.url.params.get("language"),
-                    "providers": [
-                        {
-                            "id": "1c0de0de-0000-0000-0000-000000000000",
-                            "name": "Cartesia",
-                            "is_supported": True,
-                            "models": [
-                                {
-                                    "id": "2c0de0de-0000-0000-0000-000000000000",
-                                    "model_id": "sonic-3.5",
-                                    "display_name": "Sonic 3.5",
-                                    "is_supported": True,
-                                    "default": False,
-                                },
-                                {
-                                    "id": "3c0de0de-0000-0000-0000-000000000000",
-                                    "model_id": "sonic-preview",
-                                    "is_supported": False,
-                                },
-                            ],
-                        },
-                        {
-                            "id": "9e675bdf-00e5-5bd5-b858-f1b088a48dbd",
-                            "name": "Sarvam",
-                            "is_supported": True,
-                            "models": [
-                                {
-                                    "id": "5d82c5f4-458f-5ff6-ae2b-a5e692b77a2c",
-                                    "model_id": "bulbul:v3",
-                                    "display_name": "Bulbul v3",
-                                    "is_supported": True,
-                                    "default": False,
-                                }
-                            ],
-                        },
-                        {
-                            "id": "7a3f4573-7548-5b34-80f9-5edf23bed79b",
-                            "name": "ElevenLabs",
-                            "is_supported": True,
-                            "models": [
-                                {
-                                    "id": "f1b5c9cc-72e1-56a4-be8c-f3ee37d38309",
-                                    "model_id": "eleven_turbo_v2_5",
-                                    "is_supported": True,
-                                }
-                            ],
-                        },
-                        {
-                            "id": "4d0de0de-0000-0000-0000-000000000000",
-                            "name": "Rime",
-                            "is_supported": False,
-                            "models": [
-                                {
-                                    "id": "5d0de0de-0000-0000-0000-000000000000",
-                                    "model_id": "mistv2",
-                                    "is_supported": True,
-                                }
-                            ],
-                        },
-                    ],
-                    "custom_voices": {},
-                    "default": None,
-                },
-            )
-        if path == "/api/v1/voice-config/tts/voices" and request.method == "GET":
-            params = request.url.params
-            if params.get("model_id") != "2c0de0de-0000-0000-0000-000000000000":
-                # Any other (provider, model) pair is not one we offer; answering rows here
-                # would let an adapter that ignores the filter pass.
-                return httpx.Response(200, json={"items": []})
-            if params.get("page") not in (None, "1"):
-                return httpx.Response(200, json={"items": []})
-            return httpx.Response(
-                200,
-                json={
-                    "items": [
-                        {
-                            "id": "21d4333d-39f9-5894-8987-f957a664b456",
-                            "provider_id": "1c0de0de-0000-0000-0000-000000000000",
-                            # THE PUBLISHABLE ID IS `voice_id`, NOT `id` — an adapter that
-                            # read `id` would send the internal UUID and 400 at CREATE.
-                            "voice_id": "ashutosh",
-                            "name": "Ashutosh",
-                            "gender": "male",
-                            "is_native": True,
-                            "source": "platform",
-                        },
-                        {
-                            "id": "fc092b1c-0f6e-4900-8468-e11133fd95b2",
-                            "provider_id": "1c0de0de-0000-0000-0000-000000000000",
-                            # THEIR OWN documented custom row (`get_all.md:102-112`): the
-                            # name is unrecoverable from the id, which is the whole reason
-                            # the label crosses the boundary as data.
-                            "voice_id": "sXlZ9Juk5Ji8sZiFjRUV",
-                            "name": "my-custom-voice",
-                            "gender": None,
-                            "is_native": False,
-                            "source": "custom",
-                        },
-                    ]
-                },
-            )
-        if path == "/providers" and request.method == "GET":
-            # `provider_value` comes back MASKED, exactly as their `Provider` schema shows
-            # (`example: xxxxxxxaz`). Modelling the mask is the point: an adapter that
-            # identified entries by their value would pass against a stub that echoed the
-            # real one and fail on the first live rotation.
-            return httpx.Response(
-                200,
-                json=[{**row, "provider_value": "xxxxxxxaz"} for row in providers.values()],
-            )
-        if path == "/providers" and request.method == "POST":
-            body = json.loads(request.content or b"{}")
-            name = str(body["provider_name"])
-            assert body["provider_value"], "ProviderRequest requires a non-empty value"
-            providers[name] = {
-                # A NEW id on every write, which is what makes replacement observable:
-                # the adapter's before/after comparison is on ids, so a stub that reused
-                # one would look like an append and the clause would assert nothing.
-                "provider_id": f"prov_{name.lower()}_{len(providers)}",
-                "provider_name": name,
-            }
-            return httpx.Response(200, json={"message": "successful", "status": "added"})
-        if path == "/v2/agent" and request.method == "POST":
-            body = json.loads(request.content or b"{}")
-            agent_id = agent_id_for(body)
-            agents[agent_id] = body
-            return httpx.Response(200, json={"agent_id": agent_id})
-        if path.startswith("/v2/agent/") and request.method == "PUT":
-            agent_id = path.rsplit("/", 1)[-1]
-            if agent_id not in agents:
-                return httpx.Response(404, json={"error": "unknown agent"})
-            agents[agent_id] = json.loads(request.content or b"{}")
-            return httpx.Response(200, json={"status": "ok"})
-        if path.startswith("/v2/agent/") and request.method == "PATCH":
-            # THE CLOSED LIST, MODELLED AS A CLOSED LIST (D-544). The vendor documents
-            # PATCH as touching *only* the attributes present in the body and IGNORING
-            # every other field (`bolna-findings/mirror/pages/api-reference/agent/v2/
-            # patch_update.md:9,19`), so this stub merges exactly the two an override
-            # sends and leaves the rest of the stored object alone. A stub that replaced
-            # the object would make the conformance clause's "and nothing else moved"
-            # assertion unfalsifiable — the very defect it exists to catch.
-            agent_id = path.rsplit("/", 1)[-1]
-            stored = agents.get(agent_id)
-            if stored is None:
-                return httpx.Response(404, json={"error": "unknown agent"})
-            patch = json.loads(request.content or b"{}")
-            config_patch = patch.get("agent_config") or {}
-            assert set(config_patch) <= {
-                "agent_name",
-                "agent_welcome_message",
-                "webhook_url",
-                "synthesizer",
-                "ingest_source_config",
-                "telephony_provider",
-                "calling_guardrails",
-            }, "PATCH carried an agent_config attribute the vendor documents as ignored"
-            stored.setdefault("agent_config", {}).update(config_patch)
-            for task, prompt in (patch.get("agent_prompts") or {}).items():
-                stored.setdefault("agent_prompts", {})[task] = prompt
-            return httpx.Response(200, json={"message": "success", "state": "updated"})
-        if path == "/v2/agent/all" and request.method == "GET":
-            # A BARE ARRAY, which is what `AgentListV2` is declared as in the vendor's
-            # pinned OAS (`type: array` of `AgentV2`), each row carrying a top-level `id`.
-            # The adapter's `_agent_refs` reads it through `_listing_rows`, which relies on
-            # `vendor_request` wrapping a top-level array as `{"data": [...]}` — so this
-            # shape is also what proves that wrapper is load-bearing rather than decorative.
-            return httpx.Response(200, json=[{"id": agent_id} for agent_id in agents])
-        if (
-            path.startswith("/v2/agent/")
-            and path.endswith("/executions")
-            and request.method == "GET"
-        ):
-            # The vendor's REAL listing: per agent, paginated by `page_number`/`page_size`
-            # with a `has_more` flag, filtered by `from`. Before D-353 the adapter called a
-            # global `GET /executions?created_after=` that does not exist, and this stub
-            # answered it — so the suite proved a route the vendor has never had.
-            agent_id = path.split("/")[3]
-            if agent_id not in agents:
-                return httpx.Response(404, json={"error": "unknown agent"})
-            assert request.url.params.get("from"), "the listing must be time-filtered"
-            page_number = int(request.url.params.get("page_number", "1"))
-            page_size = int(request.url.params.get("page_size", "20"))
-            assert page_size <= 50, "the vendor's documented maximum page_size is 50"
-            start = (page_number - 1) * page_size
-            # Distinct ids: a listing whose rows all share one id would let an adapter that
-            # de-duplicates too eagerly look like one that read a short page.
-            rows = [
-                {**BOLNA_COMPLETED, "id": f"exec_list_{i}", "agent_id": agent_id}
-                for i in range(start, min(start + page_size, listing_rows))
-            ]
-            executions.update(str(row["id"]) for row in rows)
-            return httpx.Response(
-                200,
-                json={
-                    "page_number": page_number,
-                    "page_size": page_size,
-                    "total": listing_rows,
-                    "has_more": start + page_size < listing_rows,
-                    "data": rows,
-                },
-            )
-        if path.startswith("/v2/agent/") and request.method == "GET":
-            agent_id = path.rsplit("/", 1)[-1]
-            stored = agents.get(agent_id)
-            if stored is None:
-                return httpx.Response(404, json={"error": "unknown agent"})
-            return httpx.Response(200, json={"agent_id": agent_id, "data": stored})
-        if path.startswith("/v2/agent/") and request.method == "DELETE":
-            # STATEFUL, for the reason the GET above is: a stub that answered every
-            # DELETE with 200 would let an adapter that removes nothing pass the delete
-            # clause, which is the one defect that clause exists to catch.
-            #
-            # THE 404 ON A REPEAT IS THIS SUITE'S ASSUMPTION AS MUCH AS THE ADAPTER'S,
-            # and `BolnaEngine.delete_agent` says so in the marked-assumption block: the
-            # vendor documents 200 and 400 and nothing about a second delete. Encoding
-            # 404 here proves our HANDLING of a 404 and proves nothing about Bolna —
-            # exactly the standing every shape in this stub has (see `_cartesia_handler`).
-            agent_id = path.rsplit("/", 1)[-1]
-            if agents.pop(agent_id, None) is None:
-                return httpx.Response(404, json={"error": "unknown agent"})
-            return httpx.Response(200, json={"message": "success", "state": "deleted"})
-        if path == "/call" and request.method == "POST":
-            body = json.loads(request.content or b"{}")
-            assert body["recipient_phone_number"].startswith("+"), "E.164 only"
-            # A DISTINCT id per dial, derived from the number dialled. A stub that answered
-            # every `POST /call` with one execution id made two calls indistinguishable, so
-            # any clause about telling two executions apart — the archived document is the
-            # first — could only ever be failed by the stub. Vendors mint one id per call;
-            # a stub that does not is a stub that hides that class of defect.
-            placed.append(body["recipient_phone_number"])
-            execution_id = f"exec_abc{len(placed):03d}"
-            executions.add(execution_id)
-            # THE CALLER ID, RECORDED ONLY WHEN IT WAS SENT (D-420). Their documented body
-            # makes `from_phone_number` optional and falls back to the platform's own pool
-            # when it is absent, so an absent key is a real and different outcome — and a
-            # stub that invented a value here would make "the adapter sent our number" and
-            # "the adapter dropped it" identical again.
-            caller_id = body.get("from_phone_number")
-            if isinstance(caller_id, str) and caller_id:
-                assert caller_id.startswith("+"), "E.164 only"
-                dialled_from[execution_id] = caller_id
-            return httpx.Response(200, json={"execution_id": execution_id})
-        if path == "/phone-numbers/search" and request.method == "GET":
-            # QUERY PARAMETERS, not path ones. Their own OpenAPI block declares all three
-            # `in: path` on a route with no path template (`search.md:38-70`), which is
-            # not expressible; the adapter sends them as query and says so. Asserted here
-            # so an adapter that silently stopped sending `country` — the one required
-            # parameter — cannot pass this suite.
-            assert request.url.params.get("country") in {"IN", "US"}, (
-                "`country` is required on the number search"
-            )
-            # A BARE ARRAY: `AvailablePhoneNumbersList` is `type: array` of
-            # `AvailablePhoneNumber` (`search.md:79-83`), which `_request` wraps.
-            # `price` is "in USD" HERE and "in cents" on buy — the three-unit fact the
-            # adapter reads at each documented site. A stub that used one unit everywhere
-            # would make the whole class of error invisible.
-            return httpx.Response(
-                200,
-                json=[
-                    {
-                        "region": "Hyderabad",
-                        "friendly_name": None,
-                        "locality": None,
-                        "phone_number": f"+9180000000{index}",
-                        "provider": request.url.params.get("provider") or "plivo",
-                        "price": 5,
-                    }
-                    for index in (1, 2)
-                    if f"+9180000000{index}" not in bought
-                ],
-            )
-        if path == "/phone-numbers/buy" and request.method == "POST":
-            body = json.loads(request.content or b"{}")
-            # BOTH REQUIRED, by their own schema (`buy.md:74-77`). A stub that accepted a
-            # body without `phone_number` would let an adapter that "provisions something
-            # like this spec" pass — which is exactly the shape the port could not express
-            # before D-537.
-            assert body.get("country") in {"IN", "US"}, "`country` is required"
-            assert str(body.get("phone_number", "")).startswith("+"), (
-                "`phone_number` is required and is an exact E.164"
-            )
-            number = body["phone_number"]
-            # STATEFUL, so a second buy of the same number is observable — the vendor has
-            # no idempotency key and a repeat really would charge twice.
-            handle = f"{len(bought) + 1:032x}"
-            bought[number] = handle
-            return httpx.Response(
-                200,
-                json={
-                    # A DASHED UUID here and BARE HEX on `get_all` — the vendor's own
-                    # contradiction, reproduced rather than smoothed over, because the
-                    # adapter's contract is that it asserts nothing about this format.
-                    "id": handle,
-                    "agent_id": None,
-                    "bolna_owned": True,
-                    "deleted": False,
-                    "renewal": True,
-                    "payment_uuid": "de36c363-6a2d-4e83-ba5b-fbb8d0ac8c32",
-                    "phone_number": number,
-                    # "in cents" (`buy.md:113-117`). 500 cents = $5.
-                    "price": 500,
-                    "telephony_provider": "plivo",
-                    "telephony_sid": "1980000001",
-                    "created_at": "2026-09-04T20:51:49.468787",
-                    "updated_at": "2026-09-04T20:51:49.468796",
-                },
-            )
-        if path == "/phone-numbers/all" and request.method == "GET":
-            return httpx.Response(
-                200,
-                json=[
-                    {
-                        "id": handle,
-                        "phone_number": number,
-                        # A HUMAN-FORMATTED PRICE STRING, their third unit for one figure
-                        # (`get_all.md:103-106`).
-                        "price": "$5.0",
-                        "telephony_provider": "plivo",
-                        "rented": True,
-                        "created_at": "2026-09-04T20:51:49Z",
-                        "updated_at": "2026-09-04T20:51:49Z",
-                    }
-                    for number, handle in bought.items()
-                ],
-            )
-        if path.startswith("/phone-numbers/") and request.method == "DELETE":
-            handle = path.rsplit("/", 1)[-1]
-            # A 404 ON A REPEAT, for `DELETE /v2/agent/` reason: it proves OUR handling of
-            # absent-is-success and proves nothing about Bolna, whose docs describe 200
-            # and 400 and say nothing about a second delete.
-            for number, held in list(bought.items()):
-                if held == handle:
-                    del bought[number]
-                    return httpx.Response(
-                        200,
-                        json={
-                            "message": "The phone number has been removed from your account",
-                            "state": "deleted",
-                        },
-                    )
-            return httpx.Response(404, json={"error": "unknown phone number"})
-        if path == "/inbound/setup" and request.method == "POST":
-            # `{agent_id, phone_number_id}`, both required by their own OpenAPI block
-            # (`api-reference/inbound/agent.md`). A missing key is a 400 here because it is
-            # a 400 there — an adapter that posted a null `phone_number_id` must not sail
-            # through the suite on a stub more forgiving than the vendor.
-            body = json.loads(request.content or b"{}")
-            number_id = body.get("phone_number_id")
-            agent_id = body.get("agent_id")
-            if not isinstance(number_id, str) or not isinstance(agent_id, str):
-                return httpx.Response(400, json={"error": "agent_id and phone_number_id"})
-            inbound[number_id] = agent_id
-            return httpx.Response(
-                200,
-                json={
-                    "url": f"https://api.bolna.ai/inbound_call?agent_id={agent_id}",
-                    "phone_number": "+911140000000",
-                    "id": number_id,
-                },
-            )
-        if path == "/inbound/unlink" and request.method == "POST":
-            # STATEFUL, and a number this stub does not hold answers 404 — the same
-            # MARKED ASSUMPTION the `/call/{id}/stop` branch carries and for the same
-            # reason: their spec documents 200 and 400 and says nothing about unlinking a
-            # number that is not linked. What it proves is OUR handling (the adapter's
-            # `absent_is_success`, i.e. that an offboarding step does not fail on a
-            # postcondition already satisfied), never the vendor's behaviour.
-            body = json.loads(request.content or b"{}")
-            number_id = body.get("phone_number_id")
-            if not isinstance(number_id, str):
-                return httpx.Response(400, json={"error": "phone_number_id"})
-            if inbound.pop(number_id, None) is None:
-                return httpx.Response(404, json={"error": "unknown phone number"})
-            return httpx.Response(200, json={"id": number_id, "phone_number": "+911140000000"})
-        if path.startswith("/call/") and path.endswith("/stop"):
-            # `POST /call/{execution_id}/stop` — the vendor's real stop route. Until D-353
-            # both the adapter and this stub used `/executions/{id}/stop`, which is not a
-            # path the vendor has, so the suite agreed with the adapter about a URL that
-            # would have 404'd on the first live call.
-            #
-            # STATEFUL, for the reason the `GET /executions/{id}` branch below is (D-187).
-            # This answered 200 for every id, so the `end_call` clause — "a call the
-            # engine does not hold is reported" — could only ever be failed by the stub.
-            #
-            # MARKED ASSUMPTION, not a captured contract (D-31/D-32): the OAS documents
-            # only 200 and 400 for this route and says nothing about an execution the
-            # platform is not running; 404 is the REST default its sibling GETs give. What
-            # this fixture proves is OUR mapping — that the adapter surfaces a refusal
-            # rather than swallowing it. Whether the vendor refuses at all is pilot gate
-            # 2's question, alongside the repeat-`delete_agent` assumption it already
-            # carries.
-            execution_id = path.split("/")[2]
-            if execution_id not in executions:
-                return httpx.Response(404, json={"error": "unknown execution"})
-            return httpx.Response(200, json={"message": "done", "status": "stopped"})
-        if path.startswith("/executions/"):
-            # The id is ECHOED from the path. Answering with the fixture's own id for any
-            # id asked about is the `get_agent` echo defect wearing a different route: it
-            # makes one execution's document indistinguishable from another's, which the
-            # archive clause exists to refuse.
-            #
-            # STATEFUL, for the reason the agent GET above is: a stub that answered 200
-            # for an id nobody ever placed could not fail the "unknown execution is
-            # reported" clause, which is the one clause that catches an adapter
-            # fabricating a call. Every id this handler has minted or listed is known;
-            # nothing else is.
-            execution_id = path.rsplit("/", 1)[-1]
-            if execution_id not in executions:
-                return httpx.Response(404, json={"error": "unknown execution"})
-            document = {**BOLNA_COMPLETED, "id": execution_id}
-            caller_id = dialled_from.get(execution_id)
-            if caller_id is not None:
-                document["telephony_data"] = {
-                    **BOLNA_COMPLETED["telephony_data"],
-                    "from_number": caller_id,
-                }
-            return httpx.Response(200, json=document)
-        return httpx.Response(404, json={"error": "not found"})
-
-    return handler
-
-
-#: How many calls a saturated Cartesia listing returns per page. Equal to the adapter's
-#: `_LISTING_PAGE_SIZE` on purpose: that constant is the `limit` the adapter asks for, and
-#: a page that comes back FULL is the only thing that makes it ask for another one, so
-#: restating the number here would let the two drift and quietly stop exercising the walk.
 CARTESIA_FULL_PAGE = cartesia_module._LISTING_PAGE_SIZE
 
 
@@ -834,18 +168,16 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
     **THIS STUB PROVES NOTHING ABOUT CARTESIA.** It is built from the same sources the
     adapter cites — the OSS SDK for the host, version and document endpoint; a search
     summary for the outbound-call shape; RESTful inference for the rest — so it can only
-    ever confirm that our mapping is self-consistent. That is exactly what the Bolna stub
-    does (its `GET /v2/agent` shape is equally hand-maintained), and it is the whole
-    reason `OPERATIONS §2` keeps vendor behaviour as pilot GATES rather than tests.
+    ever confirm that our mapping is self-consistent, which is the whole reason
+    `OPERATIONS §2` keeps vendor behaviour as pilot GATES rather than tests.
     What it DOES prove is worth having: that a vendor with a different capability profile
     can satisfy this contract without any clause bending to accommodate it.
 
-    STATEFUL agent and document stores, for the reasons the Bolna stub is stateful: a stub
-    that echoed the last write would let an echoing `get_agent` pass the read-back clause,
-    and one that answered every DELETE with 200 would let a `detach_kb` that removes
-    nothing sail through.
+    STATEFUL agent and document stores: a stub that echoed the last write would let an echoing
+    `get_agent` pass the read-back clause, and one that answered every DELETE with 200 would let a
+    `detach_kb` that removes nothing sail through.
     """
-    #: SEEDED WITH ONE AGENT, which the Bolna stub does not need and this one does.
+    #: SEEDED WITH ONE AGENT.
     #: `GET /agents/calls` requires an `agent_id`, so `list_executions` fans out over
     #: `GET /agents` — and on this platform an account HAS agents whether or not our API
     #: client made them (they are deployed from git repositories). An empty account would
@@ -854,7 +186,8 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
     agents: dict[str, dict[str, Any]] = {"agent_deployed": {"name": "deployed-from-repo"}}
     documents: dict[str, dict[str, dict[str, Any]]] = {}
     placed: list[str] = []
-    #: The Bolna stub's `executions`, same reasoning — see its `GET /executions/{id}`.
+    #: Every call this stub placed, so `GET` and `/end` can answer 404 for one it did not:
+    #: a stub that echoes any id makes the read-back and `end_call` clauses unfailable.
     calls_placed: set[str] = set()
 
     def agent_id_for(body: dict[str, Any]) -> str:
@@ -882,8 +215,8 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
         if path == "/agents/calls" and method == "POST":
             assert body["outbound_calls"][0]["to_number"].startswith("+"), "E.164 only"
             assert body.get("from_number_id"), "a caller id must be named"
-            # One id per dial, for the reason the Bolna stub mints one: a stub that cannot
-            # tell two calls apart makes every clause about two calls unfailable.
+            # One id per dial: a stub that cannot tell two calls apart makes every clause about two
+            # calls unfailable.
             placed.append(body["outbound_calls"][0]["to_number"])
             call_id = f"cart_call_{len(placed)}"
             calls_placed.add(call_id)
@@ -923,17 +256,15 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
                 json={"summaries": [{**stored, "id": ref} for ref, stored in agents.items()]},
             )
         if path.startswith("/agents/calls/") and path.endswith("/end"):
-            # STATEFUL for the Bolna stub's `/stop` reason, and a marked assumption for
-            # the same reason (D-187): nothing sourced says what Line answers for a call
-            # it is not running, and the `end_call` clause is unfailable while the stub
-            # says 200 to every id.
+            # STATEFUL, and a marked assumption (D-187): nothing sourced says what Line answers for
+            # a call it is not running, and the `end_call` clause is unfailable while the stub says
+            # 200 to every id.
             call_id = path.rsplit("/", 2)[-2]
             if call_id not in calls_placed:
                 return httpx.Response(404, json={"error": "unknown call"})
             return httpx.Response(200, json={"status": "ended"})
         if path.startswith("/agents/calls/") and method == "GET":
-            # Echo the id asked about, and STATEFUL — see the Bolna stub's `/executions/`
-            # branch for both halves of the argument.
+            # Echo the id asked about, and STATEFUL — see `calls_placed`.
             call_id = path.rsplit("/", 1)[-1]
             if call_id not in calls_placed:
                 return httpx.Response(404, json={"error": "unknown call"})
@@ -996,24 +327,16 @@ VendorHandler = Callable[[httpx.Request], httpx.Response]
 #: clause in the suite measured a happy path plus the handful of 404s the stubs are
 #: stateful enough to produce. The failure paths an adapter meets in production — a
 #: throttle, a gateway error, a socket that never answers, a 200 carrying a WAF challenge
-#: — had no fixture at all, and that is how the two real adapters came to disagree about
-#: all of them (D-240): `bolna` retried a 429 and reported it `transient`, `cartesia`
-#: reported the same 429 as a flat rejection with no backoff; `bolna` refused a 2xx it
-#: could not parse, `cartesia` turned it into `{}` and built an `ExecutionSnapshot` out of
-#: nothing.
+#: — had no fixture at all, and that is how two real adapters came to disagree about all
+#: of them (D-240): one retried a 429 and reported it `transient` while `cartesia` reported
+#: it as a flat rejection with no backoff, and `cartesia` turned an unparseable 2xx into
+#: `{}` and built an `ExecutionSnapshot` out of nothing.
 #:
 #: A RECIPE PER ADAPTER rather than one generic builder, because the credential, the base
 #: URL and the version pin are exactly the per-vendor half `engine/vendor_http.py`
 #: deliberately does not hold. Each call builds a FRESH adapter, so a transport wired to
 #: answer 429 forever cannot leak into the next clause's subject.
 TRANSPORT_RECIPES: dict[str, Callable[[VendorHandler], VoiceEngine]] = {
-    "bolna": lambda handler: BolnaEngine(
-        api_key="test-key",
-        fx_rate=Decimal("88.00"),
-        client=httpx.AsyncClient(
-            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
-        ),
-    ),
     "cartesia": lambda handler: CartesiaEngine(
         api_key="test-key",
         from_number_id="num_test",
@@ -1308,14 +631,7 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
                 transport=httpx.MockTransport(_cartesia_handler(listing_rows=listing_rows)),
             ),
         )
-    return BolnaEngine(
-        api_key="test-key",
-        fx_rate=Decimal("88.00"),
-        client=httpx.AsyncClient(
-            base_url="https://api.bolna.ai",
-            transport=httpx.MockTransport(_bolna_handler(listing_rows=listing_rows)),
-        ),
-    )
+    raise AssertionError(f"no engine in the roster is called {engine_id!r}")
 
 
 @pytest.fixture(params=ENGINE_IDS)
@@ -1327,10 +643,10 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
     """Drive an adapter's `list_executions` to a FULL page — the truncation case.
 
     Every adapter reaches it differently and none of them may EXPOSE how (hard rule 2):
-    the Bolna stub answers with exactly a page's worth of rows and no metadata at all
-    (the worst case, since Bolna publishes no pagination contract), and the fake engine
-    is given more calls than its page size. What the contract test asserts afterwards is
-    identical for both — the caller is TOLD the answer may be short.
+    the Cartesia stub answers with exactly a page's worth of rows, the fake engine is
+    given more calls than its page size, and the Pipecat double holds sessions it cannot
+    reconcile. What the contract test asserts afterwards is identical for all of them —
+    the caller is TOLD the answer may be short.
 
     A function rather than only a fixture because the adapter audit
     (`tests/engine_audit_test.py`) runs these clauses against saboteur adapters outside
@@ -1369,10 +685,8 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
         for i in range(FULL_LISTING_PAGE + 1):
             saturated_store.seed_execution(f"pipecat_seed_{i}")
         return PipecatEngine(store=saturated_store)
-    if isinstance(engine, CartesiaEngine):
-        return make_engine("cartesia", listing_rows=CARTESIA_FULL_PAGE)
-    assert isinstance(engine, BolnaEngine), f"no saturation recipe for {type(engine).__name__}"
-    return make_engine("bolna", listing_rows=BOLNA_SATURATION_ROWS)
+    assert isinstance(engine, CartesiaEngine), f"no saturation recipe for {type(engine).__name__}"
+    return make_engine("cartesia", listing_rows=CARTESIA_FULL_PAGE)
 
 
 @pytest.fixture(params=ENGINE_IDS)

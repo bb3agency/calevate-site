@@ -165,68 +165,6 @@ _SECRET_NAME_FRAGMENTS: tuple[str, ...] = tuple(
     )
 )
 
-#: Fields that NAME a credential and hold none. Exact names, never fragments, and the
-#: only escape from the rule above.
-#:
-#: WHY IT HAD TO EXIST. The `credential` fragment was added for "the naming a future
-#: field is likely to use", and the future field arrived: `bolna_llm_credential_name`
-#: holds which ENTRY in the engine's credential store our LLM key was written to —
-#: `AZURE_OPENAI_API_KEY` — which is a pointer, not a secret. It matched, so it was sealed into
-#: `platform_secrets`, and `calevate_shared.config` asserted the opposite in a comment
-#: (it believed the sealing keyed on `_json`/`_key` shapes). Two concrete harms, neither
-#: visible from either file alone:
-#:
-#:   1. A sealed value is write-only — the console shows `last_four` and nothing else.
-#:      OPERATIONS §2 gate 16f is an operator TRYING VALUES against a broken LLM leg
-#:      because the vendor's docs are egress-blocked, so "what is it set to right now"
-#:      is the whole question they have, and it had no answer.
-#:   2. `set_secret` validates only that the value is non-empty, and
-#:      `apply_platform_overrides` installs the layer with `model_copy(update=...)`,
-#:      which does not re-validate. Every genuine credential is an opaque `str | None`,
-#:      so that costs nothing — but this field carries `pattern=^[A-Z][A-Z0-9_]{1,63}$`
-#:      precisely because a human is typing guesses into it, and sealing it routed that
-#:      constraint around its only enforcement point.
-#:
-#: THE ASYMMETRY IS UNCHANGED AND THIS SET IS WHY IT SURVIVES. A false negative puts a
-#: credential in a plaintext table, so the escape is not a fragment, not a heuristic and
-#: not a shape: it is an exact field name, added one at a time by someone who has read
-#: this paragraph. `_assert_holds_no_secret` below refuses at import to let a member be
-#: anything a credential could be.
-_CREDENTIAL_REFERENCE_KEYS: frozenset[str] = frozenset(
-    {"bolna_llm_credential_name", "bolna_tts_credential_name"}
-)
-
-
-def _assert_holds_no_secret(names: frozenset[str]) -> frozenset[str]:
-    """Refuse, at import, an exemption that could be hiding a real credential.
-
-    The tell is the DEFAULT. Every credential this system has is `X | None` with no
-    default, because a credential with a shipped default is a credential shipped in the
-    source — so a field carrying a usable default is structurally not one. That is a
-    property of the model rather than a list to maintain, and it fails the process rather
-    than a test, because the failure mode being guarded is a plaintext credential and a
-    deployment that reached it should not start.
-    """
-    for name in sorted(names):
-        field = Settings.model_fields.get(name)
-        if field is None:
-            raise RuntimeError(
-                f"_CREDENTIAL_REFERENCE_KEYS names {name!r}, which is not a Settings "
-                "field. Remove it, or the exemption outlives the field it was written "
-                "for and silently applies to nothing."
-            )
-        if field.is_required() or field.get_default(call_default_factory=True) is None:
-            raise RuntimeError(
-                f"_CREDENTIAL_REFERENCE_KEYS names {name!r}, which has no default. Every "
-                "credential in this model is defaulted `None` because a defaulted "
-                "credential would be one committed to the source; a field with no usable "
-                "default is not safely exemptible from `platform_secrets`."
-            )
-    return names
-
-
-_CREDENTIAL_REFERENCE_KEYS = _assert_holds_no_secret(_CREDENTIAL_REFERENCE_KEYS)
-
 # --- WHEN A CHANGE ACTUALLY TAKES EFFECT --------------------------------------
 #
 # `applies` is the most dangerous field the console publishes. A key reported `live`
@@ -338,43 +276,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # THIS FIELD IS THE FALLBACK, NOT THE RATE, AND THAT CHANGED WHAT IT MEANS RATHER THAN
     # WHEN IT APPLIES. Vendor cost is normally converted at the PUBLISHED rate that
     # `apps/workers/fx_pull.py` pulls every five minutes into `fx_rate_observations`, which
-    # reaches `engine/bolna.py::_cost` through `core/fx.py`'s in-memory holder and needs no
-    # restart at all. This value is what that conversion falls back to when nothing has
-    # been pulled yet or the published rate has aged past `core/fx.MAX_QUOTE_AGE` — and on
-    # THAT path it is still captured once, as `self._fx_rate`, when `get_engine()` builds
-    # the adapter and caches it for the life of the process.
+    # reaches its readers through `core/fx.py`'s in-memory holder. This value is what that
+    # conversion falls back to when nothing has been pulled yet or the published rate has
+    # aged past `core/fx.MAX_QUOTE_AGE`.
     #
-    # So it stays `on_restart`: `live` would be a promise this field cannot keep, and the
-    # rule this classification exists for is that a label an operator acts on must be true
-    # of the code rather than of the feature's headline.
-    #
-    # ⚠ THE CLASSIFICATION IS RIGHT AND THE CAVEAT USED TO BE WRONG (D-589). It said the
-    # fallback "is read once when the app starts and held for the life of each server
-    # process", which is true of ONE reader and false of the rest — and an operator
-    # reaching for this field during an FX outage is exactly the person who needs to know
-    # which. Verified by reading every caller, 11 Sep 2026:
-    #   * `engine/__init__.build_engine` passes `cfg.usd_inr_rate` into the adapter at
-    #     CONSTRUCTION (`BolnaEngine(fx_rate=...)` → `self._fx_rate`) and `get_engine()`
-    #     caches one adapter per engine name per process — so THAT copy, the one
-    #     `engine/bolna.py::_cost` converts a CALL's cost at, cannot refresh. This one
-    #     reader is the whole of the `on_restart`.
-    #   * `billing/number_rental.rental_inr` and `ops/config_routes.py` (the margin
-    #     figures, twice) and `ops/fx_routes.read_fx_rate` all call
-    #     `get_settings().usd_inr_rate` at the point of use, on every request — they are
-    #     genuinely live and a restart buys them nothing.
-    # So the caveat names the one path a restart actually fixes.
-    "usd_inr_rate": AppliesRule(
-        ON_RESTART,
-        "this is the FALLBACK rate, used only while no published rate is fresh — normal "
-        "conversions already use the published rate and need no restart. A new value here "
-        "reaches number rentals and the cost figures on this console immediately. The one "
-        "reader a restart exists for is a RENTED engine's adapter, which copies this value "
-        "when it is built and is then cached for the life of each server process. On an "
-        "engine this deployment hosts itself there is no such adapter and no such copy, so "
-        "a restart changes nothing about this field — if the value looks unapplied there, "
-        "the rate in force is the PUBLISHED one and this fallback is not being used at "
-        "all. Read it on the FX rate screen, not here.",
-    ),
+    # Every reader calls `get_settings().usd_inr_rate` at the point of use, on every
+    # request — `billing/number_rental.rental_inr`, `ops/config_routes.py` (the margin
+    # figures, twice) and `ops/fx_routes.read_fx_rate` — so nothing captures it at boot.
+    "usd_inr_rate": AppliesRule(LIVE),
     # The Cartesia adapter captures this at construction and `get_engine()` caches the
     # adapter for the life of the process.
     "cartesia_from_number_id": AppliesRule(
@@ -412,7 +321,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "db_statement_timeout_ms": AppliesRule(LIVE),
     "object_store_endpoint": AppliesRule(LIVE),  # workers/storage._client(), per call
     "object_store_bucket": AppliesRule(LIVE),  # workers/storage, per call
-    "bolna_webhook_source_ips": AppliesRule(LIVE),  # bolna_source_ips(get_settings())
     # WHICH email transport this deployment sends through. `live`, and checked rather
     # than assumed: `core/transport.get_transport()` resolves it through
     # `calevate_shared.config.email_transport_reason()` on EVERY send and builds a fresh
@@ -596,17 +504,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # result object and the shadow answer reaches a log line and nothing else.
     "retrieval_shadow_arm": AppliesRule(LIVE),
     "retrieval_shadow_tenant_ids": AppliesRule(LIVE),
-    # A MARKED ASSUMPTION, live on purpose (D-404's mechanism, D-410's provider). It names
-    # which entry in the engine's credential store the LLM key is written to; our default
-    # is derived from the vendor's naming rule rather than read from their docs, and the
-    # operator who settles it (OPERATIONS §2) is looking at a broken LLM leg while they
-    # do. Whatever pushes the credential re-reads settings, so a correction takes effect
-    # without a restart and without a republish.
-    "bolna_llm_credential_name": AppliesRule(LIVE),
-    # Its TTS twin (D-547): the entry `engine/bolna.set_tts_credential` writes the Cartesia
-    # key under. Read per install from `get_settings()`, so a correction takes effect on
-    # the next install with no restart and no republish.
-    "bolna_tts_credential_name": AppliesRule(LIVE),
     # The platform-wide ceiling on live Cartesia-tier agents (D-547 Q10). Read per request
     # by `agents/voice_offer.offered_catalogue` and per write by `set_agent_voice`, so a
     # raise is in force on the next picker load; it touches nothing already published.
@@ -635,21 +532,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
     # The Secrets panel implies exactly what the config panel implies — set it and it is
-    # in force in seconds — and for two of these that was false. A rotated Bolna key that
-    # never reaches the running adapter presents as "the vendor is rejecting our key",
-    # which sends an operator to the vendor's dashboard rather than to a restart. They
-    # are classified here, in the SAME table, because there is one question and it should
-    # not have two answers in two places.
-    # The Bolna adapter captures the key when `get_engine()` builds it, and that instance
-    # is cached for the life of the process.
-    "bolna_api_key": AppliesRule(
-        ON_RESTART,
-        "the engine adapter that places calls captures this key when the app starts and "
-        "holds it for the life of each server process, so rotating it here does not reach "
-        "the running adapter until every server process is restarted.",
-    ),
+    # in force in seconds — and for some of these that is false. A rotated engine key
+    # that never reaches the running adapter presents as "the vendor is rejecting our
+    # key", which sends an operator to the vendor's dashboard rather than to a restart.
+    # They are classified here, in the SAME table, because there is one question and it
+    # should not have two answers in two places.
+    #
     # Captured at construction by the Cartesia adapter, which `get_engine()` caches for the
-    # life of the process, exactly as `bolna_api_key` above.
+    # life of the process.
     "cartesia_api_key": AppliesRule(
         ON_RESTART,
         "the Cartesia engine adapter captures this key when the app starts and holds it "
@@ -766,8 +656,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "idempotency_scope_secret": AppliesRule(LIVE),
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
     "smtp_password": AppliesRule(LIVE),  # core/transport.get_transport(), per send
-    # D-91's Meta token, and `live` here against `on_restart` for `bolna_api_key` twelve
-    # lines up is the distinction this table exists to make. Those two are `on_restart`
+    # D-91's Meta token, and `live` here against `on_restart` for `cartesia_api_key` above
+    # is the distinction this table exists to make. That one is `on_restart`
     # because `get_engine()` CACHES the adapter for the life of the process, so the key is
     # captured at construction. Nothing caches a WhatsApp transport:
     # `get_whatsapp_transport()` is called inline at both send sites and builds a fresh
@@ -788,8 +678,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Google OAuth client for Calendar actions. Read inline by `actions/calendar.py` on
     # each token exchange (no cached client), so a rotation is live on the next connect or
     # refresh.
-    # The base URL Bolna calls for in-call actions. Read at publish (baked into each tool's
-    # engine declaration), so a change applies on the next agent publish.
+    # The origin baked into each action tool's engine declaration at publish, so a change
+    # applies on the next agent publish. No route serves it today (D-639).
     "actions_callback_base_url": AppliesRule(
         NEEDS_REPUBLISH,
         "already-published agents keep the old URL in their engine tool config until they "
@@ -981,18 +871,12 @@ def managed_fields() -> tuple[str, ...]:
 def is_secret_key(name: str) -> bool:
     """Does this field's NAME mark it as a credential?
 
-    Substring matching, like the log redactor it borrows from: `bolna_api_key`,
+    Substring matching, like the log redactor it borrows from: `cartesia_api_key`,
     `smtp_password` and `meta_page_access_tokens` all have to be caught by a rule nobody
     maintains per field. A false POSITIVE here costs a key that has to be set in the
     environment (annoying); a false NEGATIVE puts an API key in a plaintext table
     (catastrophic). The asymmetry is why the patterns are deliberately broad.
-
-    The exact-name exemption is checked FIRST and is deliberately not a fragment — see
-    `_CREDENTIAL_REFERENCE_KEYS` for the one field that names a credential rather than
-    holding one, and for why a broad pattern could not have told the difference.
     """
-    if name in _CREDENTIAL_REFERENCE_KEYS:
-        return False
     lowered = name.lower()
     return any(fragment in lowered for fragment in _SECRET_NAME_FRAGMENTS)
 
@@ -1029,7 +913,7 @@ def validate_value(field: str, raw: Any) -> Any:
     the `Decimal` exactly.
 
     Raises `ValidationError` — the caller turns it into problem+json with the field's own
-    message, because "engine must be one of fake, bolna, cartesia" is a sentence an
+    message, because "engine must be one of fake, cartesia, pipecat" is a sentence an
     operator can act on and "invalid value" is not.
     """
     adapter = _adapter(field)

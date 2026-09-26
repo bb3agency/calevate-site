@@ -8,58 +8,54 @@ with one — a raw 500 on a route, or a DLQ'd job on a worker.
 Both findings here are the same mistake in two spellings: **an exception type that is not
 in any `except` clause on the path.**
 
-* **P2.2** — `_request` called `response.json()` unguarded. The `>= 400` branch raises
-  first, so the exposure is a **2xx with a non-JSON body**: a WAF challenge, a proxy
-  interstitial, a CDN maintenance page. `json.JSONDecodeError` is a `ValueError` — not a
-  `ProblemError`, not an `httpx.HTTPError` — so it was caught by nothing. It reached
-  `create_agent` as a raw 500 with no code and no remediation, made `verify_publish`'s
-  "never raises for a vendor-side failure" docstring false, and DLQ'd both the post-call
-  pipeline and the reconciliation poller.
+* **P2.2** — an adapter's request helper called `response.json()` unguarded. The
+  `>= 400` branch raises first, so the exposure is a **2xx with a non-JSON body**: a WAF
+  challenge, a proxy interstitial, a CDN maintenance page. `json.JSONDecodeError` is a
+  `ValueError` — not a `ProblemError`, not an `httpx.HTTPError` — so it was caught by
+  nothing. It reached `create_agent` as a raw 500 with no code and no remediation, made
+  `verify_publish`'s "never raises for a vendor-side failure" docstring false, and DLQ'd
+  both the post-call pipeline and the reconciliation poller.
 * **P2.3** — `_next_link` called `httpx.URL(candidate)` on a vendor-supplied string,
   unguarded. `httpx.InvalidURL`'s MRO does **not** include `httpx.HTTPError`, which the
   first test below measures rather than assumes, so `_request`'s handler could not have
   caught it even if the call were inside one. `list_executions`' only caller is
   `reconcile_executions`, which under D-31 IS the guarantee of record.
 
-  **P2.3's CALL SITE IS NOW GONE, AND THE TEST BECAME A SCAN (D-353).** `_next_link` was
-  written because Bolna was believed to publish no pagination contract; it publishes one,
-  and the adapter now builds its own paged URLs. So no adapter parses a URL it did not
-  build, the `InvalidURL` exposure is unreachable rather than handled, and the vendor can
-  no longer name a destination that receives our `Authorization` header. The scan holds
-  that property for the adapter written next — see the P2.3 test below.
+  **P2.3's CALL SITE IS GONE, AND THE TEST IS A SCAN (D-353).** No adapter parses a URL it
+  did not build, so the `InvalidURL` exposure is unreachable rather than handled, and a
+  vendor cannot name a destination that receives our `Authorization` header. The scan
+  holds that property for the adapter written next — see the P2.3 test below.
 
 **THE STRUCTURAL TEST IS THE ONE THAT MATTERS.** The two behavioural tests cover the two
-call sites somebody remembered. The scan covers the adapters and the call sites that do
-not exist yet — and this repository had ALREADY solved P2.2 twice, in
-`billing/payments.py` and in `engine/cartesia.py`, before the adapter actually going to
-production missed it. A defect that recurs across three modules is a defect a per-instance
-test cannot hold.
+call sites somebody remembered. The scan covers the adapters and the call sites that do not
+exist yet — and this repository had ALREADY solved P2.2 twice, in `billing/payments.py` and
+in `engine/cartesia.py`, before a third adapter missed it. A defect that recurs across three
+modules is a defect a per-instance test cannot hold.
 """
 
 from __future__ import annotations
 
 import ast
 import json
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from apps.api.core.errors import ProblemError
-from apps.api.engine.bolna import BolnaEngine
+from apps.api.engine.vendor_http import vendor_request
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ENGINE_DIR = REPO_ROOT / "apps" / "api" / "engine"
-BASE_URL = "https://api.bolna.test"
+BASE_URL = "https://api.vendor.test"
 
 
-def _engine(handler: Any) -> BolnaEngine:
-    return BolnaEngine(
-        api_key="k",
-        fx_rate=Decimal("88.00"),
-        client=httpx.AsyncClient(base_url=BASE_URL, transport=httpx.MockTransport(handler)),
-    )
+async def _call(handler: Any, method: str = "GET") -> dict[str, Any]:
+    """One round trip through the ladder every HTTP-speaking adapter shares (D-240)."""
+    async with httpx.AsyncClient(
+        base_url=BASE_URL, transport=httpx.MockTransport(handler)
+    ) as client:
+        return await vendor_request(client, method, "/agent/agent_1", engine="test")
 
 
 # ============================================================================
@@ -76,8 +72,8 @@ def test_the_two_escaping_types_are_in_neither_family_the_adapter_catches() -> N
     paragraphs that quietly stopped being true.
     """
     assert not issubclass(httpx.InvalidURL, httpx.HTTPError), (
-        "httpx.InvalidURL is now an HTTPError — `_next_link`'s comment explains the guard "
-        "by the fact that it is not"
+        "httpx.InvalidURL is now an HTTPError — the P2.3 scan below explains the guard by "
+        "the fact that it is not"
     )
     assert issubclass(json.JSONDecodeError, ValueError)
     assert not issubclass(json.JSONDecodeError, httpx.HTTPError)
@@ -90,14 +86,12 @@ def test_the_two_escaping_types_are_in_neither_family_the_adapter_catches() -> N
 
 async def test_a_success_with_a_non_json_body_becomes_our_problem_not_a_500() -> None:
     """The WAF-challenge case. 200, `text/html`, and nothing to parse."""
-    engine = _engine(
-        lambda request: httpx.Response(
-            200, text="<html><body>Attention Required! | Cloudflare</body></html>"
-        )
-    )
-
     with pytest.raises(ProblemError) as caught:
-        await engine.get_agent("agent_1")
+        await _call(
+            lambda request: httpx.Response(
+                200, text="<html><body>Attention Required! | Cloudflare</body></html>"
+            )
+        )
 
     assert caught.value.code == "engine_bad_response"
     assert caught.value.kind == "dependency"
@@ -107,10 +101,8 @@ async def test_the_vendors_body_is_not_echoed_to_the_caller() -> None:
     """A vendor error body is not our vocabulary and is not user-safe — the `>= 400`
     branch already says so about itself, and this path must hold to the same rule."""
     secret_ish = "Ray ID 8f3a2b1c — origin 10.0.0.7 — token abcdef"
-    engine = _engine(lambda request: httpx.Response(200, text=secret_ish))
-
     with pytest.raises(ProblemError) as caught:
-        await engine.get_agent("agent_1")
+        await _call(lambda request: httpx.Response(200, text=secret_ish))
 
     rendered = f"{caught.value.detail} {caught.value.title} {caught.value.code}"
     assert "Ray ID" not in rendered and "10.0.0.7" not in rendered
@@ -120,9 +112,7 @@ async def test_an_empty_success_is_still_not_an_error() -> None:
     """The control, and the reason the guard could not simply be "parse or raise": a
     successful DELETE may answer 204 with no body, and `response.json()` raises on that
     too. The empty-body branch runs first and must keep running first."""
-    engine = _engine(lambda request: httpx.Response(204))
-
-    assert await engine.delete_agent("agent_1") is None or True  # must not raise
+    assert await _call(lambda request: httpx.Response(204), method="DELETE") == {}
 
 
 # ============================================================================
@@ -133,13 +123,6 @@ async def test_an_empty_success_is_still_not_an_error() -> None:
 def test_no_adapter_turns_a_vendor_supplied_string_into_a_request_url() -> None:
     """P2.3 IS NOW STRUCTURAL, BECAUSE THE CALL SITE IT GUARDED NO LONGER EXISTS (D-353).
 
-    The original test drove `BolnaEngine._next_link` with a zero-width space in the host
-    and asserted the listing came back incomplete rather than raising. That function is
-    gone: Bolna's real listing contract is `page_number`/`page_size`/`has_more`
-    (VERIFIED-OAS), not a continuation URL, so the adapter constructs every URL it fetches
-    from its own base and its own parameters and never GETs a string the vendor chose.
-
-    Deleting the old test outright would have quietly given back the property it bought.
     `httpx.InvalidURL` escaping an adapter was only ever REACHABLE because some adapter
     parsed a vendor-supplied URL — so the strongest statement available now is that none
     of them does, which is also a real SSRF surface (a vendor-controlled destination

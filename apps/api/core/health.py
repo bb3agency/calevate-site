@@ -16,7 +16,7 @@ db_down > schema_behind > redis_down > queue_stale > config_missing > none.
 
 `/healthz/ready` used to publish, to anyone who asked, the NAMES of the configuration
 keys this deployment has not installed yet — `fields[].field` is
-`runtime_config_missing_keys`, i.e. `BOLNA_API_KEY`, `PLATFORM_KEK`,
+`runtime_config_missing_keys`, i.e. `CARTESIA_API_KEY`, `PLATFORM_KEK`,
 `AUDIT_CHAIN_SECRET` — plus which of DB/Redis is down and how far behind the job queue
 is. Unauthenticated, exempt from the in-app rate limiter, and proxied from
 `api.calevate.tech` by `infra/nginx/calevate.conf.template`. That is a targeting oracle:
@@ -329,7 +329,7 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
         # PER SERVICE, and the selector is the whole of the fix. This read used to be
         # `runtime_config_missing_keys`, whose body asks the engine layer which vendor
         # credentials are missing — and the only way to ask is to BUILD the adapter, which
-        # imports `apps.api.engine.bolna` and `httpx`. Both are forbidden in voice-runtime
+        # imports a vendor adapter and `httpx`. Both are forbidden in voice-runtime
         # (hard rule 3, `tests/voice_runtime_import_surface_test.FORBIDDEN`), and the
         # import was measured at 381-435ms on a first call: 76-87% of the 500ms ack budget,
         # spent on the event loop that is carrying live calls, because an operator curled
@@ -365,7 +365,7 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
             # THE OPERATOR'S COPY. Unlike `/healthz`, nothing else logs any of this, so
             # withholding it from the response without writing it here would trade an
             # information leak for an undiagnosable red light. Key NAMES, never values:
-            # `BOLNA_API_KEY` is the next step, and it is already in `.env.example`.
+            # `PLATFORM_KEK` is the next step, and it is already in `.env.example`.
             # Joined into one string on purpose — `redact_mapping` renders a list extra
             # as "[N items]", which would log the count of what is missing and not the
             # names of it.

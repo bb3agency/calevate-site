@@ -18,7 +18,6 @@ never into a log line.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -33,13 +32,8 @@ pytestmark = pytest.mark.anyio
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
 ATTACKER_IP = "203.0.113.9"
-HANDOFF = "/tools/v1/bolna/handoff"
+HANDOFF = "/tools/v1/fake/handoff"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
-
-
-@pytest.fixture
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:
@@ -57,9 +51,10 @@ def test_the_endpoint_and_the_worker_name_the_same_job() -> None:
 
 
 async def test_a_stranger_cannot_forge_a_handover_notice(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The endpoint is unsigned, so the source check is the whole authenticity control.
+    """A call the receiver cannot authenticate queues nothing — driven here through a
+    signing engine's path, which `verify_source` refuses until a verifier exists.
     A forged notice would write a `handoff_attempts` row against a real tenant claiming
     one of their callers was put through to a member of their staff."""
     enqueued: list[str] = []
@@ -71,7 +66,7 @@ async def test_a_stranger_cannot_forge_a_handover_notice(
     monkeypatch.setattr(tool_routes, "enqueue", _spy)
     async with _client() as client:
         response = await client.post(
-            HANDOFF,
+            "/tools/v1/cartesia/handoff",
             json={"execution_id": "exec_x", "reason": "wants a person"},
             headers={"CF-Connecting-IP": ATTACKER_IP},
         )
@@ -81,7 +76,7 @@ async def test_a_stranger_cannot_forge_a_handover_notice(
 
 
 async def test_a_notice_naming_no_execution_is_refused_rather_than_acked(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A handover we cannot attribute to a conversation is a row we could only write into
     somebody's account at random. 422, and nothing queued."""
@@ -99,7 +94,7 @@ async def test_a_notice_naming_no_execution_is_refused_rather_than_acked(
 
 
 async def test_the_notice_queues_the_job_and_writes_nothing(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Hard rule 3: ack fast, defer everything. The model's `reason` and `summary` cross the
     queue because they exist nowhere else — the execution record's own summary is not
@@ -136,7 +131,7 @@ async def test_the_notice_queues_the_job_and_writes_nothing(
 
 
 async def test_the_ack_carries_the_measurement_every_tool_on_this_router_does(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """TRD §6.2's in-call budget is measured per endpoint, not pooled: this one lands in
     `tool_ack_ms` beside the other three, so a regression here is visible as itself."""

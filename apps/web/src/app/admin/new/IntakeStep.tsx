@@ -71,8 +71,8 @@ import { intakeCopilotSurface } from "@/lib/copilot/screens/intakeSurface";
  * own header gives: a greyed-out control implying the feature exists is worse than a
  * documented gap. Step 6 is not a feature we could build anyway — the client buys the
  * connection on their own operator account (Model B, FLOWS §10) and an operator RECORDS
- * it on the client's page; step 7 depends on Bolna verification this deployment has not
- * done.
+ * it on the client's page; step 7 depends on a first real call this deployment has not
+ * placed.
  *
  * ## The render paths, and what each one refuses to claim (BUILD-LOG §52)
  *

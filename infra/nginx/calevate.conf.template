@@ -664,7 +664,7 @@ server {
     # healthcheck runs `/healthz/live` inside the container, so both readers are already
     # on the loopback side of nginx. What the pair DID buy was a public path to
     # `/healthz/ready`, whose handler resolves the engine adapter and drags `httpx` and
-    # `apps.api.engine.bolna` onto the event loop that has 500ms to ack a webhook —
+    # the adapter module onto the event loop that has 500ms to ack a webhook —
     # measured at 381-435ms of import on a first call, on the one service where that is a
     # lost call rather than a slow page.
     #

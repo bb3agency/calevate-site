@@ -21,7 +21,6 @@ nothing, and name a job the worker actually registers.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
@@ -46,17 +45,12 @@ pytestmark = pytest.mark.anyio
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
 ATTACKER_IP = "203.0.113.9"
-BOOK = "/tools/v1/bolna/callback"
-CANCEL = "/tools/v1/bolna/callback/cancel"
+BOOK = "/tools/v1/fake/callback"
+CANCEL = "/tools/v1/fake/callback/cancel"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 #: A Tuesday, 16:00 IST — the sentence this whole feature is written around.
 NOW = datetime(2026, 9, 2, 6, 0, tzinfo=UTC)  # 11:30 IST on a Wednesday
-
-
-@pytest.fixture
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:
@@ -156,9 +150,10 @@ def test_the_refusal_vocabulary_is_closed() -> None:
 
 
 async def test_a_stranger_cannot_book_a_call_on_a_clients_account(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The endpoint is unsigned, so the source check is the whole authenticity control.
+    """A call the receiver cannot authenticate queues nothing — driven here through a
+    signing engine's path, which `verify_source` refuses until a verifier exists.
     An open one would let anyone make this platform phone an arbitrary number under a
     client's DLT header, from their credit."""
     enqueued: list[str] = []
@@ -170,7 +165,7 @@ async def test_a_stranger_cannot_book_a_call_on_a_clients_account(
     monkeypatch.setattr(tool_routes, "enqueue", _spy)
     async with _client() as client:
         response = await client.post(
-            BOOK,
+            "/tools/v1/cartesia/callback",
             json={"execution_id": "exec_x", "callback_date": "2026-09-08"},
             headers={"CF-Connecting-IP": ATTACKER_IP},
         )
@@ -180,7 +175,7 @@ async def test_a_stranger_cannot_book_a_call_on_a_clients_account(
 
 
 async def test_an_unconfirmed_time_is_not_booked_and_is_handed_back_to_read_out(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """CONFIRM BEFORE COMMIT. The agent gets the resolved time in the form it must read;
     the caller gets the chance to say "no, four in the afternoon"."""
@@ -208,7 +203,7 @@ async def test_an_unconfirmed_time_is_not_booked_and_is_handed_back_to_read_out(
 
 
 async def test_a_confirmed_time_queues_the_booking_and_writes_nothing(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Hard rule 3: ack fast, defer everything. THE RESOLVED INSTANT crosses the queue and
     never the caller's words — one parser, in one place, with one set of refusals, is what
@@ -247,7 +242,7 @@ async def test_a_confirmed_time_queues_the_booking_and_writes_nothing(
 
 
 async def test_a_caller_who_returns_to_an_earlier_time_gets_a_job_arq_will_accept(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """ "Four — no, five — no, four after all." arq refuses a job id whose result it still
     holds (`keep_result`), so if the third booking reused the first one's id it would be
@@ -277,7 +272,7 @@ async def test_a_caller_who_returns_to_an_earlier_time_gets_a_job_arq_will_accep
 
 
 async def test_a_time_outside_calling_hours_is_a_conversation_and_not_an_error(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """200 AND NOT A 4xx, deliberately: the vendor's own troubleshooting reads a failing
     tool call as a misconfiguration, so an error would tell the agent OUR API is broken.
@@ -310,7 +305,7 @@ async def test_a_time_outside_calling_hours_is_a_conversation_and_not_an_error(
 
 
 async def test_only_an_explicit_yes_counts_as_a_confirmation(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """NARROW ON PURPOSE. An unrecognised value costs one conversational turn; the other
     direction costs a wrong time. `1`, `"y"` and a non-empty string are all NOT yes."""
@@ -352,7 +347,7 @@ async def test_only_an_explicit_yes_counts_as_a_confirmation(
 
 
 async def test_calling_a_callback_off_never_depends_on_reading_a_time(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A cancellation must not be able to fail because a date could not be parsed, which is
     why it is its own function with no time in it at all. It is also NOT the opt-out: "do
@@ -372,7 +367,7 @@ async def test_calling_a_callback_off_never_depends_on_reading_a_time(
 
 
 async def test_no_phone_number_reaches_a_log_line(
-    _allowlist: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Hard rule 6, on the path a caller's number is most likely to arrive by accident."""
 

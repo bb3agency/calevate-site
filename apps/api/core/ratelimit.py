@@ -156,27 +156,8 @@ PROFILES: dict[str, LimitProfile] = {
     # read and five Decimal divisions — no database, no vendor, nothing a flood can
     # amplify. No tenant dimension because there is no tenant.
     "public_read": LimitProfile("public_read", per_client=600, per_tenant=None),
-    # The engine's in-call door (`/v1/actions/invoke/**`). Its own profile for the reason
-    # `webhook_ingest` has one, and the relationship inverts the same way: the caller is
-    # the VOICE ENGINE, dialling from its own single egress address on behalf of EVERY
-    # tenant at once, so the per-caller dimension is a near-global ceiling and the
-    # per-`tool_id` dimension is the tenant's own. Under `client_api` this route resolved
-    # to 240/min keyed on that one address, which is ~4 in-call actions a second FOR THE
-    # WHOLE PLATFORM — and each one holds a synchronous 8s vendor round trip and a
-    # credential decrypt, so the ceiling was reachable by a handful of busy clinics and
-    # the 429 lands mid-call, as silence. 600 is the same number and the same argument as
-    # `webhook_ingest`. The tenant ceiling is what actually bounds abuse here: a tool id
-    # belongs to one tenant, ten concurrent lines invoking an action every few seconds is
-    # single-digit-per-minute traffic, and 120 is far past that while still stopping a
-    # runaway agent from spending one client's vendor quota without limit.
-    "engine_action": LimitProfile(
-        "engine_action",
-        per_client=600,
-        per_tenant=120,
-        tenant_from_last_path_segment=True,
-    ),
-    # The voice worker's own door (`/v1/worker/**`), for `engine_action`'s reason and with
-    # the same relationship inverted: the caller is a container on Pipecat Cloud serving
+    # The voice worker's own door (`/v1/worker/**`), for `webhook_ingest`'s reason and
+    # with the same relationship inverted: the caller is a container on Pipecat Cloud serving
     # EVERY tenant from whatever egress address the platform gives it, so a per-caller
     # ceiling is a near-global one. Under `client_api` this sat at 240/min for the whole
     # platform, and one live call costs roughly seven requests a minute (an 8-turn batch
@@ -188,8 +169,8 @@ PROFILES: dict[str, LimitProfile] = {
     # The tenant dimension is deliberately absent: the tenant is inside the call ref in the
     # path, not a segment we can key on, and the bound that matters here is the platform's.
     #
-    # 600 is the platform's declared per-caller ceiling and the same number `engine_action`
-    # and `webhook_ingest` take for the same reason — about 85 concurrent calls of headroom
+    # 600 is the platform's declared per-caller ceiling and the same number
+    # `webhook_ingest` takes for the same reason — about 85 concurrent calls of headroom
     # at seven requests each. Going past it is a decision-log entry, not a number typed here
     # (`tests/rate_limit_census_test.py` enforces exactly that).
     "worker_api": LimitProfile("worker_api", per_client=600, per_tenant=None),
@@ -347,11 +328,6 @@ RULES: tuple[Rule, ...] = (
     # caller doing this at `client_api` rates is stuffing an append-only contract ledger,
     # and every row of it is evidence somebody has to read later.
     Rule("/v1/legal/acceptances", "costly", _m("POST")),
-    # The engine's in-call door. A FAMILY rule (no method set), like `/hooks/v1/ingest/**`
-    # and `/v1/public/**`: this is a surface of its own with its own caller, not a cost
-    # weight over `/v1/**`. See the profile for why it is LOOSER per-caller and tighter
-    # per-tenant than the family it replaces.
-    Rule("/v1/actions/invoke/**", "engine_action"),
     Rule("/v1/lead-sources/*/test", "costly", _m("POST")),
     # Sends a REAL request to the tenant's configured endpoint and can deliver a real
     # WhatsApp message. Its two siblings above and below are `costly` for exactly that

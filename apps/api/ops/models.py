@@ -190,7 +190,7 @@ class PlatformEngineHealth(Base):
 
     __tablename__ = "platform_engine_health"
 
-    #: Our engine name (`bolna`, `cartesia`, `fake`), never the vendor's.
+    #: Our engine name (`cartesia`, `pipecat`, `fake`), never the vendor's.
     engine: Mapped[str] = mapped_column(Text, primary_key=True)
     #: The minute this row counts, truncated with `date_trunc('minute', now())`.
     bucket_start: Mapped[datetime] = mapped_column(primary_key=True)
@@ -426,7 +426,8 @@ class FxRateObservation(Base):
     #: and its own correction would be broken at random. Monotonic by construction.
     seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
     #: `USD`/`INR` today, and columns rather than an assumption because a pair is exactly
-    #: the fact `engine/bolna.py::_cost` got burned assuming (`currency_stated`): a rate
+    #: the fact a rented engine's cost conversion got burned assuming (`currency_stated`,
+    #: D-411): a rate
     #: whose direction is implied by the module it lives in cannot be checked by a reader.
     base_currency: Mapped[str] = mapped_column(Text, nullable=False)
     quote_currency: Mapped[str] = mapped_column(Text, nullable=False)

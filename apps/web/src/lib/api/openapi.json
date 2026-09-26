@@ -8545,7 +8545,7 @@
       },
       "ErasureProofOut": {
         "additionalProperties": false,
-        "description": "The certificate the subject can be shown. Carries no personal data by\nconstruction: a subject hash, timestamps, counts, and plain statements of what was\ndone to each table.\n\n`engine_deletion` is a status string rather than a boolean because the honest answer\ntoday is neither true nor false \u2014 Bolna's deletion API is undocumented (a pilot\ngate), and a certificate that claimed an engine-side deletion we cannot demonstrate\nwould be the one lie a compliance document must not contain.\n\nThe last four fields are why this is a certificate and not a database row. The proof\nis the DURABLE artifact \u2014 filed, forwarded to a regulator, read years later by\nsomeone who cannot ask us what it meant \u2014 so it has to state its own limits. It used\nto state only what it cleared, with `limitations` riding the envelope beside it;\nanyone who filed the proof alone filed a document that says the recording pointer was\ncleared and is silent about the audio still existing. `deletion_proof.certificate`\nbuilds all four from `deletion.ERASURE_LIMITATIONS`/`ERASURE_EXCEPTIONS`.",
+        "description": "The certificate the subject can be shown. Carries no personal data by\nconstruction: a subject hash, timestamps, counts, and plain statements of what was\ndone to each table.\n\n`engine_deletion` is a status string rather than a boolean because the honest answer\ntoday is neither true nor false \u2014 no engine's deletion has been demonstrated, and a\ncertificate that claimed an engine-side deletion we cannot demonstrate\nwould be the one lie a compliance document must not contain.\n\nThe last four fields are why this is a certificate and not a database row. The proof\nis the DURABLE artifact \u2014 filed, forwarded to a regulator, read years later by\nsomeone who cannot ask us what it meant \u2014 so it has to state its own limits. It used\nto state only what it cleared, with `limitations` riding the envelope beside it;\nanyone who filed the proof alone filed a document that says the recording pointer was\ncleared and is silent about the audio still existing. `deletion_proof.certificate`\nbuilds all four from `deletion.ERASURE_LIMITATIONS`/`ERASURE_EXCEPTIONS`.",
         "properties": {
           "actions": {
             "additionalProperties": {
@@ -27105,57 +27105,6 @@
           "actions"
         ],
         "x-calevate-permission": "org:read"
-      }
-    },
-    "/v1/actions/invoke/{engine}/{tool_id}": {
-      "post": {
-        "description": "Bolna calls this for a during-call tool. Verifies the source, resolves the tenant\nfrom the injected agent ref, loads the tool under that tenant's RLS, and executes.\n\nThe response body IS the tool result the LLM reads back. Failures are returned as a\nstructured payload (not a 5xx) so the agent can relay them to the caller rather than the\ncall hearing dead air.",
-        "operationId": "invoke_action_v1_actions_invoke__engine___tool_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "engine",
-            "required": true,
-            "schema": {
-              "title": "Engine",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tool_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Tool Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Invoke Action V1 Actions Invoke  Engine   Tool Id  Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Engine-called: run one in-call action and return its result to the LLM",
-        "tags": [
-          "actions"
-        ]
       }
     },
     "/v1/admin/client-health": {

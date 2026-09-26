@@ -87,8 +87,8 @@ log = get_logger(__name__)
 #: reported as a FLOOR and alarmed, never silently truncated.
 RECALL_SCAN_LIMIT = 500
 
-#: How many call ids an alert body names before it stops listing them, for
-#: `engine_violations._ALERT_ID_LIMIT`'s reason.
+#: How many call ids an alert body names before it stops listing them: an alert naming
+#: forty uuids is one nobody reads.
 _ALERT_ID_LIMIT = 5
 
 
@@ -225,7 +225,7 @@ async def _recall() -> str:
     )
 
     if capped:
-        # BEFORE the failure alarm, for `engine_violation_sweep_incomplete`'s reason: a
+        # BEFORE the failure alarm, because a
         # capped run's counts are a floor, and "stopped 500" off a scan that stopped
         # looking at 500 is the one wrong sentence to leave on an operator's screen.
         alert(
@@ -240,7 +240,7 @@ async def _recall() -> str:
     if not_stopped:
         named = ", ".join(str(c) for c in not_stopped[:_ALERT_ID_LIMIT])
         alert(
-            # WORKER_STALL for `engine_violation_open`'s reason: a scheduled action
+            # WORKER_STALL because this is a scheduled action
             # reporting a bad state of the world it went and measured, not a worker dying.
             # Nothing is retried by reporting it — the vendor has refused these.
             "WORKER_STALL",
@@ -270,7 +270,7 @@ async def recall_queued_dials(ctx: dict[str, Any]) -> str:
     dial the vendor is holding right now", and two runs racing that question converge on
     the same empty scan.
 
-    THE RETRY LADDER IS SPELLED HERE for `sweep_engine_violations`' reason: arq 0.28
+    THE RETRY LADDER IS SPELLED HERE because arq 0.28
     retries for `arq.Retry` and nothing else, so a job that dies any other way is finished
     on its first attempt whatever `max_tries` says. Note what CANNOT reach this handler —
     a single vendor refusal, which `_recall` counts and carries on past. What reaches it

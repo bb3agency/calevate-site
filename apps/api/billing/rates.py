@@ -51,7 +51,7 @@ WHAT THE ENGINE STILL DOES NOT REPORT
 -------------------------------------
 **The engine does not report which voice actually synthesized a call**, and that fact is
 unchanged by the collapse — `ExecutionSnapshot` carries no TTS model and no character
-count, and the Bolna adapter parses none. It no longer threatens a BILL (there is one rate,
+count, and no adapter parses one. It no longer threatens a BILL (there is one rate,
 so a silent fallback could only be to the same voice at the same price), but it remains a
 true, greppable engine-capability fact: `ENGINE_REPORTS_TTS_MODEL` stays False. The vendor
 DOES publish a `usage_breakdown` block (`synthesizer_model`, `synthesizer_characters`) in
@@ -214,7 +214,7 @@ ENGINE_REPORTS_TTS_MODEL = False
 # `ENGINE_TTS_MODEL_GENERATION_VERIFIED` STAYS FALSE, deliberately, and the flip was
 # considered. It does not mean "we know which model generation Sarvam ships" — the
 # catalogue reading answers that. It means the ENGINE tells us which model actually
-# synthesized a given call, which is still false: the engine is Bolna, not Sarvam, its
+# synthesized a given call, which is still false: the engine is not the TTS vendor, its
 # `ExecutionSnapshot` carries no synthesizer field, and no dashboard reading can change
 # what a webhook payload contains. D-358 (a live capture on OPERATIONS §2 gate 7) is still
 # the only thing that flips it.
@@ -462,7 +462,7 @@ def assert_rate_is_meterable(rate: Decimal, *, subject: str, unit: str) -> Decim
 #:
 #: NOT `Settings.usd_inr_rate`, and the distinction is why this is a named constant. That
 #: field is the rate a CALL's engine cost is converted at, stamped into `usage_events
-#: .meta` at capture so a ledger row can always be re-derived (`engine/bolna.py`). This
+#: .meta` at capture so a ledger row can always be re-derived. This
 #: is the rate a LIST PRICE was quoted at — an input to a cost model and to an estimate
 #: on a screen, never to a charge. Reading the live field here would make every "about N
 #: assists" figure and every §10 margin move with an ops console, which is the opposite
@@ -925,8 +925,7 @@ def llm_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
 #: turn carried.
 #:
 #: `turn_tokens` — one full exchange, caller utterance plus agent reply, at Telugu's
-#: token fertility (~2.1-2.3 tokens per word against English's ~1.2-1.4; the same figures
-#: `engine/bolna.py` cites for its 400-token cap).
+#: token fertility (~2.1-2.3 tokens per word against English's ~1.2-1.4).
 #:
 #: `turns_per_minute` — six, a ten-second turn cycle on a phone call.
 #:
@@ -952,10 +951,8 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     **IT IS NOT A CONSTANT PER MINUTE, AND THAT IS THE FINDING.** TRD §6.1 records that
     the full conversation is resent to the model on every turn, so input tokens grow
     linearly through a call and total input cost grows QUADRATICALLY with duration. A
-    single "₹x/min" figure is therefore a blended average that a long call skews above —
-    `scripts/pilot/knowledge.py::probe_h1_history_handling` exists to measure exactly
-    this shape on the real engine, and says in its own docstring that a priced in-call
-    LLM makes the correction matter. Taking `minutes` as an argument is what stops the
+    single "₹x/min" figure is therefore a blended average that a long call skews above.
+    Taking `minutes` as an argument is what stops the
     cost model quoting minute one and reasoning about minute ten.
 
     **THE ONE LEVER THAT WOULD BEND THIS CURVE IS PROMPT CACHING, AND WHETHER THE ENGINE
@@ -1150,8 +1147,7 @@ def stt_cost_inr(duration_s: int) -> Decimal:
     ⚠ **A MODEL FIGURE, NEVER A BILL — and unlike the TTS half this leg HAS a real
     counterpart on the ledger, so the distinction is sharper here than it is one function
     up.** What reaches `usage_events.unit_cost_paid` for STT on a rented-engine call is the
-    ENGINE's own reported per-leg cost: `CostBreakdown.stt_inr` (`engine/bolna.py::_cost`,
-    `leg("transcriber")`), divided by the call's billable minutes in
+    ENGINE's own reported per-leg cost: `CostBreakdown.stt_inr`, divided by the call's billable minutes in
     `workers/pipeline.py::_meter` to make a price per unit of `qty` (on the owned runtime,
     which holds its own Sarvam account, the ledger rate is `stt_rate_inr_per_minute`).
     Nothing on the engine path consults this function and nothing may: the
@@ -1806,8 +1802,8 @@ SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = clear_cost_floor_at(
 #
 # TWO LEGS THE VENDOR PRICED THAT ARE NOT OURS, said here because a reader meeting the mail
 # will wonder: **Ink STT** (1-3 credits/second) and **Managed Agents** ($0.06/min, plus
-# $0.014/min for a Cartesia-provided number). We use Bolna with BYOK Cartesia TTS, so the
-# only Cartesia leg on our bill is TTS credits. Neither is added below, and neither may be.
+# $0.014/min for a Cartesia-provided number). We use Cartesia for TTS only, so the only
+# Cartesia leg on our bill is TTS credits. Neither is added below, and neither may be.
 #
 # **OPERATIONAL CONSTRAINT, not a price** (it answers the founder's India/GST question in
 # the same mail): self-serve billing is USD, card only, and needs international + recurring

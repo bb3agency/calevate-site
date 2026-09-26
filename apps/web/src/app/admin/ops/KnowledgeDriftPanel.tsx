@@ -81,18 +81,13 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
             because the two produce identical data and only one of them is a problem.
             `sweep_kb_drift` returns on its first line when the engine lacks the
             capability, so on such an engine it records nothing on every run, for ever, by
-            design. ⚠ THE EXAMPLE THIS COMMENT GAVE IS DEAD: it said "so on Bolna
-            (`BOLNA_CAPABILITIES.knowledge_base` is False, D-354)", and that constant is
-            `True` today (`apps/api/engine/bolna.py`, D-488 built the real `attach_kb`) —
-            as is `PIPECAT_CAPABILITIES.knowledge_base` (`apps/api/engine/pipecat.py`). So
-            every engine `Settings.engine` can name declares one today
-            (`calevate_shared.config.EngineName` — `fake`, `bolna`, `cartesia`, `pipecat`),
-            so this notice is currently unreachable. It STAYS rather than being deleted:
+            design. Every engine `Settings.engine` can name declares one today
+            (`calevate_shared.config.EngineName` — `fake`, `cartesia`, `pipecat`; each
+            adapter's `*_CAPABILITIES.knowledge_base` is `True`), so this notice is currently
+            unreachable. It STAYS rather than being deleted:
             the field is on the wire precisely so the screen reads the engine's own answer
             instead of a value typed here, and a capability that flipped True once can flip
-            back. What must not come back is the dead example — a ground quoted from a
-            constant nobody re-read is hard rule 11's whole subject, and this comment was
-            it. The warning below then
+            back. Before the field existed, the warning below
             told an operator "the reconciliation job is not running" — permanently, about
             a job running hourly at :23 and doing exactly the right thing. Found by
             walking the console: the panel had counts and a null pulse, which is the same

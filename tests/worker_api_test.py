@@ -372,7 +372,7 @@ async def test_a_ref_this_engine_never_minted_is_refused_before_any_row_is_touch
     tenant_id, agent_id, _ = await published_agent()
     async with worker_client() as api:
         with pytest.raises(WorkerApiError) as refused:
-            await api.post_observations("bolna:whatever", batch("c", tenant_id, agent_id))
+            await api.post_observations("cartesia:whatever", batch("c", tenant_id, agent_id))
     assert "404" in str(refused.value)
 
 
@@ -1137,7 +1137,7 @@ async def test_the_writing_routes_refuse_a_deployment_running_another_engine(
 
     tenant_id, agent_id, agent_ref = await published_agent()
     call_id, ref = call_ref(tenant_id)
-    monkeypatch.setenv("ENGINE", "bolna")
+    monkeypatch.setenv("ENGINE", "cartesia")
     _settings.cache_clear()
 
     async with worker_client() as api:

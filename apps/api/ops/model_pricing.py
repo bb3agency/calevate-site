@@ -59,9 +59,9 @@ from apps.workers.extraction import azure_credentials
 #: THE ONE PLACE this mapping lives. `LlmProvider` is the engine's closed vocabulary and
 #: the value is a `platform_secrets` key name — relating the two is a platform concern, so
 #: it is stated here once rather than re-derived at each call site. The engine's OWN
-#: credential-store entry names (`AZURE_OPENAI_API_KEY`, `OPENAI`, `GOOGLE`) are a different
-#: thing and stay in `engine/bolna.py` (hard rule 2): those are what the engine reads, this
-#: is where OUR store keeps the value the platform installs.
+#: credential-store entry names are a different thing and belong to an adapter (hard rule
+#: 2): those are what an engine reads, this is where OUR store keeps the value the platform
+#: installs.
 #:
 #: Exhaustive over `LlmProvider` on purpose: adding a fourth leg to that Literal without a
 #: credential here would raise `KeyError` in `_provider_installed` rather than silently

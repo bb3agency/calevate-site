@@ -553,8 +553,8 @@ async def joined_tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
     written engine record behind).
 
     REJECTED, AND WHY:
-      * *Thread the session through `VoiceEngine`* — three adapters (`bolna`, `cartesia`,
-        `fake`) speak to a vendor over HTTP and have no database at all; a session
+      * *Thread the session through `VoiceEngine`* — the HTTP adapters (`cartesia`, and
+        `fake` standing in for one) speak to a vendor and have no database at all; a session
         parameter would put a storage concept into the one port whose purpose is that
         adapters are interchangeable.
       * *Release the `FOR UPDATE` before calling the adapter* — that lock is what

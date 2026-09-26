@@ -441,7 +441,7 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
         # would fail anyway" hands an attacker the one thing they need: control of
         # whether we look at all. NXDOMAIN on our lookup and an A record on httpx's is a
         # rebinding attack with an extra step. Same doctrine as
-        # `parse_source_ip_allowlist` and `engine_intake.client_ip`.
+        # `calevate_shared.client_address.client_ip`.
         log.warning(
             "egress_refused",
             # Host, port and reason — never the URL. Path and query are tenant free text

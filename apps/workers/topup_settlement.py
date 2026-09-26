@@ -277,7 +277,7 @@ async def sweep_topup_settlement(ctx: dict[str, Any]) -> str:
     log.info("topup_settlement_scan", extra=totals)
 
     if scan.silent:
-        # WORKER_STALL for `engine_violation_open`'s reason: this is a scheduled probe
+        # WORKER_STALL because this is a scheduled probe
         # reporting a bad state of the world it went and measured, not a worker dying.
         # Nothing is retried by reporting it — only a person can clear it.
         alert("WORKER_STALL", "topup_settlement_silent", detail=_describe(scan, now=now))

@@ -360,7 +360,6 @@ _UNSWEPT: dict[str, int] = {
     "apps/api/quality/service.py": 1,
     # The vendor leg. A voice-engine failure surfaces on an operator's screen, so these
     # are not exempt in principle — they are unswept, and the adapter is one owner away.
-    "apps/api/engine/bolna.py": 1,
     "apps/api/engine/fake.py": 5,
     "apps/api/engine/vendor_http.py": 2,
     # NOT a person on the other end: the voice engine POSTs these webhooks and an ARQ job

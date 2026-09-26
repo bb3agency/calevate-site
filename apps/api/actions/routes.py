@@ -1,29 +1,23 @@
-"""ACTIONS routes — the engine-facing execution endpoint and the client-realm config API.
+"""ACTIONS routes — the client-realm config API.
 
-Two audiences, one module:
+Everything under `/v1/agents/{agent_id}/actions` and `/v1/integrations/credentials` is the
+CLIENT realm — the Actions tab. `org:manage` on the writes (configuring what an agent may do
+mid-call is an account-level decision), `org:read` on the reads.
 
-* `POST /v1/actions/invoke/{engine}/{tool_id}` is called by the ENGINE (Bolna) mid-call. It
-  is unauthenticated and source-IP gated exactly like the webhook receiver — the tenant is
-  resolved from the injected `{agent_id}` through `engine_agent_routes` (the same non-RLS
-  bridge the receiver uses), then the tool is loaded under that tenant's RLS. It runs here,
-  not in voice-runtime, because a data-returning action makes a synchronous external call
-  and a credential decrypt (hard rule 3 keeps that off the latency-critical receiver).
+There is no engine-facing execution route here. `POST /v1/actions/invoke/{engine}/{tool_id}`
+was the rented engine's, gated on that engine's egress allowlist, and D-639 deleted it with
+the engine: no remaining engine could pass the gate. After-call actions and the Test button
+run through `execution.execute_action` from this module and the post-call pipeline.
 
-* Everything under `/v1/agents/{agent_id}/actions` and `/v1/integrations/credentials` is the
-  CLIENT realm — the Actions tab. `org:manage` on the writes (configuring what an agent may
-  do mid-call is an account-level decision), `org:read` on the reads.
-
-Secrets never appear in a response (credentials show a fingerprint) and never reach Bolna
-(the credential is applied by the executor, not the engine config).
+Secrets never appear in a response (credentials show a fingerprint) and never reach an
+engine (the credential is applied by the executor, not the engine config).
 """
 
 from __future__ import annotations
 
-import json
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from calevate_shared.config import SOURCE_IP_ALLOWLIST_BY_ENGINE
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -45,8 +39,6 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
-from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session, untenanted_session
 
 log = get_logger(__name__)
 
@@ -56,94 +48,6 @@ Session = Annotated[AsyncSession, Depends(db)]
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-# =============================================================== execution ====
-
-
-@router.post(
-    "/actions/invoke/{engine}/{tool_id}",
-    summary="Engine-called: run one in-call action and return its result to the LLM",
-)
-async def invoke_action(engine: str, tool_id: UUID, request: Request) -> dict[str, Any]:
-    """Bolna calls this for a during-call tool. Verifies the source, resolves the tenant
-    from the injected agent ref, loads the tool under that tenant's RLS, and executes.
-
-    The response body IS the tool result the LLM reads back. Failures are returned as a
-    structured payload (not a 5xx) so the agent can relay them to the caller rather than the
-    call hearing dead air.
-    """
-    # The trusted-proxy predicate, not the raw socket peer — behind nginx the peer is the
-    # edge (SEC-COMP §5, D-131). `client_request_ip` is the one door to that judgement in
-    # `apps/api` (`scripts/check_audit_ip.py`), and it is the same `client_ip` call the
-    # webhook receiver authenticates an unsigned engine with.
-    source_ip = client_request_ip(request)
-    resolver = SOURCE_IP_ALLOWLIST_BY_ENGINE.get(engine)
-    if resolver is None or source_ip is None or source_ip not in resolver(get_settings()):
-        # Same posture as the webhook receiver: an unrecognised or unallowlisted caller is
-        # refused before a byte of body is trusted. Never echoes the engine string.
-        raise ProblemError.unauthorized("This caller is not permitted to invoke actions.")
-
-    raw = await request.body()
-    try:
-        # `RecursionError`, not just `ValueError`: `json.loads` raises THAT on a deeply
-        # nested document, and catching only the decode error made a body of ten thousand
-        # open brackets an unhandled 500 on an endpoint the engine calls mid-call. A 500
-        # here is not cosmetic — it fires the catch-all `unhandled_exception` alert, whose
-        # fingerprint `alerting._admit` then suppresses for 15 minutes, so one hostile POST
-        # a quarter hour keeps this process's real crash alarm quiet. The voice-runtime
-        # receiver has caught both since it was written (`webhook_routes._receive` step 3);
-        # this route is the same threat model and was missing the second half.
-        received = json.loads(raw or b"{}")
-    except (ValueError, RecursionError):
-        received = {}
-    if not isinstance(received, dict):
-        received = {}
-
-    agent_ref = received.get("_agent_ref")
-    if not isinstance(agent_ref, str) or not agent_ref:
-        raise ProblemError(
-            kind="validation",
-            code="action_missing_agent_ref",
-            title="The tool call did not identify its agent",
-            detail="No agent reference was supplied, so the tenant could not be resolved.",
-            status=422,
-        )
-
-    # Cross-tenant bridge, non-RLS, exactly as the webhook receiver resolves an agent.
-    async with untenanted_session() as anon:
-        row = (
-            await anon.execute(
-                text(
-                    "SELECT tenant_id, agent_id FROM engine_agent_routes "
-                    "WHERE engine_agent_ref = :ref AND engine = :engine AND active"
-                ),
-                {"ref": agent_ref, "engine": engine},
-            )
-        ).first()
-    if row is None:
-        raise ProblemError.unauthorized("This agent is not recognised.")
-    tenant_id: UUID = row[0]
-    route_agent_id: UUID = row[1]
-
-    async with tenant_session(tenant_id) as session:
-        # BOUND TO THE AGENT THE REF RESOLVED, which is what the comment below used to
-        # claim and `get_tool` could not do — see `service.get_agent_tool`. The ref is the
-        # only thing the engine authenticates with here, so the tool it may reach has to
-        # be the one that ref's agent owns.
-        tool = await service.get_agent_tool(session, agent_id=route_agent_id, tool_id=tool_id)
-        # RLS makes a tool from another tenant invisible → None, indistinguishable from a
-        # deleted one (hard rule 1), and a tool belonging to a different agent is now the
-        # same `None` for the same reason. A disabled tool is refused too, and so is one
-        # whose agent has the master API-actions switch off — a client who turns that
-        # switch off has withdrawn every tool on the agent, and the in-call path must
-        # honour that rather than only the publish path that declares the tool list.
-        if tool is None or not tool.enabled:
-            raise ProblemError.not_found("Action")
-        if not await service.actions_enabled(session, agent_id=route_agent_id):
-            raise ProblemError.not_found("Action")
-        result = await execute_action(session, tool=tool, received=received, source="in_call")
-    return result.payload
 
 
 # ============================================================= credentials ====

@@ -346,8 +346,8 @@ def validated_value(key: str, raw: Any) -> Any:
     try:
         return validate_value(key, raw)
     except ValidationError as exc:
-        # The model's OWN message, per field. "engine must be one of fake, bolna,
-        # cartesia" is a sentence an operator can act on; "invalid value" is not.
+        # The model's OWN message, per field. "engine must be one of fake, cartesia,
+        # pipecat" is a sentence an operator can act on; "invalid value" is not.
         raise ProblemError(
             kind="validation",
             code="config_value_invalid",

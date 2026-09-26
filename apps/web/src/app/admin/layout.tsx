@@ -305,11 +305,9 @@ const NAV: NavGroup[] = [
         action: "read what the platform has raised alarms about",
       },
       {
-        // Same argument as the row above, and the two documents that need it say so in
-        // their own words: `runbooks/alarm-index.md`'s `engine_llm_ttft_degraded` entry
-        // opens "Read GET /v1/ops/engine-latency first", and OPERATIONS §2 gate 4 sends an
-        // operator to the same read to find out what D-449 actually bought. Both pointed
-        // at a curl until this screen existed. Somebody paging on a slow call is not going
+        // Same argument as the row above: OPERATIONS §2 gate 4 sends an
+        // operator to this read to find out what D-449 actually bought, and it pointed at a
+        // curl until this screen existed. Somebody paging on a slow call is not going
         // to scroll the platform switches to find it.
         href: "/admin/ops/engine-latency",
         label: "Voice response time",

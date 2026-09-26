@@ -345,7 +345,7 @@ def test_every_cron_has_a_retry_ladder_or_says_why_it_does_not() -> None:
 #: direction only — `test_the_fleet_walk_list_still_names_crons_that_exist` asserted that a
 #: listed name was still registered, and nothing ever asserted that a new fan-out appeared.
 #: So `sweep_due_erasures`, `sweep_trials`, `embed_caller_chunks`, `sweep_topup_settlement`
-#: and `sweep_engine_violations` were all registered after the list was written and none of
+#: and a since-deleted engine sweep were all registered after the list was written and none of
 #: them entered the collision check: four minutes ended up carrying two fan-outs each,
 #: including :13/:43 where two walks under a `WalkBudget` spent each other's wall clock and
 #: `topup_settlement_truncated` fired nightly on a healthy fleet. `fleet_walk.WalkShape`

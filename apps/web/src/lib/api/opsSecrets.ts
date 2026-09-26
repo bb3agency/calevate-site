@@ -88,7 +88,7 @@ export interface SecretSetInput {
  * (`mutation.ts::removeObserver` → `scheduleGc`).
  *
  * `variables` here is `{ key, value, reason }` and `value` is the vendor credential in
- * plaintext. So the shape this console shipped with left a live Sarvam or Bolna key
+ * plaintext. So the shape this console shipped with left a live Sarvam or Cartesia key
  * sitting in a JavaScript object for five minutes after the operator closed the form and
  * walked away — reachable from any script on the page and from a heap snapshot, for no
  * benefit at all, since nothing re-reads a mutation's variables here.

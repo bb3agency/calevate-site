@@ -38,7 +38,7 @@ import { noFill } from "@/lib/copilot/types";
  * ## The gating is the same doctrine, moved intact
  *
  * Each panel gates on ITS OWN permission, not on the screen's: a session that may change
- * a calling window does not thereby get to replace the Bolna key. The panels are not
+ * a calling window does not thereby get to replace the voice engine's key. The panels are not
  * MOUNTED for a session the server has refused, because on both these surfaces the READ
  * carries the same permission as the write — mounting would fire a request whose only
  * outcome is a 403, and then render "we could not read this", which is the sentence for

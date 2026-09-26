@@ -46,10 +46,8 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Callable
 from typing import Any
 
-import pytest
 from apps.api.db.session import get_engine, untenanted_session
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
@@ -57,8 +55,8 @@ from sqlalchemy import event, text
 
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
-HOOK = "/hooks/v1/engine/bolna"
-TOOL = "/tools/v1/bolna/opt-out"
+HOOK = "/hooks/v1/engine/fake"
+TOOL = "/tools/v1/fake/opt-out"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 #: The schema surface of this deployable's REQUEST PATH. Both are infra tables (no `tenant_id`, no
@@ -66,11 +64,6 @@ HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 #: exist for the reliability triad rather than for any product feature, which is what makes
 #: them the two least likely rows in the repo to move under a dashboard release.
 SCHEMA_SURFACE: frozenset[str] = frozenset({"webhook_deliveries", "webhook_inbox_events"})
-
-
-@pytest.fixture(autouse=True)
-def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:

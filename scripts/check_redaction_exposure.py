@@ -268,8 +268,7 @@ ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
     # ACTIONS feature. Free-form by NECESSITY (three kinds carry three config shapes; an
     # external test reply is arbitrary) and none is populated from a live call's transcript:
     # they are operator-authored config and an operator-run test, all behind
-    # `org:read`/`org:manage`. The endpoint that DOES touch a caller is
-    # `/v1/actions/invoke/**`, which returns a bare dict with no response model.
+    # `org:read`/`org:manage`.
     "ToolOut.config": (
         "the tool's own kind-specific configuration (URL, template/campaign name, param "
         "bindings) — operator-authored strings, no caller data (tests/actions_db_test.py)."

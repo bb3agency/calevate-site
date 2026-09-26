@@ -22,10 +22,7 @@ Three questions, one file, and none of them is answered by the conformance suite
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Any
 
 import httpx
 import pytest
@@ -35,7 +32,6 @@ from apps.api.engine import (
     engine_lacks,
     require_capability,
 )
-from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.capabilities import (
     ENGINE_CAPABILITY_ABSENT,
     ENGINE_COMPLIANCE_FLOOR_ABSENT,
@@ -63,7 +59,6 @@ from calevate_shared.engine import (
     WEBHOOK_AUTH_BY_ENGINE,
     AgentConfig,
     CallContext,
-    ModelConfig,
 )
 
 
@@ -494,7 +489,6 @@ def test_every_engine_in_the_webhook_auth_table_is_an_engine_we_ship() -> None:
     produce, and no adapter-side test can see it because no adapter has that name.
     """
     shipped = {
-        "bolna",
         "fake",
         "fake-restricted",
         "fake-deployed",
@@ -511,7 +505,6 @@ def test_every_engine_in_the_webhook_auth_table_is_an_engine_we_ship() -> None:
     }
     assert set(WEBHOOK_AUTH_BY_ENGINE) == shipped
     assert WEBHOOK_AUTH_BY_ENGINE["cartesia"] == "hmac"
-    assert WEBHOOK_AUTH_BY_ENGINE["bolna"] == "source_ip"
 
 
 # --- 4. agent hosting: the two homes hard rule 5 has (D-280..D-282) -------------
@@ -636,8 +629,8 @@ async def test_an_engine_that_hosts_agents_needs_no_per_call_prompt() -> None:
     On a `control_plane` engine the directive is agent-record state that `publish_agent`
     wrote and `verification.judge` PROVED the engine is running. A second copy per call
     would be one string with two authorities, and the guard must not demand one — a dial
-    that started failing on Bolna because an unrelated engine cannot hold a prompt is the
-    regression this asserts against.
+    that started failing on a control-plane engine because an unrelated engine cannot hold
+    a prompt is the regression this asserts against.
     """
     engine = FakeEngine()
     ref = await engine.create_agent(_agent_config())
@@ -679,71 +672,4 @@ async def test_publishing_to_an_engine_that_hosts_no_agents_is_refused_not_recor
     assert raised.value.capability == "agent_hosting"
     assert raised.value.as_problem()["remediation"], (
         "an operator who cannot publish must be told what to do instead"
-    )
-
-
-async def test_bolna_sends_the_reply_ceiling_and_the_sampling_it_chose() -> None:
-    """D-283. Unsent means the vendor's defaults apply, and one of them was a real knob.
-
-    VERIFIED-OSS at `bolna-ai/bolna@cd2e192`, `bolna/models.py`: `Llm.max_tokens` defaults
-    to **100** and `Llm.temperature` to **0.1**, and `task_manager.__setup_llm` reads both
-    with bare subscripts off `llm_agent_config`. Our body omitted them, so the stored
-    `agent_config.model_dump()` filled the defaults and every agent on the platform ran
-    with a 100-token ceiling on each reply that nobody had chosen.
-
-    ASSERTED AS LITERALS, not against a constant, for the reason
-    `test_cartesia_pins_the_rest_api_version_and_not_the_line_websocket_one` gives: a test
-    comparing a value to itself would have passed just as happily with the wrong number in
-    it. What the numbers ARE is argued at the line in the adapter — briefly: a cap is a
-    safety valve rather than a style control, 100 tokens is ~45 Telugu words at the
-    fertility Indic scripts actually carry, and the LLM leg is free per token so headroom
-    costs nothing; 0.1 is the vendor's default and is RIGHT for an agent that must not
-    paraphrase a compliance sentence away, which is exactly why it is written down rather
-    than inherited from somebody else's release note.
-    """
-    seen: dict[str, Any] = {}
-
-    def capture(request: httpx.Request) -> httpx.Response:
-        seen.update(json.loads(request.content or b"{}"))
-        return httpx.Response(200, json={"agent_id": "agent_1"})
-
-    engine = BolnaEngine(
-        api_key="k",
-        fx_rate=Decimal("88.00"),
-        client=httpx.AsyncClient(
-            base_url="https://api.bolna.ai", transport=httpx.MockTransport(capture)
-        ),
-    )
-    await engine.create_agent(
-        _agent_config().model_copy(
-            update={
-                "models": ModelConfig(
-                    # STT IS STILL SARVAM AND ALWAYS WAS — D-629 withdrew Sarvam from the
-                    # TTS leg only, and Saaras transcribes every call as before.
-                    stt_provider="sarvam",
-                    stt_model="saaras:v3",
-                    llm_model="sarvam-105b",
-                    # `tts_model` IS REQUIRED HERE AND WAS NOT UNDER SARVAM. The adapter
-                    # refuses a Cartesia voice that reaches the wire with no model rather
-                    # than carrying its own `sonic-3.5` fallback, because a fallback here
-                    # would be a second definition of which Cartesia model this product
-                    # runs, outside the catalogue that owns it (`_refuse_cartesia_voice_
-                    # incomplete`). This clause is about the LLM's reply ceiling, so it
-                    # supplies a complete voice rather than arguing with that refusal.
-                    tts_provider="cartesia",
-                    tts_model="sonic-3.5",
-                    tts_voice="ashutosh",
-                )
-            }
-        )
-    )
-
-    llm = seen["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]["llm_config"]
-    assert llm["max_tokens"] == 400, (
-        "the reply ceiling is not sent, so the vendor's 100-token default applies and "
-        "every agent reply is truncated mid-sentence at roughly 45 Telugu words"
-    )
-    assert llm["temperature"] == 0.1, (
-        "the sampling temperature is not sent, so it rides a vendor default that can "
-        "change without our deploying — on a prompt carrying the truthful-answer rule"
     )

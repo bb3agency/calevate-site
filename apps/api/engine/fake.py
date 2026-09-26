@@ -5,9 +5,9 @@ Two jobs, both real:
 1. **Local development runs offline and deterministic** (DEV-SETUP §3): `ENGINE=fake`
    means the whole pipeline — dispatch, webhook, post-call, lead — works with no
    vendor account, no network and no spend.
-2. **It is the conformance control.** A behaviour that only the Bolna adapter has is
+2. **It is the conformance control.** A behaviour that only one real adapter has is
    either mapped into the contract or is not allowed to leak upward; running the same
-   suite against both is how that stays true (TRD §5).
+   suite against every adapter is how that stays true (TRD §5).
 
 It is deliberately NOT a mock: calls have a lifecycle, transcripts are Telugu-first
 code-mixed samples of the shape Saaras actually returns, and costs come out of the
@@ -122,8 +122,8 @@ class _StoredCall(TypedDict):
     transfer_warm: NotRequired[bool]
 
 
-#: Raw status → ours, the same shape both real adapters use (`bolna._STATUS_MAP`,
-#: `cartesia._STATUS_MAP`) so all three normalize by one mechanism rather than two. The
+#: Raw status → ours, the same shape the vendor adapter uses (`cartesia._STATUS_MAP`) so
+#: both normalize by one mechanism rather than two. The
 #: fake IS its own vendor, so the map is the IDENTITY — and it is DERIVED from the
 #: Literal rather than retyped, which is the point: the hand-written `set[str]` it
 #: replaces was an eighth copy of `CallStatus` that a new member would have silently
@@ -191,49 +191,43 @@ _COST_PER_MIN = {
 # What the fake engine claims by default: BYOK on every leg, a built-in knowledge base,
 # no campaign objects of its own, no number provisioning, no transfer, no signature.
 #
-# It is deliberately BOLNA-SHAPED on the axes that matter, because the fake engine's
-# first job is to stand in for the engine we actually run (DEV-SETUP §3) — a default that
-# diverged from the primary would make local development exercise a system we do not
-# ship. Where it differs from Bolna it differs HONESTLY rather than aspirationally:
-# `campaigns=False` because our dispatch is ours (see the field's docstring), and
-# `transfer=False` because the fake used to answer it with a cheerful success while Bolna
-# raised — two adapters disagreeing about what the platform can do, with nothing able to
-# detect it. That divergence is the single clearest piece of evidence that this descriptor
-# needed to exist.
+# It is shaped like a HOSTED-AGENT engine: the rented engine D-31 chose, which D-639
+# removed. It was built to stand in for that engine (DEV-SETUP §3); it now keeps the
+# hosted-agent half of the port executable offline, since `cartesia` needs an account and
+# `pipecat` declares most of these capabilities False. Where it differed from the rented
+# engine it differed HONESTLY rather than aspirationally: `campaigns=False` because our
+# dispatch is ours (see the field's docstring), and `transfer=False` because the fake once
+# answered it with a cheerful success while the real adapter raised — two adapters
+# disagreeing about what the platform can do, with nothing able to detect it.
 #
-# **`number_series` MOVED WITH BOLNA'S (D-537), AND THAT IS THE RULE ABOVE BEING
-# FOLLOWED, NOT BROKEN.** It was `frozenset()` for exactly as long as Bolna's was, for
-# exactly that reason. The founder adopted Model A on the inbound leg, Bolna's descriptor
-# now names the one class that vendor can be shown to sell, and a default fake left empty
-# would make every local run and every offline test exercise the refusal path of a
-# capability the product now ships — the divergence this comment exists to forbid, in the
-# other direction. The three RESTRICTED profiles below stay empty on purpose: they are
-# what keeps the refusal path executable offline.
+# `number_series` is `{"standard"}` (D-537) so every local run and offline test exercises
+# the ACCEPT path of number provisioning. The three RESTRICTED profiles below stay empty on
+# purpose: they are what keeps the refusal path executable offline.
 DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     # the ordinary engine this suite stands in for records.
     records_audio=True,
     stt="ours",
     tts="ours",
     llm="ours",
-    # Bolna's shape: this engine holds the agent, and the prompt (with hard rule 5's
+    # Hosted-agent shape: this engine holds the agent, and the prompt (with hard rule 5's
     # directive inside it) is agent-record state a publish writes and a read-back scores.
     agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset({"standard"}),
-    # Bolna's shape again: the caller ID is a per-call field and inbound routing is an API
+    # Hosted-agent shape again: the caller ID is a per-call field and inbound routing is an API
     # call, so the default fake is what exercises both halves of D-420 offline.
     caller_id=True,
     inbound_binding=True,
     transfer=False,
-    # Bolna's shape for a third time (D-533): the agent hands off from inside the call to
+    # Hosted-agent shape (D-533): the agent hands off from inside the call to
     # a number fixed at publish, so the default fake is what exercises the handoff seam
     # offline -- the publish carrying it, and the read-back proving the engine holds it.
     in_call_handoff=True,
-    # Bolna's shape a fourth time (D-615): this engine renders our during-call tools, so
+    # Hosted-agent shape (D-615): this engine renders our during-call tools, so
     # the default fake is what exercises the actions seam offline.
     action_tools=True,
-    # Bolna's shape once more (D-544): the agent record holds the greeting and the prompt,
+    # Hosted-agent shape (D-544): the agent record holds the greeting and the prompt,
     # so the maintenance script override is a real write against it and the default fake is
     # what exercises the seam offline — the override landing, and the read-back proving the
     # engine now says the other thing.
@@ -283,9 +277,9 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     caller_id=True,
     inbound_binding=True,
     transfer=True,
-    # **THE EXACT MIRROR OF BOLNA, AND THE ONLY PLACE THE PAIR IS PROVED DISTINGUISHABLE**
-    # (D-533). Bolna has no out-of-band transfer command and DOES have an in-call handoff
-    # tool; this shape is the opposite, and one of the two had to exist or the two fields
+    # **THE EXACT MIRROR OF THE DEFAULT PROFILE, AND THE ONLY PLACE THE PAIR IS PROVED
+    # DISTINGUISHABLE** (D-533). The default has no out-of-band transfer command and DOES
+    # have an in-call handoff tool; this shape is the opposite, and one of the two had to exist or the two fields
     # would be a distinction nothing exercises. It is also the only profile that both
     # HOSTS agents and refuses the handoff, which is what makes the refusal branch of
     # `require_capability("in_call_handoff")` reachable at all: on the externally-deployed
@@ -449,10 +443,10 @@ FAKE_WEBHOOK_SECRET = "fake-engine-webhook-secret"
 #:
 #: Both providers we run appear so the two-provider path is exercised end to end — the
 #: engine, not our source, is what says a voice exists, and the fixture has to be able to
-#: say it. ⚠ **GNANI IS DELIBERATELY ABSENT**: this fake stands in for the RENTED engine,
-#: and that engine does not carry Gnani at all (`engine/bolna.py::
-#: _refuse_provider_not_on_this_engine`, VERIFIED-VENDOR-DOCS). A Gnani row here would be a
-#: fixture asserting a vendor relationship nobody has.
+#: say it. ⚠ **GNANI IS DELIBERATELY ABSENT**: this fake stands in for a RENTED engine, and
+#: the one this repository adapted did not carry Gnani at all (VERIFIED-VENDOR-DOCS, the
+#: pinned `bolna-findings/` mirror's provider pages). A Gnani row here would be a fixture
+#: asserting a vendor relationship nobody has.
 FAKE_ENGINE_VOICES: Final[tuple[EngineVoice, ...]] = (
     EngineVoice(
         voice_id="ashutosh",
@@ -533,19 +527,13 @@ class FakeEngine:
         self._numbers: dict[str, ProvisionedNumber] = {}
         #: The rotating LLM credential (D-404), modelled as REPLACE-IN-PLACE — one slot,
         #: last write wins. That is the semantics the real store is hoped to have and the
-        #: one a caller may rely on; the append case is a vendor defect the Bolna adapter
+        #: one a caller may rely on; the append case is a vendor defect a real adapter
         #: raises on, so there is nothing here for a fake to imitate.
         #:
         #: HELD, not discarded, because the conformance clause has to be able to ask what
         #: the engine ENDED UP with — an adapter that accepted the write and kept nothing
         #: would pass a "did it raise" test while proving nothing about the rotation.
         self._llm_credentials: dict[LlmProvider, str] = {}
-        #: The ONE voice credential this engine holds (D-547). A bare string rather than
-        #: a dict for `_llm_credentials`' mirror-image reason: the vendor's store gives
-        #: the voice leg exactly one entry, so a per-provider map here would model a
-        #: separation that does not exist and would hide the one that does — a second
-        #: install REPLACING the first, which is what the real store is asked to do.
-        self._tts_credential: str | None = None
 
     def holds_credentials(self) -> bool:
         """Always True: this adapter IS its own vendor, so there is nothing to configure.
@@ -714,7 +702,7 @@ class FakeEngine:
             greeting_readable=True,
             # The fake engine's agent really does reference its attached sources, so this
             # is readable — and it is the ONLY place D-41's dangling-handle logic gets
-            # exercised until the pilot settles where Bolna keeps the reference.
+            # exercised until a real engine reports where it keeps the reference.
             knowledge_base_refs=[
                 self._kb_handle(ref, source.kb_id) for source in self._kb.get(ref, [])
             ],
@@ -742,8 +730,8 @@ class FakeEngine:
             #
             # THE LLM LEG ROUND-TRIPS ITS PROVIDER AND ENDPOINT, NOT ONLY ITS MODEL, and
             # that is what makes this fake a truthful stand-in rather than a mirror that
-            # flatters every adapter. A real `control_plane` adapter (BolnaEngine) reads
-            # `llm_provider` and `llm_base_url` back off the agent object — the endpoint is
+            # flatters every adapter. A real `control_plane` adapter reads `llm_provider`
+            # and `llm_base_url` back off the agent object — the endpoint is
             # the leg's residency proof — so a fake that dropped them let the conformance
             # suite pass an adapter that dropped them too. It gates on `is_ours("llm")` for
             # the same reason `llm_model` does: a dictated LLM leg has no selection of ours
@@ -846,8 +834,8 @@ class FakeEngine:
         if call is None:
             # RAISES, mirroring both real adapters' 404 (D-187). This used to return
             # quietly, which is the `get_execution` and `transfer` divergence a third
-            # time: `BolnaEngine` POSTs `/executions/{id}/stop` and `CartesiaEngine`
-            # POSTs `/agents/calls/{id}/end`, and each surfaces the vendor's refusal —
+            # time: `CartesiaEngine` POSTs `/agents/calls/{id}/end` and surfaces the
+            # vendor's refusal —
             # so the offline pipeline reported a hang-up nobody performed. `end_call`
             # has ONE observable failure (claiming to have stopped a call it did not),
             # and an adapter that shrugs has removed it.
@@ -923,34 +911,6 @@ class FakeEngine:
         self._llm_credentials[provider] = secret
         # Always replace-in-place: a dict has no append semantics to model, which is the
         # HAPPY vendor behaviour `set_llm_credential`'s three-call dance exists to detect.
-        return LlmCredentialPlacement(replaced_in_place=True)
-
-    async def set_tts_credential(self, secret: str) -> LlmCredentialPlacement:
-        """Hold the voice vendor's key, replacing whatever was there (D-547 §4.C.4).
-
-        THE SAME THREE PROPERTIES `set_llm_credential` models, one leg over, and each is
-        there because the real adapter can get it wrong:
-
-        * **Refuses on a DICTATED TTS leg.** `EXTERNAL_DEPLOYMENT_CAPABILITIES` declares a
-          shape whose speech is not ours, and an install reporting green against an engine
-          that never wanted a voice credential is silent by construction.
-        * **Refuses an EMPTY secret**, so a caller with a blank setting cannot install a
-          credential that fails at the first spoken word with a vendor 401 naming nothing
-          of ours.
-        * **NO `provider` ARGUMENT**, and that asymmetry with the LLM twin is the vendor's
-          rather than ours: their store documents ONE Cartesia entry
-          (`bolna-findings/mirror/pages/providers.md:146-150`), so there is no second voice
-          leg for an install to overwrite by accident.
-        """
-        require_capability("tts", engine=self)
-        if not secret:
-            raise ProblemError(
-                kind="validation",
-                code="engine_credential_empty",
-                title="No credential to install",
-                detail="An empty credential was offered to the voice platform.",
-            )
-        self._tts_credential = secret
         return LlmCredentialPlacement(replaced_in_place=True)
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
@@ -1081,7 +1041,7 @@ class FakeEngine:
             kind="dependency",
             code="engine_number_not_linked",
             title="This number is not known to the voice platform",
-            # No E.164 in the message (hard rule 6) — see the Bolna twin.
+            # No E.164 in the message (hard rule 6).
             detail=(
                 "The voice platform has no record of this phone number, so no agent can be "
                 "set to answer it."
@@ -1301,8 +1261,8 @@ class FakeEngine:
         if call is None:
             # RAISES, and the comment that used to sit here said it did while the code
             # fabricated a `status="failed"` snapshot instead (P2.6). Two adapters then
-            # disagreed about the same input — `BolnaEngine` 404s, so `_request` raises
-            # `engine_rejected` — which is verbatim the divergence the conformance suite
+            # disagreed about the same input — a vendor adapter 404s, so its request
+            # ladder raises `engine_rejected` — which is verbatim the divergence the conformance suite
             # exists to prevent, and it went unnoticed because there was no clause for
             # `get_execution` on an unknown id (there are explicit ones for `get_agent`
             # and `detach_kb`).
@@ -1427,8 +1387,8 @@ class FakeEngine:
         # carrying no status at all as a success. `status` is what decides whether a call
         # is settled, metered and extracted, so that is the one wrong answer with a cost.
         #
-        # `or ""` is the shape `bolna.py::_snapshot` and `cartesia.py` already use (both
-        # map the empty string through their table and land on `failed`), so this is the
+        # `or ""` is the shape `cartesia.py` already uses (it maps the empty string
+        # through its table and lands on `failed`), so this is the
         # existing answer applied rather than a second one invented. The empty `raw_status`
         # that results is honest: the sender said nothing, and the forensic row records
         # that rather than a word we supplied on its behalf.

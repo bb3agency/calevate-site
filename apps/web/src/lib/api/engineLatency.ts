@@ -3,9 +3,8 @@
 /**
  * WHAT THE VOICE ENGINE REPORTED ITS OWN PIPELINE COST, BY REGION — `GET /v1/ops/engine-latency`.
  *
- * The read side of OPERATIONS §2 gate 4 and the first thing
- * `runbooks/alarm-index.md::engine_llm_ttft_degraded` tells an operator to open. It landed
- * with no path in the console at all, so both documents pointed at a curl — the exact
+ * The read side of OPERATIONS §2 gate 4. It landed with no path in the console at all, so
+ * the gate pointed at a curl — the exact
  * shape `app/admin/ops/page.tsx` exists to have removed for the load-shed switch, the
  * outbox replay and the audit-chain verification.
  *
@@ -134,8 +133,8 @@ export function useEngineLatency(
  *
  * The codes are the vendor's (`bolna-findings/mirror/pages/concepts/call-latencies.md:38`
  * documents `in` for India and `us` for United States) and the adapter stores whatever
- * short identifier arrives, lower-cased, refusing anything that is not one
- * (`apps/api/engine/bolna.py::_REGION_CODE_RE`). So the set is OPEN: a vendor that starts
+ * short identifier arrives, lower-cased, refusing anything that is not one. So the set is
+ * OPEN: a vendor that starts
  * stamping `ap-south-1` produces a row this table cannot name, and the screen prints the
  * bare code rather than dropping the row or guessing at a country. `lib/agentState.ts`
  * argues the same fallback direction for the same class of bare wire string.

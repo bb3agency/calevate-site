@@ -42,7 +42,7 @@ from apps.api.core.envelope import (
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import ENVIRONMENTS
 
-CONTEXT = "platform_secret:bolna_api_key"
+CONTEXT = "platform_secret:cartesia_api_key"
 SECRET = "bn-live-8f3c9a21d4e7b6f5"
 
 
@@ -385,7 +385,7 @@ def test_a_ciphertext_moved_to_another_key_s_row_does_not_open() -> None:
     ring = _ring()
     envelope = seal(SECRET, context="platform_secret:sarvam_api_key", ring=ring)
     with pytest.raises(ProblemError) as raised:
-        unseal(envelope, context="platform_secret:bolna_api_key", ring=ring)
+        unseal(envelope, context="platform_secret:cartesia_api_key", ring=ring)
     # `unwrappable`, not `corrupt`: the AAD is checked on the DEK wrap first, so the move
     # is caught before the payload is even reached.
     assert raised.value.code == "platform_secret_unwrappable"

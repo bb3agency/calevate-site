@@ -53,9 +53,9 @@ view of any tenant table exists at any instant. The walk has a budget and says s
 misses it, exactly as `client_health` does.
 
 **STATISTICS, HONESTLY.** A percentile is a claim about a distribution and a handful of
-turns cannot support one. `scripts/pilot/latency.py` set this repo's position — a number
-not entitled to be read as a measurement says so in a FIELD, not in a comment a dashboard
-author will not read — and this module keeps it: every group carries a `basis`, a p95 is
+turns cannot support one. This repo's position is that a number not entitled to be read
+as a measurement says so in a FIELD, not in a comment a dashboard author will not read —
+and this module keeps it: every group carries a `basis`, a p95 is
 withheld below `P95_MIN_TURNS`, and a withheld statistic is `None` rather than a smaller
 sample's answer wearing a p95's name.
 
@@ -64,8 +64,7 @@ syllable to the first sound of the reply, and both ends of it are on the PSTN le
 is not in (D-25/D-33) — which is why `calls.latency` was dropped (`f1a7c39d5be2`) and stays
 dropped. These are the engine's numbers about the engine's own pipeline: the only per-turn
 evidence that exists, and the LLM leg is the one whose geography we chose. The stopwatch
-that says whether they resemble what a caller HEARS is gate 4's, and a human types it in
-(`scripts/pilot/latency.py`).
+that says whether they resemble what a caller HEARS is gate 4's, and a human records it.
 
 **HARD RULE 6.** Nothing read here is text: the table holds turn indices, milliseconds and
 a region code, and its CHECK constraint refuses anything else (migration `b7d3e91c4a05`).
@@ -114,8 +113,7 @@ SAMPLE_CAP_PER_TENANT = 20_000
 #: log line says what to do about it.
 WALK_BUDGET_S = 5.0
 
-#: Where a number came from, in a field rather than in a footnote. Same vocabulary as
-#: `scripts/pilot/latency.SummaryBasis`, and for the same reason.
+#: Where a number came from, in a field rather than in a footnote.
 SummaryBasis = Literal["measured", "insufficient_samples"]
 
 # LIVE tenants only, by `deleted_at IS NULL` — the same predicate `_load_admin_principal`
@@ -202,9 +200,8 @@ class LegSummary(BaseModel):
     max_ms: float | None = None
     #: Turns that spent more than OUR budget on this leg. A COUNT, never a page: one turn
     #: over budget is a cold start (the vendor's own worked example opens at 1633.04ms —
-    #: `mirror/pages/concepts/call-latencies.md:99`), and the alarm that DOES page keys on
-    #: a whole call's median against the vendor's own bottleneck threshold instead
-    #: (`engine_llm_ttft_degraded`).
+    #: `mirror/pages/concepts/call-latencies.md:99`), so a page would key on a whole call's
+    #: median instead. The alarm that did so left with the rented engine (D-639).
     turns_over_budget: int
     #: THE BREACH, NAMED. True when the MEDIAN turn misses the budget — the typical turn,
     #: not the worst one. `None` when the sample cannot support a median, because "we do

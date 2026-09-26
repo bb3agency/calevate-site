@@ -51,10 +51,9 @@ async def _startup() -> AsyncIterator[None]:
     a catalogue figure that hard rule 7 forbids reaching `unit_cost_paid`.
 
     `start_fx_refresher` is the third, and it puts the PUBLISHED USD→INR rate into this
-    process's memory so `engine/bolna.py::_cost` can convert a vendor's dollars at it
-    without a database round trip. The worker calls it too and needs it more — that is
-    where a call's cost is actually metered — but the API converts on every `list_calls`
-    and cost preview it serves, and a process reading a different rate from its neighbour
+    process's memory so a vendor's dollars convert at it without a database round trip.
+    The worker calls it too — that is where recurring charges are metered — and the API
+    converts on every number-rental quote and cost preview it serves, and a process reading a different rate from its neighbour
     is exactly the disagreement this seam exists to prevent. voice-runtime deliberately
     does NOT: it parses a webhook into a `CallEvent` and never meters, so it would inherit
     a background poll for a number it does not use (hard rule 3), and its parse falls back

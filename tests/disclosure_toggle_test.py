@@ -938,11 +938,11 @@ def test_every_adapter_answers_the_recording_question_and_pipecat_answers_no() -
     a fact about code in this tree: nothing in `apps/voice-worker` captures audio, so the
     owned-runtime leg declares False until something does.
     """
-    from apps.api.engine.bolna import BOLNA_CAPABILITIES
+    from apps.api.engine.cartesia import CARTESIA_CAPABILITIES
     from apps.api.engine.pipecat import PIPECAT_CAPABILITIES
 
     assert PIPECAT_CAPABILITIES.records_audio is False, (
         "the Pipecat leg stores no audio; declaring otherwise makes every agent on it tell "
         "callers their call is recorded when it is not"
     )
-    assert BOLNA_CAPABILITIES.records_audio is True
+    assert CARTESIA_CAPABILITIES.records_audio is True

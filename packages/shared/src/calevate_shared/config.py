@@ -4,11 +4,7 @@ Any new environment variable is added here AND to `.env.example` (DEV-SETUP.md �
 Secrets are never defaulted — a missing secret must raise at startup.
 """
 
-import ipaddress
-import logging
-from collections.abc import Callable
 from decimal import Decimal
-from functools import lru_cache
 from typing import Literal, get_args
 
 from pydantic import Field
@@ -82,15 +78,15 @@ Environment = Literal["local", "staging", "prod"]
 # validates the setting against it and mypy checks every comparison against it, and
 # neither can be done with a runtime set — so this is the one spelling of these names on
 # the selection axis, and `SELECTABLE_ENGINES` below is how every other module asks.
-EngineName = Literal["fake", "bolna", "cartesia", "pipecat"]
+EngineName = Literal["fake", "cartesia", "pipecat"]
 
 #: The same set as a value, for the callers that need to CHECK membership rather than
 #: annotate a field — `get_args` on the Literal, never a second tuple beside it.
 #:
 #: WHY IT EXISTS AT ALL (D-103). It did not, and the absence is what let three copies of
 #: this set grow: `apps/voice-runtime/engine_intake.py` retyped it as its own `Literal`
-#: and drifted to `("bolna", "fake")` after `cartesia` was added here, and
-#: `apps/api/agents/models.py::ENGINES` was `("fake", "bolna")` — which was not a cosmetic
+#: and drifted to a two-member set after `cartesia` was added here, and
+#: `apps/api/agents/models.py::ENGINES` was a hand-typed pair too — which was not a cosmetic
 #: disagreement, because that tuple renders the `ck_agents_engine_enum` CHECK constraint,
 #: so a deployment running `ENGINE=cartesia` could not insert an agent row at all. It
 #: imports this now and the constraint was widened in `d7b1c48a2e93` (D-104). A set nobody
@@ -101,81 +97,6 @@ EngineName = Literal["fake", "bolna", "cartesia", "pipecat"]
 #: several. It is a frozenset rather than the raw tuple so no caller can mutate the
 #: answer another caller is about to read.
 SELECTABLE_ENGINES: frozenset[str] = frozenset(get_args(EngineName))
-
-# Stdlib logger, not `apps.api.core.logging.get_logger`: `calevate_shared` is imported by
-# every deployable and must not depend on `apps`. `get_logger` is `logging.getLogger`
-# anyway, and `configure_logging` installs its JSON handler on the ROOT logger, so these
-# records come out in the same format as everything else.
-_log = logging.getLogger(__name__)
-
-# Bolna's documented egress addresses (D-31, TRD §5). THE only copy of these literals on
-# any runtime path — `Settings.bolna_webhook_source_ips` defaults to them, and both the
-# receiver (`apps/voice-runtime/engine_intake.py`) and the adapter
-# (`apps/api/engine/bolna.py`) resolve their effective allowlist through
-# `bolna_source_ips()` below. `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IPS` restates them
-# ON PURPOSE and argues why: a gate that imported the value it tests would be asking the
-# code whether it agrees with itself.
-#
-# **THERE ARE THREE, AND THIS SET HELD ONE (D-412).** Every source this repository had
-# read — the pinned OAS, `bolna-core.md`, `setup-webhook/SKILL.md`, `execution-payload.md`
-# — named a single address, and they were current when they were read. Bolna has since
-# renumbered to three, and their live docs say so in six places, with the consequence
-# spelled out: *"Webhooks are sent from the following IP addresses. **Whitelist all
-# three** on your server to ensure you receive all webhook events."*
-# (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`;
-# identically in `api-reference/executions/get_execution.md`, `concepts/security.md`,
-# `api-reference/limits.md`, `concepts/call-flow.md` and `build-with-ai/agents-md.md`).
-# The mirrored `llms-full.txt` in the same evidence tree still shows the OLD single-IP
-# wording, so the two snapshots together date the change rather than merely asserting it.
-#
-# WHAT THE MISSING TWO COST, and it is not "some webhooks": `parse_source_ip_allowlist`
-# fails SAFE, so a delivery from an address not in this set is REJECTED. Two of Bolna's
-# three senders were being turned away at the receiver, and which sender carries a given
-# transition is not ours to choose — so roughly two thirds of every status transition,
-# `completed` included, never reached the post-call pipeline. That is survivable only
-# because the executions poller is the guarantee of record (TRD §5, "payloads as hints,
-# poller as truth") — and D-412 found that poller sending a malformed listing request at
-# the same time. Both halves of the guarantee were down together.
-#
-# A NEW ADDRESS IS A CONFIG CHANGE, NOT A DEPLOY: `Settings.bolna_webhook_source_ips`
-# overrides this default, which is why the vendor renumbering again costs an env edit.
-DEFAULT_BOLNA_SOURCE_IPS: frozenset[str] = frozenset(
-    {"13.203.39.153", "13.126.9.249", "13.202.133.53"}
-)
-
-
-@lru_cache(maxsize=8)
-def parse_source_ip_allowlist(configured: str) -> frozenset[str]:
-    """Parse a configured webhook source-IP allowlist. Fails SAFE, never open.
-
-    Three deliberate properties, because for an unsigned engine this string is the whole
-    authenticity control (D-31: no signature, no retry, at-most-once):
-
-    - entries must parse as literal IP addresses. A CIDR, a hostname or a `*` is not a
-      supported entry, so nobody can turn the allowlist into a wildcard by typing one
-      — and a typo cannot quietly widen trust;
-    - unusable entries are dropped with a log line, not silently accepted;
-    - if NOTHING usable remains, the built-in default stands. An empty allowlist would
-      reject the engine itself, which is a total outage; an operator who wants to stop
-      accepting webhooks stops the service, they do not blank a variable.
-
-    Cached on the string because the receiver calls it per delivery inside a 500ms ack
-    budget (hard rule 3) and the answer is a pure function of the input. The cache also
-    means the "entry ignored" warning is emitted once per distinct value rather than
-    once per webhook, which is the difference between a signal and a flood.
-    """
-    entries: set[str] = set()
-    for part in configured.split(","):
-        candidate = part.strip()
-        if not candidate:
-            continue
-        try:
-            ipaddress.ip_address(candidate)
-        except ValueError:
-            _log.warning("webhook_allowlist_entry_ignored", extra={"reason": "not an ip address"})
-            continue
-        entries.add(candidate)
-    return frozenset(entries) or DEFAULT_BOLNA_SOURCE_IPS
 
 
 class Settings(BaseSettings):
@@ -324,14 +245,17 @@ class Settings(BaseSettings):
         default="http://localhost:8100", max_length=255, pattern=r"^https?://[^\s]+$"
     )
 
-    # Where Bolna reaches OUR in-call ACTION execution endpoint (the ACTIONS feature). It
-    # is apps/api, NOT voice-runtime: a data-returning action makes a synchronous external
-    # call plus a credential decrypt, which hard rule 3 forbids on the latency-critical
-    # webhook service — so the tool's `value.url` points here and the monolith (which
-    # already holds httpx, the ORM and the engine adapter) runs it. Defaults to the local
-    # apps/api origin; in production this is the public app-API origin Bolna's egress can
-    # reach (e.g. https://app.calevate.tech). Distinct from `webhook_base_url`, which is
-    # the voice-runtime receiver.
+    # The apps/api origin an engine would call to execute an in-call ACTION (the ACTIONS
+    # feature), baked into each `ActionToolSpec.url` at publish. apps/api, NOT
+    # voice-runtime: a data-returning action makes a synchronous external call plus a
+    # credential decrypt, which hard rule 3 forbids on the latency-critical webhook
+    # service. Distinct from `webhook_base_url`, which is the voice-runtime receiver.
+    #
+    # ⚠ NO ENGINE CALLS IT TODAY. The executing route was the rented engine's and D-639
+    # deleted it with that engine: the fake adapter is the only one that accepts action
+    # tools (`EngineCapabilities.action_tools`), and it never dials the URL. The value
+    # stays because `ActionToolSpec.url` is a required field of the engine-neutral
+    # declaration; D-639 names what closes it.
     actions_callback_base_url: str = Field(
         default="http://localhost:8000", max_length=255, pattern=r"^https?://[^\s]+$"
     )
@@ -359,10 +283,6 @@ class Settings(BaseSettings):
     # Engine selection is per-environment; `fake` is the default for local work so
     # the whole pipeline runs offline (DEV-SETUP.md §3).
     engine: EngineName = "fake"
-    # Bolna webhooks are UNSIGNED (D-31) — there is deliberately no webhook secret.
-    # Authenticity = source-IP allowlist + execution-id dedupe, and the
-    # List-Executions poller is the guarantee of record (TRD §5).
-    bolna_api_key: str | None = None
     #: Cartesia Line control-plane key, sent as `X-API-Key` (D-93). Absent ⇒ the adapter
     #: reports itself unavailable through the one capability selector rather than failing
     #: at the first call, which is the same shape `payment_capability()` uses.
@@ -386,26 +306,6 @@ class Settings(BaseSettings):
     #: must never hold `PLATFORM_KEK` and therefore can never open `platform_secrets`.
     #: `apps/api` holds no Gnani client at all: there is nothing here to give a key to.
     gnani_api_key: str | None = None
-    # The engine's egress addresses — comma-separated, literal IPs only. This is the
-    # ENTIRE authenticity control for an unsigned engine, and it is a value the VENDOR
-    # owns: they can renumber without telling us, and while it is stale every webhook
-    # 401s and every call waits for the 10-minute poller. It lives here so rotating it
-    # is an environment change and a restart, not a code change and a deploy of the
-    # latency-critical service. Not a secret — an allowlist. Parsing fails safe: junk
-    # entries are dropped and an empty result falls back to `DEFAULT_BOLNA_SOURCE_IPS`
-    # (`parse_source_ip_allowlist` above), because an empty allowlist is an outage.
-    #
-    # THIS FIELD IS THE SINGLE SOURCE OF TRUTH for who may deliver a Bolna webhook.
-    # `apps/api/engine/bolna.py::verify_webhook` used to answer the same question from a
-    # module constant of its own, which agreed with this field only until an operator
-    # followed the documented recovery path (rotate the env var, restart) — after which
-    # the adapter's `WebhookVerdict` and the receiver's verdict disagreed silently, in
-    # the one direction nobody re-checks. Both now read this through `bolna_source_ips`.
-    # The default is spelled from the same frozenset the fallback uses so the two cannot
-    # drift either.
-    bolna_webhook_source_ips: str = Field(
-        default=",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS)), max_length=1024
-    )
     #: The Bearer token the engine presents when it asks us who is ringing (D-513).
     #:
     #: On an INBOUND call the engine holds the number and we hold the memory, so it fetches
@@ -507,20 +407,19 @@ class Settings(BaseSettings):
     # is plainly not a credential.
     plivo_auth_id: str | None = Field(default=None, max_length=128)
     plivo_auth_token: str | None = Field(default=None, max_length=256)
-    # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
-    # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
+    # USD→INR for every cost a vendor quotes in dollars (number rentals, the console's
+    # margin figures), stamped with its source wherever it reaches a ledger row (hard
+    # rule 7).
     #
     # ⚠ THIS IS THE FALLBACK, NOT THE RATE. `apps/workers/fx_pull.py` pulls a PUBLISHED
-    # reference rate every five minutes into `fx_rate_observations` and
-    # `engine/bolna.py::_cost` converts at that, so metering is current; it stays
-    # reproducible because the rate, its source and its publication date are stamped on
-    # every ledger row and the observation history is append-only. This value is used only
-    # when nothing has been pulled or the published rate has aged past
+    # reference rate every five minutes into `fx_rate_observations` and `core/fx.
+    # usd_inr_rate_now` prefers it; the observation history is append-only. This value is
+    # used only when nothing has been pulled or the published rate has aged past
     # `core/fx.MAX_QUOTE_AGE` — which is why it is still a number a human owns and still
     # worth keeping accurate.
     #
     # BOUNDED BECAUSE IT IS MONEY AND IT IS CONSOLE-SETTABLE. `0` is type-valid and
-    # makes every Bolna minute cost nothing — the platform bills zero and nobody
+    # makes every dollar-quoted cost nothing — the platform bills zero and nobody
     # notices until the month closes — so the floor is EXCLUSIVE. The ceiling is two
     # orders of magnitude above any plausible USD/INR rate: a fat-fingered `8800`
     # would overcharge every client by 100x, and an ops console is exactly where that
@@ -590,13 +489,9 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
 
     # OPENAI DIRECT — the `openai` leg's credential (D-456's third declared leg). ONE key,
-    # unlike Azure's four: OpenAI's own API is a single OpenAI-compatible surface, so the
-    # engine's credential store takes exactly one entry named `OPENAI`
-    # (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers.md:87,105-109`, "LLMs"
-    # tab, "OpenAI" accordion — one row, `OPENAI` = "Your OpenAI API key"). The mapping of
-    # this field to that store entry is an ENGINE concern (hard rule 2) and lives beside
-    # the Azure four in `engine/bolna.py`; this field carries only the value the platform
-    # installs.
+    # unlike Azure's four: OpenAI's own API is a single OpenAI-compatible surface. How an
+    # engine is handed it is an ENGINE concern (hard rule 2); this field carries only the
+    # value the platform installs.
     #
     # INSTALLED BEFORE ITS LEG IS OFFERABLE, deliberately. A model is offerable only when
     # `agents/llm_models.offerable_models()` finds it selectable AND its provider's
@@ -742,8 +637,7 @@ class Settings(BaseSettings):
     #
     # **A MAP, AND THIS FIELD IS THE HALF THAT IS NOT ALREADY SPELT ABOVE.**
     # `azure_openai_deployment` is, and stays, the deployment for `azure_openai_model` —
-    # the pair this file already says must move together, and the value pushed to the
-    # engine's own credential store (`AZURE_OPENAI_MODEL`, `engine/bolna.py`). So this
+    # the pair this file already says must move together. So this
     # field carries the OTHERS, and an entry here naming `azure_openai_model` is IGNORED
     # rather than merged: two fields answering for one model is exactly how they come to
     # disagree, and the one the credential store reads has to win.
@@ -924,74 +818,6 @@ class Settings(BaseSettings):
     # reported instead, where it can be acted on — the picker marks the row unavailable with
     # its ground, `in_call_llm` refuses the publish, and the ops console shows why.
     platform_llm_model: LlmModelName = PLATFORM_DEFAULT_LLM_MODEL
-    # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE LLM KEY (D-404, re-aimed by
-    # D-410).
-    #
-    # ⚠ **IT IS NOT `AZURE`, WHICH IS WHAT DERIVING IT WOULD GIVE.** Their provider matrix
-    # names credential entries after the provider in upper case (`OPENAI`, `GOOGLE`,
-    # `SARVAM`), and that rule is real for single-key providers and does not hold here:
-    # the vendor's credential-store documentation names FOUR keys for Azure OpenAI, none of
-    # them `AZURE`:
-    #
-    #     | `AZURE_OPENAI_API_KEY`     | Your Azure API key           |
-    #     | `AZURE_OPENAI_MODEL`       | Your Azure OpenAI model      |
-    #     | `AZURE_OPENAI_API_BASE`    | Your Azure URL               |
-    #     | `AZURE_OPENAI_API_VERSION` | Your Azure Model API version |
-    #
-    # VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers.md`, "LLMs" tab, "Azure
-    # OpenAI" accordion, under *"All these keys **must** be added for the respective
-    # provider."* (fetched 20 Aug 2026, sha256 63231b2b7a0c5a338dd1d6342dc65ea4ac055
-    # 46f7ddb6a28bc3c9a4ec24791b9). Azure needs a key, an endpoint, a model and a version.
-    # `apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS` holds all four with the evidence,
-    # because vendor field names are an ENGINE concern (hard rule 2); this field carries
-    # only the one the platform must PUSH rather than an operator type.
-    #
-    # A SETTING RATHER THAN A CONSTANT, because a documented name and an account's actual
-    # name are different claims: the docs are a
-    # snapshot, the store is a live system, and OPERATIONS §2 gate 16f is a `GET
-    # /providers` against a real account that can still disagree with the page. If it
-    # does, this is a console edit rather than a deploy — the difference between a
-    # five-minute fix and an outage lasting until the next release.
-    #
-    # Console-managed (`applies: live`) for exactly that.
-    #
-    # NOT a credential itself: it is the NAME of one, it is not secret, and it must stay
-    # out of `platform_secrets` so an operator can actually SEE what is currently
-    # configured. The value it NAMES is `azure_openai_api_key`, which is held encrypted
-    # and pushed to the engine, never echoed back.
-    #
-    # ⚠ **THAT NEEDS AN EXPLICIT EXEMPTION AND DOES NOT FALL OUT OF THE NAMING.**
-    # `platform_config._SECRET_NAME_FRAGMENTS` carries the bare fragment `credential`, so
-    # without the exemption this field seals itself: write-only, `last_four` and nothing
-    # else. That breaks gate 16f — an operator trying values against a leg that is down
-    # needs to see what it is set to right now — and it routes the `pattern` below around
-    # its only enforcement point, since the secrets write path validates non-emptiness and
-    # nothing else. The exemption is `platform_config._CREDENTIAL_REFERENCE_KEYS`, checked
-    # at import.
-    #
-    # Bounded to the shape a credential-store key can take: their examples are
-    # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores. The documented
-    # default now fits that shape exactly, which it did not have to before.
-    bolna_llm_credential_name: str = Field(
-        default="AZURE_OPENAI_API_KEY",
-        min_length=2,
-        max_length=64,
-        pattern=r"^[A-Z][A-Z0-9_]{1,63}$",
-    )
-    # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE THE CARTESIA TTS KEY IS WRITTEN TO
-    # (D-547, plan §4.C.4). The vendor documents ONE entry for Cartesia, named `CARTESIA`
-    # (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers.md:146-150`), and the
-    # store is a flat `{provider_name, provider_value}` map, so `set_tts_credential` is one
-    # `POST /providers`. A setting for `bolna_llm_credential_name`'s reason: a documented
-    # name and a live account's actual name are different claims, and the operator who
-    # finds them different is looking at a silent voice leg. Same shape, same pattern, same
-    # `_CREDENTIAL_REFERENCE_KEYS` exemption — it NAMES a credential and holds none.
-    bolna_tts_credential_name: str = Field(
-        default="CARTESIA",
-        min_length=2,
-        max_length=64,
-        pattern=r"^[A-Z][A-Z0-9_]{1,63}$",
-    )
     # HOW MANY LIVE AGENTS MAY BE ON THE CARTESIA VOICE TIER, PLATFORM-WIDE (D-547 §0 Q10).
     # Cartesia's TTS is a monthly PLAN with a concurrency ceiling, not a per-character
     # meter, so the third clinic on it does not cost a third more — it forces the next plan
@@ -1024,21 +850,22 @@ class Settings(BaseSettings):
     # (`providers/transcriber/sarvam.md` §5) — so the two documents we have both say this
     # publish should work, and the validator says it does not. A live 400 outranks a
     # mirrored doc: a documented example is what a vendor CHOSE to print, a 400 is what
-    # their validator ENFORCES.
+    # their validator ENFORCES. (That engine was deleted by D-639; the matrix it enforced is
+    # why the value is a setting and not a constant.)
     #
     # There is no STT discovery endpoint to ask — `voice-config` is TTS-only
     # (`api-reference/voice/overview.md`) — so the only instrument is the validator, and
     # the only question is how many DEPLOYS it costs to consult it. As a constant: one
     # build and one deploy per attempt, on a Telugu-first product that cannot currently
     # publish an agent. As a setting: a console edit and a re-publish. That is the whole
-    # justification, and it is the same one `bolna_llm_credential_name` gives — a
-    # documented value and a live account's actual value are different claims.
+    # justification — a documented value and a live account's actual value are different
+    # claims.
     #
     # **THE DEFAULT DOES NOT MOVE**, and that is deliberate rather than timid.
     # `SARVAM_DEFAULT_STT` is `saaras:v3` on grounds that are still good and are written
     # out where it is defined: `saaras:v4` cannot stream (Sarvam's own Model Catalogue),
     # `saaras:v2.5` translates to English and is banned by `SARVAM_TRANSLATING_STT`, and
-    # `saaras:v3-realtime` is a Sarvam-direct endpoint Bolna does not list. Which of the
+    # `saaras:v3-realtime` is a Sarvam-direct endpoint the rented engine did not list. Which of the
     # remaining models serves Telugu is UNKNOWN here (hard rule 11), and moving a default
     # onto a guess is what that rule forbids. When the validator answers, the default
     # moves WITH the evidence and this comment records it.
@@ -1057,8 +884,8 @@ class Settings(BaseSettings):
     # instead"), `saaras:v4` no, `saaras:v2.5` transcribes to English and is banned by
     # `SARVAM_TRANSLATING_STT`. Their `language` enum has exactly one value left, `unknown`,
     # documented for automatic detection (`api-reference/agent/v2/create.md:1078-1091`).
-    # `ModelConfig.stt_autodetect` carries the normalized question; `engine/bolna.py` owns
-    # the spelling.
+    # `ModelConfig.stt_autodetect` carries the normalized question; each adapter owns its
+    # spelling.
     #
     # **DEFAULT `False`, AND IT MUST STAY THAT WAY UNTIL A CALL IS HEARD.** Detection is a
     # strictly weaker guarantee than pinning, and weaker in the direction this product
@@ -1371,7 +1198,7 @@ class Settings(BaseSettings):
 
     # The service-account key the `service_account` provider signs with: the JSON blob
     # Google issues, injected from the secrets manager at deploy time exactly like
-    # BOLNA_API_KEY (DEV-SETUP §4). Unset with the provider set is
+    # CARTESIA_API_KEY (DEV-SETUP §4). Unset with the provider set is
     # itself a refusal — `get_sheets_transport` returns the unconfigured transport, so
     # the API stops offering the Sheets checkbox rather than creating endpoints that
     # cannot authenticate.
@@ -1760,52 +1587,6 @@ class Settings(BaseSettings):
     platform_kek_retired: str | None = None
 
 
-def bolna_source_ips(settings: Settings) -> frozenset[str]:
-    """The addresses this deployment accepts Bolna webhooks from. ONE resolver.
-
-    Both halves of the authenticity decision call THIS — the receiver that answers the
-    delivery (`apps/voice-runtime/engine_intake.verify_source`) and the adapter that
-    reports the verdict (`apps/api/engine/bolna.BolnaEngine.verify_webhook`) — so a
-    widened or narrowed `BOLNA_WEBHOOK_SOURCE_IPS` moves both together or neither.
-
-    Resolved per call rather than snapshotted at construction: `get_engine()` caches one
-    adapter instance per process, so a construction-time snapshot would be a second
-    thing that can go stale relative to the receiver. Per call is O(1) — `get_settings`
-    is `lru_cache`d and so is the parse — which is what keeps it legal on the
-    latency-critical path (hard rule 3).
-    """
-    return parse_source_ip_allowlist(settings.bolna_webhook_source_ips)
-
-
-#: WHOSE allowlist a `source_ip` engine is authenticated against (P2.6).
-#:
-#: `calevate_shared.engine.WEBHOOK_AUTH_BY_ENGINE` says which METHOD an engine uses. This
-#: says which addresses that method reads, and until it existed the two were not the same
-#: kind of thing: the method was looked up per engine and the addresses were always
-#: Bolna's, so `engine_intake.verify_source` would have authenticated a second unsigned
-#: engine's deliveries against Bolna's egress. That is exactly what the receiver's `hmac`
-#: branch refuses in a paragraph of its own ("an allowlist is evidence about a DIFFERENT
-#: engine's egress") — left live one branch above it, and invisible because `bolna` is the
-#: only engine declaring the method.
-#:
-#: AN ABSENT ENTRY REFUSES. There is no fall-back to the single entry that happens to
-#: exist; the receiver returns a distinct reason so an operator reading the alert sees
-#: "this engine has no allowlist" rather than "this address is not allowlisted".
-#:
-#: HERE RATHER THAN IN THE RECEIVER, and that is not tidiness: `engine_name_drift_test`
-#: forbids `apps/voice-runtime/engine_intake.py` from spelling an engine name in a
-#: collection at all (D-103), because a second spelling of the engine set in that file is
-#: how the set drifted last time. A table of RESOLVERS belongs next to the resolver it
-#: names anyway — the two move together or the mapping is a second thing to update.
-#:
-#: Resolvers rather than address sets, for `bolna_source_ips`' own reason: an operator
-#: rotating `BOLNA_WEBHOOK_SOURCE_IPS` during a vendor renumber must move this answer
-#: without a redeploy, and a set captured at import would not.
-SOURCE_IP_ALLOWLIST_BY_ENGINE: dict[str, Callable[[Settings], frozenset[str]]] = {
-    "bolna": bolna_source_ips,
-}
-
-
 # --- email: the one selector ---------------------------------------------------
 #
 # The provider names that have an adapter behind them in `core/transport.py`.
@@ -1829,9 +1610,8 @@ def email_transport_reason(settings: Settings) -> str | None:
 
     Both halves of the email question call THIS — `core/transport.get_transport()`,
     which builds the transport, and `core/observability.init_observability`, which warns
-    at boot that alerts have nowhere to go — for the same reason `bolna_source_ips` above
-    is one resolver: a second read of the same fields is a second answer waiting to
-    disagree, and the disagreement here reads as "the boot line said alerts were fine and
+    at boot that alerts have nowhere to go — because a second read of the same fields is
+    a second answer waiting to disagree, and the disagreement here reads as "the boot line said alerts were fine and
     no alert ever arrived".
 
     IT LIVES HERE, BESIDE THE FIELDS, rather than with the transports, and that is not
@@ -1868,7 +1648,6 @@ def email_transport_reason(settings: Settings) -> str | None:
 
 
 __all__ = [
-    "DEFAULT_BOLNA_SOURCE_IPS",
     "EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON",
     "EMAIL_PROVIDER_RESEND",
     "EMAIL_PROVIDER_SMTP",
@@ -1878,11 +1657,8 @@ __all__ = [
     "NO_SMTP_HOST_REASON",
     "SELECTABLE_EMAIL_PROVIDERS",
     "SELECTABLE_ENGINES",
-    "SOURCE_IP_ALLOWLIST_BY_ENGINE",
     "EngineName",
     "Environment",
     "Settings",
-    "bolna_source_ips",
     "email_transport_reason",
-    "parse_source_ip_allowlist",
 ]

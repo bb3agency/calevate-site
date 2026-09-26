@@ -1,4 +1,4 @@
-"""Request-edge hardening: the three unbounded inputs an outside caller controls.
+"""Request-edge hardening: the unbounded inputs an outside caller controls.
 
 Suffix `_security_test` per BACKEND-PATTERNS §9. Each test here fails against the code
 as it stood before the fix beside it, and each failure was driven rather than reasoned
@@ -14,10 +14,6 @@ about:
 2. **A batch is an unbounded loop over caller-supplied items.** One signed megabyte holds
    ~20,000 minimal `leadgen` changes and `_absorb_leadgen` costs a Graph round trip plus
    up to three transactions each.
-3. **`json.loads` raises `RecursionError`, not `ValueError`.** The engine-called action
-   route caught only the second, so a body of ten thousand open brackets was a 500 on a
-   route the vendor calls mid-call — again under the fingerprint that mutes the real
-   crash alarm.
 
 Run: uv run pytest -q tests/request_edge_security_test.py
 """
@@ -27,7 +23,6 @@ from __future__ import annotations
 import base64
 import os
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -41,10 +36,6 @@ from tests.meta_lead_ads_test import (
     _signed,
     _tenant_with_meta_source,
 )
-
-# RFC 5737 documentation address: unroutable, so copying it into a real config is inert.
-ENGINE_EGRESS_IP = "198.51.100.11"
-
 
 def _incompressible(length: int) -> str:
     """A string of `length` characters that Postgres cannot compress away.
@@ -142,33 +133,3 @@ async def test_a_batch_past_the_cap_is_deferred_rather_than_walked() -> None:
     )
     assert response.status_code == 503, response.text
     assert response.json()["type"].endswith("/meta_lead_retrieval_deferred")
-
-
-@pytest.fixture()
-def _engine_allowlist(source_ip_allowlist: Callable[..., None]) -> None:
-    source_ip_allowlist(ENGINE_EGRESS_IP)
-
-
-@pytest.mark.usefixtures("_engine_allowlist")
-async def test_a_deeply_nested_action_body_is_not_a_500(caplog: pytest.LogCaptureFixture) -> None:
-    """`POST /v1/actions/invoke/{engine}/{tool_id}` with ten thousand open brackets.
-
-    `json.loads` raises `RecursionError` on that, which is not a `ValueError`, so the
-    route's decoder let it escape: a 500 on a route the engine calls mid-call, under the
-    `unhandled_exception` fingerprint that then mutes the real crash alarm for fifteen
-    minutes. The expected answer is the ordinary refusal for a body that names no agent —
-    an unreadable body is an absent one, which is the receiver's doctrine next door.
-    """
-    body = b"[" * 10_000
-    transport = ASGITransport(
-        app=api_app, client=(ENGINE_EGRESS_IP, 44444), raise_app_exceptions=False
-    )
-    async with AsyncClient(transport=transport, base_url="http://api") as http:
-        response = await http.post(
-            f"/v1/actions/invoke/bolna/{uuid.uuid4()}",
-            content=body,
-            headers={"content-type": "application/json"},
-        )
-
-    assert response.status_code != 500, response.text
-    assert response.json()["type"].endswith("/action_missing_agent_ref"), response.text

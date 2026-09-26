@@ -93,7 +93,7 @@ def secret_confirmation(key: str) -> str:
     `spend_cap_confirmation` gets, for the same reason.
 
     Bound to the key: consent to rotating the Sarvam key is not consent to replacing the
-    Bolna key with one an attacker controls.
+    Cartesia key with one an attacker controls.
     """
     return f"set_secret:{key}"
 
@@ -138,7 +138,7 @@ class SecretOut(BaseModel):
     #: WHEN A ROTATION ACTUALLY REACHES THE CODE THAT USES THIS CREDENTIAL.
     #:
     #: `live` for most, and `on_restart` for the ones a process captures once —
-    #: `bolna_api_key` is the important one: the adapter copies it when `get_engine()`
+    #: `cartesia_api_key` is the important one: the adapter copies it when `get_engine()`
     #: builds it and that instance is cached for the life of the process, so a key
     #: rotated here does NOT reach the code placing calls until every process restarts.
     #: Without this field the Secrets panel implied the opposite, and the symptom of the

@@ -217,9 +217,9 @@ export function SubmittedList({
  * There is no engine-side KB sync in that list, and for PASTED TEXT there still is not:
  * publishing a typed note means the T0 prompt and nothing else. ⚠ THE SENTENCE THAT USED
  * TO SIT HERE — "the engine's built-in knowledge base is off and `attach_kb` refuses" —
- * IS NO LONGER TRUE OF THE SCREEN AS A WHOLE. `BOLNA_CAPABILITIES.knowledge_base` is
- * `True` (`apps/api/engine/bolna.py:3261`, D-488) and a DOCUMENT does reach the engine's
- * own knowledge base; that half of the screen is `UploadList`, and its states are the
+ * IS NO LONGER TRUE OF THE SCREEN AS A WHOLE. `PIPECAT_CAPABILITIES.knowledge_base` is
+ * `True` and a DOCUMENT does reach the call, through the knowledge pack
+ * (`docs/PIPECAT-MIGRATION.md` §8.1); that half of the screen is `UploadList`, and its states are the
  * ingest ladder rather than this badge. This ladder is still the whole of what a typed
  * note can do.
  *

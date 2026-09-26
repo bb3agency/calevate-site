@@ -227,42 +227,29 @@ async def test_an_unclassified_field_cannot_be_stored_either(
     assert await _revision(KEY) == 0, "an unclassifiable value reached the store"
 
 
-async def test_the_fx_rate_is_on_restart_because_the_engine_captured_it() -> None:
-    """`usd_inr_rate` IS NOT LIVE, AND THE CONSOLE NOW SAYS SO. This is the audit finding.
+async def test_the_fx_rate_is_live_because_every_reader_resolves_it_at_use() -> None:
+    """`usd_inr_rate` is labelled `live`, and that label is a claim about every reader.
 
-    `get_engine()` caches one adapter per engine name for the life of the process, and
-    `BolnaEngine.__init__` copies the rate into `self._fx_rate`. So a rate changed in the
-    console reaches `get_settings()` in a few seconds and does NOT reach the conversion
-    that stamps `usage_events.meta` — the platform keeps costing minutes at the old rate
-    until every process restarts. It was classified `live`, which is the worst possible
-    answer on a money path: the operator sees no error and believes the change took.
-
-    THIS TEST PINS THE CODE AND THE LABEL TOGETHER. If somebody makes the adapter read
-    the rate per call — which would be the better fix and is reported as such — this goes
-    red and the `on_restart` entry has to move with it. That is the point: the label may
-    not drift from the behaviour in either direction.
+    It was `on_restart` while an engine adapter copied the rate into itself at
+    construction and `get_engine()` cached that adapter for the life of the process; a
+    console change then reached `get_settings()` and not the conversion that stamped
+    `usage_events.meta`. That adapter is gone (D-639) and every remaining reader calls
+    `usd_inr_rate_now(get_settings().usd_inr_rate)` at the point of use, so the label moved
+    with the behaviour. The label may not drift from the behaviour in either direction.
     """
-    from apps.api.engine import get_engine, reset_engine_cache
+    from apps.api.core.fx import usd_inr_rate_now
 
-    reset_engine_cache()
     await _write("usd_inr_rate", "88.00")
     await pc.refresh(force=True)
-    settings = get_settings().model_copy(update={"engine": "bolna"})
-    engine = get_engine(settings)
-    captured = engine._fx_rate  # type: ignore[attr-defined]
-    assert captured == Decimal("88.00")
+    assert get_settings().usd_inr_rate == Decimal("88.00")
 
-    # A new rate, fully propagated into this process's settings...
     await _write("usd_inr_rate", "91.50", expected=await _revision("usd_inr_rate"))
     await pc.refresh(force=True)
     assert get_settings().usd_inr_rate == Decimal("91.50")
-
-    # ...and the adapter that actually converts money has not moved.
-    assert get_engine(get_settings().model_copy(update={"engine": "bolna"}))._fx_rate == Decimal(  # type: ignore[attr-defined]
-        "88.00"
-    ), "the engine picked the new rate up — make `usd_inr_rate` live in FIELD_APPLIES"
-    assert pc.applies_rule("usd_inr_rate").applies == pc.ON_RESTART
-    reset_engine_cache()
+    resolved = usd_inr_rate_now(get_settings().usd_inr_rate)
+    if resolved.as_of is None:  # no fresh published quote: the typed rate is what converts
+        assert resolved.rate == Decimal("91.50")
+    assert pc.applies_rule("usd_inr_rate").applies == pc.LIVE
 
 
 def test_authentication_has_no_console_managed_setting_left_to_classify() -> None:
@@ -903,7 +890,7 @@ def test_a_type_valid_but_catastrophic_value_is_refused_by_the_field_itself() ->
     all read them from one place.
 
     Every value below passes its TYPE and breaks something real: a zero FX rate bills
-    every Bolna minute at nothing, a zero price makes every self-serve minute free, port
+    every engine minute at nothing, a zero price makes every self-serve minute free, port
     0 never connects, and a pool of 500 across four voice-runtime processes asks for
     2000 backends against `max_connections = 200`.
     """
@@ -1092,7 +1079,7 @@ def test_a_sigterm_mid_request_drains_it_instead_of_aborting_it(tmp_path) -> Non
     Redis was not closed and pending spans were dropped.
 
     `hooks.calevate.tech` is voice-runtime, the only service with live calls on it, and
-    Bolna webhooks are at-most-once with no retry (D-31): every deploy dropped whatever
+    the rented engine's webhooks were at-most-once with no retry (D-31): every deploy dropped whatever
     was in flight, and `stop_grace_period: 30s` in compose.prod.yml had nothing to give
     its 30 seconds to.
 
@@ -1141,8 +1128,9 @@ def test_a_reader_already_inside_the_builder_cannot_resurrect_the_old_settings()
     is the only shape that matters — a builder that lingers before reading picks up the new
     value on its own and would pass against the broken implementation too.
 
-    Asserted on the allowlist because that is the field the defect actually broke, and it
-    is the one whose staleness is a security control rather than a price.
+    Asserted on a plain string field: the one the defect actually broke (an engine's
+    webhook source-IP allowlist) left with its engine (D-639), and any env-sourced field
+    exercises the same interleaving.
     """
     import threading
     import time
@@ -1158,12 +1146,12 @@ def test_a_reader_already_inside_the_builder_cannot_resurrect_the_old_settings()
             super().__init__(*args, **kwargs)  # type: ignore[arg-type]
             time.sleep(0.3)
 
-    key = "BOLNA_WEBHOOK_SOURCE_IPS"
+    key = "ACTIONS_CALLBACK_BASE_URL"
     before = os.environ.get(key)
     try:
-        os.environ[key] = "198.51.100.1"
+        os.environ[key] = "https://before.example"
         get_settings.cache_clear()
-        assert get_settings().bolna_webhook_source_ips == "198.51.100.1"
+        assert get_settings().actions_callback_base_url == "https://before.example"
 
         settings_mod.Settings = _LingeringSettings  # type: ignore[misc]
         get_settings.cache_clear()
@@ -1171,12 +1159,12 @@ def test_a_reader_already_inside_the_builder_cannot_resurrect_the_old_settings()
         reader.start()
         time.sleep(0.05)  # the reader is now inside the builder, holding the old value
 
-        os.environ[key] = "198.51.100.7"
+        os.environ[key] = "https://after.example"
         settings_mod.Settings = real  # type: ignore[misc]
         get_settings.cache_clear()  # the refresh
         reader.join()  # the stale insert lands HERE, after the clear
 
-        observed = get_settings().bolna_webhook_source_ips
+        observed = get_settings().actions_callback_base_url
     finally:
         settings_mod.Settings = real  # type: ignore[misc]
         if before is None:
@@ -1185,7 +1173,7 @@ def test_a_reader_already_inside_the_builder_cannot_resurrect_the_old_settings()
             os.environ[key] = before
         get_settings.cache_clear()
 
-    assert observed == "198.51.100.7", (
+    assert observed == "https://after.example", (
         f"a refresh was undone by a reader that had entered the builder before it: "
         f"{observed!r}. The cache must be keyed on a generation the refresh moves, so a "
         "late insert lands under the key it was computed for."

@@ -63,8 +63,7 @@ phone line, which is the direction that must never happen.
 THE CALL CAP (SURFACES §2b:107)
 -------------------------------
 `_to_config` fills `AgentConfig.max_call_duration_s` from the agent row. The field and
-its vendor mapping already existed — `engine/bolna.py` renders it as the vendor's
-`task_config.call_terminate` — and nothing filled it, so every agent on the platform
+its vendor mapping already existed in the engine adapter — and nothing filled it, so every agent on the platform
 published the Pydantic default and no client could change it. Publish time is where
 the guard is enforced because the engine is the only party that can hang up a call:
 we are not in the audio path (hard rule 3), and an inbound runaway is never dispatched
@@ -632,11 +631,8 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, AND THE GAP GOT WIDER RATHER THAN
     NARROWER WHEN THE VENDOR'S DOCS WERE READ.** It proves WE hold a key. It does not
     prove the ENGINE holds it: Bolna authenticates from its own credential store, which
-    `VoiceEngine.set_llm_credential` writes. The store's field NAMES are no longer a
-    guess — their Azure OpenAI provider documents FOUR required entries
-    (`apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS`), and
-    `Settings.bolna_llm_credential_name` now defaults to the first of them,
-    `AZURE_OPENAI_API_KEY`. But the platform can only PUSH that one: the endpoint, the
+    `VoiceEngine.set_llm_credential` writes. An Azure leg needs FOUR entries — the key, the
+    endpoint, the deployment and an api-version — and the platform can only PUSH the key: the endpoint, the
     deployment and an api-version whose value nothing here can derive are the operator's
     to install, so "the engine is configured" is further from "we hold a key" than it was
     when this comment believed one entry was the whole of it. The condition stays "this
@@ -993,8 +989,7 @@ def _to_config(
             # the body every agent row in this repository has always produced. Sending
             # the platform rung there would substitute an Azure model identifier into a
             # request aimed at a provider we have not configured, changing live agent
-            # bodies on an unanswered vendor question, which is exactly what
-            # `engine/bolna.py::_llm_routing` refuses to do. An EXPLICIT choice is
+            # bodies on an unanswered vendor question. An EXPLICIT choice is
             # different: somebody asked for it, so it goes.
             **in_call_llm(chosen_llm_model(agent)),
             tts_provider=agent["tts_provider"],
@@ -1008,8 +1003,8 @@ def _to_config(
         # an agent that has never been given a cap is still published with one.
         max_call_duration_s=effective_call_cap(agent["max_call_duration_s"]),
         # WHO THIS AGENT HANDS A CALLER TO RIGHT NOW (D-533) — a PARAMETER rather than a
-        # field read off the row, for the reason `vector_ids` is one in `bolna._agent_body`
-        # and for one more.
+        # field read off the row, for the reason the knowledge-base handles are one, and
+        # for one more.
         #
         # It is not a column: it is the answer to "which member of the roster is on duty at
         # this instant", which needs a second query and a clock. Reading it here would make
@@ -2369,8 +2364,8 @@ def _variant_config(
     `agent_id` becomes the VARIANT's id, and that is a statement of fact rather than a
     trick: on the engine, an arm IS its own agent object with its own ref and its own
     routing row, and the identity we hand the vendor has to be one-to-one with the thing
-    it names. Neither adapter reads this field to correlate anything back to us —
-    `bolna.py` never touches it, `fake.py` derives its deterministic ref from it — so
+    it names. No adapter reads this field to correlate anything back to us —
+    `fake.py` derives its deterministic ref from it — so
     passing the agent's id would give the fake ONE ref for both arms and silently publish
     the second script over the first. The bridge back to the real agent is
     `engine_agent_routes`, which is written below and is the only mapping any inbound
@@ -3131,8 +3126,8 @@ async def provision_number(
 
     **`engine_number_ref` IS THE COLUMN THAT HAD NO WRITER, AND ITS ABSENCE BROKE EVERY
     INBOUND PUBLISH (GAP-1).** It is declared on `phone_numbers`, it is READ by
-    `route_inbound_numbers` → `bind_inbound_number` → `BolnaEngine._inbound_number_id`,
-    and until now the only INSERT in production code omitted it, no request body carried
+    `route_inbound_numbers` → `bind_inbound_number` (the rented engine's adapter resolved
+    it to the vendor's number id; D-639 deleted it), and until now the only INSERT in production code omitted it, no request body carried
     it (`ProvisionNumberIn` is `extra="forbid"`) and no screen set it — a repo-wide grep
     found it written only in test fixtures. The consequence, on every publish of an inbound
     agent with a recorded number: `engine_number_not_linked`, one `CORE_LOGIC` alarm per

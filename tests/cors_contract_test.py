@@ -151,7 +151,7 @@ UNREACHABLE_BEFORE = [
     ("PUT", "/v1/billing/caps", "authorization,content-type"),
     ("PUT", "/v1/admin/tenants/x/feature-flags/beta", "authorization,content-type"),
     ("PUT", "/v1/ops/config/engine", "authorization,content-type,x-confirm-action"),
-    ("PUT", "/v1/ops/secrets/bolna_api_key", "authorization,content-type,x-confirm-action"),
+    ("PUT", "/v1/ops/secrets/cartesia_api_key", "authorization,content-type,x-confirm-action"),
     ("DELETE", "/v1/ops/config/engine", "authorization,if-match"),
 ]
 

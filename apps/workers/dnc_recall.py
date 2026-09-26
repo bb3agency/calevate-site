@@ -68,8 +68,7 @@ DNC_RECALL_JOB = "recall_dials_for_dnc"
 #: suppressions, where the cap is a floor to report rather than a limit to raise.
 DNC_RECALL_SCAN_LIMIT = 100
 
-#: For `engine_violations._ALERT_ID_LIMIT`'s reason: an alert naming forty uuids is one
-#: nobody reads.
+#: An alert naming forty uuids is one nobody reads.
 _ALERT_ID_LIMIT = 5
 
 
@@ -194,7 +193,7 @@ async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
     )
 
     if len(dials) >= DNC_RECALL_SCAN_LIMIT:
-        # BEFORE the verdict alarm, for `engine_violation_sweep_incomplete`'s reason: a
+        # BEFORE the verdict alarm, because a
         # capped run's counts are a floor, and "prevented 100" off a scan that stopped
         # looking at 100 is the one wrong sentence to leave on this screen.
         alert(
@@ -209,7 +208,7 @@ async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
     if undetermined:
         named = ", ".join(str(c) for c in undetermined[:_ALERT_ID_LIMIT])
         alert(
-            # WORKER_STALL for `engine_violation_open`'s reason: a scheduled action
+            # WORKER_STALL because this is a scheduled action
             # reporting a bad state of the world it measured, not a worker dying. Nothing
             # is retried by reporting it — these dials are past recalling.
             "WORKER_STALL",
@@ -239,7 +238,7 @@ async def recall_dials_for_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     already stopped, take the vendor's refusal for an already-stopped execution, and
     report those as undetermined — turning a clean recall into a compliance alarm.
 
-    THE RETRY LADDER IS SPELLED HERE for `sweep_engine_violations`' reason: arq 0.28
+    THE RETRY LADDER IS SPELLED HERE because arq 0.28
     retries for `arq.Retry` and nothing else, so a job that dies any other way is finished
     on its first attempt whatever `max_tries` says. Three attempts, then an ALERT — there
     is no dead-letter queue (P6.5), so the alert on the last attempt IS the dead-letter

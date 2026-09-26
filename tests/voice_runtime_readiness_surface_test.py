@@ -39,7 +39,6 @@ from apps.api.core.settings import (
     runtime_config_missing_keys,
     webhook_receiver_missing_keys,
 )
-from calevate_shared.config import bolna_source_ips
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,7 +61,7 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402  — the DRIVER, see 
 # measured as an acquisition. The delta below is taken AFTER it is imported, which is what
 # makes the measurement honest: anything the request pulls in is new, and `httpx` arriving
 # through the app would show up as `httpx.<submodule>` or, more to the point, as
-# `apps.api.engine.bolna` — which imports it and is measured directly.
+# `apps.api.engine.cartesia` — which imports it and is measured directly.
 async def main_():
     before = sorted(sys.modules)
     transport = ASGITransport(app=main.app)
@@ -86,18 +85,18 @@ def readiness_probe() -> dict[str, object]:
     the config probe runs on every branch, and the import being asserted about happens
     inside `runtime_config_missing_keys` before any environment check.
 
-    `ENGINE=bolna` IS load-bearing, and leaving it to the ambient environment made this
+    `ENGINE=cartesia` IS load-bearing, and leaving it to the ambient environment made this
     weaker than it looks: `build_engine` branches on the name, so on the default `fake`
-    the revert-proof shows `apps.api.engine.fake` and NO `httpx` — the vendor adapter that
-    actually costs 381-435ms is never reached. Pinning the engine every deployment runs
-    measures the production shape.
+    the revert-proof shows `apps.api.engine.fake` and NO `httpx` — a vendor adapter that
+    pulls in an HTTP client is never reached. Pinning an HTTP-speaking engine measures the
+    shape that costs the ack budget.
     """
     out = Path(tempfile.gettempdir()) / f"calevate-readiness-surface-{uuid.uuid4().hex}.json"
     try:
         proc = subprocess.run(
             [sys.executable, "-c", _READY_PROBE, str(out)],
             cwd=REPO_ROOT,
-            env={**os.environ, "PYTHONPATH": "", "APP_ENV": "local", "ENGINE": "bolna"},
+            env={**os.environ, "PYTHONPATH": "", "APP_ENV": "local", "ENGINE": "cartesia"},
             capture_output=True,
             text=True,
             timeout=180,
@@ -146,7 +145,7 @@ def _prod(**overrides: object) -> Settings:
         "app_env": "prod",
         "database_url": "postgresql+psycopg://u:p@localhost/db",
         "redis_url": "redis://localhost:6379/0",
-        "engine": "bolna",
+        "engine": "cartesia",
     }
     return Settings(**{**base, **overrides})  # type: ignore[arg-type]
 
@@ -166,24 +165,11 @@ def test_the_receiver_probe_reports_the_key_it_cannot_serve_without() -> None:
 
     `PLATFORM_KEK` is what it comes down to: the console-managed configuration this
     service opts into is encrypted under it, and that configuration carries the selected
-    engine and the source-IP allowlist which — Bolna signing nothing (D-31, TRD §5) — is
-    the entire authenticity control. Without the KEK the rows are unreadable and the
-    process runs on whatever the environment last gave it.
-
-    THE ALLOWLIST IS NOT A SECOND ASSERTION HERE, and the reason is pinned below rather
-    than left to the docstring: `parse_source_ip_allowlist` fails safe to
-    `DEFAULT_BOLNA_SOURCE_IPS`, so it cannot resolve empty and a readiness branch for that
-    state would be unreachable. If that ever changes, this fails and the probe gains a
-    check.
+    engine. Without the KEK the rows are unreadable and the process runs on whatever the
+    environment last gave it.
     """
     assert webhook_receiver_missing_keys(_prod(platform_kek="k" * 44)) == []
     assert webhook_receiver_missing_keys(_prod()) == ["PLATFORM_KEK"]
-    assert bolna_source_ips(_prod(bolna_webhook_source_ips="")), (
-        "the allowlist resolver now returns an empty set for a blank configuration — it "
-        "used to fail safe to the built-in default, which is why "
-        "`webhook_receiver_missing_keys` reports nothing about it. Readiness for the "
-        "receiver should now name BOLNA_WEBHOOK_SOURCE_IPS."
-    )
 
 
 def test_the_receiver_probe_does_not_demand_another_deployables_credentials() -> None:
@@ -195,7 +181,7 @@ def test_the_receiver_probe_does_not_demand_another_deployables_credentials() ->
     settings = _prod()
     full = set(runtime_config_missing_keys(settings))
     receiver = set(webhook_receiver_missing_keys(settings))
-    assert "BOLNA_API_KEY" in full, (
+    assert "CARTESIA_API_KEY" in full, (
         "the full probe no longer names the engine credential — this comparison has "
         "stopped measuring the difference it exists to measure"
     )
@@ -203,4 +189,4 @@ def test_the_receiver_probe_does_not_demand_another_deployables_credentials() ->
         f"the receiver probe reports {sorted(receiver - full)}, which the full probe does "
         "not — the two have diverged in the wrong direction"
     )
-    assert "BOLNA_API_KEY" not in receiver
+    assert "CARTESIA_API_KEY" not in receiver

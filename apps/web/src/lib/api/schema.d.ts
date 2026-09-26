@@ -232,31 +232,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/actions/invoke/{engine}/{tool_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Engine-called: run one in-call action and return its result to the LLM
-         * @description Bolna calls this for a during-call tool. Verifies the source, resolves the tenant
-         *     from the injected agent ref, loads the tool under that tenant's RLS, and executes.
-         *
-         *     The response body IS the tool result the LLM reads back. Failures are returned as a
-         *     structured payload (not a 5xx) so the agent can relay them to the caller rather than the
-         *     call hearing dead air.
-         */
-        post: operations["invoke_action_v1_actions_invoke__engine___tool_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/client-health": {
         parameters: {
             query?: never;
@@ -10665,8 +10640,8 @@ export interface components {
          *     done to each table.
          *
          *     `engine_deletion` is a status string rather than a boolean because the honest answer
-         *     today is neither true nor false — Bolna's deletion API is undocumented (a pilot
-         *     gate), and a certificate that claimed an engine-side deletion we cannot demonstrate
+         *     today is neither true nor false — no engine's deletion has been demonstrated, and a
+         *     certificate that claimed an engine-side deletion we cannot demonstrate
          *     would be the one lie a compliance document must not contain.
          *
          *     The last four fields are why this is a certificate and not a database row. The proof
@@ -18829,40 +18804,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalendarConnectOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    invoke_action_v1_actions_invoke__engine___tool_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                engine: string;
-                tool_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                 };
             };
             /** @description RFC-9457 problem+json */

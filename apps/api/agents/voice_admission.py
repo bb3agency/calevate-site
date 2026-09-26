@@ -22,8 +22,8 @@ needs the operator's five facts and one read. That is this module.
 
 THE FIVE FACTS ARE THE WIRE'S, NOT A FORM DESIGNER'S
 ------------------------------------------------------
-They are derived from `engine/bolna.py::_synthesizer_config` and its Cartesia twin, which
-between them need exactly four things in the vendor's synthesizer block — `model`,
+They are derived from the synthesizer blocks the engine adapters rendered, which between
+them need exactly four things in the vendor's synthesizer block — `model`,
 `voice_id`, `voice` (the platform's own display NAME, which is **not derivable from the id**
 for a cloned voice) and `language` — plus the one fact that decides the money:
 

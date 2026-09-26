@@ -2,9 +2,8 @@
 
 The contract this file must satisfy, in order:
 
-1. **Verify authenticity per engine, before reading a byte of body.** For Bolna that
-   is a source-IP allowlist — there is no signature to check (D-31) — plus
-   execution-id dedupe. Everything after this step is work done for a caller we have
+1. **Verify authenticity per engine, before reading a byte of body**
+   (`engine_intake.verify_source`), plus execution-id dedupe. Everything after this step is work done for a caller we have
    already decided to trust, which is why the order matters.
 2. **Ack in under 500ms.** Measured AND reported on every response path
    (`X-Ack-Ms` + `record_webhook_ack_ms`), so a regression shows up as a number
@@ -640,7 +639,7 @@ class WebhookAckOut(BaseModel):
     # The bytes on the wire are unchanged: `duplicate` still carries an execution id and
     # nothing else, `ignored` still carries a reason and nothing else.
     response_model_exclude_none=True,
-    summary="Engine status webhook (unsigned for Bolna — hint only, poller is truth)",
+    summary="Engine status webhook (hint only, poller is truth)",
 )
 async def engine_webhook(engine: str, request: Request, response: Response) -> dict[str, str]:
     started = time.perf_counter()

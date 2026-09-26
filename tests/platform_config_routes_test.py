@@ -180,7 +180,7 @@ async def test_no_credential_is_listed() -> None:
     async with _client() as http:
         response = await http.get("/v1/ops/config", headers=_auth(token))
     listed = {f["key"] for f in response.json()["fields"]}
-    credentials = ("bolna_api_key", "sarvam_api_key", "clerk_admin_secret_key", "smtp_password")
+    credentials = ("cartesia_api_key", "sarvam_api_key", "clerk_admin_secret_key", "smtp_password")
     for credential in credentials:
         assert credential not in listed
 

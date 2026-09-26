@@ -115,15 +115,6 @@ def _bearer(value: str) -> dict[str, str]:
 #: that already calls these vendors in production — rather than from memory, so a probe
 #: cannot be authenticating differently from the thing it is testing.
 PROBES: Mapping[str, Probe] = {
-    # `apps/api/engine/bolna.py`: BASE_URL and `Authorization: Bearer` on every call;
-    # `GET /v2/agent/all` is the listing the adapter itself uses.
-    "bolna_api_key": Probe(
-        method="GET",
-        url="https://api.bolna.ai/v2/agent/all",
-        headers=_bearer,
-        source="apps/api/engine/bolna.py (BASE_URL, _request auth header, GET /v2/agent/all)",
-        verified=False,
-    ),
     # `apps/api/engine/cartesia.py`: BASE_URL, AUTH_HEADER/AUTH_SCHEME and
     # VERSION_HEADER/API_VERSION. `/voices` is a listing that costs nothing.
     #
