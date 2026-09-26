@@ -1355,7 +1355,7 @@ async def call_lead(
             kind="validation",
             status=400,
             code="idempotency_key_required",
-            title="This request has to carry an Idempotency-Key",
+            title="Calling a lead needs an Idempotency-Key header",
             detail=(
                 "Calling a lead rings a real phone, so every attempt names itself and a "
                 "repeat of the same attempt is answered rather than dialled again."
