@@ -339,8 +339,25 @@ function callStillFillingIn(call: CallDetail | undefined): boolean {
  * note above gives about the export.
  */
 
+/**
+ * Place a call to one lead.
+ *
+ * ONE `Idempotency-Key` PER DIAL, HELD UNTIL AN ANSWER, `useCallAssist`'s rule. A fresh key
+ * per press made a second press after a lost response — a timeout, a dropped connection —
+ * a second request the server had never seen, i.e. a second phone ringing. Holding it
+ * means that press is answered from the first: replayed if it finished, refused "in
+ * flight" if the vendor may be dialling. The server releases the key on every refusal
+ * that rang nothing, so a held key never blocks a genuine retry.
+ *
+ * Keyed by the whole body, because the server hashes it into the claim and refuses the
+ * same key on a different request; success clears it, since the next press is a person
+ * asking for another call.
+ */
 export function useCallLead(session: Session) {
   const client = useQueryClient();
+  const held = useRef(new Map<string, string>());
+  const attemptOf = (leadId: string, agentId: string, contextNote?: string) =>
+    JSON.stringify([leadId, agentId, contextNote ?? null]);
   return useMutation({
     mutationFn: ({
       leadId,
@@ -350,15 +367,18 @@ export function useCallLead(session: Session) {
       leadId: string;
       agentId: string;
       contextNote?: string;
-    }) =>
-      apiRequest<CallLeadResult>(session, `/v1/leads/${leadId}/call`, {
+    }) => {
+      const attempt = attemptOf(leadId, agentId, contextNote);
+      const key = held.current.get(attempt) ?? crypto.randomUUID();
+      held.current.set(attempt, key);
+      return apiRequest<CallLeadResult>(session, `/v1/leads/${leadId}/call`, {
         method: "POST",
         body: { agent_id: agentId, context_note: contextNote },
-        // A double-click must not ring a customer twice. The key is per attempt, and
-        // React Query's retry would otherwise reuse the same mutation function.
-        idempotencyKey: crypto.randomUUID(),
-      }),
-    onSuccess: () => {
+        idempotencyKey: key,
+      });
+    },
+    onSuccess: (_result, { leadId, agentId, contextNote }) => {
+      held.current.delete(attemptOf(leadId, agentId, contextNote));
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
     },
   });

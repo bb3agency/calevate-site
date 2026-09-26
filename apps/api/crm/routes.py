@@ -1318,6 +1318,18 @@ async def lead_timeline(
     return await service.lead_timeline(session, lead_id, limit=limit, offset=offset)
 
 
+async def _release_undialled_claim(tenant_id: UUID, record_id: UUID) -> None:
+    """Release a lead-call claim on a path that dialled nobody.
+
+    A refused attempt that kept its claim would answer the client's own retry with the
+    same key "already in flight" for the whole lease, for a request that rang nothing;
+    `assist_call` releases on its pre-payment refusals for the same reason. Its own
+    transaction, because the request's is about to roll back.
+    """
+    async with tenant_session(tenant_id) as fail_session:
+        await fail_idempotency(fail_session, record_id=record_id)
+
+
 @router.post(
     "/leads/{lead_id}/call",
     response_model=CallLeadOut,
@@ -1367,14 +1379,18 @@ async def call_lead(
     if claim.state == "replay" and claim.response_payload:
         return CallLeadOut.model_validate(claim.response_payload)
 
-    phone, name = await service.lead_phone(session, lead_id)
+    try:
+        phone, name = await service.lead_phone(session, lead_id)
 
-    # THE COMPLIANCE GATE. D-21 is explicit that client-initiated dispatch runs the
-    # same pre-checks as webhook dispatch; a decision (not an exception) comes back so
-    # the UI can explain WHY the button is refusing (SURFACES §2b).
-    decision = await check_dispatch(
-        session, tenant_id=principal.tenant_id, agent_id=payload.agent_id, phone_e164=phone
-    )
+        # THE COMPLIANCE GATE. D-21 is explicit that client-initiated dispatch runs the
+        # same pre-checks as webhook dispatch; a decision (not an exception) comes back so
+        # the UI can explain WHY the button is refusing (SURFACES §2b).
+        decision = await check_dispatch(
+            session, tenant_id=principal.tenant_id, agent_id=payload.agent_id, phone_e164=phone
+        )
+    except Exception:
+        await _release_undialled_claim(principal.tenant_id, claim.record_id)
+        raise
     if not decision.allowed:
         # COUNTED, like every other refusal of this gate. `assert_dispatch_allowed` records
         # it for the paths that raise and `campaign_dispatch._refuse_contact` for the
@@ -1397,7 +1413,11 @@ async def call_lead(
             )
         return result
 
-    from apps.api.agents.service import DialUnconfirmedError, dispatch_call
+    from apps.api.agents.service import (
+        DialUnconfirmedError,
+        dial_was_not_placed,
+        dispatch_call,
+    )
 
     try:
         handle = await dispatch_call(
@@ -1427,6 +1447,13 @@ async def call_lead(
                 "again could ring them twice."
             ),
         ) from unconfirmed
+    except Exception as refused:
+        # Only a failure that PROVES no line was seized releases the key; anything else
+        # from `dispatch_call` (a handle or lead stamp failing after the vendor answered)
+        # may follow a ringing phone and keeps it `processing`.
+        if dial_was_not_placed(refused):
+            await _release_undialled_claim(principal.tenant_id, claim.record_id)
+        raise
 
     # THE AUDIT AND THE CLAIM'S COMPLETION IN THEIR OWN TRANSACTION, for the reason the
     # claim had one: the phone has rung, and the record of it must not be undone by a

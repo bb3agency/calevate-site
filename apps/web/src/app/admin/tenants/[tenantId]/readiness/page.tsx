@@ -97,6 +97,12 @@ const RULE_SCREENS: Record<string, { href: (tenantId: string) => string; cta: st
     href: (id) => `/admin/tenants/${id}`,
     cta: "Record the notice",
   },
+  // A number an agent calls from that the notice does not name: the remedy is a notice
+  // that names it, recorded from the same place.
+  autodialer_notice_cli_undeclared: {
+    href: (id) => `/admin/tenants/${id}`,
+    cta: "Declare the numbers",
+  },
   // DELIBERATELY ABSENT: `autodialer_notice_not_yet_effective`. The paperwork is already
   // correct and the only thing between the account and dialling is the date arriving —
   // there is nothing for an operator to open, and a button would invite re-recording a

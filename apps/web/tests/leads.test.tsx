@@ -413,6 +413,37 @@ describe("the D-21 dispatch verdict, per lead", () => {
     expectTextCount(container, "This number is on your do-not-call list.", 1);
   });
 
+  it("sends the same Idempotency-Key when a press that got no answer is retried", async () => {
+    // A lost response may follow a phone that is already ringing. A fresh key on the
+    // retry is a request the server has never seen — a second call to the same person —
+    // while the same key is answered from the first attempt.
+    let answers = 0;
+    const { calls } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "POST /v1/leads/search": leadList([lead()]),
+        "/v1/leads/lead-a/call": () => {
+          answers += 1;
+          return answers === 1
+            ? problem(504, { title: "Timed out", kind: "transient", retryable: true })
+            : QUEUED;
+        },
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: /Call with AI/ }));
+    await screen.findByText("Calling now");
+
+    const keys = calls
+      .filter((c) => c.path === "/v1/leads/lead-a/call")
+      .map((c) => c.headers["Idempotency-Key"] ?? c.headers["idempotency-key"]);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   it("shows a blocked dispatch as the gate's decision, not as a malfunction", async () => {
     // `POST /v1/leads/{id}/call` answers 200 with `status: "blocked"`. Rendering that
     // through ProblemNotice would tell a client their compliance rules are our bug; and

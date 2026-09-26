@@ -805,6 +805,73 @@ async def test_a_dial_the_engine_may_have_started_leaves_a_call_row_and_refuses_
     await _settle_calls(tenant_id)
 
 
+async def test_a_retry_of_a_dial_the_engine_may_have_started_does_not_ring_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The browser holds its key until it hears a definite answer, so the press after a
+    lost response carries the SAME key — and that must be refused, not dialled."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    key = str(uuid.uuid4())
+
+    async def lost_response(self: object, ref: str, to: str, ctx: object) -> str:
+        raise ProblemError(kind="dependency", code="engine_unreachable", title="x", detail="x")
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", lost_response)
+    async with _client() as http:
+        await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+        monkeypatch.undo()
+        retry = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["type"].endswith("/idempotent_request_in_flight")
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")], "one ring, not two"
+    await _settle_calls(tenant_id)
+
+
+async def test_a_retry_after_a_refusal_that_placed_nothing_dials_afresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A throttle proves no line was seized, so the claim is released: the same key's
+    retry is a fresh attempt rather than "already in flight" for the whole lease."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    key = str(uuid.uuid4())
+
+    async def throttled(self: object, ref: str, to: str, ctx: object) -> str:
+        raise ProblemError(kind="dependency", code="engine_rate_limited", title="x", detail="x")
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", throttled)
+    async with _client() as http:
+        refused = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+        monkeypatch.undo()
+        retry = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+
+    assert refused.json()["type"].endswith("/engine_rate_limited"), refused.text
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["status"] == "queued"
+    assert [row for row in await _outbound_calls(tenant_id) if row[1] == "queued"] == [
+        (phone, "queued")
+    ]
+    await _settle_calls(tenant_id)
+
+
 async def test_a_callback_the_engine_may_have_started_says_so_and_does_not_offer_a_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
