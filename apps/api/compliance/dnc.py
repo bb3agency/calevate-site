@@ -236,11 +236,39 @@ async def add_numbers(
                 extra={"tenant_id": str(tenant_id), "cancelled": cancelled},
             )
 
+    # A suppression's source only ever gets stronger (D-189), on this writer as on
+    # `compliance.service.add_to_dnc`. A number already on the list as `manual` is not
+    # `fresh`, so without this the person's own request, entered here as
+    # `customer_request`, would leave the row `manual` — deletable from the console, which
+    # is the consumer's opt-out being undone by the account it was made against. Run over
+    # every number rather than the ones the read found, so a `manual` row a racing request
+    # committed after that read is upgraded too. Counted as already suppressed: it was.
+    upgraded = 0
+    if source not in REMOVABLE_SOURCES:
+        result = await session.execute(
+            text(
+                "UPDATE dnc_list SET source = :source WHERE tenant_id = :tid "
+                "AND phone_e164 = ANY(:phones) AND source = ANY(:removable)"
+            ),
+            {
+                "source": source,
+                "tid": tenant_id,
+                "phones": unique,
+                "removable": list(REMOVABLE_SOURCES),
+            },
+        )
+        upgraded = rowcount_of(result)
+
     # Counts only (hard rule 6): the numbers are the whole point of the request and
     # none of them belong in a log line.
     log.info(
         "dnc_added",
-        extra={"tenant_id": str(tenant_id), "added": added, "source": source},
+        extra={
+            "tenant_id": str(tenant_id),
+            "added": added,
+            "upgraded": upgraded,
+            "source": source,
+        },
     )
     return AddResult(
         added=added,
@@ -384,6 +412,14 @@ def is_removable(*, scope: str, source: str | None) -> bool:
     return scope != "global" and source in REMOVABLE_SOURCES
 
 
+def _consumer_optout_refusal() -> ProblemError:
+    return ProblemError.business_rule(
+        "dnc_consumer_optout",
+        "This number asked not to be called. That request cannot be undone here.",
+        remediation="If this entry is a mistake, contact support with the details.",
+    )
+
+
 async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
     """Delete one hand-added tenant entry. Returns the audit row's payload.
 
@@ -411,13 +447,27 @@ async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
             remediation="Global suppressions are removed by operations, not from here.",
         )
     if source not in REMOVABLE_SOURCES:
-        raise ProblemError.business_rule(
-            "dnc_consumer_optout",
-            "This number asked not to be called. That request cannot be undone here.",
-            remediation="If this entry is a mistake, contact support with the details.",
-        )
-    result = await session.execute(text("DELETE FROM dnc_list WHERE id = :id"), {"id": entry_id})
+        raise _consumer_optout_refusal()
+    # The removability test is repeated IN the DELETE, as a compare-and-set, rather than
+    # trusted from the read above. `add_to_dnc` upgrades a `manual` row to `call_optout`
+    # in place when the person themselves asks to stop, and that can commit between the
+    # read and this statement; a DELETE keyed on the id alone would then remove the
+    # caller's own opt-out. Under READ COMMITTED a DELETE that waited on the upgrade's row
+    # lock re-evaluates its WHERE against the new version and matches nothing.
+    result = await session.execute(
+        text(
+            "DELETE FROM dnc_list WHERE id = :id AND scope = 'tenant' AND source = ANY(:removable)"
+        ),
+        {"id": entry_id, "removable": list(REMOVABLE_SOURCES)},
+    )
     if rowcount_of(result) != 1:
+        still = (
+            await session.execute(
+                text("SELECT source FROM dnc_list WHERE id = :id"), {"id": entry_id}
+            )
+        ).first()
+        if still is not None and still[0] not in REMOVABLE_SOURCES:
+            raise _consumer_optout_refusal()
         # RLS refusing the write looks exactly like this. Do not report success.
         raise ProblemError.not_found("DNC entry")
     return Removal(source=str(source), subject_ref=subject_ref(row[2]))

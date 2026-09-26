@@ -59,7 +59,9 @@ from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
+from apps.api.campaigns import complaint_spike
 from apps.api.campaigns import service as campaigns
+from apps.api.compliance.optout import DETECTED_IN_CALL, OptOutSignal, record_call_optout
 from apps.api.compliance.service import add_to_dnc, check_dispatch
 from apps.api.core import loadshed
 from apps.api.core.errors import ProblemError
@@ -1679,3 +1681,102 @@ async def test_a_contact_whose_call_is_still_in_progress_is_not_returned_to_the_
     assert [status for status, _ in await _contacts(tenant_id, campaign_id)] == ["pending"], (
         "a genuinely stranded contact must still come back to the ladder eventually"
     )
+
+
+# --------------------------------- the reaper spends a rung like any other attempt
+
+
+async def _due_now(tenant_id: uuid.UUID, campaign_id: uuid.UUID) -> None:
+    """Pull every contact's retry rung into the past, so the next claim may take it."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET next_attempt_at = now() - interval '1 minute' "
+                "WHERE campaign_id = :c"
+            ),
+            {"c": campaign_id},
+        )
+
+
+async def test_a_contact_whose_calls_keep_stranding_is_rung_at_most_max_attempts_times() -> None:
+    """The claim increments `attempts` and never compares it with `max_attempts`; only
+    `_record_failure` does. A reaper that returned a stranded contact straight to
+    `pending` therefore let a person whose calls never produced a terminal event be rung
+    again every reap cycle, for as long as the campaign ran.
+
+    Driven end to end: dial, strand, reap, and repeat until the ladder is spent, then
+    give the dialler every chance to ring once more.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876860001",), slider=1)
+    max_attempts = int(campaigns.DEFAULT_RETRY_POLICY["max_attempts"])
+    placed = await _calls_placed(tenant_id)
+
+    for attempt in range(1, max_attempts + 1):
+        assert (await _tick_one_campaign(tenant_id, campaign_id, slots=1))["dialled"] == 1
+        assert await _contacts(tenant_id, campaign_id) == [("dialing", attempt)]
+        await _age_dialing(tenant_id, campaign_id, campaign_dispatch.STUCK_DIALING_AFTER + MINUTE)
+        await _tick_one_campaign(tenant_id, campaign_id, slots=0)
+        await _due_now(tenant_id, campaign_id)
+
+    swept = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+
+    assert swept["dialled"] == 0, f"the dialler rang past the retry ladder: {swept}"
+    assert await _contacts(tenant_id, campaign_id) == [("failed", max_attempts)]
+    assert await _calls_placed(tenant_id) == placed + max_attempts
+
+
+# ------------------------------- a campaign's calls are countable as the campaign's
+
+
+async def test_the_complaint_spike_sees_the_calls_the_dispatcher_placed() -> None:
+    """`check_complaint_spike` counts a campaign's calls by `calls.campaign_id`, and the
+    dial path never wrote that column — so on real traffic the pause could not fire
+    however many people asked the campaign to stop. Its own tests passed because they
+    INSERT the call rows with the column already set.
+
+    Driven through the dispatcher: the calls here are the ones it placed, and the
+    opt-outs go through the production writer.
+    """
+    count = complaint_spike.MIN_OPTOUTS
+    phones = tuple(f"98768700{i:02d}" for i in range(1, count + 1))
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=phones, slider=count)
+    assert (await _tick_one_campaign(tenant_id, campaign_id, slots=count))["dialled"] == count
+
+    async with tenant_session(tenant_id) as session:
+        placed = (
+            await session.execute(
+                text("SELECT id, to_e164, campaign_id FROM calls WHERE direction = 'outbound'")
+            )
+        ).all()
+        assert len(placed) == count
+        assert {row[2] for row in placed} == {campaign_id}, (
+            "a campaign dial left `calls.campaign_id` empty"
+        )
+        # What the post-call pipeline does to a call that was answered and ended.
+        await session.execute(
+            text(
+                "UPDATE calls SET status = 'completed', started_at = now(), ended_at = now() "
+                "WHERE direction = 'outbound'"
+            )
+        )
+        for call_id, phone, _ in placed:
+            await record_call_optout(
+                session,
+                tenant_id=tenant_id,
+                raw_phone=str(phone),
+                call_id=call_id,
+                detected_by=DETECTED_IN_CALL,
+                signal=OptOutSignal(
+                    rule="engine_tool_call", language="en", turn_idx=None, matched="stop calling"
+                ),
+            )
+
+    await _tick_one_campaign(tenant_id, campaign_id, slots=count)
+
+    async with tenant_session(tenant_id) as session:
+        status = (
+            await session.execute(
+                text("SELECT status FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar()
+    assert status == "paused", "every person the campaign reached opted out and it kept running"

@@ -859,6 +859,47 @@ async def test_the_in_call_job_suppresses_the_number_the_engine_reports(
     assert evidence["rule"] == "engine_tool_call", "a model's judgement is labelled as one"
 
 
+async def test_the_in_call_evidence_never_stores_a_number_the_engine_quoted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The engine's `reason` is a model's paraphrase of the caller, and it can quote a
+    number back. It lands in `consent_ledger.evidence`, which is append-only, so a number
+    written there can never be removed — the transcript detector redacts its evidence for
+    exactly this reason, and the tool path has to as well."""
+    reset_engine_cache()
+    tenant_id, agent_id, _campaign = await _ready_campaign(phones=("9876500007",))
+    ref = await _agent_ref(tenant_id, agent_id)
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    _stage(
+        monkeypatch,
+        {execution_id: _snapshot(execution_id, ref, "+919876500007", OPT_OUT_TURNS)},
+    )
+    quoted = "9848022338"
+
+    await record_in_call_optout(
+        {},
+        {
+            "engine": "fake",
+            "execution_id": execution_id,
+            "reason": f"caller asked to remove {quoted} and never call again",
+        },
+    )
+
+    async with tenant_session(tenant_id) as session:
+        evidence = (
+            await session.execute(
+                text(
+                    "SELECT evidence FROM consent_ledger WHERE phone_e164 = '+919876500007' "
+                    "AND purpose = :p"
+                ),
+                {"p": OPTOUT_PURPOSE},
+            )
+        ).scalar()
+    assert evidence is not None
+    assert quoted not in evidence["matched"], evidence["matched"]
+    assert "remove" in evidence["matched"], "the caller's words are still the evidence"
+
+
 async def test_the_tool_and_the_transcript_pass_do_not_double_file_one_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

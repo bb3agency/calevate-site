@@ -44,6 +44,7 @@ from apps.api.engine import get_engine
 # module asks the identical three questions of the identical engine, and a second copy of
 # "is another attempt capable of a different outcome" is where the two would drift.
 from apps.workers.pipeline import _is_transient, _resolve_agent, _retry_after
+from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
@@ -62,12 +63,19 @@ _REASON_CHARS = 80
 
 
 def tool_signal(*, reason: str | None, language: str | None) -> OptOutSignal:
-    """The in-call path's `OptOutSignal`. No turn index — see the field's comment."""
+    """The in-call path's `OptOutSignal`. No turn index — see the field's comment.
+
+    `matched` is REDACTED, for the reason `detect_opt_out` redacts its own: it is written
+    into `consent_ledger.evidence`, which is append-only, and the engine's `reason` is a
+    model's paraphrase of the caller that may quote their number back ("caller at
+    98765 43210 asked to be removed"). A number stored there could never be taken out.
+    Redaction runs before the cap so a number cut in half cannot slip past the redactor.
+    """
     return OptOutSignal(
         rule=TOOL_RULE,
         language=(language or "unknown")[:8],
         turn_idx=None,
-        matched=(reason or "")[:_REASON_CHARS],
+        matched=redact(reason or "").text[:_REASON_CHARS],
     )
 
 

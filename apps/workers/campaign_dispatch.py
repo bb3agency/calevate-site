@@ -126,7 +126,6 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
-from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
@@ -799,7 +798,13 @@ async def _dispatch_for_campaign(
     dialled = blocked = exhausted = 0
 
     async with tenant_session(tenant_id) as session:
-        await _reap_stuck_dialing(session, campaign_id, tenant_id=tenant_id)
+        await _reap_stuck_dialing(
+            session,
+            campaign_id,
+            tenant_id=tenant_id,
+            max_attempts=max_attempts,
+            retry_policy=retry_policy,
+        )
 
         # **FINISHING IS NOT DIALLING, AND IT MUST NOT SIT BEHIND THE DIAL GATE.** This
         # runs BEFORE the two campaign-level gates below, and that ordering is the whole
@@ -986,7 +991,7 @@ async def _dispatch_for_campaign(
                     phone_e164=phone,
                     lead_name=name,
                     context_note=None,
-                    on_reserved=_link_contact_to_call(contact_id),
+                    on_reserved=_link_contact_to_call(contact_id, campaign_id),
                 )
             except DialUnconfirmedError as unconfirmed:
                 # THE THIRD OUTCOME: the engine may have started this call. Not the
@@ -1274,13 +1279,20 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
 
 
 def _link_contact_to_call(
-    contact_id: UUID,
+    contact_id: UUID, campaign_id: UUID
 ) -> Callable[[AsyncSession, UUID], Awaitable[None]]:
-    """`dispatch_call`'s `on_reserved` hook: point the contact at the intent row.
+    """`dispatch_call`'s `on_reserved` hook: link the contact and the call both ways.
 
     Runs INSIDE the transaction that inserts the `calls` row and commits with it, which
     is both what the FK needs (`campaign_contacts.last_call_id → calls.id`) and the whole
     point: the pointer is durable before the vendor can seize a line.
+
+    `calls.campaign_id` is stamped here because this is the only place that knows a call
+    belongs to a campaign: `dispatch_call` is campaign-agnostic and the pipeline's upsert
+    never writes the column. `check_complaint_spike` counts a campaign's calls by it, so
+    a call left without it is a call the complaint-spike pause can never see — every
+    opt-out on the campaign goes uncounted and the safety never fires. The upserts leave
+    the column alone, so the value survives every later status write.
     """
 
     async def link(session: AsyncSession, call_id: UUID) -> None:
@@ -1290,6 +1302,10 @@ def _link_contact_to_call(
                 "WHERE id = :id"
             ),
             {"call": call_id, "id": contact_id},
+        )
+        await session.execute(
+            text("UPDATE calls SET campaign_id = :cid WHERE id = :call"),
+            {"cid": campaign_id, "call": call_id},
         )
 
     return link
@@ -1337,11 +1353,19 @@ async def _exhaust_contact(
     )
 
 
-async def _reap_stuck_dialing(session: Any, campaign_id: UUID, *, tenant_id: UUID) -> int:
+async def _reap_stuck_dialing(
+    session: Any,
+    campaign_id: UUID,
+    *,
+    tenant_id: UUID,
+    max_attempts: int,
+    retry_policy: dict[str, Any],
+) -> int:
     """A dial whose call never produced a terminal event would pin a contact in
     `dialing` forever and the campaign would never complete. After `STUCK_DIALING_AFTER`
     — which OUTLIVES the longest call an agent may be configured for, see the constant —
-    it goes back on the ladder.
+    it goes back on the ladder, and exhausts like any other attempt when the ladder is
+    spent.
 
     EXCEPT when the call it is pinned to is one the vendor never named. That is the
     signature of a dial whose response we lost (`dispatch_call` commits the intent row
@@ -1384,16 +1408,34 @@ async def _reap_stuck_dialing(session: Any, campaign_id: UUID, *, tenant_id: UUI
             extra={"campaign_id": str(campaign_id), "contact_id": str(contact_id)},
         )
 
-    result = await session.execute(
-        text(
-            "UPDATE campaign_contacts SET status = 'pending', "
-            "next_attempt_at = now() + interval '30 minutes', updated_at = now() "
-            "WHERE campaign_id = :cid AND status = 'dialing' "
-            "AND last_attempt_at < now() - make_interval(secs => :stuck)"
-        ),
-        {"cid": campaign_id, "stuck": STUCK_DIALING_AFTER.total_seconds()},
-    )
-    return rowcount_of(result) + len(stranded)
+    # The rest were dialled — the vendor named the call — and never produced a terminal
+    # event. They go through `_record_failure`, the same ladder an unanswered call takes,
+    # rather than straight back to `pending`: the claim increments `attempts` but never
+    # compares it with `max_attempts`, so a bare return to `pending` let a contact whose
+    # calls kept stranding be rung again every reap cycle with no ceiling at all. A
+    # stranded dial is an attempt that rang, and it spends a rung like one.
+    reaped = (
+        await session.execute(
+            text(
+                "SELECT id, attempts FROM campaign_contacts "
+                "WHERE campaign_id = :cid AND status = 'dialing' "
+                "AND last_attempt_at < now() - make_interval(secs => :stuck) "
+                "FOR UPDATE SKIP LOCKED"
+            ),
+            {"cid": campaign_id, "stuck": STUCK_DIALING_AFTER.total_seconds()},
+        )
+    ).all()
+    for contact_id, attempts in reaped:
+        await _record_failure(
+            session,
+            UUID(str(contact_id)),
+            int(attempts),
+            max_attempts,
+            retry_policy,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+        )
+    return len(reaped) + len(stranded)
 
 
 async def _record_failure(
@@ -1418,9 +1460,9 @@ async def _record_failure(
     exhaustion cannot leave a message queued to somebody we are still trying to phone.
 
     `enqueue_campaign_escalation` is what makes it once-per-contact. The status
-    transition cannot: `_reap_stuck_dialing` returns a stranded contact to `pending`
-    with its attempts intact and no ceiling, so the same person can reach "exhausted"
-    more than once, and the second message would be about the same single enquiry.
+    transition is not relied on for that: `failed` is terminal to every writer in this
+    module, but the escalation is keyed on the contact so that a writer added later that
+    re-opens one cannot send a second message about the same single enquiry.
 
     `tenant_id`/`campaign_id` are optional so the two call sites can pass what they have;
     without them the contact is still failed correctly and the escalation is skipped
