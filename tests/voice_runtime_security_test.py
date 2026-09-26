@@ -258,7 +258,8 @@ async def test_a_repeated_delivery_yields_one_inbox_row_and_one_job(
 
 async def test_the_ack_is_measured_and_carries_no_pipeline_work() -> None:
     """Hard rule 3 puts a number on this path — ack < 500ms — because a vendor that
-    delivers at most once does not retry a slow receiver: it LOSES the call. `X-Ack-Ms` is how a regression shows up as a number rather than as a mystery.
+    delivers at most once does not retry a slow receiver: it LOSES the call. `X-Ack-Ms` is
+    how a regression shows up as a number rather than as a mystery.
 
     Deliberately NOT asserted: a hard millisecond bound. A CI box under load would make
     that flaky, and flaky latency assertions get deleted, which is worse than not having

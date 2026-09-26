@@ -25,17 +25,15 @@ import os
 import uuid
 from typing import Any
 
-import pytest
 from apps.api.ingest import meta
 from apps.api.ingest import routes as ingest_routes
-from apps.api.main import app as api_app
-from httpx import ASGITransport, AsyncClient
 from tests.meta_lead_ads_test import (
     _client,
     _daytime,  # noqa: F401 — pins the compliance clock
     _signed,
     _tenant_with_meta_source,
 )
+
 
 def _incompressible(length: int) -> str:
     """A string of `length` characters that Postgres cannot compress away.

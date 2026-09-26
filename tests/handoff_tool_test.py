@@ -50,9 +50,7 @@ def test_the_endpoint_and_the_worker_name_the_same_job() -> None:
     assert tool_routes.HANDOFF_JOB == HANDOFF_JOB
 
 
-async def test_a_stranger_cannot_forge_a_handover_notice(
-    monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_stranger_cannot_forge_a_handover_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     """A call the receiver cannot authenticate queues nothing — driven here through a
     signing engine's path, which `verify_source` refuses until a verifier exists.
     A forged notice would write a `handoff_attempts` row against a real tenant claiming
@@ -76,7 +74,7 @@ async def test_a_stranger_cannot_forge_a_handover_notice(
 
 
 async def test_a_notice_naming_no_execution_is_refused_rather_than_acked(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A handover we cannot attribute to a conversation is a row we could only write into
     somebody's account at random. 422, and nothing queued."""
@@ -94,7 +92,7 @@ async def test_a_notice_naming_no_execution_is_refused_rather_than_acked(
 
 
 async def test_the_notice_queues_the_job_and_writes_nothing(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Hard rule 3: ack fast, defer everything. The model's `reason` and `summary` cross the
     queue because they exist nowhere else — the execution record's own summary is not
@@ -131,7 +129,7 @@ async def test_the_notice_queues_the_job_and_writes_nothing(
 
 
 async def test_the_ack_carries_the_measurement_every_tool_on_this_router_does(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """TRD §6.2's in-call budget is measured per endpoint, not pooled: this one lands in
     `tool_ack_ms` beside the other three, so a regression here is visible as itself."""

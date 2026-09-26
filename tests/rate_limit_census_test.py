@@ -308,9 +308,7 @@ def test_the_middleware_still_has_no_second_profile_table() -> None:
 #: receiver. Named here rather than detected, because
 #: what makes a route belong on this list is who dials it, which no amount of reading the
 #: path can tell you.
-VENDOR_CALLED = (
-    ("/hooks/v1/ingest/{webhook_id}", "POST"),
-)
+VENDOR_CALLED = (("/hooks/v1/ingest/{webhook_id}", "POST"),)
 
 
 @pytest.mark.parametrize(("path", "method"), VENDOR_CALLED)

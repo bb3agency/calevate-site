@@ -10,7 +10,7 @@ invoice is priced off MINUTES at their own plan rate (`prepaid_billed_inr`,
 `usage_summary`), never off what the engine charged us. What is wrong is OUR recorded cost,
 which is what `margin_for_tenant` and every spend cap are computed from.
 
-⚠ **The alarm that used to page for this, `engine_cost_implausible`, was raised by the rented
+⚠ **The cost-plausibility alarm that used to page for this was raised by the rented
 engine's adapter and went with it (D-639).** The rows that adapter wrote are history and
 still carry `meta.source_currency`, `meta.source_amount` and `meta.fx_rate`, which is what
 the restatement below reads. The tooling is engine-neutral.

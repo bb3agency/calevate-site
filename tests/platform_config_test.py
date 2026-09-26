@@ -642,5 +642,3 @@ async def test_voice_runtime_adopts_console_config_when_it_boots() -> None:
     # compare equal.
     assert in_force == Decimal("13.25")
     assert str(in_force) == "13.25"
-
-

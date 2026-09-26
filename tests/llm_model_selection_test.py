@@ -72,7 +72,6 @@ from calevate_shared.engine import (
     PLATFORM_DEFAULT_LLM_MODEL,
     SELECTABLE_LLM_MODELS,
     AgentConfig,
-    ModelConfig,
 )
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient

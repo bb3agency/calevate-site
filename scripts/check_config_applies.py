@@ -116,12 +116,13 @@ def _unbounded_reason(field: str) -> str | None:
 def classified_keys() -> tuple[str, ...]:
     """Every key that must carry a classification: plain config AND credentials.
 
-    BOTH SURFACES, ONE TABLE. The Secrets panel makes the same implicit promise the
-    config panel does — set it and it is in force in seconds — and for an engine key
-    such as `cartesia_api_key` that promise is false: the adapter captures the key when
-    `get_engine()` builds it and the instance is cached for the life of the process. A rotation that does not
-    reach the code placing calls presents as the VENDOR rejecting us, which sends an
-    operator to the wrong system entirely. One question, one vocabulary, one table.
+    BOTH SURFACES, ONE TABLE. The Secrets panel makes the same implicit promise the config
+    panel does — set it and it is in force in seconds — and for an engine key such as
+    `cartesia_api_key` that promise is false: the adapter captures the key when
+    `get_engine()` builds it and the instance is cached for the life of the process. A
+    rotation that does not reach the code placing calls presents as the VENDOR rejecting us,
+    which sends an operator to the wrong system entirely. One question, one vocabulary, one
+    table.
     """
     return (*managed_fields(), *manageable_secret_keys())
 

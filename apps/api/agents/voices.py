@@ -216,11 +216,12 @@ create.md:640-644` enumerates only `[polly, elevenlabs, deepgram, styletts]`, al
 narrower than what their own provider pages ship) — but they are declared in Bolna's OSS,
 which was read: `CartesiaConfig(StandardVoiceConfig)` = `{voice, voice_id, model, language,
 speed}` (VERIFIED-OSS, `bolna-ai/bolna`@`ae03977fa2a9ecec3171b45c6cac6d00236b957f`,
-`bolna/models.py`; plan ADDENDUM 3 §3.1). The rented engine's adapter (deleted by D-639) built that block, worked around three
-defects in that same repository, and refused ONE case by name: a Cartesia agent with no
-voice id — which is exactly what this empty catalogue produces. ⚠ Whether the HOSTED platform runs that commit is UNKNOWN, so
-OPERATIONS §2 gate 52 is narrowed rather than closed: it now asks whether the hosted
-platform accepts these fields, not what the fields are.
+`bolna/models.py`; plan ADDENDUM 3 §3.1). The rented engine's adapter (deleted by D-639)
+built that block, worked around three defects in that same repository, and refused ONE case
+by name: a Cartesia agent with no voice id — which is exactly what this empty catalogue
+produces. ⚠ Whether the HOSTED platform runs that commit is UNKNOWN, so OPERATIONS §2 gate
+52 is narrowed rather than closed: it now asks whether the hosted platform accepts these
+fields, not what the fields are.
 
 WHETHER THIS CATALOGUE IS OFFERABLE AT ALL IS A SEPARATE QUESTION (D-93)
 ------------------------------------------------------------------------

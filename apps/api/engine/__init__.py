@@ -44,11 +44,11 @@ def build_engine(cfg: Settings) -> VoiceEngine:
     Split out of `get_engine` (D-104) so a caller that must not see a cached answer has
     somewhere honest to go. `get_engine` keys its cache on the engine NAME alone, which is
     right for the request path — one process serves one deployment, and an adapter that
-    copies a credential at construction (`cartesia_api_key` is `on_restart` for that
-    reason) keeps it for the life of the process. It is WRONG for a caller that hands in a `Settings` it built itself: it would get back an
-    adapter constructed from a different one and never know. `runtime_config_missing_keys`
-    is exactly that caller, and readiness answering about the wrong configuration is worse
-    than readiness not answering.
+    copies a credential at construction (`cartesia_api_key` is `on_restart` for that reason)
+    keeps it for the life of the process. It is WRONG for a caller that hands in a
+    `Settings` it built itself: it would get back an adapter constructed from a different
+    one and never know. `runtime_config_missing_keys` is exactly that caller, and readiness
+    answering about the wrong configuration is worse than readiness not answering.
 
     The `EngineName` annotation is load-bearing again: it was widened to `str` while
     `cartesia` was missing from the literal, and mypy's `warn_unreachable` now proves the

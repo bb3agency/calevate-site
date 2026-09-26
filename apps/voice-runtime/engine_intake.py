@@ -199,9 +199,10 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     return IntakeVerdict(ok=False, method="none", reason="unknown engine")
 
 
-# The longest a keyable field may be. Execution ids are uuid-shaped (36 chars) and a
-# vendor status is a short enum member, so 128 is several times either — generous enough that a vendor change does not start dropping real
-# events, and far under the ~2704-byte ceiling a btree index tuple has.
+# The longest a keyable field may be. Execution ids are uuid-shaped (36 chars) and a vendor
+# status is a short enum member, so 128 is several times either — generous enough that a
+# vendor change does not start dropping real events, and far under the ~2704-byte ceiling a
+# btree index tuple has.
 #
 # THE CEILING IS NOT COSMETIC. `execution_id` and `raw_status` are concatenated into
 # `webhook_inbox_events.event_key`, which carries a UNIQUE index: a long enough value in

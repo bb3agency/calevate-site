@@ -2153,9 +2153,9 @@ def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: 
 
     **A NEGATIVE DURATION IS NOT A DURATION, AND IT USED TO REACH THE MONEY PATH.**
     `ExecutionSnapshot.duration_s` is `int | None` with no floor, and a vendor adapter
-    builds it from whatever number the vendor sent (`engine/cartesia.py`) — so a vendor's `-1` "unknown" sentinel,
-    or a duration derived from two clocks that disagree, arrives here as a real number
-    and is multiplied through everything.
+    builds it from whatever number the vendor sent (`engine/cartesia.py`) — so a vendor's
+    `-1` "unknown" sentinel, or a duration derived from two clocks that disagree, arrives
+    here as a real number and is multiplied through everything.
 
     Measured on this tree before the guard existed, on a tenant with ₹120.96 already
     accrued for the month (`tests/negative_duration_test.py` is the reproduction):
@@ -2222,17 +2222,18 @@ def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: 
 
 
 # THERE IS NO `_ist_month` HERE ANY MORE, and its removal is a money fix rather than a
-# tidy-up. It read `(moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")`, which
-# is the right arithmetic ONLY for a moment expressed in UTC — `strftime` renders the
-# instant's own naive fields, so a value already carrying +05:30 got shifted a second
-# time. Nothing guarantees UTC: an adapter parses `ended_at` with `datetime.fromisoformat`
-# and PRESERVES whatever offset the vendor sent, and a vendor serving India may send +05:30. A call at 23:00 IST on the last of the month was therefore
-# counted into the NEXT month's `spend_state` while its own `usage_events` row — read back
-# through `billing.service._IST_MONTH`, which goes via `timestamptz` and is correct — sat
-# in the right one. `billing.plans.ist_billing_month` is the one spelling, converts
-# properly for any aware instant, and refuses a naive one instead of billing a month it
-# guessed. (`tests/billing_month_ordering_test.py` and `tests/one_billing_month_spelling_
-# test.py` are the two halves that keep it that way.)
+# tidy-up. It read `(moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")`, which is
+# the right arithmetic ONLY for a moment expressed in UTC — `strftime` renders the instant's
+# own naive fields, so a value already carrying +05:30 got shifted a second time. Nothing
+# guarantees UTC: an adapter parses `ended_at` with `datetime.fromisoformat` and PRESERVES
+# whatever offset the vendor sent, and a vendor serving India may send +05:30. A call at
+# 23:00 IST on the last of the month was therefore counted into the NEXT month's
+# `spend_state` while its own `usage_events` row — read back through
+# `billing.service._IST_MONTH`, which goes via `timestamptz` and is correct — sat in the
+# right one. `billing.plans.ist_billing_month` is the one spelling, converts properly for
+# any aware instant, and refuses a naive one instead of billing a month it guessed.
+# (`tests/billing_month_ordering_test.py` and `tests/one_billing_month_spelling_test.py`
+# are the two halves that keep it that way.)
 
 
 # --- the spend cap ------------------------------------------------------------
@@ -3994,14 +3995,14 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
 async def reconcile_executions(ctx: dict[str, Any]) -> str:
     """The guarantee of record (D-31), not a safety net.
 
-    A vendor's webhook retry, where it exists at all, is unspecified in every dimension that would let us rely on it — no count, no
-    schedule, no ceiling, and no statement that it ever gives up other than by silence —
-    so a delivery lost to a deploy is still a call that may never be mentioned again, and
-    a mechanism whose bound is unpublished cannot be the guarantee of record. What a retry
-    DOES bind is the receiver, which must be idempotent under redelivery rather
-    than merely tolerant of it: `voice-runtime` keys the inbox on the
-    `(execution_id, raw_status)` PAIR, never on the execution id, or the vendor's own
-    retry of `completed` is discarded as a duplicate of `queued`.
+    A vendor's webhook retry, where it exists at all, is unspecified in every dimension that
+    would let us rely on it — no count, no schedule, no ceiling, and no statement that it
+    ever gives up other than by silence — so a delivery lost to a deploy is still a call
+    that may never be mentioned again, and a mechanism whose bound is unpublished cannot be
+    the guarantee of record. What a retry DOES bind is the receiver, which must be
+    idempotent under redelivery rather than merely tolerant of it: `voice-runtime` keys the
+    inbox on the `(execution_id, raw_status)` PAIR, never on the execution id, or the
+    vendor's own retry of `completed` is discarded as a duplicate of `queued`.
 
     So: this runs every 10 minutes, lists executions since the last window, and re-drives
     anything the post-call pipeline has not actually finished (`_pipeline_settled`). Every

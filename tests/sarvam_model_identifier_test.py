@@ -75,7 +75,6 @@ whatever the DEFAULT is, which keeps working the next time it moves.
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 from typing import Final
 

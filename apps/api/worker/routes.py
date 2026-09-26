@@ -10,7 +10,8 @@ Pipecat Cloud and cannot reach our Postgres — that database is on the VPS host
 Docker bridge. Of the four options recorded there this is the third, and it is the only one
 that does not put the database holding every client's caller data on the public internet.
 
-**WHY IT IS HERE AND NOT IN `apps/voice-runtime`.** These handlers read `agent_config_versions` and WRITE `calls`, `transcript_turns`,
+**WHY IT IS HERE AND NOT IN `apps/voice-runtime`.** These handlers read
+*`agent_config_versions` and WRITE `calls`, `transcript_turns`,
 `usage_events` and the outbox under a tenant's RLS, they run `apps/workers/redaction` and
 they consult `apps/api/billing/rates`. Hard rule 3 forbids heavy imports and DB writes
 beyond a minimal event row on the latency-critical service by name, and

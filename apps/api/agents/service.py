@@ -62,12 +62,13 @@ phone line, which is the direction that must never happen.
 
 THE CALL CAP (SURFACES §2b:107)
 -------------------------------
-`_to_config` fills `AgentConfig.max_call_duration_s` from the agent row. The field and
-its vendor mapping already existed in the engine adapter — and nothing filled it, so every agent on the platform
-published the Pydantic default and no client could change it. Publish time is where
-the guard is enforced because the engine is the only party that can hang up a call:
-we are not in the audio path (hard rule 3), and an inbound runaway is never dispatched
-by us at all, so a dispatch-side check would leave the receptionist motion unguarded.
+`_to_config` fills `AgentConfig.max_call_duration_s` from the agent row. The field and its
+vendor mapping already existed in the engine adapter — and nothing filled it, so every
+agent on the platform published the Pydantic default and no client could change it.
+Publish time is where the guard is enforced because the engine is the only party that can
+hang up a call: we are not in the audio path (hard rule 3), and an inbound runaway is never
+dispatched by us at all, so a dispatch-side check would leave the receptionist motion
+unguarded.
 """
 
 from __future__ import annotations
@@ -628,17 +629,17 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
        deployment ID the operator chose, and the v1 surface addresses THAT. A resource
        with no deployment addresses a host and no model.
 
-    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, AND THE GAP GOT WIDER RATHER THAN
-    NARROWER WHEN THE VENDOR'S DOCS WERE READ.** It proves WE hold a key. It does not
-    prove the ENGINE holds it: Bolna authenticates from its own credential store, which
+    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, AND THE GAP GOT WIDER RATHER THAN NARROWER
+    WHEN THE VENDOR'S DOCS WERE READ.** It proves WE hold a key. It does not prove the
+    ENGINE holds it: Bolna authenticates from its own credential store, which
     `VoiceEngine.set_llm_credential` writes. An Azure leg needs FOUR entries — the key, the
-    endpoint, the deployment and an api-version — and the platform can only PUSH the key: the endpoint, the
-    deployment and an api-version whose value nothing here can derive are the operator's
-    to install, so "the engine is configured" is further from "we hold a key" than it was
-    when this comment believed one entry was the whole of it. The condition stays "this
-    deployment holds a key it could install", which is the strongest thing a publish path
-    can check without doing the vendor's bookkeeping for it, and OPERATIONS §2 gate 16f
-    is where the rest is observed.
+    endpoint, the deployment and an api-version — and the platform can only PUSH the key:
+    the endpoint, the deployment and an api-version whose value nothing here can derive are
+    the operator's to install, so "the engine is configured" is further from "we hold a key"
+    than it was when this comment believed one entry was the whole of it. The condition
+    stays "this deployment holds a key it could install", which is the strongest thing a
+    publish path can check without doing the vendor's bookkeeping for it, and OPERATIONS §2
+    gate 16f is where the rest is observed.
 
     WHAT D-410 DELETED FROM THIS LADDER, said plainly rather than left as an absence:
     the founder's constant (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`) is gone with the
@@ -3126,17 +3127,17 @@ async def provision_number(
 
     **`engine_number_ref` IS THE COLUMN THAT HAD NO WRITER, AND ITS ABSENCE BROKE EVERY
     INBOUND PUBLISH (GAP-1).** It is declared on `phone_numbers`, it is READ by
-    `route_inbound_numbers` → `bind_inbound_number` (the rented engine's adapter resolved
-    it to the vendor's number id; D-639 deleted it), and until now the only INSERT in production code omitted it, no request body carried
-    it (`ProvisionNumberIn` is `extra="forbid"`) and no screen set it — a repo-wide grep
-    found it written only in test fixtures. The consequence, on every publish of an inbound
-    agent with a recorded number: `engine_number_not_linked`, one `CORE_LOGIC` alarm per
-    number, and a publish that reports SUCCESS. It is optional here rather than required
-    because it is genuinely unknown at the moment a client's own connection is first
-    recorded — the operator learns the vendor's handle when the number is introduced to the
-    voice platform, which is a later step — and `set_number_engine_ref` is where it lands
-    then. What is not acceptable, and was the state before D-537, is that there was no
-    later step at all.
+    `route_inbound_numbers` → `bind_inbound_number` (the rented engine's adapter resolved it
+    to the vendor's number id; D-639 deleted it), and until now the only INSERT in
+    production code omitted it, no request body carried it (`ProvisionNumberIn` is
+    `extra="forbid"`) and no screen set it — a repo-wide grep found it written only in test
+    fixtures. The consequence, on every publish of an inbound agent with a recorded number:
+    `engine_number_not_linked`, one `CORE_LOGIC` alarm per number, and a publish that
+    reports SUCCESS. It is optional here rather than required because it is genuinely
+    unknown at the moment a client's own connection is first recorded — the operator learns
+    the vendor's handle when the number is introduced to the voice platform, which is a
+    later step — and `set_number_engine_ref` is where it lands then. What is not acceptable,
+    and was the state before D-537, is that there was no later step at all.
 
     **`engine_owned` DECIDES WHAT A RELEASE MEANS** and defaults to False, which is what
     every client-brought connection is: releasing one at the vendor would do nothing there

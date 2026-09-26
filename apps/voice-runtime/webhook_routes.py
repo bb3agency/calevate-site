@@ -3,8 +3,8 @@
 The contract this file must satisfy, in order:
 
 1. **Verify authenticity per engine, before reading a byte of body**
-   (`engine_intake.verify_source`), plus execution-id dedupe. Everything after this step is work done for a caller we have
-   already decided to trust, which is why the order matters.
+   (`engine_intake.verify_source`), plus execution-id dedupe. Everything after this step is
+   work done for a caller we have already decided to trust, which is why the order matters.
 2. **Ack in under 500ms.** Measured AND reported on every response path
    (`X-Ack-Ms` + `record_webhook_ack_ms`), so a regression shows up as a number
    rather than as a mystery — including on the paths a flood would take, which are

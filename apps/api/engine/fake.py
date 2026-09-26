@@ -279,12 +279,13 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     transfer=True,
     # **THE EXACT MIRROR OF THE DEFAULT PROFILE, AND THE ONLY PLACE THE PAIR IS PROVED
     # DISTINGUISHABLE** (D-533). The default has no out-of-band transfer command and DOES
-    # have an in-call handoff tool; this shape is the opposite, and one of the two had to exist or the two fields
-    # would be a distinction nothing exercises. It is also the only profile that both
-    # HOSTS agents and refuses the handoff, which is what makes the refusal branch of
-    # `require_capability("in_call_handoff")` reachable at all: on the externally-deployed
-    # shape `create_agent` refuses one step earlier, on `agent_hosting`, so a suite with
-    # only that profile would report the handoff clause green having never run it.
+    # have an in-call handoff tool; this shape is the opposite, and one of the two had to
+    # exist or the two fields would be a distinction nothing exercises. It is also the only
+    # profile that both HOSTS agents and refuses the handoff, which is what makes the
+    # refusal branch of `require_capability("in_call_handoff")` reachable at all: on the
+    # externally-deployed shape `create_agent` refuses one step earlier, on `agent_hosting`,
+    # so a suite with only that profile would report the handoff clause green having never
+    # run it.
     in_call_handoff=False,
     # **THE PROFILE THAT MAKES THIS REFUSAL REACHABLE TOO** (D-615), and it is here for
     # `in_call_handoff`'s reason rather than as a second axis: the externally-deployed
@@ -1261,11 +1262,11 @@ class FakeEngine:
         if call is None:
             # RAISES, and the comment that used to sit here said it did while the code
             # fabricated a `status="failed"` snapshot instead (P2.6). Two adapters then
-            # disagreed about the same input — a vendor adapter 404s, so its request
-            # ladder raises `engine_rejected` — which is verbatim the divergence the conformance suite
-            # exists to prevent, and it went unnoticed because there was no clause for
-            # `get_execution` on an unknown id (there are explicit ones for `get_agent`
-            # and `detach_kb`).
+            # disagreed about the same input — a vendor adapter 404s, so its request ladder
+            # raises `engine_rejected` — which is verbatim the divergence the conformance
+            # suite exists to prevent, and it went unnoticed because there was no clause for
+            # `get_execution` on an unknown id (there are explicit ones for `get_agent` and
+            # `detach_kb`).
             #
             # A FABRICATED "failed" IS THE WORST OF THE AVAILABLE ANSWERS, because it is
             # indistinguishable from a real failed call: the poller would record a repair

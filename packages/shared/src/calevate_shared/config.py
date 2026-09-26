@@ -1589,11 +1589,11 @@ NO_SMTP_HOST_REASON = "no_smtp_host"
 def email_transport_reason(settings: Settings) -> str | None:
     """Why this deployment can deliver no email, or None when it can. ONE resolver.
 
-    Both halves of the email question call THIS — `core/transport.get_transport()`,
-    which builds the transport, and `core/observability.init_observability`, which warns
-    at boot that alerts have nowhere to go — because a second read of the same fields is
-    a second answer waiting to disagree, and the disagreement here reads as "the boot line said alerts were fine and
-    no alert ever arrived".
+    Both halves of the email question call THIS — `core/transport.get_transport()`, which
+    builds the transport, and `core/observability.init_observability`, which warns at boot
+    that alerts have nowhere to go — because a second read of the same fields is a second
+    answer waiting to disagree, and the disagreement here reads as "the boot line said
+    alerts were fine and no alert ever arrived".
 
     IT LIVES HERE, BESIDE THE FIELDS, rather than with the transports, and that is not
     tidiness. `apps/voice-runtime` calls `init_observability` at boot and is forbidden to

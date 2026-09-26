@@ -604,16 +604,17 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # `ENGINE=` (`config.EngineName` does not include it), so it can reach no deployment.
     "fake-owned-runtime": "none",
     # Cartesia Line's webhooks are AUTHENTICATED BY SOMETHING WE CANNOT CHECK YET, and
-    # `hmac` is this Literal's only value that fails CLOSED. What is read at source is
-    # that webhooks exist at all (`AgentSummary.webhook_id` in their generated client);
-    # no Cartesia SDK carries a signing scheme, and the only description of one is a
-    # search snippet naming an `x-webhook-secret` SHARED SECRET header — which is not an
-    # HMAC (D-270, `docs/vendor/cartesia/webhooks-cost-and-kb.md`). So
+    # `hmac` is this Literal's only value that fails CLOSED. What is read at source is that
+    # webhooks exist at all (`AgentSummary.webhook_id` in their generated client); no
+    # Cartesia SDK carries a signing scheme, and the only description of one is a search
+    # snippet naming an `x-webhook-secret` SHARED SECRET header — which is not an HMAC
+    # (D-270, `docs/vendor/cartesia/webhooks-cost-and-kb.md`). So
     # `CartesiaEngine.verify_webhook` fails CLOSED rather than guessing a header and a
     # digest, and the receiver refuses `hmac` deliveries until a real verifier exists.
     # Declared here anyway because the declaration is what the receiver reads, and
-    # "authenticated, and we cannot check it yet" must not be recorded as "unsigned". If the scheme turns out to be a shared secret, a
-    # `shared_secret` member lands in `WebhookAuthMethod` and in both halves together.
+    # "authenticated, and we cannot check it yet" must not be recorded as "unsigned". If the
+    # scheme turns out to be a shared secret, a `shared_secret` member lands in
+    # `WebhookAuthMethod` and in both halves together.
     "cartesia": "hmac",
     # THE ENGINE WE RUN (D-592, `docs/PIPECAT-MIGRATION.md` §3D). `none` because there is
     # no counterpart: nothing external calls us — the worker is inside our own trust
@@ -1017,10 +1018,10 @@ _TRAP_READ_ON: Final = date(2026, 8, 22)
 #: GPT-5-SERIES MODELS ACCEPT EXACTLY ONE TEMPERATURE, AND WE SEND `0.1`.
 #:
 #: The rented engine's adapter (deleted by D-639) sent `temperature: 0.1` on every publish,
-#: and that engine's schema documents the refusal verbatim: *"GPT-5-series models require exactly `1`
-#: — any other value is rejected with `400 For GPT-5 models, temperature must be 1`"*. It is
-#: latent today only because no shipped identifier starts with `gpt-5`; the moment one is
-#: SELECTABLE, every publish of an agent on it 400s.
+#: and that engine's schema documents the refusal verbatim: *"GPT-5-series models require
+#: exactly `1` — any other value is rejected with `400 For GPT-5 models, temperature must be
+#: 1`"*. It is latent today only because no shipped identifier starts with `gpt-5`; the
+#: moment one is SELECTABLE, every publish of an agent on it 400s.
 TEMPERATURE_MUST_BE_ONE: Final = LlmModelTrap(
     name="temperature-must-be-one",
     what_breaks=(

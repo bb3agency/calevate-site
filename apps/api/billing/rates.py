@@ -1147,14 +1147,15 @@ def stt_cost_inr(duration_s: int) -> Decimal:
     ⚠ **A MODEL FIGURE, NEVER A BILL — and unlike the TTS half this leg HAS a real
     counterpart on the ledger, so the distinction is sharper here than it is one function
     up.** What reaches `usage_events.unit_cost_paid` for STT on a rented-engine call is the
-    ENGINE's own reported per-leg cost: `CostBreakdown.stt_inr`, divided by the call's billable minutes in
-    `workers/pipeline.py::_meter` to make a price per unit of `qty` (on the owned runtime,
-    which holds its own Sarvam account, the ledger rate is `stt_rate_inr_per_minute`).
-    Nothing on the engine path consults this function and nothing may: the
-    engine rents its own Sarvam account, so what IT charges us is a fact about ITS invoice,
-    while this card is a fact about Sarvam's list. Two numbers with two meanings — "what we
-    pay" and "what the vendor lists" — and they are never the same variable again, which is
-    the argument `llm_cost_inr_per_minute` makes for the LLM leg arriving on the speech one.
+    ENGINE's own reported per-leg cost: `CostBreakdown.stt_inr`, divided by the call's
+    billable minutes in `workers/pipeline.py::_meter` to make a price per unit of `qty` (on
+    the owned runtime, which holds its own Sarvam account, the ledger rate is
+    `stt_rate_inr_per_minute`). Nothing on the engine path consults this function and
+    nothing may: the engine rents its own Sarvam account, so what IT charges us is a fact
+    about ITS invoice, while this card is a fact about Sarvam's list. Two numbers with two
+    meanings — "what we pay" and "what the vendor lists" — and they are never the same
+    variable again, which is the argument `llm_cost_inr_per_minute` makes for the LLM leg
+    arriving on the speech one.
 
     **THE VENDOR'S BILLING GRANULARITY IS UNKNOWN, AND IS NOT IMPUTED.** The catalogue
     prices "per hour of audio"; whether a request is billed on exact audio duration, on

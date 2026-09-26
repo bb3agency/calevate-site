@@ -1078,10 +1078,10 @@ def test_a_sigterm_mid_request_drains_it_instead_of_aborting_it(tmp_path) -> Non
     WAIT for open connections) never ran, and the lifespan's own `finally` never ran, so
     Redis was not closed and pending spans were dropped.
 
-    `hooks.calevate.tech` is voice-runtime, the only service with live calls on it, and
-    the rented engine's webhooks were at-most-once with no retry (D-31): every deploy dropped whatever
-    was in flight, and `stop_grace_period: 30s` in compose.prod.yml had nothing to give
-    its 30 seconds to.
+    `hooks.calevate.tech` is voice-runtime, the only service with live calls on it, and the
+    rented engine's webhooks were at-most-once with no retry (D-31): every deploy dropped
+    whatever was in flight, and `stop_grace_period: 30s` in compose.prod.yml had nothing to
+    give its 30 seconds to.
 
     Asserted on the REQUEST rather than on the handler, because the handler is not the
     property: what matters is that a request already accepted is answered.

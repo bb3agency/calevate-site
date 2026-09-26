@@ -150,7 +150,7 @@ def test_the_refusal_vocabulary_is_closed() -> None:
 
 
 async def test_a_stranger_cannot_book_a_call_on_a_clients_account(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A call the receiver cannot authenticate queues nothing — driven here through a
     signing engine's path, which `verify_source` refuses until a verifier exists.
@@ -175,7 +175,7 @@ async def test_a_stranger_cannot_book_a_call_on_a_clients_account(
 
 
 async def test_an_unconfirmed_time_is_not_booked_and_is_handed_back_to_read_out(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """CONFIRM BEFORE COMMIT. The agent gets the resolved time in the form it must read;
     the caller gets the chance to say "no, four in the afternoon"."""
@@ -203,7 +203,7 @@ async def test_an_unconfirmed_time_is_not_booked_and_is_handed_back_to_read_out(
 
 
 async def test_a_confirmed_time_queues_the_booking_and_writes_nothing(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Hard rule 3: ack fast, defer everything. THE RESOLVED INSTANT crosses the queue and
     never the caller's words — one parser, in one place, with one set of refusals, is what
@@ -242,7 +242,7 @@ async def test_a_confirmed_time_queues_the_booking_and_writes_nothing(
 
 
 async def test_a_caller_who_returns_to_an_earlier_time_gets_a_job_arq_will_accept(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """ "Four — no, five — no, four after all." arq refuses a job id whose result it still
     holds (`keep_result`), so if the third booking reused the first one's id it would be
@@ -272,7 +272,7 @@ async def test_a_caller_who_returns_to_an_earlier_time_gets_a_job_arq_will_accep
 
 
 async def test_a_time_outside_calling_hours_is_a_conversation_and_not_an_error(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """200 AND NOT A 4xx, deliberately: the vendor's own troubleshooting reads a failing
     tool call as a misconfiguration, so an error would tell the agent OUR API is broken.
@@ -305,7 +305,7 @@ async def test_a_time_outside_calling_hours_is_a_conversation_and_not_an_error(
 
 
 async def test_only_an_explicit_yes_counts_as_a_confirmation(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """NARROW ON PURPOSE. An unrecognised value costs one conversational turn; the other
     direction costs a wrong time. `1`, `"y"` and a non-empty string are all NOT yes."""
@@ -347,7 +347,7 @@ async def test_only_an_explicit_yes_counts_as_a_confirmation(
 
 
 async def test_calling_a_callback_off_never_depends_on_reading_a_time(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A cancellation must not be able to fail because a date could not be parsed, which is
     why it is its own function with no time in it at all. It is also NOT the opt-out: "do

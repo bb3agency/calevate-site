@@ -158,7 +158,9 @@ async def test_declare_respects_master_switch_and_trigger() -> None:
         )
 
         # Master switch OFF (default): nothing declared.
-        assert await service.declare(s, agent_id=agent, engine="cartesia", direction="inbound") == ()
+        assert (
+            await service.declare(s, agent_id=agent, engine="cartesia", direction="inbound") == ()
+        )
 
         # Master switch ON: only the during-call tool, with agent-ref injected.
         await service.set_actions_enabled(s, agent_id=agent, enabled=True)

@@ -131,9 +131,10 @@ class TestWiring:
         RAISED 40 -> 43 by D-621, and this is the largest single jump since the auth slice,
         so it earns the longest note. The three are `/v1/worker/*`: the voice worker's
         session read and its two writes. They are exempt from the RBAC registry for a
-        structural reason — a container on Pipecat Cloud holds no Calevate session and no membership a permission could be checked against — and
-        they present the same class of credential, a Bearer token THIS deployment issued,
-        compared in constant time, with an unconfigured deployment answering nobody.
+        structural reason — a container on Pipecat Cloud holds no Calevate session and no
+        membership a permission could be checked against — and they present the same class
+        of credential, a Bearer token THIS deployment issued, compared in constant time,
+        with an unconfigured deployment answering nobody.
 
         **WHAT IS NEW AND IS THE THING TO RE-READ FIRST IF THIS BOUND MOVES AGAIN:** two of
         the three MUTATE, and they mutate the ledger. Every other mutating row on this list
