@@ -604,10 +604,10 @@ async def _record_dial_consent_granted(
     written, digital inquiry and the amended TCCCPR permits calls on one for that long.
     The expiry is set on the ROW rather than imposed by the gate, so `check_dispatch`'s
     `consent_expired` refuses every later dial path (callback, campaign, recall, "call
-    now") with one answer, and a fresh submission writes a fresh row that restarts it. No
-    other writer sets it: a call-back a caller asks for in a call is the case the amendment
-    leaves open, and a consent a client records from elsewhere has an inquiry date we never
-    saw (OPERATIONS §2 gate 60).
+    now") with one answer, and a fresh submission writes a fresh row that restarts it. A
+    call-back a caller books in a call writes its own grant, scoped to that call
+    (`consent.record_callback_request_consent`); a consent a client records from elsewhere
+    sets none, having an inquiry date we never saw (OPERATIONS §2 gate 60).
 
     HARD RULE 6: the field NAME is configuration, not personal data. The submitted value
     is not stored — only that it was in the affirmative set.

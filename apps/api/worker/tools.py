@@ -87,8 +87,8 @@ from apps.api.agents.transfer_providers import (
     PROVIDER_NOT_LICENSED as TRANSFER_PROVIDER_NOT_LICENSED,
 )
 from apps.api.callbacks import service as callbacks
+from apps.api.compliance.consent import record_callback_request_consent
 from apps.api.compliance.optout import DETECTED_IN_CALL, record_call_optout
-from apps.api.compliance.service import call_consent_lapses_by
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -333,15 +333,6 @@ async def book_callback(engine_call_id: str, request: CallbackBookIn) -> Callbac
                 extra={"tenant_id": str(tenant_id), "call_id": str(call.id), "ground": ground},
             )
             return CallbackToolOut(status="not_booked", reason=ground, say=_CALLBACK_NO_NUMBER_SAY)
-        lapse = await call_consent_lapses_by(
-            session, tenant_id=tenant_id, phone_e164=phone, at=slot.at_utc
-        )
-        if lapse is not None:
-            return CallbackToolOut(
-                status="not_booked",
-                reason=callbacks.CONSENT_LAPSES_FIRST_RULE,
-                say=callbacks.consent_lapse_say(lapse),
-            )
         booked = await callbacks.book(
             session,
             callback_id=uuid7(),
@@ -367,6 +358,17 @@ async def book_callback(engine_call_id: str, request: CallbackBookIn) -> Callbac
             note=request.note,
             language=request.language,
         )
+        # The request is the caller's consent to that call, in the same transaction as the
+        # promise, so a gate that would otherwise refuse it on the day cannot.
+        if booked is not None:
+            await record_callback_request_consent(
+                session,
+                tenant_id=tenant_id,
+                phone_e164=phone,
+                call_id=call.id,
+                callback_id=booked[0],
+                callback_at=booked[1],
+            )
     if booked is None:
         # **`callbacks.book` ANSWERS `None` FOR TWO REASONS AND THIS PATH MUST BE TRUE OF
         # BOTH.** Its upsert refuses when a LATER booking from the same conversation is

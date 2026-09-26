@@ -40,8 +40,8 @@ known.
   for traffic on its network to go through Vobiz.
 * How the termination charge is applied: the actual rate, billing increment, and the
   treatment of unanswered or failed calls.
-* **Where the A2P boundary sits** for agent-assisted or predictive dialling, and for
-  **customer-requested callbacks**. Not settled.
+* **Where the A2P boundary sits** for agent-assisted or predictive dialling. Not settled.
+  For **customer-requested callbacks** the founder has decided (§3.1).
 * Mandatory access-provider/sender contract terms and a sender classification, to be
   prescribed separately.
 
@@ -53,15 +53,13 @@ known.
    callback, recall, "call now" — because they all pass through `check_dispatch`. It does
    NOT extend to a caller's in-call request (`inbound_call_verbal`) or a staff-recorded
    request: those are not written or digital inquiries in the sense the note uses, and
-   customer-requested callbacks are the open question in §2. What that leaves is a
-   call-back a form lead books IN a call for a time after their window closes: the gate
-   would refuse it on the day, after the caller was told "booked". So a booking whose time
-   falls after the person's permission ends is refused as `consent_expires_first`
-   (`compliance.service.call_consent_lapses_by`): in the call on the Pipecat leg, with the
-   last day we may still ring offered instead, and at the moment the booking is written on
-   the Bolna leg, whose tool answer comes from voice-runtime and reads no database. A
-   booking does not itself record consent; whether a caller's own request should is the
-   same open §2 question, and it is the founder's to answer.
+   customer-requested callbacks were the open question in §2.
+   **The founder answered it on 26 Sep 2026: a caller who asks, in a call, to be rung back
+   has consented to that call.** Booking writes a `callback` grant, `inbound_call_verbal`,
+   citing the call, and lapsing two hours after the promised time
+   (`compliance.consent.record_callback_request_consent`, D-640). It is written only where
+   what is on file would not already let that call through, so it never narrows a wider
+   permission: the gate reads a person's newest row alone.
 2. **The complaint-spike pause** is tightened to the new trigger's shape: three opt-outs
    within ten days. Opt-outs are our early signal, not the operator's complaint count and
    not its AI flag, which we cannot see; the point is to pause before the operator acts.
