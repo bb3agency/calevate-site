@@ -874,12 +874,10 @@ async def test_an_over_shot_restatement_is_recoverable_through_the_adjustment() 
 
 
 async def test_a_restatement_lands_on_a_negative_balance() -> None:
-    """`allow_negative=True`, and it is not decoration.
-
-    `record_entry` refuses any write that LEAVES the balance negative, not only one that
-    makes it so. A wallet at -₹12,000 (a wrong credit reversed after it was spent) would
-    otherwise have a genuine ₹1,000 credit refused as `insufficient_credits` — the
-    accounting layer declining to record money that actually arrived.
+    """A wallet at -₹12,000 (a wrong credit reversed after it was spent) still takes a
+    genuine ₹1,000 restatement: `record_entry` refuses only a DEBIT that overdraws, so a
+    credit is never refused as `insufficient_credits` — the accounting layer declining to
+    record money that actually arrived (`tests/overdrawn_wallet_credit_test.py`).
     """
     token = await _make_admin()
     tenant_id = await _tenant()
