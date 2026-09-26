@@ -12,6 +12,16 @@ Version 1.0
 
 ## 2. Engine Verification Session — now executed as the BOLNA PILOT (D-31) [do FIRST]
 
+> ⚠ **D-639 (26 Sep 2026): THE BOLNA ADAPTER IS DELETED AND THE BOLNA PILOT WILL NOT RUN.**
+> The founder removed Bolna from the product; `ENGINE=bolna` no longer parses, and the
+> pilot harness (`scripts/pilot/`) and the provider probe went with the adapter. Every gate
+> below that is phrased against Bolna — its webhooks, its API, its console, its account,
+> its KB, its pricing — is **WITHDRAWN, not failed**: do not open a Bolna account to close
+> one. The table is kept as the record of what was asked and why, because several gates
+> ask a question the owned runtime (D-592) still has to answer about its own carrier and
+> vendors (latency, recording, transfer, deletion, concurrency). Those are re-aimed at the
+> Pipecat leg in `docs/PIPECAT-MIGRATION.md` §6/§7 and BLOCKER-1, not here.
+
 > D-31 (Aug 2026): ThinnestAI failed due diligence before this session ran; the
 > checklist below is executed against Bolna as the pilot scorecard. Adaptations:
 > item 1's HMAC criteria become source-IP-allowlist + dedupe + poller verification
@@ -103,7 +113,7 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 | 16c H | **~~WHICH credential-store entry does the hosted platform read `llm_key` from for a `provider: "custom"` leg?~~ RETIRED BY D-410 — we no longer use `provider: "custom"`, which is WHY D-410 exists** [D-404] | **THIS GATE IS THE REASON THE PRODUCT MOVED, so read it before proposing a custom-LLM route again.** A read-only sweep of the hosted dashboard and public docs (founder's browser, 19 Aug 2026 — this environment's proxy refuses every Bolna host) found: **(1) no Provider Keys UI in the current dashboard build** — the docs describe Dashboard → Developers → Provider Keys, the live `/developers` page offers only Bolna platform API keys, and `/provider-keys` redirects to `/dashboard`; **(2) the per-agent LLM provider dropdown offers `azure, openai, google, openrouter, deepseek, anthropic` and NO `custom`**; **(3) `POST /user/model/custom` takes `custom_model_name` and `custom_model_url` and nothing else**, so no credential can be attached to a custom model; **(4) nothing anywhere states which stored credential becomes `llm_key`**; **(5) the Google entry is one row, `GOOGLE` = "Your Google Gemini API key"**, with no mention of Vertex, a project, a service account or a region. That was never a proof — it was a sweep of the UI and the docs while our code used the API — but the honest reading was that the risk went up, and a leg whose whole credential path rests on an unverified premise is not a leg to build a product on. **The same sweep is also the positive evidence for D-410**: `azure` IS in that dropdown, Azure OpenAI IS in their published provider list, and their OSS `LLMProvider` carries both `azure` and `azure-openai`. The residual question — which FIELDS their Azure provider expects — is gate 16f. |
 | 16d H | **~~Does the service account hold `roles/iam.serviceAccountTokenCreator` on ITSELF, and does the org policy allow a 12-hour lifetime?~~ RETIRED BY D-410 — there is no service account and no bearer to mint** [D-404] | Two GCP grants, both external, both now irrelevant: `generateAccessToken` self-impersonation and the org policy `constraints/iam.allowServiceAccountCredentialLifetimeExtension` existed only to stretch a bearer to 12 hours. Azure OpenAI takes a static key. **The discipline this gate demonstrated is worth keeping and is applied at gate 20b**: read the granted quantity back from the vendor rather than assuming the grant succeeded, and refuse by name when it is short. |
 | 16e H | **~~Is the EXTERNAL dead man armed for the rotation loop?~~ RETIRED BY D-410 — the rotation loop is deleted, so the dead man is deleted with it** [D-408] | **A watchdog over nothing is worse than no watchdog, because it reports health.** A green check beside a job that no longer exists is a false statement repeated every four hours, and the incident it causes is the one where somebody believes it. `Settings.in_call_llm_heartbeat_url` is removed, and `apps/api/core/heartbeat.py` with it — D-408 extracted the ping so two callers could share one retry policy, and with one caller left it folds back into `scripts/host_heartbeat.py`. **The backup dead man is a different check on a different failure domain and is UNAFFECTED** — D-50/D-54, §4 below and `runbooks/backup-heartbeat-silent.md`. **Retire the vendor-side check too**, or it pages forever on a job that no longer exists. Do not read this retirement as a retreat from external observers: the argument that an observer must sit outside the failure domain it watches is unchanged and still binds anything with the same shape. |
-| 16f H | **Does Bolna's `azure-openai` provider, configured with the four documented credential entries, actually run a call against OUR Azure resource? — the FIELD NAMES are settled; three questions are not** [D-410, narrowed by the docs mirror, D-417] | **THE NAMING HALF IS CLOSED AND THE OLD DEFAULT WAS WRONG.** VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers.md`: their Azure OpenAI provider requires FOUR entries — `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION` — under *"All these keys **must** be added for the respective provider."* `Settings.bolna_llm_credential_name` defaulted to `AZURE`, which appears nowhere in that table and would have authenticated nothing; it now defaults to `AZURE_OPENAI_API_KEY`, and the full list with each key's source in our settings is `apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS`. The wire provider string moved with it: **`azure-openai`, not `azure`** (`providers/llm-model/azure-openai.md`). `POST /providers` is a flat `{provider_name, provider_value}`, so four keys means four installs and `set_llm_credential` still writes ONE — the key — because it is the only one whose value is a secret we hold. **WHAT IS STILL OPEN, and each has its own observation.** **(i) `AZURE_OPENAI_API_VERSION` has no derivable value and the vendor contradicts itself about whether it is needed** — `providers.md` calls all four mandatory, while `azure-openai.md` describes the same connection as needing *"your Azure endpoint URL, API key, and deployment name"*, three things with no api-version among them. D-410 chose the v1 surface (`…/openai/v1`) **because** it has no `api-version`; a dated string belongs to the classic `…/deployments/{id}/chat/completions?api-version=…` surface. **RECORD WHAT THE CONSOLE ACCEPTS** — whether it takes the entry empty, whether it rejects the save without it, and whether a call succeeds either way. If it demands a real dated version, their Azure client is the CLASSIC surface and D-410's endpoint choice needs re-deciding. **Do not invent a date**; that is the defect this gate exists to prevent. **(ii) Is the per-agent `base_url` read at all?** Their documented Azure `llm_config` has no `base_url` row and the endpoint is a PROVIDER-level credential, so ours may be inert — which would put one link of the residency chain in THEIR store, where no read-back of ours can see it (`_agent_models` reads the endpoint off the agent, and an ignored `base_url` reads back identically to an honoured one). **(iii) Does `provider: "azure-openai"` route as documented on the live account? THE TEST:** with `BOLNA_API_KEY` set, `uv run python -m scripts.probe_bolna_providers` (writes the key entry only); install the other three by hand in the console; `GET /providers` and confirm all four persist and read back unchanged; publish one agent and read it back (gate 2/16); place ONE call. **Pass** = the agent answers in language AND **the Azure resource's own metrics show the request** — metrics, not merely a working call, because only they prove WHICH resource served it, which is the same reason gates 20/20c exist. **On a fail, do not change code first:** `bolna_llm_credential_name` is `applies: live`, so each attempt is a console edit, not a deploy. Fallback provider strings are `azure` then `custom`, in that order, one string each — and `custom` is now MORE clearly refused, not less: its entire documented flow takes a URL and a name and has no credential field anywhere, so nothing carries the `Authorization: Bearer` our v1 endpoint requires. **Wrong answers**: inventing an api-version, and putting the key anywhere it can be logged. Blocked outside this repo on: a Bolna account AND an Azure subscription with a deployed model. |
+| 16f H | **Does Bolna's `azure-openai` provider, configured with the four documented credential entries, actually run a call against OUR Azure resource? — the FIELD NAMES are settled; three questions are not** [D-410, narrowed by the docs mirror, D-417] | **THE NAMING HALF IS CLOSED AND THE OLD DEFAULT WAS WRONG.** VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers.md`: their Azure OpenAI provider requires FOUR entries — `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION` — under *"All these keys **must** be added for the respective provider."* `Settings.bolna_llm_credential_name` defaulted to `AZURE`, which appears nowhere in that table and would have authenticated nothing; it now defaults to `AZURE_OPENAI_API_KEY`, and the full list with each key's source in our settings is `apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS`. The wire provider string moved with it: **`azure-openai`, not `azure`** (`providers/llm-model/azure-openai.md`). `POST /providers` is a flat `{provider_name, provider_value}`, so four keys means four installs and `set_llm_credential` still writes ONE — the key — because it is the only one whose value is a secret we hold. **WHAT IS STILL OPEN, and each has its own observation.** **(i) `AZURE_OPENAI_API_VERSION` has no derivable value and the vendor contradicts itself about whether it is needed** — `providers.md` calls all four mandatory, while `azure-openai.md` describes the same connection as needing *"your Azure endpoint URL, API key, and deployment name"*, three things with no api-version among them. D-410 chose the v1 surface (`…/openai/v1`) **because** it has no `api-version`; a dated string belongs to the classic `…/deployments/{id}/chat/completions?api-version=…` surface. **RECORD WHAT THE CONSOLE ACCEPTS** — whether it takes the entry empty, whether it rejects the save without it, and whether a call succeeds either way. If it demands a real dated version, their Azure client is the CLASSIC surface and D-410's endpoint choice needs re-deciding. **Do not invent a date**; that is the defect this gate exists to prevent. **(ii) Is the per-agent `base_url` read at all?** Their documented Azure `llm_config` has no `base_url` row and the endpoint is a PROVIDER-level credential, so ours may be inert — which would put one link of the residency chain in THEIR store, where no read-back of ours can see it (`_agent_models` reads the endpoint off the agent, and an ignored `base_url` reads back identically to an honoured one). **(iii) Does `provider: "azure-openai"` route as documented on the live account? THE TEST:** with `BOLNA_API_KEY` set, run the provider probe (`scripts/probe_bolna_providers.py`, removed by D-639; it wrote the key entry only); install the other three by hand in the console; `GET /providers` and confirm all four persist and read back unchanged; publish one agent and read it back (gate 2/16); place ONE call. **Pass** = the agent answers in language AND **the Azure resource's own metrics show the request** — metrics, not merely a working call, because only they prove WHICH resource served it, which is the same reason gates 20/20c exist. **On a fail, do not change code first:** `bolna_llm_credential_name` is `applies: live`, so each attempt is a console edit, not a deploy. Fallback provider strings are `azure` then `custom`, in that order, one string each — and `custom` is now MORE clearly refused, not less: its entire documented flow takes a URL and a name and has no credential field anywhere, so nothing carries the `Authorization: Bearer` our v1 endpoint requires. **Wrong answers**: inventing an api-version, and putting the key anywhere it can be logged. Blocked outside this repo on: a Bolna account AND an Azure subscription with a deployed model. |
 | 17 S | **Is `voicemail` a status, or only a flag?** [NEW, D-260] | Our `_STATUS_MAP` maps a `"voicemail"` status and `CallStatus` has a `voicemail` member, but **nothing sourced says that string is ever a status**. What is reported is a separate boolean `answered_by_voice_mail` on Get Execution, and the OSS engine treats voicemail as a HANGUP REASON (`HangupReason.VOICEMAIL_DETECTED`) — both facts about a call whose status is plain `completed`. If that is how the hosted platform reports it, our `voicemail` status is **unreachable** and every voicemail reads to a client as a normal completed call, which is wrong on the campaign screen and wrong for retry logic. **The test:** dial a number that goes to voicemail (with `ConversationConfig.voicemail` detection on, and once with it off). Capture the full Get Execution payload; record the `status` string, `answered_by_voice_mail`, and the hangup fields. **THE FIELD THIS ROW USED TO NAME DOES NOT EXIST (D-414):** there is no `hangup_detail` anywhere in the vendor's documentation — the names are `hangup_by`, `hangup_reason` and `hangup_provider_code` (the OpenAPI block in `api-reference/executions/get_execution.md`), and their hangup guide calls the last one `hangup_code` (`guides/post-call/list-phone-call-hangup-status.md`). Capture whichever spelling arrives. **THE FACTUAL HALF IS ALREADY ALL BUT ANSWERED AND THIS GATE IS NARROWED TO THE PRODUCT HALF:** the hosted docs show **no `voicemail` status in any of five independent status enumerations** and **no voicemail hangup reason** — the only two Bolna-side reasons documented are `inactivity_timeout` and `llm_prompted_hangup` — so the fact almost certainly rides on the boolean. What is left to decide is whether `answered_by_voice_mail` should surface as a distinct status on a client's campaign screen. **Pass** = we can say which field carries the fact. Fix if it is a flag: `_snapshot` reads it and maps to our `voicemail` status — deliberately NOT done on inference, because it changes what a client's screen says about calls we have never seen. Blocked outside this repo on: a Bolna account. |
 | 18 S | **Transfer: is the built-in reachable the way we would need it?** [NEW, D-262] | `BOLNA_CAPABILITIES.transfer=False` was "nobody checked", then "the built-in is an in-call tool, read from their OSS" (D-262). **Half of this gate is now ANSWERED from the vendor's own hosted OpenAPI document and the value still does not move.** **(a) Does the hosted `/v2/agent` body accept a transfer tool, and under which key? YES — `key: "transfer_call"`.** `ApiTools.tools` is an array of `TransferCallTools` with `tools_params` keyed by the tool's `name`, and the destination is CONFIG inside `TransferCallToolParams.<name>.param` (a *stringified* JSON blob, example `{"call_transfer_number": "+19876543210", "call_sid": "%(call_sid)s"}`). **(b) Does any REST route transfer a live execution? NO** — none exists in the published paths, so the shape `VoiceEngine.transfer(call_id, to, warm)` names remains unimplementable and `False` is right for a stronger reason than before. **What is left is four live observations, and the first two are compliance rather than plumbing.** **(c) WARM OR COLD — the vendor documents it NOWHERE**: no page uses warm, cold, attended, blind or consultative, and the only briefing channel offered (the pre-call webhook) is explicitly *"fire-and-forget … never blocks or delays the transfer"*, which cannot be a warm handoff. Observe on a real call whether the caller is held while staff are briefed, and record it. **(d) Does the caller hear anything at the handoff, and is the transferred leg recorded with the caller's knowledge?** The transferred leg is a SEPARATE object with its own `recording_url`, `cost`, `duration` and `hangup_reason` (`TransferCallData`), served from its own route `GET /recordings/transfer/{execution-id}`. Capture a full `transfer_call_data` as an adapter fixture. **(e)** Does a transfer land on Exotel/Vobiz Indian PSTN, and what does the execution record say afterwards — status, `hangup_by` / `hangup_reason` / `hangup_provider_code` (**there is no `hangup_detail`; this row named one until D-414**), and the cost of BOTH legs? **(f)** If `pre_call_webhook_param` is used, `pre_call_webhook_url` **must** be set explicitly — left blank it falls back to the agent-level webhook URL, i.e. our post-call receiver, where an `in-progress` pre-call delivery collides with the genuine `in-progress` transition on `engine_intake`'s `(execution_id, status)` dedupe key. **Pass** = we can name the mechanism AND answer (c) and (d). **This is a design decision, not a flag flip**: a per-agent escalation number becomes engine config set at publish time and is NOT covered by the drift sweep (which proves the prompt, not the tool list); carrying the second leg needs new `ExecutionSnapshot` members plus decisions on separate metering and separate retention; and the disclosure question at the handoff is legal, not engineering (`docs/evidence/bolna-tools-integrations.md` §8.1). **Until then `engine/bolna.py::_check_transfer_leg` pages `engine_transfer_leg_unhandled` if a transfer leg ever appears** — the tool is enabled by a console toggle (*"Click + Add next to any tool"*), so it can arrive without a deploy. Blocked outside this repo on: a Bolna account. Evidence: `docs/evidence/bolna-tools-integrations.md` §1, `docs/vendor/bolna/oss-harvest.md` §5. |
 | 19 H | **The Cartesia control plane, the hour an API key exists** [NEW, D-270; not a Bolna gate — it is the EXIT gate] | **Everything below is blocked on exactly one thing outside this repo: a Cartesia account.** Not a legal entity, not a regulator, not a signed term — an API key. Their docs are egress-blocked here, so `docs/vendor/cartesia/` was harvested from Cartesia's own SDKs instead, and `docs/evidence/vendor-cartesia-reconciliation.md` lists what that settled. These are the residue. **(a) THE STRUCTURAL ONE. The port work is DONE (D-280…D-282); what is left is one confirmation.** Their generated clients have no `POST /agents`, and `AgentSummary` carries no prompt, greeting or model: an agent is a DEPLOYED GIT REPOSITORY. `EngineCapabilities.agent_hosting` now says so (`control_plane | external_deployment`), Cartesia's `create_agent`/`update_agent`/`get_agent` and `publish_agent` refuse by name, the conformance suite branches on the capability, and the admin console does not offer the Publish button — `docs/evidence/engine-port-neutrality.md` is the account. **What the key settles: that `POST /agents` really 404s, and that a `PATCH` carrying `system_prompt` is ignored rather than applied.** Both are currently VERIFIED-SDK absences rather than observed responses. If they hold, the next decision is whether publishing becomes ADOPTION — `GET /agents` is real and `name` is documented unique — which is deliberately not implemented, because an adopted agent runs a prompt we did not write and cannot read back, so hard rule 5 would rest on a repository nobody in this deployment can see. That decision needs (b) answered first: adoption is only safe once our prompt reaches the call. Until then no Cartesia deployment can publish an agent at all, which is the correct direction to fail in and is now a named refusal rather than a 404. **(b) The three call paths nothing could source — and one of them now gates DIALLING AT ALL.** `POST /agents/calls` (outbound; REPORTED only, and `from_number_id` with it), `POST /agents/calls/{id}/end` (INFERRED; in `line` a call is ended from INSIDE by the agent), and whether `GET /agents/calls/{id}` returns a transcript without an `expand`. **The new question, and it is the load-bearing one: does the outbound body accept a SYSTEM PROMPT, or is the WebSocket Calls API the outbound path?** On this engine the agent record holds no prompt, so `CallContext.system_prompt` is the only home hard rule 5 has (D-282) — and the REPORTED outbound shape has no field for it, so `CartesiaEngine.start_outbound_call` refuses EVERY dial today rather than placing one with no truthful-answer rule on it. Read what `POST /agents/calls` actually accepts; if it takes a prompt, that field becomes `require_call_compliance_floor`'s `prompt_on_the_wire` argument and the refusal stops firing on its own. If it does not, Cartesia is not dialable from this repository and (a)'s adoption question is closed with it. Place one call, end it from outside, read it back. Also settle the recording: audio is an AUTHENTICATED download at `/agents/calls/{id}/audio`, so `ExecutionSnapshot.recording_url` stays None — decide whether the archive fetches bytes with the engine key or the field stays empty on this engine. **(c) Cost, which is now a COMMERCIAL question rather than an endpoint.** There is no per-call cost field and usage is an account-level DAILY credit meter (`GET /usage/credits`, grouped by capability/model/voice/api_key). `_cost` returns None and hard rule 7 has nothing to convert. Get the rate card in writing (D-94 prices Scale at $0.014/min) and decide whether per-call cost is DERIVED from our own duration times a contracted rate — which is a house number and must be stamped as one. **(d) Which end of `telephony_params` is which.** They document `from` as the AGENT's number and `to` as the CALLER's, which reads inverted on an inbound call, and there is no `direction` field. Place one inbound and one outbound call and read both. Wrong here means a client's CRM shows the wrong party. **(e) The webhook scheme.** Webhooks exist (`AgentSummary.webhook_id`); no SDK carries a signing helper; one search snippet describes an `x-webhook-secret` SHARED SECRET header, which is not an HMAC. `WEBHOOK_AUTH_BY_ENGINE["cartesia"]` is `"hmac"` because it is the only value that fails CLOSED, and both halves refuse every delivery today. Read the page, capture one real delivery's headers, and if it is a shared secret add a `shared_secret` member to `WebhookAuthMethod` and implement it in BOTH halves in one change — never in the receiver alone. **(f) How a document gets INTO the knowledge base.** The QUERY path is read at source and authenticates with a per-CALL agent JWT we never hold; neither generated client has a documents resource at all, so `attach_kb`/`detach_kb`/`list_kb` at `/agents/{id}/documents` are still inference. Upload one document by whatever route exists and record it. **(g) The repeat delete.** `DELETE /agents/{id}` is confirmed; what a SECOND delete answers is not, and `AgentSummary.deleted_at` hints at soft deletion — which would make `absent_is_success` the wrong shape. Same sub-check as gate 2's, run against Cartesia. **Record**: the outcomes in `docs/vendor/cartesia/`, at the evidence classes that file defines. **Fail** = any of (a),(d),(e) unresolved while a deployment runs `ENGINE=cartesia`; the fix is code, never a widened claim. |
@@ -189,181 +199,13 @@ FROZEN, historical cost-model scalar (`billing/rates.py::TTS_INR_PER_10K_CHARS`)
 longer a price we are exposed to. **What replaces it is gate 56's price question to Gnani**,
 because until somebody attests a Gnani figure the Clear rung cannot be sold at all.
 
-### Running it — 1, 2, 6 run on credentials alone; 4, 7, 8, 13 run on an inputs file; 3, 5, 9-12 are human
+### Running it — WITHDRAWN (D-639)
 
-The table above is the specification; `scripts/pilot/` is the part of it a machine can
-decide. Start with the shopping list, on day one and not on day three:
-
-```
-uv run python -m scripts.pilot reachability   # can this machine reach api.bolna.ai at all?
-make pilot-preflight     # uv run python -m scripts.pilot preflight
-make pilot               # DRY RUN of gates 1, 2, 6 — places no calls, spends nothing
-```
-
-**Run the reachability probe first.** It needs no key, no credit and no number, and it
-answers the one question that invalidates the whole session: a sandboxed or corporate
-network that refuses the CONNECT to `api.bolna.ai` blocks every API gate, for a reason
-that has nothing to do with Bolna. (The environment this harness was written in is
-exactly such a network.) It is also the first row of the preflight; exit 4 means
-unreachable, and skipping it with `--no-network` reports it UNVERIFIABLE rather than
-assuming it is fine.
-
-Preflight names every missing credential and prerequisite, which gates each one blocks,
-and where to get it; it reports a key as present or absent and never prints one. `make
-pilot` executes gates **1** (webhook trust), **2** (API provisioning) and **6** (webhook
-loss + poller recovery) through the `VoiceEngine` adapter — never raw HTTP, because the
-pilot's job is to verify the adapter we will ship, not a curl that bypasses it.
-
-Placing real calls requires an explicit opt-in and a ceiling, and refuses to run against
-a production-shaped configuration:
-
-```
-uv run python -m scripts.pilot run --gates 2 --to +91XXXXXXXXXX \
-    --yes-place-real-calls-and-spend-money --max-calls 2 --out pilot-results.json
-```
-
-Gate 1 needs the raw deliveries your tunnel received (`--webhook-capture <file>`,
-repeatable); gate 6 needs the execution ids whose webhook you dropped
-(`--missed-execution <id>`) plus what you saw with your own eyes
-(`--attest gate6.call_continued=yes`, `--attest gate6.retries_observed=0`) — those two
-are recorded as operator attestations, never as measurements — and the dashboard's own
-execution count for the same window (`--attest gate6.executions_in_window=<n>`), which is
-the ONE independent check on whether List-Executions truncated: our own listing cannot
-testify about what it left out. **Exit 2 means "nothing
-went red and nothing was verified either"**; only exit 0 is a pass. Every gate result is
-PASS, FAIL or **NOT RUN**, and NOT RUN never renders as green.
-
-What the harness found before any credentials existed, and what it therefore cannot do:
-
-- gate 2's **`scheduled_at`** criterion is not expressible through `VoiceEngine.
-  start_outbound_call`, and the Bolna adapter's `POST /call` body carries no such field.
-  Gate 2 cannot report a full pass until the contract grows one.
-- gate 2's **"attach number"** step cannot run through the adapter at all —
-  `BolnaEngine.provision_number` raises `engine_capability_unverified` (M1 defers
-  numbers to the telephony provider), so that step is a dashboard action, which is what
-  "via API only, no dashboard" forbids.
-- gate 2's **"update prompt"** can now be scored **APPLIED**, not only ACCEPTED. The
-  contract grew a read-back (`VoiceEngine.get_agent` → `AgentSnapshot`), and gate 2 emits
-  a second row, `update_prompt_applied`: `update_prompt` records that the vendor took the
-  PUT, `update_prompt_applied` records that the agent the engine HOLDS carries the prompt
-  we wrote (a marker in the prompt text, so the engine's own rendering — the prepended
-  disclosure line — does not break the comparison). A 2xx write that changed nothing is
-  now a red row instead of a green one, which matters most for the part of the prompt a
-  client is legally answerable for. What it still does NOT prove is that a RUNNING call
-  uses that prompt; the `user_data` round-trip row remains the live-call evidence, and
-  the two are deliberately separate rows.
-  **The read-back ROUTE is now VERIFIED-OAS; what it RETURNS is still worth recording
-  (D-350).** `GET /v2/agent/{agent_id}` is in the vendor's pinned spec, returning
-  `AgentV2` — which declares `id`, `agent_name`, `agent_type`, `agent_status`,
-  `created_at`, `updated_at`, `tasks`, `ingest_source_config` and `agent_prompts` at the
-  TOP LEVEL, with no `agent_config` wrapper. So the prompt really does live where
-  `bolna._agent_system_prompt` looks for it (`agent_prompts.task_1.system_prompt`), and
-  the model read-back really does hang off `tasks[0].tools_config` — both confirmed rather
-  than inferred. **What the schema does NOT declare is `agent_welcome_message`**, which is
-  the field the greeting judge needs and which the vendor's own PATCH example writes. So
-  record three things from the run: whether the GET answered 2xx, whether the prompt came
-  back where we look, and **whether the welcome message came back at all** — if it does
-  not, `_agent_greeting` reports `unreadable` forever and no publish can ever verify the
-  disclosure sentence against the engine, which is a compliance-visible gap rather than a
-  cosmetic one.
-- gate 8's **dangling-`rag_id`** question (D-41) is now askable through the adapter and
-  is answered by the run rather than by a note. The read-back supplies gate 8's
-  `agent_ref_reader` automatically (`knowledge.agent_ref_reader_from_engine`), so after
-  the probe deletes the knowledge base it reads the AGENT object back and reports whether
-  the handle survives. **What is still unknown is the field name**: nothing published
-  says Bolna's agent object references a `rag_id` at all, so `bolna._AGENT_KB_REF_KEYS`
-  is a guessed set of names and the adapter reports
-  `AgentSnapshot.knowledge_base_refs_readable = False` when none of them appears. That
-  declination is scored INCONCLUSIVE, never as a cleared reference — "we could not find
-  the field" and "the reference was cleared" are opposite answers, and only one of them
-  adds a second call to `detach_kb`. One captured agent payload settles it.
-- gate 1's edge half (nginx rejecting a non-allowlisted source) needs an HTTP POST from
-  another host against the deployed receiver; the harness exercises the in-app half only.
-- gate 6's **pagination** criterion is now MEASURED as far as our side can measure it,
-  and declared as an assumption for the rest. `list_executions` returns an
-  `ExecutionListing`, not a bare list: `complete=False` plus a reason
-  (`explicit_more` where the payload claims more and names no page we can fetch,
-  `full_page_suspected` where a full page came back with no `has_more` at all,
-  `page_cap_reached` where our own bound stopped a walk that was still producing, and
-  `next_link_no_progress` where a page we had not read re-served only rows we already
-  had) is what the adapter says when it cannot vouch
-  for the window, and `reconcile_executions` turns that into an alert, a metric
-  (`reconciliation_listing_incomplete`) and a job result that does not read as a quiet
-  tick. Two former values, `next_link_loop` and `empty_page_with_next`, are GONE (D-360):
-  both could only arise from following a continuation URL the vendor handed us, which no
-  adapter does any more, and a documented alert value no code can emit sends an operator
-  hunting a condition that cannot occur. **What the pilot still has to settle is the
-  vendor's behaviour itself** — not WHETHER Bolna paginates, which their OpenAPI spec now
-  answers (`page_number`/`page_size` max 50/`has_more`, D-350), but whether the server
-  honours it: whether `has_more` tells the truth and whether `from` really bounds the
-  window. Nothing in-process can settle that: a listing
-  cannot report what it omitted, and a pilot window holds far too few executions to reach
-  any plausible page size, so `complete=True` here means "nothing in the response
-  suggested otherwise". The dashboard count (`gate6.executions_in_window`) is the only
-  independent evidence, and until a saturated listing has been captured the page-size
-  heuristic is a guess about round numbers rather than knowledge.
-- gate 7's **currency** criterion is now answerable in part from our own snapshot.
-  `BolnaEngine._cost` reads the currency the payload states and records
-  `CostBreakdown.currency_stated` — True = the vendor said so, False = we fell back to
-  the house assumption (`_ASSUMED_CURRENCY = "USD"` cents, read off docs.bolna.ai and
-  never confirmed on a live account). A currency the adapter cannot convert is REFUSED
-  rather than converted at the dollar rate, so a wrong cost basis cannot ship silently.
-  The independent check remains the vendor's own reported total, supplied by the
-  operator: a ratio of exactly 100 is the signature of the cents assumption being wrong,
-  and every INR row inherits the factor. **What the pilot still has to settle is the
-  `currency_stated=False` case** — if Bolna never names a currency, the assumption stays
-  load-bearing and only the dashboard figure can falsify it.
-- gate 7's **transcript** criterion now sees PARTIAL loss.
-  `bolna.parse_transcript` returns `(turns, unparsed)` and the snapshot carries
-  `transcript_lines_unparsed`, so a line the parser could not place — an unprefixed line
-  before any turn exists, a prefix with an empty body — is counted rather than dropped.
-  The harness scores any non-zero count, in addition to the total-failure signature (zero
-  turns on a `completed` call that carried audio) and the per-turn structural defects. A
-  COUNT, not the lines: transcript text does not cross the engine boundary except as a
-  `TranscriptTurn` (hard rule 6).
-- gate 7's **time-to-`completed`** has a post-hoc route, and it is an UPPER BOUND.
-  `ExecutionSnapshot.billable_ready_at` carries the vendor's `completed_at` where the
-  payload has one, otherwise the instant we OBSERVED the execution already complete —
-  which is bounded by the poller's tick and by how long after the call anything looked,
-  so it can only over-state. The harness therefore still prefers a LIVE poll from an
-  operator-supplied disconnect instant when one is given. `now - ended_at` remains
-  deliberately unused: it is a bound that grows with how long the operator took to run
-  the harness.
-
-**Which gates the harness can execute, precisely.** Nine of the thirteen are registered
-in `scripts/pilot/`, in two classes, and the difference between them is what an operator
-has to bring:
-
-- **1, 2, 6 — credentials and a tunnel.** `make pilot` runs these and nothing else by
-  default; they need the API key, and gates 1 and 6 additionally need the deliveries and
-  execution ids named above.
-- **4, 7, 8, 13 — plus one JSON inputs file each**, because their inputs are OBSERVED by
-  a person rather than measurable from our side: gate 4's stopwatch samples and the
-  pasted engine latency block (the observations file spells that key `engine_latency` —
-  OUR word, because a vendor payload key read outside `apps/api/engine/` fails
-  `tests/engine_audit_test.py`; the per-turn timings themselves now reach the harness
-  through `ExecutionSnapshot.latency` and are stored in `call_engine_latency`); gate 7's observed disconnect instant and the vendor's own cost
-  figure off the dashboard (the dashboard figure is the only INDEPENDENT check on the
-  currency: the adapter records whether the payload stated one, but where it did not,
-  reading our own assumption back is the harness agreeing with itself);
-  gate 8's Telugu retrieval scores, tool-call latencies, per-turn token counts and batch
-  outcomes. Each reads `docs/evidence/gate<n>-inputs.json` (gate 4:
-  `gate4-observations.json`), overridable with `CALEVATE_PILOT_GATE<n>_INPUTS`. **An
-  absent file is NOT RUN with the path in the reason — never a pass, and never a zero.**
-  Gate 13 also needs a call budget: it dials to find the ceiling.
-- **3, 5, 9-12 are human and always will be**, and the harness says which kind rather
-  than leaving a blank row: 3 and 5 are LISTENING gates (Telugu recognition quality;
-  barge-in and end-of-utterance judged by ear), 9-12 are written answers and support
-  threads. `--attest` records what a human observed, labelled as an attestation and never
-  as a measurement.
-
-Any gate with no implementation registered is still reported by number as NOT RUN, so a
-slice that regresses out of the registry is visible rather than silently absent.
-
-Deliverable: filled scorecard committed to `docs/evidence/bolna-pilot-scorecard.md`
-(template in repo), with captured payloads saved as adapter fixtures. Passing closes the
-D-31 gate and A-1/A-8; a red hard gate reopens the engine decision (no fallback engine
-is designated — D-31).
+The harness that executed gates 1, 2, 4, 6, 7, 8 and 13 against a Bolna account
+(`scripts/pilot/`, its `make` targets and the scorecard generator) was deleted with the
+adapter. `docs/evidence/bolna-pilot-scorecard.md` is now a frozen record: every gate on it
+reads NOT RUN, and that is its final state. The evidence-redaction helper the harness
+carried survives as `scripts/evidence_redact.py`, which `scripts/eval.py` uses.
 
 ## 3. Per-Client Regression & Eval Harness (the differentiator)
 

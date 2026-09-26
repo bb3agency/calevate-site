@@ -8,8 +8,10 @@ mirrors this manual for other coding agents.
 
 ## What this system is (30 seconds)
 
-Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
-voice engine (Bolna primary per D-31) with BYOK models. **Speech is TWO VENDORS ON TWO
+Clients get AI phone agents (inbound receptionist + outbound campaigns) built on our own
+Pipecat conversation loop (`apps/voice-worker`, D-592) with BYOK models; the rented Bolna
+engine D-31 chose was deleted from the code by D-639 (26 Sep 2026), and `ENGINE` accepts
+`fake`, `cartesia` and `pipecat`. **Speech is TWO VENDORS ON TWO
 DIFFERENT LEGS, and the TTS half is chosen PER AGENT (D-547)** — STT is Sarvam Saaras
 throughout, TTS is `apps/api/agents/voices.py::TtsModel`, which is
 `Literal["sonic-3.5", "timbre-v2.5"]`: Cartesia Sonic 3.5 (**Studio**, ₹2.06–3.09 per
@@ -171,8 +173,8 @@ LLM surfaces separately — two moved, one deliberately did not:
    `AZURE_OPENAI_API_VERSION` is real on the v1 surface, where two of their own pages
    disagree — OPERATIONS §2 gate 16f, and no value is invented for it.
    `agents/service.py::in_call_llm` remains the ONE place the leg is decided for an agent.
-   **The next Bolna work is still API calls**: `GET /providers`, four `POST /providers`,
-   then `GET` again.
+   ⚠ **This paragraph describes the Bolna leg, which D-639 deleted**: there is no Bolna
+   work left to do, and none of the calls above should be made.
    **Where the vendor facts now come from**: their doc HOST is still egress-blocked here
    (`www.bolna.ai` → 403 on CONNECT, re-measured 20 Aug 2026), but their 335 pages were
    fetched elsewhere and delivered as a read-only mirror at `bolna-findings/mirror/` with a
@@ -340,8 +342,8 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    container) nor in `apps/voice-runtime` (hard rule 3 forbids heavy imports there by
    name, and an ONNX turn-detection pipeline is the heaviest import in this tree).
 3. **voice-runtime discipline**: webhook handlers verify authenticity per engine (HMAC
-   where the engine signs; for unsigned engines like Bolna: source-IP allowlist +
-   execution-id dedupe, payloads as hints, poller as truth — TRD §5), ack < 500ms,
+   where the engine signs; an unsigned engine gets execution-id dedupe, payloads as
+   hints, poller as truth — TRD §5), ack < 500ms,
    defer all real work to ARQ. No heavy imports, no synchronous LLM calls, no DB writes beyond the
    minimal event row. Never couple its deploy to `api` changes.
 4. **Append-only ledgers**: every table in `apps/api/db/registry.APPEND_ONLY_TABLES` is
@@ -777,8 +779,8 @@ console field it can never reach.
 ## When implementing, prefer
 
 - Thin vertical slices matching ROADMAP milestones; client #1 needs beat platform polish.
-- Configure engine built-ins (Bolna campaigns/KB/custom functions; consent/DNC/transfer
-  where verified — TRD §5) over rebuilding them; unverified built-ins land in OUR layer.
+- Configure engine built-ins (KB, custom functions; consent/DNC/transfer where verified —
+  TRD §5) over rebuilding them; unverified built-ins land in OUR layer.
 - Boring solutions: Postgres before new infra; ARQ before Temporal; monolith module before
   new service. New deployables require a decision-log entry (docs/ROADMAP.md §6).
 

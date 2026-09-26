@@ -8,8 +8,9 @@ with the failure modes already found and fixed there. Decisions D-25…D-27 in R
 
 ## 0. Hosting decision (D-25 for the scope, D-180 for the provider and region)
 
-The calevate.tech site is NOT in the live-call path — the rented engine (Bolna, D-31)
-hosts the entire voice pipeline in v1. So the site stack (web, api, workers, webhook
+The calevate.tech site is NOT in the live-call path — when this was decided the rented
+engine (Bolna, D-31) hosted the entire voice pipeline; since D-592/D-639 the conversation
+loop runs in our own container on Pipecat Cloud `ap-south`, still off this host. So the site stack (web, api, workers, webhook
 receiver) needs only a **general-purpose VPS; India co-location is NOT REQUIRED for it.**
 
 **The host is nevertheless an Indian one: a Hostinger India VPS (D-180).** Read the two
@@ -998,7 +999,7 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
    India and must go on saying so.
 
    `RESEND_API_KEY` is the third env-only key and the ONLY credential that is (see the
-   email block below for why). Everything else — `BOLNA_API_KEY`, the Sarvam stack, the
+   email block below for why). Everything else — the engine's vendor key, the Sarvam stack, the
    four `AZURE_OPENAI_*` values (D-410), `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON`,
    `EMAIL_PROVIDER`, Razorpay, the GST
    invoice identity, `ENGINE`, calling windows, `USD_INR_RATE`, `ALERTS_EMAIL`, all 55 of
@@ -1290,9 +1291,9 @@ working through §4d's six hand-first items →
 **the privileged scripts and
 the hygiene timer (9.7a)**, **and only now set `VPS_DEPLOY_ENABLED=true`** → 8. one full CD cycle
 (push → CI → auto-deploy) verified green, **then the rollback drill of §4d step 7** → **9. backups (below — the longest step, and
-the one this order previously assumed away)** → 10. configure Bolna per-agent webhook URLs against hooks.calevate.tech + verify the
-source-IP allowlist (13.203.39.153 via CF real_ip, D-27/D-31) rejects a spoofed test
-delivery and accepts a real one → 11. pre-launch checklist (OPERATIONS §8).
+the one this order previously assumed away)** → 10. ~~configure Bolna per-agent webhook URLs and verify the source-IP
+allowlist~~ WITHDRAWN by D-639 (the Bolna adapter and the allowlist are deleted); the Pipecat leg's carrier wiring is
+`docs/PIPECAT-MIGRATION.md` §6 step 6 → 11. pre-launch checklist (OPERATIONS §8).
 
 ### 9.3a Step 3 in full — the two roles, and why the sequence is written out
 
@@ -1492,7 +1493,7 @@ land at step 7, §9.7a.)
 the other 55 keys are step 10a.** After the first deploy the platform is running and its
 integrations are unconfigured —
 each refusing by name, none pretending to work. Open `admin.calevate.tech/ops` and set
-them: engine + `BOLNA_API_KEY`, the Sarvam stack, the four `AZURE_OPENAI_*` values
+them: engine (`pipecat`, or `cartesia` + `CARTESIA_API_KEY`), the Sarvam stack, the four `AZURE_OPENAI_*` values
 (resource, key, deployment, model — D-410), `EMAIL_PROVIDER`
 plus its credential (`RESEND_API_KEY` for `resend`, `SMTP_*` for `smtp`) and
 `ALERTS_EMAIL`, `USD_INR_RATE` (the FALLBACK rate, since D-475: vendor costs normally
@@ -1718,7 +1719,7 @@ container. Nothing fetches one from the other.
 | Variable | Required | Where it comes from | What it is for |
 |---|---|---|---|
 | `PIPECAT_WORKER_API_BASE_URL` | yes | the public base URL of `apps/api` (e.g. `https://api.calevate.tech`) | where the worker reads its published agent from and posts its calls' events to (D-621). ⚠ **`DATABASE_URL` WAS THIS ROW AND IS GONE.** The worker cannot reach our Postgres at all — it is on the VPS host behind the Docker bridge (`compose.prod.yml:36`) and this container is box 1 on Pipecat Cloud, a different network — so a DSN here was a value that could never have connected. See §12.5 gate 6, now closed. It is a `Settings` field classified `ENV_ONLY`, because nothing on the VPS reads it. |
-| `PIPECAT_WORKER_API_TOKEN` | yes | ops console (`pipecat_worker_api_token`) | the Bearer token the worker presents to `/v1/worker/*`. CONSOLE-MANAGED, unlike the base URL beside it and unlike `GNANI_API_KEY`: `apps/api/worker/service.authorized` reads it to verify the header, so it has a reader on this host and belongs in the credential store. The SAME value goes in this secret set — a human puts it in both places and nothing fetches one from the other. ⚠ It is NOT `bolna_caller_data_token` reused: that one opens a READ of caller memory for a rented engine, this one opens the WRITE surface for our ledger. Absent on the API side ⇒ every `/v1/worker/*` route answers 401 to everybody. |
+| `PIPECAT_WORKER_API_TOKEN` | yes | ops console (`pipecat_worker_api_token`) | the Bearer token the worker presents to `/v1/worker/*`. CONSOLE-MANAGED, unlike the base URL beside it and unlike `GNANI_API_KEY`: `apps/api/worker/service.authorized` reads it to verify the header, so it has a reader on this host and belongs in the credential store. The SAME value goes in this secret set — a human puts it in both places and nothing fetches one from the other. ⚠ It is never shared with a credential a third party holds: it opens the WRITE surface for our ledger. Absent on the API side ⇒ every `/v1/worker/*` route answers 401 to everybody. |
 | `OBJECT_STORE_ENDPOINT` / `OBJECT_STORE_BUCKET` | yes | secrets manager | the R2 bucket the knowledge pack is fetched from at session start |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | yes | **a knowledge-pack-only R2 token, into THIS secret set only** (`KB_PACK_READONLY_ACCESS_KEY_ID` / `KB_PACK_READONLY_SECRET_ACCESS_KEY` — §12.5 gate 10) | botocore resolves these itself; the boot gate only checks that they are PRESENT, because a field of ours would be a second value the SDK ignores. ⚠ **NOT THE VPS'S R2 CREDENTIAL, AND THE SETUP SCRIPT REFUSES IT.** This container does exactly one `get_object` under `knowledge-packs/` (`voice_worker/storage.py`); the platform credential reads and WRITES the same bucket's `recordings/`, `kb-uploads/` and `engine-payloads/` for every tenant, and a vendor's runtime operates this container. The NAME stays the vendor's because botocore reads no other (`boot.py:108`); the credential behind it is a separate, read-only one. |
 | `AWS_REGION` | no | defaults to `auto` | R2's documented signature scope (D-450), not a placement |

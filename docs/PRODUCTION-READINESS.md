@@ -193,8 +193,10 @@ client DPA is true. **It no longer starts any clock**: D-410 deleted the dated G
 obligation along with the model. A **Bolna account** unblocks twelve gates and is the gate
 to everything voice.
 
-**Step 3 — run the pilot.**
-`make pilot` runs gates 1, 2 and 6 today. Gates 3, 4, 5 need real PSTN calls in Telugu.
+**Step 3 — run the pilot.** ⚠ WITHDRAWN BY D-639 (26 Sep 2026): the Bolna adapter and its
+pilot harness are deleted, so this step no longer exists; the first real call is now
+BLOCKER-1 on the Pipecat leg (`docs/PIPECAT-MIGRATION.md` §6 step 6). The text below is the
+plan as it stood. The harness ran gates 1, 2 and 6. Gates 3, 4, 5 need real PSTN calls in Telugu.
 Gate 12 is a negotiation, not a test, and should open on the ₹1.50 number with the
 ₹5,200/month and ₹15,600/month figures in hand.
 

@@ -132,8 +132,11 @@ GROUP BY status;
 
 ### 3a. Is `PLATFORM_LINES_TOTAL` still the vendor's real number?
 
-`PLATFORM_LINES_TOTAL = 10` is OUR typed-in belief about the engine account's ceiling,
-and Bolna publishes the true value: `GET /user/me` returns
+`PLATFORM_LINES_TOTAL = 10` is OUR typed-in belief about the engine account's ceiling.
+⚠ The rest of this subsection describes Bolna, the rented engine D-639 removed; it is kept
+because the owned runtime's carrier ceiling has not been read yet, and the same two
+dangers (a stale constant, a queue that hides over-dialling) apply to whichever carrier
+does. Bolna published the true value: `GET /user/me` returns
 `concurrency: {max, current}` — the account's limit and its live in-flight count
 (`bolna-findings/mirror/pages/api-reference/user/info.md`, `User.concurrency`). Read it
 before touching the constant. It also cross-checks step 3's SQL: `concurrency.current`
