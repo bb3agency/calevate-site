@@ -163,11 +163,26 @@ def test_a_blank_value_is_not_a_value() -> None:
         boot.load_worker_config({**COMPLETE_ENV, "SARVAM_API_KEY": "   "})
 
 
-@pytest.mark.parametrize("value", ["nonsense", "0", "-1"])
+@pytest.mark.parametrize("value", ["nonsense", "0", "-1", "nan", "inf", "-inf"])
 def test_an_unusable_drain_grace_is_refused(value: str) -> None:
+    """`nan` and `inf` parse as floats and pass `> 0` checks written the obvious way: `nan`
+    makes the drain deadline unreachable at once (every call cut on SIGTERM) and `inf`
+    makes it never arrive."""
     with pytest.raises(boot.WorkerConfigError) as raised:
         boot.load_worker_config({**COMPLETE_ENV, boot.DRAIN_GRACE_ENV: value})
     assert boot.DRAIN_GRACE_ENV in str(raised.value)
+
+
+@pytest.mark.parametrize("value", ["nonsense", "0", "-1", "nan", "inf"])
+def test_an_unusable_turn_flush_interval_is_refused(value: str) -> None:
+    """`inf` disarms the flush timer exactly as `0` would — the size bound alone never
+    flushes a conversation that goes quiet — and `nan` is not a sleep at all."""
+    env = {**COMPLETE_ENV, boot.TURN_FLUSH_ENV: value}
+    with pytest.raises(boot.WorkerConfigError) as raised:
+        boot.load_worker_config(env)
+    assert boot.TURN_FLUSH_ENV in str(raised.value)
+    with pytest.raises(boot.WorkerConfigError):
+        boot.turn_buffer_bounds(env)
 
 
 def test_credentials_follow_the_agents_provider_and_never_fall_back() -> None:

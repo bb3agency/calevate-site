@@ -54,6 +54,7 @@ credential, a length or a prefix.
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -277,6 +278,17 @@ def _present(env: Mapping[str, str], name: str) -> str | None:
     return value or None
 
 
+def _finite_seconds(raw: str) -> float | None:
+    """A duration, or None. `float()` accepts `nan` and `inf`, and both pass a `> 0` check:
+    an infinite flush interval disarms the timer and a NaN drain deadline is never before
+    now, so neither may reach a clock."""
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
 def _turn_batch_size(env: Mapping[str, str], failures: list[str]) -> int:
     """How many turns may wait. Refuses zero and below: that is "buffer for ever"."""
     raw = _present(env, TURN_BATCH_ENV)
@@ -304,10 +316,9 @@ def _turn_flush_seconds(env: Mapping[str, str], failures: list[str]) -> float:
     raw = _present(env, TURN_FLUSH_ENV)
     if raw is None:
         return DEFAULT_TURN_FLUSH_SECONDS
-    try:
-        value = float(raw)
-    except ValueError:
-        failures.append(f"{TURN_FLUSH_ENV} is not a number")
+    value = _finite_seconds(raw)
+    if value is None:
+        failures.append(f"{TURN_FLUSH_ENV} is not a finite number")
         return DEFAULT_TURN_FLUSH_SECONDS
     if value <= 0:
         failures.append(
@@ -370,10 +381,9 @@ def _drain_grace(env: Mapping[str, str], failures: list[str]) -> float:
     raw = _present(env, DRAIN_GRACE_ENV)
     if raw is None:
         return DEFAULT_DRAIN_GRACE_S
-    try:
-        value = float(raw)
-    except ValueError:
-        failures.append(f"{DRAIN_GRACE_ENV} is not a number")
+    value = _finite_seconds(raw)
+    if value is None:
+        failures.append(f"{DRAIN_GRACE_ENV} is not a finite number")
         return DEFAULT_DRAIN_GRACE_S
     if value <= 0:
         # Zero would mean "cut every call the instant a deploy starts", which is the
