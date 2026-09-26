@@ -41,7 +41,7 @@ import pytest
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, owned_runtime_agent_ref
 from loguru import logger
-from pipecat.frames.frames import InputAudioRawFrame, OutputAudioRawFrame
+from pipecat.frames.frames import EndWorkerFrame, InputAudioRawFrame, OutputAudioRawFrame
 from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.plivo import PlivoFrameSerializer
@@ -301,9 +301,13 @@ class ConnectableFakeTransport(FakeTransport):
     def __init__(self) -> None:
         super().__init__()
         self._register_event_handler(carrier.CLIENT_CONNECTED_EVENT)
+        self._register_event_handler(carrier.CLIENT_DISCONNECTED_EVENT)
 
     async def connect(self) -> None:
         await self._call_event_handler(carrier.CLIENT_CONNECTED_EVENT, self)
+
+    async def hang_up(self) -> None:
+        await self._call_event_handler(carrier.CLIENT_DISCONNECTED_EVENT, self)
 
 
 class RefusingApi:
@@ -441,6 +445,49 @@ async def test_a_transport_that_cannot_say_when_the_caller_connected_is_refused(
             fetcher=CountingFetcher(),
             cache=PackCache(),
         )
+
+
+class _QueueingWorker:
+    def __init__(self) -> None:
+        self.queued: list[Any] = []
+
+    async def queue_frames(self, frames: Any) -> None:
+        self.queued.extend(frames)
+
+
+class _ArmableCall:
+    def __init__(self) -> None:
+        self.worker = _QueueingWorker()
+
+    async def start_conversation(self) -> bool:
+        return True
+
+
+async def test_a_caller_hanging_up_ends_the_pipeline_the_graceful_way() -> None:
+    """The carrier closing the socket is the ordinary end of an inbound call, and the
+    transport reports it only as an event: no frame reaches the pipeline, and
+    `idle_timeout_secs=None` means nothing else ends it. Unhandled, a call the caller left
+    kept its pipeline — and the container's one session slot — until the duration cap, and
+    its terminal status arrived minutes late. An `EndWorkerFrame` drains and ends it as
+    `completed`; a cancel would record every hang-up as `failed`."""
+    transport = ConnectableFakeTransport()
+    call = _ArmableCall()
+    carrier.arm_first_turn(transport, cast(Any, call), call_id="call-hangup-1")
+
+    await transport.hang_up()
+    await _settle()
+
+    assert [type(frame) for frame in call.worker.queued] == [EndWorkerFrame]
+
+
+def test_a_transport_that_cannot_say_when_the_caller_left_is_refused() -> None:
+    class _ConnectsOnly(FakeTransport):
+        def __init__(self) -> None:
+            super().__init__()
+            self._register_event_handler(carrier.CLIENT_CONNECTED_EVENT)
+
+    with pytest.raises(carrier.CarrierWiringError, match="on_client_disconnected"):
+        carrier.arm_first_turn(_ConnectsOnly(), cast(Any, _ArmableCall()), call_id="c")
 
 
 async def test_a_call_for_an_unknown_agent_is_refused_without_asking_the_platform() -> None:
@@ -628,6 +675,7 @@ async def test_the_transport_is_built_from_the_handshake_and_the_carrier_secrets
     assert params.audio_in_sample_rate == carrier.TELEPHONY_SAMPLE_RATE_HZ
     assert params.audio_out_sample_rate == carrier.TELEPHONY_SAMPLE_RATE_HZ
     assert carrier.CLIENT_CONNECTED_EVENT in transport._event_handlers
+    assert carrier.CLIENT_DISCONNECTED_EVENT in transport._event_handlers
 
 
 # --------------------------------------------------------------------------------------
