@@ -831,3 +831,82 @@ async def test_the_account_check_cannot_see_a_neighbours_organization() -> None:
             await assert_account_open(session, tenant_id=neighbour_id)
 
     assert raised.value.status == 404
+
+
+# ============================================================================
+# The business name, on the operator's two doors
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    ("raw", "why"),
+    [
+        ("    ", "four spaces satisfied min_length and named the account nothing"),
+        ("‍‮‌‍", "nothing but zero-width joiners and an override"),
+    ],
+)
+async def test_the_wizard_refuses_a_name_that_is_not_text(raw: str, why: str) -> None:
+    """`tenancy/signup.clean_business_name` is the one definition of a usable business
+    name; the operator wizard took `name` straight from its `Field` bound instead."""
+    token = await _make_admin("operator")
+    slug = f"name-{uuid.uuid4().hex[:8]}"
+
+    response = await _create_tenant(token, name=raw, slug=slug, vertical_template="clinic")
+
+    assert response.status_code == 422, f"{why}: {response.status_code} {response.text}"
+    body = response.json()
+    assert body["type"].endswith("/invalid_business_name")
+    assert [f["field"] for f in body["fields"]] == ["name"], "name the wizard's own field"
+    assert await _org_count(slug=slug) == 0
+
+
+@pytest.mark.parametrize(
+    ("raw", "stored"),
+    [
+        # A NUL byte reached psycopg and escaped as a 500.
+        ("Ab\x00cd Clinic", "Abcd Clinic"),
+        # The override was stored verbatim, and a pasted line break must become a space
+        # rather than glue the two words together.
+        ("  Ravi‮   Dental\r\nClinic\t", "Ravi Dental Clinic"),
+    ],
+)
+async def test_the_wizard_stores_the_cleaned_name(raw: str, stored: str) -> None:
+    token = await _make_admin("operator")
+    slug = f"name-{uuid.uuid4().hex[:8]}"
+
+    response = await _create_tenant(token, name=raw, slug=slug, vertical_template="clinic")
+
+    assert response.status_code == 201, response.text
+    tenant_id = UUID(response.json()["id"])
+    name = await _scalar(tenant_id, "SELECT name FROM organizations WHERE id = :t", t=tenant_id)
+    assert name == stored
+
+
+async def test_the_edit_refuses_a_name_that_is_not_text() -> None:
+    token = await _make_admin("operator")
+    tenant_id = await _tenant()
+
+    async with _client() as http:
+        response = await http.patch(
+            f"{TENANTS}/{tenant_id}", headers=_auth(token), json={"name": "   "}
+        )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("/invalid_business_name")
+    name = await _scalar(tenant_id, "SELECT name FROM organizations WHERE id = :t", t=tenant_id)
+    assert name == "Commercial Terms Clinic"
+
+
+async def test_the_edit_stores_the_cleaned_name() -> None:
+    """The edit route wrote the raw value: a NUL byte here was a 500 as well."""
+    token = await _make_admin("operator")
+    tenant_id = await _tenant()
+
+    async with _client() as http:
+        response = await http.patch(
+            f"{TENANTS}/{tenant_id}", headers=_auth(token), json={"name": "Nel\x00lore\nDental"}
+        )
+
+    assert response.status_code == 200, response.text
+    name = await _scalar(tenant_id, "SELECT name FROM organizations WHERE id = :t", t=tenant_id)
+    assert name == "Nellore Dental"

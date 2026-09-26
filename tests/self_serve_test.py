@@ -434,6 +434,8 @@ async def test_a_business_name_that_is_not_text_is_refused_or_cleaned(name: str,
         stored = response.json()["name"]
         assert stored.strip() == stored and stored != ""
         assert not any(ch in stored for ch in "\x00\r\n\x07\u202e"), why
+        if name == "Acme\r\nLtd\x07":
+            assert stored == "Acme Ltd", "a line break is a word boundary, not nothing"
     else:
         assert response.json()["type"].endswith("/invalid_business_name"), response.text
 
