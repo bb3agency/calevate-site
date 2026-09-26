@@ -28,6 +28,7 @@ infra tables. "It cleared" and "it is old enough to forget" are different clocks
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -83,7 +84,7 @@ async def sweep_alert_clears(ctx: dict[str, Any]) -> str:
     for row in rows:
         # Only an episode that actually MAILED gets a clear. See the module docstring.
         if row.emailed:
-            announced += int(_announce_clear(row))
+            announced += int(await _announce_clear(row))
     totals = {
         "cleared": len(rows),
         "announced": announced,
@@ -93,7 +94,7 @@ async def sweep_alert_clears(ctx: dict[str, Any]) -> str:
     return json.dumps(totals)
 
 
-def _announce_clear(row: Any) -> bool:
+async def _announce_clear(row: Any) -> bool:
     """One plain-text line to the alert mailbox. Returns whether it landed.
 
     PLAIN TEXT and the same transport as the onset, for `core/alerting._deliver`'s stated
@@ -120,11 +121,12 @@ def _announce_clear(row: Any) -> bool:
             "Nothing is required. The full history is on /admin/ops/alerts.",
         ]
     )
+    subject = f"[calevate/{settings.app_env}/{row.service}] {row.code} cleared"
     try:
-        return get_transport().send(
-            to=recipient,
-            subject=f"[calevate/{settings.app_env}/{row.service}] {row.code} cleared",
-            body=body,
+        # Off the event loop: `send` is blocking socket I/O (smtplib, or a sync httpx
+        # POST) and this job shares its loop with the outbox and dispatch ticks.
+        return await asyncio.to_thread(
+            get_transport().send, to=recipient, subject=subject, body=body
         )
     except Exception as exc:  # pragma: no cover - transport failures are logged, not raised
         log.warning("alert_clear_notice_failed", extra={"reason": type(exc).__name__})
