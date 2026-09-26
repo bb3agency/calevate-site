@@ -92,6 +92,31 @@ describe("the numbers on the autodialer notice", () => {
   });
 });
 
+describe("recording a new notice after a number was added", () => {
+  it("offers every number the calls come from, not only the missing ones", async () => {
+    // The latest notice is the whole declaration: the dial gate and readiness read only
+    // it. The button used to add just `undeclared_clis`, so pressing it and recording the
+    // result declared the new number and UN-declared the one already on file.
+    const { calls } = await renderClientPage(<AutodialerNoticePanel />, routes());
+    await screen.findByText("+911409876543");
+
+    fill("Which operator did you tell?", "Airtel");
+    fill("What is the date on your letter?", "2026-09-20");
+    fill("What did you tell them the calls are for?", "Appointment reminders");
+    fireEvent.click(screen.getByRole("button", { name: "Add my agents' numbers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record this notice" }));
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "POST")).toBe(true),
+    );
+    const posted = calls.find((call) => call.method === "POST");
+    expect(JSON.parse(posted?.body ?? "{}").declared_clis).toEqual([
+      "+919848022338",
+      "+911409876543",
+    ]);
+  });
+});
+
 describe("parseDeclaredNumbers", () => {
   it("splits on lines and commas and drops blanks", () => {
     expect(parseDeclaredNumbers(" +91 98480 22338 ,\n\n1409876543\n")).toEqual([
