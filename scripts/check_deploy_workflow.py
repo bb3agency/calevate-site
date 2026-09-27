@@ -269,8 +269,11 @@ def check_run_blocks_parse(blocks: list[tuple[str, str]]) -> list[str]:
         result = subprocess.run(
             ["bash", "-n"], input=block.encode("utf-8"), capture_output=True, check=False
         )
-        if result.returncode != 0:
-            stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        # Stderr counts as well as the status: Debian bookworm's bash 5.2.15 prints a
+        # conditional-expression syntax error under `-n` and still exits 0, and a clean
+        # `bash -n` writes nothing at all.
+        if result.returncode != 0 or stderr:
             failures.append(
                 f"{where} is not valid bash: {stderr}. CI shellchecks "
                 "`git ls-files '*.sh'` and this block is in no such file, so without this "

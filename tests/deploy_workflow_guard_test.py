@@ -13,6 +13,7 @@ tree, never by editing the repo.
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -148,6 +149,21 @@ def test_catches_a_run_block_that_does_not_parse(tree: Path) -> None:
     )
     failures = guard.check_run_blocks_parse(guard._run_blocks(guard._load()))
     assert failures and "not valid bash" in failures[0]
+
+
+def test_a_syntax_error_reported_with_exit_zero_still_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bash 5.2.15 shape, pinned without depending on which bash is installed."""
+    reported = subprocess.CompletedProcess(
+        args=["bash", "-n"],
+        returncode=0,
+        stdout=b"",
+        stderr=b"bash: line 1: syntax error in conditional expression: unexpected token `;'",
+    )
+    monkeypatch.setattr(guard.subprocess, "run", lambda *_a, **_k: reported)
+    failures = guard.check_run_blocks_parse([("deploy.yml step", "if [[ -n x; then :; fi")])
+    assert failures and "conditional expression" in failures[0]
 
 
 @pytest.mark.parametrize("removed", [key for key, _ in guard.SAFETY_PROPERTIES])
