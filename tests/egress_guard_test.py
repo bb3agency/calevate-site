@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import uuid
 from typing import Any
 
@@ -95,13 +96,20 @@ def _deployed(monkeypatch: pytest.MonkeyPatch, env: str = "prod") -> None:
 
 # ------------------------------------------------------------- spelling vs address
 
+#: The legacy `inet_aton` spellings resolve only where `getaddrinfo` is glibc's. Windows'
+#: resolver does not parse them at all, so the guard refuses them there as unresolvable —
+#: still refused, but not the property this test asserts. Production and CI are Linux.
+_GLIBC_ONLY = pytest.mark.skipif(
+    sys.platform != "linux", reason="legacy inet_aton spellings resolve only under glibc"
+)
+
 
 @pytest.mark.parametrize(
     ("url", "spelling"),
     [
-        ("http://2130706433/hook", "decimal"),
-        ("http://0177.0.0.1/hook", "octal"),
-        ("http://0x7f000001/hook", "hex"),
+        pytest.param("http://2130706433/hook", "decimal", marks=_GLIBC_ONLY),
+        pytest.param("http://0177.0.0.1/hook", "octal", marks=_GLIBC_ONLY),
+        pytest.param("http://0x7f000001/hook", "hex", marks=_GLIBC_ONLY),
         ("http://[::ffff:127.0.0.1]/hook", "ipv4-mapped ipv6"),
         ("http://[::1]/hook", "ipv6 loopback"),
         ("http://localhost/hook", "name"),

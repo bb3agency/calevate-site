@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
@@ -147,6 +147,12 @@ function literals(node: ts.Expression): ts.Node[] {
 }
 
 /** Every string one file puts in front of a person. */
+/** `file` relative to `apps/web` with `/` separators on every OS, because the exemption
+ *  tables and failure messages are keyed in POSIX form and Windows' `join` emits `\`. */
+function webRelative(file: string): string {
+  return file.slice(WEB_ROOT.length + 1).split(sep).join("/");
+}
+
 export function copyIn(file: string): CopyString[] {
   const source = ts.createSourceFile(
     file,
@@ -155,7 +161,7 @@ export function copyIn(file: string): CopyString[] {
     true,
     ts.ScriptKind.TSX,
   );
-  const relative = file.startsWith(WEB_ROOT) ? file.slice(WEB_ROOT.length + 1) : file;
+  const relative = file.startsWith(WEB_ROOT) ? webRelative(file) : file;
   const found: CopyString[] = [];
   const take = (node: ts.Node, text: string): void => {
     if (!text.trim()) return;
@@ -212,7 +218,7 @@ export function copyUnder(roots: readonly string[], exempt: readonly string[] = 
   const out: CopyString[] = [];
   for (const root of roots) {
     for (const file of tsSources(join(WEB_ROOT, root))) {
-      const relative = file.slice(WEB_ROOT.length + 1);
+      const relative = webRelative(file);
       if (exempt.some((prefix) => relative.startsWith(prefix))) continue;
       out.push(...copyIn(file));
     }

@@ -106,7 +106,9 @@ test:
 ## is no manifest and the gate refuses, which is the intended failure: a measurement whose
 ## provenance is unknown is not a measurement this repo scores.
 coverage-ratchet:  ## Full suite under coverage, then the per-surface ratchet [CI gate]
-	uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
+	# `python -m coverage`, not the `coverage.exe` launcher: Windows antivirus quarantines
+	# uv's script launchers mid-run as self-running droppers, which kills the suite.
+	uv run python -m coverage run -m pytest -q -p scripts.check_coverage_ratchet
 	uv run python -m scripts.check_coverage_ratchet
 
 coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrink-only)
@@ -130,7 +132,7 @@ coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrin
 	# REFUSES to write from a run that did not start empty. Neither reset is wired as a
 	# prerequisite: a target that silently drops a developer's data is worse than one
 	# that stops and says exactly what to run.
-	uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
+	uv run python -m coverage run -m pytest -q -p scripts.check_coverage_ratchet
 	uv run python -m scripts.check_coverage_ratchet --update-baseline
 
 smoke:  ## tenant -> agent -> signed webhook -> lead with extraction

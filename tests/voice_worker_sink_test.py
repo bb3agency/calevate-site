@@ -850,9 +850,9 @@ def test_the_client_is_the_only_way_the_worker_reaches_the_platform() -> None:
     root = pathlib.Path(__file__).resolve().parents[1] / "apps" / "voice-worker"
     allowed = {"voice_worker/api_client.py", "voice_worker/embedding.py"}
     offenders = sorted(
-        str(path.relative_to(root))
+        path.relative_to(root).as_posix()
         for path in root.rglob("*.py")
-        if str(path.relative_to(root)) not in allowed
+        if path.relative_to(root).as_posix() not in allowed
         and any(
             line.startswith(("import httpx", "from httpx"))
             for line in path.read_text(encoding="utf-8").splitlines()

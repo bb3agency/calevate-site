@@ -197,7 +197,7 @@ jobs:
         # `tests/coverage_ratchet_guard_test.py` bans that key outright — correctly,
         # because "we re-raise it in a later step" is exactly the argument someone would
         # make while quietly making the gate ignorable.
-        run: uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
+        run: uv run python -m coverage run -m pytest -q -p scripts.check_coverage_ratchet
 
       - name: "Guardrail: coverage ratchet (D-29 coverage:ratchet)"
         if: ${{ !cancelled() }}

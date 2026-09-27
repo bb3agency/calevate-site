@@ -383,7 +383,7 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
 
     ```
     make coverage-ratchet          # THE ONLY invocation. It is two commands:
-                                   #   uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
+                                   #   uv run python -m coverage run -m pytest -q -p scripts.check_coverage_ratchet
                                    #   uv run python -m scripts.check_coverage_ratchet
     ```
 
