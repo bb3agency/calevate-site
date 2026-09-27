@@ -1146,12 +1146,12 @@ def test_a_reader_already_inside_the_builder_cannot_resurrect_the_old_settings()
             super().__init__(*args, **kwargs)  # type: ignore[arg-type]
             time.sleep(0.3)
 
-    key = "ACTIONS_CALLBACK_BASE_URL"
+    key = "WEBHOOK_BASE_URL"
     before = os.environ.get(key)
     try:
         os.environ[key] = "https://before.example"
         get_settings.cache_clear()
-        assert get_settings().actions_callback_base_url == "https://before.example"
+        assert get_settings().webhook_base_url == "https://before.example"
 
         settings_mod.Settings = _LingeringSettings  # type: ignore[misc]
         get_settings.cache_clear()
@@ -1164,7 +1164,7 @@ def test_a_reader_already_inside_the_builder_cannot_resurrect_the_old_settings()
         get_settings.cache_clear()  # the refresh
         reader.join()  # the stale insert lands HERE, after the clear
 
-        observed = get_settings().actions_callback_base_url
+        observed = get_settings().webhook_base_url
     finally:
         settings_mod.Settings = real  # type: ignore[misc]
         if before is None:

@@ -674,7 +674,13 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    `docker image rm calevate/app:<sha>`.
 7. **Bootstrap-env preflight, run IN the new image** (`validate_bootstrap_env` +
    `Settings()`), before any swap. In the image rather than on the host because what
-   matters is what the process about to serve traffic can read.
+   matters is what the process about to serve traffic can read. It also refuses a `.env`
+   still carrying a key whose field a decision deleted (`retired_env_key`; the list is
+   `calevate_shared.config.RETIRED_ENV_KEYS`, today D-639's five `BOLNA_*` keys), naming
+   each key and the decision — so no hand `grep` for leftovers is needed before a deploy.
+   Delete the named lines and re-run. `Settings()` itself refuses the same keys at boot,
+   from `.env` or the process environment, so a container started by hand fails with the
+   same sentence rather than a generic "Extra inputs are not permitted".
 8. **Migrations** (`compose --profile migrate run --rm migrate`), before the swap — §4a —
    **then the seed** in the same profile. `scripts/seed.py` writes the reserved-slug list,
    the vertical templates and the retention defaults, and until this step existed it ran

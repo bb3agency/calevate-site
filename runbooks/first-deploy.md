@@ -287,7 +287,9 @@ uv run python -m scripts.check_deploy_env --env-file .env
 ```
 
 Expect `DEPLOY ENV: OK`. If it says `dsn_host_unreachable_from_container` you used
-`localhost` where you needed `host.docker.internal`.
+`localhost` where you needed `host.docker.internal`. If it says `retired_env_key`, the
+file was copied from an older host and carries a key a decision deleted (the message
+names the decision): delete those lines. Every process refuses to boot while they remain.
 
 ---
 

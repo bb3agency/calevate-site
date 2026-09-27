@@ -158,20 +158,14 @@ async def test_declare_respects_master_switch_and_trigger() -> None:
         )
 
         # Master switch OFF (default): nothing declared.
-        assert (
-            await service.declare(s, agent_id=agent, engine="cartesia", direction="inbound") == ()
-        )
+        assert await service.declare(s, agent_id=agent, direction="inbound") == ()
 
         # Master switch ON: only the during-call tool, with agent-ref injected.
         await service.set_actions_enabled(s, agent_id=agent, enabled=True)
-        specs = await service.declare(s, agent_id=agent, engine="cartesia", direction="inbound")
+        specs = await service.declare(s, agent_id=agent, direction="inbound")
         assert len(specs) == 1
         spec = specs[0]
         assert spec.name == "get_status"
-        during = next(
-            t for t in await service.list_tools(s, agent_id=agent) if t.name == "get_status"
-        )
-        assert spec.url.endswith(f"/v1/actions/invoke/cartesia/{during.id}")
         names = {p.name for p in spec.params}
         assert "order_id" in names and "caller" in names and "_agent_ref" in names
 

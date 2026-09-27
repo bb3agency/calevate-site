@@ -51,6 +51,7 @@ from uuid import UUID
 
 from calevate_shared.engine import (
     INHERITED_TURN_DETECTION_MS,
+    LlmModelTrapName,
     ModelConfig,
     fill_caller_memory_slot,
     google_openai_compat_base_url,
@@ -740,16 +741,61 @@ def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FramePr
     raise ValueError(f"unsupported tts_provider {provider!r}")
 
 
+#: The traps whose mitigation is to switch reasoning off. Both are the same failure seen on
+#: two vendors — hidden reasoning tokens drawn from the reply's budget, adding latency and
+#: output-rate cost to a spoken turn — and one wire value closes both:
+#:
+#: * GPT-5 family: `gpt-5.4-mini` accepts `reasoning_effort` "none (default), low, medium,
+#:   high and xhigh" (developers.openai.com/api/docs/models/gpt-5.4-mini, read
+#:   27 Sep 2026). "none" is already its default; sending it pins the behaviour against a
+#:   model whose default is not none (`gpt-5.5` defaults to `medium`,
+#:   developers.openai.com/api/docs/guides/reasoning, read 27 Sep 2026).
+#: * Gemini 2.5 over the OpenAI-compat endpoint: "If no `reasoning_effort` is specified,
+#:   Gemini uses the model's default level or budget", and "you can set `reasoning_effort`
+#:   to 'none' for 2.5 models" to disable thinking (ai.google.dev/gemini-api/docs/openai,
+#:   page updated 2026-09-02, read 27 Sep 2026). `gemini-2.5-flash` defaults to dynamic
+#:   thinking; `-flash-lite` defaults to not thinking
+#:   (ai.google.dev/gemini-api/docs/generate-content/thinking, updated 2026-09-25, read
+#:   27 Sep 2026). The endpoint validates the value before the credential and lists
+#:   "none" among its valid values (keyless probe of
+#:   generativelanguage.googleapis.com/v1beta/openai/chat/completions, 27 Sep 2026).
+#:
+#: `reasoning_effort` rather than `extra_body.google.thinking_config.thinking_budget: 0`:
+#: Google's compat page says the two "can't be used at the same time", and one key that
+#: means the same thing on both vendors is one mitigation instead of two.
+#: Never sent to a model without one of these traps — `gpt-4o-mini` is not a reasoning
+#: model and has no such parameter to accept.
+_REASONING_OFF_TRAPS: Final[frozenset[LlmModelTrapName]] = frozenset(
+    {"max-tokens-becomes-max-completion-tokens", "thinking-tokens-share-the-reply-budget"}
+)
+
+
+def _trap_request_extra(traps: Sequence[LlmModelTrapName]) -> dict[str, Any]:
+    """The request-body keys that mitigate this model's traps, for `Settings.extra`.
+
+    `temperature-must-be-one` needs no key: its mitigation is to send no temperature, which
+    this leg never does (see `_build_llm`). `extra` is merged into the top level of the
+    `chat.completions.create` kwargs (`pipecat/services/openai/base_llm.py:383`), where
+    `reasoning_effort` is a declared parameter of the OpenAI SDK.
+    """
+    if _REASONING_OFF_TRAPS.intersection(traps):
+        return {"reasoning_effort": "none"}
+    return {}
+
+
 def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
     """The BYOK LLM leg, on whichever of our three declared providers the config names.
 
-    **NO `temperature` IS SENT, AND THAT IS WHY THERE IS NO TRAP LAYER HERE.** Pipecat has
-    no equivalent of `LlmModelSpec.traps`; `temperature` simply defaults to `NOT_GIVEN`
-    (`pipecat/services/settings.py:337`) and an unset field is not serialised. The GPT-5
-    trap that `engine/bolna.py::_llm_trap_settings` exists for was caused by that adapter
-    sending `temperature: 0.1` UNCONDITIONALLY — a thing this leg does not do. If a future
-    change wants a temperature, `ModelConfig.llm_traps` is already on `SessionConfig` and
-    that is where the decision belongs.
+    **THE MODEL TRAPS ARE MITIGATED HERE, FROM `config.models.llm_traps`** (the catalogue's
+    `LlmModelSpec.traps`, carried across the seam in our vocabulary) — see
+    `_trap_request_extra`. What the request body holds otherwise is fixed by pipecat 1.10.0:
+    `BaseOpenAILLMService.build_chat_completion_params` (`services/openai/base_llm.py:
+    351-385`) sends `model`, `stream`, `stream_options`, the context's `messages` / `tools`
+    / `tool_choice`, and `Settings.extra` merged at top level; every sampling field and
+    both token caps default to the OpenAI SDK's `NOT_GIVEN` (`services/openai/llm.py:
+    55-69`), which the SDK strips before sending (`openai/_utils/_transform.py:271`,
+    openai 3.13.0). So no `temperature`, `max_tokens` or `max_completion_tokens` is ever
+    sent, and `settings=Settings(model=...)` below cannot add one.
 
     **THE `google` LEG GOES OVER THE OPENAI-COMPAT SURFACE, NOT `google-genai`, AND THAT IS
     A CHOICE WITH TWO GROUNDS RATHER THAN A WORKAROUND.**
@@ -802,6 +848,7 @@ def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FramePr
     # second copy on `SessionConfig` would be a second place for the endpoint a third party
     # sends a client's caller's words to, which is the one value D-127's argument turns on.
     base_url = config.models.llm_base_url
+    extra = _trap_request_extra(config.models.llm_traps)
     if provider == "azure_openai":
         if base_url is None:  # pragma: no cover - ModelConfig's validator gets here first
             raise ValueError("the azure_openai leg needs llm_base_url (azure_openai_base_url())")
@@ -810,14 +857,14 @@ def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FramePr
             api_key=credentials.llm_api_key,
             # On Azure this is the DEPLOYMENT id an operator chose, never a model name —
             # `ModelConfig.llm_model` says so at the field.
-            settings=AzureLLMService.Settings(model=model),
+            settings=AzureLLMService.Settings(model=model, extra=extra),
             function_call_timeout_secs=FUNCTION_CALL_TIMEOUT_SECS,
         )
     if provider == "openai":
         return OpenAILLMService(
             api_key=credentials.llm_api_key,
             base_url=base_url,
-            settings=OpenAILLMService.Settings(model=model),
+            settings=OpenAILLMService.Settings(model=model, extra=extra),
             function_call_timeout_secs=FUNCTION_CALL_TIMEOUT_SECS,
         )
     if provider == "google":
@@ -829,7 +876,7 @@ def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FramePr
         return OpenAILLMService(
             api_key=credentials.llm_api_key,
             base_url=google_openai_compat_base_url(),
-            settings=OpenAILLMService.Settings(model=model),
+            settings=OpenAILLMService.Settings(model=model, extra=extra),
             function_call_timeout_secs=FUNCTION_CALL_TIMEOUT_SECS,
         )
     raise ValueError(f"unknown llm_provider {provider!r}")

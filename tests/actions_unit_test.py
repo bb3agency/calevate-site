@@ -57,8 +57,8 @@ def test_to_spec_resolves_caller_phone_by_direction_and_injects_agent_ref() -> N
         {"name": "caller", "source": "lead_var", "lead_var": "caller_phone"},
         {"name": "store", "source": "static", "value": "S1"},
     ]
-    inbound = _to_spec(_loaded(params=params), engine="fake", direction="inbound")
-    outbound = _to_spec(_loaded(params=params), engine="fake", direction="outbound")
+    inbound = _to_spec(_loaded(params=params), direction="inbound")
+    outbound = _to_spec(_loaded(params=params), direction="outbound")
     names = {p.name: p for p in inbound.params}
     # static param is NOT declared to the engine; ai + lead_var + the injected agent ref are.
     assert "store" not in names

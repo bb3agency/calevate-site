@@ -89,6 +89,7 @@ from calevate_shared.engine import (
     AvailableNumber,
     CallContext,
     CallHandle,
+    CallLatency,
     EngineAgentRef,
     EngineCapabilities,
     EngineKBRef,
@@ -103,6 +104,7 @@ from calevate_shared.engine import (
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
+    TurnLatency,
     WebhookAuthMethod,
     WebhookVerdict,
     owned_runtime_agent_ref,
@@ -631,10 +633,11 @@ class SqlControlPlane:
           That is not a gap: the worker already wrote this call's `usage_events` rows at
           settlement from the meter that watched the session, and a second pass pricing the
           same legs off a snapshot would be two writers of one append-only ledger.
-        * `latency` — `None`. The worker records no per-turn timings today; inventing a
-          `CallLatency()` would read as "the engine reported an object we could parse
-          nothing out of", which is a different and false claim (`ExecutionSnapshot
-          .latency`).
+        * `latency` — the `call_engine_latency` row the worker's settlement wrote
+          (`voice_worker/latency.py` measures it), or `None` when there is none: a call on
+          which no caller turn was answered. Never an empty `CallLatency()`, which would
+          read as "the engine reported an object we could parse nothing out of" — a
+          different and false claim (`ExecutionSnapshot.latency`).
         * `raw_document` — `None`. There is no vendor document: the rows below ARE the
           record, and `_archive_engine_document` answers `none_offered`.
         * `recording_url` — whatever the row holds, which is `NULL` until something records
@@ -682,6 +685,15 @@ class SqlControlPlane:
                     {"cid": row[0], "tid": tenant_id},
                 )
             ).all()
+            timing = (
+                await session.execute(
+                    text(
+                        "SELECT region, time_to_first_audio_ms, turns, parse_warnings "
+                        "FROM call_engine_latency WHERE call_id = :cid AND tenant_id = :tid"
+                    ),
+                    {"cid": row[0], "tid": tenant_id},
+                )
+            ).first()
         status = cast(CallStatus, str(row[3]))
         log.info(
             "pipecat_execution_read",
@@ -727,6 +739,7 @@ class SqlControlPlane:
             # attribute is what `all_credential_env_keys` and the factory key off, and a
             # third spelling of the engine name is the drift `tests/engine_name_drift_test.py`
             # exists to catch.
+            latency=_stored_latency(timing),
             engine=PipecatEngine.name,
         )
 
@@ -1553,6 +1566,24 @@ def _normalized_status(raw: str) -> CallStatus:
     if raw in _STATUS_VALUES:
         return raw  # type: ignore[return-value]
     return "failed"
+
+
+def _stored_latency(row: Any) -> CallLatency | None:
+    """`call_engine_latency` back into the normalized shape, or `None` when no row exists.
+
+    jsonb arrives decoded: SQLAlchemy's asyncpg dialect installs a jsonb codec on every
+    connection, `text()` reads included. The row's CHECK guarantees `turns` holds objects of
+    numbers, and `TurnLatency` ignores a key it does not declare.
+    """
+    if row is None:
+        return None
+    region, ttfa, turns, warnings = row
+    return CallLatency(
+        region=region,
+        time_to_first_audio_ms=float(ttfa) if ttfa is not None else None,
+        turns=[TurnLatency.model_validate(turn) for turn in turns],
+        parse_warnings=[str(warning) for warning in warnings or ()],
+    )
 
 
 __all__ = [

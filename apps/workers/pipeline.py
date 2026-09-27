@@ -28,7 +28,6 @@ SLO: lead visible in the client dashboard under 2 minutes after hangup — measu
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -118,6 +117,7 @@ from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
 from apps.api.integrations.service import subscribed_endpoint_sql
+from apps.api.ops.engine_latency import upsert_call_engine_latency
 from apps.api.ops.model_pricing import attested_tts_prices
 from apps.api.reliability.service import (
     enqueue_outbox_once,
@@ -1041,32 +1041,12 @@ async def _record_engine_latency(
         return "none_reported"
     try:
         async with tenant_session(tenant_id) as session:
-            await session.execute(
-                text(
-                    "INSERT INTO call_engine_latency "
-                    "  (id, tenant_id, call_id, engine, region, time_to_first_audio_ms, "
-                    "   turns, parse_warnings, created_at, updated_at) "
-                    "VALUES (:id, :tid, :cid, :engine, :region, :ttfa, "
-                    "        CAST(:turns AS jsonb), CAST(:warnings AS jsonb), now(), now()) "
-                    "ON CONFLICT (call_id) DO UPDATE SET "
-                    "  region = EXCLUDED.region, "
-                    "  time_to_first_audio_ms = EXCLUDED.time_to_first_audio_ms, "
-                    "  turns = EXCLUDED.turns, "
-                    "  parse_warnings = EXCLUDED.parse_warnings, "
-                    "  updated_at = now()"
-                ),
-                {
-                    "id": uuid7(),
-                    "tid": tenant_id,
-                    "cid": call_id,
-                    "engine": snapshot.engine,
-                    "region": latency.region,
-                    "ttfa": latency.time_to_first_audio_ms,
-                    "turns": json.dumps([turn.model_dump() for turn in latency.turns]),
-                    "warnings": json.dumps(latency.parse_warnings)
-                    if latency.parse_warnings
-                    else None,
-                },
+            await upsert_call_engine_latency(
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                engine=snapshot.engine,
+                latency=latency,
             )
     except SQLAlchemyError as exc:
         # Includes the CHECK that refuses anything but numbers in `turns` — which is the

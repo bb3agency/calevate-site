@@ -43,7 +43,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers import pipeline as pipeline_module
 from apps.workers.pipeline import POSTCALL_JOB, run_post_call_pipeline
-from calevate_shared.engine import VoiceEngine, pipecat_call_ref
+from calevate_shared.engine import CallLatency, TurnLatency, VoiceEngine, pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from sqlalchemy import text
 from tests.worker_api_harness import declare_pipecat_engine, worker_client
@@ -158,7 +158,12 @@ class _NothingToMeter:
 
 
 async def _run_one_call(
-    tenant_id: uuid.UUID, agent_id: uuid.UUID, call_id: str, *, settlements: int = 1
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    call_id: str,
+    *,
+    settlements: int = 1,
+    latency: CallLatency | None = None,
 ) -> list[Any]:
     """Drive a whole call through the real sink. Returns each settlement's result."""
     api = worker_client()
@@ -208,7 +213,14 @@ async def _run_one_call(
             )
         )
         for _ in range(settlements):
-            results.append(await sink.settle(_NothingToMeter(), carrier=None, runtime=None))  # type: ignore[arg-type]
+            results.append(
+                await sink.settle(
+                    _NothingToMeter(),  # type: ignore[arg-type]
+                    carrier=None,
+                    runtime=None,
+                    latency=latency,
+                )
+            )
     finally:
         await api.aclose()
     return results
@@ -398,6 +410,8 @@ async def test_the_adapter_reads_the_call_back_under_the_tenant_its_id_names(
     # worker already wrote its `usage_events` rows at settlement.
     assert snapshot.cost is None
     assert snapshot.billable_ready is False
+    # Settled without timings, so none are reported — never an empty `CallLatency()`.
+    assert snapshot.latency is None
 
 
 async def test_a_call_id_this_engine_never_minted_is_reported_as_no_record(
@@ -410,3 +424,85 @@ async def test_a_call_id_this_engine_never_minted_is_reported_as_no_record(
     engine = get_engine(get_settings().model_copy(update={"engine": "pipecat"}))
     with pytest.raises(ProblemError):
         await engine.get_execution(str(uuid.uuid4()))
+
+
+# ---------------------------------------------------------------------------------------
+# 4. The worker's per-turn timings reach the table the ops latency report reads.
+# ---------------------------------------------------------------------------------------
+
+TIMINGS = CallLatency(
+    time_to_first_audio_ms=1180.5,
+    turns=[
+        TurnLatency(turn=1, stt_ms=410.25, llm_ttft_ms=320.0, tts_ttfa_ms=240.0),
+        TurnLatency(turn=2, stt_ms=None, llm_ttft_ms=290.5, tts_ttfa_ms=None),
+    ],
+)
+
+
+async def _latency_rows(tenant_id: uuid.UUID, call_row_id: uuid.UUID) -> list[Any]:
+    async with tenant_session(tenant_id) as session:
+        return list(
+            (
+                await session.execute(
+                    text(
+                        "SELECT engine, region, time_to_first_audio_ms, turns, parse_warnings "
+                        "FROM call_engine_latency WHERE tenant_id = :t AND call_id = :c"
+                    ),
+                    {"t": tenant_id, "c": call_row_id},
+                )
+            ).all()
+        )
+
+
+async def test_a_settled_calls_timings_are_stored_read_back_and_kept_once(
+    worker_token: None,
+) -> None:
+    tenant_id, agent_id = await _seed_tenant()
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    first, second = await _run_one_call(
+        tenant_id, agent_id, call_id, settlements=2, latency=TIMINGS
+    )
+    assert (first.already_settled, second.already_settled) == (False, True)
+    call_row_id = await _call_row_id(tenant_id, call_id)
+
+    ((engine, region, ttfa, turns, warnings),) = await _latency_rows(tenant_id, call_row_id)
+    assert engine == "pipecat"
+    assert region is None
+    assert float(ttfa) == 1180.5
+    assert [TurnLatency.model_validate(turn) for turn in turns] == TIMINGS.turns
+    assert warnings is None
+
+    snapshot = await get_engine(
+        get_settings().model_copy(update={"engine": "pipecat"})
+    ).get_execution(pipecat_call_ref(tenant_id, call_id))
+    assert snapshot.latency == TIMINGS
+
+    # The post-call pipeline's latency stage upserts what the snapshot carried: still one
+    # row, still the same turns, so the call is weighted once in the distribution.
+    ((_id, _job, payload, _status),) = await _outbox_rows(call_row_id)
+    assert await run_post_call_pipeline({}, payload) == "ok"
+    ((_engine, _region, _ttfa, turns_after, _w),) = await _latency_rows(tenant_id, call_row_id)
+    assert [TurnLatency.model_validate(turn) for turn in turns_after] == TIMINGS.turns
+
+
+async def test_a_refused_measurement_never_costs_the_settlement(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The timings are written inside a SAVEPOINT: a database that refuses them rolls back
+    the measurement alone, and the call row and the post-call promise still commit."""
+    from apps.api.worker import service as worker_service
+
+    async def _refuse(session: Any, **_kwargs: Any) -> None:
+        # A real statement failing inside the real transaction: without the savepoint,
+        # Postgres would abort the whole settlement here.
+        await session.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(worker_service, "upsert_call_engine_latency", _refuse)
+    tenant_id, agent_id = await _seed_tenant()
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    (settlement,) = await _run_one_call(tenant_id, agent_id, call_id, latency=TIMINGS)
+
+    assert settlement.post_call_enqueued is True
+    call_row_id = await _call_row_id(tenant_id, call_id)
+    assert len(await _outbox_rows(call_row_id)) == 1
+    assert await _latency_rows(tenant_id, call_row_id) == []

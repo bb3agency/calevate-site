@@ -38,13 +38,14 @@ Two consequences that look like omissions and are the design:
 
 from __future__ import annotations
 
+import math
 from decimal import Decimal
 from typing import Final, Literal, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from calevate_shared.engine import AgentConfig, ModelConfig
+from calevate_shared.engine import AgentConfig, CallLatency, ModelConfig
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 
 #: Every model here forbids unknown fields. A body carrying a key the server does not know
@@ -83,6 +84,12 @@ MAX_QUANTITIES: Final = 32
 #: can carry both lists at once (a leg we measured settles beside a leg we could not), so the
 #: two bounds are declared separately rather than one being read as the other's complement.
 MAX_REFUSALS: Final = 32
+#: Turns one settlement may report timings for. A MEMORY BOUND, like the two above: a turn
+#: is a caller utterance answered, and even a call held at a generous cap for an hour stays
+#: well under this. The worker stops recording at the same number and says so in
+#: `CallLatency.parse_warnings`, so a long call is truncated visibly rather than refused.
+MAX_LATENCY_TURNS: Final = 2000
+MAX_LATENCY_WARNINGS: Final = 8
 
 #: The platform's call cap when an agent's owner has chosen none, DERIVED rather than
 #: retyped. `agents/service.effective_call_cap` already resolves `agents.max_call_duration_s`
@@ -446,6 +453,40 @@ class SettlementRequest(BaseModel):
     to_e164: str | None = None
     refusals: list[SettlementRefusal] = Field(default_factory=list, max_length=MAX_REFUSALS)
     quantities: list[MeteredQuantity] = Field(default_factory=list, max_length=MAX_QUANTITIES)
+    #: The pipeline's own per-turn timings for this call, in the normalized shape every
+    #: engine reports (`voice_worker/latency.py` builds it). `None` is a call on which no
+    #: user turn was answered, which is a different fact from a turn whose legs went
+    #: unmeasured. It rides the settlement rather than a route of its own because the
+    #: settlement is already the one terminal write, and the server stores it in the same
+    #: transaction as the outbox row whose pipeline reads it back.
+    latency: CallLatency | None = None
+
+    @field_validator("latency")
+    @classmethod
+    def _latency_is_bounded_and_finite(cls, value: CallLatency | None) -> CallLatency | None:
+        # `CallLatency` is the engine-neutral model and carries no bounds of its own, so the
+        # wire adds them. A NaN or a negative interval would reach a NUMERIC column and a
+        # jsonb CHECK inside the settlement's transaction; refusing it here keeps a malformed
+        # measurement from ever competing with the ledger for that transaction.
+        if value is None:
+            return None
+        if len(value.turns) > MAX_LATENCY_TURNS:
+            raise ValueError(f"latency carries more than {MAX_LATENCY_TURNS} turns")
+        if len(value.parse_warnings) > MAX_LATENCY_WARNINGS or any(
+            len(warning) > MAX_REFUSAL_TEXT for warning in value.parse_warnings
+        ):
+            raise ValueError("latency warnings exceed their bound")
+        if value.region is not None and len(value.region) > MAX_IDENTIFIER:
+            raise ValueError("latency region exceeds its bound")
+        figures = [value.time_to_first_audio_ms]
+        for turn in value.turns:
+            if turn.turn < 1:
+                raise ValueError("latency turns are numbered from 1")
+            figures.extend((turn.stt_ms, turn.llm_ttft_ms, turn.tts_ttfa_ms))
+        for figure in figures:
+            if figure is not None and (not math.isfinite(figure) or figure < 0):
+                raise ValueError("latency figures must be finite and non-negative")
+        return value
 
 
 class SettlementOut(BaseModel):
@@ -774,6 +815,8 @@ __all__ = [
     "KNOWLEDGE_STATES",
     "MAX_EVENTS_PER_BATCH",
     "MAX_IDENTIFIER",
+    "MAX_LATENCY_TURNS",
+    "MAX_LATENCY_WARNINGS",
     "MAX_METERED_QTY",
     "MAX_QUANTITIES",
     "MAX_RECALLED_FACTS",

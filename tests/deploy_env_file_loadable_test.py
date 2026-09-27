@@ -41,7 +41,12 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from calevate_shared.config import SDK_OWNED_ENV_KEYS, Settings
+from calevate_shared.config import (
+    RETIRED_ENV_KEY_ERROR,
+    RETIRED_ENV_KEYS,
+    SDK_OWNED_ENV_KEYS,
+    Settings,
+)
 from pydantic import ValidationError
 
 #: A minimal, production-SHAPED `.env`: the bootstrap five that `BOOTSTRAP_REQUIRED`
@@ -157,3 +162,71 @@ def test_env_file_none_really_means_no_dotenv(monkeypatch: pytest.MonkeyPatch) -
     assert "app_env" in str(exc.value), (
         "`_env_file=None` must mean no dotenv — a value here came off disk"
     )
+
+
+# --- keys a decision retired (RETIRED_ENV_KEYS) ----------------------------------------
+
+
+def _retired_errors(exc: ValidationError) -> list[tuple[str, str]]:
+    return [
+        (str(error["loc"][0]), error["msg"])
+        for error in exc.errors()
+        if error["type"] == RETIRED_ENV_KEY_ERROR
+    ]
+
+
+def test_a_retired_key_in_env_file_is_refused_with_the_fix(tmp_path: Path) -> None:
+    """The refusal names the key, the decision and the action, and nothing else fires on
+    the same line: the generic `extra_forbidden` said none of the three."""
+    secret = "leftover-vendor-secret"
+    with (
+        _dotenv_only({**_DEPLOY_ENV, "BOLNA_API_KEY": secret}, tmp_path),
+        pytest.raises(ValidationError) as caught,
+    ):
+        Settings()
+    [(key, message)] = _retired_errors(caught.value)
+    assert key == "BOLNA_API_KEY"
+    assert RETIRED_ENV_KEYS[key] in message
+    assert "Delete it from the dotenv file" in message
+    assert all(error["type"] == RETIRED_ENV_KEY_ERROR for error in caught.value.errors())
+    assert secret not in str(caught.value)
+
+
+def test_a_retired_key_in_the_process_environment_is_refused(tmp_path: Path) -> None:
+    """`forbid` never inspects `os.environ`, which is where compose delivers `.env` inside
+    a container — so without the guard a retired key there is silently ignored."""
+    with _dotenv_only(_DEPLOY_ENV, tmp_path):
+        os.environ["BOLNA_WEBHOOK_SOURCE_IPS"] = "203.0.113.7"
+        with pytest.raises(ValidationError) as caught:
+            Settings()
+    [(key, message)] = _retired_errors(caught.value)
+    assert key == "BOLNA_WEBHOOK_SOURCE_IPS"
+    assert "process environment" in message
+
+
+def test_an_unknown_key_that_is_not_retired_keeps_the_forbid_refusal(tmp_path: Path) -> None:
+    with (
+        _dotenv_only({**_DEPLOY_ENV, "BOLNA_NEVER_A_FIELD": "x"}, tmp_path),
+        pytest.raises(ValidationError) as caught,
+    ):
+        Settings()
+    assert {error["type"] for error in caught.value.errors()} == {"extra_forbidden"}
+
+
+def test_a_clean_environment_is_unaffected_by_the_guard(tmp_path: Path) -> None:
+    with _dotenv_only(_DEPLOY_ENV, tmp_path):
+        assert Settings().app_env == "prod"
+
+
+def test_a_retired_key_is_not_a_live_field_or_a_template_key() -> None:
+    """A key both retired and read would refuse every host that sets it; one still in
+    `.env.example` would be copied onto a host and refuse it on first boot."""
+    fields = {name.upper() for name in Settings.model_fields}
+    assert not (fields & RETIRED_ENV_KEYS.keys())
+    template = Path(__file__).resolve().parent.parent / ".env.example"
+    template_keys = {
+        line.split("=", 1)[0].strip()
+        for line in template.read_text(encoding="utf-8").splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    }
+    assert not (template_keys & RETIRED_ENV_KEYS.keys())

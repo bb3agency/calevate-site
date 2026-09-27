@@ -564,8 +564,11 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
                 "VERIFIED-VENDOR-DOCS: the engine lists it and marks it 'Recommended — "
                 "proven, stable, fast', and its own latency page ties it with gpt-4.1-mini at "
                 "~150ms TTFT (concepts/latency.md:69). The thinking trap that governs this "
-                "leg is ELIMINATED on this model — the engine sends thinking_budget=0 and "
-                "Google's own docs say 0 disables thinking — which is why it is selectable "
+                "leg is ELIMINATED on this model — the in-call worker sends "
+                "reasoning_effort 'none', which Google's OpenAI-compat page says disables "
+                "thinking on 2.5 models (ai.google.dev/gemini-api/docs/openai, updated "
+                "2026-09-02, read 2026-09-27); its default is dynamic thinking "
+                "(.../docs/generate-content/thinking) — which is why it is selectable "
                 "where every 3.x successor is not. See "
                 "calevate_shared.engine.THINKING_TOKENS_SHARE_THE_REPLY_BUDGET."
             ),
@@ -601,8 +604,10 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             note=(
                 "VERIFIED-VENDOR-DOCS: listed by the engine, and named beside gpt-4.1-mini as "
                 "a low-TTFT choice on the engine's own latency page (concepts/latency.md:127)."
-                " Google's own thinking documentation states its DEFAULT is not to think, and "
-                "thinking_budget=0 disables it outright — so this is the cheapest identifier "
+                " Google's own thinking documentation states its DEFAULT is not to think "
+                "(ai.google.dev/gemini-api/docs/generate-content/thinking, updated "
+                "2026-09-25, read 2026-09-27), and the in-call worker also sends "
+                "reasoning_effort 'none' — so this is the cheapest identifier "
                 "in the catalogue ($0.10/$0.40) with the trap fully off."
             ),
         ),

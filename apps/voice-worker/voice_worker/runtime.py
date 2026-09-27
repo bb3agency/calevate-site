@@ -86,6 +86,7 @@ from calevate_shared.events import CallDirection
 from calevate_shared.worker_api import AttestationIn
 from loguru import logger
 from pipecat.observers.service_metrics_observer import ServiceMetricsObserver
+from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
@@ -94,6 +95,7 @@ from voice_worker.call_tools import CallToolApiClient
 from voice_worker.carrier import arm_first_turn
 from voice_worker.config import load_session_config
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
+from voice_worker.latency import CallLatencyRecorder
 from voice_worker.memory import ApiCallerMemoryReader
 from voice_worker.meter import CallMeter, CarrierCdr, RuntimeUsage
 from voice_worker.pipeline import CallerIdentityLike, SessionConfig, VendorCredentials
@@ -270,6 +272,12 @@ class WorkerRuntime:
         meter = CallMeter()
         observer = ServiceMetricsObserver()
         meter.attach(observer)
+        # OURS, NOT THE WORKER'S. `PipelineWorker` builds its own `UserBotLatencyObserver`
+        # only when tracing is on (`pipecat/pipeline/worker.py:466-471`), and observers are a
+        # constructor argument, so the one the recorder subscribes to is handed in here.
+        timings = CallLatencyRecorder()
+        latency_observer = UserBotLatencyObserver()
+        timings.attach(latency_observer)
 
         config = await load_session_config(
             self._api,
@@ -287,7 +295,7 @@ class WorkerRuntime:
             fetcher=self._fetcher,
             cache=self._cache,
             embedder=self._embedder,
-            observers=[observer],
+            observers=[observer, latency_observer],
             # The two that make the in-call ACTS reachable. `assemble_call` advertises the
             # opt-out, call-back, cancel and handoff tools only when it has an API to reach
             # them through, and refuses to let an agent claim a suppression unless the
@@ -314,6 +322,7 @@ class WorkerRuntime:
         # is synchronous and cannot fail; the next batch carries it, and a batch that never
         # gets through costs the report and never the call.
         sink.report_knowledge(knowledge_report(call.knowledge))
+        timings.bind(call.pipeline)
 
         if on_assembled is not None:
             # THE CONTAINER LEARNS ABOUT THE CALL THE MOMENT IT EXISTS, so a SIGTERM
@@ -371,7 +380,12 @@ class WorkerRuntime:
             await runner.run()
 
             drained = call.worker.has_finished()
-            settlement = await sink.settle(meter, carrier=carrier, runtime=runtime_usage)
+            settlement = await sink.settle(
+                meter,
+                carrier=carrier,
+                runtime=runtime_usage,
+                latency=timings.call_latency(),
+            )
             await attestation
         finally:
             if not attestation.done():

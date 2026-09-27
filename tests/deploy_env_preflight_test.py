@@ -157,6 +157,8 @@ MUTATIONS: tuple[tuple[str, Callable[[dict[str, str]], None]], ...] = (
     # The bucket from `.env.example`: a copied template pointed at somebody's laptop.
     ("example_value_verbatim", _set("OBJECT_STORE_BUCKET", "calevate-dev")),
     ("placeholder_value", _set("SARVAM_API_KEY", "your-key-here")),
+    # A field a decision deleted: every process refuses to boot on it (D-639).
+    ("retired_env_key", _set("BOLNA_API_KEY", "a-leftover-vendor-key")),
 )
 
 
@@ -196,6 +198,23 @@ def test_a_type_valid_but_out_of_bounds_value_is_refused_before_the_swap(
     assert [f.code for f in findings] == ["settings_unbuildable"]
     assert "DB_POOL_SIZE" in findings[0].message
     assert "500" not in findings[0].message
+
+
+def test_a_retired_key_is_reported_once_under_its_own_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Settings()` refuses a retired key too; the gate must not report the same line a
+    second time as `settings_unbuildable`, nor print the value behind it."""
+    monkeypatch.setenv("BOLNA_API_KEY", "leftover-vendor-secret")
+    assert settings_constructible() == []
+    retired = [
+        f
+        for f in evaluate(good_env() | {"BOLNA_API_KEY": "leftover-vendor-secret"}, None)
+        if f.code == "retired_env_key"
+    ]
+    assert [f.keys for f in retired] == [("BOLNA_API_KEY",)]
+    assert "D-639" in retired[0].message
+    assert "leftover-vendor-secret" not in retired[0].render()
 
 
 def test_settings_constructible_is_quiet_on_a_working_environment() -> None:

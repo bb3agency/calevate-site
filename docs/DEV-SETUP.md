@@ -162,10 +162,10 @@ at all), which made `/hooks/v1/engine/pipecat` a public write on a production bo
 `curl` at `/hooks/v1/engine/fake` starts answering 401, check `APP_ENV` before anything
 else: the refusal reason is "an engine that verifies nothing is admitted only under
 APP_ENV=local".
-Set `ENGINE=bolna` + staging keys only when testing real integration; expose your
-webhook via `cloudflared tunnel` (never ngrok free tier for HMAC testing — URL churn) and
-register the tunnel URL as a webhook endpoint via their API. Real PSTN test calls: staging
-number only; they cost money — log them.
+Set `ENGINE=pipecat` only when testing the real conversation loop; the worker and its
+credentials are set up as `docs/PIPECAT-MIGRATION.md` describes, and nothing external
+calls a webhook of ours on that engine. Real PSTN test calls: staging number only; they
+cost money — log them.
 
 ## 4. Environment variables — eight, and everything else is a screen
 

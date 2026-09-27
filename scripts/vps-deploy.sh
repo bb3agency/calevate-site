@@ -812,9 +812,10 @@ verify_bootstrap_env() {
   # exactly what DEPLOYMENT §4 step 6 describes — plus the questions nothing anywhere
   # asked: do the two DSNs name the same database through different roles, does `REDIS_URL`
   # name a host this container can reach, is a value still the placeholder `.env.example`
-  # ships. Each of those produces a deploy that swaps cleanly and fails AFTERWARDS, which
-  # is the one class this step exists to move earlier. Every problem at once, no value
-  # printed, non-zero exit ends the deploy here.
+  # ships, does `.env` still carry a key a decision retired (`RETIRED_ENV_KEYS` — every
+  # process would refuse to boot on it). Each of those produces a deploy that swaps cleanly
+  # and fails AFTERWARDS, which is the one class this step exists to move earlier. Every
+  # problem at once, no value printed, non-zero exit ends the deploy here.
   #
   # It replaced an inline `python -c` that ran the same two calls: two implementations of
   # one step, and two `compose run`s. The host-side `preflight` above keeps its `grep`s for

@@ -1015,18 +1015,18 @@ class LlmModelTrap:
 _BOLNA_MIRROR: Final = "bolna-findings/mirror/pages"
 _TRAP_READ_ON: Final = date(2026, 8, 22)
 
-#: GPT-5-SERIES MODELS ACCEPT EXACTLY ONE TEMPERATURE, AND WE SEND `0.1`.
+#: GPT-5-SERIES MODELS ACCEPT EXACTLY ONE TEMPERATURE.
 #:
-#: The rented engine's adapter (deleted by D-639) sent `temperature: 0.1` on every publish,
-#: and that engine's schema documents the refusal verbatim: *"GPT-5-series models require
+#: The rented engine's schema documented the refusal verbatim: *"GPT-5-series models require
 #: exactly `1` — any other value is rejected with `400 For GPT-5 models, temperature must be
-#: 1`"*. It is latent today only because no shipped identifier starts with `gpt-5`; the
-#: moment one is SELECTABLE, every publish of an agent on it 400s.
+#: 1`"*. The mitigation on the owned runtime is to send no temperature at all
+#: (`voice_worker/pipeline.py::_build_llm`); the evidence below is the rented engine's, and
+#: OpenAI's own model page for `gpt-5.4-mini` does not state the constraint.
 TEMPERATURE_MUST_BE_ONE: Final = LlmModelTrap(
     name="temperature-must-be-one",
     what_breaks=(
-        "the engine sends temperature 0.1 on every publish and this model rejects anything "
-        "but 1 — the agent is refused at create time, not at call time"
+        "this model rejects any temperature but 1, so a request that sets one fails before "
+        "the model says a word"
     ),
     evidence=Evidence(
         source=(
@@ -1072,21 +1072,18 @@ MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS: Final = LlmModelTrap(
 #:
 #: Thinking tokens are accounted separately by Google and draw on `max_output_tokens`. When
 #: they consume all of it the API returns `candidates` with **no `content` field at all** —
-#: a caller hears dead air, not half a sentence. Two further facts make it ours rather than
-#: the vendor's: there is NO `thinking_budget` field anywhere in the engine's documented
-#: `llm_config` schema, so we can neither raise it nor lower it; and the thinking tokens are
-#: BILLED to us as output tokens, so a Gemini leg's `output_tokens` is not the spoken reply's
-#: length.
+#: a caller hears dead air, not half a sentence. The thinking tokens are also BILLED to us as
+#: output tokens, so a Gemini leg's `output_tokens` is not the spoken reply's length.
 #:
 #: ⚠ **IT SPLITS THE GOOGLE LEG IN TWO, AND THE VENDOR NOW SAYS SO IN ITS OWN WORDS.** On
-#: `gemini-2.5-flash` and `-flash-lite` the engine sends `ThinkingConfig(thinking_budget=0)`
-#: and Google's thinking guide states that `thinkingBudget: 0` DISABLES thinking (and that
-#: -flash-lite's default is not to think at all) — so on those two the trap is ELIMINATED,
-#: proved from both sides of the wire. On every `gemini-3.*` the engine sends `thinking_level`
-#: instead, and Google's own page says **"Gemini 3 Flash and Flash-Lite also do not support
-#: full thinking-off"** and **"minimal does not guarantee that thinking is off"** — which is
-#: the vendor confirming, in prose, what its generated enum already showed: `MINIMAL` is the
-#: floor and there is no zero. `thinking_budget` is read and DISCARDED on that family.
+#: `gemini-2.5-flash` and `-flash-lite` the worker sends `reasoning_effort: "none"` over the
+#: OpenAI-compat surface, which Google's compat page says disables thinking on 2.5 models
+#: (ai.google.dev/gemini-api/docs/openai, updated 2026-09-02, read 27 Sep 2026) — so on those
+#: two the trap is ELIMINATED. On every `gemini-3.*` the same page says "Reasoning cannot be
+#: turned off", and Google's thinking guide says **"Gemini 3 Flash and Flash-Lite also do
+#: not support full thinking-off"** and **"minimal does not guarantee that thinking is off"**
+#: — which is the vendor confirming, in prose, what its generated enum already showed:
+#: `MINIMAL` is the floor and there is no zero.
 #:
 #: ⚠ **AND THE ENGINE HAS A NAMED TERMINAL STATE FOR THE OUTCOME.** `gemini_llm.py:461-465`
 #: logs `"Dead turn detected"` when a turn produces no speech and no tool call, then yields
@@ -1100,8 +1097,8 @@ THINKING_TOKENS_SHARE_THE_REPLY_BUDGET: Final = LlmModelTrap(
     name="thinking-tokens-share-the-reply-budget",
     what_breaks=(
         "thinking tokens draw on max_output_tokens and can consume all of it, returning a "
-        "candidate with no content field — on a live call that is silence, and the budget "
-        "is not a field the engine's documented API lets us set"
+        "candidate with no content field — on a live call that is silence; mitigated only "
+        "where the model can switch thinking off (2.5 flash / flash-lite)"
     ),
     evidence=Evidence(
         source=(
@@ -1194,11 +1191,11 @@ AzureOpenAIModel = Literal["gpt-4o-mini", "gpt-4.1-mini"]
 #: than used as a reason to withhold them: the rented engine's adapter (deleted by D-639)
 #: read `LlmModelSpec.traps` and sent `temperature: 1` and an explicit
 #: `reasoning_effort: "none"` (which both models accept — `openai.md:87`,
-#: `constants.py:323,329`) on exactly the models that carry them. ⚠ The owned runtime sends no
-#: temperature at all (`voice_worker/pipeline.py`); `ModelConfig.llm_traps` still carries the
-#: traps to it. The engine's Responses-API path force-closes the temperature at runtime,
-#: but agent CREATE is validated against the raw body, so an unmitigated publish 400s before
-#: a call is ever placed.
+#: `constants.py:323,329`) on exactly the models that carry them. The owned runtime
+#: (`voice_worker/pipeline.py::_trap_request_extra`, reading `ModelConfig.llm_traps`) sends
+#: no temperature and no token cap at all, and sends `reasoning_effort: "none"`, which
+#: `gpt-5.4-mini` lists as its default among "none (default), low, medium, high and xhigh"
+#: (developers.openai.com/api/docs/models/gpt-5.4-mini, read 27 Sep 2026).
 OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
 
 #: THE MODELS this platform may configure into a **Google (Gemini) direct** leg — the
@@ -1225,9 +1222,12 @@ OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
 #:   `google/genai/types.py:5700-5704`). That is not a mitigation we hope holds; it is the
 #:   trap ELIMINATED, proved from both sides of the wire. ⚠ It also means we must never send
 #:   a non-zero `thinking_budget`, which would switch thinking back ON through that
-#:   function's first branch. ⚠ That elimination is a property of the RENTED engine this
-#:   repository adapted (deleted by D-639); the owned runtime reaches Gemini over the
-#:   OpenAI-compat surface, where the same guarantee has not been read (D-639).
+#:   function's first branch. The owned runtime reaches Gemini over the OpenAI-compat
+#:   surface and sends `reasoning_effort: "none"` there; Google's compat page says that
+#:   disables thinking on 2.5 models and that it cannot be combined with `thinking_budget`
+#:   (ai.google.dev/gemini-api/docs/openai, updated 2026-09-02, read 27 Sep 2026). Without
+#:   it `gemini-2.5-flash` thinks dynamically by default
+#:   (ai.google.dev/gemini-api/docs/generate-content/thinking, updated 2026-09-25).
 #: * `gemini-3.1-flash-lite` and `gemini-3.5-flash` are **REFUSED**, and the ground is
 #:   correctness rather than price or residency. On `gemini-3.*` the engine sends
 #:   `thinking_level` instead, whose vendor enum has **no zero at all** — `MINIMAL` is the
@@ -1313,8 +1313,9 @@ LlmModelName = AzureOpenAIModel | OpenAIDirectModel | GoogleDirectModel
 #: no account's charge. Its trap (`THINKING_TOKENS_SHARE_THE_REPLY_BUDGET`) is the one the
 #: rented engine eliminated on exactly the 2.5 flash pair by sending `thinking_budget=0`
 #: itself — so on that engine this default sent nothing the vendor could refuse and could not
-#: produce the dead-air failure that keeps every `gemini-3.*` unselectable. ⚠ On the owned
-#: runtime the same property has not been re-read (D-639).
+#: produce the dead-air failure that keeps every `gemini-3.*` unselectable. The owned runtime
+#: sends `reasoning_effort: "none"` over the OpenAI-compat surface instead (see
+#: `GoogleDirectModel`); this model does not think by default in any case.
 #:
 #: ⚠ **A DEPLOYMENT MUST HOLD A GOOGLE KEY AND AN ATTESTED PRICE BEFORE ANY CLIENT CAN BE
 #: PUT ON IT.** Offerability is a live property of a deployment, never of a constant
@@ -1654,12 +1655,10 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
             output_usd_per_mtok=Decimal("2.50"),
             evidence=_GOOGLE_PRICE_EVIDENCE,
         ),
-        # THE TRAP IS RECORDED EVEN THOUGH IT IS ELIMINATED ON THIS MODEL, and that is the
-        # point of recording it. The elimination is a branch in somebody else's repository at
-        # a pinned commit (`gemini_llm.py:202-206`), not a term of any contract: the day that
-        # branch narrows, this model joins its 3.x siblings and the entry a reader needs is
-        # already here. Whichever adapter builds the wire reads this tuple through
-        # `ModelConfig.llm_traps`.
+        # THE TRAP IS RECORDED EVEN THOUGH IT IS ELIMINATED ON THIS MODEL, because the
+        # elimination IS this record: the worker reads it through `ModelConfig.llm_traps` and
+        # sends `reasoning_effort: "none"` (`voice_worker/pipeline.py::_trap_request_extra`).
+        # Drop the trap and this model thinks by default on every turn.
         traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
         selectable=True,
         withdrawn_reason=None,
@@ -1739,8 +1738,8 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
 #: docs carry. It held only while four of six models were withheld, which was a fact about
 #: the evidence rather than a design: a catalogue price can no longer reach `unit_cost_paid`
 #: at all (see `LlmPrice`), so an unread LIST price stopped being a reason to delete a model,
-#: the GPT-5 traps are mitigated at the wire, and the Gemini trap is eliminated by the engine
-#: on exactly the two 2.5 models.
+#: the GPT-5 traps are mitigated at the wire, and the Gemini trap is eliminated at the wire
+#: (`reasoning_effort: "none"`) on exactly the two 2.5 models.
 #:
 #: ⚠ **THIS IS STILL NOT "WHAT A CLIENT MAY PICK TODAY".** It is condition (1) of three; the
 #: other two are a credential and an attested price, and `apps/api/agents/llm_models.py::
@@ -3177,12 +3176,15 @@ class ActionToolSpec(BaseModel):
     """ONE in-call action, normalized so any adapter can render it into its own tool shape.
 
     This is the hard-rule-2 boundary object for the ACTIONS feature: `apps/api/actions`
-    builds it (with `url` pointing at OUR voice-runtime tool endpoint) and the adapter
-    turns it into the vendor's function-calling config. No vendor field names cross here.
+    builds it and the adapter turns it into the runtime's function-calling config. No
+    vendor field names cross here.
 
-    The `url` is always ours, never the client's external API — Bolna calls us, we call
-    the external system with the saved credential through the egress guard. That is what
-    keeps credentials and SSRF vetting on our side (the feature's architecture).
+    It carries no address. Where a model's call is EXECUTED is the adapter's side of the
+    boundary: an engine that runs during-call actions brings its own authenticated route to
+    our executor (D-639), and that executor — never the engine — applies the client's saved
+    credential and the egress guard, which keeps credentials and SSRF vetting on our side.
+    A URL on the declaration would spell that route a second time, and could name an
+    address nothing serves.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -3197,12 +3199,6 @@ class ActionToolSpec(BaseModel):
     #: over the external round trip (Bolna `pre_call_message`; the latency mitigation the
     #: vendor documents for tool calls, custom-function-calls.md).
     pre_call_message: str | None = None
-    #: MUST be POST for our endpoint: Bolna maps `param` onto the JSON body for POST and
-    #: onto the query string for GET, and our tool route reads a JSON body
-    #: (docs/evidence/bolna-tools-integrations.md §2.1).
-    method: Literal["POST"] = "POST"
-    #: OUR voice-runtime endpoint for this tool.
-    url: str
     params: tuple[ActionToolParam, ...] = ()
 
 

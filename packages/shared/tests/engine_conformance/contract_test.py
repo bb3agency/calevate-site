@@ -145,7 +145,6 @@ def _agent_config(
 ACTION_TOOL = ActionToolSpec(
     name="check_stock",
     description="Check whether an item is in stock. Use it when the caller asks.",
-    url="https://hooks.calevate.tech/tools/v1/actions/check_stock",
     params=(
         ActionToolParam(
             name="item",

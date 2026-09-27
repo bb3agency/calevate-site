@@ -148,19 +148,14 @@ VENDOR_OF: dict[str, str | None] = {
 #: our own callback addresses as undisclosed sub-processors, and a guard that cries about
 #: `database_url` is one whose findings get skimmed.
 NOT_A_SUBPROCESSOR: dict[str, str] = {
-    "actions_callback": (
-        "OUR OWN public address, handed to a client's integration so that it can call US "
-        "back. Nothing of a client's is sent anywhere by its existence; it is the inbound "
-        "door, not an outbound reach."
-    ),
     "webhook": (
         "OUR OWN public address, used to build the callback URLs we publish to clients and "
-        "to vendors. Same shape and same reason as the entry above: an address we are "
-        "reached AT is not a vendor we send to."
+        "to vendors. Nothing of a client's is sent anywhere by its existence: an address we "
+        "are reached AT is not a vendor we send to."
     ),
-    # ⚠ THIS ENTRY IS TRUE TODAY AND IS THE ONE HERE THAT CAN STOP BEING TRUE. Every other
-    # line above describes an address we are REACHED AT, which no configuration can turn
-    # into an outbound reach. This one describes a vendor seam with no vendor in it: the
+    # ⚠ THIS ENTRY IS TRUE TODAY AND IS THE ONE HERE THAT CAN STOP BEING TRUE. The entry
+    # above describes an address we are REACHED AT, which no configuration can turn into
+    # an outbound reach. This one describes a vendor seam with no vendor in it: the
     # identity-aggregator adapter set (D-635) contains one declared-and-unimplemented
     # provider and no other, `kyc_verification_provider` is unset on every deployment, and
     # `kyc_providers.available_provider()` refuses on both counts — so no client's data

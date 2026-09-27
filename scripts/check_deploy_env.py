@@ -92,7 +92,13 @@ from apps.api.core.settings import (
     validate_bootstrap_env,
 )
 from apps.api.ops.secret_service import manageable_secret_keys
-from calevate_shared.config import SDK_OWNED_ENV_KEYS, Settings
+from calevate_shared.config import (
+    RETIRED_ENV_KEY_ERROR,
+    SDK_OWNED_ENV_KEYS,
+    Settings,
+    retired_env_key_message,
+    retired_env_keys_in,
+)
 from dotenv import dotenv_values
 from pydantic import ValidationError
 
@@ -225,6 +231,7 @@ REFUSAL_CODES: frozenset[str] = frozenset(
         "audit_chain_secret_is_published_constant",
         "example_value_verbatim",
         "placeholder_value",
+        "retired_env_key",
         "env_file_missing",
         "settings_unbuildable",
     }
@@ -659,6 +666,22 @@ def console_managed_in_env(
     return findings
 
 
+def retired_keys(env: Mapping[str, str]) -> list[Finding]:
+    """A key whose field a decision deleted (`calevate_shared.config.RETIRED_ENV_KEYS`).
+
+    `Settings()` refuses these too, but only in the process that constructs it; this is
+    what refuses them in a `--env-file` check and names them under their own code. Every
+    environment, `local` included: a developer `.env` holding one cannot boot either."""
+    return [
+        Finding(
+            RETIRED_ENV_KEY_ERROR,
+            (key,),
+            retired_env_key_message(key, "the .env this deploy reads"),
+        )
+        for key in retired_env_keys_in(env)
+    ]
+
+
 def settings_constructible() -> list[Finding]:
     """`Settings()` on THIS process's environment — the step this file absorbed.
 
@@ -679,16 +702,19 @@ def settings_constructible() -> list[Finding]:
     try:
         Settings()
     except ValidationError as exc:
+        # A retired key is already a `retired_env_key` finding from `evaluate`; reporting
+        # it twice would bury it under a second code for the same line.
+        errors = [error for error in exc.errors() if error["type"] != RETIRED_ENV_KEY_ERROR]
+        if not errors:
+            return []
         problems = "; ".join(
             f"{'.'.join(str(part) for part in error['loc']).upper()}: {error['msg']}"
-            for error in exc.errors()
+            for error in errors
         )
         return [
             Finding(
                 "settings_unbuildable",
-                tuple(
-                    ".".join(str(part) for part in error["loc"]).upper() for error in exc.errors()
-                ),
+                tuple(".".join(str(part) for part in error["loc"]).upper() for error in errors),
                 f"the process cannot build its configuration: {problems}. Every container "
                 "would crash-loop on start, after the swap.",
             )
@@ -710,6 +736,7 @@ def evaluate(env: Mapping[str, str], example: Mapping[str, str] | None) -> list[
     findings.extend(distinct_secrets(env))
     findings.extend(placeholders(env, example))
     findings.extend(console_managed_in_env(env, example))
+    findings.extend(retired_keys(env))
     if example is None:
         findings.append(
             Finding(

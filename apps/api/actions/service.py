@@ -28,7 +28,6 @@ from apps.api.actions.schema import (
     WhatsAppConfig,
 )
 from apps.api.core.errors import ProblemError, validation_fields
-from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
@@ -502,19 +501,6 @@ async def set_actions_enabled(session: AsyncSession, *, agent_id: UUID, enabled:
     return rowcount_of(result) == 1
 
 
-def action_tool_url(engine: str, tool_id: UUID) -> str:
-    """The apps/api address an engine would call to execute this tool mid-call.
-
-    ⚠ NOTHING SERVES IT TODAY. The route was the rented engine's and D-639 deleted it with
-    that engine; the only adapter that accepts action tools is the fake, which never dials
-    the URL, and the owned runtime refuses action tools by capability. It is still built
-    because `ActionToolSpec.url` is a required field of the engine-neutral declaration.
-    D-639 names what closes it: an engine that executes during-call actions, bringing its
-    own authenticated route. `actions_callback_base_url` is the origin (see the setting)."""
-    base = get_settings().actions_callback_base_url.rstrip("/")
-    return f"{base}/v1/actions/invoke/{engine}/{tool_id}"
-
-
 def _context_ref(lead_var: str, direction: str) -> str:
     """The call-context variable a lead-var binding substitutes, resolved per direction.
 
@@ -530,7 +516,7 @@ def _context_ref(lead_var: str, direction: str) -> str:
 
 
 async def declare(
-    session: AsyncSession, *, agent_id: UUID, engine: str, direction: str
+    session: AsyncSession, *, agent_id: UUID, direction: str
 ) -> tuple[ActionToolSpec, ...]:
     """The DURING-CALL tools to declare to the engine at publish, or empty.
 
@@ -544,11 +530,11 @@ async def declare(
     for tool in await list_tools(session, agent_id=agent_id):
         if not tool.enabled or tool.trigger != "during_call":
             continue
-        specs.append(_to_spec(tool, engine=engine, direction=direction))
+        specs.append(_to_spec(tool, direction=direction))
     return tuple(specs)
 
 
-def _to_spec(tool: LoadedTool, *, engine: str, direction: str) -> ActionToolSpec:
+def _to_spec(tool: LoadedTool, *, direction: str) -> ActionToolSpec:
     """One stored tool → the engine-facing `ActionToolSpec`.
 
     Only `ai` and `lead_var` params become engine parameter slots; `static` ones are
@@ -590,15 +576,12 @@ def _to_spec(tool: LoadedTool, *, engine: str, direction: str) -> ActionToolSpec
         name=tool.name,
         description=tool.description,
         pre_call_message=tool.pre_call_message,
-        method="POST",
-        url=action_tool_url(engine, tool.id),
         params=tuple(engine_params),
     )
 
 
 __all__ = [
     "LoadedTool",
-    "action_tool_url",
     "actions_enabled",
     "create_tool",
     "declare",

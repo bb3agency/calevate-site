@@ -52,6 +52,7 @@ from uuid import UUID
 
 from calevate_shared.engine import (
     AgentConfig,
+    CallLatency,
     ModelConfig,
     parse_owned_runtime_agent_ref,
     tenant_of_pipecat_ref,
@@ -73,6 +74,7 @@ from calevate_shared.worker_api import (
     WorkerSessionOut,
 )
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.config_versions import record_attestation
@@ -88,6 +90,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.api.ops.engine_latency import upsert_call_engine_latency
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.redaction import redact
 
@@ -935,6 +938,10 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
             unpriced=unpriced,
             at=occurred_at,
         )
+        if request.latency is not None:
+            await _record_latency(
+                session, tenant_id=tenant_id, call_row_id=call_row_id, latency=request.latency
+            )
 
     if refusals:
         # `error` and not `warning`: an unmetered leg is spend we absorbed and cannot bill,
@@ -969,6 +976,40 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
         refusals_recorded=len(refusals),
         post_call_enqueued=True,
     )
+
+
+async def _record_latency(
+    session: AsyncSession, *, tenant_id: UUID, call_row_id: UUID, latency: CallLatency
+) -> None:
+    """Store the worker's per-turn timings beside the settlement, inside a SAVEPOINT.
+
+    Stored HERE because the request is the only place they exist: `PipecatEngine.execution`
+    reads this row back into `ExecutionSnapshot.latency`, and the post-call pipeline's
+    latency stage then upserts the same numbers, as it does for every engine.
+
+    The savepoint is what keeps a measurement from costing the ledger. `SettlementRequest`
+    already refuses non-finite and negative figures at the edge, so the database should not
+    refuse this row — but if it does, rolling back the whole settlement would lose the usage
+    rows and the post-call promise over a diagnostic, and a retry would fail the same way.
+    """
+    try:
+        async with session.begin_nested():
+            await upsert_call_engine_latency(
+                session,
+                tenant_id=tenant_id,
+                call_id=call_row_id,
+                engine=ENGINE_NAME,
+                latency=latency,
+            )
+    except SQLAlchemyError as exc:
+        log.warning(
+            "worker_latency_not_recorded",
+            extra={
+                "tenant_id": str(tenant_id),
+                "call_id": str(call_row_id),
+                "reason": type(exc).__name__,
+            },
+        )
 
 
 def _alert_if_nobody_was_on_the_call(*, tenant_id: UUID, call: _CallRow, final_status: str) -> None:

@@ -52,7 +52,7 @@ from dataclasses import dataclass
 from typing import Final, cast
 from uuid import UUID
 
-from calevate_shared.engine import pipecat_call_ref
+from calevate_shared.engine import CallLatency, pipecat_call_ref
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 from calevate_shared.worker_api import (
     SETTLEMENT_STATUSES,
@@ -419,6 +419,7 @@ class HttpEventSink:
         *,
         carrier: CarrierCdr | None,
         runtime: RuntimeUsage | None,
+        latency: CallLatency | None = None,
     ) -> Settlement:
         """Send what this call measured, or the refusal the meter reached. One request.
 
@@ -454,6 +455,10 @@ class HttpEventSink:
         the SERVER. A ledger row's instant is a fact about when WE recorded it, and a
         container on a vendor's infrastructure with an unverified clock is not the authority
         for that — the same reason `_duration_s` is not the billable minute.
+
+        `latency` is `latency.CallLatencyRecorder`'s report: durations measured on this
+        container's own clock, which is the right authority for an interval it both started
+        and stopped.
         """
         await self.flush()
         metered = meter.metered_rows(carrier=carrier, runtime=runtime)
@@ -464,6 +469,7 @@ class HttpEventSink:
             agent_id=self._agent_id,
             refusals=[_refusal_of(refused) for refused in metered.refusals],
             quantities=[_quantity_of(row) for row in metered.rows],
+            latency=latency,
         )
         answer = await self._api.post_settlement(self._engine_call_id, request)
 

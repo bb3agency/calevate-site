@@ -72,19 +72,70 @@ a region code, and its CHECK constraint refuses anything else (migration `b7d3e9
 
 from __future__ import annotations
 
+import json
 from time import perf_counter
 from typing import Literal
 from uuid import UUID
 
-from calevate_shared.engine import LATENCY_BUDGET, LatencyBudget
+from calevate_shared.engine import LATENCY_BUDGET, CallLatency, LatencyBudget
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.logging import get_logger
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
+
+# UPSERT onto the one-row-per-call constraint. Two writers reach it with the same numbers —
+# the `/v1/worker` settlement for an engine we run ourselves, and the post-call pipeline for
+# every engine — and the post-call pipeline re-runs on every re-drive, so an INSERT would
+# append a second copy of every turn and double-weight that call in the distribution.
+_UPSERT_SQL = text(
+    "INSERT INTO call_engine_latency "
+    "  (id, tenant_id, call_id, engine, region, time_to_first_audio_ms, "
+    "   turns, parse_warnings, created_at, updated_at) "
+    "VALUES (:id, :tid, :cid, :engine, :region, :ttfa, "
+    "        CAST(:turns AS jsonb), CAST(:warnings AS jsonb), now(), now()) "
+    "ON CONFLICT (call_id) DO UPDATE SET "
+    "  region = EXCLUDED.region, "
+    "  time_to_first_audio_ms = EXCLUDED.time_to_first_audio_ms, "
+    "  turns = EXCLUDED.turns, "
+    "  parse_warnings = EXCLUDED.parse_warnings, "
+    "  updated_at = now()"
+)
+
+
+async def upsert_call_engine_latency(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID,
+    engine: str,
+    latency: CallLatency,
+) -> None:
+    """Store one call's normalized timings. The only writer of `call_engine_latency`.
+
+    Runs in the CALLER's session and transaction, so the settlement can put it beside the
+    ledger and the post-call pipeline beside nothing. Raises what the database raises
+    (including the CHECK that refuses non-numeric turn values); each caller decides what a
+    lost measurement costs it.
+    """
+    await session.execute(
+        _UPSERT_SQL,
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "cid": call_id,
+            "engine": engine,
+            "region": latency.region,
+            "ttfa": latency.time_to_first_audio_ms,
+            "turns": json.dumps([turn.model_dump() for turn in latency.turns]),
+            "warnings": json.dumps(latency.parse_warnings) if latency.parse_warnings else None,
+        },
+    )
+
 
 #: How much history the report covers by default, and the widest it will look. A gate-4 run
 #: is two calls placed minutes apart, so the default is short on purpose: a 90-day window
@@ -445,4 +496,5 @@ __all__ = [
     "LatencyLeg",
     "LegSummary",
     "engine_latency_report",
+    "upsert_call_engine_latency",
 ]

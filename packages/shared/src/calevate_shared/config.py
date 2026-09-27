@@ -4,10 +4,14 @@ Any new environment variable is added here AND to `.env.example` (DEV-SETUP.md �
 Secrets are never defaulted — a missing secret must raise at startup.
 """
 
+from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
-from typing import Literal, get_args
+from types import MappingProxyType
+from typing import Any, Literal, get_args
 
-from pydantic import Field
+from pydantic import Field, ValidationError
+from pydantic.fields import FieldInfo
+from pydantic_core import InitErrorDetails, PydanticCustomError
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from pydantic_settings.sources import DotEnvSettingsSource
 
@@ -66,6 +70,103 @@ class _AppDotEnvSource(DotEnvSettingsSource):
         # matching them to fields (which is how `AWS_REGION` arrived as `aws_region` in
         # the error this exists to stop).
         return {k: v for k, v in values.items() if k.upper() not in SDK_OWNED_ENV_KEYS}
+
+
+#: Environment variables whose `Settings` field a decision deleted, mapped to that
+#: decision. A key here REFUSES construction, from `.env` and from the process environment
+#: alike, with a sentence naming the key, the decision and the fix.
+#:
+#: Refused rather than ignored for `SDK_OWNED_ENV_KEYS`' reason (D-188): `extra="forbid"`
+#: is the typo check on a file operators hand-edit, and a leftover line is a mistake to
+#: name, not to absorb — the ones below include a credential for a vendor nothing calls.
+#: What this adds over `forbid` is the MESSAGE (pydantic's "Extra inputs are not
+#: permitted" does not say the key is obsolete or that deleting it is the whole fix) and
+#: the process environment, which `forbid` never inspects and which is where compose's
+#: `env_file` puts `.env` inside a container.
+#:
+#: `scripts/check_deploy_env.py` refuses the same set before migrations, so a deploy
+#: stops before the swap rather than crash-looping after it.
+RETIRED_ENV_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        # D-639 deleted the Bolna engine adapter and these five fields with it.
+        "BOLNA_API_KEY": "D-639",
+        "BOLNA_CALLER_DATA_TOKEN": "D-639",
+        "BOLNA_LLM_CREDENTIAL_NAME": "D-639",
+        "BOLNA_TTS_CREDENTIAL_NAME": "D-639",
+        "BOLNA_WEBHOOK_SOURCE_IPS": "D-639",
+        # D-642 deleted the during-call action address nothing served after D-639.
+        "ACTIONS_CALLBACK_BASE_URL": "D-642",
+    }
+)
+
+#: The pydantic error type a retired key raises, so a caller can tell it from a field
+#: that is merely invalid (`check_deploy_env` reports these under its own code).
+RETIRED_ENV_KEY_ERROR = "retired_env_key"
+
+#: Where a container's process environment comes from, said so the operator edits the
+#: file that actually holds the line.
+_PROCESS_ENVIRONMENT = (
+    "the process environment (in a container, that is the host's .env as compose's "
+    "env_file delivers it)"
+)
+
+
+def retired_env_keys_in(names: Iterable[str]) -> list[str]:
+    """The retired keys among `names`, upper-cased and sorted.
+
+    Case-insensitive because pydantic-settings lower-cases keys when `case_sensitive` is
+    off, which it is here.
+    """
+    return sorted({name.upper() for name in names} & RETIRED_ENV_KEYS.keys())
+
+
+def retired_env_key_message(key: str, where: str) -> str:
+    """The refusal for one retired key. It does not repeat the key: every caller prints
+    it beside the message already (pydantic's `loc`, `check_deploy_env`'s `keys`)."""
+    return (
+        f"was retired by {RETIRED_ENV_KEYS[key]} (docs/ROADMAP.md) and nothing reads it "
+        f"any more. Delete it from {where}."
+    )
+
+
+class _RetiredEnvKeyGuard(PydanticBaseSettingsSource):
+    """Contributes no values; refuses construction if any source holds a retired key.
+
+    A source rather than a `model_validator` because a validator sees only the merged
+    field values, and the env source never forwards a key that is not a field.
+    """
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        watched: Sequence[tuple[str, PydanticBaseSettingsSource]],
+    ) -> None:
+        super().__init__(settings_cls)
+        self._watched = watched
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        return None, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        errors: list[InitErrorDetails] = []
+        for where, source in self._watched:
+            env_vars: Mapping[str, object] = getattr(source, "env_vars", {})
+            for key in retired_env_keys_in(env_vars):
+                message = retired_env_key_message(key, where)
+                errors.append(
+                    InitErrorDetails(
+                        type=PydanticCustomError(RETIRED_ENV_KEY_ERROR, message),
+                        loc=(key,),
+                        input=where,
+                    )
+                )
+        if errors:
+            # `hide_input`: the input is only the source's name, but no value reaches a log
+            # through this path even if that changes (hard rule 6).
+            raise ValidationError.from_exception_data(
+                self.settings_cls.__name__, errors, hide_input=True
+            )
+        return {}
 
 
 Environment = Literal["local", "staging", "prod"]
@@ -129,27 +230,34 @@ class Settings(BaseSettings):
         and the value came back anyway.
 
         `dotenv_settings` already carries the caller's own resolution of every one of these
-        options, so copying them off it keeps the ONLY behavioural change the filtering of
-        SDK-owned keys.
+        options, so copying them off it keeps the filtering of SDK-owned keys the only
+        change to what the dotenv source yields.
+
+        `_RetiredEnvKeyGuard` goes FIRST so a retired key is refused with its own sentence
+        before the dotenv source's generic `extra_forbidden` can fire on the same line.
         """
         source = dotenv_settings
-        return (
-            init_settings,
-            env_settings,
-            _AppDotEnvSource(
-                settings_cls,
-                env_file=getattr(source, "env_file", cls.model_config.get("env_file")),
-                env_file_encoding=getattr(
-                    source, "env_file_encoding", cls.model_config.get("env_file_encoding")
-                ),
-                case_sensitive=getattr(source, "case_sensitive", None),
-                env_prefix=getattr(source, "env_prefix", None),
-                env_nested_delimiter=getattr(source, "env_nested_delimiter", None),
-                env_ignore_empty=getattr(source, "env_ignore_empty", None),
-                env_parse_none_str=getattr(source, "env_parse_none_str", None),
+        env_file = getattr(source, "env_file", cls.model_config.get("env_file"))
+        dotenv = _AppDotEnvSource(
+            settings_cls,
+            env_file=env_file,
+            env_file_encoding=getattr(
+                source, "env_file_encoding", cls.model_config.get("env_file_encoding")
             ),
-            file_secret_settings,
+            case_sensitive=getattr(source, "case_sensitive", None),
+            env_prefix=getattr(source, "env_prefix", None),
+            env_nested_delimiter=getattr(source, "env_nested_delimiter", None),
+            env_ignore_empty=getattr(source, "env_ignore_empty", None),
+            env_parse_none_str=getattr(source, "env_parse_none_str", None),
         )
+        guard = _RetiredEnvKeyGuard(
+            settings_cls,
+            (
+                (_PROCESS_ENVIRONMENT, env_settings),
+                (f"the dotenv file {env_file}", dotenv),
+            ),
+        )
+        return (guard, init_settings, env_settings, dotenv, file_secret_settings)
 
     # NO DEFAULT, ON PURPOSE. The environment is STATED, never inferred.
     #
@@ -243,21 +351,6 @@ class Settings(BaseSettings):
     # error anywhere on our side. A pattern refuses it at the console instead.
     webhook_base_url: str = Field(
         default="http://localhost:8100", max_length=255, pattern=r"^https?://[^\s]+$"
-    )
-
-    # The apps/api origin an engine would call to execute an in-call ACTION (the ACTIONS
-    # feature), baked into each `ActionToolSpec.url` at publish. apps/api, NOT
-    # voice-runtime: a data-returning action makes a synchronous external call plus a
-    # credential decrypt, which hard rule 3 forbids on the latency-critical webhook
-    # service. Distinct from `webhook_base_url`, which is the voice-runtime receiver.
-    #
-    # ⚠ NO ENGINE CALLS IT TODAY. The executing route was the rented engine's and D-639
-    # deleted it with that engine: the fake adapter is the only one that accepts action
-    # tools (`EngineCapabilities.action_tools`), and it never dials the URL. The value
-    # stays because `ActionToolSpec.url` is a required field of the engine-neutral
-    # declaration; D-639 names what closes it.
-    actions_callback_base_url: str = Field(
-        default="http://localhost:8000", max_length=255, pattern=r"^https?://[^\s]+$"
     )
 
     # `host:port` of the ORIGIN that terminates TLS for our public hostnames — the nginx
@@ -1636,10 +1729,14 @@ __all__ = [
     "NO_RESEND_API_KEY_REASON",
     "NO_SENDER_ADDRESS_REASON",
     "NO_SMTP_HOST_REASON",
+    "RETIRED_ENV_KEYS",
+    "RETIRED_ENV_KEY_ERROR",
     "SELECTABLE_EMAIL_PROVIDERS",
     "SELECTABLE_ENGINES",
     "EngineName",
     "Environment",
     "Settings",
     "email_transport_reason",
+    "retired_env_key_message",
+    "retired_env_keys_in",
 ]

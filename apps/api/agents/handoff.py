@@ -363,11 +363,11 @@ def spoken_line_for(language: str) -> str:
 def brief_url() -> str:
     """OUR endpoint, notified the moment a handover fires.
 
-    **voice-runtime, NOT apps/api, and the reasoning is `action_tool_url`'s in reverse.**
-    That function points at `apps/api` because executing an action makes a synchronous
-    external call and a credential decrypt, which hard rule 3 keeps off the receiver. This
-    does the opposite: it accepts a notification, acks and defers, which is exactly what
-    the receiver is for and exactly what `apps/api` is the wrong place for. It is also on
+    **voice-runtime, NOT apps/api.** Executing an in-call action belongs in `apps/api`
+    because it makes a synchronous external call and a credential decrypt, which hard
+    rule 3 keeps off the receiver. This does the opposite: it accepts a notification, acks
+    and defers, which is exactly what the receiver is for and exactly what `apps/api` is
+    the wrong place for. It is also on
     the caller's audio path in the sense that matters — the engine fires it mid-call, a
     step before it places the leg — so the 500ms discipline applies.
 

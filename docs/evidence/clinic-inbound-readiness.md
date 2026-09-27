@@ -261,8 +261,8 @@ Two gaps:
   the founder should decide before the first clinic, not a code gap.
 - **External blocker:** none of it runs until `GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI`
   are set — a Google Cloud project and OAuth consent screen (`apps/api/actions/calendar.py:23-26`,
-  gated by `calendar_configured()` so it refuses cleanly). Plus `actions_callback_base_url`
-  must be a real public origin.
+  gated by `calendar_configured()` so it refuses cleanly). An in-call booking also needs an
+  engine that executes during-call actions; none does since D-639.
 - Named hardening already in the code: the OAuth `state` is the bare tenant id and is not
   HMAC-signed (`apps/api/actions/routes.py:620-623`). Not exploitable today because the
   callback also requires an authenticated `org:manage` session, but it is on the record.
@@ -454,9 +454,8 @@ No money bug, no RLS bug, no double-count and no dropped-call path in the inboun
 - [ ] **14. Gate 36 — the Bolna DPA deletion clause.** A DPDP erasure request must reach
       their copy of the recordings; no code here can discharge it.
 - [ ] **15. A host.** Nothing is provisioned, `terraform validate` has never run
-      (`infra/README.md` §5), CD is disabled, and `webhook_base_url` and
-      `actions_callback_base_url` must both resolve publicly before any webhook or any
-      in-call booking works.
+      (`infra/README.md` §5), CD is disabled, and `webhook_base_url` must resolve
+      publicly before any webhook works.
 
 **Deliberately NOT on this list:** DLT PE registration, TM registration, header/template
 approval and the national DND scrub. All outbound-only; none blocks the first inbound call

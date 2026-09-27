@@ -674,13 +674,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Google OAuth client for Calendar actions. Read inline by `actions/calendar.py` on
     # each token exchange (no cached client), so a rotation is live on the next connect or
     # refresh.
-    # The origin baked into each action tool's engine declaration at publish, so a change
-    # applies on the next agent publish. No route serves it today (D-639).
-    "actions_callback_base_url": AppliesRule(
-        NEEDS_REPUBLISH,
-        "already-published agents keep the old URL in their engine tool config until they "
-        "are republished.",
-    ),
     "google_oauth_client_id": AppliesRule(LIVE),
     "google_oauth_client_secret": AppliesRule(LIVE),
     "google_oauth_redirect_uri": AppliesRule(LIVE),

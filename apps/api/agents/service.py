@@ -2176,7 +2176,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     config = config.model_copy(
         update={
             "action_tools": await actions_service.declare(
-                session, agent_id=agent_id, engine=engine.name, direction=agent["direction"]
+                session, agent_id=agent_id, direction=agent["direction"]
             )
         }
     )
