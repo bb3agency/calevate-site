@@ -45,7 +45,9 @@ def _loaded(**kw: Any) -> LoadedTool:
     return LoadedTool(**base)  # type: ignore[arg-type]
 
 
-def test_to_spec_resolves_caller_phone_by_direction_and_injects_agent_ref() -> None:
+def test_to_spec_declares_only_what_the_model_fills() -> None:
+    """Static and lead-variable params are applied by our executor and never declared: a
+    lead variable is the call's own data, and nothing is injected for a runtime to fill."""
     params = [
         {
             "name": "order_id",
@@ -57,15 +59,9 @@ def test_to_spec_resolves_caller_phone_by_direction_and_injects_agent_ref() -> N
         {"name": "caller", "source": "lead_var", "lead_var": "caller_phone"},
         {"name": "store", "source": "static", "value": "S1"},
     ]
-    inbound = _to_spec(_loaded(params=params), direction="inbound")
-    outbound = _to_spec(_loaded(params=params), direction="outbound")
-    names = {p.name: p for p in inbound.params}
-    # static param is NOT declared to the engine; ai + lead_var + the injected agent ref are.
-    assert "store" not in names
-    assert names["order_id"].fill == "ai"
-    assert names["caller"].context_ref == "{from_number}"  # inbound: caller is from_number
-    assert {p.name: p.context_ref for p in outbound.params}["caller"] == "{to_number}"
-    assert names["_agent_ref"].context_ref == "{agent_id}"
+    for direction in ("inbound", "outbound"):
+        spec = _to_spec(_loaded(params=params), direction=direction)
+        assert [(p.name, p.required) for p in spec.params] == [("order_id", True)]
 
 
 # ------------------------------------------------------------- param binding ----

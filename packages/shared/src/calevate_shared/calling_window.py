@@ -21,7 +21,7 @@ WHAT ELSE IS HERE, AND WHY IT IS HERE RATHER THAN IN THE ROUTE
 or a refusal a person can act on. It is pure arithmetic over two short strings, which is
 what makes it legal on the 100ms in-call budget (TRD §6.2) — and it must run THERE rather
 than in the worker behind it, because a refusal that arrives after the caller has hung up
-is not a refusal, it is a broken promise. See `apps/voice-runtime/tool_routes.py`.
+is not a refusal, it is a broken promise. See `apps/api/worker/tools.book_callback`.
 
 THE HALF-OPEN WINDOW IS THE SAME HALF-OPEN WINDOW (D-311). `start <= t < end`: 09:00:00
 is inside, 21:00:00 is the first forbidden instant. `compliance.within_calling_hours` and

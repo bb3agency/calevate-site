@@ -603,11 +603,8 @@ async def _concurrent_deliveries(width: int) -> None:
 
 # --- §1c. the number itself, as a distribution (D-241) ------------------------
 #
-# §1 pins what a request COSTS and §1b what it costs the process. Neither ever produced
-# the quantity hard rule 3 is actually written in: milliseconds. That gap was one-sided —
-# the IN-CALL tool endpoint has had a measured distribution since D-109
-# (`tests/tool_endpoint_budget_test.py`), while the receiver, whose budget is the one
-# CLAUDE.md states as a hard rule and whose vendor never retries, had none.
+# §1 pins what a request COSTS and §1b what it costs the process. Neither produced the
+# quantity hard rule 3 is actually written in: milliseconds.
 #
 # STILL NOT ASSERTED. The docstring above and `tests/voice_runtime_security_test.py` both
 # decline a millisecond bound, and nothing here adds one: a latency assertion on a shared
@@ -615,8 +612,7 @@ async def _concurrent_deliveries(width: int) -> None:
 # works. The NUMBER's home is `docs/evidence/deepdive-voice2.md`, beside the conditions it
 # was taken under.
 #
-# The instrument is shared with the tool endpoint's file (`tests/ack_harness.py`) so the
-# two budgets stay comparable — same nearest-rank percentile, same discarded warm-up, same
+# The instrument is `tests/ack_harness.py`: nearest-rank percentile, discarded warm-up,
 # barrier release.
 
 ACK_BUDGET_MS = webhook_routes._ACK_BUDGET_MS
@@ -704,12 +700,11 @@ async def test_a_stalled_database_is_abandoned_at_the_deadline_not_waited_on(
     way; the difference is whether WE know. A 503 is honest, alerts, and hands the event
     to the poller. A 202 over a rolled-back transaction is a call that quietly vanishes.
     """
-    # THE METER, NOT THE MODULE CONSTANT. `_DURABLE_DEADLINE_S` is the receiver's
-    # DECLARED number and is still spelled there; what the handler READS is
-    # `WEBHOOK_ACK.durable_deadline_s`, because the in-call tool surface needed its own
-    # (a two-second abandon is fine for a caller who has hung up and is dead air for one
-    # who has not). Patching the constant here would set a value nothing consults and
-    # this test would pass while measuring the real two seconds.
+    # THE METER, NOT THE MODULE CONSTANT. `_DURABLE_DEADLINE_S` is the receiver's DECLARED
+    # number and is still spelled there; what the handler READS is
+    # `WEBHOOK_ACK.durable_deadline_s`, the per-surface meter. Patching the constant here
+    # would set a value nothing consults and this test would pass while measuring the real
+    # two seconds.
     monkeypatch.setattr(
         webhook_routes, "WEBHOOK_ACK", replace(webhook_routes.WEBHOOK_ACK, durable_deadline_s=0.35)
     )
@@ -1017,7 +1012,6 @@ async def _post_with_disconnect(path: str, sent: bytes) -> tuple[int, dict[str, 
     ("label", "path", "sent", "series"),
     [
         ("receiver", HOOK, b'{"execution_id":"exec_cut","status":"comp', "webhook_ack_ms"),
-        ("in-call tool", "/tools/v1/fake/opt-out", b'{"execution_id":"exec_cut"', "tool_ack_ms"),
     ],
 )
 async def test_a_caller_that_hangs_up_mid_body_is_answered_not_crashed(

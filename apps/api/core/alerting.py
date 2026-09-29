@@ -124,13 +124,11 @@ FailureStage = Literal[
     "CORE_LOGIC",
     # THERE IS NO QUEUE_ENQUEUE, AND ITS ABSENCE IS THE POINT (D-412). It sat here and in
     # BACKEND-PATTERNS §8's published list from the day this taxonomy landed, and nothing
-    # ever passed it. The two enqueue failures this system really raises are stamped by
-    # the component that OWNS the enqueue, which is what makes them actionable:
-    # `dispatcher.dispatch_outbox` alerts OUTBOX_DISPATCH/`outbox_queue_unreachable` (the
-    # queue is unreachable and the batch went back on the shelf), and voice-runtime's tool
-    # endpoint alerts ROUTE_HANDLER/`tool_enqueue_timeout` (inside its 500ms ack budget).
-    # A third stage for those same two events would split one alarm family across two
-    # labels for no gain. §8 published this stage to operators, so what it really was is
+    # ever passed it. An enqueue failure is stamped by the component that OWNS the enqueue,
+    # which is what makes it actionable: `dispatcher.dispatch_outbox` alerts
+    # OUTBOX_DISPATCH/`outbox_queue_unreachable` (the queue is unreachable and the batch
+    # went back on the shelf). A second stage for the same event would split one alarm
+    # across two labels for no gain. §8 published this stage to operators, so what it really was is
     # a promise of an alarm that could not fire — worse than a missing one, because an
     # operator concludes from the silence that the leg it names is healthy.
     # `scripts/check_wiring.unemittable_alarm_stages` refuses the next one.
@@ -740,30 +738,12 @@ def record_webhook_ack_ms(ms: float, *, provider: str) -> None:
     _record("webhook_ack_ms", ms, provider=provider)
 
 
-def record_tool_ack_ms(ms: float, *, provider: str) -> None:
-    """The IN-CALL tool endpoint's ack, against TRD §6.2's 100ms budget.
-
-    A SECOND SERIES RATHER THAN A SECOND LABEL ON THE FIRST. `apps/voice-runtime/
-    tool_routes.py` leaves through the receiver's `_ack`, so until this existed every
-    in-call tool call was recorded as `webhook_ack_ms{provider=...}` — the same series as
-    the post-call webhook receiver, distinguishable by nothing. They are different
-    endpoints with different budgets (100ms against 500ms) and an order-of-magnitude
-    different cost (0 database statements against 3), so the pooled p95 was a blend of two
-    populations: a burst of cheap tool calls DILUTED the receiver's p95 and could hide a
-    regression in it, and the tool endpoint's own budget could not be read off the series
-    at all. A `surface=` label on one series would have kept the dilution — a percentile
-    is computed over the series, not over the label.
-    """
-    _record("tool_ack_ms", ms, provider=provider)
-
-
 def record_retrieval_ms(ms: float, *, provider: str, tier: str, cached: bool) -> None:
     """How long one knowledge retrieval took, in the port's own series (TRD §6).
 
-    `cached` is a LABEL and not a second series, which is the opposite of the choice
-    `record_tool_ack_ms` argues for above — and for the same reason, read the other way.
-    There the two populations had different BUDGETS, so a pooled percentile could hide a
-    regression in one of them. Here the hit and the miss are two paths to the same
+    `cached` is a LABEL and not a second series. Two populations with different BUDGETS
+    need two series, because a pooled percentile can hide a regression in one of them; here
+    the hit and the miss are two paths to the same
     answer under one budget, and the number an operator wants is exactly the blend: what
     a question costs, given the hit rate this account actually has. The unblended halves
     are still readable by filtering the label; the blend would not be recoverable if
@@ -909,7 +889,6 @@ __all__ = [
     "record_reconciliation_listing_incomplete",
     "record_reconciliation_repair",
     "record_speed_to_lead",
-    "record_tool_ack_ms",
     "record_webhook_ack_ms",
     "record_webhook_replay_divergence",
     "reset_alerts",

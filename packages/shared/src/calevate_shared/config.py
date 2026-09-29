@@ -429,6 +429,18 @@ class Settings(BaseSettings):
     #: else does. Configuration rather than a constant because the same code has to serve
     #: a local run, a staging deployment and production without a rebuild.
     pipecat_stream_base_url: str | None = Field(default=None, max_length=512)
+    #: The HMAC key that signs the caller number the answer leg puts on the stream URL
+    #: (`calevate_shared.worker_api.caller_claim_mac`), so the worker can believe it.
+    #:
+    #: ENV-ONLY, AND IN TWO ENVIRONMENTS WITH THE SAME VALUE: `apps/voice-runtime` signs
+    #: with it, and that service does not decrypt the credential store
+    #: (`start_config_refresher(with_secrets=False)`); the worker verifies with it inside
+    #: Pipecat Cloud, which can never open that store. ABSENT or shorter than 32 bytes =>
+    #: the answer leg forwards the caller STATE with no number and the worker believes no
+    #: number, so every in-call act that needs one answers that it cannot identify the
+    #: caller. Never the worker API token: that credential opens the ledger's write surface
+    #: and must not double as a signing key.
+    carrier_claim_secret: str | None = Field(default=None, max_length=256)
 
     # ── THE CARRIER, AND THE ONE CREDENTIAL ON THE PIPECAT PATH THAT HAD NO HOME AT
     #    ALL (D-614) ──────────────────────────────────────────────────────────────

@@ -315,3 +315,43 @@ async def test_a_session_with_no_signed_in_user_owns_no_views_and_is_told_so() -
         )
         == signed_in_user
     )
+
+
+async def test_the_per_person_cap_holds_against_concurrent_saves() -> None:
+    """The cap is counted and then inserted, so two saves racing at 49 each read 49 and
+    each insert. Several presses at once must still leave exactly the cap."""
+    import asyncio
+
+    from apps.api.crm.schemas import MAX_SAVED_VIEWS_PER_USER
+
+    t = await _tenant()
+    user_id = uuid.UUID(t.token.rsplit(":", 1)[1])
+    async with tenant_session(t.tenant_id) as session:
+        for i in range(MAX_SAVED_VIEWS_PER_USER - 1):
+            await session.execute(
+                text(
+                    "INSERT INTO lead_saved_views (id, tenant_id, user_id, name, filters, "
+                    "created_at, updated_at) VALUES (:id, :tid, :uid, :name, "
+                    "CAST('{}' AS jsonb), now(), now())"
+                ),
+                {"id": uuid.uuid4(), "tid": t.tenant_id, "uid": user_id, "name": f"seed {i}"},
+            )
+
+    async with _client() as http:
+        responses = await asyncio.gather(
+            *(
+                http.post(VIEWS, json={"name": f"racer {i}", "filters": {}}, headers=t.headers)
+                for i in range(6)
+            )
+        )
+
+    assert sorted(r.status_code for r in responses).count(201) == 1, [
+        r.status_code for r in responses
+    ]
+    async with tenant_session(t.tenant_id) as session:
+        held = (
+            await session.execute(
+                text("SELECT count(*) FROM lead_saved_views WHERE user_id = :u"), {"u": user_id}
+            )
+        ).scalar()
+    assert held == MAX_SAVED_VIEWS_PER_USER

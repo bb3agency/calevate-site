@@ -85,6 +85,7 @@ from apps.api.billing.payments import (
     NOTES_TENANT_KEY,
     PAYMENT_FAILED_EVENT,
     PROVIDER,
+    REFUND_MAY_HAVE_MOVED_CODES,
     REFUND_PROCESSED_EVENT,
     REFUND_PROCESSING_DAYS,
     SIGNATURE_HEADER,
@@ -1314,13 +1315,16 @@ async def issue_tenant_refund(
         refund = await issue_refund(
             tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
         )
-    except Exception:
-        # NOTHING MOVED, SO NOTHING MAY GO ON BEING RESERVED. A claim left behind by a
-        # vendor timeout would shrink what this client can be refunded for ever — money
-        # withheld by an outage, which is a worse failure than the double refund the
-        # claim exists to prevent. Only a claim THIS request took is released; a replay's
-        # belongs to the refund that already exists.
-        if claim.claimed:
+    except Exception as failed:
+        # A claim left behind by a vendor timeout would shrink what this client can be
+        # refunded for ever — money withheld by an outage, which is a worse failure than
+        # the double refund the claim exists to prevent. Only a claim THIS request took is
+        # released; a replay's belongs to the refund that already exists. And not after a
+        # 2xx the provider sent and we refused to read (`REFUND_MAY_HAVE_MOVED_CODES`): a
+        # refund exists there, and freeing its claim takes it out of the ceiling.
+        if claim.claimed and not (
+            isinstance(failed, ProblemError) and failed.code in REFUND_MAY_HAVE_MOVED_CODES
+        ):
             async with tenant_session(tenant_id) as session:
                 await release_refund_claim(
                     session, tenant_id=tenant_id, refund_key=claim.refund_key

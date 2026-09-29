@@ -91,6 +91,17 @@ def tenant_of_pipecat_ref(ref: str) -> UUID | None:
         return None
 
 
+def call_of_pipecat_ref(ref: str) -> str | None:
+    """The worker's own call id a `pipecat:<tenant>:<call>` call ref names, or `None`.
+
+    The third segment of the shape `tenant_of_pipecat_ref` reads, so the server can check
+    that a batch posted to one call's ref only talks about that call.
+    """
+    if tenant_of_pipecat_ref(ref) is None:
+        return None
+    return ref.split(":", 2)[2] or None
+
+
 NumberSeries = Literal["140", "160", "standard"]
 
 
@@ -3125,51 +3136,27 @@ class ModelConfig(BaseModel):
         return self
 
 
-#: How Bolna fills one custom-function parameter slot for an in-call ACTION tool.
-#:
-#: - ``ai``      the LLM extracts the value from the conversation. It is declared in the
-#:               function's ``parameters`` JSON-schema so the model knows to collect it,
-#:               and mapped in ``value.param`` as a ``%(name)s`` format specifier.
-#: - ``context`` a Bolna system variable substituted at call time (``{from_number}`` etc.
-#:               — the four the vendor auto-injects into function parameters, VERIFIED-
-#:               VENDOR-DOCS `bolna-findings/mirror/pages/tool-calling/
-#:               custom-function-calls.md:581-586`). It is NOT in ``parameters`` — the LLM
-#:               never fills it — only in ``value.param``.
-#:
-#: STATIC values are deliberately NOT a fill mode here: they never reach Bolna's config at
-#: all. `apps/api/actions` applies them on OUR side at execution, which is what keeps a
-#: credential or a fixed value off the vendor (the whole architecture of this feature).
-ActionParamFill = Literal["ai", "context"]
-
-#: The JSON-schema scalar types Bolna's custom functions accept for a parameter
-#: (VERIFIED-VENDOR-DOCS, custom-function-calls.md:222-233: string/integer/number/boolean).
+#: The JSON-schema scalar types a tool parameter may declare.
 ActionParamType = Literal["string", "integer", "number", "boolean"]
 
 
 class ActionToolParam(BaseModel):
-    """ONE parameter slot the engine must know about to let the LLM invoke an action.
+    """ONE parameter the model fills from the conversation when it invokes an action.
 
-    Only the slots Bolna itself fills live here — the AI-inferred arguments and the
-    call-context variables. STATIC bindings and lead/CRM fields our own execution layer
-    resolves are NOT here, because the engine neither sends nor sees them: they are
-    applied in `apps/api/actions/execution.py` after the call comes back to us.
+    Only the parameters the MODEL collects live here. Static values and lead variables are
+    applied by our own executor (`apps/api/actions/execution.py`) and never reach a runtime,
+    which keeps a credential, a fixed value or a caller's number off the vendor.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    #: The parameter name. For ``ai`` it must match the key in the ``parameters`` schema
-    #: and the ``value.param`` mapping exactly (custom-function-calls.md:283, case
-    #: sensitive). For ``context`` it is the key our endpoint reads the value back under.
+    #: The parameter name, as the model's function schema and our executor both spell it.
     name: str
-    fill: ActionParamFill = "ai"
     type: ActionParamType = "string"
-    #: What the LLM is collecting — only meaningful for ``ai``. "The description is
-    #: everything" for triggering (custom-function-calls.md), so it is carried, not dropped.
+    #: What the model is collecting. The model decides when and how to fill a parameter
+    #: from this text, so it is carried, not dropped.
     description: str = ""
     required: bool = False
-    #: For ``fill="context"`` only: the Bolna system-variable reference to substitute,
-    #: e.g. ``"{from_number}"``. Ignored for ``ai``.
-    context_ref: str | None = None
 
 
 class ActionToolSpec(BaseModel):
@@ -3227,11 +3214,7 @@ class HandoffSpec(BaseModel):
     `apps/api/agents/handoff.py`: rotation between calls, hours enforced by NOT PUBLISHING
     the tool at all outside them, and a callback booked from the leg that failed.
 
-    **NO WHISPER, AND THE FIELD NAMES SAY SO.** `brief_url` is not an announcement to the
-    human — nothing in this engine's surface plays audio to the called party — it is a
-    fire-and-forget notification to US, before the leg is placed, carrying the reason and
-    the summary the model wrote (`transfer-calls.md`, "Pre-call Webhook"). What reaches
-    the person is a message on their phone, not a voice in their ear. See
+    **NO WHISPER.** Nothing here plays audio to the called party; see
     `docs/evidence/handoff-warm-transfer.md` for what a real whisper would take.
     """
 
@@ -3249,8 +3232,10 @@ class HandoffSpec(BaseModel):
     #: What the agent SAYS while the handoff is placed, so the caller does not hear dead
     #: air. The engine calls this the pre-tool message.
     spoken_line: str
-    #: OUR endpoint, notified before the leg is placed. None = no notification, which is
-    #: the honest state for a deployment whose runtime base URL is unset.
+    #: RETIRED: the rented engine's pre-transfer notification address, whose route was
+    #: deleted with it. Nothing sets or reads it; it stays so configurations published
+    #: before the deletion still validate (`resolved_config` is stored JSON and this model
+    #: forbids unknown keys).
     brief_url: str | None = None
 
 
@@ -4078,6 +4063,12 @@ class CostBreakdown(BaseModel):
     #: costed at Monday's rate or at Friday's — the difference between a healthy feed and
     #: one that stopped over the weekend.
     fx_as_of: date | None = None
+    #: True when the engine's own settlement already wrote this call's per-leg supplier rows
+    #: (the owned Pipecat runtime, `apps/api/worker/service.settle_call`). The metering stage
+    #: then writes only the billable-minute row and the client's charge — the same
+    #: `charge_for_call` path every engine takes — and no leg twice; `total_inr` is then the
+    #: sum of those settled rows, and every per-leg field above stays `None`.
+    legs_metered_at_settlement: bool = False
 
 
 class RecallOutcome(StrEnum):
@@ -5678,7 +5669,6 @@ __all__ = [
     "AccountKBListing",
     "AccountKBObject",
     "AccountKBState",
-    "ActionParamFill",
     "ActionParamType",
     "ActionToolParam",
     "ActionToolSpec",
@@ -5729,6 +5719,7 @@ __all__ = [
     "WebhookAuthMethod",
     "WebhookVerdict",
     "awaits_caller_memory",
+    "call_of_pipecat_ref",
     "fill_caller_memory_slot",
     "owned_runtime_agent_ref",
     "parse_owned_runtime_agent_ref",

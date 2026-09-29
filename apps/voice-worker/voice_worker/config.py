@@ -153,6 +153,7 @@ async def load_session_config(
         # than being restated in two places.
         language=answer.language,
         greet_first=answer.greet_first,
+        opening_line=answer.opening_line,
         knowledge_pack_sha256=answer.knowledge_pack_sha256,
         engine_agent_ref=answer.engine_agent_ref,
         # THE AGENT'S CALL CAP, CARRIED LIKE EVERY OTHER PUBLISHED FIELD AND DECIDED BY

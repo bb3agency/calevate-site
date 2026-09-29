@@ -737,15 +737,15 @@ async def publish(
     """
     async with tenant_session(tenant_id) as scoped:
         ref = await publish_agent(scoped, tenant_id=tenant_id, agent_id=agent_id)
-    await write_audit(
-        session,
-        action="agent.published",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-    )
+        await write_audit(
+            scoped,
+            action="agent.published",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+        )
     return PublishOut(agent_id=agent_id, engine_agent_ref=ref, status="live")
 
 

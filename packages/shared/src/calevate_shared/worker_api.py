@@ -38,6 +38,8 @@ Two consequences that look like omissions and are the design:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import math
 from decimal import Decimal
 from typing import Final, Literal, get_args
@@ -221,6 +223,10 @@ class WorkerSessionOut(BaseModel):
     knowledge_pack_sha256: str | None = None
     #: Hard rule 5's sentence, carried so the worker can prove it is in the prompt it runs.
     ai_disclosure_line: str | None = None
+    #: The published `AgentConfig.opening_line` — the notices the agent's D-163 toggles
+    #: switched on — which the worker speaks VERBATIM before the model greets, so a model
+    #: cannot paraphrase or drop a disclosure. `""` is a recorded choice to volunteer nothing.
+    opening_line: str = ""
     #: HOW LONG THIS AGENT'S CALLS MAY RUN, IN SECONDS — the cap the console already writes
     #: (`agents/publishing_routes.py:403`).
     #:
@@ -445,6 +451,11 @@ class SettlementRequest(BaseModel):
     final_status: SettlementStatus
     direction: CallDirection
     agent_id: UUID
+    #: The published configuration version this call ran, as the session read answered it.
+    #: The server prices the LLM and TTS legs from THAT row's model config — its own record —
+    #: and refuses a version that is not this agent's. `None` (a worker older than the
+    #: field) prices from the agent's currently published version.
+    agent_config_version_id: UUID | None = None
     #: Carried here TOO, and not only on `ObservationBatch`, because settlement upserts the
     #: call row itself: a call that failed before its first flush is minted HERE, and a row
     #: minted without the parties is a lead and an erasure subject lost at the one moment
@@ -559,23 +570,16 @@ class AttestationOut(BaseModel):
     matches: bool
 
 
-# --- the in-call tools (the four `apps/voice-runtime/tool_routes.py` already serves) ----
+# --- the four in-call tools ----------------------------------------------------------
 #
-# **THE ENGINE LEG IS THE SPECIFICATION AND THIS IS THE SAME BEHAVIOUR, NOT A SECOND
-# OPINION.** `tool_routes.py` decides what an opt-out does, what a booking validates, what a
-# cancellation means and what the agent is told in each outcome; every model below is that
-# vocabulary, and the handlers in `apps/api/worker/tools.py` reach the SAME service
-# functions the engine leg's ARQ jobs reach (`compliance/optout.record_call_optout`,
-# `callbacks/service.book`, `callbacks/service.cancel_for_phones`). Two implementations of
-# "add this caller to the DNC list" is the defect this arrangement exists to prevent.
+# The handlers in `apps/api/worker/tools.py` reach the one service function that owns each
+# write (`compliance/optout.record_call_optout`, `callbacks/service.book`,
+# `callbacks/service.cancel_for_phones`). Two implementations of "add this caller to the DNC
+# list" is the defect this arrangement exists to prevent.
 #
-# **ONE WORD IS DELIBERATELY DIFFERENT AND IT IS THE HONEST ONE.** The engine leg answers
-# `accepted` and never "done", because on that leg the write happens in a worker a few
-# hundred milliseconds later, behind an authenticated Get Execution. There is no execution
-# to fetch here and no poller: the worker names its own call ref, the server resolves the
-# tenant from it and does the write IN THE REQUEST, so the truthful status is `recorded` /
-# `booked` / `cancelled`. Saying "accepted" would be under-claiming, and under-claiming is
-# a sentence an agent reads out to a caller.
+# **THE STATUS WORDS ARE `recorded` / `booked` / `cancelled`, NOT `accepted`**: the worker
+# names its own call ref, the server resolves the tenant from it and does the write IN THE
+# REQUEST, so saying "accepted" would be under-claiming in a sentence an agent reads out.
 #
 # **`say` IS GUIDANCE FOR THE AGENT, IN ENGLISH, WHICH ITS OWN LLM RENDERS INTO THE
 # CALLER'S LANGUAGE** — `calling_window.SlotRefusal`'s rule, which these follow because the
@@ -592,11 +596,9 @@ class CallerIdentityIn(BaseModel):
     """What the container observed about who is on the far end, carried per tool call.
 
     **IT IS ON THE TOOL BODY AND NOT ONLY ON `ObservationBatch` BECAUSE THE DECISION IS
-    SYNCHRONOUS.** The engine leg answers an opt-out `accepted` and lets an ARQ job discover
-    minutes later that the call named nobody — `workers/optout.py` alerts
-    `in_call_optout_unattributable` and returns `"unattributable"`, by which time the caller
-    has hung up believing they were removed. On this leg the agent is waiting for an answer
-    it is about to SAY, so the verdict has to be readable in the moment.
+    SYNCHRONOUS.** The agent is waiting for an answer it is about to SAY, so whether the
+    call names a caller has to be readable in the moment, not discovered by a job after the
+    caller has hung up believing they were removed.
 
     `state` is the fact; `e164` is the number and only ever travels with `state="known"`.
     Hard rule 6: the number is carried, never logged — the server logs `state` and nothing
@@ -646,11 +648,10 @@ class OptOutToolOut(BaseModel):
 class CallbackBookIn(BaseModel):
     """ "Ring me back Tuesday at four", already resolved by the model into date and time.
 
-    `confirmed` IS A BOOL ON THIS WIRE AND A NARROW PARSE IN THE WORKER. The engine leg
-    receives whatever the vendor substitutes and narrows it in `tool_routes._truthy`
-    (`true`/`"true"`/`"yes"` and nothing else); here the narrowing happens in
-    `voice_worker/call_tools.py` before the body is built, so the contract between the two
-    halves of OUR product carries a decided boolean rather than a string to re-interpret.
+    `confirmed` IS A BOOL ON THIS WIRE AND A NARROW PARSE IN THE WORKER
+    (`true`/`"true"`/`"yes"` and nothing else, in `voice_worker/call_tools.py`), so the
+    contract between the two halves of OUR product carries a decided boolean rather than a
+    string to re-interpret.
     """
 
     model_config = _STRICT
@@ -664,7 +665,7 @@ class CallbackBookIn(BaseModel):
 
 
 class CallbackToolOut(BaseModel):
-    """The booking's four answers. `tool_routes.CallbackToolOut`'s three, plus the honest one.
+    """The booking's four answers.
 
     `needs_confirmation` and `not_booked` are that model's, unchanged and for its reasons:
     confirm-before-commit is a SERVER-SIDE control, and a time outside 09:00-21:00 IST is
@@ -712,8 +713,7 @@ class CallbackCancelOut(BaseModel):
 class HandoffToolIn(BaseModel):
     """The model's own words about why it wants a person, passed through unread.
 
-    Both are conversation content and neither is logged (hard rule 6) — `tool_routes.
-    _handoff_started` carries the same two for the same reason.
+    Both are conversation content and neither is logged (hard rule 6).
     """
 
     model_config = _STRICT
@@ -809,7 +809,93 @@ class CallerMemoryOut(BaseModel):
     facts: list[str] = Field(default_factory=list, max_length=MAX_RECALLED_FACTS)
 
 
+# --- the signed caller claim on the stream URL ----------------------------------------
+#
+# `apps/voice-runtime/carrier_routes.py` reads the calling party off the carrier's answer
+# request and hands it to the worker on the stream URL it mints. Anything can open the
+# worker's socket, so a number on that URL is believed only under a MAC this module defines
+# for both deployables (neither may import the other; both import this package).
+#
+# The MAC binds the number to ONE agent ref and a short expiry: a captured URL cannot be
+# replayed onto another agent, nor onto the same agent once the window has passed. HMAC-
+# SHA256 (RFC 2104) over a domain-separated canonical string, hex-encoded, compared with
+# `hmac.compare_digest`.
+
+#: Query parameters carrying the MAC and its expiry, beside `caller` / `caller_state`.
+CLAIM_MAC_PARAM: Final = "caller_mac"
+CLAIM_EXPIRES_PARAM: Final = "caller_exp"
+
+#: How long a minted claim stays valid, in seconds. The carrier opens the stream straight
+#: after fetching the answer document, so this only has to cover that hop plus clock skew
+#: between the VPS and Pipecat Cloud; anything longer widens the replay window for nothing.
+CALLER_CLAIM_TTL_S: Final = 120
+
+#: How far in the future an expiry may lie before it is refused as not ours: the TTL plus
+#: a skew allowance. A MAC over a far-future expiry is still a MAC, but no minter of ours
+#: produces one.
+_CLAIM_MAX_FUTURE_S: Final = CALLER_CLAIM_TTL_S + 60
+
+#: The shortest key accepted, in bytes: `apps/api/core/settings.MIN_HMAC_KEY_BYTES`' floor
+#: (RFC 2104 §3), restated because the worker cannot import `apps.api`.
+MIN_CALLER_CLAIM_KEY_BYTES: Final = 32
+
+_CLAIM_DOMAIN: Final = b"calevate-caller-claim-v1"
+
+
+def usable_caller_claim_key(secret: str | None) -> bytes | None:
+    """The key as bytes, or `None` when it is absent or shorter than the floor.
+
+    `None` means "sign nothing / believe nothing", which is the safe reading on both sides:
+    the answer leg forwards the state without a number, and the worker never learns one.
+    """
+    if not secret:
+        return None
+    key = secret.encode()
+    return key if len(key) >= MIN_CALLER_CLAIM_KEY_BYTES else None
+
+
+def _claim_message(*, ref: str, e164: str, expires_at: int) -> bytes:
+    return b"\x00".join((_CLAIM_DOMAIN, ref.encode(), e164.encode(), str(expires_at).encode()))
+
+
+def caller_claim_mac(key: bytes, *, ref: str, e164: str, expires_at: int) -> str:
+    """The MAC the answer leg puts on the stream URL for one caller of one agent."""
+    return hmac.new(
+        key, _claim_message(ref=ref, e164=e164, expires_at=expires_at), hashlib.sha256
+    ).hexdigest()
+
+
+def verify_caller_claim(
+    key: bytes | None,
+    *,
+    ref: str,
+    e164: str,
+    expires_at: str | None,
+    mac: str | None,
+    now: float,
+) -> bool:
+    """Is this number really what our answer leg minted for this ref, and still in time?
+
+    False on every failure — no key, no MAC, an unparseable or expired expiry, an expiry
+    further ahead than any minter of ours writes, or a MAC that does not match — and the
+    caller treats all of them alike: the number is not believed.
+    """
+    if key is None or not mac or not expires_at or not e164 or not ref:
+        return False
+    try:
+        expiry = int(expires_at)
+    except ValueError:
+        return False
+    if expiry < now or expiry > now + _CLAIM_MAX_FUTURE_S:
+        return False
+    expected = caller_claim_mac(key, ref=ref, e164=e164, expires_at=expiry)
+    return hmac.compare_digest(mac.encode(), expected.encode())
+
+
 __all__ = [
+    "CALLER_CLAIM_TTL_S",
+    "CLAIM_EXPIRES_PARAM",
+    "CLAIM_MAC_PARAM",
     "DEFAULT_CALL_CAP_S",
     "DEGRADED_KNOWLEDGE_STATES",
     "KNOWLEDGE_STATES",
@@ -826,6 +912,7 @@ __all__ = [
     "MAX_TOOL_TEXT",
     "MAX_TURNS_PER_BATCH",
     "METERED_LEGS",
+    "MIN_CALLER_CLAIM_KEY_BYTES",
     "SETTLEMENT_STATUSES",
     "AttestationIn",
     "AttestationOut",
@@ -854,4 +941,7 @@ __all__ = [
     "SettlementRequest",
     "SettlementStatus",
     "WorkerSessionOut",
+    "caller_claim_mac",
+    "usable_caller_claim_key",
+    "verify_caller_claim",
 ]

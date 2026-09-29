@@ -341,6 +341,86 @@ async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
     )
 
 
+@pytest.mark.parametrize("code", ["refund_unreadable", "refund_amount_mismatch"])
+async def test_a_refund_the_provider_accepted_keeps_its_claim_when_its_answer_is_refused(
+    monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    """FAILS IF: the release fires on a provider answer that says money MAY have moved.
+
+    Both codes are raised after a 2xx from the provider: `refund_amount_mismatch` means it
+    refunded (a different amount), `refund_unreadable` means it may have. Releasing the
+    claim there drops a real refund out of the ceiling `claim_refund` enforces, so the next
+    refund of a different amount against the same payment passes a total it should not.
+    """
+    from apps.api.admin import service as admin_service
+    from apps.api.billing import payment_routes
+    from apps.api.billing.payments import RefundClaim
+    from apps.api.billing.service import record_entry
+    from apps.api.core.context import Principal
+    from apps.api.core.errors import ProblemError
+
+    created = await admin_service.create_organization(
+        name="Accepted Refund Clinic",
+        slug=f"acc-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email="owner@example.test",
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("1000.0000"),
+            reason="topup",
+            ref=payment_id,
+        )
+        await session.commit()
+
+    released: list[str] = []
+
+    async def _fresh_claim(*_: object, **__: object) -> RefundClaim:
+        return RefundClaim(refund_key="rfk_fresh", claimed=True)
+
+    async def _accepted_but_refused(**_: object) -> object:
+        raise ProblemError(kind="dependency", code=code, title="t", detail="d")
+
+    async def _record_release(*_: object, **kwargs: object) -> None:
+        released.append(str(kwargs.get("refund_key")))
+
+    monkeypatch.setattr(payment_routes, "claim_refund", _fresh_claim)
+    monkeypatch.setattr(payment_routes, "issue_refund", _accepted_but_refused)
+    monkeypatch.setattr(payment_routes, "release_refund_claim", _record_release)
+
+    principal = Principal(
+        realm="admin",
+        user_id=uuid.uuid4(),
+        tenant_id=None,
+        role="superadmin",
+        impersonating=False,
+    )
+
+    class _Req:
+        client = None
+        headers: ClassVar[dict[str, str]] = {}
+
+    with pytest.raises(ProblemError):
+        await payment_routes.issue_tenant_refund(
+            tenant_id,
+            payment_routes.RefundIn(
+                payment_id=payment_id,
+                amount_inr=Decimal("500.0000"),
+                reason="duplicate charge reported by the client",
+            ),
+            _Req(),  # type: ignore[arg-type]
+            principal,
+        )
+
+    assert released == [], f"a claim was released after the provider answered {code}"
+
+
 # --- an order the provider created without giving us an id ------------------------------
 
 

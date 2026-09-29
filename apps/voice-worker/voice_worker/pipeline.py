@@ -63,7 +63,13 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import CancelFrame, EndWorkerFrame, LLMRunFrame
+from pipecat.frames.frames import (
+    CancelFrame,
+    EndWorkerFrame,
+    Frame,
+    LLMRunFrame,
+    TTSSpeakFrame,
+)
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
@@ -95,6 +101,17 @@ from voice_worker.vendor_logging import install_vendor_log_guard
 #: `engine` on every `CallEvent` this worker emits. OUR vocabulary, not a vendor's: the
 #: adapter that reads these rows is `apps/api/engine/pipecat.py` (§6 step 3).
 ENGINE_NAME: Final[str] = "pipecat"
+
+#: The developer message that makes an agent with no opening notices speak first.
+GREETING_INSTRUCTION: Final[str] = "Greet the caller as your instructions direct."
+
+#: The developer message once the opening notices have been spoken verbatim. It quotes
+#: them so the model can tell they were said, and it forbids a repeat or a paraphrase.
+OPENING_SPOKEN_GREETING_INSTRUCTION: Final[str] = (
+    'You have already said your opening notice to the caller, word for word: "{opening}" '
+    "Do not repeat or paraphrase it. Continue with your greeting as your instructions "
+    "direct."
+)
 
 #: Smart turn v3's hard silence fallback, in seconds.
 #:
@@ -227,6 +244,13 @@ class SessionConfig:
     #: Whether the agent speaks first. Queued as an `LLMRunFrame` from the transport's
     #: connect event — the shipped pattern (`examples/voice/voice-cartesia.py:112-119`).
     greet_first: bool = True
+    #: The published `AgentConfig.opening_line`: the notices this agent's D-163 toggles
+    #: switched on, composed by `compose_opening_line`. Spoken VERBATIM by
+    #: `AssembledCall.start_conversation`, never handed to the model to say, because a
+    #: paraphrased disclosure is not the configured one and the post-call verdict
+    #: (`compliance/disclosure.disclosure_spoken`) matches the configured words. `""` is the
+    #: tenant's recorded choice to volunteer nothing.
+    opening_line: str = ""
     #: Which published knowledge pack this agent answers out of — the CONTENT DIGEST, which
     #: with `tenant_id` and `agent_id` is the whole object key (`pack_object_key`). It is a
     #: digest and not a URL because the pack is content-addressed and immutable (D-599): a
@@ -1290,6 +1314,8 @@ class AssembledCall:
     prompt_matches_config_version: bool = field(default=False)
     #: Carried from `SessionConfig` so `start_conversation` reads one object.
     greet_first: bool = field(default=True)
+    #: Carried from `SessionConfig` for the same reason: `start_conversation` speaks it.
+    opening_line: str = field(default="")
     #: The pack this call answers out of, or `None` when there is none to answer out of.
     #: Held so an entrypoint can log `knowledge.unavailable_reason` without re-deriving it,
     #: and so a test can assert which session the advertised tool closed over.
@@ -1311,18 +1337,40 @@ class AssembledCall:
         so the entrypoint (step 6, with the carrier) does the one-line registration and this
         method holds the decision.
 
+        **THE OPENING NOTICES ARE SPOKEN VERBATIM, THEN THE MODEL GREETS.** The notices
+        (`opening_line`, hard rule 5 / D-163) go out as a `TTSSpeakFrame` rather than as an
+        instruction to the model, because a model asked to say a sentence may paraphrase or
+        drop it, and a paraphrase is neither the configured disclosure nor what the post-call
+        verdict matches. The rest of the greeting is still the model's, from the client's
+        script, so a greeting hardcoded here would still be a second author of it.
+
+        `append_to_context=True` is what records the notice exactly once: the TTS service
+        commits the spoken text with an `LLMAssistantPushAggregationFrame` when the
+        utterance stops (`pipecat/services/tts_service.py:845-879`), and the assistant
+        aggregator turns that into one `on_assistant_turn_stopped`
+        (`processors/aggregators/llm_response_universal.py:2146-2149`), which is the turn
+        `NormalizedEventBoundary` hands the sink. The model's greeting is a separate turn.
+
+        The developer message tells the model the notice has been said, because the prompt
+        still carries `opening_line` as its opening paragraph (`compose_engine_prompt`, and
+        the attested prompt digest forbids editing it here) and the aggregator may not have
+        committed the spoken notice to the context before the model runs — without it the
+        model would open by saying the notice a second time.
+
         Returns whether it spoke, so a caller can log the branch without re-reading config.
         """
         if not self.greet_first:
             return False
-        # A DEVELOPER message, not a scripted line: what the agent opens with is the
-        # agent's prompt (and, per hard rule 5 / D-163, its disclosure toggles), composed
-        # on the control-plane side. A greeting hardcoded here would be a second author of
-        # the first sentence of every call.
-        self.context.add_message(
-            {"role": "developer", "content": "Greet the caller as your instructions direct."}
-        )
-        await self.worker.queue_frames([LLMRunFrame()])
+        opening = self.opening_line.strip()
+        frames: list[Frame] = []
+        if opening:
+            frames.append(TTSSpeakFrame(text=opening, append_to_context=True))
+            instruction = OPENING_SPOKEN_GREETING_INSTRUCTION.format(opening=opening)
+        else:
+            instruction = GREETING_INSTRUCTION
+        self.context.add_message({"role": "developer", "content": instruction})
+        frames.append(LLMRunFrame())
+        await self.worker.queue_frames(frames)
         return True
 
 
@@ -1364,14 +1412,12 @@ def assemble_call(
     remember its callers, and every test — one state, rendered one way, because that is
     exactly what `CALLER_MEMORY_GUIDANCE` already tells the model an empty block means.
 
-    **`tool_api` AND `caller` ARE ARGUMENTS FOR `transport`'s AND `sink`'s REASON, AND
-    THEY ARE WHAT MAKE THIS AGENT THE SAME AGENT ON BOTH ENGINES.** Until they existed this
-    assembler advertised ONE tool while `apps/voice-runtime/tool_routes.py` served four on
-    the rented engine — so an `owned_runtime` agent could not honour a caller's opt-out
-    (hard rule 5, SEC-COMP §2.3), could not book or cancel a call-back, and could not ask
-    for a person. `None` for either is a local run, a replay or a test: no tool is
-    advertised, and `build_call_tools` argues why that is the right empty state for ACTS
-    even though it is the wrong one for the knowledge SEARCH beside them.
+    **`tool_api` AND `caller` ARE ARGUMENTS FOR `transport`'s AND `sink`'s REASON.** They
+    are what let an `owned_runtime` agent honour a caller's opt-out (hard rule 5, SEC-COMP
+    §2.3), book or cancel a call-back, and ask for a person. `None` for either is a local
+    run, a replay or a test: no tool is advertised, and `build_call_tools` argues why that
+    is the right empty state for ACTS even though it is the wrong one for the knowledge
+    SEARCH beside them.
 
     `caller` is `carrier.CallerIdentity` — matched structurally (`CallerIdentityLike`)
     because `carrier.py` imports this module and the reverse import would be a cycle. It
@@ -1540,6 +1586,7 @@ def assemble_call(
         observed_prompt_sha256=observed,
         prompt_matches_config_version=observed == config.prompt_sha256,
         greet_first=config.greet_first,
+        opening_line=config.opening_line,
         knowledge=knowledge,
         cap=cap,
     )
@@ -1548,10 +1595,12 @@ def assemble_call(
 __all__ = [
     "ENGINE_NAME",
     "FUNCTION_CALL_TIMEOUT_SECS",
+    "GREETING_INSTRUCTION",
     "KNOWLEDGE_OUTCOME_NO_PACK",
     "KNOWLEDGE_TOOL_DESCRIPTION",
     "KNOWLEDGE_TOOL_NAME",
     "KNOWLEDGE_TOOL_QUESTION_PARAM",
+    "OPENING_SPOKEN_GREETING_INSTRUCTION",
     "SMART_TURN_STOP_SECS",
     "STT_MODEL",
     "TELEPHONY_SAMPLE_RATE_HZ",

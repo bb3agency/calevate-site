@@ -250,9 +250,8 @@ async def worker_opt_out(
 ) -> OptOutToolOut:
     """ "Don't call me again", honoured while the caller is still on the line.
 
-    SEC-COMP §2.3 and hard rule 5. This is the ONLY path by which a caller's opt-out
-    reaches `dnc_list` on `owned_runtime` — `apps/voice-runtime/tool_routes.py` serves the
-    rented engine and nothing served this one.
+    SEC-COMP §2.3 and hard rule 5. This is the in-call path by which a caller's opt-out
+    reaches `dnc_list` on `owned_runtime`; the post-call transcript pass is the other.
 
     It answers `not_recorded` when the call names no number, and it means it: see
     `tools._OPTOUT_UNATTRIBUTED_SAY` for why that is worth the worse conversation.
@@ -269,8 +268,8 @@ async def worker_book_callback(
 ) -> CallbackToolOut:
     """Book the call-back the agent just offered, or refuse it in words it can say.
 
-    The refusal is a 200 and not a 4xx, for `tool_routes._book_callback`'s reason: an
-    unbookable time is a normal turn of a conversation, and an error would tell the agent
+    The refusal is a 200 and not a 4xx: an unbookable time is a normal turn of a
+    conversation, and an error would tell the agent
     our API is broken when what it needs to hear is what to offer instead.
     """
     _admit(authorization)

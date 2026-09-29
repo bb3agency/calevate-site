@@ -25,6 +25,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import handoff
 from apps.api.agents import service as agents_service
+from apps.api.agents.handoff import MAX_BRIEF_CHARS, redacted_brief
 from apps.api.agents.prompts import write_prompt_version
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
@@ -138,12 +139,12 @@ def test_a_spec_is_built_only_when_somebody_is_on_duty() -> None:
     """`handoff_spec(None-duty)` is None, which is the whole of decision 4's enforcement:
     the adapter emits no transfer tool for it."""
     nobody = handoff.resolve_on_duty([], enabled=False, agent_hours=None, at=INSIDE)
-    assert handoff.handoff_spec(nobody, trigger=None, language="te-IN", brief_url=None) is None
+    assert handoff.handoff_spec(nobody, trigger=None, language="te-IN") is None
 
     duty = handoff.resolve_on_duty(
         [_member(0, "+919000000001")], enabled=True, agent_hours=OPEN_9_TO_6, at=INSIDE
     )
-    spec = handoff.handoff_spec(duty, trigger="  ", language="te-IN", brief_url=None)
+    spec = handoff.handoff_spec(duty, trigger="  ", language="te-IN")
     assert spec is not None
     assert spec.destination_e164 == "+919000000001"
     # A blank trigger falls back to the composed default rather than publishing an empty
@@ -270,3 +271,16 @@ async def test_an_agent_with_no_recorded_hours_publishes_no_destination() -> Non
         ).scalar()
     snapshot = await get_engine().get_agent(str(ref))
     assert snapshot.handoff_destinations == ()
+
+
+def test_the_models_prose_is_redacted_and_bounded_before_it_is_stored() -> None:
+    """SEC-COMP §4 applies to a handover brief exactly as it applies to a transcript. The
+    summary is written by a language model about a live conversation, so it can carry
+    anything the caller said out loud — and it lands in a column a client reads and (once a
+    channel exists) in a message delivered to somebody's handset."""
+    brief = redacted_brief("Caller read out card 4111 1111 1111 1111 and wants the owner")
+    assert brief is not None
+    assert "4111" not in brief, "a card number reached a handover brief"
+    assert redacted_brief("x" * (MAX_BRIEF_CHARS + 500)) == "x" * MAX_BRIEF_CHARS
+    assert redacted_brief("   ") is None
+    assert redacted_brief(None) is None

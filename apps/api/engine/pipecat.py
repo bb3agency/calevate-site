@@ -76,6 +76,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 from uuid import UUID
 
@@ -90,6 +91,7 @@ from calevate_shared.engine import (
     CallContext,
     CallHandle,
     CallLatency,
+    CostBreakdown,
     EngineAgentRef,
     EngineCapabilities,
     EngineKBRef,
@@ -629,10 +631,12 @@ class SqlControlPlane:
 
         **WHAT IT DELIBERATELY LEAVES EMPTY, AND WHY EACH ONE IS THE HONEST ANSWER.**
 
-        * `cost` — `None`, so `apps/workers/pipeline.py`'s metering stage does not run.
-          That is not a gap: the worker already wrote this call's `usage_events` rows at
-          settlement from the meter that watched the session, and a second pass pricing the
-          same legs off a snapshot would be two writers of one append-only ledger.
+        * `cost` — on a COMPLETED call, a `CostBreakdown` marked `legs_metered_at_settlement`
+          whose `total_inr` is the sum of the leg rows the worker's settlement already wrote
+          (our supplier cost, from attested rates). The metering stage then writes the
+          billable-minute row and charges the client through `charge_for_call` exactly as for
+          every other engine, and writes no leg twice. `None` on any other status, as the fake
+          adapter does: a call that did not complete is not charged.
         * `latency` — the `call_engine_latency` row the worker's settlement wrote
           (`voice_worker/latency.py` measures it), or `None` when there is none: a call on
           which no caller turn was answered. Never an empty `CallLatency()`, which would
@@ -685,6 +689,16 @@ class SqlControlPlane:
                     {"cid": row[0], "tid": tenant_id},
                 )
             ).all()
+            settled_cost = (
+                await session.execute(
+                    text(
+                        "SELECT COALESCE(SUM(qty * unit_cost_paid), 0) FROM usage_events "
+                        "WHERE call_id = :cid AND tenant_id = :tid "
+                        "AND unit_cost_paid IS NOT NULL"
+                    ),
+                    {"cid": row[0], "tid": tenant_id},
+                )
+            ).scalar_one()
             timing = (
                 await session.execute(
                     text(
@@ -740,6 +754,17 @@ class SqlControlPlane:
             # third spelling of the engine name is the drift `tests/engine_name_drift_test.py`
             # exists to catch.
             latency=_stored_latency(timing),
+            cost=(
+                CostBreakdown(
+                    total_inr=Decimal(str(settled_cost)),
+                    # Our own ledger, in rupees: no vendor currency was converted or assumed.
+                    source_currency="INR",
+                    currency_stated=True,
+                    legs_metered_at_settlement=True,
+                )
+                if status == "completed"
+                else None
+            ),
             engine=PipecatEngine.name,
         )
 

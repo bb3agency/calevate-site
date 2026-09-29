@@ -148,7 +148,6 @@ ACTION_TOOL = ActionToolSpec(
     params=(
         ActionToolParam(
             name="item",
-            fill="ai",
             type="string",
             description="The item the caller asked about.",
             required=True,
@@ -164,7 +163,6 @@ HANDOFF = HandoffSpec(
     destination_e164="+919000000042",
     trigger="Hand over when the caller asks to speak to a person.",
     spoken_line="Okay, I am putting you through to someone now.",
-    brief_url="https://hooks.calevate.tech/tools/v1/fake/handoff",
 )
 
 

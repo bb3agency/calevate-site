@@ -952,6 +952,14 @@ class RazorpayOrders:
         )
 
 
+#: `create_refund`'s refusals that follow a 2xx from the provider: a refund exists
+#: (`refund_amount_mismatch`) or may (`refund_unreadable`). Its claim on the refund ceiling
+#: must survive them, where a refusal that proves nothing was refunded releases it.
+REFUND_MAY_HAVE_MOVED_CODES: Final[frozenset[str]] = frozenset(
+    {"refund_unreadable", "refund_amount_mismatch"}
+)
+
+
 def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal) -> str:
     """The `X-Refund-Idempotency` value, derived by US over (payment, amount).
 
@@ -1970,6 +1978,7 @@ __all__ = [
     "PROVIDER_CREATES_ORDERS",
     "PROVIDER_NOT_IMPLEMENTED_REASON",
     "RECEIPT_MAX_LEN",
+    "REFUND_MAY_HAVE_MOVED_CODES",
     "REFUND_PATH_SUFFIX",
     "REFUND_PROCESSED_EVENT",
     "REFUND_PROCESSING_DAYS",

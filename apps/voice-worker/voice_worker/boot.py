@@ -63,6 +63,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
+from calevate_shared.worker_api import MIN_CALLER_CLAIM_KEY_BYTES, usable_caller_claim_key
 from loguru import logger
 
 from voice_worker.api_client import WorkerApiClient
@@ -120,6 +121,12 @@ CARTESIA_KEY_ENV: Final[str] = "CARTESIA_API_KEY"
 #: and nowhere else — `apps/api` holds no Gnani client, which is why `gnani_api_key` is
 #: env-only in the ops console and points an operator at this secret set.
 GNANI_KEY_ENV: Final[str] = "GNANI_API_KEY"
+
+#: The key the caller number on the stream URL is signed with (`worker_api.caller_claim_mac`).
+#: OPTIONAL: without it no claimed number is believed and a call runs with the caller
+#: unidentified, which is today's state. Set but shorter than the floor is REFUSED at boot,
+#: because a key an attacker can search is worse than none and would look configured.
+CLAIM_KEY_ENV: Final[str] = "CARRIER_CLAIM_SECRET"
 
 #: Spelled once because two things key off it: which LLM leg a call may spend, and whether
 #: this container can buy a query vector for the dense retrieval arm — the encoder is on the
@@ -232,11 +239,18 @@ class WorkerConfig:
     #: The Clear tier's future TTS leg (D-618). `None` until the founder puts a key in this
     #: container's secret set; `pipeline._build_tts` refuses a Gnani call by name.
     gnani_api_key: str | None
+    #: The caller-claim signing key (see `CLAIM_KEY_ENV`), or `None`.
+    carrier_claim_secret: str | None
     drain_grace_s: float
     ready_file: str | None
     #: The buffered-turn bounds (D-620). See `sink.DEFAULT_TURN_BATCH_SIZE`.
     turn_batch_size: int
     turn_flush_seconds: float
+
+    @property
+    def caller_claim_key(self) -> bytes | None:
+        """The key a stream URL's caller claim is verified with, or `None` to believe none."""
+        return usable_caller_claim_key(self.carrier_claim_secret)
 
     def credentials_for(self, provider: str | None) -> VendorCredentials:
         """The three keys for a call on `provider`, or a refusal naming the variable.
@@ -435,6 +449,9 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         )
 
     _refuse_cleartext_api(required.get(API_BASE_URL_ENV), failures)
+    claim_key = _present(source, CLAIM_KEY_ENV)
+    if claim_key is not None and usable_caller_claim_key(claim_key) is None:
+        failures.append(f"{CLAIM_KEY_ENV} is shorter than {MIN_CALLER_CLAIM_KEY_BYTES} bytes")
 
     grace = _drain_grace(source, failures)
     turn_batch = _turn_batch_size(source, failures)
@@ -457,6 +474,7 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         llm_api_keys=llm_keys,
         cartesia_api_key=_present(source, CARTESIA_KEY_ENV),
         gnani_api_key=_present(source, GNANI_KEY_ENV),
+        carrier_claim_secret=claim_key,
         drain_grace_s=grace,
         ready_file=_present(source, READY_FILE_ENV),
         turn_batch_size=turn_batch,

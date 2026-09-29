@@ -1,21 +1,13 @@
-"""THE ack-timing instrument, for both of voice-runtime's latency-critical surfaces.
+"""THE latency-timing instrument: percentiles, a warm sequential run, a barrier-released
+concurrent run.
 
-There are two budgets in this service and they are different numbers over the same
-handler shape: hard rule 3's **500ms** for the post-call webhook receiver, and TRD §6.2's
-**100ms** for an in-call tool call. D-109 built a measurement harness for the second one
-inside `tests/tool_endpoint_budget_test.py` — percentiles, a warm sequential run, a
-barrier-released concurrent run — and the FIRST one, the budget CLAUDE.md actually names
-as a hard rule, had none: `tests/voice_runtime_ack_budget_test.py` pinned round-trip
-COUNTS and deadlines and never produced a distribution at all.
-
-So the instrument moved here rather than being written a second time (D-241): one
-percentile estimator, one warm-up discipline, one barrier. Each budget file keeps only
-what is genuinely its own — its URL, its body, and the argument about what its number
-means. A second copy of `percentile` is how two measurements of the same service stop
-being comparable.
+One estimator for every latency measurement in the suite (D-241) — the webhook
+receiver's ack against hard rule 3's 500ms and the in-call lookups against TRD §6.2's
+100ms — so two measurements stay comparable. Each caller keeps only what is genuinely its
+own: its target, its body, and the argument about what its number means.
 
 **NO TEST HERE ASSERTS A MILLISECOND, AND NEITHER MAY ITS CALLERS.** The argument is
-`tool_endpoint_budget_test`'s and `webhook_storm_test`'s and is unchanged: a latency bound
+`webhook_storm_test`'s: a latency bound
 on a shared runner measures the runner, flaps, and is eventually deleted along with the
 guarantee it was carrying (D-29's notes). What the callers assert is the MECHANISM the
 clock is made of — round trips, enqueues, connections — which is exact at any speed.

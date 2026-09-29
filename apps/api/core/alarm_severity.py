@@ -98,10 +98,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # classification is here now so that the first day it CAN fire is not also the first day
     # anybody decides what it means.
     "carrier_stream_base_not_configured": "page",
-    # voice-runtime's own refusals. `attention`: the ack path shed a webhook or a tool
-    # call, which the poller reconciles (TRD §5 makes the poller the truth and the webhook
+    # voice-runtime's own refusals. `attention`: the ack path shed a webhook, which the
+    # poller reconciles (TRD §5 makes the poller the truth and the webhook
     # a hint) — but a RUN of them is the queue being down, which is what the board shows.
-    "tool_queue_unavailable": "attention",
     "webhook_claim_unavailable": "attention",
     "body_read_timeout": "record",
     # ══ THE `ProblemError` CLASS, WHICH THE FIRST PASS OF THIS FILE MISSED ENTIRELY ══
@@ -257,10 +256,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # for a second.
     "agent_config_attestation_mismatch": "page",
     "engine_agent_drift_detected": "page",
-    "handoff_destination_unknown": "attention",
-    "handoff_brief_channel_absent": "attention",
-    "handoff_agent_unmapped": "attention",
-    "handoff_unresolved": "attention",
     # A client's number answers nobody. Their whole inbound product is off.
     "engine_inbound_binding_failed": "page",
     "agent_published_answering_no_number": "attention",
@@ -337,18 +332,16 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "dispatch_tick_overrun": "attention",
     "dispatch_tick_overlap": "attention",
     "dispatch_budget_starved": "attention",
+    # A tenant whose tick work raised dials nothing until it is fixed: a whole client
+    # stopped, which is what `page` is for. The next tick re-raises, so it is one episode.
+    "dispatch_tenant_failed": "page",
     # ── Compliance and consent ────────────────────────────────────────────────
     # A campaign generating opt-outs at 10%+ is the shape a TRAI complaint comes from.
     "campaign_complaint_spike": "page",
     # The fast path failed and the POST-CALL pass is the backstop that still runs. A
     # suppression that is late by one pipeline is not a suppression that did not happen.
-    "in_call_optout_unresolved": "attention",
-    "in_call_optout_agent_unmapped": "attention",
     "in_call_optout_unattributable": "attention",
     "opt_out_unattributable": "attention",
-    "in_call_callback_unresolved": "attention",
-    "in_call_callback_agent_unmapped": "attention",
-    "in_call_callback_unattributable": "attention",
     "caller_memory_distil_worklist_failed": "attention",
     # A retention policy that would delete below the regulatory floor. Statutory.
     "retention_below_trai_floor": "page",
@@ -413,12 +406,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "webhook_ack_slow": "attention",
     "webhook_claim_timeout": "attention",
     "webhook_payload_mismatch": "attention",
-    "tool_source_rejected": "record",
-    "tool_payload_too_large": "record",
-    "tool_call_unkeyable": "attention",
-    "tool_enqueue_timeout": "attention",
-    "tool_body_timeout": "record",
-    "tool_ack_slow": "attention",
     # ── Money and platform state ──────────────────────────────────────────────
     # THE FOUNDER'S 26-MESSAGE THREAD, and the two rungs above it. D-589 gave FX a
     # three-rung ladder; `fx_source_degraded` says the ladder WORKED (a lower published

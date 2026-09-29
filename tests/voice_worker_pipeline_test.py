@@ -55,6 +55,7 @@ from pipecat.frames.frames import (
     LLMRunFrame,
     LLMTextFrame,
     TranscriptionFrame,
+    TTSSpeakFrame,
 )
 from pipecat.processors.aggregators.llm_response_universal import (
     AssistantTurnStoppedMessage,
@@ -447,6 +448,49 @@ async def test_start_conversation_honours_greet_first() -> None:
     before = len(silent.context.messages)
     assert await silent.start_conversation() is False
     assert len(silent.context.messages) == before
+
+
+@pytest.mark.parametrize(
+    "opening", ["Hello, I am an AI assistant. This call is being recorded.", ""]
+)
+async def test_start_conversation_speaks_the_opening_verbatim_before_the_model_greets(
+    opening: str,
+) -> None:
+    """The notices go to the speech leg as a `TTSSpeakFrame`, word for word, ahead of the
+    model's turn — the model is never the one asked to say them (hard rule 5, D-163)."""
+    call = pipeline.assemble_call(
+        config=make_config(opening_line=opening),
+        legs=pipeline.VendorLegs(
+            stt=_PassThrough("s"), llm=_PassThrough("l"), tts=_PassThrough("t")
+        ),
+        transport=FakeTransport(),
+        sink=RecordingSink(),
+    )
+    queued: list[Frame] = []
+
+    async def _record(frames: Any) -> None:
+        queued.extend(frames)
+
+    call.worker.queue_frames = _record  # type: ignore[method-assign]
+    assert await call.start_conversation() is True
+
+    instruction = call.context.messages[-1]
+    assert instruction["role"] == "developer"
+    if opening:
+        assert len(queued) == 2
+        speak, run = queued
+        assert isinstance(speak, TTSSpeakFrame)
+        assert speak.text == opening
+        # Committed to the assistant context by the TTS service, hence to the transcript.
+        assert speak.append_to_context is True
+        assert isinstance(run, LLMRunFrame)
+        assert instruction["content"] == pipeline.OPENING_SPOKEN_GREETING_INSTRUCTION.format(
+            opening=opening
+        )
+        assert "Do not repeat" in instruction["content"]
+    else:
+        assert [type(f) for f in queued] == [LLMRunFrame]
+        assert instruction["content"] == pipeline.GREETING_INSTRUCTION
 
 
 def test_prompt_sha_is_recomputed_not_echoed() -> None:

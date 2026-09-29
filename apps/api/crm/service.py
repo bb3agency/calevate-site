@@ -2111,7 +2111,6 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     would still have needed the zero-fill written by hand.
     """
     since_7d = datetime.now(UTC) - timedelta(days=7)
-    today = datetime.now(UTC).date()
 
     # THE WINDOW IS ON THE STATEMENT NOW, not on three of its four columns (D-215).
     #
@@ -2147,7 +2146,10 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         await session.execute(
             text(
                 "SELECT "
-                "  count(*) FILTER (WHERE started_at::date = :today) AS calls_today, "
+                # The IST calendar day, as `daily_7d` buckets it: `started_at::date` is the
+                # date in the session's TimeZone, which files every call between 00:00 and
+                # 05:30 IST under yesterday on a UTC database.
+                f"  count(*) FILTER (WHERE {IST_DAY_SQL} = {IST_TODAY_SQL}) AS calls_today, "
                 "  count(*) AS calls_7d, "
                 "  avg(duration_s) FILTER (WHERE status = 'completed') AS avg_duration, "
                 # IST by name, not by a fixed offset: EXTRACT on a timestamptz renders
@@ -2158,7 +2160,7 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
                 "  ) AS after_hours "
                 "FROM calls WHERE started_at >= :since"
             ),
-            {"today": today, "since": since_7d},
+            {"since": since_7d},
         )
     ).first()
 

@@ -128,17 +128,17 @@ async def write_prompt(
             notes=payload.notes,
             created_by=principal.user_id,
         )
-    await write_audit(
-        session,
-        action="prompt.version_written",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        # The version NUMBER, never the body (hard rule 6).
-        summary={"version": version},
-    )
+        await write_audit(
+            scoped,
+            action="prompt.version_written",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            # The version NUMBER, never the body (hard rule 6).
+            summary={"version": version},
+        )
     return PromptWrittenOut(version=version)
 
 
@@ -165,16 +165,16 @@ async def rollback_prompt(
             version=payload.version,
             created_by=principal.user_id,
         )
-    await write_audit(
-        session,
-        action="prompt.rolled_back",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        summary={"to_version": payload.version, "new_version": new_version},
-    )
+        await write_audit(
+            scoped,
+            action="prompt.rolled_back",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            summary={"to_version": payload.version, "new_version": new_version},
+        )
     return RollbackOut(to_version=payload.version, new_version=new_version)
 
 

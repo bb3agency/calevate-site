@@ -124,6 +124,13 @@ async def create_view(
     session: AsyncSession, *, user_id: UUID, payload: SavedViewIn
 ) -> SavedViewOut:
     tenant_id = await session_tenant(session)
+    # Count and insert are one critical section per person: without it, saves racing at
+    # one under the cap each read the same count and each insert (BACKEND-PATTERNS §5 —
+    # an advisory xact lock, released by the COMMIT or ROLLBACK that decides the row).
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"saved-views:{tenant_id}:{user_id}"},
+    )
     used = (
         await session.execute(
             text("SELECT count(*) FROM lead_saved_views WHERE user_id = :uid"), {"uid": user_id}

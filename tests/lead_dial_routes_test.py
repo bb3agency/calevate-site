@@ -521,6 +521,32 @@ async def test_the_callback_button_refuses_a_number_that_joined_the_dnc_list() -
     assert int(queued or 0) == 0, "an opted-out lead is not called back"
 
 
+async def test_a_callback_refused_by_a_passing_block_can_be_pressed_again_once_it_clears(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The callback's key is the parent CALL, so the client cannot mint a fresh attempt.
+    A refusal that clears on its own — the calling-hours window here, a top-up or a lifted
+    cap elsewhere — must not be stored under that key and replayed for the key's whole
+    lifetime while the eligibility read says the button works."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    parent = await _finished_call(tenant_id, agent_id, lead_id, phone)
+
+    night = datetime(2026, 8, 11, 17, 0, tzinfo=UTC) + timedelta(hours=5, minutes=30)
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: night)
+    async with _client() as http:
+        refused = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+    assert refused.json()["status"] == "blocked", refused.text
+
+    day = datetime(2026, 8, 12, 5, 30, tzinfo=UTC) + timedelta(hours=5, minutes=30)
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: day)
+    async with _client() as http:
+        again = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+    assert again.json()["status"] == "queued", again.text
+    assert await _outbound_calls(tenant_id) == [(phone, "completed"), (phone, "queued")]
+    await _settle_calls(tenant_id)
+
+
 # ------------------------------------------------------- the two plain reads nearby
 
 

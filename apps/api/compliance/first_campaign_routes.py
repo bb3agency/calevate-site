@@ -237,30 +237,30 @@ async def decide(
                 {"tid": tenant_id},
             )
         ).scalar_one()
+        await write_audit(
+            scoped,
+            action="first_campaign_review.decided",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="first_campaign_review",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            # The note travels with the entry into the audit LOG STREAM (`audit_log` has no
+            # summary column — the row carries the hash chain, the summary is emitted
+            # alongside it keyed by entry id, BACKEND-PATTERNS §7). It is copied rather than
+            # left only in the mutable row because "why was this account released" is
+            # exactly the question asked after a reversal has overwritten the row. Hard rule
+            # 6 holds: this is ops prose about a campaign — no phone number, no transcript,
+            # no extraction payload — and `redact_mapping` runs over it regardless.
+            summary={
+                "decision": payload.decision,
+                "note": payload.note.strip(),
+                "reviewed_campaign_id": (
+                    str(payload.reviewed_campaign_id) if payload.reviewed_campaign_id else None
+                ),
+            },
+        )
 
-    await write_audit(
-        session,
-        action="first_campaign_review.decided",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="first_campaign_review",
-        object_id=str(tenant_id),
-        ip=client_request_ip(request),
-        # The note travels with the entry into the audit LOG STREAM (`audit_log` has no
-        # summary column — the row carries the hash chain, the summary is emitted
-        # alongside it keyed by entry id, BACKEND-PATTERNS §7). It is copied rather than
-        # left only in the mutable row because "why was this account released" is
-        # exactly the question asked after a reversal has overwritten the row. Hard rule
-        # 6 holds: this is ops prose about a campaign — no phone number, no transcript,
-        # no extraction payload — and `redact_mapping` runs over it regardless.
-        summary={
-            "decision": payload.decision,
-            "note": payload.note.strip(),
-            "reviewed_campaign_id": (
-                str(payload.reviewed_campaign_id) if payload.reviewed_campaign_id else None
-            ),
-        },
-    )
     return FirstCampaignDecisionOut(
         tenant_id=tenant_id,
         status=payload.decision,

@@ -1,159 +1,33 @@
-"""The handover to a person: the mid-call notice, the brief, and the ending (D-533).
+"""The handover to a person: the ending of the handover (D-533).
 
-Two entry points, and they divide the way this path actually divides:
-
-* `record_handoff_started` — an arq job, queued by the pre-call webhook receiver in
-  `apps/voice-runtime/tool_routes.py`. It runs while the caller is still on the line and
-  the destination's phone is still ringing, which is the only window in which the person
-  about to answer can be told anything at all.
-* `settle_handoff` — NOT an arq job. It is called by `pipeline._post_call_stages` with the
-  execution snapshot that stage already holds, because the ending of the handover is a
-  property of that snapshot and a second fetch would be a second vendor round trip for
-  data already in hand — the reasoning `dispatch_due_callbacks` uses for riding the
-  campaign tick rather than owning a schedule.
+`settle_handoff` is NOT an arq job. It is called by `pipeline._post_call_stages` with the
+execution snapshot that stage already holds, because the ending of the handover is a
+property of that snapshot and a second fetch would be a second vendor round trip for data
+already in hand.
 
 **WHAT THIS DOES INSTEAD OF A WHISPER, SAID PLAINLY.** The founder asked for the agent to
 brief the human before bridging. That is a telephony feature (Plivo's `<Dial
 confirmSound=…>`) and it needs control of the caller's leg, which this deployment does not
-have: the engine places the transfer on the account connected to IT and we hold no carrier
-credential. So the person's phone rings and a MESSAGE lands on it — the founder's own
-stated second choice — carrying why the call is coming and what has happened so far. It is
-not a whisper and nothing here calls it one. `docs/evidence/handoff-warm-transfer.md`
-records what would have to change.
-
-**THE TOOL PAYLOAD IS A HINT; THE FETCH IS THE TRUTH** (D-31), exactly as for the callback
-and opt-out jobs beside it. The endpoint is unsigned and IP-allowlisted, so nothing that
-decides WHO is affected may come from the body: the tenant, the agent and the call all come
-back from the authenticated Get Execution and from our own routing table. The two things
-that DO cross the queue are the model's `reason` and `summary`, and they cross because they
-exist nowhere else — the execution record's own summary is not populated until the call
-ends, and by then the phone has stopped ringing.
-
-**AND THE NUMBER THAT ACTUALLY RANG IS READ BACK OFF THE ENGINE, NOT RE-DERIVED.** Our
-roster resolves who is on duty at an instant, and the agent was published with that answer
-at a DIFFERENT instant — an hours boundary crossed between the two turns an ordinary
-attempt into a wrong record. So `_destination` asks the engine what the agent is holding,
-which is the number being dialled, from the system dialling it, and falls back to the
-roster only when that read fails. Recording a plausible number rather than the real one
-would be the worst possible outcome for a row somebody may have to answer for later.
+have. `docs/evidence/handoff-warm-transfer.md` records what would have to change. On the
+owned runtime the voice worker's handoff tool reaches `apps/api/worker/tools.request_handoff`,
+which answers truthfully that this engine cannot transfer.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
-from arq import Retry
 from calevate_shared.calling_window import IST, ist_wall_clock, next_window_opening
 from calevate_shared.engine import ExecutionSnapshot
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.handoff import RosterMember, redacted_brief, resolve_on_duty, roster
 from apps.api.callbacks import service as callbacks
-from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine import get_engine
 
 log = get_logger(__name__)
-
-#: Must equal `apps/voice-runtime/tool_routes.HANDOFF_JOB`, asserted equal in
-#: `tests/handoff_tool_test.py` — that service may not import this package (hard rule 3),
-#: so the name is spelled twice and pinned rather than shared.
-HANDOFF_JOB = "record_handoff_started"
-
-
-async def record_handoff_started(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Record that the agent is handing this caller over, and tell the person taking it.
-
-    Returns a short outcome string (arq keeps it), which is what makes "the handover fired
-    and nothing happened" answerable without a transcript.
-    """
-    # IMPORTED INSIDE THE FUNCTION, and it is the direction of the dependency that decides
-    # it. `pipeline` calls `settle_handoff` below, so a module-level import back into it
-    # would be a cycle; `callbacks.py` avoids the same one only because nothing in the
-    # pipeline calls IT. The three helpers are the ingest ladder every engine-fetching job
-    # in this package shares, and re-implementing them here would be a fourth opinion about
-    # what a transient vendor failure is.
-    from apps.workers.pipeline import _resolve_agent
-
-    engine_name = str(payload.get("engine") or "fake")
-    execution_id = str(payload["execution_id"])
-    attempt = int(ctx.get("job_try", 1))
-
-    snapshot = await _snapshot(engine_name, execution_id, attempt)
-    async with untenanted_session() as session:
-        resolved = await _resolve_agent(session, engine_name, snapshot.engine_agent_ref)
-    if resolved is None:
-        # The same terminal alert `record_in_call_optout` raises for the same condition: an
-        # execution whose agent we cannot map is one we can attribute to no tenant, and
-        # writing it anywhere would be writing it into somebody's account at random.
-        alert(
-            "WORKER_TERMINAL",
-            "handoff_agent_unmapped",
-            detail=f"engine={engine_name}",
-            execution_id=execution_id,
-        )
-        return "unattributable"
-    tenant_id, agent_id = resolved
-
-    async with tenant_session(tenant_id) as session:
-        members = await roster(session, agent_id=agent_id)
-        member, destination = await _destination(
-            session, agent_id=agent_id, members=members, engine_ref=snapshot.engine_agent_ref
-        )
-        if destination is None:
-            # THE AGENT HANDED OVER AND WE CANNOT SAY TO WHOM. That is a real state and it
-            # is alarming rather than fatal: the engine is dialling somebody, and the row
-            # that would let a client see it cannot be written without a number. It happens
-            # when the engine holds a transfer tool nobody here configured — which is
-            # exactly what the publish read-back exists to catch — so the alert names that.
-            alert(
-                "CORE_LOGIC",
-                "handoff_destination_unknown",
-                detail=(
-                    "this agent handed a caller to a person and neither the engine nor its "
-                    "handover list could say to which number. If the engine holds a "
-                    "transfer tool nobody configured here, the publish read-back "
-                    "(`handoff_applied`) is where it shows."
-                ),
-                execution_id=execution_id,
-            )
-            return "destination_unknown"
-        reason = redacted_brief(payload.get("reason"))
-        summary = redacted_brief(payload.get("summary"))
-        attempt_id = await _record(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            execution_id=execution_id,
-            engine_call_id=snapshot.engine_call_id,
-            member=member,
-            destination=destination,
-            reason=reason,
-            summary=summary,
-        )
-    if attempt_id is None:
-        # The engine allows one handover per conversation, so a second job for the same
-        # execution is a retry, not a second handover. Correct and invisible.
-        return "already_recorded"
-    # Ids only — never the destination, never the model's prose (hard rule 6).
-    log.info(
-        "handoff_recorded",
-        extra={"tenant_id": str(tenant_id), "handoff_id": str(attempt_id)},
-    )
-    await _send_brief(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        destination=destination,
-        reason=reason,
-        summary=summary,
-    )
-    return "recorded"
 
 
 async def settle_handoff(
@@ -330,187 +204,7 @@ async def _book_callback_for(
     return True
 
 
-async def _record(
-    session: AsyncSession,
-    *,
-    tenant_id: UUID,
-    agent_id: UUID,
-    execution_id: str,
-    engine_call_id: str,
-    member: RosterMember | None,
-    destination: str,
-    reason: str | None,
-    summary: str | None,
-) -> UUID | None:
-    """Insert the attempt, or None when this conversation already has one.
-
-    `ON CONFLICT DO NOTHING` on the execution rather than a SELECT-then-INSERT: the job is
-    keyed on the execution and arq retries it, so two attempts of the same job can be in
-    flight, and a read-then-write between them is the race BACKEND-PATTERNS §5 names.
-    """
-    attempt_id = uuid7()
-    result = await session.execute(
-        text(
-            "INSERT INTO handoff_attempts (id, tenant_id, agent_id, source_execution_id, "
-            "  source_call_id, member_id, destination_e164, started_at, reason, summary) "
-            "SELECT :id, :tid, :aid, :ex, "
-            "  (SELECT c.id FROM calls c WHERE c.engine_call_id = :ecid), "
-            "  :mid, :dest, :now, :reason, :summary "
-            "ON CONFLICT (tenant_id, source_execution_id) DO NOTHING "
-            "RETURNING id"
-        ),
-        {
-            "id": attempt_id,
-            "tid": tenant_id,
-            "aid": agent_id,
-            "ex": execution_id,
-            "ecid": engine_call_id,
-            "mid": member.id if member is not None else None,
-            "dest": destination,
-            "now": datetime.now(UTC),
-            "reason": reason,
-            "summary": summary,
-        },
-    )
-    return attempt_id if result.first() is not None else None
-
-
-async def _destination(
-    session: AsyncSession,
-    *,
-    agent_id: UUID,
-    members: list[RosterMember],
-    engine_ref: str | None,
-) -> tuple[RosterMember | None, str | None]:
-    """`(roster member, number)` for the leg the engine is placing right now.
-
-    THE ENGINE IS ASKED FIRST, and the module docstring argues why: it is holding the
-    number it is dialling, and our own roster answers a question about the clock that was
-    asked at publish time rather than now. A vendor round trip is affordable here — this
-    is a worker, it is one call per handover, and a handover is rare.
-
-    The member is matched BY NUMBER, so the row records which of the client's people took
-    it even though the engine knows nothing about our roster. An unmatched number is
-    returned with `member=None` rather than refused: a number on the engine that is not on
-    our list is exactly the case worth recording, and dropping it would hide it.
-    """
-    if engine_ref:
-        try:
-            snapshot = await get_engine().get_agent(engine_ref)
-        except Exception as exc:
-            # NOT A RETRY AND NOT A FAILURE. The fallback below is a good answer, and a
-            # handover notice that retried for two minutes over a read-back would deliver
-            # the brief after the phone had stopped ringing. `exc` is our own normalized
-            # error (the adapter converts), so this carries no vendor text.
-            log.info("handoff_engine_readback_failed", extra={"reason": type(exc).__name__})
-        else:
-            if len(snapshot.handoff_destinations) == 1:
-                number = snapshot.handoff_destinations[0]
-                return _member_for(members, number), number
-    duty = resolve_on_duty(
-        members,
-        enabled=True,
-        agent_hours=await _agent_hours(session, agent_id),
-        at=datetime.now(UTC),
-    )
-    if duty.member is None:
-        return None, None
-    return duty.member, duty.member.phone_e164
-
-
-def _member_for(members: list[RosterMember], number: str) -> RosterMember | None:
-    return next((m for m in members if m.phone_e164 == number), None)
-
-
-async def _agent_hours(session: AsyncSession, agent_id: UUID) -> dict[str, Any] | None:
-    row = (
-        await session.execute(
-            text("SELECT business_hours FROM agents WHERE id = :aid"), {"aid": agent_id}
-        )
-    ).first()
-    hours: dict[str, Any] | None = row[0] if row is not None else None
-    return hours
-
-
-async def _send_brief(
-    *,
-    tenant_id: UUID,
-    agent_id: UUID,
-    destination: str,
-    reason: str | None,
-    summary: str | None,
-) -> None:
-    """Tell the person whose phone is ringing what the call is about.
-
-    ⚠ **NOT WIRED TO A CHANNEL, AND THIS IS A NAMED EXTERNAL BLOCKER RATHER THAN AN
-    OVERSIGHT.** Reaching a staff mobile in the ~15 seconds a phone rings needs SMS or
-    WhatsApp, and this deployment has neither: there is no WABA, no phone number id and no
-    access token (`apps/workers/whatsapp_cloud.py` says so at length), and SMS to an Indian
-    handset needs a DLT-registered template through a registered sender, which is a
-    registration nobody here can perform. Email exists and is the channel of record for
-    hot-lead alerts — and is useless in fifteen seconds, so it is deliberately not used as
-    a substitute that would look like the feature working.
-
-    So this logs the fact and the alarm names what closes it. **Writing a WhatsApp send
-    against an unconfigured transport would have been the worse choice**: it would look
-    finished, pass every test with the dev sink, and fail silently on the first real
-    handover — which is the exact defect class `whatsapp.py`'s own docstring exists to
-    refuse. The row is written either way, so the client's screen tells them who was rung
-    and why the moment the call ends; what is missing is the message that arrives sooner.
-
-    WHAT CLOSES IT: a WhatsApp Business Account and an approved template (OPERATIONS §2
-    gate 46d). At that point this function calls the transport that already exists, with
-    `reason` and `summary` already redacted and bounded above.
-    """
-    log.info(
-        # Ids and the two booleans only. Not the number, not the prose (hard rule 6).
-        "handoff_brief_undelivered",
-        extra={
-            "tenant_id": str(tenant_id),
-            "agent_id": str(agent_id),
-            "has_reason": reason is not None,
-            "has_summary": summary is not None,
-        },
-    )
-    alert(
-        "CORE_LOGIC",
-        "handoff_brief_channel_absent",
-        detail=(
-            "a caller was handed to a person and that person's phone rang with no context: "
-            "no WhatsApp Business Account is configured and SMS needs a DLT-registered "
-            "template. OPERATIONS §2 gate 46d"
-        ),
-        tenant_id=str(tenant_id),
-    )
-
-
-async def _snapshot(engine_name: str, execution_id: str, attempt: int) -> ExecutionSnapshot:
-    """The authenticated fetch, with `callbacks._snapshot`'s ladder and its terminal alert.
-
-    Spelled here rather than imported from that module for one reason: importing it would
-    make this module depend on the callback booking package for a helper about executions,
-    and the dependency this module actually has on `callbacks` is the opposite one (the
-    settlement books a callback). Two small ladders beat a cycle.
-    """
-    from apps.workers.pipeline import _is_transient, _retry_after
-
-    try:
-        return await get_engine().get_execution(execution_id)
-    except Exception as exc:
-        if _is_transient(exc) and attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(attempt)) from exc
-        alert(
-            "WORKER_TERMINAL",
-            "handoff_unresolved",
-            detail=f"{type(exc).__name__} after {attempt} attempt(s)",
-            execution_id=execution_id,
-        )
-        raise
-
-
 __all__ = [
     "HANDOFF_CALLBACK_NOTE",
-    "HANDOFF_JOB",
-    "record_handoff_started",
     "settle_handoff",
 ]

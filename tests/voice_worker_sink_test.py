@@ -867,3 +867,40 @@ def test_the_client_module_is_what_the_sink_and_the_config_read_both_use() -> No
 
     assert sink.WorkerApiClient is WorkerApiClient
     assert config.WorkerApiClient is WorkerApiClient
+
+
+async def test_a_backlog_longer_than_one_wire_batch_is_sent_in_bounded_batches() -> None:
+    """While the API is unreachable every turn stays pending, so the buffer can outgrow
+    `MAX_TURNS_PER_BATCH`. One request for all of it would fail the wire model's own
+    validation on every later flush — no retry clears that, and `settle` flushes first, so
+    the call would never settle."""
+    from calevate_shared.worker_api import MAX_TURNS_PER_BATCH, ObservationsOut
+
+    class _Recorder:
+        def __init__(self) -> None:
+            self.batch_sizes: list[int] = []
+
+        async def post_observations(self, _ref: str, batch: Any) -> ObservationsOut:
+            self.batch_sizes.append(len(batch.turns))
+            return ObservationsOut(
+                turns_written=len(batch.turns), turns_already_present=0, status="in_progress"
+            )
+
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    api = _Recorder()
+    sink = HttpEventSink(
+        api,  # type: ignore[arg-type]
+        call_id=call_id,
+        tenant_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        direction="inbound",
+        turn_batch_size=10 * MAX_TURNS_PER_BATCH,
+        turn_flush_seconds=0,
+    )
+    backlog = MAX_TURNS_PER_BATCH + 3
+    for idx in range(backlog):
+        await sink.on_transcript_turn(_t(call_id, idx))
+
+    assert await sink.flush() == backlog
+    assert sum(api.batch_sizes) == backlog
+    assert max(api.batch_sizes) <= MAX_TURNS_PER_BATCH

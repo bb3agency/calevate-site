@@ -55,6 +55,8 @@ from uuid import UUID
 from calevate_shared.engine import CallLatency, pipecat_call_ref
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 from calevate_shared.worker_api import (
+    MAX_EVENTS_PER_BATCH,
+    MAX_TURNS_PER_BATCH,
     SETTLEMENT_STATUSES,
     KnowledgeReport,
     MeteredQuantity,
@@ -314,7 +316,8 @@ class HttpEventSink:
     async def _flush_locked(self) -> int:
         """The one writer. Assumes `_lock` is held.
 
-        **ONE REQUEST FOR THE WHOLE BATCH, EVENTS AND TURNS TOGETHER**, which is the shape
+        **EVENTS AND TURNS TRAVEL TOGETHER IN EACH REQUEST** (as many requests as the wire
+        bounds need; see `_post_batch_locked`), which is the shape
         the server needs rather than merely the cheap one: it upserts the call row once and
         every turn in the batch references it, so the foreign key can never be half-satisfied
         by a crash between two requests.
@@ -327,13 +330,25 @@ class HttpEventSink:
         # A PENDING KNOWLEDGE REPORT IS ENOUGH ON ITS OWN. Without this clause a call whose
         # turns and events had all already been sent would drop the one fact that says it
         # answered nothing — `settle` flushes first, and an empty flush used to return here.
-        if not self._pending and not self._events and self._knowledge is None:
-            return 0
+        sent = 0
+        while self._pending or self._events or self._knowledge is not None:
+            sent += await self._post_batch_locked()
+        return sent
+
+    async def _post_batch_locked(self) -> int:
+        """One request, bounded by the wire model's own limits. Assumes `_lock` is held.
+
+        Bounded because the buffer is not: while the API is unreachable every turn stays
+        pending, and a buffer past `MAX_TURNS_PER_BATCH` would fail `ObservationBatch`'s own
+        validation on every later flush — a failure no retry can clear, which also stops
+        `settle` and so loses the call's settlement. Sent in bounded batches, a recovered
+        API drains the backlog in order.
+        """
         batch = ObservationBatch(
             agent_id=self._agent_id,
             direction=self._direction,
-            events=list(self._events),
-            turns=list(self._pending),
+            events=self._events[:MAX_EVENTS_PER_BATCH],
+            turns=self._pending[:MAX_TURNS_PER_BATCH],
             knowledge=self._knowledge,
         )
         answer = await self._api.post_observations(self._engine_call_id, batch)
@@ -420,8 +435,15 @@ class HttpEventSink:
         carrier: CarrierCdr | None,
         runtime: RuntimeUsage | None,
         latency: CallLatency | None = None,
+        agent_config_version_id: UUID | None = None,
+        final_status: SettlementStatus | None = None,
     ) -> Settlement:
         """Send what this call measured, or the refusal the meter reached. One request.
+
+        `agent_config_version_id` is the version the session read answered; the server
+        prices the model legs from that row. `final_status` overrides the status the
+        pipeline's events reported, for the path where the pipeline raised before it could
+        report one (`runtime.run_call`).
 
         **THE TRANSCRIPT LANDS BEFORE THE SETTLEMENT DOES, and the order is the point:** the
         settlement is what writes the outbox row that starts the post-call pipeline (D-607),
@@ -464,9 +486,10 @@ class HttpEventSink:
         metered = meter.metered_rows(carrier=carrier, runtime=runtime)
 
         request = SettlementRequest(
-            final_status=self._final_status,
+            final_status=final_status or self._final_status,
             direction=self._direction,
             agent_id=self._agent_id,
+            agent_config_version_id=agent_config_version_id,
             refusals=[_refusal_of(refused) for refused in metered.refusals],
             quantities=[_quantity_of(row) for row in metered.rows],
             latency=latency,

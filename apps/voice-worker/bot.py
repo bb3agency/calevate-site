@@ -267,17 +267,19 @@ async def bot(runner_args: RunnerArguments) -> None:
             engine_agent_ref=engine_agent_ref,
             credentials_for=runtime.config.credentials_for,
             transport=transport,
-            # WHO IS CALLING, READ OFF THE URL THE CONTROL PLANE MINTED. Until this line the
-            # verdict stopped at the answer leg: `carrier_routes` put it on the stream URL
-            # and nothing here read it back, so every call assembled with `caller=None`,
-            # every `CallEvent` left `from_e164` NULL, and the in-call opt-out answered
-            # `caller_number_unknown` to every caller who asked not to be rung again.
+            # WHAT THE CONTROL PLANE SAID ABOUT THE CALLER, READ OFF THE URL IT MINTED.
             #
             # `claim_from_stream_url` treats the whole query as attacker-controlled —
             # anything can open a WebSocket — so an unrecognised state is dropped rather
-            # than coerced and a `known` with no number is downgraded. A missing query is
-            # `not_read`, which is an honest answer and not a failure.
-            caller=claim_from_stream_url(_stream_url(runner_args)).caller,
+            # than coerced, and a claimed `known` number is believed only when its MAC
+            # verifies for THIS agent ref and has not expired — otherwise it would key an
+            # opt-out, a memory recall and a call-back for whoever connected. A missing
+            # query is `not_read`, which is an honest answer and not a failure.
+            caller=claim_from_stream_url(
+                _stream_url(runner_args),
+                ref=engine_agent_ref,
+                claim_key=runtime.config.caller_claim_key,
+            ).caller,
             on_assembled=lambda call: registry.attach(call_id, call),
         )
     finally:

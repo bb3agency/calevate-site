@@ -1649,30 +1649,34 @@ async def call_back(
     if claim.state == "replay" and claim.response_payload:
         return CallbackOut.model_validate(claim.response_payload)
 
-    decision = await check_dispatch(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=plan.agent_id,
-        phone_e164=plan.phone_e164,
-    )
+    try:
+        decision = await check_dispatch(
+            session,
+            tenant_id=principal.tenant_id,
+            agent_id=plan.agent_id,
+            phone_e164=plan.phone_e164,
+        )
+    except Exception:
+        await _release_undialled_claim(principal.tenant_id, claim.record_id)
+        raise
     if not decision.allowed:
         # Counted for `call_lead`'s reason, which this route shares: a client pressing
         # "ring them back" and being refused is a blocked dial, and the eligibility GET
         # above deliberately is not.
         record_compliance_block(rule=decision.rule or "unknown")
-        result = CallbackOut(
+        # RELEASED, NOT STORED — the opposite of `call_lead`, because the key is. There
+        # the client mints a key per attempt, so a stored refusal answers only that
+        # attempt's retry. Here the key is the parent call and every later press reuses
+        # it, so a stored refusal would answer every press for the key's lifetime — long
+        # after a calling-hours window opened or a wallet was topped up, while the
+        # eligibility read says the button works. Nothing was dialled, so nothing needs
+        # the claim.
+        await _release_undialled_claim(principal.tenant_id, claim.record_id)
+        return CallbackOut(
             status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
         )
-        async with tenant_session(principal.tenant_id) as done_session:
-            await complete_idempotency(
-                done_session,
-                record_id=claim.record_id,
-                response_status=200,
-                response_payload=result.model_dump(),
-            )
-        return result
 
-    from apps.api.agents.service import DialUnconfirmedError, dispatch_call
+    from apps.api.agents.service import DialUnconfirmedError, dial_was_not_placed, dispatch_call
 
     try:
         handle = await dispatch_call(
@@ -1698,6 +1702,11 @@ async def call_back(
                 "again could ring them twice."
             ),
         ) from unconfirmed
+    except Exception as refused:
+        # `call_lead`'s rule: only a failure that proves no line was seized frees the key.
+        if dial_was_not_placed(refused):
+            await _release_undialled_claim(principal.tenant_id, claim.record_id)
+        raise
     # The chain link stays on the REQUEST's session: it is a pointer between two of our
     # own rows and its loss costs a follow-up count, not a record of a call.
     await service.link_callback(session, handle=handle, parent_call_id=call_id)

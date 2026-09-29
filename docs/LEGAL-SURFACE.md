@@ -981,8 +981,9 @@ recording stops, the call continues, and the refusal is written to an immutable 
 ledger"*, and `/legal/acceptable-use` §2.6 told clients the same. Neither is built:
 `Call.consent_recording` is on `scripts/check_wiring.py`'s known-unwired list (*"the
 engine reports no per-call recording consent yet (pilot gate 3)"*), nothing writes a
-`recording`-purpose `consent_ledger` row, and `apps/voice-runtime/tool_routes.py` has
-exactly one in-call tool (opt-out) — so no agent can stop a recording mid-call.
+`recording`-purpose `consent_ledger` row, and no in-call tool stops a recording (the
+tools an agent has are opt-out, call-back, call-back cancel and handoff,
+`apps/api/worker/tools.py`) — so no agent can stop a recording mid-call.
 `docs/SECURITY-COMPLIANCE.md` §2.2 contained both halves of the contradiction three
 sentences apart (*"nothing in this codebase can [switch recording off]"* directly above
 *"Caller decline ⇒ recording off"*); it now marks the second as specification.

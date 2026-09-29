@@ -44,16 +44,19 @@ from __future__ import annotations
 import hmac
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final, cast
 from uuid import UUID
 
 from calevate_shared.engine import (
+    AZURE_OPENAI_MODELS,
     AgentConfig,
     CallLatency,
     ModelConfig,
+    call_of_pipecat_ref,
+    carries_truthful_answer_floor,
     parse_owned_runtime_agent_ref,
     tenant_of_pipecat_ref,
 )
@@ -78,11 +81,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.config_versions import record_attestation
+from apps.api.agents.llm_models import deployment_for
+from apps.api.agents.voices import (
+    VOICE_TIER_OF_PROVIDER,
+    UnpricedVoiceProviderError,
+    VoiceProvider,
+    voice_tier_of_provider,
+)
 from apps.api.billing.rates import (
     llm_inr_per_ktok,
     stt_rate_inr_per_minute,
-    tts_rate_inr_per_char,
 )
+from apps.api.billing.service import BASE_OVERAGE_RUNG, LEDGER_RUNG_KEY
 from apps.api.compliance.caller_memory import recall
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -91,6 +101,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.ops.engine_latency import upsert_call_engine_latency
+from apps.api.ops.model_pricing import attested_tts_prices
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.redaction import redact
 
@@ -116,10 +127,15 @@ POSTCALL_DEDUPE_PREFIX: Final = "post-call:"
 #: for ever" (founder audit, 19 Sep 2026). `apps/workers/remetering.py` defines it.
 REMETER_JOB: Final = "remeter_refused_leg"
 
-#: One demand per (call, leg), ever. `POSTCALL_DEDUPE_PREFIX`'s grammar and its guarantee:
+#: One demand per (call, leg, unit), ever — `remeter:{call}:{leg}:{unit_type}`.
 #: `enqueue_outbox_once` puts the row on the books exactly once, in the settlement's own
-#: transaction, so a re-delivered settlement cannot mint a second demand for one leg — and
-#: `_check_settlement` has already refused a body that names one leg twice.
+#: transaction, so a re-delivered settlement cannot mint a second demand for one quantity.
+#:
+#: The unit is part of the key because one leg can carry two quantities: the LLM leg reports
+#: `llm_ktok_in` AND `llm_ktok_out`, and both refuse together when the model is unattested.
+#: Keyed on the leg alone, the second demand collided with the first and was dropped, so an
+#: attestation re-metered the input tokens and the output tokens stayed unbilled for ever.
+#: `usage_events`' uniqueness is per `(tenant_id, call_id, unit_type)`, and this matches it.
 REMETER_DEDUPE_PREFIX: Final = "remeter:"
 
 #: The refusal codes a LATER OPERATOR ATTESTATION can answer, and the only ones a demand is
@@ -222,7 +238,7 @@ ON CONFLICT (engine_call_id) DO UPDATE SET
   knowledge_state = COALESCE(EXCLUDED.knowledge_state, calls.knowledge_state),
   updated_at = now()
 WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed'
-RETURNING id, from_e164, to_e164
+RETURNING id, from_e164, to_e164, agent_id
 """
 
 #: One turn. `ON CONFLICT (call_id, idx) DO NOTHING` — the contract's own choice for the
@@ -448,6 +464,20 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         stored_ref,
         ai_disclosure_line,
     ) = row
+    if (
+        not ai_disclosure_line
+        or not str(ai_disclosure_line).strip()
+        or not carries_truthful_answer_floor(composed_prompt)
+    ):
+        # `mint_config_version` and the column's CHECK make this unreachable through the
+        # control plane, so reaching it means a row was written some other way. Refused here
+        # rather than left to the worker's own check, so no session for such an agent ever
+        # leaves the database's side of the wire.
+        log.error(
+            "worker_session_refused_undisclosed",
+            extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+        )
+        raise _refuse_undisclosed_agent()
     published = AgentConfig.model_validate(resolved_config)
     models = ModelConfig.model_validate(model_config)
     log.info(
@@ -485,6 +515,9 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         # `engine/pipecat.py` mentioned it nowhere, so an `owned_runtime` call ran until
         # somebody hung up — against a cap its owner had set and been shown (hard rule 7).
         max_call_duration_s=published.max_call_duration_s,
+        # Served so the worker speaks the D-163 notices verbatim instead of asking the
+        # model to, which could paraphrase or drop them (hard rule 5).
+        opening_line=published.opening_line,
     )
 
 
@@ -519,6 +552,18 @@ def _refuse_unknown_agent() -> ProblemError:
         title="That is not a published agent of this platform",
         detail="The agent reference names no agent with a published runtime row.",
         remediation="Publish the agent, then redeploy nothing — the worker reads this per call.",
+    )
+
+
+def _refuse_undisclosed_agent() -> ProblemError:
+    """409 for an agent whose published version lacks hard rule 5's sentence or floor."""
+    return ProblemError.conflict(
+        "worker_agent_not_disclosed",
+        (
+            "This agent's published configuration does not carry its AI disclosure or the "
+            "truthful-answer rule, so no call may run on it."
+        ),
+        remediation="Republish the agent from the console; the publish recomposes the prompt.",
     )
 
 
@@ -603,7 +648,7 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
     check for.
     """
     tenant_id = _tenant_of_call(engine_call_id)
-    _check_batch_identity(tenant_id, batch)
+    _check_batch_identity(tenant_id, batch, engine_call_id)
     status = _forward_status(batch)
     written = already = 0
     async with tenant_session(tenant_id) as session:
@@ -751,7 +796,7 @@ async def _alert_call_ran_without_knowledge(
     )
 
 
-def _check_batch_identity(tenant_id: UUID, batch: ObservationBatch) -> None:
+def _check_batch_identity(tenant_id: UUID, batch: ObservationBatch, engine_call_id: str) -> None:
     """Refuse a batch whose contents claim a different call, tenant or agent than the ref.
 
     What is checked is DISAGREEMENT, not presence: `TranscriptTurn` carries no tenant and
@@ -763,12 +808,13 @@ def _check_batch_identity(tenant_id: UUID, batch: ObservationBatch) -> None:
             raise _refuse_identity("tenant")
         if event.agent_id is not None and event.agent_id != batch.agent_id:
             raise _refuse_identity("agent")
-    # ONE BATCH IS ABOUT ONE CALL. The worker's own `call_id` is OURS and is not the engine
-    # ref, so it cannot be compared to the path segment — but a batch holding two call ids
-    # is a crossed wire between two concurrent sessions in one container, which is the hard
-    # rule 1 fault `sink.SinkIdentityError` existed to stop before the write.
+    # ONE BATCH IS ABOUT ONE CALL, AND IT IS THE CALL THE PATH NAMES. The ref is
+    # `pipecat:<tenant>:<call>` with the worker's own call id as its third segment, so an
+    # event or turn naming any other call is a crossed wire between two sessions in one
+    # container — the hard rule 1 fault `sink.SinkIdentityError` stops before the write.
+    expected = call_of_pipecat_ref(engine_call_id)
     call_ids = {event.call_id for event in batch.events} | {t.call_id for t in batch.turns}
-    if len(call_ids) > 1:
+    if call_ids and call_ids != {expected}:
         raise _refuse_identity("call")
 
 
@@ -830,6 +876,24 @@ class _Priced:
     qty: Decimal
     unit_cost_inr: Decimal
     meta: dict[str, str]
+    #: What WE decided the row was priced as (the model, the voice provider). Written after
+    #: the worker's measurement notes so nothing on the wire can displace it.
+    server_meta: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class _PricingBasis:
+    """The server's own record of what a call ran on, and the TTS price on file for it.
+
+    Read from the agent's published configuration version, never from the worker's `meta`:
+    which model and which voice provider a call used decides the rate, and the rate is ours.
+    """
+
+    llm_model: str | None
+    tts_provider: str | None
+    #: The attested INR per 1,000 characters for `tts_provider`, or `None` when nobody has
+    #: attested one — which refuses the leg and parks it for re-metering.
+    tts_inr_per_1k: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -881,6 +945,9 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
     occurred_at = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
         await _require_visible_agent(session, request.agent_id)
+        models = await _published_models(
+            session, agent_id=request.agent_id, version_id=request.agent_config_version_id
+        )
         call = await _upsert_call(
             session,
             engine_call_id=engine_call_id,
@@ -924,7 +991,9 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
         # THE WORKER'S REFUSALS AND OURS, IN THAT ORDER. They are different kinds of
         # failure — the worker could not READ a quantity, we could not PRICE one — and both
         # belong on the record against the leg they happened to.
-        rows, unpriced = _price(request.quantities)
+        basis = await _pricing_basis(session, models, at=occurred_at)
+        _log_model_disagreement(tenant_id, call_row_id, request.quantities, basis)
+        rows, unpriced = _price(request.quantities, basis)
         refusals = (*request.refusals, *(one.refusal for one in unpriced))
         await _write_usage(session, tenant_id, call_row_id, rows, at=occurred_at)
         for refusal in refusals:
@@ -936,6 +1005,7 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
             tenant_id=tenant_id,
             call_row_id=call_row_id,
             unpriced=unpriced,
+            basis=basis,
             at=occurred_at,
         )
         if request.latency is not None:
@@ -1124,8 +1194,104 @@ def _refuse_settlement_shape(detail: str, remediation: str) -> ProblemError:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _Models:
+    """The two facts about a published configuration that decide a call's rates."""
+
+    llm_model: str | None
+    tts_provider: str | None
+
+
+_VERSION_MODELS_SQL: Final = (
+    "SELECT model_config FROM agent_config_versions WHERE id = :vid AND agent_id = :aid"
+)
+_PUBLISHED_MODELS_SQL: Final = """
+SELECT v.model_config FROM pipecat_agents AS p
+JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
+WHERE p.agent_id = :aid
+"""
+
+
+async def _published_models(
+    session: AsyncSession, *, agent_id: UUID, version_id: UUID | None
+) -> _Models:
+    """What the call ran, from OUR record of the configuration version it was served.
+
+    The worker names the version (the session read answered it); the model and provider come
+    from the row. A version that is not this agent's is refused before anything is written.
+    An older worker that names none is priced from the agent's currently published version.
+    """
+    if version_id is not None:
+        row = (
+            await session.execute(text(_VERSION_MODELS_SQL), {"vid": version_id, "aid": agent_id})
+        ).first()
+        if row is None:
+            raise _refuse_identity("configuration version")
+    else:
+        row = (await session.execute(text(_PUBLISHED_MODELS_SQL), {"aid": agent_id})).first()
+        if row is None:
+            return _Models(llm_model=None, tts_provider=None)
+    models = ModelConfig.model_validate(row[0])
+    return _Models(llm_model=_priced_llm_model(models), tts_provider=models.tts_provider)
+
+
+def _priced_llm_model(models: ModelConfig) -> str | None:
+    """The CATALOGUE model a published config's LLM leg bills as, or `None`.
+
+    On the Azure leg `llm_model` is a DEPLOYMENT id an operator chose, and the rate card
+    prices the model the deployment serves — so the id is mapped back through the one
+    deployment reader (`agents/llm_models.deployment_for`). On the other legs the wire value
+    is the model's own published name. `None` (no model named, or a deployment this platform
+    no longer maps) refuses the leg rather than guessing a price.
+    """
+    if models.llm_model is None:
+        return None
+    if models.llm_provider == "azure_openai":
+        return next(
+            (m for m in sorted(AZURE_OPENAI_MODELS) if deployment_for(m) == models.llm_model),
+            None,
+        )
+    return models.llm_model
+
+
+async def _pricing_basis(session: AsyncSession, models: _Models, *, at: datetime) -> _PricingBasis:
+    """`models` plus the TTS price attested for its provider at `at`, if any."""
+    tts_rate: Decimal | None = None
+    if models.tts_provider is not None:
+        attested = (await attested_tts_prices(session, at=at)).get(models.tts_provider)
+        tts_rate = None if attested is None else attested.inr_per_1k_chars
+    return _PricingBasis(
+        llm_model=models.llm_model, tts_provider=models.tts_provider, tts_inr_per_1k=tts_rate
+    )
+
+
+def _log_model_disagreement(
+    tenant_id: UUID,
+    call_row_id: UUID,
+    quantities: list[MeteredQuantity],
+    basis: _PricingBasis,
+) -> None:
+    """Log a worker that reports a different model than the configuration it was served.
+
+    The server's record prices the leg either way; a disagreement means the worker ran
+    something other than what it was served, which is worth an operator's attention.
+    """
+    reported = {q.meta.get("model") for q in quantities if q.leg == "llm"} - {None}
+    if reported and basis.llm_model is not None and reported != {basis.llm_model}:
+        log.warning(
+            "worker_llm_model_disagrees",
+            extra={
+                "tenant_id": str(tenant_id),
+                "call_id": str(call_row_id),
+                "reported": ",".join(sorted(str(m) for m in reported)),
+                "published": basis.llm_model,
+            },
+        )
+
+
 def _price(
     quantities: tuple[MeteredQuantity, ...] | list[MeteredQuantity],
+    basis: _PricingBasis,
 ) -> tuple[tuple[_Priced, ...], tuple[_Unpriced, ...]]:
     """Every leg we hold a rate for, and a refusal for every leg we do not (D-625).
 
@@ -1157,7 +1323,7 @@ def _price(
     unpriced: list[_Unpriced] = []
     for quantity in quantities:
         try:
-            priced.append(_price_one(quantity))
+            priced.append(_price_one(quantity, basis))
         except _LegNotPriceableError as unpriceable:
             # THE QUANTITY TRAVELS WITH THE REFUSAL FROM HERE ON. It is the only place both
             # are in scope, and everything downstream that could ever bill this leg needs
@@ -1170,7 +1336,7 @@ def _price(
 _SECONDS_PER_MINUTE: Final = Decimal(60)
 
 
-def _price_one(quantity: MeteredQuantity) -> _Priced:
+def _price_one(quantity: MeteredQuantity, basis: _PricingBasis) -> _Priced:
     unit = quantity.unit_type
     if unit == "stt_min":
         # Per MINUTE because the per-second Saaras rate (₹0.008333…) does not survive
@@ -1188,36 +1354,15 @@ def _price_one(quantity: MeteredQuantity) -> _Priced:
             {**dict(quantity.meta), "audio_seconds": str(quantity.qty)},
         )
     if unit == "tts_kchars":
-        # Per THOUSAND characters, because `unit_cost_paid` is NUMERIC(12,4) and a per-
-        # character rate of ₹0.0034496 stores as 0.0034 — 1.4% light on every call.
-        # `billing/models.py` argues the quantum in full at the column.
-        #
-        # ⚠ **THIS RATE CALL NOW REFUSES, AND IT RETURNED A NUMBER UNTIL 18 Sep 2026.** It
-        # was Sarvam's published Bulbul v3 list rate, applied to EVERY synthesised
-        # character whatever spoke it. The founder withdrew the Sarvam TTS leg; neither
-        # survivor publishes a per-character rate we may bill from, so the door refuses
-        # (`rates.UnattestedTtsRateError`) and the leg settles as a recorded refusal — the
-        # same outcome the LLM leg already has for an unattested model, through the same
-        # two exception types. Stamping the old constant on a Gnani minute would have been
-        # exactly the invented vendor figure hard rule 7 exists to stop.
-        try:
-            per_char = tts_rate_inr_per_char()
-        except (ValueError, LookupError) as exc:
-            raise _LegNotPriceableError(
-                SettlementRefusal(
-                    leg=quantity.leg,
-                    code="meter_rate_refused",
-                    detail=f"the rate card refused to price the tts leg: {exc}",
-                    remediation=(
-                        "Enter the price from the vendor invoice in the ops console. Until "
-                        "it is attested this leg is unmetered, which is not the same as "
-                        "free."
-                    ),
-                )
-            ) from exc
-        return _Priced(unit, quantity.qty, per_char * Decimal(1000), dict(quantity.meta))
+        return _tts_priced(quantity, basis)
     if unit in ("llm_ktok_in", "llm_ktok_out"):
-        return _Priced(unit, quantity.qty, _llm_rate(quantity), dict(quantity.meta))
+        return _Priced(
+            unit,
+            quantity.qty,
+            _llm_rate(quantity, basis.llm_model),
+            dict(quantity.meta),
+            {"llm_model": str(basis.llm_model)},
+        )
     raise _LegNotPriceableError(
         SettlementRefusal(
             leg=quantity.leg,
@@ -1241,23 +1386,80 @@ def _price_one(quantity: MeteredQuantity) -> _Priced:
     )
 
 
-def _llm_rate(quantity: MeteredQuantity) -> Decimal:
-    """The attested per-1,000-token rate for the model this leg ran on, or a refusal.
+def _tts_priced(quantity: MeteredQuantity, basis: _PricingBasis) -> _Priced:
+    """The synthesised characters, at the price an operator attested for this voice provider.
 
-    The model travels in `meta` because it is a property of the MEASUREMENT — which model
-    reported these tokens — and not of the unit. `llm_inr_per_ktok` is the one door and it
-    raises rather than returning zero for a price nobody attested.
+    Per THOUSAND characters, because `unit_cost_paid` is NUMERIC(12,4) and a per-character
+    rate would lose precision at the column (`billing/models.py`). The price is
+    `platform_tts_prices`' figure, the one door hard rule 7 allows for a BYOK voice: neither
+    provider publishes a per-character rate we may bill from, so no attestation means a
+    recorded, re-meterable refusal and never a zero.
     """
-    model = quantity.meta.get("model")
+    if basis.tts_provider is None:
+        raise _LegNotPriceableError(
+            SettlementRefusal(
+                leg=quantity.leg,
+                code="meter_tts_provider_unknown",
+                detail="the agent's published configuration names no voice provider.",
+                remediation="Republish the agent with a voice; the provider decides the rate.",
+            )
+        )
+    if basis.tts_inr_per_1k is None:
+        raise _LegNotPriceableError(
+            SettlementRefusal(
+                leg=quantity.leg,
+                code="meter_rate_refused",
+                detail=f"no TTS price is attested for {basis.tts_provider!r}.",
+                remediation=(
+                    "Enter the price from the vendor invoice in the ops console. Until it "
+                    "is attested this leg is unmetered, which is not the same as free; the "
+                    "re-metering sweep bills it once the price is on file."
+                ),
+            )
+        )
+    return _Priced(
+        quantity.unit_type,
+        quantity.qty,
+        basis.tts_inr_per_1k,
+        dict(quantity.meta),
+        {"tts_provider": basis.tts_provider, **_voice_tier_meta(basis.tts_provider)},
+    )
+
+
+def _voice_tier_meta(provider: str) -> dict[str, str]:
+    """The priced rung this provider bills on, as the other engines stamp it (`voice_tier`).
+
+    Derived from the provider through `agents/voices.voice_tier_of_provider`, the one
+    derivation; a provider outside the catalogue or with no rung is stamped with nothing
+    rather than a guessed rung.
+    """
+    if provider not in VOICE_TIER_OF_PROVIDER:
+        return {}
+    try:
+        return {"voice_tier": voice_tier_of_provider(cast(VoiceProvider, provider))}
+    except UnpricedVoiceProviderError:
+        return {}
+
+
+def _llm_rate(quantity: MeteredQuantity, model: str | None) -> Decimal:
+    """The attested per-1,000-token rate for `model`, or a refusal.
+
+    `model` is the server's record of what the call ran (`_PricingBasis`), never the
+    worker's `meta`. `llm_inr_per_ktok` is the one door and it raises rather than returning
+    zero for a price nobody attested.
+    """
     if not model:
         raise _LegNotPriceableError(
             SettlementRefusal(
                 leg=quantity.leg,
                 code="meter_llm_model_unnamed",
-                detail="an LLM leg reported tokens without naming the model that produced them.",
+                detail=(
+                    "an LLM leg reported tokens and the agent's published configuration "
+                    "names no model to price them at."
+                ),
                 remediation=(
-                    "Two models in one call, or a report with no model, cannot be priced: "
-                    "the rate is per model. Check the agent's published ModelConfig."
+                    "The rate is per model. Check the agent's published ModelConfig and "
+                    "republish it."
                 ),
             )
         )
@@ -1338,7 +1540,14 @@ async def _write_usage(
                 # them. `total_inr` is the product this function just computed from an
                 # attested rate; it is not a value anyone else gets a say in.
                 "meta": json.dumps(
-                    {**_worker_meta(row.meta), "total_inr": str(row.unit_cost_inr * row.qty)}
+                    {
+                        **_worker_meta(row.meta),
+                        **row.server_meta,
+                        # The overage rung every engine's row is attributed on, so this
+                        # leg's cost lands in its rung and not in `unattributed`.
+                        LEDGER_RUNG_KEY: BASE_OVERAGE_RUNG,
+                        "total_inr": str(row.unit_cost_inr * row.qty),
+                    }
                 ),
             },
         )
@@ -1379,6 +1588,7 @@ async def _record_remeter_demands(
     tenant_id: UUID,
     call_row_id: UUID,
     unpriced: tuple[_Unpriced, ...],
+    basis: _PricingBasis,
     at: datetime,
 ) -> int:
     """Park the MEASUREMENT of every leg a later attestation could still price.
@@ -1437,12 +1647,17 @@ async def _record_remeter_demands(
                 # through no encoder this module installs, and a payload round-tripped as a
                 # JSON number would come back as a binary float and be multiplied by a rate.
                 "qty": str(one.quantity.qty),
-                # The quantity's meta VERBATIM, which is what `_price_one` read when it
-                # refused — `meta['model']` is how `_llm_rate` chooses a rate. It is NOT
-                # what gets persisted to the ledger: `_write_usage` still puts it through
-                # `_worker_meta`, so the allow-list that keeps a worker from asserting a
-                # rung or a model onto an append-only row is untouched by this path.
+                # The quantity's meta verbatim, for the measurement notes. It is NOT
+                # what chooses a rate and NOT what reaches the ledger unfiltered:
+                # `_write_usage` still puts it through `_worker_meta`.
                 "meta": dict(one.quantity.meta),
+                # WHAT PRICES IT: the server's record of the model and voice provider this
+                # call ran, taken from the published configuration at settlement. The TTS
+                # price itself is looked up again when the sweep runs.
+                "pricing": {
+                    "llm_model": basis.llm_model,
+                    "tts_provider": basis.tts_provider,
+                },
                 # THE SETTLEMENT'S OWN INSTANT, and the whole of "priced in its own month"
                 # (D-250). A re-metered row is stamped `occurred_at = this`, so every
                 # month-window reader in `billing/service.py` — `_IST_MONTH`,
@@ -1450,7 +1665,9 @@ async def _record_remeter_demands(
                 # call happened in and not the month the operator typed the price in.
                 "occurred_at": at.isoformat(),
             },
-            dedupe_key=f"{REMETER_DEDUPE_PREFIX}{call_row_id}:{one.quantity.leg}",
+            dedupe_key=(
+                f"{REMETER_DEDUPE_PREFIX}{call_row_id}:{one.quantity.leg}:{one.quantity.unit_type}"
+            ),
         )
         if message_id is not None:
             recorded += 1
@@ -1465,6 +1682,8 @@ class RemeterDemand:
     call_id: UUID
     quantity: MeteredQuantity
     occurred_at: datetime
+    llm_model: str | None = None
+    tts_provider: str | None = None
 
 
 def parse_remeter_demand(payload: Mapping[str, Any]) -> RemeterDemand:
@@ -1489,12 +1708,19 @@ def parse_remeter_demand(payload: Mapping[str, Any]) -> RemeterDemand:
     occurred_at = datetime.fromisoformat(str(payload["occurred_at"]))
     if occurred_at.tzinfo is None:  # pragma: no cover - `at` is always aware at the source
         raise ValueError("a re-metering demand carried a naive instant")
+    pricing = dict(payload.get("pricing") or {})
     return RemeterDemand(
         tenant_id=UUID(str(payload["tenant_id"])),
         call_id=UUID(str(payload["call_id"])),
         quantity=quantity,
         occurred_at=occurred_at,
+        llm_model=_optional_str(pricing.get("llm_model")),
+        tts_provider=_optional_str(pricing.get("tts_provider")),
     )
+
+
+def _optional_str(value: Any) -> str | None:
+    return None if value is None else str(value)
 
 
 async def remeter(demand: RemeterDemand) -> str:
@@ -1534,8 +1760,13 @@ async def remeter(demand: RemeterDemand) -> str:
         ).first()
         if already is not None:
             return "already_metered"
+        basis = await _pricing_basis(
+            session,
+            _Models(llm_model=demand.llm_model, tts_provider=demand.tts_provider),
+            at=datetime.now(UTC),
+        )
         try:
-            priced = _price_one(demand.quantity)
+            priced = _price_one(demand.quantity, basis)
         except _LegNotPriceableError:
             # Still no attested price. Not an error and not a retry: the thing this is
             # waiting on is an operator in the ops console, and the next tick is free.
@@ -1635,20 +1866,31 @@ async def _upsert_call(
     if row is None:
         row = (
             await session.execute(
-                text("SELECT id, from_e164, to_e164 FROM calls WHERE engine_call_id = :ecid"),
+                text(
+                    "SELECT id, from_e164, to_e164, agent_id FROM calls "
+                    "WHERE engine_call_id = :ecid"
+                ),
                 {"ecid": engine_call_id},
             )
         ).first()
         if row is None:  # pragma: no cover - only on a concurrent delete
             raise RuntimeError("call row vanished during upsert")
+    if UUID(str(row[3])) != agent_id:
+        # `ON CONFLICT` keeps the first agent a call was minted under, so a later body naming
+        # another agent would otherwise attach its turns, usage and post-call pipeline to a
+        # call that belongs to a different agent's configuration. Raising rolls back.
+        raise _refuse_identity("agent")
     return _CallRow(id=UUID(str(row[0])), from_e164=row[1], to_e164=row[2])
 
 
 def _duration_s(started_at: datetime | None, ended_at: datetime | None) -> int | None:
     """Our own wall clock across the session, or `None`.
 
-    ⚠ **NOT THE BILLABLE DURATION AND NEVER USABLE AS ONE.** §1.2 gives the connected minute
-    to the carrier; this column is what a screen shows a client about their own call.
+    It is also the CLIENT's billable duration on this engine: with no carrier CDR reader
+    (BLOCKER-1) the founder chose the worker's measured connected time, which the post-call
+    metering stage bills through `charge_for_call` like every engine. It is still not our
+    carrier COST — that stays unpriced until a CDR is read, and a carrier reading that
+    disagrees reconciles by compensating entry, never by UPDATE.
     """
     if started_at is None or ended_at is None:
         return None

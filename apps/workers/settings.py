@@ -98,7 +98,6 @@ from apps.workers.action_audit import record_action_invocation
 from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
-from apps.workers.callbacks import book_requested_callback, cancel_requested_callback
 from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.caller_memory_distil import (
     DISTIL_MINUTE as CALLER_MEMORY_DISTIL_MINUTE,
@@ -124,7 +123,6 @@ from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
-from apps.workers.handoff import record_handoff_started
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
@@ -148,7 +146,6 @@ from apps.workers.maintenance import (
 )
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.number_rental import meter_number_rentals, reconcile_engine_numbers
-from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pack_gc import PACK_GC_HOUR, PACK_GC_MINUTE, sweep_knowledge_packs
 from apps.workers.pipeline import (
@@ -219,11 +216,6 @@ FUNCTIONS: list[Any] = [
         # three-way agreement rather than reading a list; this pair is why it exists.
         notify_hot_lead_whatsapp,
         escalate_campaign_contact,
-        # Hard rule 5's fast half: voice-runtime acks the engine's opt-out tool call and
-        # queues this. Unregistered, the caller's request would be acked to the vendor,
-        # dropped by arq, and only recovered by the post-call transcript pass minutes
-        # later — the exact silent-degradation shape `check_job_wiring` guards.
-        record_in_call_optout,
         # ACTIONS feature. The in-call/after-call action executor acks the caller fast and
         # queues the audit row here (hard rule 3 — no DB write on the tool path). An
         # unregistered name would DLQ every action's audit while the tool itself succeeded,
@@ -247,22 +239,6 @@ FUNCTIONS: list[Any] = [
         # tick while the dials already queued at the vendor ring anyway, with every screen
         # reporting the number suppressed.
         recall_dials_for_dnc,
-        # D-514. The in-call call-back pair. voice-runtime acks the caller in
-        # milliseconds and queues one of these; unregistered, the agent has told somebody
-        # on the phone "I have booked that for Tuesday at four", arq drops the name, the
-        # row walks into the DLQ and NOTHING ELSE recovers it — there is no post-call pass
-        # behind a call-back the way there is behind an opt-out. That is the sharpest
-        # version of the `check_job_wiring` shape in this list: a promise made to a person.
-        book_requested_callback,
-        cancel_requested_callback,
-        # D-533. The mid-call notice that a caller is being handed to a person. Same shape
-        # as the pair above and with one difference that makes it worse, not better: the
-        # engine has ALREADY started placing the leg by the time this fires — the webhook
-        # is fire-and-forget and nothing we do can stop it — so an unregistered name here
-        # does not merely lose a promise, it loses the only record that a client's caller
-        # was put through to a member of their staff at all. The `handoff_attempts` row,
-        # the brief and the call-back for a handover nobody answered all hang off it.
-        record_handoff_started,
         # THE EMPTY-WALLET WARNING (2 Sep 2026). Published by `billing.service.record_entry`
         # in the same transaction as the ledger entry that crossed the line, so an
         # unregistered name here is not a dormant feature: the outbox marks the row

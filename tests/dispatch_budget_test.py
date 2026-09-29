@@ -34,6 +34,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
@@ -978,3 +979,104 @@ async def test_a_campaign_cannot_be_created_with_a_slider_of_zero() -> None:
             )
 
     assert "concurrency" in str(excinfo.value), excinfo.value
+
+
+# ------------------------------------------- one tenant's failure is not the tick's
+
+
+class _PoisonedTenantError(RuntimeError):
+    """What a poisoned row in one tenant's campaigns raises, every tick."""
+
+
+async def _two_launched_tenants() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """Two tenants with one contact each; returns (first, second, second's campaign)."""
+    first_id, first_agent = await _tenant()
+    second_id, second_agent = await _tenant()
+    first_number, first_template = await _dlt_rows(first_id, first_agent)
+    second_number, second_template = await _dlt_rows(second_id, second_agent)
+    await _launched_campaign(
+        first_id,
+        first_agent,
+        first_number,
+        first_template,
+        name="Poisoned",
+        phones=("9876650001",),
+    )
+    second_campaign = await _launched_campaign(
+        second_id,
+        second_agent,
+        second_number,
+        second_template,
+        name="Healthy",
+        phones=("9876650002",),
+    )
+    return first_id, second_id, second_campaign
+
+
+async def test_a_campaign_that_raises_does_not_stop_the_tenants_after_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The order never rotates, so one tenant whose campaign raises used to stop every
+    tenant after it on every tick, with no alarm. Now it is skipped, named, and the next
+    tenant still dials."""
+    first_id, second_id, second_campaign = await _two_launched_tenants()
+    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    _pin_scan(
+        monkeypatch,
+        [TenantWork(first_id, 0, True, False, False), TenantWork(second_id, 0, True, False, False)],
+    )
+    real = campaign_dispatch._dispatch_for_campaign
+
+    async def _poisoned(tenant_id: uuid.UUID, *args: Any, **kwargs: Any) -> dict[str, int]:
+        if tenant_id == first_id:
+            raise _PoisonedTenantError("a row this tenant cannot dial")
+        return await real(tenant_id, *args, **kwargs)
+
+    monkeypatch.setattr(campaign_dispatch, "_dispatch_for_campaign", _poisoned)
+    fired = _capture_alert_details(monkeypatch)
+
+    outcome = await campaign_dispatch._run_tick()
+
+    assert outcome.startswith("dialled=1 "), outcome
+    assert await _calls_placed(second_id) == 1, "the tenant after the failure was not dispatched"
+    assert await _contacts(second_id, second_campaign) == [("dialing", 1)]
+    failed = [detail for _stage, code, detail in fired if code == "dispatch_tenant_failed"]
+    assert len(failed) == 1, fired
+    assert f"{first_id}:campaign:_PoisonedTenantError" in failed[0]
+    assert str(second_id) not in failed[0]
+    assert "a row this tenant cannot dial" not in failed[0], "exception text never rides"
+
+
+async def test_a_plan_or_callback_step_that_raises_is_isolated_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other two per-tenant steps: firing schedules / reading the budget, and the
+    call-back loop that runs before any campaign."""
+    first_id, second_id, _second_campaign = await _two_launched_tenants()
+    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    _pin_scan(
+        monkeypatch,
+        [TenantWork(first_id, 0, True, False, True), TenantWork(second_id, 0, True, False, False)],
+    )
+    real_plan = campaign_dispatch._plan_tenant
+
+    async def _plan(work: TenantWork, pool: int) -> Any:
+        if work.tenant_id == first_id:
+            raise _PoisonedTenantError
+        return await real_plan(work, pool)
+
+    async def _callbacks(tenant_id: uuid.UUID, slots: int) -> dict[str, int]:
+        raise _PoisonedTenantError
+
+    monkeypatch.setattr(campaign_dispatch, "_plan_tenant", _plan)
+    monkeypatch.setattr(campaign_dispatch, "dispatch_due_callbacks", _callbacks)
+    fired = _capture_alert_details(monkeypatch)
+
+    outcome = await campaign_dispatch._run_tick()
+
+    assert outcome.startswith("dialled=1 "), outcome
+    assert await _calls_placed(first_id) == 0
+    assert await _calls_placed(second_id) == 1
+    failed = [detail for _stage, code, detail in fired if code == "dispatch_tenant_failed"]
+    assert len(failed) == 1, "one alarm per tick, not one per failure"
+    assert f"{first_id}:plan:" in failed[0] and f"{first_id}:callbacks:" in failed[0]

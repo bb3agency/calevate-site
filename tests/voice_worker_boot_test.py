@@ -445,3 +445,14 @@ def test_the_container_registry_carries_no_variable_the_worker_stopped_reading()
 
     stale = sorted(set(CONTAINER_ENV_KEYS) - _declared_env_names())
     assert not stale, f"{stale} are registered as voice-worker config and nothing reads them"
+
+
+def test_the_caller_claim_secret_is_optional_and_a_short_one_is_refused() -> None:
+    """Absent: no claimed number is believed. Too short to resist a search: refused at boot,
+    because it would look configured while protecting nothing."""
+    assert boot.load_worker_config(COMPLETE_ENV).caller_claim_key is None
+    good = "s" * 32
+    config = boot.load_worker_config({**COMPLETE_ENV, "CARRIER_CLAIM_SECRET": good})
+    assert config.caller_claim_key == good.encode()
+    with pytest.raises(boot.WorkerConfigError, match="CARRIER_CLAIM_SECRET"):
+        boot.load_worker_config({**COMPLETE_ENV, "CARRIER_CLAIM_SECRET": "short"})

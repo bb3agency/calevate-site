@@ -138,6 +138,7 @@ from apps.api.integrations import service as integrations
 # lines, and two schedulers with two opinions about that is how a receptionist stops being
 # able to answer the phone. It runs inside this tick's single-flight lease and out of this
 # tick's line budget.
+from apps.workers.callbacks import MAX_PER_TICK as MAX_CALLBACKS_PER_TICK
 from apps.workers.callbacks import dispatch_due_callbacks
 
 log = get_logger(__name__)
@@ -532,6 +533,67 @@ async def _run_tick() -> str:
         alert("WORKER_STALL", "outbound_pool_empty", detail="reserve >= total lines")
         return "no_outbound_pool"
 
+    # ONE TENANT'S FAILURE IS NOT THE TICK'S. Every per-tenant step below is isolated: an
+    # exception in one client's schedules, call-backs or campaign is recorded here and the
+    # walk moves on. Without it a single poisoned row stopped dialling for every tenant
+    # after it in `dispatch_scan()`'s fixed order, every thirty seconds, and arq alerts on
+    # none of it (`settings.ARQ_TERMINAL_MESSAGES` covers timeouts only). `except
+    # Exception` and never `BaseException`: a cancellation still ends the tick, which is
+    # what the claim-before-dial split in `_dispatch_for_campaign` is built for. The halt
+    # is not weakened either: it is read before this point, and a failure reading it per
+    # contact raises before any dial and so skips that tenant rather than dialling it.
+    failures: list[_TenantFailure] = []
+    try:
+        return await _dispatch_fleet(pool, failures)
+    finally:
+        _report_tenant_failures(failures)
+
+
+#: How many failed tenants the alarm names before it stops listing them.
+_FAILED_TENANT_ALERT_LIMIT = 5
+
+
+class _TenantFailure(NamedTuple):
+    """One tenant whose slice of the tick raised. Ids and a class name only (rule 6)."""
+
+    tenant_id: UUID
+    step: str
+    error: str
+
+
+def _tenant_failed(
+    failures: list[_TenantFailure], tenant_id: UUID, step: str, exc: Exception
+) -> None:
+    """Record a tenant's failure and log it. The exception's TEXT is never logged: a
+    driver error can quote the row it failed on, and these rows hold phone numbers."""
+    failures.append(_TenantFailure(tenant_id, step, type(exc).__name__))
+    log.error(
+        "dispatch_tenant_failed",
+        extra={"tenant_id": str(tenant_id), "step": step, "error": type(exc).__name__},
+    )
+
+
+def _report_tenant_failures(failures: list[_TenantFailure]) -> None:
+    """One alarm per tick naming who was skipped; the alert pipeline counts the repeats."""
+    if not failures:
+        return
+    tenants = list(dict.fromkeys(f.tenant_id for f in failures))
+    named = ", ".join(
+        f"{f.tenant_id}:{f.step}:{f.error}" for f in failures[:_FAILED_TENANT_ALERT_LIMIT]
+    )
+    alert(
+        "WORKER_STALL",
+        "dispatch_tenant_failed",
+        detail=(
+            f"{len(tenants)} tenant(s) were skipped by this dispatch tick because their "
+            f"work raised; every other tenant was still dispatched. {named}"
+        ),
+    )
+
+
+async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
+    """Everything after the platform-wide checks: plan, call-backs, campaigns."""
+
     # One query for the whole platform: who is holding an outbound line, and who has a
     # campaign to dial. Tenants with neither are not in the result and cost nothing.
     tenants = await _tenants_with_work()
@@ -547,69 +609,13 @@ async def _run_tick() -> str:
             # Holding lines but nothing to dial. It has already been counted into
             # `total_active`; there is nothing a session could add.
             continue
-        # Scheduled starts FIRST, so a campaign whose start time arrived this tick dials
-        # in this tick rather than the next one — the budget read below then sees it as
-        # `running` like any other. The 30 seconds saved are not the point; the point is
-        # that "starts at 10:00" and "first dial at 10:00:30" differ by a tick's worth of
-        # explaining. Placed after the big red switch check at the top of this function,
-        # which is what stops a schedule firing into a halted platform.
-        started_here = await _fire_due_schedules(work.tenant_id) if work.has_due_schedule else 0
-        started += started_here
-        if not (work.has_running_campaign or started_here):
+        try:
+            started_here, planned = await _plan_tenant(work, pool)
+        except Exception as exc:
+            _tenant_failed(failures, work.tenant_id, "plan", exc)
             continue
-        async with tenant_session(work.tenant_id) as session:
-            row = (await session.execute(_TENANT_BUDGET_SQL, {"tid": work.tenant_id})).first()
-            # Clamped to the pool: rule 3 can only ever narrow rules 1+2, never widen
-            # them. See `_tenant_ceiling` for why the clamp is not a `plans` constraint.
-            ceiling = _tenant_ceiling(row[0] if row is not None else None, pool)
-            # The campaign may have been paused between the scan and this read — that is
-            # a race the client WINS, and it costs one session, not a dial.
-            campaigns: list[dict[str, Any]] = list(row[1] or []) if row is not None else []
-            if not campaigns:
-                continue
-
-            # Rule 3 is a TENANT budget, spent ONCE across that tenant's campaigns.
-            # Computing it per campaign let a tenant with two running campaigns claim
-            # twice its ceiling — and the surplus comes out of the shared pool that
-            # keeps another tenant's receptionist answering (rule 1's whole point).
-            # Oldest campaign first, so which one gets the lines is deterministic
-            # rather than whatever order the planner returned.
-            tenant_budget = max(0, ceiling - work.active_outbound)
-
-            for campaign in campaigns:
-                campaign_id = campaign["id"]
-                slider = campaign["concurrency"]
-                retry_policy = campaign["retry_policy"]
-                calling_hours = campaign["calling_hours"]
-                if tenant_budget <= 0:
-                    break
-                # Per-campaign calling window (narrowing-only; the create path
-                # refuses anything outside 09:00-21:00 IST, so this can only ever
-                # SHRINK when a campaign dials). Checked BEFORE claiming: a closed
-                # window blocks every contact identically, so skipping the campaign
-                # outright is cheaper and cleaner than claim-then-refund — no
-                # attempts burned, no compensating UPDATE. The per-dial gate still
-                # runs for everything claimed below, which keeps the platform
-                # window enforced there regardless — defense in depth.
-                if not campaign_window_open(calling_hours, compliance_service.ist_now()):
-                    continue
-                # Rule 4 under rule 3: the slider, bounded by what the tenant has left.
-                #
-                # UNCONDITIONAL, and it used to be guarded by `if slots > 0`. That guard
-                # could not fire: `campaigns.concurrency` is NOT NULL under the CHECK
-                # `concurrency BETWEEN 1 AND 10` (`ck_campaigns_concurrency_range`, applied
-                # in `e16c96e68bc5`), and the `tenant_budget <= 0` break six lines up means
-                # the budget is at least 1 here — so `min()` of two positives is positive.
-                # A defensive arm no state can reach is not free: it reads as a case that
-                # happens, and it is a branch the coverage gate then has to be waived for.
-                # If the slider ever gains a zero — a plan tier that parks a campaign at no
-                # lines, say — that is a `running` campaign dialling nothing, which belongs
-                # in the query above (`WHERE c.status = 'running'`) rather than as a silent
-                # skip here. `dispatch_budget_test` pins the constraint that makes this
-                # safe, so relaxing it fails a test instead of quietly reviving the case.
-                slots = min(int(slider), tenant_budget)
-                tenant_budget -= slots
-                running.append((work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {}))
+        started += started_here
+        running.extend(planned)
 
     # Rule 1+2: what is left of the shared pool after everyone's active calls.
     #
@@ -649,7 +655,15 @@ async def _run_tick() -> str:
     for work in tenants:
         if not work.has_due_callback:
             continue
-        outcome = await dispatch_due_callbacks(work.tenant_id, max(0, global_budget))
+        try:
+            outcome = await dispatch_due_callbacks(work.tenant_id, max(0, global_budget))
+        except Exception as exc:
+            _tenant_failed(failures, work.tenant_id, "callbacks", exc)
+            # How many it dialled before failing is unknown, so the pool is charged the
+            # most it could have taken: over-counting idles a line for one tick,
+            # under-counting hands the vendor a dial past the pool (see above).
+            global_budget = max(0, global_budget - min(global_budget, MAX_CALLBACKS_PER_TICK))
+            continue
         callbacks_dialled += outcome["dialled"]
         global_budget = max(0, global_budget - outcome["dialled"])
 
@@ -701,7 +715,14 @@ async def _run_tick() -> str:
             starved = list(dict.fromkeys(t for t, _c, _s, _r in running[index:] if t not in served))
             break
         take = min(slots, global_budget)
-        results = await _dispatch_for_campaign(tenant_id, campaign_id, take, retry_policy)
+        try:
+            results = await _dispatch_for_campaign(tenant_id, campaign_id, take, retry_policy)
+        except Exception as exc:
+            _tenant_failed(failures, tenant_id, "campaign", exc)
+            # Charged the whole slice, for the call-back loop's reason above.
+            served.add(tenant_id)
+            global_budget -= take
+            continue
         served.add(tenant_id)
         dialled += results["dialled"]
         blocked += results["blocked"]
@@ -729,6 +750,76 @@ async def _run_tick() -> str:
         f"dialled={dialled} blocked={blocked} exhausted={exhausted} "
         f"started={started} starved={len(starved)} callbacks={callbacks_dialled}"
     )
+
+
+async def _plan_tenant(
+    work: TenantWork, pool: int
+) -> tuple[int, list[tuple[UUID, UUID, int, dict[str, Any]]]]:
+    """One tenant's schedules fired and campaigns budgeted: `(started, planned slices)`."""
+    planned: list[tuple[UUID, UUID, int, dict[str, Any]]] = []
+    # Scheduled starts FIRST, so a campaign whose start time arrived this tick dials
+    # in this tick rather than the next one — the budget read below then sees it as
+    # `running` like any other. The 30 seconds saved are not the point; the point is
+    # that "starts at 10:00" and "first dial at 10:00:30" differ by a tick's worth of
+    # explaining. Reached only after the big red switch check at the top of `_run_tick`,
+    # which is what stops a schedule firing into a halted platform.
+    started_here = await _fire_due_schedules(work.tenant_id) if work.has_due_schedule else 0
+    if not (work.has_running_campaign or started_here):
+        return started_here, planned
+    async with tenant_session(work.tenant_id) as session:
+        row = (await session.execute(_TENANT_BUDGET_SQL, {"tid": work.tenant_id})).first()
+        # Clamped to the pool: rule 3 can only ever narrow rules 1+2, never widen
+        # them. See `_tenant_ceiling` for why the clamp is not a `plans` constraint.
+        ceiling = _tenant_ceiling(row[0] if row is not None else None, pool)
+        # The campaign may have been paused between the scan and this read — that is
+        # a race the client WINS, and it costs one session, not a dial.
+        campaigns: list[dict[str, Any]] = list(row[1] or []) if row is not None else []
+        if not campaigns:
+            return started_here, planned
+
+        # Rule 3 is a TENANT budget, spent ONCE across that tenant's campaigns.
+        # Computing it per campaign let a tenant with two running campaigns claim
+        # twice its ceiling — and the surplus comes out of the shared pool that
+        # keeps another tenant's receptionist answering (rule 1's whole point).
+        # Oldest campaign first, so which one gets the lines is deterministic
+        # rather than whatever order the planner returned.
+        tenant_budget = max(0, ceiling - work.active_outbound)
+
+        for campaign in campaigns:
+            campaign_id = campaign["id"]
+            slider = campaign["concurrency"]
+            retry_policy = campaign["retry_policy"]
+            calling_hours = campaign["calling_hours"]
+            if tenant_budget <= 0:
+                break
+            # Per-campaign calling window (narrowing-only; the create path
+            # refuses anything outside 09:00-21:00 IST, so this can only ever
+            # SHRINK when a campaign dials). Checked BEFORE claiming: a closed
+            # window blocks every contact identically, so skipping the campaign
+            # outright is cheaper and cleaner than claim-then-refund — no
+            # attempts burned, no compensating UPDATE. The per-dial gate still
+            # runs for everything claimed below, which keeps the platform
+            # window enforced there regardless — defense in depth.
+            if not campaign_window_open(calling_hours, compliance_service.ist_now()):
+                continue
+            # Rule 4 under rule 3: the slider, bounded by what the tenant has left.
+            #
+            # UNCONDITIONAL, and it used to be guarded by `if slots > 0`. That guard
+            # could not fire: `campaigns.concurrency` is NOT NULL under the CHECK
+            # `concurrency BETWEEN 1 AND 10` (`ck_campaigns_concurrency_range`, applied
+            # in `e16c96e68bc5`), and the `tenant_budget <= 0` break six lines up means
+            # the budget is at least 1 here — so `min()` of two positives is positive.
+            # A defensive arm no state can reach is not free: it reads as a case that
+            # happens, and it is a branch the coverage gate then has to be waived for.
+            # If the slider ever gains a zero — a plan tier that parks a campaign at no
+            # lines, say — that is a `running` campaign dialling nothing, which belongs
+            # in the query above (`WHERE c.status = 'running'`) rather than as a silent
+            # skip here. `dispatch_budget_test` pins the constraint that makes this
+            # safe, so relaxing it fails a test instead of quietly reviving the case.
+            slots = min(int(slider), tenant_budget)
+            tenant_budget -= slots
+            planned.append((work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {}))
+    return started_here, planned
 
 
 async def _fire_due_schedules(tenant_id: UUID) -> int:
@@ -942,8 +1033,9 @@ async def _dispatch_for_campaign(
                 blocked += 1
                 continue
 
-            # THE BIG RED SWITCH, READ PAST THE CACHE — and this is the ONE place in the
-            # tree that has to force it. `check_dispatch` asks the same question three
+            # THE BIG RED SWITCH, READ PAST THE CACHE — here and in the call-back loop the
+            # same tick runs (`callbacks.dispatch_due_callbacks`), the two dial loops that
+            # run after `_run_tick` primed the memo. `check_dispatch` asks the same question three
             # lines below, but through `loadshed.get_platform_status()`, whose first layer
             # is a 5-SECOND IN-PROCESS MEMO. The halt is written by
             # `ops.routes.set_platform` in the API process, which clears its OWN memo and

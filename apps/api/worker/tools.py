@@ -1,19 +1,13 @@
 """The four in-call tools, for the engine we run ourselves (`owned_runtime`).
 
-**WHY THIS FILE EXISTS: THE PRODUCT HAD TWO ENGINES AND ONE SET OF TOOLS.**
-`apps/voice-runtime/tool_routes.py` serves four custom functions on the RENTED engine —
-opt-out, call-back, call-back cancel, handoff — and `voice_worker/pipeline.assemble_call`
-advertised exactly ONE, the knowledge search. So an agent running on our own Pipecat
-container could not honour a caller's opt-out, could not book or cancel a call-back, and
-could not ask for a person. The opt-out half of that is a COMPLIANCE defect and not a
-missing feature: hard rule 5 and SECURITY-COMPLIANCE §2.3 require a caller's opt-out to be
-honoured and DNC additions to propagate before the next dispatch tick, and on this engine
-there was no path by which "stop calling me" reached the DNC list at all.
+**WHY THIS FILE EXISTS.** An agent must be able to honour a caller's opt-out, book or
+cancel a call-back, and ask for a person, whichever engine it runs on. The opt-out half is
+a COMPLIANCE obligation and not a feature: hard rule 5 and SECURITY-COMPLIANCE §2.3 require
+a caller's opt-out to be honoured and DNC additions to propagate before the next dispatch
+tick. These are the in-call paths on `owned_runtime`; the rented engine's tool routes and
+their ARQ jobs were deleted with that engine (D-639).
 
-**`tool_routes.py` IS THE SPECIFICATION AND THIS IS NOT A SECOND OPINION ABOUT IT.** It
-already decides what an opt-out does, what a booking validates, what a cancellation means
-and what the agent is told in every outcome. Every handler below reaches the SAME service
-function its engine-leg counterpart's ARQ job reaches:
+Every handler below reaches the one service function that owns its write:
 
     opt-out           -> `compliance/optout.record_call_optout` (which calls
                          `compliance/service.add_to_dnc` — the one single-number writer)
@@ -24,14 +18,9 @@ function its engine-leg counterpart's ARQ job reaches:
 Two implementations of "add this caller to the DNC list" is the defect this arrangement
 exists to prevent, and the repository already owns exactly one of each.
 
-**WHAT IS DIFFERENT, AND IT IS THE TRANSPORT RATHER THAN THE BEHAVIOUR.** The engine leg
-must defer: it is on the latency-critical service (hard rule 3), the payload is a HINT
-(D-31), and the tenant, the number and the call are re-derived by a worker from an
-authenticated Get Execution a few hundred milliseconds later. That is why its answer is
-`accepted` and never "done". There is no execution to fetch here and no poller — the worker
-names its own `pipecat:<tenant>:<call>` ref, the server parses the tenant out of it and
-does the write inside this request, under that tenant's RLS. So the truthful word is
-`recorded` / `booked` / `cancelled`, and using the engine leg's weaker one would be
+**THE WRITE HAPPENS INSIDE THE REQUEST.** The worker names its own `pipecat:<tenant>:<call>`
+ref, the server parses the tenant out of it and does the write under that tenant's RLS. So
+the truthful word is `recorded` / `booked` / `cancelled`; a weaker "accepted" would be
 under-claiming in a sentence an agent reads out loud.
 
 **WHY THAT IS AFFORDABLE HERE.** These run in `apps/api`, not in `voice-runtime`: they
@@ -172,9 +161,8 @@ def _subject(call: _ToolCall, caller: CallerIdentityIn) -> tuple[str | None, str
 
 # --- opt-out ---------------------------------------------------------------------------
 
-#: What the agent is told when the suppression is on file. The engine leg's tool answers
-#: `accepted` and says only that the request is registered, because its write has not
-#: happened yet; ours has.
+#: What the agent is told when the suppression is on file, which it is by the time this is
+#: returned.
 _OPTOUT_DONE_SAY = (
     "The caller's number is on this business's do-not-call list and no further calls will "
     "be placed to it. Tell them plainly that they have been removed and will not be "
@@ -221,11 +209,10 @@ async def record_opt_out(engine_call_id: str, request: OptOutToolIn) -> OptOutTo
         if phone is None:
             return _optout_unattributed(tenant_id, call, ground, request.caller.state)
         try:
-            # `tool_signal` — the engine leg's own signal builder, imported rather than
-            # rebuilt. It bounds the model's prose to 80 characters and leaves `turn_idx`
-            # None, which is right here for its reason: a tool call has no turn index of
-            # ours to point at, and inventing one would put a meaningless number in
-            # append-only evidence.
+            # `tool_signal` — the shared evidence builder, imported rather than rebuilt. It
+            # bounds the model's prose to 80 characters and leaves `turn_idx` None: a tool
+            # call has no turn index of ours to point at, and inventing one would put a
+            # meaningless number in append-only evidence.
             record = await record_call_optout(
                 session,
                 tenant_id=tenant_id,
@@ -238,10 +225,9 @@ async def record_opt_out(engine_call_id: str, request: OptOutToolIn) -> OptOutTo
             # `record_call_optout` refuses a number it cannot normalise, because a
             # suppression filed under a string the dispatch gate will never match is a row
             # that looks like protection and blocks nothing. That refusal must not reach
-            # the agent as an API error — the vendor's own troubleshooting reads a failing
-            # tool call as a misconfiguration (`tool_routes._book_callback`'s argument) and
-            # the model would say something invented. It reaches the caller as the honest
-            # sentence instead.
+            # the agent as an API error — a failing tool call reads to the model as a
+            # misconfiguration and it would say something invented. It reaches the caller as
+            # the honest sentence instead.
             return _optout_unattributed(tenant_id, call, "not_suppressible", request.caller.state)
     # Ids and outcomes (hard rule 6). Never the number, never the caller's words.
     log.info(
@@ -287,14 +273,14 @@ _CALLBACK_NO_NUMBER_SAY = (
 
 
 async def book_callback(engine_call_id: str, request: CallbackBookIn) -> CallbackToolOut:
-    """ "Ring me back Tuesday at four." The engine leg's endpoint, with the write inline.
+    """ "Ring me back Tuesday at four.", booked inside the request.
 
     **THE REFUSAL HAS TO REACH THE CALLER WHILE THEY ARE STILL ON THE PHONE**, which is why
     `resolve_slot` runs before anything else and why an unbookable time is a 200 with
     `not_booked` rather than an error. A time outside 09:00-21:00 IST is not merely
     inconvenient, it is unlawful to dial (TCCCPR; SEC-COMP §3), and a callback the dispatch
     gate refuses two days later is worse than one that was never booked — somebody was told
-    we would ring. `tool_routes._book_callback` carries the full argument.
+    we would ring.
 
     **CONFIRM-BEFORE-COMMIT IS A SERVER-SIDE CONTROL, NOT A LINE IN A PROMPT.** The model
     resolved "Tuesday at four" into a date and a 24-hour time by talking to the caller; we
@@ -425,10 +411,9 @@ async def cancel_callback(engine_call_id: str, request: CallbackCancelIn) -> Cal
     not "never call me again", and answering it with a DNC entry would suppress a number on
     a sentence its speaker did not say. `record_opt_out` above is the one that does that.
 
-    It is a separate tool rather than a flag on the booking for the vendor-documented
-    reason `tool_routes._cancel_callback` records: the DESCRIPTION is what makes triggering
-    reliable, and a cancellation must not be able to fail because a date could not be
-    parsed — so there is no time in this path at all.
+    It is a separate tool rather than a flag on the booking because the tool DESCRIPTION is
+    what makes triggering reliable, and a cancellation must not be able to fail because a
+    date could not be parsed — so there is no time in this path at all.
     """
     tenant_id = _tenant_of_call(engine_call_id)
     async with tenant_session(tenant_id) as session:

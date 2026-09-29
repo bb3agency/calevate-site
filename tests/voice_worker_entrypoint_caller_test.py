@@ -66,9 +66,11 @@ def test_the_verdict_the_entrypoint_reads_is_the_one_the_url_carries() -> None:
 
     caller = claim_from_stream_url(bot._stream_url(cast_args(args))).caller
 
+    # The query is unauthenticated, so a claimed number is read and refused rather than
+    # believed (`carrier.claim_from_stream_url`).
     assert caller is not None
-    assert caller.state == "known"
-    assert caller.e164 == "+919876500001"
+    assert caller.state == "unparsed_by_client"
+    assert caller.e164 is None
 
 
 def test_run_call_accepts_a_caller_and_forwards_it() -> None:

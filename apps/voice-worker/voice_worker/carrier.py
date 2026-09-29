@@ -49,8 +49,10 @@ the shipped client of that protocol, read in this session at
    `apps/voice-runtime/carrier_routes.py` now reads a calling party off it and mints it onto
    the stream URL as an explicit claim. `claim_from_stream_url` and `fold_caller_identity`
    below are this side of that seam. THE NUMBER IS STILL ABSENT ON PLIVO — this conjures
-   none: what is missing is one cell of that module's `CARRIER_ANSWER_CONTRACT`, and §5(d)
-   of `docs/evidence/carrier-caller-identity.md` is the reading that fills it.
+   none, and two things are missing: one cell of that module's `CARRIER_ANSWER_CONTRACT`
+   (§5(d) of `docs/evidence/carrier-caller-identity.md` is the reading that fills it). The
+   number then travels under a MAC keyed by `CARRIER_CLAIM_SECRET`, and this side
+   believes it only when that verifies (`claim_from_stream_url`).
 2. **Whether Plivo signs the HTTP request that fetches the answer document.** That leg
    is not here — see the next section — and nothing in the installed Pipecat tree
    verifies a Plivo request signature.
@@ -93,6 +95,7 @@ at all costs, and what would remove it.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, cast
@@ -102,7 +105,12 @@ from uuid import UUID
 from calevate_shared.engine import parse_owned_runtime_agent_ref
 from calevate_shared.events import CallDirection
 from calevate_shared.extraction import normalize_phone
-from calevate_shared.worker_api import CallerIdentityState
+from calevate_shared.worker_api import (
+    CLAIM_EXPIRES_PARAM,
+    CLAIM_MAC_PARAM,
+    CallerIdentityState,
+    verify_caller_claim,
+)
 from loguru import logger
 from pipecat.frames.frames import EndWorkerFrame
 from pipecat.runner.utils import parse_telephony_websocket
@@ -392,6 +400,13 @@ CLAIM_CARRIER_PARAM: Final = "carrier"
 CLAIM_CALLER_PARAM: Final = "caller"
 CLAIM_CALLER_STATE_PARAM: Final = "caller_state"
 
+#: Why a `known` caller claimed on the stream URL was not believed. See
+#: `claim_from_stream_url`. Written here and never built from wire data (hard rule 6).
+UNAUTHENTICATED_CLAIM_GROUND: Final = (
+    "the stream URL claimed a known caller without a valid signature for this agent and "
+    "time, so its number may not key a suppression, a recalled memory, a call-back or a lead"
+)
+
 #: How informative each state is, when two sources disagree about an ABSENCE.
 #:
 #: `withheld_by_carrier` outranks `unparsed_by_client` because it is a statement about the
@@ -448,7 +463,13 @@ class ControlPlaneClaim:
     caller: CallerIdentity | None = None
 
 
-def claim_from_stream_url(url: str) -> ControlPlaneClaim:
+def claim_from_stream_url(
+    url: str,
+    *,
+    ref: str | None = None,
+    claim_key: bytes | None = None,
+    now: float | None = None,
+) -> ControlPlaneClaim:
     """Read the control plane's claim off the stream URL a carrier connected to.
 
     Takes the whole URL (or a bare query string) rather than a parsed object, because the
@@ -463,6 +484,17 @@ def claim_from_stream_url(url: str) -> ControlPlaneClaim:
     `apps/api/worker/tools.py:150` lets an agent tell a caller their number was suppressed
     only on `known`, and a `known` with nothing behind it is exactly the sentence that must
     never be said.
+
+    **A `known` NUMBER IS BELIEVED ONLY UNDER A VALID MAC.** Nothing else authenticates
+    this query, so an unsigned number is whatever the connecting party typed. Believed, it
+    would key the in-call opt-out (a stranger's number suppressed), the caller-memory
+    recall (another person's facts read out to whoever connected), a booked call-back (our
+    platform dialling a number of the stranger's choosing) and `calls.from_e164`, from which
+    the lead and the DPDP erasure subject are derived. So `known` stands only when
+    `caller_mac` verifies over the number, `ref` (the agent this socket was routed to) and
+    an unexpired `caller_exp` under `claim_key` (`worker_api.verify_caller_claim`); on any
+    failure — no key, no MAC, another agent's MAC, a changed number, an expired or
+    far-future expiry — it becomes `unparsed_by_client` with no number.
     """
     query = url.split("?", 1)[1] if "?" in url else url
     params = dict(parse_qsl(query, keep_blank_values=True))
@@ -473,21 +505,28 @@ def claim_from_stream_url(url: str) -> ControlPlaneClaim:
     caller: CallerIdentity | None = None
     if raw_state in _STATE_INFORMATIVENESS:
         state = cast(CallerIdentityState, raw_state)
-        raw_number = (params.get(CLAIM_CALLER_PARAM) or "").strip()
-        if state == "known" and not raw_number:
-            caller = CallerIdentity(
-                state="unparsed_by_client",
-                ground=(
-                    "the control plane claimed a known caller and carried no number, so "
-                    "the claim is not usable (a state nothing backs may not authorise a "
-                    "suppression)"
-                ),
-            )
+        if state == "known":
+            raw_number = (params.get(CLAIM_CALLER_PARAM) or "").strip()
+            if ref is not None and verify_caller_claim(
+                claim_key,
+                ref=ref,
+                e164=raw_number,
+                expires_at=params.get(CLAIM_EXPIRES_PARAM),
+                mac=params.get(CLAIM_MAC_PARAM),
+                now=time.time() if now is None else now,
+            ):
+                caller = CallerIdentity(
+                    state="known",
+                    ground="the control plane's answer leg reported known, under a valid MAC",
+                    e164=normalize_phone(raw_number),
+                )
+            else:
+                caller = CallerIdentity(
+                    state="unparsed_by_client", ground=UNAUTHENTICATED_CLAIM_GROUND
+                )
         else:
             caller = CallerIdentity(
-                state=state,
-                ground=f"the control plane's answer leg reported {state}",
-                e164=normalize_phone(raw_number) if raw_number and state == "known" else None,
+                state=state, ground=f"the control plane's answer leg reported {state}"
             )
     if carrier is None and caller is None:
         return ControlPlaneClaim(present=False)
@@ -519,9 +558,9 @@ def fold_caller_identity(
        `CallerIdentityState` lives in `calevate_shared/worker_api.py` and travels on the
        tool wire, outside this change's fence. Reported, not made. Until then the GROUND
        carries the distinction and `is_known` carries the safety.
-    4. **Exactly one names a number** → that one wins, with both grounds. This is the case
-       that closes the gap: on Plivo the detection is structurally `unparsed_by_client`
-       (`CALLER_IDENTITY_PARSE`) and the claim is the only leg that can say anything.
+    4. **Exactly one names a number** → that one wins, with both grounds. A claim names one
+       only when its MAC verified (`claim_from_stream_url`); on Plivo the detection is
+       structurally `unparsed_by_client`, so a signed claim is the only leg that can speak.
     5. **Neither names a number** → the more informative absence wins
        (`_STATE_INFORMATIVENESS`), ground naming both. A carrier's own "withheld" outranks
        our "we could not ask", which outranks "nobody asked".
@@ -972,6 +1011,7 @@ __all__ = [
     "CLIENT_DISCONNECTED_EVENT",
     "OUTBOUND_DIAL_UNKNOWN",
     "PLIVO_TRANSPORT_TYPE",
+    "UNAUTHENTICATED_CLAIM_GROUND",
     "CallRoute",
     "CallerIdentity",
     "CallerIdentityState",

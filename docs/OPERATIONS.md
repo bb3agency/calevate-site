@@ -379,9 +379,10 @@ and a second delivery mechanism is a second thing to be broken on the night it i
     that can invent a page must be as durable as what it reports on.
   - **`latency p95 breach 15-min sustained` is still not implemented**, and it is the one
     entry that genuinely needs the metrics pipeline DEPLOYMENT §8 defers: a percentile over
-    a sliding window is not a counter, and computing it from the `webhook_ack_ms` /
-    `tool_ack_ms` log lines would mean building the scraper inside the alarm. `webhook_ack_slow`
-    and `tool_ack_slow` fire per breach today, which is the honest subset.
+    a sliding window is not a counter, and computing it from the `webhook_ack_ms` log lines
+    would mean building the scraper inside the alarm. `webhook_ack_slow` fires per breach
+    today, which is the honest subset. (The in-call tool endpoint's `tool_ack_ms` /
+    `tool_ack_slow` left with the rented engine's tool routes.)
   - **The index is the vocabulary now**, and `scripts/check_alarm_wiring.py` fails CI in
     BOTH directions: a documented alarm with no call site (the defect above), and a raised
     alarm with no row — which was the larger half nobody had counted, 44 codes that could

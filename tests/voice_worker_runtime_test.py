@@ -526,6 +526,63 @@ async def test_a_pipeline_that_raises_leaves_no_attestation_task_behind(
         await real.aclose()
 
 
+async def test_a_pipeline_that_raises_still_settles_its_call_as_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_token: None,
+) -> None:
+    """The settlement is the only producer of a call's post-call promise and usage rows, so a
+    pipeline that raised must still send it — as `failed` — before the error propagates."""
+    tenant_id, agent_id, call_id, api, _sink = await _live_call()
+    await PipecatEngine().create_agent(_agent_config(tenant_id, agent_id))
+
+    class _Crashes:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def add_workers(self, *_workers: Any) -> None:
+            return None
+
+        async def run(self) -> None:
+            raise RuntimeError("the pipeline died")
+
+    class _NoPacks:
+        async def fetch(self, _key: str) -> bytes | None:
+            return None
+
+    monkeypatch.setattr(runtime, "WorkerRunner", _Crashes)
+    worker_runtime = runtime.WorkerRuntime(api, fetcher=_NoPacks())
+    try:
+        with pytest.raises(RuntimeError, match="the pipeline died"):
+            await worker_runtime.run_call(
+                call_id=call_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                direction="inbound",
+                engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(agent_id)),
+                credentials_for=lambda _provider: CREDENTIALS,
+                greeting="skip",
+                transport=FakeTransport(),
+            )
+    finally:
+        await worker_runtime.aclose()
+
+    ref = pipecat_call_ref(tenant_id, call_id)
+    async with tenant_session(tenant_id) as db:
+        status, row_id = (
+            await db.execute(
+                text("SELECT status, id FROM calls WHERE engine_call_id = :c"), {"c": ref}
+            )
+        ).one()
+        promised = (
+            await db.execute(
+                text("SELECT count(*) FROM outbox_messages WHERE dedupe_key = :k"),
+                {"k": f"post-call:{row_id}"},
+            )
+        ).scalar_one()
+    assert status == "failed"
+    assert promised == 1, "the crashed call's post-call pipeline was never promised"
+
+
 @pytest.mark.parametrize(
     ("state", "number", "handed"),
     [("known", "+919876543210", "+919876543210"), ("withheld", None, None)],

@@ -37,6 +37,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from apps.api.compliance.disclosure import disclosure_spoken
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_MARKER,
     DisclosurePosture,
@@ -188,7 +189,10 @@ async def test_the_agent_opens_with_exactly_the_notices_its_toggles_switched_on(
     )
     expected_opening = compose_opening_line(posture)
     run = await run_scenario(
-        [], config=make_session_config(system_prompt=compose_agent_prompt(posture=posture))
+        [],
+        config=make_session_config(
+            system_prompt=compose_agent_prompt(posture=posture), opening_line=expected_opening
+        ),
     )
 
     first = run.agent_utterances[0]
@@ -196,6 +200,11 @@ async def test_the_agent_opens_with_exactly_the_notices_its_toggles_switched_on(
         assert first == expected_opening, (
             "the agent opened with something other than the notices it has switched on"
         )
+        # Spoken ONCE: the model's greeting that follows does not say them again.
+        assert len(run.agent_utterances) == 2
+        greeting = run.agent_utterances[1]
+        assert DEFAULT_POSTURE.ai_disclosure_line not in greeting
+        assert DEFAULT_POSTURE.recording_notice_line not in greeting
     else:
         # `compose_opening_line`'s "neither" outcome: the agent volunteers nothing and
         # opens on its script. Not silence, and not a denial — see the AI scenario below.
@@ -205,6 +214,48 @@ async def test_the_agent_opens_with_exactly_the_notices_its_toggles_switched_on(
 
     assert (DEFAULT_POSTURE.ai_disclosure_line in first) is ai_on
     assert (DEFAULT_POSTURE.recording_notice_line in first) is recording_on
+
+
+@pytest.mark.parametrize("ai_on", [True, False])
+async def test_the_disclosure_verdict_sees_the_verbatim_notice(ai_on: bool) -> None:
+    """End to end on our side: the notice is spoken as configured, reaches the sink as an
+    agent turn, and `disclosure_spoken` — the verdict behind `calls.disclosure_played` —
+    finds it. The post-call pipeline passes the AI sentence only when its toggle is on and
+    `""` otherwise, which the verdict answers `None` (nothing to judge)."""
+    posture = DisclosurePosture(
+        ai_disclosure_line=DEFAULT_POSTURE.ai_disclosure_line,
+        ai_disclosure_enabled=ai_on,
+        recording_notice_line=DEFAULT_POSTURE.recording_notice_line,
+        recording_notice_enabled=True,
+    )
+    run = await run_scenario(
+        [],
+        config=make_session_config(
+            system_prompt=compose_agent_prompt(posture=posture),
+            opening_line=compose_opening_line(posture),
+        ),
+    )
+    judged_line = DEFAULT_POSTURE.ai_disclosure_line if ai_on else ""
+    assert disclosure_spoken(run.sink.turns, disclosure_line=judged_line) is (
+        True if ai_on else None
+    )
+    assert (DEFAULT_POSTURE.ai_disclosure_line in run.spoken) is ai_on
+    # One transcript turn carries the notice, never two.
+    assert sum(DEFAULT_POSTURE.recording_notice_line in u for u in run.agent_utterances) == 1
+
+
+async def test_the_opening_is_verbatim_even_from_a_model_that_ignores_its_instructions() -> None:
+    """NEGATIVE CONTROL. The notice does not depend on the model: a model that follows
+    nothing still cannot change or drop it, because the model never says it. What such a
+    model CAN do is say it again — which this scenario shows the duplicate check catches."""
+    opening = compose_opening_line(DEFAULT_POSTURE)
+    run = await run_scenario(
+        [],
+        config=make_session_config(system_prompt=compose_agent_prompt(), opening_line=opening),
+        obedient=False,
+    )
+    assert run.agent_utterances[0] == opening
+    assert sum(DEFAULT_POSTURE.ai_disclosure_line in u for u in run.agent_utterances) == 2
 
 
 async def test_an_agent_that_does_not_greet_first_says_nothing_until_spoken_to() -> None:

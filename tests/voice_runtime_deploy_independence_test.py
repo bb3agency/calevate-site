@@ -56,7 +56,6 @@ from sqlalchemy import event, text
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
 HOOK = "/hooks/v1/engine/fake"
-TOOL = "/tools/v1/fake/opt-out"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 #: The schema surface of this deployable's REQUEST PATH. Both are infra tables (no `tenant_id`, no
@@ -96,7 +95,6 @@ async def _statements_of_a_full_drive() -> list[str]:
             await http.post(HOOK, json={"status": "done"}, headers=HEADERS)  # unkeyable
             await http.post(HOOK, json=body, headers=HEADERS)  # accepted
             await http.post(HOOK, json=body, headers=HEADERS)  # duplicate
-            await http.post(TOOL, json={"execution_id": f"exec_{tag}"}, headers=HEADERS)
     finally:
         event.remove(engine, "before_cursor_execute", _on_execute)
     return captured

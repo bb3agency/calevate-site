@@ -421,20 +421,20 @@ async def record_for_client(
             recorded_by_admin_id=principal.user_id,
             evidence=payload.evidence,
         )
-    await write_audit(
-        session,
-        action="whatsapp_alert_optin.recorded_by_operator",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="whatsapp_alert_optin_ledger",
-        object_id=str(owner_id),
-        ip=client_request_ip(request),
-        summary={
-            "status": payload.status,
-            "channel": ALERT_OPTIN_OPERATOR,
-            "evidenced": bool(payload.evidence),
-        },
-    )
+        await write_audit(
+            scoped,
+            action="whatsapp_alert_optin.recorded_by_operator",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="whatsapp_alert_optin_ledger",
+            object_id=str(owner_id),
+            ip=client_request_ip(request),
+            summary={
+                "status": payload.status,
+                "channel": ALERT_OPTIN_OPERATOR,
+                "evidenced": bool(payload.evidence),
+            },
+        )
     return _out(state)
 
 

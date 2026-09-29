@@ -84,8 +84,8 @@ __all__ = [
 #: The processors that hold call content and publish no subject-granular deletion.
 #:
 #: A CLOSED vocabulary rather than free text, because the register in `deletion.py` names
-#: exactly these and a fifth spelling of "bolna" would silently create a task nobody's
-#: runbook covers. Adding a processor means adding it here, to the register, and to
+#: exactly these and a vendor's name written in their place would silently create a task
+#: nobody's runbook covers. Adding a processor means adding it here, to the register, and to
 #: `docs/evidence/subprocessor-erasure-reach.md` §3 — three edits, on purpose.
 #:
 #: They are named by ROLE and not by vendor. The vendor is a config choice (D-31 has an
@@ -104,13 +104,10 @@ __all__ = [
 #: prevent. The obligation attaches to the ROLE now, before any carrier account exists,
 #: because the alternative is discovering it on the day one does.
 #:
-#: ⚠ **THE DATABASE DOES NOT YET ACCEPT IT.** `processor_erasure_tasks`' CHECK
-#: `processor_is_known` still reads `('voice_engine', 'speech', 'llm')` (migration
-#: `c9f4a2e17b83`), so opening a `telephony` task raises an IntegrityError until the
-#: migration that widens it lands. That is why nothing opens one yet and why the truth is
-#: carried in the meantime by `deletion.ERASURE_EXCEPTIONS`' "telephone carrier" entry,
-#: which states the copy exists and that no request has been made — a statement that is
-#: true today and stays true when the task rows start being written.
+#: The database accepts it (`processor_is_known`, migration `e3a7c05b91d4`), and nothing
+#: opens a `telephony` task yet: no carrier account exists to send a request to. Until one
+#: does, `deletion.ERASURE_EXCEPTIONS`' "telephone carrier" entry carries the truth — the
+#: copy exists and no request has been made.
 PROCESSORS: Final = ("voice_engine", "speech", "llm", "telephony")
 
 #: `open` — the erasure ran, this processor holds a copy, nobody has asked yet.

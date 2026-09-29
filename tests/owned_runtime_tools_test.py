@@ -1,10 +1,9 @@
 """The four in-call tools on the engine we run ourselves, end to end over the real wire.
 
-**WHAT THIS FILE IS DEFENDING.** `apps/voice-runtime/tool_routes.py` serves four custom
-functions on the RENTED engine and `voice_worker/pipeline.assemble_call` advertised exactly
-one. So on `owned_runtime` a caller saying "stop calling me" reached nothing at all — no
-`dnc_list` row, no `consent_ledger` evidence, nothing for the dispatch gate to read. That is
-hard rule 5 and SEC-COMP §2.3 failing silently, and it is why the opt-out tests here assert
+**WHAT THIS FILE IS DEFENDING.** These routes are the in-call path by which a caller on
+`owned_runtime` saying "stop calling me" reaches `dnc_list` and `consent_ledger`, and by
+which a call-back is booked or called off. Without them that is hard rule 5 and SEC-COMP
+§2.3 failing silently, and it is why the opt-out tests here assert
 ROWS rather than status codes: an endpoint that answers 200 and writes nothing is exactly
 the failure mode being fixed.
 
@@ -439,7 +438,7 @@ async def test_an_unlawful_time_is_refused_with_something_to_offer_instead(
     refusal has to reach the caller while they are still on the phone.
 
     It is a 200 and not an error: an error tells the agent OUR API is broken, when what it
-    needs to hear is what to offer instead (`tool_routes._book_callback`'s argument).
+    needs to hear is what to offer instead.
     """
     tenant_id, _agent_id, _call_id, ref = await a_call_in_progress()
     date, _clock = lawful_slot()

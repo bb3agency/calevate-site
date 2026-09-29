@@ -96,12 +96,10 @@ def test_there_is_exactly_one_definition_of_the_client_address() -> None:
     local copy in either service fails here rather than at the next incident.
     """
     import engine_intake
-    import tool_routes
     import webhook_routes
     from apps.api.core import auth as api_auth
 
     assert webhook_routes.client_ip is client_ip
-    assert tool_routes.client_ip is client_ip
     assert api_auth.client_ip is client_ip
     assert not hasattr(engine_intake, "client_ip"), (
         "engine_intake defines a second client_ip again — one way per problem"

@@ -644,8 +644,7 @@ async def test_the_tool_reason_is_the_word_the_worker_actually_matches() -> None
     """TWO SPELLINGS OF ONE WORD, PINNED. The worker passes this reason through to the
     model, and matches it to recover the narrow sentence from a server old enough to
     answer only `not_transferred` (`call_tools._ENGINE_CANNOT_TRANSFER`); that service may
-    not import `apps.api` (hard rule 3), so the agreement is asserted here or nowhere.
-    `tests/handoff_tool_test.py` pins `HANDOFF_JOB` the same way for the same reason."""
+    not import `apps.api` (hard rule 3), so the agreement is asserted here or nowhere."""
     from voice_worker.call_tools import _ENGINE_CANNOT_TRANSFER
 
     assert ENGINE_CANNOT_TRANSFER == _ENGINE_CANNOT_TRANSFER

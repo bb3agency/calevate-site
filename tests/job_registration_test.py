@@ -155,7 +155,7 @@ def test_the_enqueue_scan_reads_the_outbox_call_sites() -> None:
         "execute_deletion_request",  # keyword `job=`, outbox
         "notify_hot_lead_whatsapp",  # keyword `job=`, outbox-once
         "run_post_call_pipeline",  # positional, direct enqueue
-        "record_in_call_optout",  # positional, from voice-runtime
+        "ingest_engine_event",  # positional, from voice-runtime
     ):
         assert job in resolved, f"the enqueue scan cannot see {job}'s call site"
 

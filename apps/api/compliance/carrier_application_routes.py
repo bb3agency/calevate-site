@@ -458,25 +458,25 @@ async def record_decision(
             carrier_application_id=payload.carrier_application_id,
             rejection_reason=payload.rejection_reason,
         )
+        await write_audit(
+            scoped,
+            action="carrier_application.decided",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="carrier_compliance_application",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            # The carrier's reference is the point of the entry: it is what a regulator or the
+            # carrier itself asks us to evidence. The client's filename is deliberately not
+            # copied — it adds nothing an auditor needs and the audit log is read cross-tenant.
+            summary={
+                "carrier": CARRIER,
+                "status": status,
+                "carrier_application_id": payload.carrier_application_id,
+                "changed": changed,
+            },
+        )
 
-    await write_audit(
-        session,
-        action="carrier_application.decided",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="carrier_compliance_application",
-        object_id=str(tenant_id),
-        ip=client_request_ip(request),
-        # The carrier's reference is the point of the entry: it is what a regulator or the
-        # carrier itself asks us to evidence. The client's filename is deliberately not
-        # copied — it adds nothing an auditor needs and the audit log is read cross-tenant.
-        summary={
-            "carrier": CARRIER,
-            "status": status,
-            "carrier_application_id": payload.carrier_application_id,
-            "changed": changed,
-        },
-    )
     return CarrierDecisionOut(
         tenant_id=tenant_id,
         status=status,

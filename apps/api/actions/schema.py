@@ -42,17 +42,10 @@ class PreparedRequest:
     form_body: dict[str, str] | None = None
 
 
-# The call variables a `lead_var` binding may name, mapped to the Bolna system variable the
-# engine substitutes (VERIFIED-VENDOR-DOCS, custom-function-calls.md:581-586 — the four
-# auto-injected into function parameters). `caller_phone` is the synthetic one the
-# declaration resolves per agent direction (see `actions/service.declare`), because "the
-# other party on the call" is `from_number` inbound and `to_number` outbound.
-CALL_VARS: dict[str, str] = {
-    "caller_phone": "",  # resolved per direction at declaration; placeholder here
-    "from_number": "{from_number}",
-    "to_number": "{to_number}",
-    "call_sid": "{call_sid}",
-}
+# The call variables a `lead_var` binding may name. They are the call's own data, applied by
+# our executor from our record of the call and never declared to a runtime (`service._to_spec`).
+# `caller_phone` is "the other party on the call": `from_number` inbound, `to_number` outbound.
+CALL_VARS: frozenset[str] = frozenset({"caller_phone", "from_number", "to_number", "call_sid"})
 
 
 class ParamSpec(BaseModel):
@@ -60,9 +53,8 @@ class ParamSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # No leading underscore: those are RESERVED for values the executor injects itself
-    # (e.g. `_agent_ref`, the Bolna `{agent_id}` used to resolve the tenant), so a client
-    # cannot define a param that shadows one.
+    # No leading underscore: those are RESERVED for values the executor injects itself, so
+    # a client cannot define a param that shadows one.
     name: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
     source: ParamSource
     # static

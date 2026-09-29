@@ -32,7 +32,6 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
-import tool_routes
 import webhook_routes
 from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
@@ -679,8 +678,7 @@ def test_an_engine_this_deployment_never_heard_of_is_refused_and_never_labelled(
     assert "twilio" not in KNOWN_ENGINES
     labels: list[str] = []
     # Through a spy METER rather than by patching the module's recorder: which series an
-    # ack lands in is now a property of the `AckMeter` the endpoint carries (the receiver's
-    # `webhook_ack_ms`, the in-call tool endpoint's `tool_ack_ms`), so the meter is the
+    # ack lands in is a property of the `AckMeter` the endpoint carries, so the meter is the
     # seam that decides and therefore the seam a test must drive.
     spy = replace(
         webhook_routes.WEBHOOK_ACK,
@@ -698,15 +696,13 @@ async def test_a_strangers_engine_name_reaches_no_alert_field_either(
 
     `_refuse` bounds the value before it becomes a METRIC label and spends a paragraph on
     why. The `alert()` on the same refusal path — twenty lines above it in
-    `webhook_routes._receive`, and its twin in `tool_routes._opt_out` — passed the raw
-    path segment through into a structured log field, on EVERY request rather than on
-    every fifteenth minute, and into the alert email body. Measured before the fix: 414
-    characters of attacker-chosen text with an embedded newline on `calevate.alert`'s
-    record, from an unauthenticated caller at any source address, while the metric label
-    beside it correctly read `unknown`.
+    `webhook_routes._receive` — passed the raw path segment through into a structured log
+    field, on EVERY request rather than on every fifteenth minute, and into the alert email
+    body. Measured before the fix: 414 characters of attacker-chosen text with an embedded
+    newline on `calevate.alert`'s record, from an unauthenticated caller at any source
+    address, while the metric label beside it correctly read `unknown`.
 
-    Both endpoints, because they are the same shape and a fix to one is how the other
-    becomes the survivor. Nothing about the OPERATOR's information is lost: the reason
+    Nothing about the OPERATOR's information is lost: the reason
     string and the source address are both still on the record, and a stranger's spelling
     of a name we do not answer for is not evidence about anything.
     """
@@ -719,19 +715,14 @@ async def test_a_strangers_engine_name_reaches_no_alert_field_either(
                 json={},
                 headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
             )
-            tool = await http.post(
-                f"/tools/v1/{quoted}/opt-out",
-                json={},
-                headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
-            )
 
-    assert (webhook.status_code, tool.status_code) == (401, 401)
+    assert webhook.status_code == 401
     rejections = [
         record
         for record in caplog.records
-        if getattr(record, "code", None) in {"webhook_source_rejected", "tool_source_rejected"}
+        if getattr(record, "code", None) == "webhook_source_rejected"
     ]
-    assert len(rejections) == 2, "both refusals must have alerted; nothing here is measured yet"
+    assert len(rejections) == 1, "the refusal must have alerted; nothing here is measured yet"
     for record in rejections:
         engine = str(getattr(record, "engine", ""))
         assert engine == "unknown", (
@@ -956,16 +947,14 @@ async def test_the_same_transition_from_many_connections_at_once_enqueues_once(
 
 
 def test_every_spelling_of_the_execution_id_is_tried_not_just_the_first_truthy_one() -> None:
-    """The tool payload's shape is an ASSUMPTION about the engine's custom-function
-    mechanism (OPERATIONS §2 gate 8), not a verified contract — which is why three
+    """An engine's payload shape is not a verified contract — which is why three
     spellings are accepted at all. The fallback then has to survive the case it exists for.
 
     It did not. `payload.get("execution_id") or payload.get("id") or payload.get("call_id")`
     stops at the first TRUTHY value and only then checks it is a string, so a vendor that
     numbers its executions in one field and names them in another was answered `unkeyable`
-    with a usable key sitting one field to the right. On the webhook path that is a call
-    handed to the 10-minute poller; on the TOOL path it is a 422 at a caller who just asked
-    to be removed from the list, and there is no poller behind that one.
+    with a usable key sitting one field to the right — a call handed to the 10-minute
+    poller for no reason.
 
     Whitespace is stripped rather than rejected for the reason the padded-transition test
     above gives: the value becomes a durable key, and `"exec_1 "` must not be a second unit
@@ -997,13 +986,10 @@ def test_every_spelling_of_the_execution_id_is_tried_not_just_the_first_truthy_o
 
 # --- 12. a container where a scalar belongs ----------------------------------
 #
-# `extract` read `str(payload.get("status") or "unknown")` and `str(agent_ref)`, and
-# `tool_routes` read `str(payload.get("reason"))`. `str()` is TOTAL: handed a dict or a
-# list it renders Python's repr, so a payload whose status is `{"code": 3}` produced the
-# raw_status `"{'code': 3}"` — into the dedupe key, the ARQ job id and
-# `webhook_deliveries.event_type` — and a tool call whose reason is a list filed that
-# list's repr as the WORDS A CALLER USED to withdraw consent, in `consent_ledger`, which
-# is append-only (hard rule 4) and is the evidence this platform would show a regulator.
+# `extract` read `str(payload.get("status") or "unknown")` and `str(agent_ref)`. `str()`
+# is TOTAL: handed a dict or a list it renders Python's repr, so a payload whose status is
+# `{"code": 3}` produced the raw_status `"{'code': 3}"` — into the dedupe key, the ARQ job
+# id and `webhook_deliveries.event_type`.
 #
 # The payload is a hint (D-31) and the caller controls every byte of it at an unsigned
 # endpoint. A hint we cannot read is an ABSENT hint; a repr of it is a fabrication that
@@ -1077,33 +1063,6 @@ async def test_a_container_agent_ref_is_dropped_rather_than_repr_ed() -> None:
     assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
 
 
-async def test_a_container_reason_is_not_filed_as_the_words_a_caller_used() -> None:
-    """The consent ledger is append-only (hard rule 4), so a fabricated reason cannot be
-    corrected later — only compensated. An empty reason is honest; a repr is not."""
-    captured: list[dict[str, Any]] = []
-
-    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
-        captured.append(dict(args[0]) if args else {})
-        return "job-1"
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(tool_routes, "enqueue", _spy)
-        async with _client(EDGE_PROXY_IP) as http:
-            response = await http.post(
-                "/tools/v1/fake/opt-out",
-                json={
-                    "execution_id": f"exec_{uuid.uuid4().hex[:12]}",
-                    "reason": {"nested": ["do not call"]},
-                    "language": ["te"],
-                },
-                headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
-            )
-
-    assert response.status_code == 202, response.text
-    assert captured[0]["reason"] == "", captured[0]["reason"]
-    assert captured[0]["language"] == "", captured[0]["language"]
-
-
 def test_the_scalars_an_engine_may_plausibly_send_still_survive() -> None:
     """The other direction: tightening the coercion must not start dropping real fields.
 
@@ -1141,12 +1100,12 @@ async def test_a_deeply_nested_body_is_answered_rather_than_crashed(
     document deep enough to parse but deep enough that `str()` on it recurses, which is
     what every field read after the parse used to do.
 
-    Probed exhaustively at every depth from 100 to 999 on both endpoints and all four
-    fields before this file was written: none produced a 500, because `json.loads` gives
-    out one stack frame before `repr` would. **That margin is not why the code is
-    correct** — it is one refactor wide, and the fields no longer call `str()` on a
-    container at all. These depths bracket the parser's own limit so the two failure
-    modes it does have (a clean refusal, an acked-and-ignored event) stay the only two.
+    Probed exhaustively at every depth from 100 to 999 on every field read before this file
+    was written: none produced a 500, because `json.loads` gives out one stack frame before
+    `repr` would. **That margin is not why the code is correct** — it is one refactor wide,
+    and the fields no longer call `str()` on a container at all. These depths bracket the
+    parser's own limit so the two failure modes it does have (a clean refusal, an
+    acked-and-ignored event) stay the only two.
     """
     open_, close = ("[", "]") if nesting == "list" else ('{"a":', "}")
     payload = open_ * depth + ("1" if nesting == "dict" else "") + close * depth
@@ -1159,14 +1118,8 @@ async def test_a_deeply_nested_body_is_answered_rather_than_crashed(
             content=f'{{"execution_id":"exec_{token}","status":{payload}}}'.encode(),
             headers=headers,
         )
-        tool = await http.post(
-            "/tools/v1/fake/opt-out",
-            content=f'{{"execution_id":"exec_{token}","reason":{payload}}}'.encode(),
-            headers=headers,
-        )
 
     assert hook.status_code < 500, f"{nesting}@{depth}: {hook.status_code} {hook.text[:200]}"
-    assert tool.status_code < 500, f"{nesting}@{depth}: {tool.status_code} {tool.text[:200]}"
 
 
 # --- 14. the ack's own labels are bounded too --------------------------------

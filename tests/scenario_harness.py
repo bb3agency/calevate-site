@@ -86,11 +86,16 @@ from pipecat.frames.frames import (
     Frame,
     FunctionCallFromLLM,
     InterruptionFrame,
+    LLMAssistantPushAggregationFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMTextFrame,
     TranscriptionFrame,
+    TTSSpeakFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
+    TTSTextFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
@@ -98,6 +103,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import LLMService
 from pipecat.services.settings import LLMSettings
 from pipecat.transports.base_transport import BaseTransport
+from pipecat.utils.text.base_text_aggregator import AggregationType
 from pipecat.workers.runner import WorkerRunner
 from voice_worker import pipeline
 from voice_worker.call_tools import HANDOFF_GUIDANCE, HANDOFF_TOOL_NAME, CallToolApi
@@ -208,6 +214,11 @@ DEFAULT_CLIENT_SCRIPT: Final[str] = (
     "You answer the phone for Vaidya Clinic in Hyderabad. Help callers with appointments."
 )
 
+#: What a developer message says when the opening notices have already been spoken.
+_OPENING_SPOKEN_PREFIX: Final[str] = pipeline.OPENING_SPOKEN_GREETING_INSTRUCTION.split(
+    "{opening}"
+)[0]
+
 DEFAULT_POSTURE: Final[DisclosurePosture] = DisclosurePosture(
     ai_disclosure_line="Hello, I am an AI assistant for Vaidya Clinic.",
     ai_disclosure_enabled=True,
@@ -249,6 +260,7 @@ def make_session_config(
     greet_first: bool = True,
     knowledge_pack_sha256: str | None = None,
     call_id: str = "scenario-call",
+    opening_line: str = "",
 ) -> pipeline.SessionConfig:
     """A `SessionConfig` for a scenario. The models are real names; nothing dials out."""
     return pipeline.SessionConfig(
@@ -271,6 +283,7 @@ def make_session_config(
         language=language,
         greet_first=greet_first,
         knowledge_pack_sha256=knowledge_pack_sha256,
+        opening_line=opening_line,
     )
 
 
@@ -359,7 +372,32 @@ class InterruptibleTTS(SpyProcessor):
         if isinstance(frame, LLMFullResponseEndFrame):
             self.spoken.extend(self.held)
             self.held.clear()
+        if isinstance(frame, TTSSpeakFrame):
+            await self._speak_verbatim(frame)
+            return
         await super().process_frame(frame, direction)
+
+    async def _speak_verbatim(self, frame: TTSSpeakFrame) -> None:
+        """A `TTSSpeakFrame`, emitted the way the real `TTSService` emits one.
+
+        The service consumes the frame and pushes the utterance's own frames: a
+        `TTSStartedFrame` that opens an assistant turn, the text as a `TTSTextFrame`, a
+        `TTSStoppedFrame`, and — only when `append_to_context` is set and no LLM response
+        is in flight — an `LLMAssistantPushAggregationFrame` that commits the text as one
+        assistant turn (`pipecat/services/tts_service.py:845-879` and its `push_frame`).
+        Emulating that contract is what lets a scenario assert the notice reaches the
+        transcript exactly once, through the shipped assistant aggregator.
+        """
+        await FrameProcessor.process_frame(self, frame, FrameDirection.DOWNSTREAM)
+        self.seen.append(frame)
+        self.spoken.append(frame.text)
+        await self.push_frame(TTSStartedFrame(append_to_context=frame.append_to_context))
+        text = TTSTextFrame(frame.text, aggregated_by=AggregationType.SENTENCE)
+        text.append_to_context = frame.append_to_context
+        await self.push_frame(text)
+        await self.push_frame(TTSStoppedFrame())
+        if frame.append_to_context:
+            await self.push_frame(LLMAssistantPushAggregationFrame())
 
 
 class RecordingSink:
@@ -615,6 +653,10 @@ class PromptFollowingModel(LLMService):
         context = frame.context
         prompt = self._system_prompt(context)
         self.system_prompt_seen = prompt
+        greeting = self._greeting_request(context)
+        if greeting is not None:
+            await self._say(self._greet(greeting, prompt), prompt=prompt)
+            return
         heard = self._last_user_text(context).lower()
         telugu = self._obeys(MIRROR_LANGUAGE_RULE, prompt) and is_telugu(
             self._last_user_text(context)
@@ -666,6 +708,36 @@ class PromptFollowingModel(LLMService):
         await self._say(self._greeting(prompt, telugu=telugu), prompt=prompt)
 
     # -- the answers ---------------------------------------------------------------------
+
+    def _greeting_request(self, context: Any) -> str | None:
+        """The developer message asking for the opening turn, if that is what this is.
+
+        Read past assistant messages, because the verbatim notice may be committed to the
+        context after the greeting request was added and before the model runs.
+        """
+        for message in reversed(context.get_messages()):
+            if not isinstance(message, dict) or message.get("role") == "assistant":
+                continue
+            content = message.get("content")
+            is_request = message.get("role") == "developer" and isinstance(content, str)
+            if is_request and (
+                content == pipeline.GREETING_INSTRUCTION
+                or content.startswith(_OPENING_SPOKEN_PREFIX)
+            ):
+                return content
+            return None
+        return None
+
+    def _greet(self, request: str, prompt: str) -> str:
+        """The model's half of the opening. Told the notice was already spoken, an obedient
+        model opens on the client's script; a disobedient one says the notice again, which
+        is the duplication a scenario must be able to catch."""
+        if self.obedient and request.startswith(_OPENING_SPOKEN_PREFIX):
+            return ModelReply(
+                english="Vaidya Clinic, how can I help?",
+                telugu="వైద్య క్లినిక్, నేను ఎలా సహాయపడగలను?",
+            ).spoken_in(telugu=False)
+        return self._greeting(prompt, telugu=False)
 
     def _greeting(self, prompt: str, *, telugu: bool) -> str:
         """The opening. A model that was handed an opening line speaks it; one that was
@@ -1006,7 +1078,11 @@ async def run_scenario(
 
         if greet:
             await call.start_conversation()
-            await _await_utterances(run, at_least=1, timeout_s=timeout_s)
+            # Two turns when there are notices to volunteer: the verbatim notice, then the
+            # model's greeting. Waiting for one would let the first caller turn race the
+            # greeting.
+            opening_turns = 2 if call.opening_line.strip() else 1
+            await _await_utterances(run, at_least=opening_turns, timeout_s=timeout_s)
 
         for turn in turns:
             before = len(run.agent_utterances)

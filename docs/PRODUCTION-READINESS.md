@@ -818,8 +818,11 @@ compliance field that is structurally always null is worse than an absent one.
 ### P3.4 — Hard rule 5's "before the next dispatch tick" is false of the in-call tool path · MINOR · OURS (wording) / EXTERNAL (gate 8)
 
 For a DNC row that EXISTS, propagation is ≤1 tick — the gate's read is live SQL with no cache.
-But detection→row is unbounded: `tool_routes.py:162` only enqueues, and `workers/optout.py:86`
-then makes a vendor `get_execution` round trip before any write, with a 30s/120s retry ladder.
+⚠ SUPERSEDED: the path this finding describes (voice-runtime's tool route queuing
+`record_in_call_optout`) was deleted with the rented engine. On `owned_runtime` the in-call
+opt-out writes the suppression inside the request (`apps/api/worker/tools.record_opt_out`).
+The finding as written: detection→row was unbounded: the route only enqueued, and the job
+then made a vendor `get_execution` round trip before any write, with a 30s/120s retry ladder.
 SEC-COMP §2.3 states this correctly ("target ≤ minutes"); CLAUDE.md hard rule 5 does not.
 
 Second, unmarked: `optout.py:115` reads `from_e164`/`to_e164` from an execution **still in

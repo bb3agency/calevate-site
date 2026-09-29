@@ -1537,15 +1537,32 @@ async def set_campaign_status(
     moment would prove nothing about the moment it dials. The dial-time check is the
     enforcement — `tests/campaign_dispatch_audit_test.py` pins it. This change moves
     only which of the three answers each caller gets; it adds and removes no gate.
+
+    **Every call releases a maintenance window's claim on the campaign**
+    (`paused_by_maintenance_id`), including the no-op "already paused" answer. Whoever
+    calls this — the client, the copilot, `complaint_spike` — has stated the status they
+    want, and the window's end must not overrule it: otherwise a client's Pause, or a
+    complaint-spike safety pause taken after a Resume inside the window, is reversed by
+    `resume_campaigns_after_maintenance`.
     """
-    return await transition_status(
+    moved = await transition_status(
         session,
         table="campaigns",
         entity="Campaign",
         row_id=campaign_id,
         to_status=to_status,
         from_statuses=from_statuses,
+        extra_set="paused_by_maintenance_id = NULL",
     )
+    if not moved:
+        await session.execute(
+            text(
+                "UPDATE campaigns SET paused_by_maintenance_id = NULL, updated_at = now() "
+                "WHERE id = :id AND paused_by_maintenance_id IS NOT NULL"
+            ),
+            {"id": campaign_id},
+        )
+    return moved
 
 
 async def pause_campaigns_for_maintenance(session: AsyncSession, *, window_id: UUID) -> list[UUID]:

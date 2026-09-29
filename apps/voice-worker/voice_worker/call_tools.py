@@ -1,16 +1,14 @@
 """The four in-call tools an `owned_runtime` agent may call, and the client behind them.
 
-**FOUR, BECAUSE `apps/voice-runtime/tool_routes.py` SERVES FOUR ON THE RENTED ENGINE.**
-"Which tools does an agent have" must not have two answers depending on which engine it
-happens to run on. Advertising only the knowledge search here leaves an agent unable to
-honour a caller's opt-out, book or cancel a call-back, or ask for a person — and the
-opt-out half is a compliance defect (hard rule 5, SEC-COMP §2.3): no path by which "stop
-calling me" reaches the DNC list at all.
+**FOUR, BECAUSE AN AGENT MUST BE ABLE TO DO FOUR THINGS MID-CALL**: honour a caller's
+opt-out, book or cancel a call-back, and ask for a person. The opt-out half is a compliance
+obligation (hard rule 5, SEC-COMP §2.3): this is the in-call path by which "stop calling me"
+reaches the DNC list.
 
 **THE BEHAVIOUR IS THE SERVER'S AND THIS MODULE HOLDS NONE OF IT.** Every decision — what
 an opt-out does, whether a time is lawful to dial, whether a booking was confirmed, what
-the agent is told — is made by `apps/api/worker/tools.py`, which reaches the same service
-functions the engine leg's ARQ jobs reach. What lives here is the vocabulary the MODEL
+the agent is told — is made by `apps/api/worker/tools.py`, which reaches the one service
+function that owns each write. What lives here is the vocabulary the MODEL
 reads (names, descriptions, parameters) and the transport. A worker that decided any of it
 would be a second opinion about compliance running on a vendor's infrastructure.
 
@@ -229,18 +227,13 @@ _HANDOFF_DESCRIPTION = (
 def _confirmed(value: Any) -> bool:
     """Did the model say yes? Booleans, and the two strings a JSON-ish model produces.
 
-    NARROW ON PURPOSE, and it is `tool_routes._truthy` (`apps/voice-runtime/tool_routes.py:
-    526-536`) applied on this side of the wire: `true`, `"true"`, `"yes"` and nothing else
+    NARROW ON PURPOSE: `true`, `"true"`, `"yes"` and nothing else
     — not `1`, not a non-empty string, not Python's truthiness. An unrecognised value is an
     unconfirmed booking, which costs one conversational turn; the other direction costs a
     caller a phone call at four in the morning.
 
-    ⚠ **SPELLED TWICE, DELIBERATELY, AND THAT IS NOT DRIFT.** The engine-leg copy lives in
-    `apps/voice-runtime`, which this container may not import (a separate deployable, and
-    hard rule 3 keeps that service tiny); the shared package holds wire MODELS, and a
-    parser for a vendor's substitution format is not one. What the two halves of OUR
-    product share is the decided boolean on `CallbackBookIn.confirmed` — the narrowing
-    happens before the body is built, so the server never re-interprets a string.
+    The narrowing happens before the body is built, so `CallbackBookIn.confirmed` is a
+    decided boolean and the server never re-interprets a string.
     """
     if isinstance(value, bool):
         return value

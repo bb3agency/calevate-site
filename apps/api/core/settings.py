@@ -286,6 +286,16 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would be one nothing "
         "can read."
     ),
+    # THE CALLER-CLAIM SIGNING KEY. Env-only for two readers at once: voice-runtime signs
+    # with it and does not open the credential store (`with_secrets=False`), and the voice
+    # worker verifies with it inside a container that can never open that store.
+    "carrier_claim_secret": (
+        "the key that signs the caller's number on the stream URL is read by the "
+        "voice-runtime service, which never opens this credential store, and by the voice "
+        "worker on Pipecat Cloud, which cannot. Set CARRIER_CLAIM_SECRET (at least 32 "
+        "bytes) in the VPS environment AND, with the same value, in the "
+        "`calevate-pipecat-worker` secret set — a value saved here would reach neither."
+    ),
     "gnani_api_key": (
         "the Gnani TTS credential is read by the voice worker's own synthesis leg, inside "
         "a container on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can "

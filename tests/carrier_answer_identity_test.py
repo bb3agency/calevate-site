@@ -212,9 +212,9 @@ async def test_a_declared_parameter_is_read_and_forwarded_on_either_http_method(
 ) -> None:
     """The state drop, closed. UNKNOWN 2 (GET or POST?) is why both are driven.
 
-    This is the assertion the whole change exists to make: the carrier's HTTP request into
-    our own process carries the calling party, and it now survives into the stream URL
-    instead of being thrown away one line before it was minted.
+    The carrier's HTTP request carries the calling party and the STATE survives into the
+    stream URL. The number does not: the worker cannot authenticate that URL and refuses
+    to believe a number from it, so putting one there would only put it in an edge log.
     """
     ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
 
@@ -228,7 +228,7 @@ async def test_a_declared_parameter_is_read_and_forwarded_on_either_http_method(
     assert response.status_code == 200
     claim = _claim_of(response.text)
     assert claim[carrier_routes.CLAIM_CALLER_STATE_PARAM] == ["known"]
-    assert claim[carrier_routes.CLAIM_CALLER_PARAM] == [CALLER]
+    assert carrier_routes.CLAIM_CALLER_PARAM not in claim
 
 
 async def test_a_declared_parameter_that_arrives_empty_is_the_carriers_own_answer(
@@ -260,7 +260,6 @@ async def test_the_second_declared_name_is_tried_when_the_first_is_absent(
 
     claim = _claim_of(response.text)
     assert claim[carrier_routes.CLAIM_CALLER_STATE_PARAM] == ["known"]
-    assert claim[carrier_routes.CLAIM_CALLER_PARAM] == [CALLER[1:]]
 
 
 async def test_the_body_is_not_read_while_no_parameter_name_is_declared(
@@ -299,7 +298,7 @@ async def test_the_answer_leg_logs_the_state_and_never_the_number(
     stream_base: None,
     filled_contract: None,
 ) -> None:
-    """Hard rule 6. The number is carried on a URL we mint and is in NO line we write."""
+    """Hard rule 6. The number is in NO line we write and not on the URL we mint."""
     lines: list[str] = []
     ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
     sink = logger.add(lambda message: lines.append(str(message)), level="DEBUG")
@@ -320,9 +319,7 @@ async def test_the_answer_leg_logs_the_state_and_never_the_number(
         logger.remove(sink)
 
     assert response.status_code == 200
-    # Percent-encoded in the URL (`urlencode` escapes the leading `+`), which is what the
-    # worker's `parse_qsl` reverses — the round trip is asserted separately.
-    assert CALLER.lstrip("+") in _stream_url_of(response.text)
+    assert CALLER.lstrip("+") not in _stream_url_of(response.text)
     assert not any(CALLER in line or CALLER.lstrip("+") in line for line in lines)
 
 
@@ -448,10 +445,11 @@ def test_the_url_this_service_mints_round_trips_through_both_worker_readers() ->
     token = unquote(urlparse(url).path.rsplit("/", 1)[-1])
     assert carrier.route_of(token) == carrier.CallRoute(tenant_id=tenant_id, agent_id=agent_id)
 
+    assert CALLER.lstrip("+") not in url, "a number rode a URL nothing may believe"
     claim = carrier.claim_from_stream_url(url)
     assert claim.present and claim.carrier == "plivo"
-    assert claim.caller is not None and claim.caller.is_known
-    assert claim.caller.e164 == CALLER
+    assert claim.caller is not None and not claim.caller.is_known
+    assert claim.caller.e164 is None
 
 
 def test_a_socket_with_no_claim_is_absent_rather_than_wrong() -> None:
@@ -493,7 +491,22 @@ def test_a_claimed_known_with_no_number_may_not_authorise_a_suppression() -> Non
     assert claim.caller is not None
     assert claim.caller.state == "unparsed_by_client"
     assert not claim.caller.is_known
-    assert "not usable" in claim.caller.ground
+    assert claim.caller.ground == carrier.UNAUTHENTICATED_CLAIM_GROUND
+
+
+def test_a_number_claimed_on_the_socket_url_is_never_believed() -> None:
+    """Anything can open the worker's socket, so the query is whatever the connecting party
+    typed. Believed, a claimed number would key the in-call opt-out against a stranger,
+    read another person's remembered facts out to whoever connected, and book a call-back
+    to a number of their choosing. Only an authenticated claim may name a caller."""
+    claim = carrier.claim_from_stream_url(
+        f"{STREAM_BASE}/token?carrier=plivo&caller_state=known&caller=%2B919000000001"
+    )
+
+    assert claim.caller is not None
+    assert not claim.caller.is_known
+    assert claim.caller.e164 is None
+    assert claim.caller.ground == carrier.UNAUTHENTICATED_CLAIM_GROUND
 
 
 def test_a_claim_that_names_only_the_carrier_is_still_a_claim() -> None:
@@ -623,8 +636,9 @@ async def test_an_explicit_claim_is_checked_against_the_detection_rather_than_re
     handshake = await carrier.read_plivo_handshake(_SocketSaying(PLIVO_START), claim=claim)
 
     assert handshake.stream_id == "s-1" and handshake.carrier_call_id == "c-1"
-    # The fold: the socket said `unparsed_by_client`, the control plane had the number.
-    assert handshake.caller.is_known and handshake.caller.e164 == CALLER
+    # The fold: the socket said `unparsed_by_client` and the unauthenticated claim names no
+    # number, so nobody is known.
+    assert not handshake.caller.is_known and handshake.caller.e164 is None
 
 
 async def test_a_claim_that_disagrees_with_the_socket_refuses_the_call() -> None:
@@ -753,3 +767,99 @@ def test_a_carrier_we_have_no_contract_for_says_so_rather_than_guessing() -> Non
     assert identity.state == "unparsed_by_client"
     assert identity.ground, "a state with no ground is not explainable"
     assert "a-carrier-that-does-not-exist" not in str(identity.e164 or "")
+
+
+# --------------------------------------------------------------------------------------
+# 8. The signed claim: a number crosses the stream URL only under a MAC.
+# --------------------------------------------------------------------------------------
+
+CLAIM_KEY = b"k" * 32
+NOW = 1_800_000_000.0
+
+
+def _signed_url(ref: str, *, key: bytes = CLAIM_KEY, now: float = NOW) -> str:
+    return carrier_routes.plivo_stream_url(
+        STREAM_BASE,
+        ref,
+        carrier=carrier_routes.ANSWER_CARRIER,
+        caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),
+        claim_key=key,
+        now=now,
+    )
+
+
+def _read(url: str, ref: str, *, key: bytes | None = CLAIM_KEY, now: float = NOW) -> Any:
+    return carrier.claim_from_stream_url(url, ref=ref, claim_key=key, now=now).caller
+
+
+def test_a_signed_claim_for_this_agent_is_believed() -> None:
+    ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
+    caller = _read(_signed_url(ref), ref)
+    assert caller.is_known and caller.e164 == CALLER
+
+
+def _tampered(url: str, name: str, value: str) -> str:
+    parsed = urlparse(url)
+    query = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+    query[name] = value
+    from urllib.parse import urlencode
+
+    return parsed._replace(query=urlencode(query)).geturl()
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["tampered_number", "other_agent", "expired", "missing_mac", "no_key", "far_future"],
+)
+def test_a_claim_that_does_not_verify_names_nobody(case: str) -> None:
+    ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
+    url, read_ref, now, key = _signed_url(ref), ref, NOW, CLAIM_KEY
+    if case == "tampered_number":
+        url = _tampered(url, carrier_routes.CLAIM_CALLER_PARAM, "+919000000001")
+    elif case == "other_agent":
+        read_ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
+    elif case == "expired":
+        now = NOW + 10 * 60
+    elif case == "missing_mac":
+        parsed = urlparse(url)
+        query = {k: v[0] for k, v in parse_qs(parsed.query).items() if k != "caller_mac"}
+        from urllib.parse import urlencode
+
+        url = parsed._replace(query=urlencode(query)).geturl()
+    elif case == "no_key":
+        key = None  # type: ignore[assignment]
+    elif case == "far_future":
+        url = _signed_url(ref, now=NOW + 24 * 3600)
+
+    caller = _read(url, read_ref, key=key, now=now)
+
+    assert not caller.is_known and caller.e164 is None
+    assert caller.ground == carrier.UNAUTHENTICATED_CLAIM_GROUND
+
+
+def test_without_a_signing_key_the_answer_leg_puts_no_number_on_the_url() -> None:
+    ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
+    url = carrier_routes.plivo_stream_url(
+        STREAM_BASE,
+        ref,
+        caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),
+    )
+    assert CALLER.lstrip("+") not in url
+    assert "caller_mac" not in url
+
+
+async def test_the_answer_route_signs_with_the_configured_key(
+    stream_base: None, filled_contract: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end: the key in this service's settings is the key the worker verifies with."""
+    monkeypatch.setenv("CARRIER_CLAIM_SECRET", CLAIM_KEY.decode())
+    get_settings.cache_clear()
+    ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
+
+    response = await _request(
+        f"/carrier/v1/plivo/answer/{ref}?caller_param_a={CALLER.replace('+', '%2B')}"
+    )
+
+    url = _stream_url_of(response.text)
+    caller = carrier.claim_from_stream_url(url, ref=ref, claim_key=CLAIM_KEY).caller
+    assert caller is not None and caller.is_known and caller.e164 == CALLER

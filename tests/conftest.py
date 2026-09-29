@@ -529,14 +529,19 @@ def _no_ambient_credentials() -> Iterator[None]:
     # `manageable_secret_keys()` is the right source rather than a third list: it is
     # already the answer to "which Settings fields are credentials", it is what the ops
     # console seals, and a vendor added tomorrow is stripped by the code that exists.
-    from apps.api.core.settings import env_var_for
+    from apps.api.core.platform_config import is_secret_key
+    from apps.api.core.settings import ENV_ONLY_REASONS, env_var_for
     from apps.api.engine import all_credential_env_keys
     from apps.api.ops.secret_service import manageable_secret_keys
 
+    # The env-only credentials too (the carrier pair, the Gnani key, the caller-claim
+    # signing key): `manageable_secret_keys()` excludes them by construction, and a real
+    # value in a developer's `.env` changes what the answer route and the worker boot do.
     stripped = (
         *AMBIENT_CREDENTIALS,
         *all_credential_env_keys(),
         *(env_var_for(key) for key in manageable_secret_keys()),
+        *(env_var_for(key) for key in ENV_ONLY_REASONS if is_secret_key(key)),
     )
     saved = {name: os.environ.pop(name, None) for name in stripped}
     saved_home = os.environ.get("HOME")

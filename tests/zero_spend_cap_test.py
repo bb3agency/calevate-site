@@ -107,3 +107,23 @@ async def test_a_non_zero_cap_on_an_unmetered_month_writes_nothing() -> None:
 
     assert await _row(tenant_id) is None
     assert (await _gate(tenant_id, agent_id)).allowed
+
+
+async def test_ending_a_trial_keeps_a_zero_cap_armed() -> None:
+    """`end_trial` zeroes the live counters. Zero counters have already reached a zero
+    ceiling, so the flag must come out of the reset armed rather than cleared — a client's
+    stop button does not stop working because their trial converted."""
+    from apps.api.billing.trials import end_trial, start_trial
+
+    tenant_id, agent_id, _ = await _tenant("zerocaptrial")
+    await _plan(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=7, actor_user_id=None)
+    assert await _set_client_caps(tenant_id, cap_spend=Decimal("0")) is True
+
+    async with tenant_session(tenant_id) as session:
+        await end_trial(session, tenant_id=tenant_id, outcome="converted", reason="Bought.")
+
+    assert (await _gate(tenant_id, agent_id)).rule == "spend_cap"
+    zero = Decimal("0")
+    assert await _row(tenant_id) == (current_billing_month(), zero, zero, zero, True)

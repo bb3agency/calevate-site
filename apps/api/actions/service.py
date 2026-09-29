@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.models import ACTION_KINDS, ACTION_PROVIDERS, ACTION_TRIGGERS
 from apps.api.actions.schema import (
-    CALL_VARS,
     CalendarConfig,
     CustomApiConfig,
     ParamSpec,
@@ -501,20 +500,6 @@ async def set_actions_enabled(session: AsyncSession, *, agent_id: UUID, enabled:
     return rowcount_of(result) == 1
 
 
-def _context_ref(lead_var: str, direction: str) -> str:
-    """The call-context variable a lead-var binding substitutes, resolved per direction.
-
-    `caller_phone` is the other party on the call, which is `from_number` on an inbound
-    call and `to_number` on an outbound one (using-context.md:47-49). A `both`-direction
-    agent cannot be resolved statically; it falls back to `from_number` (the inbound case,
-    which is where a during-call WhatsApp send almost always happens) — documented rather
-    than silent.
-    """
-    if lead_var == "caller_phone":
-        return "{to_number}" if direction == "outbound" else "{from_number}"
-    return CALL_VARS[lead_var]
-
-
 async def declare(
     session: AsyncSession, *, agent_id: UUID, direction: str
 ) -> tuple[ActionToolSpec, ...]:
@@ -537,39 +522,23 @@ async def declare(
 def _to_spec(tool: LoadedTool, *, direction: str) -> ActionToolSpec:
     """One stored tool → the engine-facing `ActionToolSpec`.
 
-    Only `ai` and `lead_var` params become engine parameter slots; `static` ones are
-    applied by our executor and never sent. The tool's `name`/`description`/pre-call line
-    carry through; `description` already holds the during-call condition for WhatsApp.
+    Only `ai` params become parameters the model fills. `static` and `lead_var` params are
+    applied by our executor and never declared: a lead variable is the call's own data (the
+    other party's number, the call id), which an executing route supplies from our record
+    of the call rather than trusting a runtime to substitute it. `direction` is kept in the
+    signature because it is the declaration's own context, and the caller already has it.
     """
-    engine_params: list[ActionToolParam] = []
-    for raw in tool.params:
-        spec = ParamSpec.model_validate(raw)
-        if spec.source == "ai":
-            engine_params.append(
-                ActionToolParam(
-                    name=spec.name,
-                    fill="ai",
-                    type=spec.type,
-                    description=spec.description,
-                    required=spec.required,
-                )
-            )
-        elif spec.source == "lead_var":
-            assert spec.lead_var is not None
-            engine_params.append(
-                ActionToolParam(
-                    name=spec.name,
-                    fill="context",
-                    context_ref=_context_ref(spec.lead_var, direction),
-                )
-            )
-    # Always inject the agent ref so an executing endpoint can resolve the tenant WITHOUT a
-    # session: the engine substitutes `{agent_id}` — its own agent id, which is our
-    # `engine_agent_ref` — and `engine_agent_routes` maps it to the tenant. A reserved
-    # underscore name so no client param collides.
-    engine_params.append(
-        ActionToolParam(name="_agent_ref", fill="context", context_ref="{agent_id}")
-    )
+    del direction
+    engine_params = [
+        ActionToolParam(
+            name=spec.name,
+            type=spec.type,
+            description=spec.description,
+            required=spec.required,
+        )
+        for spec in (ParamSpec.model_validate(raw) for raw in tool.params)
+        if spec.source == "ai"
+    ]
     # The (agent, name) unique index guarantees the function name is unique within the one
     # agent this declaration is for, which is the scope the engine resolves calls in.
     return ActionToolSpec(

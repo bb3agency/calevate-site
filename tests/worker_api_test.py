@@ -196,7 +196,8 @@ async def test_the_session_read_answers_the_published_version_the_worker_must_ru
         stored = (
             await db.execute(
                 text(
-                    "SELECT v.composed_prompt, v.prompt_sha256 FROM pipecat_agents p "
+                    "SELECT v.composed_prompt, v.prompt_sha256, "
+                    "p.resolved_config->>'opening_line' FROM pipecat_agents p "
                     "JOIN agent_config_versions v ON v.id = p.agent_config_version_id "
                     "WHERE p.agent_id = :a"
                 ),
@@ -204,6 +205,9 @@ async def test_the_session_read_answers_the_published_version_the_worker_must_ru
             )
         ).one()
     assert (answer.system_prompt, answer.prompt_sha256) == (stored[0], stored[1])
+    # The worker speaks this verbatim, so it must be the published version's own words.
+    assert stored[2], "the fixture agent volunteers no notice, so this proves nothing"
+    assert answer.opening_line == stored[2]
 
 
 async def test_a_ref_that_names_no_published_agent_is_a_404_and_discloses_nothing(
@@ -220,6 +224,39 @@ async def test_a_ref_that_names_no_published_agent_is_a_404_and_discloses_nothin
             with pytest.raises(WorkerApiError) as refused:
                 await api.session(ref)
             assert "404" in str(refused.value)
+
+
+async def test_a_published_version_without_the_truthful_answer_floor_is_never_served(
+    worker_token: None,
+) -> None:
+    """Hard rule 5 on the server's side of the wire, not only the worker's.
+
+    `mint_config_version` refuses to compose such a version, so the row is inserted by hand
+    here — which is the only way one can exist, and exactly the case the check is for.
+    """
+    tenant_id, agent_id, ref = await published_agent()
+    async with tenant_session(tenant_id) as db:
+        version_id = uuid.uuid4()
+        await db.execute(
+            text(
+                "INSERT INTO agent_config_versions (id, tenant_id, agent_id, prompt_sha256, "
+                " model_config_sha256, composed_prompt, opening_line, model_config) "
+                "SELECT :vid, tenant_id, agent_id, :sha, model_config_sha256, "
+                "       'You are a helpful receptionist.', opening_line, model_config "
+                "FROM agent_config_versions v "
+                "WHERE v.id = (SELECT agent_config_version_id FROM pipecat_agents "
+                "              WHERE agent_id = :a)"
+            ),
+            {"vid": version_id, "sha": "f" * 64, "a": agent_id},
+        )
+        await db.execute(
+            text("UPDATE pipecat_agents SET agent_config_version_id = :v WHERE agent_id = :a"),
+            {"v": version_id, "a": agent_id},
+        )
+    async with worker_client() as api:
+        with pytest.raises(WorkerApiError) as refused:
+            await api.session(ref)
+    assert "409" in str(refused.value)
 
 
 async def test_the_preflight_probe_passes_on_a_good_token_and_fails_on_a_bad_one(
@@ -1170,10 +1207,18 @@ def test_an_unpriceable_leg_says_its_quantity_is_not_kept_anywhere() -> None:
 
     Pure: no database, no route. `_price_one` is the whole decision.
     """
-    from apps.api.worker.service import REMETERABLE_CODES, _LegNotPriceableError, _price_one
+    from apps.api.worker.service import (
+        REMETERABLE_CODES,
+        _LegNotPriceableError,
+        _price_one,
+        _PricingBasis,
+    )
 
     with pytest.raises(_LegNotPriceableError) as refused:
-        _price_one(MeteredQuantity(leg="carrier", unit_type="telephony_s", qty=Decimal("60")))
+        _price_one(
+            MeteredQuantity(leg="carrier", unit_type="telephony_s", qty=Decimal("60")),
+            _PricingBasis(llm_model=None, tts_provider=None, tts_inr_per_1k=None),
+        )
 
     refusal = refused.value.refusal
     assert refusal.code == "meter_leg_not_priceable_here"

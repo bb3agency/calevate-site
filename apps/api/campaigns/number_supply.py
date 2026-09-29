@@ -65,7 +65,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import series_for_e164
 from apps.api.billing.number_rental import record_number_rental
-from apps.api.billing.service import current_billing_month
 from apps.api.campaigns.provisioning import (
     PURCHASABLE_SERIES,
     assert_number_supply_authorized,
@@ -353,8 +352,18 @@ async def _meter_purchase_month(
     In a savepoint, because the number is already bought: a metering failure (an FX rate we
     cannot read, say) must not roll back the only record that points at the purchase. It is
     alarmed instead, naming the month the 1st-of-month pass will never revisit.
+
+    The month is read off the transaction's own `now()`, the instant the rental row is
+    stamped with, rather than off this process's clock: two clocks straddling IST
+    midnight on the last day would file one month's ref under the other month's date.
     """
-    month = current_billing_month()
+    month = str(
+        (
+            await session.execute(
+                text("SELECT to_char(now() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM')")
+            )
+        ).scalar_one()
+    )
     try:
         async with session.begin_nested():
             await record_number_rental(

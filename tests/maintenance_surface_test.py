@@ -492,6 +492,82 @@ async def test_a_campaign_cancelled_during_the_window_is_not_dragged_back() -> N
             )
 
 
+async def _window_tenant(name: str) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    from apps.api.admin import service as admin_service
+
+    created = await admin_service.create_organization(
+        name=name,
+        slug=f"mw-{uuid.uuid4().hex[:8]}",
+        vertical_template="real_estate",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    window_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_maintenance_windows (id, reason, starts_at, ends_at) "
+                "VALUES (:id, 'A window a person acted inside.', now(), "
+                "now() + interval '1 hour')"
+            ),
+            {"id": window_id},
+        )
+    return created["id"], created["agent_id"], window_id
+
+
+async def test_a_client_pause_during_the_window_outlives_the_window() -> None:
+    """The client presses Pause on a campaign the window already paused. The request
+    succeeds as a no-op, and the client has now said what they want: the window's end must
+    not restart it."""
+    from apps.api.campaigns.service import set_campaign_status
+
+    tenant_id, agent_id, window_id = await _window_tenant("Held Motors")
+    try:
+        campaign_id = await _campaign(tenant_id, agent_id, status="running")
+        async with tenant_session(tenant_id) as session:
+            await pause_campaigns_for_maintenance(session, window_id=window_id)
+        async with tenant_session(tenant_id) as session:
+            moved = await set_campaign_status(
+                session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
+            )
+        assert moved is False
+        async with tenant_session(tenant_id) as session:
+            resumed = await resume_campaigns_after_maintenance(session, window_id=window_id)
+        assert resumed == [], "the window restarted a campaign its client had paused"
+        assert await _status(tenant_id, campaign_id) == ("paused", None)
+    finally:
+        await _drop_window(window_id)
+
+
+async def test_a_complaint_spike_pause_during_the_window_is_not_undone_by_its_end() -> None:
+    """The client resumes inside the window, then the complaint-spike guard pauses the
+    campaign for an opt-out spike (FLOWS §5). That pause is a TCCCPR safety stop, and the
+    window closing must not reverse it."""
+    from apps.api.campaigns.service import set_campaign_status
+
+    tenant_id, agent_id, window_id = await _window_tenant("Spiked Motors")
+    try:
+        campaign_id = await _campaign(tenant_id, agent_id, status="running")
+        async with tenant_session(tenant_id) as session:
+            await pause_campaigns_for_maintenance(session, window_id=window_id)
+        async with tenant_session(tenant_id) as session:
+            await set_campaign_status(
+                session, campaign_id=campaign_id, to_status="running", from_statuses=("paused",)
+            )
+        # `complaint_spike.check_complaint_spike`'s own call.
+        async with tenant_session(tenant_id) as session:
+            assert await set_campaign_status(
+                session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
+            )
+        async with tenant_session(tenant_id) as session:
+            resumed = await resume_campaigns_after_maintenance(session, window_id=window_id)
+        assert resumed == [], "the window's end undid a complaint-spike pause"
+        assert await _status(tenant_id, campaign_id) == ("paused", None)
+    finally:
+        await _drop_window(window_id)
+
+
 # ------------------------------------------------- 5. publishing waits for the window
 
 

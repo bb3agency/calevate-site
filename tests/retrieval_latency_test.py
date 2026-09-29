@@ -31,8 +31,8 @@ provider decision should be compared against, since a remote store is where the 
 becomes expensive and the arithmetic inverts. `cache.py` argues what the cache buys
 meanwhile; nothing in this file may claim it buys speed at T0.
 
-NO MILLISECOND IS ASSERTED, for the reason `tests/tool_endpoint_budget_test.py` states at
-length and `tests/webhook_storm_test.py` argues: a latency bound on a shared runner
+NO MILLISECOND IS ASSERTED, for the reason `tests/ack_harness.py` states and
+`tests/webhook_storm_test.py` argues: a latency bound on a shared runner
 measures the runner, flaps, and gets deleted along with the guarantee it carried. What is
 asserted is that the instrument works and that the ORDERING is a property rather than a
 measurement — a hit cannot cost more than the miss it replaced, and the Redis leg cannot

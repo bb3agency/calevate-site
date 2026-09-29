@@ -485,8 +485,7 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         why=(
             "The same worker's in-call opt-out tool: the ONLY path by which a caller "
             "saying 'stop calling me' on an owned_runtime call reaches `dnc_list` "
-            "(SEC-COMP §2.3, hard rule 5). `apps/voice-runtime/tool_routes.py` serves the "
-            "rented engine and served this one nothing. MUTATING, same credential and the "
+            "(SEC-COMP §2.3, hard rule 5). MUTATING, same credential and the "
             "same RLS-from-the-ref property as the observations route above: the tenant is "
             "PARSED out of the engine-space call ref and the suppression is written under "
             "that tenant's RLS by `compliance/optout.record_call_optout`, the one writer "

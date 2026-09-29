@@ -174,8 +174,8 @@ class TestWiring:
 
         `POST /v1/worker/calls/{engine_call_id}/tools/{opt-out,callback,callback/cancel,
         handoff}` are what an agent running on our OWN engine calls mid-conversation. They
-        exist because the product had two engines and one set of tools:
-        `apps/voice-runtime/tool_routes.py` serves these same four on the rented engine and
+        exist because the product had two engines and one set of tools: the rented engine's
+        tool routes served these four (deleted with that engine) and
         `voice_worker/pipeline.assemble_call` advertised exactly ONE, the knowledge search.
         So on `owned_runtime` a caller saying "stop calling me" reached nothing at all — no
         `dnc_list` row, no `consent_ledger` evidence, nothing for the dispatch gate to read.

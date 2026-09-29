@@ -43,7 +43,6 @@ import tempfile
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -58,15 +57,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
 HOOK = "/hooks/v1/engine/fake"
-TOOL = "/tools/v1/fake/opt-out"
-BOOK = "/tools/v1/fake/callback"
-CANCEL_CALLBACK = "/tools/v1/fake/callback/cancel"
-HANDOFF = "/tools/v1/fake/handoff"
 
-#: A date the booking endpoint will accept as "far enough ahead", computed rather than
-#: written down: a literal would silently start failing `too_soon` the day it passed, and
-#: the branch this drive exists to reach would go unmeasured with nothing going red.
-_SOON = (datetime.now(UTC) + timedelta(days=3)).strftime("%Y-%m-%d")
 
 # --- the boot graph ----------------------------------------------------------
 
@@ -290,10 +281,6 @@ ALLOWED_THIRD_PARTY: frozenset[str] = frozenset(
         # The service's own modules (importable only via --app-dir; D-18).
         "main",
         "webhook_routes",
-        # The in-call tool endpoints (D-56's opt-out). It imports `webhook_routes`'
-        # ack/bounded-read helpers and `engine_intake`'s source check and nothing else —
-        # deliberately, because it runs while a caller is on the line.
-        "tool_routes",
         "engine_intake",
         # The carrier's answer document (D-610). It imports `apps.api.core`'s error
         # ladder, logger and settings plus `calevate_shared.engine`'s ref parser, and
@@ -382,19 +369,17 @@ def _client(peer_ip: str) -> AsyncClient:
 
 
 async def _drive(http: AsyncClient, tag: str) -> None:
-    """One pass over EVERY branch either handler has, the error ones included.
+    """One pass over EVERY branch the receiver has, the error ones included.
 
-    It used to be the receiver's six happy-ish branches — refused, oversized, unreadable,
-    unkeyable, accepted, duplicate. That left the whole in-call tool endpoint out of the
-    measurement, and every branch reached only by a failure: a hang-up mid-body, a body
-    that never finishes, a 409 out of the inbox, an unhandled driver error. Those are
-    precisely where a lazy import hides — an error path is where somebody reaches for a
-    formatter, a traceback helper or a client "just to report it" — and none of them was
-    being watched.
+    It used to be only the six happy-ish branches — refused, oversized, unreadable,
+    unkeyable, accepted, duplicate. That left out every branch reached only by a failure: a
+    hang-up mid-body, a body that never finishes, a 409 out of the inbox, an unhandled
+    driver error. Those are precisely where a lazy import hides — an error path is where
+    somebody reaches for a formatter, a traceback helper or a client "just to report it" —
+    and none of them was being watched.
     """
     headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
     body = {"execution_id": f"exec_{tag}", "status": f"completed-{tag}"}
-    tool = {"execution_id": f"exec_{tag}", "reason": "remove me", "language": "te"}
 
     await http.post(HOOK, json=body)  # 401: not allowlisted
     await http.post(HOOK, content=b"x" * 2_000_000, headers=headers)  # 413
@@ -402,57 +387,6 @@ async def _drive(http: AsyncClient, tag: str) -> None:
     await http.post(HOOK, json={"status": "completed"}, headers=headers)  # unkeyable
     await http.post(HOOK, json=body, headers=headers)  # accepted
     await http.post(HOOK, json=body, headers=headers)  # duplicate
-
-    await http.post(TOOL, json=tool)  # 401
-    await http.post(TOOL, content=b"y" * 8_192, headers=headers)  # 413 at the tool's cap
-    await http.post(TOOL, json={"reason": "no id"}, headers=headers)  # 422
-    await http.post(TOOL, json=tool, headers=headers)  # 202
-
-    # THE CALL-BACK PAIR (D-514), every branch, for this function's own reason: the
-    # booking endpoint's THREE outcomes are all reached by ordinary conversation rather
-    # than by error, so leaving two of them undriven would watch the path a caller almost
-    # never takes and miss the two they do. `resolve_slot` is the only computation this
-    # service performs before deferring, and an import reached from inside it — a date
-    # parser somebody thought would be more forgiving — is exactly what this measures.
-    await http.post(BOOK, json={"execution_id": f"exec_{tag}"})  # 401
-    await http.post(BOOK, json={"execution_id": f"exec_{tag}"}, headers=headers)  # unreadable
-    await http.post(
-        BOOK,
-        json={"execution_id": f"exec_{tag}", "callback_date": _SOON, "callback_time": "04:00"},
-        headers=headers,
-    )  # outside calling hours
-    await http.post(
-        BOOK,
-        json={"execution_id": f"exec_{tag}", "callback_date": _SOON, "callback_time": "16:00"},
-        headers=headers,
-    )  # needs confirmation
-    await http.post(
-        BOOK,
-        json={
-            "execution_id": f"exec_{tag}",
-            "callback_date": _SOON,
-            "callback_time": "16:00",
-            "confirmed": True,
-        },
-        headers=headers,
-    )  # 202
-    await http.post(CANCEL_CALLBACK, json={"execution_id": f"exec_{tag}"}, headers=headers)  # 202
-
-    # THE HANDOVER NOTICE (D-533), every branch. It carries the model's own `reason` and
-    # `summary` — free-form prose about a live conversation — and prose is exactly where a
-    # lazy import for a formatter, a truncator or a redaction helper would be reached for.
-    # Nothing on this path may look at those strings; the worker redacts them.
-    await http.post(HANDOFF, json={"execution_id": f"exec_{tag}"})  # 401
-    await http.post(HANDOFF, json={"reason": "no id"}, headers=headers)  # 422
-    await http.post(
-        HANDOFF,
-        json={
-            "execution_id": f"exec_{tag}",
-            "reason": "caller asked for the owner",
-            "summary": "Wants a refund on an order from last week.",
-        },
-        headers=headers,
-    )  # 202
 
     await _hang_up_mid_body(HOOK)  # 400: ClientDisconnect out of the stream
     with pytest.MonkeyPatch.context() as patch:

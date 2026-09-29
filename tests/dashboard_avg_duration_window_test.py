@@ -30,7 +30,9 @@ from __future__ import annotations
 import inspect
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.crm.schemas import DashboardOut
 from apps.api.crm.service import DASHBOARD_DAYS, dashboard
@@ -162,6 +164,31 @@ async def test_the_other_tiles_did_not_change_meaning() -> None:
 
     assert out.calls_today == 1, "today's count changed when the window moved"
     assert out.calls_7d == 2, "the 7-day count picked up the month-old call"
+
+
+async def test_calls_today_is_the_ist_calendar_day() -> None:
+    """`calls_today` counts the IST day, as the `daily_7d` bar beside it does.
+
+    One call a minute after IST midnight and one a minute before it. Both fall on the same
+    UTC date (18:29 and 18:31 UTC), so a UTC-dated filter counts both or neither; the IST
+    day counts exactly the first.
+    """
+    tenant_id, agent_id = await _tenant()
+    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    midnight = ist_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if ist_now < midnight + timedelta(minutes=2):
+        pytest.skip("inside the first two minutes of the IST day")
+
+    async with tenant_session(tenant_id) as session:
+        for at in (midnight + timedelta(minutes=1), midnight - timedelta(minutes=1)):
+            await _completed_call(
+                session, tenant_id, agent_id, at=at.astimezone(UTC), duration_s=INSIDE_DURATION_S
+            )
+        out = await dashboard(session)
+
+    assert out.calls_today == 1, "calls_today is not the IST calendar day"
+    today = next(day for day in out.daily_7d if day.ist_date == midnight.date())
+    assert today.total == out.calls_today, "the tile and today's chart bar disagree"
 
 
 def test_the_bound_is_on_the_statement_so_the_index_can_serve_it() -> None:

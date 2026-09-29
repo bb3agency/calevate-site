@@ -9,7 +9,7 @@ spend was real, absorbed and permanently uninvoiceable.
 WHAT THESE TESTS ASSERT, IN THE ORDER THE MONEY MOVES
 
 1. A refusal an attestation can answer parks the MEASUREMENT, in the settlement's own
-   transaction, exactly once (`remeter:{call}:{leg}`).
+   transaction, exactly once (`remeter:{call}:{leg}:{unit_type}`).
 2. A refusal an attestation can NEVER answer parks nothing, so the worklist holds no item
    that cannot be closed.
 3. Once the price is attested, the sweep meters the old call — at the rate now on file and
@@ -49,17 +49,33 @@ from sqlalchemy import text
 from tests.worker_api_harness import (
     call_ref,
     declare_pipecat_engine,
-    published_agent,
     worker_client,
 )
 
 pytestmark = [pytest.mark.rls]
 
-#: A model identifier the catalogue has never heard of, so `llm_inr_per_ktok` refuses it on
-#: hard rule 7's own terms until an operator attests one — which is precisely the state a
-#: real deployment is in for `gemini-2.5-flash-lite` today. An unknown id rather than a real
-#: one so the test cannot start passing because somebody attested a shipped model.
-UNPRICED_MODEL = "a-model-nobody-has-attested"
+#: The model the published agent runs, and one the catalogue does not let us bill until an
+#: operator attests it (its catalogue price is not a vendor reading) — which is precisely the
+#: state a real deployment is in today. The SERVER prices from the published configuration,
+#: so this is the model on the agent, not a string in the worker's meta.
+UNPRICED_MODEL = "gemini-2.5-flash-lite"
+
+
+async def published_agent() -> tuple[uuid.UUID, uuid.UUID, str]:
+    """A published agent whose LLM leg is `UNPRICED_MODEL` on the Google leg."""
+    from apps.api.engine.pipecat import PipecatEngine, engine_agent_ref_for
+    from tests.kb_workflow_test import _tenant_with_published_agent
+    from tests.voice_worker_session_test import _agent_config
+
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
+    config = _agent_config(tenant_id, agent_id)
+    models = config.models.model_copy(
+        update={"llm_provider": "google", "llm_model": UNPRICED_MODEL, "llm_base_url": None}
+    )
+    await PipecatEngine().create_agent(config.model_copy(update={"models": models}))
+    return tenant_id, agent_id, engine_agent_ref_for(str(tenant_id), str(agent_id))
+
 
 #: What the worker measured on the leg nobody could price. A quantity, never a price.
 TOKENS = Decimal("12.5")
@@ -208,7 +224,7 @@ async def test_a_leg_refused_for_want_of_a_price_parks_its_measurement(
     schema alone would have nothing to read.
     """
     tenant_id, call_row_id, _ref = await _settled_call()
-    assert await _demand_keys(tenant_id, call_row_id) == [f"remeter:{call_row_id}:llm"]
+    assert await _demand_keys(tenant_id, call_row_id) == [f"remeter:{call_row_id}:llm:llm_ktok_in"]
     assert await _usage(tenant_id, call_row_id) == [], "an unpriced leg must never meter a zero"
 
 
@@ -221,7 +237,7 @@ async def test_a_leg_no_attestation_can_ever_answer_parks_nothing(worker_token: 
     """
     tenant_id, call_row_id, _ref = await _settled_call()
     keys = await _demand_keys(tenant_id, call_row_id)
-    assert f"remeter:{call_row_id}:carrier" not in keys
+    assert not any(key.startswith(f"remeter:{call_row_id}:carrier") for key in keys)
 
 
 async def test_a_redelivered_settlement_parks_no_second_demand(worker_token: None) -> None:
@@ -237,7 +253,9 @@ async def test_a_redelivered_settlement_parks_no_second_demand(worker_token: Non
         row_id = (
             await db.execute(text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": ref})
         ).scalar_one()
-    assert await _demand_keys(tenant_id, uuid.UUID(str(row_id))) == [f"remeter:{row_id}:llm"]
+    assert await _demand_keys(tenant_id, uuid.UUID(str(row_id))) == [
+        f"remeter:{row_id}:llm:llm_ktok_in"
+    ]
 
 
 # ---------------------------------------------------------------------------------------
@@ -291,6 +309,54 @@ async def test_an_attested_price_meters_the_call_that_was_waiting_for_it(
     # through the module under test.
     assert unit_cost == Decimal("0.0957")
     assert occurred_at == settled_at, "a re-metered row was filed in the wrong month"
+
+
+async def test_both_token_directions_of_one_llm_leg_are_parked_and_remetered(
+    worker_token: None,
+) -> None:
+    """The worker reports the LLM leg as TWO quantities, input and output tokens, and an
+    unattested model refuses both. Keyed on the leg alone, the second demand collided with
+    the first and was dropped, so the attestation billed the input tokens and the output
+    tokens — the dearer half on every catalogue price — were never billed."""
+    tenant_id, agent_id, _agent_ref = await published_agent()
+    _call_id, ref = call_ref(tenant_id)
+    settlement = _settlement(agent_id).model_copy(
+        update={
+            "quantities": [
+                MeteredQuantity(
+                    leg="llm",
+                    unit_type=unit,
+                    qty=TOKENS,
+                    meta={"model": UNPRICED_MODEL, "total_tokens": "12500"},
+                )
+                for unit in ("llm_ktok_in", "llm_ktok_out")
+            ]
+        }
+    )
+    async with worker_client() as api:
+        await api.post_settlement(ref, settlement)
+    async with tenant_session(tenant_id) as db:
+        row_id = uuid.UUID(
+            str(
+                (
+                    await db.execute(
+                        text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": ref}
+                    )
+                ).scalar_one()
+            )
+        )
+    assert await _demand_keys(tenant_id, row_id) == [
+        f"remeter:{row_id}:llm:llm_ktok_in",
+        f"remeter:{row_id}:llm:llm_ktok_out",
+    ]
+
+    _attest("1.00")
+    await remeter_refused_legs({})
+
+    assert [unit for unit, _cost, _at in await _usage(tenant_id, row_id)] == [
+        "llm_ktok_in",
+        "llm_ktok_out",
+    ]
 
 
 # ---------------------------------------------------------------------------------------

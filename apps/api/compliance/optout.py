@@ -71,14 +71,12 @@ DETECTION: WHICH LAYER, AND WHY BOTH
 
 Two honest places, and they are not equivalent:
 
-1. **An in-call tool** the agent invokes the moment the caller asks (voice-runtime's
-   `POST /tools/v1/opt-out` → `workers.optout.record_in_call_optout`). Immediate, and it
-   is what SEC-COMP §2.3 specifies. What it does NOT cover: it depends on the model
-   choosing to call the function, on the engine supporting custom functions the way we
-   assume, and on the tool round trip completing — Bolna's custom-function contract is
-   an OPERATIONS §2 gate (item 8: "test a custom function to our endpoint and record the
-   tool-call p95 — no timeout is documented"), not a verified behaviour (D-31/D-32). A
-   layer that can be silently absent is not a layer you may rely on alone.
+1. **An in-call tool** the agent invokes the moment the caller asks (the voice worker's
+   `record_do_not_call` → `POST /v1/worker/calls/{ref}/tools/opt-out` →
+   `worker/tools.record_opt_out` → `record_call_optout`, inside the request). Immediate,
+   and it is what SEC-COMP §2.3 specifies. What it does NOT cover: it depends on the model
+   choosing to call the function and on the round trip completing inside the tool budget.
+   A layer that can be silently absent is not a layer you may rely on alone.
 2. **The post-call pipeline** reading the transcript (`workers/pipeline.py`, step 2b).
    Offline, deterministic, and it runs on EVERY completed call whether or not the model
    cooperated — including calls where the agent talked over the request. What it does

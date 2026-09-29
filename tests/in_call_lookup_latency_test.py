@@ -42,8 +42,8 @@ call path needs, is the one asserted below: a lookup is TWO ORDERS OF MAGNITUDE 
 The measured path INCLUDES the operator log line `search` emits, because that is the path a
 turn runs. Its cost was separately below the run-to-run noise of the lookup itself.
 
-**NO MILLISECOND FIGURE IS ASSERTED AS A THRESHOLD**, for `tool_endpoint_budget_test.py`'s
-reason: a latency bound on a shared runner measures the runner, flaps, and is eventually
+**NO MILLISECOND FIGURE IS ASSERTED AS A THRESHOLD**, for `tests/ack_harness.py`'s reason:
+a latency bound on a shared runner measures the runner, flaps, and is eventually
 deleted along with the guarantee it carried. What IS asserted is a ratio so large that no
 contention this box can produce reaches it, plus one ordering that is a property of the
 index rather than of the clock.

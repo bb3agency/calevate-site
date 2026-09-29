@@ -148,8 +148,8 @@ async def test_asking_for_an_address_is_not_agreeing_to_a_site_visit() -> None:
 # the start and only TESTS wrote it, so a caller could ask to be removed, the agent
 # could confirm, and the next campaign tick dialled them again. Closed by D-56: a phrase
 # detector plus ONE write path (`apps/api/compliance/optout.py`), reached from two
-# layers — the post-call pipeline's step 2b and voice-runtime's `/tools/v1/{engine}/
-# opt-out` → `apps/workers/optout.py`.
+# layers — the post-call pipeline's step 2b and the voice worker's in-call opt-out tool
+# (`apps/api/worker/tools.record_opt_out`).
 #
 # The pin was STRUCTURAL ("`add_to_dnc` appears in pipeline.py") because the behaviour
 # could not be asserted before the seam existed. It is now behavioural and lives in

@@ -23,6 +23,7 @@ So the assertions are:
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -34,6 +35,7 @@ from apps.api.agents.publishing import set_caller_memory
 from apps.api.agents.service import publish_agent
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance import caller_memory, dnc
+from apps.api.core import loadshed
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
@@ -416,3 +418,36 @@ async def test_a_memory_store_that_raises_does_not_stop_the_promised_call(
     assert outcome["dialled"] == 1, "a nicety that failed stopped a promised call"
     assert seen and seen[0].caller_memory == ()
     assert (await _row(tenant_id, callback_id))["status"] == "dialing"
+
+
+async def test_a_halt_the_memo_has_not_seen_still_stops_the_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tick primes `loadshed`'s five-second in-process memo before this loop runs, and
+    the halt is written by the API process, which clears only its own memo. A call-back
+    gated on that memo dials after `dial_recall`'s single scan and is never recalled.
+
+    The memo is primed "running" and the durable row says halted; nothing global is
+    written (private cache key, stubbed durable read).
+    """
+    tenant_id, agent_id = await _dialable_tenant()
+    callback_id = await _book(tenant_id, agent_id)
+
+    async def _halted() -> loadshed.PlatformStatus:
+        return loadshed.PlatformStatus(mode="normal", outbound_halted=True)
+
+    monkeypatch.setattr(loadshed, "_REDIS_KEY", f"calevate:test:{uuid.uuid4().hex}")
+    monkeypatch.setattr(loadshed, "_read_durable", _halted)
+    monkeypatch.setattr(
+        loadshed,
+        "_memo",
+        (time.monotonic(), loadshed.PlatformStatus(mode="normal", outbound_halted=False)),
+    )
+
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+
+    assert outcome["dialled"] == 0, f"a call-back dialled through the halt: {outcome}"
+    row = await _row(tenant_id, callback_id)
+    # Deferred, not settled: a halt is not a fact about the person.
+    assert row["status"] == "scheduled"
+    assert row["last_refusal_rule"] == "big_red_switch"

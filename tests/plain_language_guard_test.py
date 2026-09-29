@@ -365,7 +365,6 @@ _UNSWEPT: dict[str, int] = {
     # NOT a person on the other end: the voice engine POSTs these webhooks and an ARQ job
     # reads these. "Payload too large" to the engine is the accurate word. Listed rather
     # than exempted, because the day one of these reaches a screen it should be counted.
-    "apps/voice-runtime/tool_routes.py": 2,
     "apps/voice-runtime/webhook_routes.py": 4,
     "apps/workers/pipeline.py": 2,
     # Two audiences in one mapping: `_ASSIST_REMEDIATION` is keyed by (audience, reason)

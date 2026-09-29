@@ -63,7 +63,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import is_after_hours
 from apps.api.agents.transfer_providers import PLATFORM_CANNOT_TRANSFER, transfer_blocked_reason
-from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
 from apps.workers.redaction import redact
 
@@ -345,7 +344,6 @@ async def spec_for(
         duty,
         trigger=agent["handoff_trigger"],
         language=str(agent["language_primary"]),
-        brief_url=brief_url(),
     )
     return spec, duty
 
@@ -360,28 +358,7 @@ def spoken_line_for(language: str) -> str:
     return HANDOFF_SPOKEN_TEMPLATES.get(language, HANDOFF_SPOKEN_TEMPLATES[_FALLBACK_LANGUAGE])
 
 
-def brief_url() -> str:
-    """OUR endpoint, notified the moment a handover fires.
-
-    **voice-runtime, NOT apps/api.** Executing an in-call action belongs in `apps/api`
-    because it makes a synchronous external call and a credential decrypt, which hard
-    rule 3 keeps off the receiver. This does the opposite: it accepts a notification, acks
-    and defers, which is exactly what the receiver is for and exactly what `apps/api` is
-    the wrong place for. It is also on
-    the caller's audio path in the sense that matters — the engine fires it mid-call, a
-    step before it places the leg — so the 500ms discipline applies.
-
-    `webhook_base_url` is that origin: the same one `_to_config` builds the post-call
-    `webhook_url` from, because both are served by the same deployable.
-    """
-    settings = get_settings()
-    base = settings.webhook_base_url.rstrip("/")
-    return f"{base}/tools/v1/{settings.engine}/handoff"
-
-
-def handoff_spec(
-    duty: OnDuty, *, trigger: str | None, language: str, brief_url: str | None
-) -> HandoffSpec | None:
+def handoff_spec(duty: OnDuty, *, trigger: str | None, language: str) -> HandoffSpec | None:
     """The publish-time value, or None when nobody is on duty.
 
     None is the whole of decision 4's enforcement: the adapter emits no transfer tool for
@@ -394,7 +371,6 @@ def handoff_spec(
         destination_e164=duty.member.phone_e164,
         trigger=(trigger or "").strip() or HANDOFF_TRIGGER_DEFAULT,
         spoken_line=spoken_line_for(language),
-        brief_url=brief_url,
     )
 
 
@@ -406,7 +382,6 @@ __all__ = [
     "ROSTER_UNAVAILABLE_REASONS",
     "OnDuty",
     "RosterMember",
-    "brief_url",
     "handoff_spec",
     "on_duty",
     "redacted_brief",

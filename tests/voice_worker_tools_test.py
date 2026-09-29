@@ -398,7 +398,7 @@ async def test_a_blank_or_non_string_argument_does_not_raise_out_of_a_handler() 
     ],
 )
 def test_confirmation_is_narrow_on_purpose(value: Any, expected: bool) -> None:
-    """`tool_routes._truthy`'s rule, on this side of the wire. An unrecognised value is an
+    """Only an explicit yes confirms. An unrecognised value is an
     unconfirmed booking, which costs one conversational turn; the other direction costs a
     caller a phone call at four in the morning."""
     assert _confirmed(value) is expected

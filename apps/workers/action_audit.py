@@ -1,9 +1,8 @@
 """Append the audit row for one in-call/after-call ACTION invocation.
 
 The execution layer (`apps/api/actions/execution.py`) enqueues this so the latency-critical
-tool path writes no DB row of its own (hard rule 3), exactly as the opt-out tool defers its
-suppression to `record_in_call_optout`. Here, off the caller's audio path, the row is
-written to the append-only, tamper-evident `audit_log` (hard rule 4).
+tool path writes no DB row of its own (hard rule 3). Here, off the caller's audio path, the
+row is written to the append-only, tamper-evident `audit_log` (hard rule 4).
 
 HARD RULE 6: the payload carries ids, the kind/provider and a short outcome code — never a
 number, a message body or an external response. There is nothing here to redact because

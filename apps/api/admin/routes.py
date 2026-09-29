@@ -1250,23 +1250,23 @@ async def record_intake(
             facts=payload,
             recorded_by=principal.user_id,
         )
-    await write_audit(
-        session,
-        action="agent.intake_recorded",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        # COUNTS, never the answers: services and FAQs are the client's business detail
-        # and the escalation contacts are phone numbers (hard rule 6).
-        summary={
-            "regenerated": result["regenerated"],
-            "prompt_version": result["prompt_version"],
-            "services": len(payload.services),
-            "faqs": len(payload.faqs),
-        },
-    )
+        await write_audit(
+            scoped,
+            action="agent.intake_recorded",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            # COUNTS, never the answers: services and FAQs are the client's business detail
+            # and the escalation contacts are phone numbers (hard rule 6).
+            summary={
+                "regenerated": result["regenerated"],
+                "prompt_version": result["prompt_version"],
+                "services": len(payload.services),
+                "faqs": len(payload.faqs),
+            },
+        )
     return IntakeOut.model_validate(result)
 
 
@@ -1324,22 +1324,22 @@ async def save_intake_draft(
         result = await intake.save_intake_draft(
             scoped, tenant_id=tenant_id, agent_id=agent_id, facts=payload
         )
-    await write_audit(
-        session,
-        action="agent.intake_drafted",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        # COUNTS and CODES, never the answers: the same rule the submit's row follows,
-        # and the escalation contacts on this sheet are phone numbers.
-        summary={
-            "blockers": len(result["blockers"]),
-            "services": len(payload.services),
-            "faqs": len(payload.faqs),
-        },
-    )
+        await write_audit(
+            scoped,
+            action="agent.intake_drafted",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            # COUNTS and CODES, never the answers: the same rule the submit's row follows,
+            # and the escalation contacts on this sheet are phone numbers.
+            summary={
+                "blockers": len(result["blockers"]),
+                "services": len(payload.services),
+                "faqs": len(payload.faqs),
+            },
+        )
     return IntakeDraftOut.model_validate(result)
 
 
@@ -1736,16 +1736,16 @@ async def approve_kb(
         approved = await kb_service.approve_source(
             scoped, source_id=source_id, approved_by=principal.user_id
         )
-    if approved:
-        await write_audit(
-            session,
-            action="kb.approved",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="kb_source",
-            object_id=str(source_id),
-            ip=client_request_ip(request),
-        )
+        if approved:
+            await write_audit(
+                scoped,
+                action="kb.approved",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="kb_source",
+                object_id=str(source_id),
+                ip=client_request_ip(request),
+            )
     return KbReviewOut(status="approved")
 
 
@@ -1774,17 +1774,17 @@ async def reject_kb(
         rejected = await kb_service.reject_source(
             scoped, source_id=source_id, reason=payload.reason
         )
-    if rejected:
-        await write_audit(
-            session,
-            action="kb.rejected",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="kb_source",
-            object_id=str(source_id),
-            ip=client_request_ip(request),
-            summary={"reason": payload.reason},
-        )
+        if rejected:
+            await write_audit(
+                scoped,
+                action="kb.rejected",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="kb_source",
+                object_id=str(source_id),
+                ip=client_request_ip(request),
+                summary={"reason": payload.reason},
+            )
     return KbReviewOut(status="rejected")
 
 
@@ -1804,16 +1804,16 @@ async def publish_kb(
 ) -> PublishOut:
     async with tenant_session(tenant_id) as scoped:
         version = await kb_service.publish_source(scoped, tenant_id=tenant_id, source_id=source_id)
-    await write_audit(
-        session,
-        action="kb.published",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="kb_source",
-        object_id=str(source_id),
-        ip=client_request_ip(request),
-        summary={"version": version},
-    )
+        await write_audit(
+            scoped,
+            action="kb.published",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="kb_source",
+            object_id=str(source_id),
+            ip=client_request_ip(request),
+            summary={"version": version},
+        )
     return PublishOut(source_id=source_id, version=version, status="live")
 
 
@@ -2244,17 +2244,17 @@ async def provision_number(
             purpose=payload.purpose,
             engine_number_ref=payload.engine_number_ref,
         )
-    await write_audit(
-        session,
-        action="number.provisioned",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="phone_number",
-        object_id=str(number_id),
-        ip=client_request_ip(request),
-        # The series, never the number itself (hard rule 6).
-        summary={"series": payload.series},
-    )
+        await write_audit(
+            scoped,
+            action="number.provisioned",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="phone_number",
+            object_id=str(number_id),
+            ip=client_request_ip(request),
+            # The series, never the number itself (hard rule 6).
+            summary={"series": payload.series},
+        )
     return NumberCreatedOut(
         id=number_id, e164=payload.e164, series=payload.series, dlt_status="pending"
     )
@@ -2278,16 +2278,16 @@ async def set_number_dlt_status(
         await agents_service.set_number_dlt_status(
             scoped, number_id=number_id, dlt_status=payload.dlt_status
         )
-    await write_audit(
-        session,
-        action="number.dlt_status_set",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="phone_number",
-        object_id=str(number_id),
-        ip=client_request_ip(request),
-        summary={"dlt_status": payload.dlt_status},
-    )
+        await write_audit(
+            scoped,
+            action="number.dlt_status_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="phone_number",
+            object_id=str(number_id),
+            ip=client_request_ip(request),
+            summary={"dlt_status": payload.dlt_status},
+        )
     return NumberDltStatusOut(dlt_status=payload.dlt_status)
 
 
@@ -2341,21 +2341,21 @@ async def set_number_agent(
         routing = await agents_service.attach_number_to_agent(
             scoped, number_id=number_id, agent_id=payload.agent_id
         )
-    await write_audit(
-        session,
-        action="number.agent_set",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="phone_number",
-        object_id=str(number_id),
-        ip=client_request_ip(request),
-        summary={
-            "agent_id": str(payload.agent_id) if payload.agent_id else None,
-            "bound": routing.bound,
-            "released": routing.released,
-            "failed": routing.failed,
-        },
-    )
+        await write_audit(
+            scoped,
+            action="number.agent_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="phone_number",
+            object_id=str(number_id),
+            ip=client_request_ip(request),
+            summary={
+                "agent_id": str(payload.agent_id) if payload.agent_id else None,
+                "bound": routing.bound,
+                "released": routing.released,
+                "failed": routing.failed,
+            },
+        )
     return NumberAgentOut(
         number_id=number_id,
         agent_id=payload.agent_id,
@@ -2397,16 +2397,16 @@ async def register_template(
             body=payload.body,
             dlt_ref=payload.dlt_ref,
         )
-    await write_audit(
-        session,
-        action="dlt_template.registered",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="dlt_template",
-        object_id=str(template_id),
-        ip=client_request_ip(request),
-        summary={"classification": payload.classification},
-    )
+        await write_audit(
+            scoped,
+            action="dlt_template.registered",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="dlt_template",
+            object_id=str(template_id),
+            ip=client_request_ip(request),
+            summary={"classification": payload.classification},
+        )
     return TemplateRegisteredOut(id=template_id, status="submitted")
 
 
@@ -2461,16 +2461,16 @@ async def set_template_status(
         await campaigns_service.set_template_status(
             scoped, template_id=template_id, status=payload.status, dlt_ref=payload.dlt_ref
         )
-    await write_audit(
-        session,
-        action="dlt_template.status_set",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="dlt_template",
-        object_id=str(template_id),
-        ip=client_request_ip(request),
-        summary={"status": payload.status},
-    )
+        await write_audit(
+            scoped,
+            action="dlt_template.status_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="dlt_template",
+            object_id=str(template_id),
+            ip=client_request_ip(request),
+            summary={"status": payload.status},
+        )
     return TemplateStatusOut(status=payload.status)
 
 
@@ -2540,23 +2540,23 @@ async def record_dlt_registration(
             tm_link_status=payload.tm_link_status,
             registered_at=payload.registered_at,
         )
-    await write_audit(
-        session,
-        action="dlt_registration.recorded",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="dlt_registration",
-        object_id=str(tenant_id),
-        ip=client_request_ip(request),
-        # The registrar's identifiers are the client's own business identity, not PII
-        # under hard rule 6 — and the PE id is the whole point of the audit row: it is
-        # what a regulator asks us to evidence.
-        summary={
-            "status": payload.status,
-            "tm_link_status": payload.tm_link_status,
-            "pe_id": payload.pe_id,
-        },
-    )
+        await write_audit(
+            scoped,
+            action="dlt_registration.recorded",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="dlt_registration",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            # The registrar's identifiers are the client's own business identity, not PII
+            # under hard rule 6 — and the PE id is the whole point of the audit row: it is
+            # what a regulator asks us to evidence.
+            summary={
+                "status": payload.status,
+                "tm_link_status": payload.tm_link_status,
+                "pe_id": payload.pe_id,
+            },
+        )
     return DltRegistrationOut(
         tenant_id=tenant_id,
         status=payload.status,
@@ -2643,25 +2643,25 @@ async def record_kyc_verification(
             rejection_reason=payload.rejection_reason,
             verified_by_admin_id=principal.user_id,
         )
-    await write_audit(
-        session,
-        action="kyc.recorded",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="kyc_record",
-        object_id=str(tenant_id),
-        ip=client_request_ip(request),
-        # The registry identifier is the client's own business identity, published in a
-        # public register — not PII under hard rule 6, and it is the whole point of the
-        # audit row: it is what a regulator asks us to evidence. `signatory_name` is
-        # deliberately NOT copied here; the name of a natural person adds nothing an
-        # auditor needs and the audit log is read cross-tenant.
-        summary={
-            "status": payload.status,
-            "document_kind": payload.document_kind,
-            "document_ref": payload.document_ref,
-        },
-    )
+        await write_audit(
+            scoped,
+            action="kyc.recorded",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="kyc_record",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            # The registry identifier is the client's own business identity, published in a
+            # public register — not PII under hard rule 6, and it is the whole point of the
+            # audit row: it is what a regulator asks us to evidence. `signatory_name` is
+            # deliberately NOT copied here; the name of a natural person adds nothing an
+            # auditor needs and the audit log is read cross-tenant.
+            summary={
+                "status": payload.status,
+                "document_kind": payload.document_kind,
+                "document_ref": payload.document_ref,
+            },
+        )
     return KycRecordOut(
         tenant_id=tenant_id,
         status=payload.status,
@@ -3279,35 +3279,35 @@ async def record_commercial_terms(
 
         result = await billing_terms.record_terms(scoped, tenant_id=tenant_id, terms=terms)
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
+        if result.changed:
+            await write_audit(
+                scoped,
+                action="plan.terms_recorded",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="plan",
+                object_id=str(result.plan_id),
+                ip=client_request_ip(request),
+                summary={
+                    "supersedes": str(result.superseded.id) if result.superseded else None,
+                    "effective_from": (
+                        payload.effective_from.isoformat() if payload.effective_from else None
+                    ),
+                    "effective_to": (
+                        payload.effective_to.isoformat() if payload.effective_to else None
+                    ),
+                    # Which ceilings this write loosened, by name. The one fact a later
+                    # review of a cap raise is actually looking for.
+                    "loosened": list(loosened),
+                    # And whether the write TIGHTENED one far enough to stop this client's
+                    # outbound calling on the spot. `record_terms` re-arms the gate in the
+                    # same transaction as the insert (a ceiling accepted whose gate is not
+                    # armed is a ceiling that does nothing until the next call meters), so
+                    # this row is the record of an operator having done that.
+                    "capped_now": result.capped_now,
+                },
+            )
 
-    if result.changed:
-        await write_audit(
-            session,
-            action="plan.terms_recorded",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="plan",
-            object_id=str(result.plan_id),
-            ip=client_request_ip(request),
-            summary={
-                "supersedes": str(result.superseded.id) if result.superseded else None,
-                "effective_from": (
-                    payload.effective_from.isoformat() if payload.effective_from else None
-                ),
-                "effective_to": (
-                    payload.effective_to.isoformat() if payload.effective_to else None
-                ),
-                # Which ceilings this write loosened, by name. The one fact a later
-                # review of a cap raise is actually looking for.
-                "loosened": list(loosened),
-                # And whether the write TIGHTENED one far enough to stop this client's
-                # outbound calling on the spot. `record_terms` re-arms the gate in the
-                # same transaction as the insert (a ceiling accepted whose gate is not
-                # armed is a ceiling that does nothing until the next call meters), so
-                # this row is the record of an operator having done that.
-                "capped_now": result.capped_now,
-            },
-        )
     return RecordTermsOut(
         plan_id=result.plan_id,
         changed=result.changed,
@@ -3471,21 +3471,21 @@ async def set_tenant_status(
             to_status=payload.status,
             from_statuses=_LIFECYCLE_FROM[payload.status],
         )
-    if changed:
-        await write_audit(
-            session,
-            action=f"tenant.{payload.status}",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="organization",
-            object_id=str(tenant_id),
-            ip=client_request_ip(request),
-            # The reason verbatim — it is why somebody stopped a business's calls, and
-            # the whole value of the row. No prior status: `from_statuses` is a SET and
-            # the CAS does not report which member it matched, so any "from" here would
-            # be a second read's guess rather than the transition's own fact.
-            summary={"status": payload.status, "reason": payload.reason},
-        )
+        if changed:
+            await write_audit(
+                scoped,
+                action=f"tenant.{payload.status}",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="organization",
+                object_id=str(tenant_id),
+                ip=client_request_ip(request),
+                # The reason verbatim — it is why somebody stopped a business's calls, and
+                # the whole value of the row. No prior status: `from_statuses` is a SET and
+                # the CAS does not report which member it matched, so any "from" here would
+                # be a second read's guess rather than the transition's own fact.
+                summary={"status": payload.status, "reason": payload.reason},
+            )
     return LifecycleOut(tenant_id=tenant_id, status=payload.status, changed=changed)
 
 
@@ -3571,24 +3571,24 @@ async def set_tenant_plan_tier(
         previous = await service.set_plan_tier(
             scoped, tenant_id=tenant_id, plan_tier=payload.plan_tier
         )
-    if previous is not None:
-        await write_audit(
-            session,
-            action="tenant.plan_tier_set",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="organization",
-            object_id=str(tenant_id),
-            ip=client_request_ip(request),
-            # Both tiers and the operator's words: this row is the only record of WHY a
-            # business is invoiced rather than credit-gated, and `plan_tier` itself keeps
-            # no history.
-            summary={
-                "plan_tier": payload.plan_tier,
-                "previous_plan_tier": previous,
-                "reason": payload.reason,
-            },
-        )
+        if previous is not None:
+            await write_audit(
+                scoped,
+                action="tenant.plan_tier_set",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="organization",
+                object_id=str(tenant_id),
+                ip=client_request_ip(request),
+                # Both tiers and the operator's words: this row is the only record of WHY a
+                # business is invoiced rather than credit-gated, and `plan_tier` itself keeps
+                # no history.
+                summary={
+                    "plan_tier": payload.plan_tier,
+                    "previous_plan_tier": previous,
+                    "reason": payload.reason,
+                },
+            )
     return PlanTierOut(
         tenant_id=tenant_id,
         plan_tier=payload.plan_tier,

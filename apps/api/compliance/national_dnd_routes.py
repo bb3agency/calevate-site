@@ -364,27 +364,27 @@ async def record_preference_scrub(
             # `admin_users`, so the id is present and the FK will find it.
             recorded_by_admin_id=principal.user_id,
         )
+        await write_audit(
+            scoped,
+            action="compliance.preference_scrub_recorded",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="preference_scrub_run",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            # Counts and the provider's reference — the handle that makes this entry
+            # checkable against the portal — and never a number (hard rule 6).
+            summary={
+                "provider": payload.provider.strip(),
+                "scrub_ref": payload.scrub_ref.strip(),
+                "first_time": recorded.first_time,
+                "submitted": recorded.submitted,
+                "suppressed": recorded.suppressed,
+                "unmatched": recorded.unmatched,
+                "malformed": recorded.malformed,
+            },
+        )
 
-    await write_audit(
-        session,
-        action="compliance.preference_scrub_recorded",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="preference_scrub_run",
-        object_id=str(campaign_id),
-        ip=client_request_ip(request),
-        # Counts and the provider's reference — the handle that makes this entry
-        # checkable against the portal — and never a number (hard rule 6).
-        summary={
-            "provider": payload.provider.strip(),
-            "scrub_ref": payload.scrub_ref.strip(),
-            "first_time": recorded.first_time,
-            "submitted": recorded.submitted,
-            "suppressed": recorded.suppressed,
-            "unmatched": recorded.unmatched,
-            "malformed": recorded.malformed,
-        },
-    )
     state = recorded.state
     return PreferenceScrubOut(
         recorded=recorded.first_time,

@@ -165,6 +165,9 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         # and reach nothing.
         "plivo_auth_id",
         "plivo_auth_token",
+        # The caller-claim signing key: read by voice-runtime, which never opens the
+        # credential store, and by the voice worker, which cannot.
+        "carrier_claim_secret",
         # D-621. The voice worker's API BASE URL, env-only for `gnani_api_key`'s reason
         # exactly: it is read by that same container and by no process on this host, so a
         # box for it here would be a value nothing could deliver and nothing could read.

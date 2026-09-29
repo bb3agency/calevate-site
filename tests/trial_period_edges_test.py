@@ -473,3 +473,48 @@ async def test_filing_the_erasure_is_stamped_so_the_sweep_asks_only_once() -> No
 
     assert after is not None and after.erasure_filed_at is not None
     assert abs((after.erasure_filed_at - filed_at).total_seconds()) < 1
+
+
+async def test_trial_cost_counts_a_zero_quantity_row_as_its_whole_leg() -> None:
+    """A zero-`qty` row carries its WHOLE leg cost (D-370), and the trial's cost to us is
+    the same money fact every other reader of our cost sums through `_ROW_COST_SQL`.
+
+    `SUM(unit_cost_paid * qty)` evaluated a zero-duration call the engine charged us for at
+    ₹0, so the trial figure the founder watches instead of a spend ceiling read lighter than
+    the margin panel for the same rows.
+    """
+    tenant_id, agent_id = await _tenant()
+    started = datetime.now(UTC) - timedelta(days=2)
+    async with tenant_session(tenant_id) as session:
+        trial = await start_trial(
+            session, tenant_id=tenant_id, days=30, actor_user_id=None, at=started
+        )
+        call_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "to_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, "
+                "'outbound', '+919876500002', 'completed', now(), now())"
+            ),
+            {"i": call_id, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
+        )
+        for unit, qty, cost in (("telephony_s", "0", "0.2000"), ("platform_min", "0", "0.5000")):
+            await session.execute(
+                text(
+                    "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                    "unit_cost_paid, occurred_at, created_at) VALUES (:i, :t, :c, :u, :q, "
+                    ":p, :o, now())"
+                ),
+                {
+                    "i": uuid7(),
+                    "t": tenant_id,
+                    "c": call_id,
+                    "u": unit,
+                    "q": Decimal(qty),
+                    "p": Decimal(cost),
+                    "o": started + timedelta(hours=1),
+                },
+            )
+        summed = await trial_cost_to_us_inr(session, tenant_id=tenant_id, trial=trial)
+
+    assert summed == Decimal("0.7000")

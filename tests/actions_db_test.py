@@ -160,14 +160,14 @@ async def test_declare_respects_master_switch_and_trigger() -> None:
         # Master switch OFF (default): nothing declared.
         assert await service.declare(s, agent_id=agent, direction="inbound") == ()
 
-        # Master switch ON: only the during-call tool, with agent-ref injected.
+        # Master switch ON: only the during-call tool, declaring only what the model fills.
         await service.set_actions_enabled(s, agent_id=agent, enabled=True)
         specs = await service.declare(s, agent_id=agent, direction="inbound")
         assert len(specs) == 1
         spec = specs[0]
         assert spec.name == "get_status"
         names = {p.name for p in spec.params}
-        assert "order_id" in names and "caller" in names and "_agent_ref" in names
+        assert "order_id" in names and "caller" not in names
 
 
 @pytest.mark.asyncio

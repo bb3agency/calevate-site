@@ -50,7 +50,6 @@ from typing import Any, Literal, Protocol
 
 from apps.api.core.alerting import (
     alert,
-    record_tool_ack_ms,
     record_webhook_ack_ms,
     record_webhook_replay_divergence,
 )
@@ -221,32 +220,6 @@ _BODY_DEADLINE_S = 2.0
 # this one degrades where the durable deadline refuses.
 _FAST_PATH_DEADLINE_S = _ACK_BUDGET_MS / 1000
 
-# --- the in-call surface's numbers ---------------------------------------------
-#
-# THE TOOL ENDPOINT IS NOT A SMALLER WEBHOOK, and until these existed it ran on the
-# receiver's numbers by import and by default argument. What differs is not the code, it
-# is who is waiting: the post-call receiver answers a machine that has already hung up,
-# and the in-call tool endpoint answers an agent that is standing in a conversation with
-# a person. Every millisecond of a tool call is a millisecond of silence on the line.
-#
-# So the deadlines are the receiver's doctrine re-derived for that fact, not copied:
-#
-#   * the body is three fields under 4 KiB arriving over the container bridge from a
-#     proxy that has already received it, so half a second is three orders of magnitude
-#     of headroom and a body that has not arrived by then is not arriving;
-#   * the enqueue is one Redis round trip. D-109 measured this endpoint at p95 1.4ms
-#     single-flight and ~143ms at 250 concurrent, so a second is ~7x the worst ack we
-#     have ever measured under load: it cannot fire on healthy traffic, and it is inside
-#     the time a person gives a sentence before deciding the line has dropped.
-#
-# What it can never be is the receiver's 2s + 2s. The sentence justifying those is "the
-# cost of being wrong is one poller cycle (D-31), not a lost call", and there is NO
-# poller behind an in-call tool call — `tool_routes` argues exactly that where it refuses
-# to ack an unkeyable one. The cost of being wrong here is four seconds of dead air.
-_TOOL_MAX_BODY_BYTES = 4096
-_TOOL_BODY_DEADLINE_S = 0.5
-_TOOL_DURABLE_DEADLINE_S = 1.0
-
 
 class AckRecorder(Protocol):
     """A named metric recorder from `apps.api.core.alerting` (§8: named recorders only)."""
@@ -258,12 +231,11 @@ class AckRecorder(Protocol):
 class AckMeter:
     """Which endpoint a request belongs to, for everything on this path that must say so.
 
-    ONE DESCRIPTOR RATHER THAN THREE PARAMETERS, because the three facts have to move
-    together: an ack recorded into the receiver's series and a breach alerted under the
-    receiver's code are the same mistake twice, and threading them separately is how the
-    second one gets forgotten. `tool_routes` imports the helpers here rather than growing
-    a second ack-measuring, body-bounding implementation (its own docstring rejects that),
-    so this is what tells them apart.
+    ONE DESCRIPTOR RATHER THAN SIX PARAMETERS, because the facts have to move together: an
+    ack recorded into one series and a breach alerted under another surface's code are the
+    same mistake twice, and threading them separately is how the second one gets forgotten.
+    The receiver is the only surface today; a second one in this service takes a meter of
+    its own rather than a second ack-measuring implementation.
 
     THE CODES ARE LITERALS, not `f"{surface}_ack_slow"`. `alerting.py` argues the point
     from PagerDuty's caller-supplied `dedup_key`: "every alert here carries a stable code
@@ -290,28 +262,6 @@ WEBHOOK_ACK = AckMeter(
     max_body_bytes=_MAX_BODY_BYTES,
     body_deadline_s=_BODY_DEADLINE_S,
     durable_deadline_s=_DURABLE_DEADLINE_S,
-)
-#: The in-call tool endpoints: TRD §6.2's 100ms, `tool_ack_ms`. Same 500ms breach alert —
-#: hard rule 3 binds every handler in this service — but its OWN series, so the tighter
-#: budget can be read off a percentile instead of being averaged into the receiver's.
-#:
-#: **AND ITS OWN DEADLINES, WHICH IT DID NOT HAVE.** `tool_routes` imported
-#: `_DURABLE_DEADLINE_S` and inherited `_BODY_DEADLINE_S` through the default argument of
-#: `_read_bounded`, so an in-call tool call could hold for two seconds on the body and two
-#: more on the enqueue. Those numbers are the RECEIVER'S, and the sentence that justifies
-#: them is false one endpoint over: "the cost of being wrong is one poller cycle (D-31),
-#: not a lost call". There is no poller behind a tool call — `tool_routes` says so itself
-#: where it refuses to ack an unkeyable one — and the cost of being wrong is not a cycle,
-#: it is four seconds of silence on a live phone call while a person waits for the agent
-#: to say something. Same doctrine, different surface: the ALERT stays where the budget
-#: is, the ABANDON moves to where the caller's patience is.
-TOOL_ACK = AckMeter(
-    record=record_tool_ack_ms,
-    slow_code="tool_ack_slow",
-    body_timeout_code="tool_body_timeout",
-    max_body_bytes=_TOOL_MAX_BODY_BYTES,
-    body_deadline_s=_TOOL_BODY_DEADLINE_S,
-    durable_deadline_s=_TOOL_DURABLE_DEADLINE_S,
 )
 
 
@@ -538,13 +488,8 @@ async def _read_bounded(
     a megabyte instead of after all of it. The declared length is checked first, which
     turns the common case into a rejection that reads nothing at all.
 
-    THE SIZE AND THE DEADLINE COME OFF THE METER, so both are this SURFACE's numbers.
-    The cap was already a per-surface value — passed as a `limit` argument by the in-call
-    tool route, whose bodies are three fields where the receiver's megabyte is sized for a
-    transcript — and the deadline was not: it was a module constant, so the tool route
-    silently inherited a two-second wait chosen for an endpoint nobody is listening to.
-    Two per-surface facts reached through two different mechanisms is how the second one
-    gets forgotten, which is the argument `AckMeter` was written for; it now carries both.
+    THE SIZE AND THE DEADLINE COME OFF THE METER, so both are the SURFACE's numbers rather
+    than module constants a second surface would silently inherit.
 
     BOUNDED IN TIME AS WELL AS IN BYTES (`meter.body_deadline_s`), and RAISES rather than
     returning for the two ways a body fails to arrive at all. Both are deliberate answers
@@ -925,4 +870,4 @@ async def _claim_and_enqueue(
     return claimed, job_id
 
 
-__all__ = ["INGEST_JOB", "TOOL_ACK", "WEBHOOK_ACK", "AckMeter", "measured", "router"]
+__all__ = ["INGEST_JOB", "WEBHOOK_ACK", "AckMeter", "measured", "router"]

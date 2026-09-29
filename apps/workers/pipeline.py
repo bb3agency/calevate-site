@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
-from typing import Any, Final, Literal, NoReturn
+from typing import Any, Final, Literal, NoReturn, cast
 from uuid import UUID
 
 from arq import Retry
@@ -46,7 +46,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents.llm_models import resolve_llm_model
-from apps.api.agents.voices import voice_tier
+from apps.api.agents.voices import (
+    VOICE_TIER_OF_PROVIDER,
+    VoiceProvider,
+    voice_tier,
+    voice_tier_of_provider,
+)
 from apps.api.billing.caps import (
     CAPS_CTE,
     announce_cap_headroom,
@@ -63,8 +68,10 @@ from apps.api.billing.plans import (
 )
 from apps.api.billing.rates import (
     MONEY_Q,
+    PREMIUM_VOICE_TIER,
     PREPAID_TIERS,
     ROUNDING,
+    VALUE_VOICE_TIER,
     VoiceTier,
     llm_surcharge_applies,
     llm_surcharge_billed_inr,
@@ -124,6 +131,7 @@ from apps.api.reliability.service import (
     mark_inbox_failed,
     mark_inbox_processed,
 )
+from apps.api.worker.service import REMETER_DEDUPE_PREFIX
 from apps.workers import storage
 from apps.workers.extraction import MODEL_FAILURE, extract_call, model_answered
 from apps.workers.handoff import settle_handoff
@@ -474,7 +482,8 @@ async def _ingest_stages(
     webhook's `engine_agent_ref`, which is the fallback when the engine's own record
     omits it.
     """
-    snapshot = await get_engine().get_execution(execution_id)
+    engine = get_engine()
+    snapshot = await engine.get_execution(execution_id)
 
     # The snapshot's ref wins over the webhook's: the fetch is the truth (D-31), and
     # the poller path has no webhook payload at all.
@@ -522,7 +531,18 @@ async def _ingest_stages(
     tenant_id, agent_id = resolved
     call_id = await _upsert_call(tenant_id, agent_id, snapshot, agent_ref)
 
-    if snapshot.billable_ready:
+    # WHEN THE RECORD IS READY, which is not the same question on every engine. A rented
+    # engine settles its execution record minutes after disconnect, so terminal is not
+    # ready there and `billable_ready` is (D-31). On an `owned_runtime` engine the record is
+    # the rows our own worker wrote and is final once the call is terminal — the moment its
+    # settlement promises this same job — while `billable_ready` stays False because the
+    # connected minute is the carrier's to witness. Gating on the flag alone made every
+    # reconciliation repair of a Pipecat call end here, counted as a repair and running
+    # nothing.
+    record_final = snapshot.billable_ready or (
+        engine.capabilities.agent_hosting == "owned_runtime" and snapshot.terminal
+    )
+    if record_final:
         # A failure here reaches `_abandon_ingest` through the caller, which marks the
         # row failed while it is still `enqueued` rather than `processed` — so the key
         # goes back to `claim_inbox_event`'s CAS and the retry re-drives the whole job.
@@ -1116,10 +1136,10 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
     # tick") is 30 seconds. Suppressing after the slowest stage in the pipeline would
     # spend the entire budget on a step this one does not need.
     #
-    # This is the BRACES. The belt is the in-call tool (voice-runtime `/tools/v1/opt-out`
-    # → `workers.optout.record_in_call_optout`), which fires while the caller is still on
-    # the line; this pass runs on every completed call whether or not the model invoked
-    # it. `compliance/optout.py` argues why both exist and what each one misses.
+    # This is the BRACES. The belt is the in-call tool (the voice worker's
+    # `record_do_not_call` → `worker/tools.record_opt_out`), which fires while the caller is
+    # still on the line; this pass runs on every completed call whether or not the model
+    # invoked it. `compliance/optout.py` argues why both exist and what each one misses.
     opt_out_signal = detect_opt_out(snapshot.transcript) if snapshot.transcript else None
     with span("pipeline.opt_out", call_id=str(call_id)) as stage:
         outcome = await _maybe_record_opt_out(tenant_id, call_id, snapshot, opt_out_signal)
@@ -2128,6 +2148,80 @@ def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
     return (leg_inr / qty).quantize(MONEY_Q, rounding=ROUNDING)
 
 
+async def settled_voice_tier(session: AsyncSession, *, call_id: UUID) -> VoiceTier:
+    """The voice tier a call on the owned runtime was SETTLED on.
+
+    The settlement priced the call against the config version the worker actually ran, so
+    its own record wins over whatever is published now — an agent republished to another
+    voice between the call and this stage must not re-price the call. In order:
+
+    1. the settlement's `tts_kchars` row — `voice_tier`, else its `tts_provider`;
+    2. the re-metering demand parked for a refused TTS leg (`worker/service.
+       _record_remeter_demands`), whose `pricing.tts_provider` is that same version's;
+    3. only when neither exists (the call synthesised nothing), the published config — the
+       same row `worker/service._published_models` prices from.
+    """
+    stamped = (
+        await session.execute(
+            text(
+                "SELECT meta->>'voice_tier', meta->>'tts_provider' FROM usage_events "
+                "WHERE call_id = :cid AND unit_type = 'tts_kchars' LIMIT 1"
+            ),
+            {"cid": call_id},
+        )
+    ).first()
+    if stamped is not None:
+        if stamped[0] in (VALUE_VOICE_TIER, PREMIUM_VOICE_TIER):
+            return cast(VoiceTier, stamped[0])
+        if stamped[1] is not None:
+            return _tier_of_provider(stamped[1])
+    parked = (
+        await session.execute(
+            text(
+                "SELECT payload->'pricing'->>'tts_provider' FROM outbox_messages "
+                "WHERE dedupe_key = :key"
+            ),
+            {"key": f"{REMETER_DEDUPE_PREFIX}{call_id}:tts:tts_kchars"},
+        )
+    ).scalar_one_or_none()
+    if parked is not None:
+        return _tier_of_provider(parked)
+    published = (
+        await session.execute(
+            text(
+                "SELECT v.model_config->>'tts_provider' FROM calls AS c "
+                "JOIN pipecat_agents AS p ON p.agent_id = c.agent_id "
+                "JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id "
+                "WHERE c.id = :cid"
+            ),
+            {"cid": call_id},
+        )
+    ).scalar_one_or_none()
+    return _tier_of_provider(published)
+
+
+def _tier_of_provider(provider: str | None) -> VoiceTier:
+    """`voices.voice_tier_of_provider`, with `voices.voice_tier`'s rule that a provider
+    outside the catalogue is the value tier. A provider with no priced rung RAISES."""
+    if provider not in VOICE_TIER_OF_PROVIDER:
+        return VALUE_VOICE_TIER
+    return voice_tier_of_provider(cast(VoiceProvider, provider))
+
+
+async def _settled_tts_kchars(session: AsyncSession, *, tenant_id: UUID, call_id: UUID) -> Decimal:
+    """The thousands of characters the worker's settlement metered for this call, or zero."""
+    kchars = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(SUM(qty), 0) FROM usage_events "
+                "WHERE call_id = :cid AND tenant_id = :tid AND unit_type = 'tts_kchars'"
+            ),
+            {"cid": call_id, "tid": tenant_id},
+        )
+    ).scalar_one()
+    return Decimal(str(kchars))
+
+
 def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: UUID) -> Decimal:
     """This call's duration as a quantity we are willing to put on a ledger.
 
@@ -2500,6 +2594,14 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # inherited (plan §0 Q9), so the dearer tier is only ever reached by a catalogue
         # entry that says so.
         voice = voice_tier(voice_id if isinstance(voice_id, str) else None)
+        # THE OWNED RUNTIME'S LEGS ARE ALREADY ON THE LEDGER. The worker's settlement wrote
+        # them from attested rates, so this stage writes only the billable-minute row and
+        # the client's charge: widening the snapshot rather than adding a charging path keeps
+        # `charge_for_call` the one door a client is debited through.
+        settled_legs = cost.legs_metered_at_settlement
+        if settled_legs:
+            # The voice the settlement priced the call on, not whatever is published now.
+            voice = await settled_voice_tier(session, call_id=call_id)
         # WHICH SURCHARGE BUCKET THIS CALL'S MINUTES LAND IN (D-455). The paragraph above
         # ends "NOT PRICED HERE, deliberately ... this is the identifier the gap will be
         # closed WITH, not a charge", and that is still true of the LEG: the engine reports
@@ -2519,10 +2621,13 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         )
         already = (
             await session.execute(
+                # Settled legs are the worker's rows; this stage's own claim on such a call is
+                # its `telephony_s` row, which `ux_usage_events_tenant_call_unit` backs.
                 text(
-                    "SELECT 1 FROM usage_events WHERE call_id = :cid AND tenant_id = :tid LIMIT 1"
+                    "SELECT 1 FROM usage_events WHERE call_id = :cid AND tenant_id = :tid "
+                    "AND (NOT :settled OR unit_type = 'telephony_s') LIMIT 1"
                 ),
-                {"cid": call_id, "tid": tenant_id},
+                {"cid": call_id, "tid": tenant_id, "settled": settled_legs},
             )
         ).first()
         if already:
@@ -2593,6 +2698,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # D-454's model choice, stamped per row for the reason argued above.
                 "llm_model": llm.model,
                 "llm_model_source": llm.source,
+                # Whose clock the billable seconds are. On the owned runtime it is the
+                # worker's measured connected time (founder decision; BLOCKER-1: no carrier
+                # CDR reader exists), and a later carrier reading reconciles by compensating
+                # row, never by UPDATE.
+                **({"duration_source": "worker_settlement"} if settled_legs else {}),
             }
         )
         # `unit_cost_paid` is a PRICE PER UNIT OF `qty`, because that is what every
@@ -2623,19 +2733,29 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # operator-attested plan rate times the characters OUR transcript says the agent
         # spoke. `_tts_cost_rows` decides which of the two this call is.
         turns, agent_chars = await _agent_transcript(session, tenant_id=tenant_id, call_id=call_id)
-        rows.extend(
-            await _tts_cost_rows(
-                session,
-                tenant_id=tenant_id,
-                call_id=call_id,
-                voice=voice,
-                agent_chars=agent_chars,
-                engine_tts_inr=cost.tts_inr,
-                at=snapshot.ended_at or datetime.now(UTC),
+        if settled_legs:
+            # Only the billable seconds. The carrier's charge for them is unknown until a CDR
+            # is read, so the price is NULL — what `_unit_price` writes for a leg the engine
+            # did not price — and the synthesised characters are the settlement's own row.
+            rows = [("telephony_s", duration_s, None)]
+            spoken_kchars = await _settled_tts_kchars(session, tenant_id=tenant_id, call_id=call_id)
+        else:
+            rows.extend(
+                await _tts_cost_rows(
+                    session,
+                    tenant_id=tenant_id,
+                    call_id=call_id,
+                    voice=voice,
+                    agent_chars=agent_chars,
+                    engine_tts_inr=cost.tts_inr,
+                    at=snapshot.ended_at or datetime.now(UTC),
+                )
             )
-        )
-        if cost.llm_inr is not None:
-            rows.append(("llm_tok_out", Decimal(1), cost.llm_inr))
+            if cost.llm_inr is not None:
+                rows.append(("llm_tok_out", Decimal(1), cost.llm_inr))
+            spoken_kchars = sum(
+                (qty for unit_type, qty, _ in rows if unit_type == "tts_kchars"), Decimal("0")
+            )
 
         for unit_type, qty, unit_cost in rows:
             await session.execute(
@@ -2674,11 +2794,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             await bump_cartesia_volume(
                 session,
                 month=ist_billing_month(snapshot.ended_at or datetime.now(UTC)),
-                characters=sum(
-                    (qty for unit_type, qty, _ in rows if unit_type == "tts_kchars"),
-                    Decimal("0"),
-                )
-                * CHARS_PER_KCHAR,
+                characters=spoken_kchars * CHARS_PER_KCHAR,
                 call_minutes=minutes,
             )
 

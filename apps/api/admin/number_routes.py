@@ -43,6 +43,7 @@ from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requ
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
@@ -51,6 +52,8 @@ router = APIRouter(prefix="/v1/admin/numbers", tags=["admin"])
 
 # `Annotated` aliases rather than `Depends(...)` defaults: B008 is waived only for
 # `**/routes.py`, and this module is `number_routes.py`.
+log = get_logger(__name__)
+
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 NumberOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
@@ -243,10 +246,35 @@ async def buy_number(
     The tenant is resolved before anything is spent: `service.tenant_exists` is the one
     definition of "is this a live organization", and an operator who mistyped a client id
     must not learn it from a vendor charge.
+
+    **RECORD THE INTENT, THEN ACT** (BACKEND-PATTERNS §4: a side effect outside the
+    database is never left to a write that follows it). The vendor purchase cannot be
+    rolled back, so the audit cannot simply join the purchase's transaction: an audit write
+    that failed there would roll back the only record pointing at a number we now rent.
+    Instead the operator's request is audited and COMMITTED before any money moves —
+    `number.buy_requested` — and the outcome, `number.bought`, is written inside the
+    purchase's transaction under a savepoint. A failed outcome row therefore costs a log
+    line and never the purchase record, and an unaudited purchase is impossible: the
+    request row is on the ledger before the vendor is called.
     """
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
+        await write_audit(
+            scoped,
+            action="number.buy_requested",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            # The recurring commitment and the vendor, never the number itself (hard rule 6).
+            summary={
+                "monthly_rental_usd": str(payload.monthly_price_usd),
+                "provider": payload.provider,
+            },
+        )
+    async with tenant_session(tenant_id) as scoped:
         bought = await number_supply.buy_number(
             scoped,
             get_engine(),
@@ -258,20 +286,30 @@ async def buy_number(
             agent_id=payload.agent_id,
             purpose=payload.purpose,
         )
-    await write_audit(
-        session,
-        action="number.bought",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="phone_number",
-        object_id=str(bought.number_id),
-        ip=client_request_ip(request),
-        # The recurring commitment and the vendor, never the number itself (hard rule 6).
-        summary={
-            "monthly_rental_usd": str(payload.monthly_price_usd),
-            "provider": bought.provider,
-        },
-    )
+        try:
+            async with scoped.begin_nested():
+                await write_audit(
+                    scoped,
+                    action="number.bought",
+                    actor=principal,
+                    tenant_id=tenant_id,
+                    object_type="phone_number",
+                    object_id=str(bought.number_id),
+                    ip=client_request_ip(request),
+                    summary={
+                        "monthly_rental_usd": str(payload.monthly_price_usd),
+                        "provider": bought.provider,
+                    },
+                )
+        except Exception as exc:
+            log.error(
+                "number_bought_audit_not_written",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "number_id": str(bought.number_id),
+                    "reason": type(exc).__name__,
+                },
+            )
     return BoughtNumberOut(
         id=bought.number_id,
         e164=bought.e164,
@@ -310,16 +348,16 @@ async def set_engine_ref(
         routing = await agents_service.set_number_engine_ref(
             scoped, number_id=number_id, engine_number_ref=payload.engine_number_ref
         )
-    await write_audit(
-        session,
-        action="number.engine_ref_set",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="phone_number",
-        object_id=str(number_id),
-        ip=client_request_ip(request),
-        summary={"bound": routing.bound, "failed": routing.failed},
-    )
+        await write_audit(
+            scoped,
+            action="number.engine_ref_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="phone_number",
+            object_id=str(number_id),
+            ip=client_request_ip(request),
+            summary={"bound": routing.bound, "failed": routing.failed},
+        )
     return EngineRefOut(
         engine_number_ref=payload.engine_number_ref,
         bound=routing.bound,
@@ -350,18 +388,21 @@ async def release_number(
     request: Request,
     principal: NumberOperator,
 ) -> None:
+    # One transaction for the release and its audit row. Unlike a purchase this may be
+    # rolled back safely: both vendor steps treat an absent number as success, so the
+    # retry an operator makes after a failed audit completes rather than compounds.
     async with tenant_session(tenant_id) as scoped:
         await number_supply.release_number(scoped, get_engine(), number_id=number_id)
-    await write_audit(
-        session,
-        action="number.released",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="phone_number",
-        object_id=str(number_id),
-        ip=client_request_ip(request),
-        summary={},
-    )
+        await write_audit(
+            scoped,
+            action="number.released",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="phone_number",
+            object_id=str(number_id),
+            ip=client_request_ip(request),
+            summary={},
+        )
 
 
 # LEFT JOIN, not an inner one: a number attached to no agent is the row an operator most

@@ -107,15 +107,13 @@ and GROUND — two strings written in this module and never built from wire data
 can carry a number. On a refusal: a reason and never the token, which is an
 attacker-controlled string.
 
-A number DOES leave this module in one place — the stream URL — and that is a decision with
-a written ground rather than an oversight. `plivo_stream_url` argues it in full: what it
-costs (an edge access log at two processors who already hold the call), what it buys (a
-`known` state, without which every in-call opt-out answers `caller_number_unknown` for
-ever), what bounds it, and what replaces it.
+A number leaves this module in one place: the stream URL, and only under a MAC the worker
+verifies (`plivo_stream_url` argues it). Without the signing key it carries the STATE only.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
@@ -127,7 +125,14 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from calevate_shared.client_address import client_ip
 from calevate_shared.engine import EngineAgentRef, parse_owned_runtime_agent_ref
-from calevate_shared.worker_api import CallerIdentityState
+from calevate_shared.worker_api import (
+    CALLER_CLAIM_TTL_S,
+    CLAIM_EXPIRES_PARAM,
+    CLAIM_MAC_PARAM,
+    CallerIdentityState,
+    caller_claim_mac,
+    usable_caller_claim_key,
+)
 from fastapi import APIRouter, Request, Response
 
 log = get_logger(__name__)
@@ -415,6 +420,8 @@ def plivo_stream_url(
     *,
     carrier: str | None = None,
     caller: AnswerCallerIdentity | None = None,
+    claim_key: bytes | None = None,
+    now: float | None = None,
 ) -> str:
     """The URL to hand the carrier for one agent: the base, then the route as a path segment.
 
@@ -431,21 +438,13 @@ def plivo_stream_url(
     a URL's query is not part of its path. A second path segment would have silently
     re-routed every call to a token that is not an agent ref.
 
-    ⚠ **HARD RULE 6: A NUMBER IN A URL IS A NUMBER IN AN ACCESS LOG, AND THIS PUTS ONE
-    THERE. THE DECISION, AND ITS GROUND.** Two parties see this URL: the carrier, whose own
-    datum the number is, and Pipecat Cloud, which terminates the socket and already
-    processes the entire audio of the call. Neither learns anything it does not hold — what
-    changes is that the number lands in an EDGE LOG, retained on a schedule that is not the
-    media's and is not ours. That is a real cost and it is accepted for a specific reason:
-    the alternative is that `CallerIdentityState` can never be `known` on this engine, and
-    `apps/api/worker/tools.py:150` then answers every in-call opt-out with
-    `caller_number_unknown` — a caller who asks not to be called again is told we cannot
-    identify them, on every call, for ever. A logging exposure to two processors who
-    already hold the call does not outweigh a compliance path that never works.
-    What is done to bound it: the parameter is OMITTED entirely when there is no number, so
-    a URL never carries an empty PII slot; the value never reaches a log line of ours on
-    either leg (asserted by test on both sides); and our own answer-URL path carries no
-    number at all, so this service's access log is clean.
+    **THE NUMBER TRAVELS ONLY UNDER A MAC.** Anything can open the worker's socket, so the
+    worker believes a number from this query only when `caller_mac` verifies over the
+    number, this ref and `caller_exp` (`calevate_shared.worker_api.caller_claim_mac`). With
+    no usable `claim_key` the number is left off entirely: the worker would not believe it,
+    and it would still land in an edge access log at Pipecat Cloud (hard rule 6). The
+    signed number still reaches that log; it is accepted there because without it every
+    in-call opt-out answers that the caller cannot be identified.
     **THE TARGET THAT REMOVES EVEN THAT** is the answer document's BODY — a carrier that
     echoes stream parameters back in its `start` event, the shape our pinned client already
     reads for Twilio (`pipecat/runner/utils.py:232,240-241`). That is
@@ -460,8 +459,13 @@ def plivo_stream_url(
         claim[CLAIM_CARRIER_PARAM] = carrier
     if caller is not None:
         claim[CLAIM_CALLER_STATE_PARAM] = caller.state
-        if caller.e164 is not None:
+        if caller.e164 is not None and claim_key is not None:
+            expires_at = int(time.time() if now is None else now) + CALLER_CLAIM_TTL_S
             claim[CLAIM_CALLER_PARAM] = caller.e164
+            claim[CLAIM_EXPIRES_PARAM] = str(expires_at)
+            claim[CLAIM_MAC_PARAM] = caller_claim_mac(
+                claim_key, ref=ref, e164=caller.e164, expires_at=expires_at
+            )
     return f"{url}?{urlencode(claim)}" if claim else url
 
 
@@ -578,8 +582,8 @@ async def plivo_answer(ref: str, request: Request) -> Response:
 
     **WHAT IT NOW FORWARDS.** The carrier's request is the one leg on which the calling
     party is plausibly available (`caller_identity_from_answer_request`), and the stream URL
-    minted one line later is ours to shape. The verdict — and the number, when there is one
-    — therefore rides that URL as an EXPLICIT CLAIM which
+    minted one line later is ours to shape. The verdict (the state, and the number only
+    under a MAC) therefore rides that URL as an EXPLICIT CLAIM which
     `voice_worker.carrier.claim_from_stream_url` reads back, instead of the worker waking up
     with nothing and being told to sniff for it. `Request` is injected for exactly this:
     before, the parameters were structurally unreachable rather than merely unread.
@@ -636,7 +640,13 @@ async def plivo_answer(ref: str, request: Request) -> Response:
         ANSWER_CARRIER, await _answer_request_params(request, contract)
     )
     document = plivo_answer_document(
-        plivo_stream_url(_stream_base_url(), ref, carrier=ANSWER_CARRIER, caller=caller)
+        plivo_stream_url(
+            _stream_base_url(),
+            ref,
+            carrier=ANSWER_CARRIER,
+            caller=caller,
+            claim_key=usable_caller_claim_key(get_settings().carrier_claim_secret),
+        )
     )
     # Ids and words (hard rule 6). This is the one line that says a real carrier reached
     # us. `caller.state` and `caller.ground` are written in THIS module and never built
@@ -655,8 +665,8 @@ async def plivo_answer(ref: str, request: Request) -> Response:
     return Response(
         content=document,
         media_type=ANSWER_DOCUMENT_CONTENT_TYPE,
-        # The document now names a caller on a URL inside it. Nothing should keep a copy:
-        # not a CDN, not a proxy, not the carrier's own cache. One header, no cost.
+        # Per-call routing that nothing should keep a copy of: not a CDN, not a proxy, not
+        # the carrier's own cache. One header, no cost.
         headers={"Cache-Control": "no-store"},
     )
 

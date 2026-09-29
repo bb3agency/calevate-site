@@ -1052,12 +1052,12 @@ measured despite CLAUDE.md saying to.** The budget names an in-call RAG tool end
 does not exist and must not: D-33 kept T3 out of our layer, D-488 put the engine's own
 route back, so T3 is served INSIDE the engine's pipeline and
 `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` fails
-the day an endpoint of ours appears on the audio path. What DOES sit on the audio path is
-the engine custom function
-`POST /tools/v1/{engine}/opt-out`, which shares every layer a retrieval endpoint would
-need before it retrieved anything — source verification, bounded read, JSON parse, ack
-accounting, ARQ hand-off. Measured against the real handler, real Redis, nothing stubbed
-(`tests/tool_endpoint_budget_test.py` holds the harness, the full table and the caveats):
+the day an endpoint of ours appears on the audio path. The table below measured the rented
+engine's custom function `POST /tools/v1/{engine}/opt-out`, which shared every layer a
+retrieval endpoint would need before it retrieved anything — source verification, bounded
+read, JSON parse, ack accounting, ARQ hand-off. ⚠ HISTORICAL: that route, and the harness
+that measured it, were deleted with the rented engine; it is kept as the only measurement
+of that shape against the real handler and real Redis:
 
 | in flight | 1 | 8 | 24 | 96 | 250 |
 |---|---|---|---|---|---|

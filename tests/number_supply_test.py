@@ -556,6 +556,44 @@ async def test_a_purchase_records_the_month_it_was_bought_in(authorized: None) -
     assert rows[0][0] > 0
 
 
+async def test_the_purchase_month_and_its_instant_come_from_one_clock(
+    authorized: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rental row's `occurred_at` is the transaction's `now()`, so its month has to be
+    read off that same instant. Reading it off the application clock let a purchase that
+    straddled IST midnight on the last day file one month's ref under the other month's
+    date. The application clock is skewed a month here to prove it is no longer asked."""
+    monkeypatch.setattr(number_supply, "current_billing_month", lambda: "1999-01", raising=False)
+    tenant_id = await _tenant()
+    offer = await _offer(uuid.uuid4().hex[:6])
+    async with tenant_session(tenant_id) as session:
+        bought = await number_supply.buy_number(
+            session,
+            get_engine(),
+            tenant_id=tenant_id,
+            e164=offer.e164,
+            country="IN",
+            provider=offer.provider,
+            monthly_rental_usd=offer.monthly_price_usd,
+            agent_id=None,
+            purpose=None,
+        )
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT ref, to_char(occurred_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM') "
+                    "FROM usage_events WHERE unit_type = 'number_rental' "
+                    "AND meta->>'number_id' = :n"
+                ),
+                {"n": str(bought.number_id)},
+            )
+        ).all()
+    assert len(rows) == 1
+    ref, occurred_month = rows[0]
+    assert ref == rental_ref(bought.number_id, occurred_month)
+
+
 async def test_a_purchase_month_that_cannot_be_metered_keeps_the_number_and_alarms(
     authorized: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

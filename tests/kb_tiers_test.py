@@ -138,9 +138,9 @@ async def test_publishing_knowledge_recompiles_the_t0_block() -> None:
 #: `import httpx` inside a route nobody added to that list is invisible to it. A new row
 #: here is the moment somebody has to add the route there too.
 #:
-#: Adding a row is allowed. It costs the measurement TRD §6.2 gates it on
-#: (`tests/tool_endpoint_budget_test.py` is the harness) and a decision-log entry, which
-#: is the whole point: this decision must be taken, not drifted into.
+#: Adding a row is allowed. It costs the latency measurement TRD §6.2 gates it on and a
+#: decision-log entry, which is the whole point: this decision must be taken, not drifted
+#: into.
 VOICE_RUNTIME_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         # BACKEND-PATTERNS §6's three, on every service.
@@ -149,47 +149,9 @@ VOICE_RUNTIME_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/healthz/ready"),
         # The post-call engine webhook receiver (hard rule 3's 500ms).
         ("POST", "/hooks/v1/engine/{engine}"),
-        # The in-call opt-out (SEC-COMP §2.3, D-56). It retrieves nothing.
-        ("POST", "/tools/v1/{engine}/opt-out"),
-        # THE CALL-BACK PAIR (D-514), ADDED DELIBERATELY AND NOT DRIFTED INTO — which is
-        # what this set exists to force, and this comment is the entry it demands.
-        #
-        # NEITHER RETRIEVES ANYTHING, which is the question D-33 asks of a new route on
-        # this path. `callback` does exactly one piece of work before it defers: two
-        # `strptime` calls and three comparisons over short strings
-        # (`calevate_shared.calling_window.resolve_slot`) — no IO, no database, no model,
-        # nothing that could grow into a lookup. `callback/cancel` computes nothing at all.
-        # The reason that arithmetic is allowed here rather than in the worker behind it is
-        # measurable and not stylistic: the caller is on the line being told whether we may
-        # ring them at ten at night, and a refusal that arrives after they hang up is not a
-        # refusal — it is a promise we cannot keep.
-        #
-        # THE COST THIS SET CHARGES IS PAID: `tests/callback_tool_test.py` drives both, and
-        # both are driven in `voice_runtime_import_surface_test._drive` so the ban on
-        # `httpx`, `apps.api.kb` and every model SDK is enforced ACROSS a request on them
-        # and not only at boot.
-        ("POST", "/tools/v1/{engine}/callback"),
-        ("POST", "/tools/v1/{engine}/callback/cancel"),
-        # THE HANDOVER NOTICE (D-533), added deliberately and not drifted into — the entry
-        # this set exists to force.
-        #
-        # **IT RETRIEVES NOTHING, and it is the furthest thing on this service from a
-        # retrieval endpoint: it is the only route here that COMPUTES nothing at all.** It
-        # is not even a tool the model calls. It is the transfer tool's pre-call webhook —
-        # the engine telling us, one step before it places the leg, that it is handing this
-        # caller to a person — so there is no answer to feed back to the LLM and nothing to
-        # look up. It verifies the source, bounds the body, reads one id and two strings the
-        # model wrote, queues a job and acks. No IO, no database, no model.
-        #
-        # It is on THIS service rather than in `apps/api` for the reason the opt-out is: the
-        # engine fires it mid-call, so hard rule 3's 500ms governs it — the vendor's promise
-        # that a slow webhook "never blocks the transfer" is not a budget we get to spend,
-        # because dead air on a live call is dead air either way.
-        #
-        # THE COST THIS SET CHARGES IS PAID: `tests/handoff_tool_test.py` drives it, and it
-        # is driven in `voice_runtime_import_surface_test._drive` so the ban on `httpx`,
-        # `apps.api.kb` and every model SDK is enforced ACROSS a request on it.
-        ("POST", "/tools/v1/{engine}/handoff"),
+        # The rented engine's four in-call tool routes (opt-out, call-back, cancel,
+        # handoff) left this set with that engine: on the owned runtime those acts are
+        # `apps/api`'s `/v1/worker/calls/{ref}/tools/*`, off this service.
     }
 )
 
@@ -204,8 +166,7 @@ def test_in_call_retrieval_is_not_reimplemented_on_our_side() -> None:
     Asserted as the mounted ROUTE INVENTORY (see `VOICE_RUNTIME_ROUTES`) rather than as
     a token scan of the sources, which is what this was and which any plausible
     retrieval endpoint would have walked straight past. An EQUALITY, so it also fails if
-    a route DISAPPEARS: the opt-out tool going missing is the compliance hole SEC-COMP
-    §2.3 opened this endpoint to close, and it should not vanish quietly either.
+    a route DISAPPEARS, so removing one is a visible edit to this set too.
     """
     import main as voice_runtime_app
 

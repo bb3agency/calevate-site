@@ -376,8 +376,20 @@ class WorkerRuntime:
         # exit. `aclose` stops the timer and writes what is left, and it is idempotent, so
         # the ordinary path pays only a second no-op flush.
         try:
-            await runner.add_workers(call.worker)
-            await runner.run()
+            try:
+                await runner.add_workers(call.worker)
+                await runner.run()
+            except Exception:
+                # A PIPELINE THAT RAISED STILL SETTLES, AS `failed`. The settlement is the
+                # only producer of this call's post-call promise and of its usage rows
+                # (there is no poller behind it), so leaving it unsent would strand the
+                # call at `in_progress` with its transcript unread and its measured legs
+                # unbilled. The settlement is idempotent server-side, so this cannot write
+                # twice; a failure to send it is logged and the original error still raises.
+                await self._settle_after_crash(
+                    sink, meter, carrier, runtime_usage, timings, config, call_id=call_id
+                )
+                raise
 
             drained = call.worker.has_finished()
             settlement = await sink.settle(
@@ -385,6 +397,7 @@ class WorkerRuntime:
                 carrier=carrier,
                 runtime=runtime_usage,
                 latency=timings.call_latency(),
+                agent_config_version_id=config.agent_config_version_id,
             )
             await attestation
         finally:
@@ -412,6 +425,35 @@ class WorkerRuntime:
             post_call_enqueued=settlement.post_call_enqueued,
         )
         return CallOutcome(call_id=call_id, drained=drained, settlement=settlement)
+
+    @staticmethod
+    async def _settle_after_crash(
+        sink: HttpEventSink,
+        meter: CallMeter,
+        carrier: CarrierCdr | None,
+        runtime_usage: RuntimeUsage | None,
+        timings: CallLatencyRecorder,
+        config: SessionConfig,
+        *,
+        call_id: str,
+    ) -> None:
+        """Settle a call whose pipeline raised, as `failed`. Never raises."""
+        try:
+            await sink.settle(
+                meter,
+                carrier=carrier,
+                runtime=runtime_usage,
+                latency=timings.call_latency(),
+                agent_config_version_id=config.agent_config_version_id,
+                final_status="failed",
+            )
+        except Exception as failure:
+            logger.error(
+                "call not settled after the pipeline raised",
+                call_id=call_id,
+                tenant_id=str(config.tenant_id),
+                reason=type(failure).__name__,
+            )
 
     async def _attest(
         self, engine_agent_ref: str, config: SessionConfig, call: AssembledCall

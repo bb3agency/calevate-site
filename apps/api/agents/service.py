@@ -172,8 +172,9 @@ log = get_logger(__name__)
 #: can SELECT for — which is what `_reap_stuck_dialing` does with it.
 #:
 #: Collision with a vendor id is what the prefix rules out: an engine id is an opaque
-#: vendor token (Bolna's is a uuid4 execution id, Cartesia's a `call_…` handle) and
-#: neither can be minted by us, so nothing outside this module writes this shape.
+#: vendor token (Cartesia's is a `call_…` handle) or the owned runtime's
+#: `pipecat:<tenant>:<call>` (`calevate_shared.engine.pipecat_call_ref`); neither carries
+#: this prefix, so nothing outside this module writes this shape.
 UNCONFIRMED_ENGINE_CALL_PREFIX = "local:"
 
 #: Engine failures that mean **no line was seized** — the dial can be retried, and the
@@ -193,12 +194,9 @@ UNCONFIRMED_ENGINE_CALL_PREFIX = "local:"
 #: (`vendor_http.EngineRejectedError`), so the four statuses the vendor documents as refusals
 #: are separated from the ambiguous rest — by the exception, not by adding four codes here.
 #:
-#: What would let us do better STILL is a vendor-side idempotency key on `POST /call`:
-#: with one, a retry is safe whatever the failure was, including the 5xx half. **Bolna
-#: documents none** — no idempotency key, no client request id, no dedupe window anywhere
-#: in their 333 published pages (searched: `idempoten`, `request-id`, `dedup` — zero
-#: hits). That is a stated negative, not an assumption (D-31/D-32's rule), and it is why
-#: the 5xx half stays "the phone may be ringing".
+#: What would let us do better STILL is a vendor-side idempotency key on the dial request:
+#: with one, a retry is safe whatever the failure was, including the 5xx half. No adapter
+#: sends one, which is why the 5xx half stays "the phone may be ringing".
 DIAL_NOT_PLACED_CODES = frozenset(
     {
         # 429 with the ladder exhausted. The adapter's own note says a throttle "says
@@ -3001,10 +2999,10 @@ async def dispatch_call(
                 # The per-call prompt with `{{ }}` merge fields resolved from THIS lead's
                 # data (structured builder, D-script). Only the values known at dial time
                 # are supplied; an unfilled field collapses to nothing rather than being
-                # spoken as a literal `{{ }}` (see `substitute_variables`). On a
-                # control-plane engine (Bolna) this returns None — the prompt is agent
-                # state and the engine does its own variable substitution — so this merge
-                # only runs on engines that carry the prompt per call.
+                # spoken as a literal `{{ }}` (see `substitute_variables`). On an engine
+                # that holds the prompt as agent state (`control_plane`, `owned_runtime`)
+                # this returns None, so the merge only runs on engines that carry the
+                # prompt per call.
                 system_prompt=_call_prompt_for(
                     engine,
                     tenant_id,

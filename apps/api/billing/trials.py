@@ -139,6 +139,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.caps import lock_tenant_spend_state, recompute_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -374,6 +375,12 @@ async def trial_cost_to_us_inr(
     than by a billing month, because the question is about the arrangement and not about
     January.
     """
+    # Imported here rather than at module scope: `billing/service.py` imports this module,
+    # so a top-level import back is a cycle. `_ROW_COST_SQL` is THE definition of what one
+    # row costs us (a zero-`qty` row is its whole leg, D-370); a second spelling here read
+    # such a row as ₹0 while the margin panel counted it.
+    from apps.api.billing.service import _ROW_COST_SQL
+
     end = trial.ended_at or trial.ends_at
     total = (
         await session.execute(
@@ -381,7 +388,7 @@ async def trial_cost_to_us_inr(
             # reason: RLS fails the query closed either way, and naming it makes the answer
             # depend on the argument rather than on which session it was handed.
             text(
-                "SELECT COALESCE(SUM(unit_cost_paid * qty), 0) FROM usage_events "
+                f"SELECT COALESCE(SUM({_ROW_COST_SQL}), 0) FROM usage_events "
                 "WHERE tenant_id = :tid AND occurred_at >= :from AND occurred_at < :to"
             ),
             {"tid": tenant_id, "from": trial.started_at, "to": end},
@@ -642,11 +649,13 @@ async def reset_client_counters(session: AsyncSession, *, tenant_id: UUID) -> No
     counts over (`counter_epoch`), not the rows. The DB triggers would refuse anyway, which
     is the point of hard rule 4 — this function could not do the wrong thing if it tried.
 
-    `capped` is cleared with the rest deliberately: the flag is derived from counters that
-    are now zero, so leaving it set would refuse a client's calls on the strength of a
-    ceiling nothing has reached. The next completed call recomputes it from the shared
-    `over_cap_sql` like always.
+    `capped` is re-derived from the zeroed counters through `caps.recompute_capped` rather
+    than cleared: a flag left set would refuse calls on a ceiling nothing has reached, and
+    a flag cleared outright would disarm a ceiling of ZERO, which zero counters have
+    already reached — the client's own stop button. The spend-state lock is taken first,
+    as every writer of the flag takes it.
     """
+    await lock_tenant_spend_state(session, tenant_id)
     await session.execute(
         text(
             "UPDATE spend_state SET minutes_used = 0, spend_used = 0, billed_inr = 0, "
@@ -654,6 +663,7 @@ async def reset_client_counters(session: AsyncSession, *, tenant_id: UUID) -> No
         ),
         {"tid": tenant_id},
     )
+    await recompute_capped(session, tenant_id=tenant_id)
 
 
 async def mark_erasure_filed(
