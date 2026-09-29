@@ -28,7 +28,8 @@ only one JS app.
 ## Quick start
 
 ```bash
-docker compose up -d          # postgres:16+pgvector, redis, minio
+docker compose up -d          # postgres:16+pgvector, redis, minio (minio builds from source
+                              # on the first run; infra/minio/Dockerfile)
 uv sync --all-packages        # NOTE: --all-packages, not bare `uv sync`
 pnpm install
 cp .env.example .env

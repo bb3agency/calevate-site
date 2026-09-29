@@ -703,7 +703,11 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
 10. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
    order workers → api → voice-runtime (§4b), each followed by a health wait of
    **90×2s** on `/healthz` (§10's lesson: 60s was shorter than a migrate-on-boot, which
-   trains operators to ignore red deploys).
+   trains operators to ignore red deploys). `workers` has no HTTP listener, so its swap
+   is gated by watching the new container instead: it must stay `running` with
+   `RestartCount` 0 for `SETTLE_S` (30s). Before that gate existed a worker that died on
+   import passed its swap, because `restart: unless-stopped` kept it cycling behind a green
+   deploy.
 11. **web**: `pnpm install --frozen-lockfile` + `pnpm -C apps/web build` + `pm2 reload
     calevate-web --update-env`, or `pm2 start apps/web/ecosystem.config.cjs && pm2 save`
     when pm2 has never heard of the app — `reload` exits non-zero on an unregistered
@@ -735,6 +739,12 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
     here: the deploy has succeeded, there is nothing to make room for, and tier 2 would
     throw away the rollback artefact this deploy just created. Then record SHA, image ref,
     migration verdict and plan to `.deploy-state/history`, and print the summary.
+    `.deploy-state/deployed-sha` is the baseline the next `--changed` run diffs from, so it
+    means "every component runs this commit": a deploy of named components advances it
+    only when they cover everything that changed since it, and otherwise says which
+    components are still pending. A `--changed` range that touches the Pipecat voice
+    worker's inputs prints the `pipecat-worker-setup.sh deploy` command, because this
+    script never deploys that worker (§12).
 
 **The whole sequence runs under one host lock** (`scripts/deploy/host-lock.sh`), taken
 before step 1 and released by the kernel when the process exits, however it exits. The
@@ -910,8 +920,7 @@ Calevate adaptations:
    logs see real caller IPs, not CF edge IPs. (Their config lacks this; the survey
    flagged it.)
 4. **Rate zones** (ours): `auth` 20r/m · `admin_api` 180r/m · `client_api` 120r/m ·
-   `webhooks` 600r/m (engine events burst on campaign completion) ·
-   `in_call_tools` 2500r/m (the engine's mid-call custom functions) · `health` 60r/m ·
+   `webhooks` 600r/m (engine events burst on campaign completion) · `health` 60r/m ·
    `browser` 600r/m. App-layer limits stay authoritative; nginx is edge defense.
 
    `browser` was `default` at 90r/m, and it was refusing honest traffic: the origin's
@@ -920,16 +929,7 @@ Calevate adaptations:
    `<Link>` fires. A Next App Router console is dozens of requests per screen; 1.5r/s
    could not serve one.
 
-   `in_call_tools` exists because `hooks.` had ONE proxying location, so `/tools/v1/*`
-   and `/hooks/v1/*` shared the `webhooks` bucket — keyed on the one engine egress
-   address both arrive from. A campaign hanging up 250 calls therefore spent the
-   allowance, and a tool call from a call still in progress was answered 429 by nginx:
-   the handler never runs, the model gets a failed tool call, the caller hears silence.
-   Raising `webhooks` would not have fixed it — it lets the hangup burst consume a bigger
-   in-call allowance, which IS the defect. The rate is derived from concurrency rather
-   than completions: 250+ concurrent calls (D-32) × at most ~10 tool calls per call per
-   minute (one per conversational turn) = 2,500r/m, with `burst=250 nodelay` for the
-   lockstep round a campaign's simultaneous dials produce. Renamed as well as retuned because it is applied in exactly four
+   `browser` was renamed as well as retuned because it is applied in exactly four
    places — the `location /` of the marketing, client and admin vhosts, and the api
    vhost's `location ^~ /v1/public/` (D-545: the public rate card, whose one caller is
    the marketing server and whose body has no database behind it) — and never was the
@@ -1732,6 +1732,7 @@ container. Nothing fetches one from the other.
 | `SARVAM_API_KEY` | yes | ops console (`sarvam_api_key`) | STT on every call, and today's TTS |
 | `CARTESIA_API_KEY` | no | ops console (`cartesia_api_key`) | the Studio voice tier only |
 | `GNANI_API_KEY` | no | **Gnani account, into THIS secret set only** | the Gnani TTS leg (D-618), used by an agent whose `ModelConfig.tts_provider` names it; a container without it refuses that call by name and serves every other one. It is a `Settings` field so the ops console can LIST it under *Set outside this console* with `held_by` naming this secret set — and it REFUSES to store it, because `PLATFORM_KEK` is not in this image and, unlike `CARTESIA_API_KEY`, nothing in `apps/api` holds a Gnani client to give a stored value to. ⚠ No Gnani voice is offerable until somebody also attests what a Gnani minute costs (hard rule 7, OPERATIONS §2 gate 56), so installing this key alone changes nothing a client can see. |
+| `CARRIER_CLAIM_SECRET` | no | **a random string of at least 32 bytes you generate; the SAME value in the VPS `.env` (voice-runtime reads it) and in THIS secret set** | signs the caller number voice-runtime puts on the stream URL, and the worker believes that number only when the signature verifies for the agent the call was routed to and has not expired (`calevate_shared.worker_api.caller_claim_mac`, 120 s). A `Settings` field classified `ENV_ONLY`: voice-runtime never opens the credential store and this container cannot. Unset on either side ⇒ no caller number is believed, so the in-call opt-out, call-back and caller memory answer that the caller cannot be identified. Set but shorter than 32 bytes ⇒ this container refuses to boot. Never reuse `PIPECAT_WORKER_API_TOKEN` for it. |
 | `AZURE_OPENAI_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | **at least one** | ops console | the in-call LLM. WHICH one a call needs is decided per agent by `ModelConfig.llm_provider`, so the gate demands one and a call for a provider this container has no key for is refused by name rather than run on another vendor's credential. |
 | `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | yes | **a credential issued for THIS WORKER** (`PLIVO_WORKER_AUTH_ID` / `PLIVO_WORKER_AUTH_TOKEN` — §12.5 gate 11), Plivo account (BLOCKER-1), into THIS secret set only | read by PIPECAT, not by us. ⚠ **NOT THE ACCOUNT-LEVEL CREDENTIAL THE VPS USES, AND THE SETUP SCRIPT REFUSES IT**: the worker needs to hang a leg up, while that one can also originate calls, buy numbers and read every CDR. What Plivo offers as the narrowest such credential is UNKNOWN from here and is gate 11's question. Without them the serializer cannot hang the call up at `EndFrame`, and a leg nobody hung up is a leg the carrier goes on billing. Since D-614 both are `Settings` fields, so the ops console LISTS them under *Set outside this console* with the reason and with `held_by` naming this secret set — and refuses to store them, because `PLATFORM_KEK` is not in this image and a stored value would be one nothing here could ever read. |
 | `PIPECAT_WORKER_TURN_BATCH_SIZE` | no | default 8 | how many spoken turns wait in memory before one batched write (D-620). `1` restores a write per turn. |

@@ -281,6 +281,7 @@ readonly ENV_CONTRACT=(
   "GEMINI_API_KEY|llm|in-call LLM, Google leg"
   "CARTESIA_API_KEY|no|the Studio voice tier only"
   "GNANI_API_KEY|no|the Gnani TTS leg (D-618); no Gnani voice is offerable until a minute is ATTESTED"
+  "CARRIER_CLAIM_SECRET|no|signs the caller number voice-runtime puts on the stream URL; the SAME value as this host's CARRIER_CLAIM_SECRET (at least 32 bytes). Unset on either side means no caller number is believed"
 )
 
 # --- doctor -------------------------------------------------------------------------------
@@ -510,17 +511,14 @@ digest_cmd() {
      Anything else means the registry is unreachable from here; note that this needs
      registry access and NOT a working pull, so a blocked blob CDN is not the explanation."
 
+  # jq, not python3: jq is a DEPLOYMENT §2 host prerequisite and the host carries no
+  # interpreter this script may rely on. The first linux/<arch> entry wins, as before.
+  have jq || die "jq is required (DEPLOYMENT §2 host prerequisite)"
   local digest
-  digest=$(printf '%s' "$raw" | python3 -c '
-import json, sys
-index = json.load(sys.stdin)
-want = sys.argv[1]
-for entry in index.get("manifests", []):
-    platform = entry.get("platform") or {}
-    if platform.get("os") == "linux" and platform.get("architecture") == want:
-        print(entry["digest"])
-        break
-' "$PIPECAT_TARGET_ARCH") || die "could not parse the manifest list"
+  digest=$(printf '%s' "$raw" | jq -r --arg arch "$PIPECAT_TARGET_ARCH" '
+    first(.manifests[]?
+          | select(.platform.os? == "linux" and .platform.architecture? == $arch)
+          | .digest) // empty') || die "could not parse the manifest list"
 
   [[ -n "$digest" ]] || die "$repo:$tag publishes no linux/$PIPECAT_TARGET_ARCH image, and
      every Pipecat Cloud region runs $PIPECAT_TARGET_ARCH. Nothing built on this base can
@@ -572,8 +570,13 @@ secrets_cmd() {
   # Shredded on EVERY exit path, signals included. `shred` then `rm -rf` because shred alone
   # leaves the directory, and on a filesystem where shred cannot overwrite in place the rm
   # is what actually removes it.
+  # INT and TERM EXIT rather than clean up in place: a handler that returns lets bash
+  # resume the prompt loop after Ctrl-C, writing into a directory it has just removed.
+  # The exit then runs the EXIT trap, so cleanup happens once on every path.
   # shellcheck disable=SC2064
-  trap "shred -u '$envfile' >/dev/null 2>&1 || true; rm -rf '$workdir'" EXIT INT TERM
+  trap "shred -u '$envfile' >/dev/null 2>&1 || true; rm -rf '$workdir'" EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   rule
   say "SECRET SET: $set_name"
@@ -723,23 +726,13 @@ sources_cmd() {
   rule
   say "WHAT THE OPS CONSOLE ALREADY HOLDS (last four only — no secret is readable back):"
   say ""
-  # Read through the RUNNING api container rather than reimplementing the query or needing a
-  # psql on the host: that process already holds the pool and the role, and this asks it for
-  # the same metadata the console renders. Degrades to the SQL when it cannot.
-  # THIS HOST'S database, and not the worker's: since D-621 the worker has no DSN at all.
-  # It is read here only to show the last four of what the ops console already holds, so an
-  # operator can confirm the value they are pasting into the secret set is the same one.
-  local dsn; dsn=$(env_file_value DATABASE_URL 2>/dev/null || true)
-  if [[ -n "$dsn" ]] && have psql; then
-    psql "${dsn/postgresql+psycopg:/postgresql:}" -At -F' ' -c \
-      "SELECT DISTINCT ON (key) key, version, last_four FROM platform_secrets ORDER BY key, version DESC" \
-      2>/dev/null | sed 's/^/    /' \
-      || warn "could not query platform_secrets with the DSN from $ENV_FILE"
-  else
-    warn "no psql on this host (or no DATABASE_URL), so run this yourself to see them:"
-    say  "    SELECT DISTINCT ON (key) key, version, last_four"
-    say  "      FROM platform_secrets ORDER BY key, version DESC;"
-  fi
+  # PRINTED, NOT RUN. This used to pass the deploy `.env`'s DATABASE_URL to `psql` as an
+  # argument, which puts the database password in the process table for every local user
+  # to read, and that DSN names `host.docker.internal`, which the host cannot resolve, so the
+  # query failed anyway. The ops console shows the same last four.
+  say  "  the ops console lists them, or run this against the application database:"
+  say  "    SELECT DISTINCT ON (key) key, version, last_four"
+  say  "      FROM platform_secrets ORDER BY key, version DESC;"
   rule
   warn "A CREDENTIAL IS NOT COPIED FROM THE CONSOLE TO THE SECRET SET BY ANY MACHINERY, and
      that is deliberate: PLATFORM_KEK is not in the worker image and must never be, so the

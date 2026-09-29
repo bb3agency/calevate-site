@@ -75,14 +75,27 @@ script validates. `calevate-nginx-apply` refuses: a symlinked staging root, a st
 owned by anyone but the deploy account, a world-writable staging root, a subdirectory, a
 symlink, a non-regular file, and any basename outside `^[a-z0-9][a-z0-9._-]*\.conf$`. The
 threat model it is written against is "the deploy account is compromised", in which the
-staging directory is attacker-controlled input.
+staging directory is attacker-controlled input. Because that account can change a file after
+it is validated, the script then copies every staged file into a root-only snapshot by
+reading it through `runuser -u calevate -- cat` (util-linux, present on Ubuntu 24.04), and
+installs only from the snapshot. A symlink swapped in after validation cannot make root
+read a file the deploy account could not read itself. `tests/nginx_apply_snapshot_test.py`
+covers this.
 
 **What the grant does NOT hand over.** The deploy account already chooses the nginx
 configuration — `infra/nginx/*.template` lives in the repository it deploys — so that is not
-a privilege this creates. What the script refuses to hand over is everything else: writing
-outside `/etc/nginx`, reading a file the deploy account cannot already read, deleting
-anything it did not introduce in this run, and running a command of the account's
-construction.
+a privilege this creates. What the script itself refuses to do is install a file outside
+`/etc/nginx/{conf.d,snippets}`, delete anything it did not introduce in this run, or run a
+command of the account's construction.
+
+**The CONFIG it installs is root-capable, and no validation of names changes that.**
+`nginx -t` and the master process run as root and open every path the configuration names:
+an `include` makes root open and parse any file on the host, and an `access_log` or
+`error_log` path is opened for writing by the root master. So whoever controls the staged
+content — the repository, or a compromised deploy account — can reach root-only files
+through it. That is the same boundary as the `docker` group
+below, and it is why the protection that matters is on what reaches `main`, not in this
+script.
 
 **The deploy user's name appears in exactly three places and they must agree:** the
 `Defaults:` and Cmnd lines in `sudoers.d/calevate-deploy`, `DEPLOY_USER` in

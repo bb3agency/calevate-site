@@ -51,6 +51,8 @@ env:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # A hung step fails here instead of holding a runner; green runs took 85-88 min (Sep 21-22 2026).
+    timeout-minutes: 150
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -113,10 +115,23 @@ jobs:
         # whole file exists to refuse.
         run: uv sync --all-packages --group errors
 
+      # MinIO publishes no anonymous image any more (quay.io answers "unauthorized";
+      # https://www.ibm.com/support/pages/node/7289585), and github.com/minio/minio was
+      # archived on 25 Apr 2026. So the server is built from its last release tag,
+      # RELEASE.2025-10-15T17-29-55Z (commit 9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a,
+      # https://github.com/minio/minio/tags). That tag's go.mod says `go 1.24.0` and
+      # `toolchain go1.24.8`, so Go is pinned to exactly 1.24.8 and GOTOOLCHAIN=local
+      # stops it fetching another toolchain. `go install` verifies the module against
+      # sum.golang.org. `docker-compose.yml` builds the same tag (infra/minio/Dockerfile).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.24.8"
+          # This repository has no go.sum for the default module cache key to read.
+          cache: false
+
       - name: Start MinIO
-        # NOT a `services:` entry, and it cannot be one: MinIO needs `server /data` and
-        # GitHub Actions service containers accept no `command`. `docker run` in a step is
-        # the documented way round that, and the runner already has a daemon.
+        # A background process rather than a `services:` entry: service containers take
+        # no `command`, and there is no image to run.
         #
         # WHY IT IS HERE AT ALL (D-106). `tests/object_lifecycle_test.py`'s three
         # store-backed checks guard the lifecycle policy that deletes recording AUDIO —
@@ -127,30 +142,24 @@ jobs:
         #
         # Credentials match `docker-compose.yml` so local and CI are the same shape; they
         # are the emulator's root user, not a secret.
-        #
-        # THE REGISTRY IS quay.io AND NOT DOCKER HUB, AND THAT IS WHY THIS JOB WENT RED.
-        # MinIO deleted `minio/minio` from Docker Hub in September 2026 (community edition
-        # went source-only in October 2025; the images stayed pullable for about eleven
-        # months, then were removed). The pull then failed in under a second with "pull
-        # access denied ... repository does not exist or may require 'docker login'", which
-        # aborted the step under `bash -e` BEFORE the health poll below could run — so the
-        # loop's careful "a failure to come up must fail the job" never got a chance to
-        # report, and every later step that needs Postgres or the store was skipped or
-        # failed with a cause that looked like ours. quay.io is MinIO's own registry and
-        # serves the same images.
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: "0"
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=calevate -e MINIO_ROOT_PASSWORD=calevate123 \
-            quay.io/minio/minio server /data
-          # Poll rather than sleep: the image is pulled here, so a fixed wait is either
-          # wrong on a cold cache or wasted on a warm one. A failure to come up must fail
-          # the job — a silent timeout would put the skip back, which is the whole defect.
+          set -euo pipefail
+          go install github.com/minio/minio@RELEASE.2025-10-15T17-29-55Z
+          mkdir -p "$RUNNER_TEMP/minio-data"
+          MINIO_ROOT_USER=calevate MINIO_ROOT_PASSWORD=calevate123 \
+            nohup "$(go env GOPATH)/bin/minio" server "$RUNNER_TEMP/minio-data" --address ":9000" \
+            > "$RUNNER_TEMP/minio.log" 2>&1 &
+          # Poll rather than sleep. A failure to come up must fail the job: a silent
+          # timeout would put the skip back, which is the whole defect.
           for _ in $(seq 1 30); do
             curl -sf http://localhost:9000/minio/health/live && exit 0
             sleep 2
           done
           echo "MinIO did not become healthy; object-lifecycle checks would silently skip"
-          docker logs minio || true
+          cat "$RUNNER_TEMP/minio.log"
           exit 1
 
       - name: Create the unprivileged app role
@@ -481,6 +490,8 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    # A hung step fails here instead of holding a runner; green runs took 6-8 min.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # NO `version:` HERE ON PURPOSE. With it, this job installed whatever `10.x` the
@@ -532,6 +543,8 @@ jobs:
     # mypy runs on its own so a type error does not hide behind a failing test, and so
     # its cache is not invalidated by the database job.
     runs-on: ubuntu-latest
+    # A hung step fails here instead of holding a runner; green runs took under 2 min.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
@@ -560,6 +573,8 @@ jobs:
     # critical do. Both audits were run clean at this level before this gate was added, so
     # it goes in green rather than red-on-arrival (the wrong way to introduce a gate).
     runs-on: ubuntu-latest
+    # A hung step fails here instead of holding a runner; green runs took under 1 min.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
@@ -603,6 +618,8 @@ jobs:
     # production host. The BEHAVIOUR of the script is pytest's job
     # (`tests/deploy_rollback_test.py`, `tests/nginx_hooks_vhost_test.py`).
     runs-on: ubuntu-latest
+    # A hung step fails here instead of holding a runner; green runs took under 1 min.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

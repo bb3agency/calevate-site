@@ -138,6 +138,33 @@ for kind in "${!TARGETS[@]}"; do
   log "$kind: $found file(s) validated"
 done
 
+# --- snapshot the staged files AS THE DEPLOY ACCOUNT ---------------------------------------
+#
+# The checks above are a point in time. The deploy account owns the staging directory and
+# can replace a validated file with a symlink before root reads it, and `install` follows
+# symlinks, so root would copy whatever the link names into /etc/nginx at mode 0644.
+# Re-checking just moves the race. Reading with the deploy account's own permissions ends
+# it: a link to a file that account cannot read fails here, and one it CAN read gives it
+# nothing it did not have. The redirect is root's, into a root-only directory, so the
+# copies cannot change after this point and everything below reads only them.
+# `runuser -u <user> -- <command>` is util-linux, root-only (runuser(1),
+# https://manpages.ubuntu.com/manpages/noble/man1/runuser.1.html, util-linux 2.39.3 on
+# Ubuntu 24.04).
+command -v runuser >/dev/null || die "runuser (util-linux) is not installed; it is how
+     this script reads staged files without root's permissions."
+snapshot=$(mktemp -d)
+chmod 0700 "$snapshot"
+trap 'rm -rf "$snapshot"' EXIT
+for index in "${!sources[@]}"; do
+  kind=$(basename "$(dirname "${sources[$index]}")")
+  mkdir -p "$snapshot/$kind"
+  copy="$snapshot/$kind/$(basename "${sources[$index]}")"
+  runuser -u "$DEPLOY_USER" -- cat -- "${sources[$index]}" > "$copy" \
+    || die "could not read staged file '$kind/$(basename "$copy")' as $DEPLOY_USER.
+     It changed after validation, or it points at something that account cannot read."
+  sources[index]=$copy
+done
+
 # --- back up what is about to be overwritten ---------------------------------------------
 #
 # WHY A BACKUP. `nginx -t` reads /etc/nginx, so the candidate files have to be ON DISK

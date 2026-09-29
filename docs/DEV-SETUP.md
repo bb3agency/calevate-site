@@ -67,6 +67,8 @@ account (D-165/D-170/D-177 — Clerk is deleted).
 git clone <repo> calevate && cd calevate
 cp .env.example .env                  # fill values per §4
 make up                               # = docker compose up -d: postgres:16+pgvector, redis:7, minio
+                                      # (minio is compiled from source on the first run:
+                                      # no anonymous MinIO image exists; infra/minio/Dockerfile)
 uv sync --all-packages                # --all-packages, not bare `uv sync`: the bare form
                                       # installs the root only and leaves calevate_shared
                                       # uninstalled (matches ci.yml:63)

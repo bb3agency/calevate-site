@@ -555,7 +555,7 @@ def test_only_one_database_engine_exists_and_it_hides_its_parameters() -> None:
                 and kw.value.value is True
                 for kw in node.keywords
             )
-            found.append((f"{path.relative_to(root)}:{node.lineno}", hides))
+            found.append((f"{path.relative_to(root).as_posix()}:{node.lineno}", hides))
 
     assert found, "no engine found — this guard is watching the wrong tree"
 

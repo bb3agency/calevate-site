@@ -71,6 +71,12 @@ STATE_DIR=${CALEVATE_DEPLOY_STATE:-$ROOT/.deploy-state}
 HEALTH_ATTEMPTS=${HEALTH_ATTEMPTS:-90}
 HEALTH_INTERVAL_S=${HEALTH_INTERVAL_S:-2}
 
+# How long a service with no HTTP listener (workers) must stay up, unrestarted, before its
+# swap counts. `restart: unless-stopped` turns an import error into a restart loop whose
+# container is "running" most of the time, so one look is not enough: every sample in this
+# window must show the SAME container running with RestartCount 0.
+SETTLE_S=${SETTLE_S:-30}
+
 # Disk is not a constant in this file any more. It is a LADDER, and it lives in
 # `scripts/deploy/docker-reclaim.sh` because the daily hygiene job needs the same
 # primitives and two copies of "how this host reclaims Docker disk" would drift. Both
@@ -700,23 +706,64 @@ components_for_paths() {
   done
 }
 
+# The commit every component is known to be running, or nothing when there is no usable
+# record: a first deploy, or a state file naming a commit this checkout does not have (a
+# force-push, a re-clone).
+last_deployed_sha() {
+  local last=""
+  [[ -f "$STATE_DIR/deployed-sha" ]] && last=$(cat "$STATE_DIR/deployed-sha")
+  if [[ -n "$last" ]] && git -C "$ROOT" cat-file -e "${last}^{commit}" 2>/dev/null; then
+    printf '%s\n' "$last"
+  fi
+}
+
+# Components whose inputs differ between the last recorded deploy and HEAD — every
+# component when there is no usable record, because guessing a subset from an unknown
+# baseline would silently skip a service.
+components_since_last_deploy() {
+  local last
+  last=$(last_deployed_sha)
+  if [[ -z "$last" ]]; then
+    printf '%s\n' "${ALL_COMPONENTS[@]}"
+  else
+    git -C "$ROOT" diff --name-only "$last" HEAD | components_for_paths
+  fi
+}
+
+# `apps/voice-worker` runs on Pipecat Cloud and is deployed by
+# `scripts/deploy/pipecat-worker-setup.sh deploy`, never by this script (DEPLOYMENT §12).
+# These are the inputs its image is built from (apps/voice-worker/Dockerfile's COPY lines).
+# Without this, a commit touching only the worker ended in "nothing to deploy — HEAD is
+# already live" while the worker in production was still the old one.
+voice_worker_changed_since() {
+  local last=$1 path
+  while IFS= read -r path; do
+    case "$path" in
+      apps/voice-worker/*|packages/shared/*|uv.lock|pyproject.toml|apps/*/pyproject.toml)
+        return 0 ;;
+    esac
+  done < <(git -C "$ROOT" diff --name-only "$last" HEAD)
+  return 1
+}
+
 resolve_plan() {
   step "resolve plan"
   case "$MODE" in
     explicit) PLAN=("${SELECTED[@]}") ;;
     all)      PLAN=("${ALL_COMPONENTS[@]}") ;;
     changed)
-      local last=""
-      [[ -f "$STATE_DIR/deployed-sha" ]] && last=$(cat "$STATE_DIR/deployed-sha")
-      if [[ -z "$last" ]] || ! git -C "$ROOT" cat-file -e "${last}^{commit}" 2>/dev/null; then
-        # First deploy on this host, or a state file pointing at a commit this checkout
-        # does not have (a force-push, a re-clone). Guessing a subset from an unknown
-        # baseline would silently skip a service; deploy everything and say why.
+      local last
+      last=$(last_deployed_sha)
+      mapfile -t PLAN < <(components_since_last_deploy)
+      if [[ -z "$last" ]]; then
         log "no usable last-deployed SHA — deploying every component"
-        PLAN=("${ALL_COMPONENTS[@]}")
       else
-        mapfile -t PLAN < <(git -C "$ROOT" diff --name-only "$last" HEAD | components_for_paths)
         log "changed since ${last:0:12}: ${PLAN[*]:-nothing}"
+        if voice_worker_changed_since "$last"; then
+          warn "this range also changes the Pipecat voice worker, which this script does NOT
+     deploy. After this deploy, as the deploy account:
+       $ROOT/scripts/deploy/pipecat-worker-setup.sh deploy"
+        fi
       fi
       ;;
   esac
@@ -862,6 +909,17 @@ rolling_back_onto_a_newer_database() {
   # neither is a rollback, and both belong to the migrate step that follows.
   [[ -n "$revision" && "$revision" != "unreadable" ]] || return 1
 
+  # The checker answers 3 for ANY string alembic cannot resolve, so a line that is not
+  # `alembic current` output (a stray stdout line whose first word would be taken as the
+  # revision) would read as "the database is ahead" and skip a migration this release
+  # needs. The whole line must be a 12-hex revision id — alembic's generated form, and the
+  # form of every revision in this tree (tests/deploy_swap_gates_test.py holds that) —
+  # followed only by alembic's parenthesised markers such as "(head)".
+  [[ "$DB_REVISION_BEFORE" =~ ^[0-9a-f]{12}( \([a-z ]+\))*$ ]] || die "'alembic current' printed something that is
+     not a revision id, so this deploy cannot tell a rollback from a forward deploy. Refusing
+     rather than guessing. Run it by hand and read the output:
+       docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE run --rm --no-deps --entrypoint alembic api current"
+
   local verdict=0
   compose run --rm --no-deps --entrypoint python api \
     -m scripts.deploy_revision_check "$revision" || verdict=$?
@@ -924,7 +982,7 @@ run_migrations() {
   # thing that makes a manual `alembic downgrade <before>` a considered action rather
   # than a guess taken under pressure.
   DB_REVISION_BEFORE=$(compose run --rm --no-deps --entrypoint alembic api current 2>/dev/null \
-                       | tail -1 | tr -d '\r' || echo "unreadable")
+                       | tail -1 | tr -d '\r') || DB_REVISION_BEFORE=unreadable
   log "alembic revision before: ${DB_REVISION_BEFORE:-none}"
 
   if rolling_back_onto_a_newer_database; then
@@ -947,7 +1005,7 @@ run_migrations() {
   compose --profile migrate run --rm --no-deps --entrypoint python migrate -m scripts.seed
 
   DB_REVISION_AFTER=$(compose run --rm --no-deps --entrypoint alembic api current 2>/dev/null \
-                      | tail -1 | tr -d '\r' || echo "unreadable")
+                      | tail -1 | tr -d '\r') || DB_REVISION_AFTER=unreadable
   log "alembic revision after: ${DB_REVISION_AFTER:-none}"
 }
 
@@ -964,7 +1022,10 @@ health_url() {
 
 wait_healthy() {
   local component=$1 url attempt
-  url=$(health_url "$component") || return 0
+  if ! url=$(health_url "$component"); then
+    wait_settled "$component"
+    return 0
+  fi
   log "waiting for $component at $url (${HEALTH_ATTEMPTS}x${HEALTH_INTERVAL_S}s)"
   for (( attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++ )); do
     if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
@@ -977,6 +1038,35 @@ wait_healthy() {
      $(( HEALTH_ATTEMPTS * HEALTH_INTERVAL_S ))s. It is running the NEW image and failing.
      Logs:  docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE logs --tail=200 $component
      Then:  runbooks/deploy-failed.md §4"
+}
+
+# The gate for a service that answers no HTTP. `workers` has no healthcheck on purpose
+# (compose.prod.yml says why), and returning 0 here used to let a worker that died on
+# import pass its swap: the deploy printed DEPLOYED and recorded the commit while the queue
+# filled behind a restart loop. Queue staleness on `/healthz/ready` catches that later;
+# this catches it before the deploy calls itself finished.
+wait_settled() {
+  local component=$1 elapsed=0 id state
+  local -a ids
+  mapfile -t ids < <(compose ps -q "$component")
+  (( ${#ids[@]} )) || die "$component has no container after 'up -d'. Nothing is running
+     for it now.
+     Logs:  docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE logs --tail=200 $component
+     Then:  runbooks/deploy-failed.md §4"
+  log "watching $component for ${SETTLE_S}s (no HTTP listener; it must stay up, unrestarted)"
+  while :; do
+    for id in "${ids[@]}"; do
+      state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$id")
+      [[ "$state" == "running 0" ]] || die "$component is not staying up (container
+     ${id:0:12}: status/restarts '$state'). It is running the NEW image and failing.
+     Logs:  docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE logs --tail=200 $component
+     Then:  runbooks/deploy-failed.md §4"
+    done
+    (( elapsed >= SETTLE_S )) && break
+    sleep "$HEALTH_INTERVAL_S"
+    elapsed=$(( elapsed + HEALTH_INTERVAL_S ))
+  done
+  log "$component stayed up for ${SETTLE_S}s"
 }
 
 swap_service() {
@@ -1187,7 +1277,23 @@ $command_list       sudo nginx -t && sudo systemctl reload nginx
 record_deploy() {
   step "record deploy"
   mkdir -p "$STATE_DIR"
-  printf '%s\n' "$HEAD_SHA" > "$STATE_DIR/deployed-sha"
+  # `deployed-sha` means "EVERY component runs this commit", because it is the baseline the
+  # next `--changed` run diffs from. A named-component deploy may only advance it when it
+  # covered everything that changed since the pointer; otherwise `vps-deploy.sh
+  # voice-runtime` on a commit that also changed apps/api would move the pointer past the
+  # api change, and every later deploy would believe api was live at a commit it never ran.
+  local component pending=()
+  if [[ "$MODE" == explicit ]]; then
+    while IFS= read -r component; do
+      in_plan "$component" || pending+=("$component")
+    done < <(components_since_last_deploy)
+  fi
+  if (( ${#pending[@]} == 0 )); then
+    printf '%s\n' "$HEAD_SHA" > "$STATE_DIR/deployed-sha"
+  else
+    warn "deployed-sha NOT advanced: ${pending[*]} changed since the last full deploy and
+     did not ship in this one. The next '--changed' deploy will include them."
+  fi
   # Kept as history, not just a pointer: "what was live at 02:00 last Tuesday" is the
   # first question of every incident and the last thing anyone can reconstruct. The image
   # ref is on the line because it is the thing you can actually `docker run`, and the
@@ -1307,8 +1413,7 @@ fi
 # Workers first because they are the only component with no reader waiting on them — a
 # job that lands during their gap is queued in Redis, not lost. voice-runtime LAST
 # because its gap is the only one that costs a call: a delivery arriving in that window
-# gets no ack, Bolna does not retry (D-31), and the reconciliation poller picks it up on
-# a 10-minute tick. Making that window the shortest-lived and the last thing to happen is
+# gets no ack, and whether it is ever redelivered is the sender's policy, not ours. Making that window the shortest-lived and the last thing to happen is
 # the cheapest mitigation available without a blue/green mechanism.
 # REDIS FIRST, AND NOT WITH `--no-deps`.
 #

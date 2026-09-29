@@ -245,6 +245,13 @@ curl -sS -i http://127.0.0.1:8000/healthz     # api
 curl -sS -i http://127.0.0.1:8100/healthz     # voice-runtime
 ```
 
+**`swap workers` has no URL to poll.** It fails with `workers is not staying up` when the
+new container restarted, exited or was not running at any sample in its 30-second settle
+window (`SETTLE_S`). The status and restart count are in the message; the cause is in
+`docker compose -p calevate -f compose.prod.yml logs --tail=200 workers`, and it is almost
+always an import error or a configuration refusal at startup. api and voice-runtime have
+not been swapped yet when this fires — workers go first.
+
 `/healthz` checks Postgres and Redis. A 503 there with a healthy `/healthz/live` means the
 process is fine and a dependency is not — check host Postgres and the redis container
 before assuming the release is bad.
@@ -382,7 +389,10 @@ Containers are already swapped and healthy; this is the tail of the deploy.
 
 A deploy that failed and was recovered still did not record itself — `.deploy-state/deployed-sha`
 is unchanged, so the next `--changed` run will re-plan from the last *successful* deploy.
-That is correct and needs no fixing.
+That is correct and needs no fixing. The same holds after a successful deploy of NAMED
+components that did not cover everything changed since that pointer: it prints
+`deployed-sha NOT advanced` with the pending components, and the next `--changed` run
+deploys them.
 
 Cross-references: DEPLOYMENT §4 (the script) · DEPLOYMENT §4b (the swap gap) ·
 OPERATIONS §5 (`webhook_ack_slow` triage) · `runbooks/database-restore.md` (if a
