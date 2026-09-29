@@ -83,7 +83,12 @@ function routes(over: Routes = {}): Routes {
 
 describe("the platform-wide do-not-call list", () => {
   it("says what the suppression will do BEFORE it is clicked, and sends the step-up header", async () => {
-    const { calls, container } = renderAdminPage(<GlobalDncPage />, routes());
+    const { calls, container } = renderAdminPage(
+      <GlobalDncPage />,
+      routes({
+        [`POST ${OPS_DNC_GLOBAL_PATH}`]: { added: 1, already_suppressed: 0, malformed: 0 },
+      }),
+    );
 
     // Found by the stem, because the label counts what is in the box and there is
     // nothing in it yet — the count itself is asserted after the paste, below.

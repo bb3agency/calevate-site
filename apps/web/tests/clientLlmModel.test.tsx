@@ -11,6 +11,7 @@ import type {
 import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage, stillLoading } from "./harness";
+import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
 
 /**
  * A CLIENT CHOOSING THE MODEL THEIR AGENTS THINK WITH — the account default, and one
@@ -696,6 +697,21 @@ function agentRoutes(over: Record<string, unknown> = {}) {
       open_count: 0,
       total: 0,
     },
+    "/v1/agents/agent-1/handoff": {
+      agent_id: "agent-1",
+      enabled: false,
+      trigger: null,
+      effective_trigger: "Hand the call to a person when the caller asks for one.",
+      spoken_line: "Okay, I am putting you through to someone from our team now.",
+      members: [],
+      recent: [],
+      on_duty_member_id: null,
+      unavailable_reason: "disabled",
+      remediation: "Handing calls to a person is switched off for this agent.",
+      published: true,
+    },
+    "/v1/agents/voices": voiceCatalogue("client"),
+    "/v1/agents/lanes": LANES,
     ...over,
   };
 }

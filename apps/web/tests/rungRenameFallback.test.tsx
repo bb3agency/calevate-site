@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/commercials";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
+import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
 
 /**
  * THE CONSOLE STILL RENDERS AGAINST AN API THAT HAS NOT BEEN REDEPLOYED (D-558).
@@ -185,12 +186,16 @@ describe("the console reads the deprecated rung names when the API has not moved
         [TENANT_PATH]: tenant(),
         [ADMIN_ME_PATH]: ME,
         [MARGIN_PATH]: legacyMargin(),
-        [`${TENANT_PATH}/kb/sources?status=pending_approval`]: [],
-        [`${TENANT_PATH}/kb/sources?status=approved`]: [],
-        [`${TENANT_PATH}/agents`]: [],
-        [`${TENANT_PATH}/numbers`]: [],
-        [`${TENANT_PATH}/dlt-templates`]: [],
-        [`${TENANT_PATH}/caps`]: {
+        // The client-realm reads this screen takes through the impersonated session, at
+        // the paths it really requests them on.
+        "/v1/kb/sources?status=pending_approval": [],
+        "/v1/kb/sources?status=approved": [],
+        "/v1/kb/delivery": KB_ALL_DELIVERED,
+        "/v1/agents": [],
+        "/v1/campaigns/numbers": [],
+        "/v1/campaigns/templates": [],
+        [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
+        "/v1/billing/caps": {
           month: "2026-08",
           plan_cap_minutes: null,
           plan_cap_spend_inr: null,

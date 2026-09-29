@@ -18,6 +18,7 @@ import {
   stubApi,
   type Routes,
 } from "./harness";
+import { CLIENT_SHELL_ROUTES } from "./fixtures/sharedReads";
 
 /**
  * The two things every screen in the product inherits from its shell: a way past the
@@ -102,6 +103,7 @@ async function renderAdminShell(at: string): Promise<HTMLElement> {
 async function renderClientShell(at: string): Promise<HTMLElement> {
   pathname = at;
   stubApi({
+    ...CLIENT_SHELL_ROUTES,
     "/v1/me": { organization: { name: "Acme" }, role: "owner" },
     "/v1/attention": { total: 0 },
   });

@@ -578,12 +578,13 @@ describe("the credit itself: what is left, and at which rates", () => {
   });
 
   it("says nothing about rates at all when the server cannot answer for the lots", async () => {
-    // THE STATE OF EVERY DEPLOYMENT WHOSE API HAS NOT SHIPPED THE ROUTE, and the one place
-    // this screen could most easily lie: `wallet.minutes_left` is right there, and it is
-    // one balance divided by one LIST rate. Rendering it would quote a per-minute price
-    // nobody is charged (hard rule 7), so nothing is rendered instead.
+    // THE LOTS READ FAILING — a 5xx or a dropped request; the route never answers 404 and
+    // an empty wallet is a 200 with no lots. It is the one place this screen could most
+    // easily lie: `wallet.minutes_left` is right there, and it is one balance divided by
+    // one LIST rate. Rendering it would quote a per-minute price nobody is charged (hard
+    // rule 7), so nothing is rendered instead.
     const { container } = await renderBillingHub(
-      routes({ [LOTS_ROUTE]: problem(404, { title: "Not found" }) }),
+      routes({ [LOTS_ROUTE]: problem(503, { title: "Service unavailable" }) }),
     );
 
     await screen.findByText("₹3,400.00");
@@ -731,12 +732,12 @@ describe("the credit itself: what is left, and at which rates", () => {
      * "Outgoing calls stop when this reaches zero" sat over a figure that can be BELOW
      * zero: a call already in progress is finished rather than cut off (plan §0 Q5). The
      * sentence that explains it lives in `LotsPanel`, which renders only when the lot read
-     * succeeded — so an overdrawn hero on a deployment whose API has no lots route showed
-     * "−₹120.00" with nothing but a sentence about zero.
+     * succeeded — so an overdrawn hero whose lots read failed showed "−₹120.00" with
+     * nothing but a sentence about zero.
      */
     const { container } = await renderBillingHub(
       routes({
-        [LOTS_ROUTE]: problem(404, { title: "Not found" }),
+        [LOTS_ROUTE]: problem(503, { title: "Service unavailable" }),
         [WALLET]: wallet({
           balance_inr: "-120.00",
           outbound_stopped: true,

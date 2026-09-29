@@ -41,6 +41,7 @@ import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 
 import { expectNoA11yViolations } from "./a11y";
 import { expectTextCount, problem, stubApi, type Routes } from "./harness";
+import { OPS_RATE_CARD } from "./fixtures/opsRateCard";
 
 /**
  * The ops console, hardened for the operator who is tired, in a hurry, or NOT ALONE.
@@ -236,84 +237,6 @@ const MODEL_PRICES: ModelPrices = {
   as_of: "2026-08-23T00:00:00Z",
 };
 
-/**
- * THE CARD IN FORCE — two rungs of the six, one thin and one healthy.
- *
- * `starter` on the Sarvam voice is the founder's own deliberately thin rung (17.60% against
- * a 20% target, and well above the ₹4.1211 the minute costs); `max` on Cartesia clears the
- * target. Two cells are enough for every case in this file, and the pairing is the point:
- * the panel has to render one as a warning and neither as a refusal.
- */
-const RATE_CARD = {
-  effective_from: "2026-09-07T04:30:00Z",
-  target_gross_margin_pct: "20",
-  cells: [
-    {
-      pack_id: "starter",
-      amount_inr: "2000.00",
-      voice_tier: "clear",
-      tier_label: "Clear",
-      inr_per_min: "5.0000",
-      cost_floor_inr_per_min: "4.1211",
-      gross_margin_pct: "17.60",
-      below_target: true,
-      below_floor: false,
-      breakeven_call_minutes: null,
-      cost_inr_per_min_at_volume: "4.1211",
-      gross_margin_pct_at_volume: "17.60",
-      below_target_at_volume: true,
-      below_floor_at_volume: false,
-    },
-    {
-      pack_id: "max",
-      amount_inr: "50000.00",
-      voice_tier: "studio",
-      tier_label: "Studio",
-      inr_per_min: "6.0000",
-      cost_floor_inr_per_min: "5.5899",
-      gross_margin_pct: "6.84",
-      below_target: true,
-      below_floor: false,
-      breakeven_call_minutes: "126",
-      cost_inr_per_min_at_volume: "4.9299",
-      gross_margin_pct_at_volume: "17.84",
-      below_target_at_volume: true,
-      below_floor_at_volume: false,
-    },
-  ],
-  // THE VOLUME BLOCK the panel refuses to render a cost column without (9 Sep 2026): a
-  // Studio minute's cost is a function of the month's volume, so a fixture that omitted it
-  // would exercise the refusal arm rather than the table.
-  cartesia_volume: {
-    month: "2026-09",
-    measured_call_minutes: "200",
-    measured_characters: "108000",
-    cost_inr_per_min: "4.9299",
-    plan_id: "pro",
-    assumed_chars_per_call_minute: "540",
-    fx_usd_inr: "88",
-    fx_source: "frankfurter:FBIL",
-    fx_as_of: "2026-09-08",
-    floor_inr_per_min: "5.5899",
-    best_marginal_cost_inr_per_min: "4.6395",
-    refusal_floor_inr_per_min: "5.5899",
-    plan_crossover_call_minutes: "1439",
-    plans: [
-      {
-        plan_id: "pro",
-        fee_inr: "440",
-        included_credits: "100000",
-        included_call_minutes: "185",
-        marginal_cost_inr_per_min: "5.5899",
-        tts_concurrency: 3,
-      },
-    ],
-    ladder: [
-      { call_minutes: "200", plan_id: "pro", cost_inr_per_min: "4.9299" },
-    ],
-  },
-};
-
 // The exchange-rate panel shares the same screen, and is stubbed for the same reason as
 // the prices above: an unstubbed route paints a `ProblemNotice` over a screen these cases
 // assert the exact controls of. A LIVE rate, because the degraded states have their own
@@ -389,7 +312,7 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       // every other panel's route is stubbed here: an unrouted request throws in the
       // harness, and a panel left unreadable paints a notice over a screen these cases
       // assert the exact controls of.
-      [OPS_RATE_CARD_PATH]: RATE_CARD,
+      [OPS_RATE_CARD_PATH]: OPS_RATE_CARD,
       [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
       [OPS_FX_RATE_PATH]: FX_RATE,
       [OPS_SECRETS_PATH]: SECRETS,

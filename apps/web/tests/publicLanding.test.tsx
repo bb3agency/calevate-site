@@ -1231,7 +1231,7 @@ describe("the footer's legal links", () => {
    * the second enumeration whose drift this test exists to prevent.
    */
   it("links to every legal document, derived from the registry", async () => {
-    stubApi({});
+    stubApi(RATE_CARD_ROUTES);
     render(await Home());
 
     for (const doc of LEGAL_DOCUMENTS) {
@@ -1241,7 +1241,7 @@ describe("the footer's legal links", () => {
   });
 
   it("groups them in a labelled navigation landmark", async () => {
-    stubApi({});
+    stubApi(RATE_CARD_ROUTES);
     render(await Home());
 
     // A bare list of links in a footer is reachable but unnavigable: a screen-reader user

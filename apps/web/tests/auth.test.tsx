@@ -18,6 +18,7 @@ import {
 import { clientRealmSession } from "@/lib/authn/realmSessions";
 
 import { stubApi } from "./harness";
+import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 
 /**
  * The browser's half of authentication — which credential this build presents, and what
@@ -228,7 +229,7 @@ describe("the doors a person can actually reach", () => {
   it("gives a returning client somewhere to click from the front page", async () => {
     // The landing page named `/c/your-slug` and stopped, because there was no sign-in
     // route to point at. There is one now, and an unlinked route is not a door.
-    stubApi({});
+    stubApi(RATE_CARD_ROUTES);
     render(await Home());
     // `getAllBy`, not `getBy`: the redesigned page offers the door twice on purpose —
     // once in the sticky header, where a returning client looks first, and once in the

@@ -18,6 +18,7 @@ import type { Routes } from "./harness";
 
 import { browserOffline, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
+import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
 
 /**
  * The client detail screen — the one an operator opens to decide what to DO for a client,
@@ -171,6 +172,8 @@ function healthy(): Routes {
       spend_used_inr: "5002.40",
       capped: false,
     },
+    "/v1/kb/delivery": KB_ALL_DELIVERED,
+    [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
   };
 }
 

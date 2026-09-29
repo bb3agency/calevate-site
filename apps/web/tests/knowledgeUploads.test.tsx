@@ -93,6 +93,11 @@ async function renderKnowledge(
     // Routed empty: this file is about the DOCUMENT ladder, and an unrouted endpoint
     // would leave a permanent `role="alert"` from `KnowledgeDelivery` on every screen here.
     "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
+    // A row still moving is watched on its own path. By default it answers that it has
+    // not moved yet; a test about the move overrides it.
+    ...(Array.isArray(uploads)
+      ? Object.fromEntries(uploads.map((row) => [`/v1/kb/uploads/${row.id}`, row]))
+      : {}),
     ...over,
   });
 }

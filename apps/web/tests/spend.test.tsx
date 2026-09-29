@@ -14,6 +14,7 @@ import type {
 import { renderAdminRoute } from "./adminRoute";
 import { renderBillingHub } from "./billingHub";
 import { problem, stillLoading } from "./harness";
+import { EMPTY_WALLET_LOTS, tenantSummary } from "./fixtures/sharedReads";
 
 /**
  * PER-RUPEE ATTRIBUTION, in both realms — and the wall between them.
@@ -216,6 +217,8 @@ function clientRoutes(over: Record<string, unknown> = {}) {
     "/v1/billing/wallet": HUB_WALLET,
     "/v1/billing/wallet/ledger?limit=50": { entries: [], payments: [] },
     "/v1/billing/topups/packs": { list_rate_inr_per_min: "8.00", packs: [] },
+    // An invoiced account holds no credit lots: the route answers an empty queue.
+    "/v1/billing/wallet/lots": EMPTY_WALLET_LOTS,
     ...over,
   };
 }
@@ -704,6 +707,8 @@ describe("the client's spend screen", () => {
 describe("the operator's half", () => {
   it("shows both directions for one client and marks the assumed cost currency", async () => {
     const { container } = await renderAdminRoute(tenantPage, {
+      // The page names the client it is about, from the directory read.
+      "/v1/admin/tenants/t1": tenantSummary(),
       [TENANT_ROUTE]: TENANT_SPEND,
     });
     await screen.findByText("₹7,20,899.00");
@@ -721,6 +726,8 @@ describe("the operator's half", () => {
     // published on its own line, and it is marked as absorbed — not billed to the client
     // and not in the revenue/cost/margin above.
     const { container } = await renderAdminRoute(tenantPage, {
+      // The page names the client it is about, from the directory read.
+      "/v1/admin/tenants/t1": tenantSummary(),
       [TENANT_ROUTE]: TENANT_SPEND,
     });
     await screen.findByText("AI assistant — cost we absorb");
@@ -733,6 +740,8 @@ describe("the operator's half", () => {
   it("says nothing about AI when the month generated none", async () => {
     // Null, not ₹0.00 — the same "different facts" the margin-% tile draws.
     const { container } = await renderAdminRoute(tenantPage, {
+      // The page names the client it is about, from the directory read.
+      "/v1/admin/tenants/t1": tenantSummary(),
       [TENANT_ROUTE]: { ...TENANT_SPEND, ai_assist: null },
     });
     await screen.findByText("₹7,20,899.00");
@@ -744,6 +753,8 @@ describe("the operator's half", () => {
   it("says 'not billed yet' rather than 0% when nothing has been billed", async () => {
     // Two different facts, and an operator acts differently on each.
     const { container } = await renderAdminRoute(tenantPage, {
+      // The page names the client it is about, from the directory read.
+      "/v1/admin/tenants/t1": tenantSummary(),
       [TENANT_ROUTE]: { ...TENANT_SPEND, margin_pct: null },
     });
     await screen.findByText("not billed yet");

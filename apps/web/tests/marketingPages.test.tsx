@@ -15,7 +15,7 @@ import { INDUSTRIES } from "@/lib/marketing/industries";
 import { packRate, VOICE_TIERS } from "@/lib/api/rateCard";
 
 import { RATE_CARD, RATE_CARD_ROUTES } from "./fixtures/rateCard";
-import { stubApi } from "./harness";
+import { noReply, stubApi } from "./harness";
 
 /** `"50000.00"` → `"₹50,000"`. The page's own rule: whole rupees drop the paise. */
 function formatRateForTest(rate: string): string {
@@ -401,7 +401,7 @@ describe("the pricing page", () => {
   it("shows no price at all when the rate card cannot be loaded", async () => {
     // The honest state, and the reason it is asserted: a page that fell back to a typed
     // constant would look identical to a working one while quoting a rate nobody set.
-    stubApi({});
+    stubApi({ "/v1/public/rate-card": noReply() });
     const { container } = render(await PricingPage());
     const selfServe = container.querySelector("#self-serve");
     const text = selfServe?.textContent ?? "";

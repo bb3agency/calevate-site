@@ -4,8 +4,9 @@ import { describe, expect, it } from "vitest";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import type { Me } from "@/lib/api/client";
 import { DNC_LIST_LIMIT, type DncEntry } from "@/lib/api/dnc";
+import { OUTBOUND_CONSENT_POLICY_PATH } from "@/lib/api/outboundConsent";
 
-import { problem, renderClientPage } from "./harness";
+import { noContent, problem, renderClientPage } from "./harness";
 
 /**
  * The suppression list — ranked second, because it is the only client screen whose
@@ -54,6 +55,13 @@ const READ_ONLY_ME: Me = { ...ME, permissions: ["leads:read"], role: "staff" };
 
 const LIST_PATH = `/v1/dnc?limit=${DNC_LIST_LIMIT}`;
 
+/**
+ * The consent-posture card's read, answered in every table on this screen. Unanswered, the
+ * card raised its own `role="alert"` on every render, and each `findByRole("alert")` below
+ * resolved on THAT one — asserting a refusal that was not the one under test.
+ */
+const POLICY = { [OUTBOUND_CONSENT_POLICY_PATH]: { outbound_requires_consent: false } };
+
 function entry(over: Partial<DncEntry> = {}): DncEntry {
   return {
     id: "0192f0aa-4444-7000-8000-000000000001",
@@ -99,6 +107,7 @@ async function confirmUnsuppress(calls: { method: string }[]): Promise<void> {
 
 async function renderList(entries: DncEntry[], me: Me = ME) {
   return await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
     "/v1/me": me,
     [LIST_PATH]: entries,
   });
@@ -208,7 +217,12 @@ describe("what the list says may be undone", () => {
   });
 
   it("deletes by entry id, and never sends the number anywhere", async () => {
-    const { calls } = await renderList([entry()]);
+    const { calls } = await renderClientPage(<DoNotCallPage />, {
+      ...POLICY,
+      "/v1/me": ME,
+      [LIST_PATH]: [entry()],
+      "DELETE /v1/dnc/0192f0aa-4444-7000-8000-000000000001": noContent(),
+    });
 
     await screen.findByText(PHONE);
     fireEvent.click(removeButtons()[0]);
@@ -234,6 +248,7 @@ describe("when the list itself does not load", () => {
     // request that never landed is not an empty state, it is a compliance claim made on
     // no evidence — and the client acts on it by launching a campaign.
     const { container } = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": ME,
       [LIST_PATH]: problem(503, {
         title: "Service unavailable",
@@ -256,6 +271,7 @@ describe("when the list itself does not load", () => {
     // "you may not" rendered identically, as empty space, and the client's only clue was
     // a form that had been there yesterday.
     const { container } = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": problem(503, { title: "Service unavailable" }),
       [LIST_PATH]: [],
     });
@@ -278,6 +294,7 @@ describe("when the list itself does not load", () => {
       }),
     );
     const { container } = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": ME,
       [LIST_PATH]: rows,
     });
@@ -304,6 +321,7 @@ describe("when the list itself does not load", () => {
 describe("adding numbers", () => {
   async function addTwo(answer: unknown) {
     const rendered = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": ME,
       [LIST_PATH]: [],
       "/v1/dnc": answer,
@@ -366,7 +384,9 @@ describe("adding numbers", () => {
       }),
     );
 
-    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Add up to 2,000 at a time.",
+    );
     // No tile may appear: "Added 0" beside a failed request reads as "we processed your
     // list and none of it counted", which is a different and much worse sentence.
     expect(container.textContent).not.toContain("Suppressed from now on");
@@ -376,6 +396,7 @@ describe("adding numbers", () => {
 describe("checking a number", () => {
   async function check(answer: unknown, me: Me = ME) {
     const rendered = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": me,
       [LIST_PATH]: [],
       "/v1/dnc/check": answer,
@@ -556,6 +577,7 @@ describe("un-suppressing is confirmed before it happens", () => {
     // A dialog that closed on a failure would say the number is no longer suppressed
     // when it still is — a compliance claim made about a request that was refused.
     const { calls } = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": ME,
       [LIST_PATH]: [entry()],
       "/v1/dnc/0192f0aa-4444-7000-8000-000000000001": problem(422, {
@@ -603,6 +625,7 @@ describe("do not call — the compliance notice printed on the screen", () => {
 
   it("never lets a clean check read as clearance to dial", async () => {
     const { container } = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": ME,
       [LIST_PATH]: [],
       "/v1/dnc/check": { valid: true, suppressed: false, scope: null },
@@ -620,6 +643,7 @@ describe("do not call — the compliance notice printed on the screen", () => {
 
   it("says outright that a suppressed number will not be dialled", async () => {
     const { container } = await renderClientPage(<DoNotCallPage />, {
+    ...POLICY,
       "/v1/me": ME,
       [LIST_PATH]: [],
       "/v1/dnc/check": { valid: true, suppressed: true, scope: "tenant" },

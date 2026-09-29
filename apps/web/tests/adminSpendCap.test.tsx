@@ -12,6 +12,7 @@ import type { Caps } from "@/lib/api/caps";
 
 import { problem, type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
+import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
 
 /**
  * The spend-cap panel on a client's own screen — the console path for
@@ -113,6 +114,8 @@ function healthy(): Routes {
     "/v1/agents": [],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
+    "/v1/kb/delivery": KB_ALL_DELIVERED,
+    [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
     [`${TENANT_PATH}/margin`]: {
       month: "2026-08",
       minutes_used: "812.00",

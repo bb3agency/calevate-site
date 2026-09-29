@@ -13,6 +13,7 @@ import type { Routes } from "./harness";
 
 import { problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
+import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
 
 /**
  * The console's half of D-22's session-start seam.
@@ -104,7 +105,8 @@ function routes(): Routes {
     } satisfies Margin,
     "/v1/kb/sources?status=pending_approval": [],
     "/v1/kb/sources?status=approved": [],
-    "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
+    "/v1/kb/delivery": KB_ALL_DELIVERED,
+    [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
     "/v1/agents": [],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],

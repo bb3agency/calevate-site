@@ -6,6 +6,7 @@ import type { Invoice } from "@/lib/api/invoice";
 
 import { renderBillingHub } from "./billingHub";
 import { problem } from "./harness";
+import { EMPTY_WALLET_LOTS } from "./fixtures/sharedReads";
 
 /**
  * The client's own invoice (SLICE AL / BRD §51 — the persona that pays it).
@@ -150,6 +151,8 @@ const HUB_ROUTES = {
   },
   "/v1/billing/wallet/ledger?limit=50": { entries: [], payments: [] },
   "/v1/billing/topups/packs": { list_rate_inr_per_min: "8.00", packs: [] },
+  // An invoiced account holds no credit lots: the route answers an empty queue.
+  "/v1/billing/wallet/lots": EMPTY_WALLET_LOTS,
 };
 
 async function render(answer: unknown, me: unknown = ME) {

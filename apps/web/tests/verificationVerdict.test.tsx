@@ -5,6 +5,8 @@ import VerificationPage from "@/app/c/[slug]/verification/page";
 import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
 
 import { renderClientPage } from "./harness";
+import { PE_REGISTRATION_PATH } from "@/lib/api/dltRegistration";
+import { DLT_NOT_RECORDED } from "./fixtures/sharedReads";
 
 /**
  * The green tick comes from `is_verified`, never from `status === "verified"`.
@@ -55,7 +57,24 @@ function record(over: Partial<KycRecord> = {}): KycRecord {
 }
 
 async function renderWith(data: KycRecord) {
-  return await renderClientPage(<VerificationPage />, { [KYC_PATH]: data });
+  return await renderClientPage(<VerificationPage />, {
+    [KYC_PATH]: data,
+    // The DLT half of the screen, registered and active, so every sentence about what is
+    // still outstanding on this screen belongs to the KYC verdict under test.
+    [PE_REGISTRATION_PATH]: {
+      ...DLT_NOT_RECORDED,
+      recorded: true,
+      status: "active",
+      tm_link_status: "active",
+      pe_id: "1101234567890123456",
+      entity_name: "Sri Clinic Pvt Ltd",
+      registered_at: "2026-07-01T04:00:00Z",
+      verified_at: "2026-08-01T04:00:00Z",
+      is_active: true,
+      calevate_tm_id: "1102345678901234567",
+      calevate_tm_active: true,
+    },
+  });
 }
 
 describe("business verification verdict", () => {

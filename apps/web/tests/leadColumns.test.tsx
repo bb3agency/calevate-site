@@ -6,7 +6,13 @@ import type { Agent } from "@/lib/api/agents";
 import type { Me } from "@/lib/api/client";
 import type { Lead } from "@/lib/api/leads";
 
-import { problem, renderClientPage, type ApiCall } from "./harness";
+import {
+  csv,
+  problem,
+  renderClientPage,
+  stubDownloads,
+  type ApiCall,
+} from "./harness";
 
 /**
  * The Leads table's LENS: which rows, which columns, and whether the CSV agrees.
@@ -161,8 +167,13 @@ const VIEW = {
   updated_at: "2026-08-10T06:00:00Z",
 };
 
+stubDownloads();
+
 function routes(over: Record<string, unknown> = {}) {
   return {
+    // The export's answer. The download itself needs `URL.createObjectURL`, which jsdom
+    // does not implement, so `stubDownloads()` supplies it for the tests that press Export.
+    "POST /v1/leads/export.csv": csv("name,phone,status"),
     "/v1/me": ME,
     "/v1/agents": [AGENT],
     "/v1/members": [],

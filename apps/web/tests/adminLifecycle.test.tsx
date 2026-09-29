@@ -10,6 +10,7 @@ import type { Routes } from "./harness";
 
 import { problem, stillLoading } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
+import type { Closure } from "@/lib/api/closure";
 
 /**
  * Account state — the control that stops a client dialling.
@@ -82,10 +83,25 @@ const SUPERADMIN: AdminMe = {
 };
 
 /** The erasure panel only ever renders for a CLOSED account — the API 409s any other. */
+/** A closed account's screen also reads its closure record. */
+const CLOSURE_PATH = `${TENANT_PATH}/closure`;
+const CLOSURE = {
+  tenant_id: TENANT,
+  status: "churned",
+  closed_at: "2026-08-20T05:30:00Z",
+  erase_after: "2026-09-19T05:30:00Z",
+  reason: "The clinic has closed its second branch and is not renewing.",
+  closed_by: "0192f0aa-7777-7000-8000-0000000000d2",
+  erased_at: null,
+  restorable: true,
+  days_remaining: 13,
+} satisfies Closure;
+
 function renderClosed(routes: Partial<Routes> = {}) {
   return render({
     [TENANT_PATH]: tenant("churned"),
     [ADMIN_ME_PATH]: SUPERADMIN,
+    [CLOSURE_PATH]: CLOSURE,
     ...routes,
   });
 }
@@ -191,7 +207,10 @@ describe("the account state screen", () => {
   });
 
   it("offers no state control on a closed account, and points at the one that reopens it", async () => {
-    const { container } = await render({ [TENANT_PATH]: tenant("churned") });
+    const { container } = await render({
+      [TENANT_PATH]: tenant("churned"),
+      [CLOSURE_PATH]: CLOSURE,
+    });
 
     await screen.findByText("This account is closed");
     expect(screen.queryByRole("button", { name: /Reactivate/ })).toBeNull();

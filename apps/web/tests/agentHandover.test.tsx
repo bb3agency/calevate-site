@@ -5,6 +5,7 @@ import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
 
 import { renderClientPage } from "./harness";
+import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
 
 /**
  * PUTTING A CALLER THROUGH TO A PERSON — the client's own screen (D-533).
@@ -131,6 +132,8 @@ function routes(over: Record<string, unknown> = {}) {
       open_count: 0,
       total: 0,
     },
+    "/v1/agents/voices": voiceCatalogue("client"),
+    "/v1/agents/lanes": LANES,
     ...over,
   };
 }

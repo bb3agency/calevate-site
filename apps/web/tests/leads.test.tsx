@@ -7,10 +7,12 @@ import type { CallLeadResult, Me } from "@/lib/api/client";
 import type { Lead, LeadList, Member } from "@/lib/api/leads";
 
 import {
+  csv,
   expectTextCount,
   lensOf,
   problem,
   renderClientPage,
+  stubDownloads,
   type ApiCall,
 } from "./harness";
 
@@ -190,8 +192,13 @@ function leadList(items: Lead[], over: Partial<LeadList> = {}): LeadList {
   };
 }
 
+stubDownloads();
+
 function routes(over: Record<string, unknown> = {}) {
   return {
+    // The export's answer. The download itself needs `URL.createObjectURL`, which jsdom
+    // does not implement, so `stubDownloads()` supplies it for the tests that press Export.
+    "POST /v1/leads/export.csv": csv("name,phone,status"),
     "/v1/me": ME,
     "/v1/agents": [DIALER],
     "/v1/members": MEMBERS,

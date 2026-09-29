@@ -41,6 +41,8 @@ import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 import { formatISTInput, istInputToInstant } from "@/components/ui";
 
 import { problem, renderAdminPage, type Routes } from "./harness";
+import { OPS_RATE_CARD_PATH } from "@/lib/api/opsRateCard";
+import { OPS_RATE_CARD } from "./fixtures/opsRateCard";
 
 /**
  * The operations screen — the highest-consequence surface in either realm, because its
@@ -162,6 +164,8 @@ function configRoutes(
     // reason: an unrouted read paints a `ProblemNotice` over a screen these cases assert the
     // exact controls of.
     [OPS_DASHBOARD_DATA_USE_PATH]: dashboardDataUse(),
+    // The rate-card panel shares this screen too, and is stubbed for the same reason.
+    [OPS_RATE_CARD_PATH]: OPS_RATE_CARD,
     [OPS_SECRETS_PATH]: secretsList(),
     [`${OPS_SECRETS_PATH}/kek`]: kekState(),
     ...extra,

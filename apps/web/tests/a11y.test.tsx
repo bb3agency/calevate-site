@@ -103,6 +103,14 @@ import {
 } from "./a11y";
 import { renderAdminRoute } from "./adminRoute";
 import { problem, renderClientPage, type Routes } from "./harness";
+import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
+import {
+  AUTODIALER_NOTICE_RECORDED,
+  KB_ALL_DELIVERED,
+  LANES,
+  NO_MAINTENANCE,
+  voiceCatalogue,
+} from "./fixtures/sharedReads";
 
 /**
  * The accessibility gate, over every screen the router serves.
@@ -440,17 +448,17 @@ const TTS_SPEAKING_RATE = {
   pooled: { chars_per_minute: "437.1429", tts_inr_per_minute: "1.1803" },
   assumed_low: { chars_per_minute: "360.0000", tts_inr_per_minute: "0.9720" },
   assumed_high: { chars_per_minute: "540.0000", tts_inr_per_minute: "1.4580" },
-  tts_inr_per_10k_chars: "30.0000",
+  tts_inr_per_10k_chars: "27.0000",
   // BOTH vendors, in the two states this strip renders: one with an attested price (so the
   // ₹/min line renders) and one without (so the "cannot be sold" sentence does). Required
   // on `TtsSpeakingRateOut` since D-547.
   by_provider: [
     {
-      provider: "sarvam",
+      provider: "gnani",
       tier_label: "Clear",
       price_attested: true,
-      inr_per_1k_chars: "3.0000",
-      pooled_inr_per_minute: "1.3114",
+      inr_per_1k_chars: "2.7000",
+      pooled_inr_per_minute: "1.1803",
     },
     {
       provider: "cartesia",
@@ -1236,33 +1244,35 @@ const OPS_MODEL_PRICES = {
     },
   ],
   as_of: "2026-08-23T00:00:00Z",
-  // THE VOICE LEG, on the same payload (D-547) and in its two states: a tier the engine
-  // already bills us for (no attestation to demand) and a BYOK tier that is blocked until
-  // somebody types what their invoice says. A one-row fixture would leave the blocked
-  // notice and the attestation form unscanned, which is the whole point of this file.
+  // THE VOICE LEG, on the same payload (D-547) and in its two states: a tier whose price an
+  // operator has attested (the confirmed figure and its provenance render) and one that is
+  // blocked until somebody types what their invoice says. A one-row fixture would leave
+  // the blocked notice and the attestation form unscanned, which is the whole point of
+  // this file.
   tts_prices: [
     {
-      provider: "sarvam",
+      provider: "gnani",
       tier_label: "Clear",
-      tts_model: "bulbul:v3",
+      tts_model: "timbre-v2.5",
       credential_installed: true,
-      price_attested: false,
+      credential_held_elsewhere: false,
+      price_attested: true,
       price_billable: true,
       offerable: true,
-      billable_without_attestation_reason:
-        "The call platform bills us for this synthesizer leg and reports what it charged.",
-      reference_inr_per_1k_chars: "3.0000",
-      inr_per_1k_chars: null,
-      effective_from: null,
-      attested_at: null,
-      attested_by: null,
-      source_note: null,
+      billable_without_attestation_reason: null,
+      reference_inr_per_1k_chars: "2.7000",
+      inr_per_1k_chars: "2.7000",
+      effective_from: "2026-09-20T00:00:00Z",
+      attested_at: "2026-09-20T05:30:00Z",
+      attested_by: "ops@calevate.tech",
+      source_note: "Gnani console pricing page, 19 Sep 2026",
     },
     {
       provider: "cartesia",
       tier_label: "Studio",
       tts_model: "sonic-3.5",
       credential_installed: true,
+      credential_held_elsewhere: false,
       price_attested: false,
       price_billable: false,
       offerable: false,
@@ -1441,6 +1451,7 @@ const PENDING_INVITATIONS = [
 
 const TENANT_ROUTES: Routes = {
   "/v1/admin/me": ADMIN_ME,
+  "/v1/kb/delivery": KB_ALL_DELIVERED,
   // The KYC screen reads this through `viewAsSession(tenant.slug)`, so the request only
   // goes out AFTER the tenant read lands. Absent from this table the screen rendered its
   // generic failure notice instead of the record — and did so late enough that the scan
@@ -1655,6 +1666,9 @@ const CLIENT_SCREENS: Screen[] = [
       </ClientRealmLayout>
     ),
     routes: {
+      "/v1/maintenance": NO_MAINTENANCE,
+      // Not ready to operate, so the sweep covers the readiness banner rather than its absence.
+      "/v1/legal/readiness": LEGAL_READINESS,
       "/v1/me": ME,
       "/v1/attention": { total: 1, counts: { lead_blocked: 1 }, items: [] },
     },
@@ -1664,6 +1678,7 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <DashboardPage params={slug} />,
     routes: {
+      "/v1/attention": { total: 1, counts: { lead_blocked: 1 }, items: [] },
       "/v1/me": ME,
       "/v1/dashboard": DASHBOARD,
       "/v1/usage": USAGE,
@@ -1889,6 +1904,8 @@ const CLIENT_SCREENS: Screen[] = [
       />
     ),
     routes: {
+      "/v1/agents/voices": voiceCatalogue("client"),
+      "/v1/agents/lanes": LANES,
       "/v1/me": ME,
       "/v1/agents/agent-1": AGENT,
       "/v1/kb/sources": [
@@ -1977,11 +1994,22 @@ const CLIENT_SCREENS: Screen[] = [
         // Diverged, so the sweep covers both voice facts rather than the single one an
         // agreeing agent renders.
         voice: {
-          configured: { voice_id: "vidya", provider: "sarvam", catalog: null },
-          live: { voice_id: "anushka", provider: "sarvam", catalog: null },
+          configured: {
+            voice_id: "sonic-3.5:ananya",
+            provider: "cartesia",
+            voice_tier: "studio",
+            catalog: null,
+          },
+          live: {
+            voice_id: "timbre-v2.5:Suhana",
+            provider: "gnani",
+            voice_tier: "clear",
+            catalog: null,
+          },
           republish_required: true,
+          unnamed_note: null,
           headline:
-            "Callers still hear anushka; vidya reaches them at the next publish.",
+            "Callers still hear Suhana; Ananya reaches them at the next publish.",
         },
         engine_verification: {
           state: "unreachable",
@@ -2055,6 +2083,7 @@ const CLIENT_SCREENS: Screen[] = [
       />
     ),
     routes: {
+      "/v1/agents/agent-1": AGENT,
       "/v1/me": ME,
       "/v1/agents/agent-1/script": SCRIPT,
     },
@@ -2319,6 +2348,7 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <DoNotCallPage />,
     routes: {
+      "/v1/compliance/call-consent/policy": { outbound_requires_consent: false },
       "/v1/me": ME,
       // A BARE ARRAY, which is what `GET /v1/dnc` actually returns
       // (`DncEntryOut[]`, schema.d.ts::list_entries_v1_dnc_get) and what `useDncList`
@@ -2648,6 +2678,15 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <BillingPage params={slug} />,
     routes: {
+      // The lot queue of a wallet that has run dry: no open lot, no minutes on either quality.
+      "/v1/billing/wallet/lots": {
+        lots: [],
+        overdraft_inr: "0.00",
+        tiers: [
+          { voice_tier: "clear", label: "Clear", minutes_left: "0" },
+          { voice_tier: "studio", label: "Studio", minutes_left: "0" },
+        ],
+      },
       "/v1/me": ME,
       "/v1/billing/wallet": WALLET_STOPPED,
       "/v1/billing/wallet/ledger?limit=50": WALLET_LEDGER,
@@ -2678,7 +2717,11 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/agreements/page.tsx",
     realm: "client",
     element: () => <AgreementsPage />,
-    routes: { "/v1/me": ME, "/v1/legal/readiness": LEGAL_READINESS },
+    routes: {
+      "/v1/me": ME,
+      "/v1/legal/readiness": LEGAL_READINESS,
+      "/v1/compliance/autodialer-notice": AUTODIALER_NOTICE_RECORDED,
+    },
   },
   {
     file: "c/[slug]/verification/page.tsx",
@@ -2729,7 +2772,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "page.tsx",
     realm: "client",
     element: () => <Home />,
-    routes: {},
+    routes: RATE_CARD_ROUTES,
   },
   /*
    * The seven interior marketing pages. Static server components with no data of their
@@ -2764,13 +2807,13 @@ const CLIENT_SCREENS: Screen[] = [
     file: "pricing/page.tsx",
     realm: "client",
     element: () => <PricingPage />,
-    routes: {},
+    routes: RATE_CARD_ROUTES,
   },
   {
     file: "roi/page.tsx",
     realm: "client",
     element: () => <RoiPage />,
-    routes: {},
+    routes: RATE_CARD_ROUTES,
   },
   {
     file: "security/page.tsx",
@@ -3745,13 +3788,19 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/invoice/page.tsx",
     realm: "admin",
     element: () => <TenantInvoicePage params={tenant} />,
-    routes: { [`/v1/admin/tenants/t1/invoice?month=${IST_MONTH}`]: INVOICE },
+    routes: {
+      "/v1/admin/tenants/t1": TENANT_SUMMARY,
+      [`/v1/admin/tenants/t1/invoice?month=${IST_MONTH}`]: INVOICE,
+    },
   },
   {
     file: "admin/tenants/[tenantId]/spend/page.tsx",
     realm: "admin",
     element: () => <TenantSpendPage params={tenant} />,
-    routes: { [`/v1/admin/tenants/t1/spend?month=${IST_MONTH}`]: TENANT_SPEND },
+    routes: {
+      "/v1/admin/tenants/t1": TENANT_SUMMARY,
+      [`/v1/admin/tenants/t1/spend?month=${IST_MONTH}`]: TENANT_SPEND,
+    },
   },
   {
     // Swept with a client in the RED, because the losing row carries markup the healthy
@@ -3806,6 +3855,7 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <FirstCampaignReviewPage params={tenant} />,
     routes: {
+      "/v1/campaigns": [CAMPAIGN],
       ...TENANT_ROUTES,
       "/v1/compliance/first-campaign-review": {
         required: true,
@@ -3853,6 +3903,7 @@ const ADMIN_SCREENS: Screen[] = [
       />
     ),
     routes: {
+      "/v1/agents": [AGENT],
       "/v1/admin/me": ADMIN_ME,
       "/v1/admin/tenants/t1": TENANT_SUMMARY,
       "/v1/admin/tenants/t1/agents/agent-1/prompt": [
@@ -3872,19 +3923,9 @@ const ADMIN_SCREENS: Screen[] = [
         },
       ],
       // The voice catalogue, read through the tenant's impersonation session like the
-      // other two client-realm GETs on this screen.
-      "/v1/agents/voices": [
-        {
-          id: "anushka",
-          label: "Anushka",
-          provider: "sarvam",
-          tts_model: "bulbul:v3",
-          gender: "female",
-          languages: ["te-IN", "hi-IN", "en-IN"],
-          note: "Warm, unhurried; the default for Telugu receptionists.",
-          verified: false,
-        },
-      ],
+      // other two client-realm GETs on this screen: a Studio voice on offer and the Clear
+      // rung refused on its unattested price, which is this deployment's state.
+      "/v1/agents/voices": voiceCatalogue("admin"),
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",
@@ -3900,14 +3941,21 @@ const ADMIN_SCREENS: Screen[] = [
         // agreeing state renders a strict subset of it.
         voice: {
           configured: {
-            voice_id: "anushka",
-            provider: "sarvam",
+            voice_id: "sonic-3.5:ananya",
+            provider: "cartesia",
+            voice_tier: "studio",
             catalog: null,
           },
-          live: { voice_id: "vidya", provider: "sarvam", catalog: null },
+          live: {
+            voice_id: "timbre-v2.5:Suhana",
+            provider: "gnani",
+            voice_tier: "clear",
+            catalog: null,
+          },
           republish_required: true,
+          unnamed_note: null,
           headline:
-            "Callers still hear vidya; anushka reaches them at the next publish.",
+            "Callers still hear Suhana; Ananya reaches them at the next publish.",
         },
         // Unconfirmed for the same reason the voice is diverged: the sweep should walk
         // the branch that renders MORE, not the reassuring one.

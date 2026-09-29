@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import type { Me } from "@/lib/api/client";
-import type { Member, PendingInvitation } from "@/lib/api/members";
+import type { Member, MemberRemoved, PendingInvitation } from "@/lib/api/members";
 
 import { problem, renderClientPage } from "./harness";
 
@@ -95,6 +95,14 @@ async function renderTeam(
     "/v1/me": over.me ?? ME,
     "/v1/members": over.members ?? [OWNER, STAFF],
     "/v1/invitations": over.invitations ?? [],
+    // What the two writes answer when they land, so a test about what a press SENDS does
+    // not also leave an unanswered write behind.
+    [`PATCH /v1/members/${STAFF.id}`]: { ...STAFF, role: "owner" } satisfies Member,
+    [`DELETE /v1/members/${STAFF.id}`]: {
+      user_id: STAFF.id,
+      previous_role: "staff",
+      leads_still_assigned: 0,
+    } satisfies MemberRemoved,
   });
 }
 

@@ -191,6 +191,17 @@ describe("a fetch that rejects", () => {
     expect(screen.getByRole("button", { name: /^Try again$/ })).toBeTruthy();
   });
 
+  it("does not ask whether a READ was done, because a read does nothing", async () => {
+    rejectingFetch(networkError());
+
+    const error = await failureOf(apiRequest(SESSION, "/v1/dashboard"));
+    render(<ProblemNotice error={error} onRetry={() => {}} />);
+    const box = screen.getByRole("alert").textContent ?? "";
+
+    expect(box).toContain("could not be loaded");
+    expect(box).not.toContain("whether that was done");
+  });
+
   it("does not steal the deadline's rejection", async () => {
     // The regression this guards: our own timeout reaches `fetch` as an `AbortError`, so a
     // classifier that ran before `withDeadline` would rewrite every timeout as

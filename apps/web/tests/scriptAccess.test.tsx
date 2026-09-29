@@ -6,6 +6,7 @@ import type { Me } from "@/lib/api/client";
 import type { ScriptOut } from "@/lib/api/script";
 
 import { renderClientPage } from "./harness";
+import { agentRow } from "./fixtures/sharedReads";
 
 /**
  * Who may save the call script.
@@ -51,6 +52,7 @@ const page = (
 function routes(who: Me) {
   return {
     "/v1/me": who,
+    "/v1/agents/agent-1": agentRow(),
     "/v1/agents/agent-1/script": SCRIPT,
     "PUT /v1/agents/agent-1/script": { version: 4, staged: true },
   };

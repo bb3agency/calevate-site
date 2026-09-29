@@ -301,6 +301,7 @@ describe("two answers missing at once", () => {
       // Routed so `KnowledgeDelivery` does not paint a `ProblemNotice` beside the form
       // this file is about; an unrouted endpoint throws inside its `queryFn`.
       "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
+      "/v1/kb/uploads": [],
       "POST /v1/kb/sources": { id: "kb-1" },
     });
   }

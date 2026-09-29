@@ -194,7 +194,13 @@ export function ToggleSwitch({
           className="peer sr-only"
           checked={checked}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
+          // `disabled` stops a person, not a dispatched click (jsdom delivers one, and so
+          // does any script), so the handler refuses too: a greyed switch that still
+          // writes is a refusal on screen and a request on the wire.
+          onChange={(event) => {
+            if (disabled) return;
+            onChange(event.target.checked);
+          }}
         />
         <span aria-hidden className={SWITCH_TRACK} />
         <span className="min-w-0">

@@ -8,6 +8,8 @@ import { RAZORPAY_CHECKOUT_SRC } from "@/lib/razorpayCheckout";
 import { expectNoA11yViolations } from "./a11y";
 import { renderBillingHub } from "./billingHub";
 import { expectTextCount, problem } from "./harness";
+import { WALLET_LOTS_PATH } from "@/app/c/[slug]/billing/lots";
+import { walletLots } from "./fixtures/sharedReads";
 
 /**
  * The top-up panel (D-98) — a control that must not exist unless it can work, and, since
@@ -283,6 +285,14 @@ function routes(over: Record<string, unknown> = {}) {
     // the string it was looking for.
     [LEDGER]: { entries: [], payments: [] },
     [ATTEMPTS]: [],
+    // The wallet's ₹1,200 as one open lot at the published card's starter rates.
+    [WALLET_LOTS_PATH]: walletLots({
+      tiers: [
+        { voice_tier: "clear", label: "Clear", minutes_left: "300" },
+        { voice_tier: "studio", label: "Studio", minutes_left: "171" },
+      ],
+      lots: [{ ...walletLots().lots[0], credits_remaining: "1200.0000" }],
+    }),
     [CAPABILITY]: {
       online_payments_available: true,
       provider_orders_available: true,
@@ -702,8 +712,19 @@ describe("the top-up panel", () => {
     expect(screen.getAllByRole("button", { name: /^Pay ₹/ })).toHaveLength(6);
     expect(container.textContent).toContain("₹50,000.00");
     expect(container.textContent).toContain("50,000 credits of calling");
-    // What is gone is every per-minute figure, on the cards and in the explainer.
-    expect(container.textContent).not.toContain("/min");
+    // What is gone is every per-minute figure, on the cards and in the explainer. The lot
+    // panel's rates are excluded: they are frozen on the client's own purchases and arrive
+    // on a different read, labelled by it.
+    expect(container.textContent).toContain("Your credit and what it costs a minute");
+    const outsideLots = container.cloneNode(true) as HTMLElement;
+    outsideLots
+      .querySelectorAll("section")
+      .forEach((section) => {
+        if (section.querySelector("h2")?.textContent === "Your credit and what it costs a minute") {
+          section.remove();
+        }
+      });
+    expect(outsideLots.textContent).not.toContain("/min");
     for (const vendor of ["sarvam", "cartesia", "Sarvam", "Cartesia"]) {
       expect(container.textContent).not.toContain(vendor);
     }

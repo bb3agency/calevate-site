@@ -1,5 +1,5 @@
 import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { KnowledgeGaps } from "@/app/c/[slug]/KnowledgeGaps";
 import type { Me } from "@/lib/api/client";
@@ -56,6 +56,19 @@ function list(over: Partial<KnowledgeGapList> = {}): KnowledgeGapList {
 }
 
 const GAPS_ROUTE = "/v1/knowledge-gaps?status=open&limit=20";
+
+/**
+ * Hold every POST until the screen has painted what the optimistic update did. The stub
+ * otherwise rejects inside the same macrotask, the rollback lands before React renders
+ * the removal, and the row is never unmounted — which is not what a real network does.
+ */
+function writesTakeARealRoundTrip(): void {
+  const answer = globalThis.fetch;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "POST") await new Promise((resolve) => setTimeout(resolve, 50));
+    return answer(input, init);
+  });
+}
 const page = <KnowledgeGaps />;
 
 function routes(over: Record<string, unknown> = {}) {
@@ -131,6 +144,60 @@ describe("the knowledge-gaps card", () => {
     );
     expect(teach).toBeTruthy();
     expect(teach?.body).toContain("It is 500 rupees.");
+  });
+
+  /**
+   * The optimistic removal UNMOUNTS the row, and the row owned the mutation — so when the
+   * write failed and the list was put back, a fresh row mounted with a fresh mutation and
+   * no error. The card reappeared as if nothing had been tried: a dismiss that did not
+   * happen, told to nobody, and a typed answer thrown away.
+   */
+  it("says a Dismiss failed when the card comes back, rather than reappearing silently", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        [`POST /v1/knowledge-gaps/${GAP.id}/dismiss`]: problem(409, {
+          title: "Already changed",
+          detail: "Somebody else already taught this one.",
+        }),
+      }),
+    );
+    writesTakeARealRoundTrip();
+    fireEvent.click(await screen.findByText("Dismiss"));
+    await screen.findByText("Nothing unanswered");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Somebody else already taught this one.");
+    // The card is back, with its actions, so the person can act on what they just read.
+    expect(screen.getByText("Pricing")).toBeTruthy();
+    expect(screen.getByText("Dismiss")).toBeTruthy();
+  });
+
+  it("keeps the typed answer and says why when a Teach fails", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        [`POST /v1/knowledge-gaps/${GAP.id}/teach`]: problem(503, {
+          title: "Service unavailable",
+          detail: "We could not save that answer.",
+        }),
+      }),
+    );
+    fireEvent.click(await screen.findByText("Teach this"));
+    fireEvent.change(
+      await screen.findByLabelText("What should the agent say next time?"),
+      { target: { value: "It is 500 rupees." } },
+    );
+    writesTakeARealRoundTrip();
+    fireEvent.click(screen.getByText("Save answer"));
+    await screen.findByText("Nothing unanswered");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("We could not save that answer.");
+    const box = screen.getByLabelText<HTMLTextAreaElement>(
+      "What should the agent say next time?",
+    );
+    expect(box.value).toBe("It is 500 rupees.");
   });
 
   it("does not offer Teach or Dismiss to a staff member without kb:write", async () => {

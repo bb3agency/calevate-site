@@ -8,6 +8,7 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { HOLDS_PATH } from "@/lib/api/holds";
 
 import { renderAdminPage, type Routes } from "./harness";
+import { CLIENT_SHELL_ROUTES } from "./fixtures/sharedReads";
 
 /**
  * The mobile navigation drawer, in BOTH shells, is gone when it is closed.
@@ -144,6 +145,7 @@ async function renderClientShell(): Promise<HTMLElement> {
     await import("@tanstack/react-query");
   const { stubApi } = await import("./harness");
   stubApi({
+    ...CLIENT_SHELL_ROUTES,
     "/v1/me": { organization: { name: "Acme" }, role: "owner" },
     "/v1/attention": { total: 0 },
   });

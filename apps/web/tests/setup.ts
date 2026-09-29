@@ -1,6 +1,23 @@
 import { onlineManager } from "@tanstack/react-query";
 import { cleanup, configure } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
+
+import { takeUnanswered } from "./unansweredRoutes";
+
+/**
+ * Fail a test whose screen made a request its route table does not answer. The reason
+ * is in `unansweredRoutes.ts`. Registered FIRST, so it runs LAST (hooks run in reverse):
+ * a failing check must not skip the unmount or the online reset below and hand this
+ * test's DOM to the next one.
+ */
+afterEach(() => {
+  const { requests, allowed } = takeUnanswered();
+  if (allowed) return;
+  expect(
+    [...new Set(requests)],
+    "requests the route table does not answer — add them, or use noReply() where no reply is the point",
+  ).toEqual([]);
+});
 
 /**
  * Put the browser back online after a test that took it offline (`browserOffline`).
@@ -10,8 +27,8 @@ import { afterEach, vi } from "vitest";
  * unrelated timeout in an unrelated suite, the worst kind of failure to read.
  *
  * Registered BEFORE `cleanup` on purpose: Vitest runs `afterEach` hooks in reverse
- * registration order ("stack" is the default `sequence.hooks`), so this one runs LAST —
- * after the tree is unmounted, so resuming the paused queries cannot fetch into a
+ * registration order ("stack" is the default `sequence.hooks`), so this one runs AFTER
+ * `cleanup` — after the tree is unmounted, so resuming the paused queries cannot fetch into a
  * torn-down component with the `fetch` stub already gone.
  */
 afterEach(() => {

@@ -7,6 +7,7 @@ import type { UsagePanel } from "@/lib/api/hooks";
 
 import { renderBillingHub } from "./billingHub";
 import { problem } from "./harness";
+import { EMPTY_WALLET_LOTS } from "./fixtures/sharedReads";
 
 /**
  * The usage panel — the screen a client checks against their own books, which makes it
@@ -208,6 +209,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/billing/wallet": HUB_WALLET,
     "/v1/billing/wallet/ledger?limit=50": { entries: [], payments: [] },
     "/v1/billing/topups/packs": { list_rate_inr_per_min: "8.00", packs: [] },
+    // An invoiced account holds no credit lots: the route answers an empty queue.
+    "/v1/billing/wallet/lots": EMPTY_WALLET_LOTS,
     [SPEND_ROUTE]: EMPTY_SPEND,
     ...over,
   };
@@ -379,7 +382,13 @@ describe("the usage panel", () => {
     const { container } = await renderBillingHub(
       // The usage request still goes out and is still refused; the screen must answer
       // with the sentence, not with the 403.
-      { "/v1/me": STAFF, "/v1/usage": problem(403, { title: "Forbidden" }) },
+      // Staff hold `wallet:read`, so the hub's wallet reads answer as they would for them.
+      {
+        ...routes(),
+        "/v1/me": STAFF,
+        "/v1/usage": problem(403, { title: "Forbidden" }),
+        "/v1/billing/caps": problem(403, { title: "Forbidden" }),
+      },
       "Usage",
     );
 

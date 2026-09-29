@@ -15,6 +15,7 @@ import {
   stubApi,
   type Routes,
 } from "./harness";
+import { CLIENT_SHELL_ROUTES } from "./fixtures/sharedReads";
 
 /**
  * The two counters in the shell chrome — the operator's hold queue and the client's
@@ -77,6 +78,7 @@ async function renderClientShell(
   routes: Record<string, unknown>,
 ): Promise<void> {
   stubApi({
+    ...CLIENT_SHELL_ROUTES,
     "/v1/me": { organization: { name: "Acme" }, role: "owner" },
     ...routes,
   });

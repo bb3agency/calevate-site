@@ -12,6 +12,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage } from "./harness";
+import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
 
 /**
  * ONE agent's screen — where a client checks what their phone line is saying, changes what
@@ -287,6 +288,10 @@ function routes(over: Record<string, unknown> = {}) {
       remediation: "Handing calls to a person is switched off for this agent.",
       published: true,
     },
+    // The voice catalogue and the lane rules, for the same reason as every entry above:
+    // both are read on this screen, and an unanswered read is a stray `role="alert"`.
+    "/v1/agents/voices": voiceCatalogue("client"),
+    "/v1/agents/lanes": LANES,
     ...over,
   };
 }
@@ -912,6 +917,9 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       expect(toggle.hasAttribute("disabled")).toBe(true);
       fireEvent.click(toggle);
     }
+    // A mutation's request leaves on a later tick than the click, so asserting in the same
+    // tick passed while two PATCHes were on their way. Let them leave first.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(calls.some((call) => call.path.endsWith("/disclosure"))).toBe(false);
   });
 });

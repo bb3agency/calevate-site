@@ -239,6 +239,9 @@ export class TransportProblem extends ApiProblem {
     { method, path, correlationId }: { method: string; path: string; correlationId: string },
   ) {
     const reason = classify(cause);
+    // A read changes nothing, so "whether that was done" is a question it cannot raise —
+    // on a card that failed to load it reads as though the person had asked for an action.
+    const isRead = method === "GET" || method === "HEAD";
     super(0, {
       kind: "transient",
       type: `urn:calevate:browser/transport_${reason}`,
@@ -246,7 +249,9 @@ export class TransportProblem extends ApiProblem {
       detail:
         reason === "cancelled"
           ? "That request was stopped before a reply arrived, so we could not confirm what happened."
-          : "No reply reached this page, so we could not confirm whether that was done.",
+          : isRead
+            ? "No reply reached this page, so this could not be loaded."
+            : "No reply reached this page, so we could not confirm whether that was done.",
       remediation:
         reason === "cancelled"
           ? "Try again without leaving the page."

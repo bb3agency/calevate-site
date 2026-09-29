@@ -237,8 +237,10 @@ describe("the needs-attention queue", () => {
   it("explains a missing permission instead of answering with an error", async () => {
     // `GET /v1/attention` requires `leads:read`. Staff hold it — that is deliberate, they
     // work this queue — but a session that does not gets the sentence, not a red alert.
+    // The queue is requested alongside `/v1/me` and refused by the API for this session.
     const { container } = await renderClientPage(page, {
       "/v1/me": { ...ME, permissions: ["calls:read"] },
+      "/v1/attention": problem(403, { title: "Forbidden" }),
     });
 
     await screen.findByText(/needs permission to read leads/);

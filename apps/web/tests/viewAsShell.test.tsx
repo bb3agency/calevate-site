@@ -51,6 +51,8 @@ import { stillLoading, stubApi } from "./harness";
 const SHELL_IN_FLIGHT = {
   "GET /v1/me": stillLoading(),
   "GET /v1/attention": stillLoading(),
+  "GET /v1/maintenance": stillLoading(),
+  "GET /v1/legal/readiness": stillLoading(),
 };
 
 /** The same shell with the server confirming the impersonation, as it does in practice. */
@@ -61,6 +63,8 @@ const SHELL_IMPERSONATING = {
     impersonating: true,
   },
   "GET /v1/attention": stillLoading(),
+  "GET /v1/maintenance": stillLoading(),
+  "GET /v1/legal/readiness": stillLoading(),
 };
 
 /**

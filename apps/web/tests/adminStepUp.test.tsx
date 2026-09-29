@@ -284,6 +284,7 @@ describe("a step-up refusal becomes a prompt", () => {
         kind: "auth",
       }),
       "/v1/agents": [],
+      "POST /v1/auth/admin/logout": { revoked: 1 },
     });
 
     const read = readThroughViewAs();

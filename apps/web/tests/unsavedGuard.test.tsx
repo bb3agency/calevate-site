@@ -13,6 +13,7 @@ import type { Agent, HandoffOut } from "@/lib/api/agents";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { renderClientPage } from "./harness";
+import { OWNER_ME } from "./fixtures/sharedReads";
 
 /**
  * A RELOAD MUST NOT SILENTLY THROW AWAY TWENTY MINUTES OF TYPING.
@@ -137,6 +138,7 @@ const HANDOFF: HandoffOut = {
 describe("an editor that has been touched", () => {
   it("blocks the unload of the handover list once a name is changed", async () => {
     await renderClientPage(<Handover agent={AGENT} />, {
+      "/v1/me": OWNER_ME,
       "/v1/agents/agent-1/handoff": HANDOFF,
     });
     await screen.findByDisplayValue("Ravi");

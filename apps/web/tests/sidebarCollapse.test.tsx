@@ -16,6 +16,7 @@ import {
 
 import { renderAdminPage, type Routes } from "./harness";
 import { blankComments } from "./sourceScan";
+import { CLIENT_SHELL_ROUTES } from "./fixtures/sharedReads";
 
 /**
  * The desktop sidebar collapses as ONE gesture, and it does not move at all for a reader
@@ -128,6 +129,7 @@ async function renderClientShell(): Promise<HTMLElement> {
     await import("@tanstack/react-query");
   const { stubApi } = await import("./harness");
   stubApi({
+    ...CLIENT_SHELL_ROUTES,
     "/v1/me": { organization: { name: "Acme" }, role: "owner" },
     "/v1/attention": { total: 0 },
   });

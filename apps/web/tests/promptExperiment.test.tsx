@@ -6,6 +6,7 @@ import type { Experiment, ExperimentState } from "@/lib/api/publishing";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { browserOffline, problem, type Routes } from "./harness";
+import { agentRow, voiceCatalogue } from "./fixtures/sharedReads";
 
 /**
  * The A/B script test panel on the agent's prompt screen (ROADMAP M3).
@@ -143,6 +144,8 @@ function render(routes: Partial<Routes> = {}) {
     />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
+      "/v1/agents": [agentRow({ id: AGENT })],
+      "/v1/agents/voices": voiceCatalogue("admin"),
       [ME_PATH]: {
         realm: "admin",
         user_id: "0192f0aa-7777-7000-8000-0000000000f2",

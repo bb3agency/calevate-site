@@ -16,6 +16,7 @@ import {
 import {
   useDismissGap,
   useKnowledgeGaps,
+  useLastGapWriteFailure,
   useTeachGap,
   type GapSignal,
   type KnowledgeGap,
@@ -143,8 +144,19 @@ function GapRow({
   const session = useClientSession();
   const dismiss = useDismissGap(session);
   const teach = useTeachGap(session);
-  const [teaching, setTeaching] = useState(false);
-  const [answer, setAnswer] = useState("");
+  // Set when this row was remounted by a rollback: the write that failed belonged to
+  // the row the optimistic removal unmounted.
+  const failed = useLastGapWriteFailure(session, gap.id);
+  const failedTeach = failed?.action === "teach" ? failed.answer : null;
+  const [teaching, setTeaching] = useState(failedTeach !== null);
+  const [answer, setAnswer] = useState(failedTeach ?? "");
+  // The rollback can remount this row a tick before the mutation records its error, so
+  // the initial state above may not have seen it yet.
+  useEffect(() => {
+    if (failedTeach === null) return;
+    setTeaching(true);
+    setAnswer((typed) => typed || failedTeach);
+  }, [failedTeach]);
   const valid = useFormValidation();
   const answerField = valid.field("answer", "Write what the agent should say.");
   const answerRef = useRef<HTMLTextAreaElement>(null);
@@ -157,7 +169,7 @@ function GapRow({
   }, [teaching]);
 
   const busy = dismiss.isPending || teach.isPending;
-  const error = dismiss.error ?? teach.error;
+  const error = dismiss.error ?? teach.error ?? failed?.error ?? null;
 
   return (
     <li className="rounded-xl border border-line bg-surface p-3 sm:p-4">

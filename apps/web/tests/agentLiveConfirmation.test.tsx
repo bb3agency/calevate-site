@@ -6,6 +6,7 @@ import { VOICES_PATH } from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
+import { agentRow, voiceCatalogue } from "./fixtures/sharedReads";
 
 /**
  * "Live" versus "confirmed live" — the publish read-back on the agent screen.
@@ -118,6 +119,7 @@ function render(
     />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
+      "/v1/agents": [agentRow({ id: AGENT })],
       [ME_PATH]: {
         realm: "admin",
         user_id: "0192f0aa-9999-7000-8000-0000000000f2",
@@ -147,7 +149,7 @@ function render(
         },
         experiment: null,
       },
-      [VOICES_PATH]: { voices: [], default_voice_id: null },
+      [VOICES_PATH]: voiceCatalogue("admin"),
       ...over,
     },
   );
@@ -176,7 +178,7 @@ describe("what the agent screen claims about being live", () => {
   });
 
   it("does not dial the voice platform until someone asks it to", async () => {
-    const { calls } = await render(CONFIRMED);
+    const { calls } = await render(CONFIRMED, { [ENGINE_STATE_PATH]: engineState() });
 
     await screen.findByText(CONFIRMED.headline);
     expect(

@@ -1,4 +1,4 @@
-import { cleanup, screen, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DashboardPage from "@/app/c/[slug]/page";
@@ -215,6 +215,14 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
 
 const page = <DashboardPage params={Promise.resolve({ slug: "acme" })} />;
 
+/**
+ * EVERY read the screen makes, answered. An unanswered route is not a neutral default:
+ * the harness throws, the app renders a transport-failure `role="alert"`, and a test
+ * asserting on "the" alert then passes or fails on which of two failures resolved first.
+ * The attention queue and the knowledge-gaps card were both missing here, so every test
+ * in this file rendered two failures it was not about. `setup.ts` now fails any test that
+ * leaves a read unanswered; the fixture test below also pins that none of them alerts.
+ */
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
@@ -222,9 +230,25 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/usage": USAGE,
     "/v1/billing/wallet": wallet(),
     "/v1/calls?limit=6": [],
+    "/v1/attention": { counts: {}, items: [], total: 0 },
+    "/v1/knowledge-gaps?status=open&limit=20": { items: [], open_count: 0, total: 0 },
     ...over,
   };
 }
+
+describe("the fixture this file renders against", () => {
+  it("answers every read the screen makes, so no test inherits a failure it is not about", async () => {
+    const table = routes();
+    const { calls, container } = await renderClientPage(page, table);
+    // Settled means no skeleton left anywhere: every read has answered or failed.
+    await waitFor(() => expect(container.querySelector(".animate-pulse")).toBeNull());
+    const unanswered = calls
+      .filter((c) => !Object.hasOwn(table, c.path) && !c.path.startsWith("/v1/auth/"))
+      .map((c) => `${c.method} ${c.path}`);
+    expect(unanswered).toEqual([]);
+    expect(container.querySelectorAll('[role="alert"]').length).toBe(0);
+  });
+});
 
 describe("the home screen ranks the day's work (ux-audit D2)", () => {
   it("links to Needs attention when something is waiting, with the server's count", async () => {

@@ -7,6 +7,7 @@ import type { SenderAttestation } from "@/lib/api/senderAttestation";
 
 import { expectNoA11yViolations } from "./a11y";
 import { problem, renderClientPage, type Routes } from "./harness";
+import { KYC_NOT_STARTED, agentRow, prepaidWallet } from "./fixtures/sharedReads";
 
 /**
  * THE OUTBOUND-SENDER CONFIRMATION, ON THE SCREEN WHERE A CLIENT ACCEPTS IT.
@@ -86,6 +87,20 @@ function routes(series: string, attestation: unknown, extra: Routes = {}): Route
     "/v1/me": OWNER,
     "/v1/campaigns/numbers": numbers(series),
     "/v1/numbers/num-1/sender-attestation": attestation,
+    // The rest of the phone-number screen, in this deployment's ordinary state: buying a
+    // number is operator-led, so the offer read answers with that refusal.
+    "/v1/agents": [agentRow()],
+    "/v1/compliance/kyc": KYC_NOT_STARTED,
+    "/v1/billing/wallet": prepaidWallet(),
+    "/v1/numbers/available": problem(422, {
+      kind: "business_rule",
+      type: "https://calevate.tech/problems/number_purchase_is_operator_led",
+      title: "A phone number cannot be bought from this screen.",
+      detail:
+        "A phone number cannot be bought from this screen. Numbers are arranged with your account manager as part of setting your agent up.",
+      remediation:
+        "Talk to us and we will arrange the number, or bring one you already hold: take the connection in your own name with an Indian operator, pass their KYC, and send us the number and credentials you can withdraw at any time.",
+    }),
     ...extra,
   };
 }

@@ -198,9 +198,12 @@ describe("the performance report", () => {
     // red 403 alert, which reads like an outage rather than like a permission.
     const { container } = await renderClientPage(
       page,
-      // No `/v1/performance` route at all: the screen must not send the request, and the
-      // harness throws if it does.
-      { "/v1/me": { ...ME, permissions: ["leads:read"] } },
+      // The report is requested alongside `/v1/me` — nothing is refused while that is in
+      // flight — so it goes out and the API refuses it, as it would this session.
+      {
+        "/v1/me": { ...ME, permissions: ["leads:read"] },
+        "/v1/performance?days=30": problem(403, { title: "Forbidden" }),
+      },
     );
 
     await screen.findByText(/permission to read call records/);

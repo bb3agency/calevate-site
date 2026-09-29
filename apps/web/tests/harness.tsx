@@ -10,6 +10,10 @@ import { ClientRealmProvider } from "@/lib/api/session";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
 import { clientAuthn } from "@/lib/authn/clientAuthn";
 
+import { recordUnanswered } from "./unansweredRoutes";
+
+export { allowUnansweredRoutes } from "./unansweredRoutes";
+
 /**
  * Render a `/c/[slug]` screen the way the browser does — REAL provider, REAL session,
  * REAL `apiRequest`, with the network as the only thing replaced.
@@ -21,9 +25,10 @@ import { clientAuthn } from "@/lib/authn/clientAuthn";
  * table to the sentence on screen.
  *
  * Routes are keyed by the path `apiRequest` is given, so they read as the API's own
- * paths. An unrouted request throws rather than 404s: an unstubbed endpoint is a hole
- * in the test's premise, and a test should say so instead of quietly rendering an error
- * state that happens to contain the string it was looking for.
+ * paths. An unrouted request throws rather than 404s, AND fails the test once it ends
+ * (`unansweredRoutes.ts`): an unstubbed endpoint is a hole in the test's premise, and a
+ * test should say so instead of quietly rendering an error state that happens to contain
+ * the string it was looking for.
  */
 export type Routes = Record<string, unknown>;
 
@@ -98,6 +103,45 @@ export function problem(status: number, body: Record<string, unknown> = {}): Pro
  * abandoned when the test ends, which is also what a navigated-away-from page does.
  */
 export class NeverAnswers {}
+
+/**
+ * A route whose request gets no reply at all — `fetch` rejecting with a `TypeError`, which
+ * is what the browser does when the network or an intermediary drops it. The deliberate
+ * form of what an unanswered route used to produce by accident.
+ */
+export class NoReply {}
+
+export function noReply(): NoReply {
+  return new NoReply();
+}
+
+/** A route that answers `204 No Content`, as a DELETE with nothing to return does. */
+export class NoContent {}
+
+export function noContent(): NoContent {
+  return new NoContent();
+}
+
+/** A route that answers a 200 of `text/csv`, as the leads export does. */
+export class CsvResponse {
+  constructor(readonly body: string) {}
+}
+
+export function csv(body: string): CsvResponse {
+  return new CsvResponse(body);
+}
+
+/**
+ * The browser half of a file download, which jsdom does not implement: `URL.createObjectURL`
+ * / `revokeObjectURL` are missing, and an anchor's `.click()` attempts a navigation jsdom
+ * reports as "not implemented". For a suite whose screen downloads something it is not
+ * asserting on; `leadsExportEncoding.test.tsx` captures the blob itself. Applies to the
+ * whole file, which is isolated from every other.
+ */
+export function stubDownloads(): void {
+  Object.assign(URL, { createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() });
+  HTMLAnchorElement.prototype.click = function click() {};
+}
 
 /** A route stuck in flight, for asserting the skeleton rather than the settled state. */
 export function stillLoading(): NeverAnswers {
@@ -242,6 +286,7 @@ export function stubApi(routes: Routes): ApiCall[] {
         if (Object.hasOwn(DEFAULT_SESSIONS, scoped)) {
           return jsonResponse(DEFAULT_SESSIONS[scoped]);
         }
+        recordUnanswered(scoped);
         throw new Error(
           `test stub has no route for ${scoped} — add it to the routes table, ` +
             `or the screen under test is calling an endpoint nobody expected`,
@@ -257,6 +302,14 @@ export function stubApi(routes: Routes): ApiCall[] {
       const route = routes[key];
       const answer = typeof route === "function" ? (route as RouteAnswer)(calls[calls.length - 1]) : route;
       if (answer instanceof NeverAnswers) return neverAnswers(init?.signal);
+      if (answer instanceof NoReply) throw new TypeError("Failed to fetch");
+      if (answer instanceof NoContent) return new Response(null, { status: 204 });
+      if (answer instanceof CsvResponse) {
+        return new Response(answer.body, {
+          status: 200,
+          headers: { "content-type": "text/csv; charset=utf-8" },
+        });
+      }
       if (answer instanceof ProblemResponse) {
         return new Response(JSON.stringify(answer.body), {
           status: answer.status,

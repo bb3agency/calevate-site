@@ -13,6 +13,7 @@ import {
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
+import { agentRow } from "./fixtures/sharedReads";
 
 /**
  * Voice selection on the agent screen — `GET /v1/agents/voices` finally has a consumer.
@@ -258,6 +259,7 @@ function render(over: Partial<Routes> = {}) {
     />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
+      "/v1/agents": [agentRow({ id: AGENT })],
       [ME_PATH]: {
         realm: "admin",
         user_id: "0192f0aa-8888-7000-8000-0000000000f2",

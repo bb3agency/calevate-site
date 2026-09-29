@@ -10,6 +10,7 @@ import {
 } from "@/lib/api/agreements";
 
 import { NeverAnswers, problem, renderClientPage } from "./harness";
+import { AUTODIALER_NOTICE_RECORDED, OWNER_ME } from "./fixtures/sharedReads";
 
 /**
  * Agreements & readiness — the screen that clears the one refusal a client can clear.
@@ -98,6 +99,12 @@ function readiness(over: Partial<LegalReadiness> = {}): LegalReadiness {
   };
 }
 
+/** The autodialer-notice panel below the agreements, and the `/v1/me` it reads. */
+const NOTICE_PANEL = {
+  "/v1/me": OWNER_ME,
+  "/v1/compliance/autodialer-notice": AUTODIALER_NOTICE_RECORDED,
+};
+
 /** Everything accepted, nothing else in the way. */
 const READY = readiness({
   may_operate: true,
@@ -120,6 +127,7 @@ const READY = readiness({
 describe("the screen renders the server's verdict and never its own", () => {
   it("prints the outstanding verdict, every document's state, and whose move each blocker is", async () => {
     await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL,
       [READINESS_PATH]: readiness(),
     });
 
@@ -141,7 +149,8 @@ describe("the screen renders the server's verdict and never its own", () => {
   });
 
   it("shows who accepted what, and offers nothing to click once nothing is outstanding", async () => {
-    await renderClientPage(<AgreementsPage />, { [READINESS_PATH]: READY });
+    await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL, [READINESS_PATH]: READY });
 
     await screen.findByText("This account is ready to make calls.");
     expect(screen.getAllByText("Accepted")).toHaveLength(4);
@@ -155,6 +164,7 @@ describe("the screen renders the server's verdict and never its own", () => {
     // carries no effective date. A reader who sees no row cannot tell that from a screen
     // that forgot to print one.
     await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL,
       [READINESS_PATH]: readiness(),
     });
     await screen.findByText("Outgoing calls are blocked.");
@@ -171,6 +181,7 @@ describe("accepting", () => {
     // freshly-seeded cache with a stale view if the two ever disagreed.
     let accepted = 0;
     const { calls } = await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL,
       [READINESS_PATH]: () => (accepted >= 4 ? READY : readiness()),
       [ACCEPTANCES_PATH]: () => {
         accepted += 1;
@@ -213,6 +224,7 @@ describe("accepting", () => {
 
   it("renders the refusal when a version moved under an open tab", async () => {
     await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL,
       [READINESS_PATH]: readiness(),
       [ACCEPTANCES_PATH]: problem(409, {
         type: "https://calevate.tech/problems/legal_version_not_current",
@@ -240,6 +252,7 @@ describe("who may sign", () => {
     const reason =
       "Only the account owner can accept these agreements. You can read every document here.";
     await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL,
       [READINESS_PATH]: readiness({
         can_accept: false,
         can_accept_reason: reason,
@@ -261,6 +274,7 @@ describe("when the read does not land", () => {
     // calls" over a request that failed is a compliance claim made on no evidence, and
     // the client acts on it by going back to the campaign they cannot launch.
     await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL,
       [READINESS_PATH]: problem(503, {
         title: "We could not load your agreements.",
       }),
@@ -276,6 +290,7 @@ describe("when the read does not land", () => {
 
   it("shows a skeleton while the read is in flight, not an empty screen", async () => {
     const { container } = await renderClientPage(<AgreementsPage />, {
+      ...NOTICE_PANEL,
       [READINESS_PATH]: new NeverAnswers(),
     });
 
