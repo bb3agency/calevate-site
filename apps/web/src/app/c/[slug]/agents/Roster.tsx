@@ -317,7 +317,7 @@ function AgentRow({
       <div className="flex items-center">
         <Link
           href={href(`/c/${slug}/agents/${agent.id}`)}
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 hover:bg-black/5 sm:px-6 dark:hover:bg-white/5"
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 transition-colors duration-(--duration-fast) ease-out hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand sm:px-6 dark:hover:bg-white/[0.04]"
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
             <DirectionIcon aria-hidden className="h-4 w-4" />

@@ -231,7 +231,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
           arguing with its own header. */}
       <Link
         href={href(`/c/${slug}/calls`)}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
+        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11"
       >
         <ArrowLeft className="h-4 w-4" />
         Call logs

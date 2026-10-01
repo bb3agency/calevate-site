@@ -72,7 +72,7 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
         and it is recorded per campaign rather than per client: a national DND scrub, on{" "}
         <Link
           href={`/admin/tenants/${tenantId}/dnd-scrub`}
-          className="font-medium text-brand-strong hover:underline"
+          className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           DND scrub
         </Link>
@@ -106,7 +106,7 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
                 of this panel is about. */}
             <Link
               href={`/admin/tenants/${tenantId}/numbers`}
-              className="ml-auto text-xs font-medium text-ink-muted underline underline-offset-2 hover:text-ink"
+              className="rounded-sm ml-auto text-xs font-medium text-ink-muted underline underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
             >
               Record a number, or choose which agent answers it
             </Link>

@@ -68,7 +68,7 @@ export function DirectionPicker({
         return (
           <label
             key={option.value}
-            className={`relative flex cursor-pointer flex-col rounded-card border p-3 transition-colors ${
+            className={`relative flex cursor-pointer flex-col rounded-card border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
               checked
                 ? "border-brand bg-brand-soft"
                 : "border-line bg-surface hover:bg-black/5 dark:hover:bg-white/5"

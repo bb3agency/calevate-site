@@ -7,10 +7,12 @@ import { publicPageMetadata } from "@/lib/seo/metadata";
 
 import {
   CARD,
+  CARD_LINK,
   ClosingCta,
   Eyebrow,
   INLINE_LINK,
   MarketingPage,
+  NUDGE_ARROW,
   PageIntro,
   SECTION,
   SHELL,
@@ -77,7 +79,7 @@ export default function SecurityPage() {
       <section id="every-dial" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="01">On every dial</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Four rules that live in the code rather than in a policy page
           </h2>
           <dl className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2">
@@ -141,10 +143,10 @@ export default function SecurityPage() {
       >
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="02">Where it runs</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Know where your customer data goes
           </h2>
-          <div className="mt-10 max-w-3xl rounded-2xl border border-line bg-surface p-5 sm:mt-12 sm:p-8">
+          <div className="mt-10 max-w-3xl rounded-2xl border border-line bg-surface p-5 shadow-card sm:mt-12 sm:p-8">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
               <Globe aria-hidden className="h-5 w-5" />
             </span>
@@ -178,7 +180,7 @@ export default function SecurityPage() {
       <section id="access" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="03">Who can see what</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Your customers’ data stays yours
           </h2>
           <dl className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
@@ -225,7 +227,7 @@ export default function SecurityPage() {
       >
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="04">Before it takes a real call</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             The awkward calls an agent is run against
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -261,7 +263,7 @@ export default function SecurityPage() {
       <section id="documents" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="05">The documents</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             The whole of it, in the documents themselves
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -275,13 +277,13 @@ export default function SecurityPage() {
               <li key={doc.slug}>
                 <Link
                   href={`/legal/${doc.slug}`}
-                  className="group flex h-full flex-col rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-brand/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong"
+                  className={CARD_LINK}
                 >
                   <span className="flex items-center gap-2 text-[17px] font-semibold text-ink">
                     {doc.shortTitle}
                     <ArrowRight
                       aria-hidden
-                      className="h-4 w-4 text-ink-faint transition-transform group-hover:translate-x-0.5"
+                      className={`${NUDGE_ARROW} text-ink-faint`}
                     />
                   </span>
                   <span className="mt-1.5 text-sm text-pretty text-ink-muted">

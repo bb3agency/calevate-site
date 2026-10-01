@@ -7,10 +7,13 @@ import { publicPageMetadata } from "@/lib/seo/metadata";
 
 import {
   CARD,
+  CARD_LINK,
   ClosingCta,
   Eyebrow,
   MarketingPage,
+  NUDGE_ARROW,
   PageIntro,
+  PILL_LINK,
   SECTION,
   SHELL,
 } from "@/components/marketing/pageShell";
@@ -277,7 +280,7 @@ export default function ResourcesPage() {
       <section id="reading" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="01">Where to start</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Six pages, in the order they are useful
           </h2>
           <ul className="mt-10 grid gap-3 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
@@ -285,13 +288,13 @@ export default function ResourcesPage() {
               <li key={href}>
                 <Link
                   href={href}
-                  className="group flex h-full flex-col rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-brand/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong"
+                  className={CARD_LINK}
                 >
                   <span className="flex items-center gap-2 text-[17px] font-semibold text-balance text-ink">
                     {title}
                     <ArrowRight
                       aria-hidden
-                      className="h-4 w-4 shrink-0 text-ink-faint transition-transform group-hover:translate-x-0.5"
+                      className={`${NUDGE_ARROW} text-ink-faint`}
                     />
                   </span>
                   <span className="mt-2 text-sm text-pretty text-ink-muted">{body}</span>
@@ -306,7 +309,7 @@ export default function ResourcesPage() {
       <section id="documents" className="scroll-mt-20 border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="02">The documents</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Everything we publish, in full
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -318,7 +321,7 @@ export default function ResourcesPage() {
               <li key={doc.slug}>
                 <Link
                   href={`/legal/${doc.slug}`}
-                  className="inline-block rounded-full border border-line bg-surface px-3.5 py-2 text-sm font-medium text-ink-muted transition-colors hover:border-brand/50 hover:text-ink touch:py-2.5"
+                  className={PILL_LINK}
                 >
                   {doc.shortTitle}
                 </Link>
@@ -332,7 +335,7 @@ export default function ResourcesPage() {
       <section id="glossary" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="03">Glossary</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             The words we use, in plain language
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

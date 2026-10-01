@@ -112,7 +112,7 @@ export default function PreferenceScrubPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {tenant.name}
@@ -129,7 +129,7 @@ export default function PreferenceScrubPage({
       <NoticeBox tone="neutral" icon={<Info className="h-5 w-5" />} title="What this is not">
         <p className="mt-1 text-xs opacity-90">
           It is not the platform-wide do-not-call list (that is{" "}
-          <Link href="/admin/ops/dnc" className="font-medium underline">
+          <Link href="/admin/ops/dnc" className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
             ops · DNC
           </Link>
           ) and it is not the client&apos;s own suppression list. This is a per-campaign

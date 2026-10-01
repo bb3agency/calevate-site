@@ -57,7 +57,7 @@ export default function GlobalError({
             "var(--font-pp-mori), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
         }}
       >
-        <div className="flex min-h-screen flex-col justify-center">
+        <div className="flex min-h-dvh flex-col justify-center">
           <FailureScreen
             heading="Calevate could not finish loading."
             error={error}

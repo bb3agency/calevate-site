@@ -119,8 +119,8 @@ export function LeadsToolbar({
                 aria-pressed={view === mode}
                 className={
                   view === mode
-                    ? "flex items-center gap-1.5 bg-brand-strong px-3 py-1.5 font-semibold text-white"
-                    : "flex items-center gap-1.5 bg-surface px-3 py-1.5 font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+                    ? "flex items-center gap-1.5 bg-brand-strong px-3 py-1.5 font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white touch:min-h-11"
+                    : "flex items-center gap-1.5 bg-surface px-3 py-1.5 font-medium text-ink-muted transition-colors duration-(--duration-fast) ease-out hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 dark:hover:bg-white/5"
                 }
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -185,7 +185,7 @@ export function LeadsToolbar({
               ? "Downloads the leads and the columns shown here, with full phone numbers."
               : "Checking whether you can export these leads…")
           }
-          className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
+          className="press flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
         >
           <Download className="h-3.5 w-3.5" />
           {exportLeads.isPending ? "Preparing…" : "Export this view as CSV"}

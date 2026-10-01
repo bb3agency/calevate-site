@@ -40,7 +40,7 @@ export function LeadBoard({ kit }: { kit: LeadRowKit }) {
                     {columnLeads.map((lead) => (
                       <div
                         key={lead.id}
-                        className="rounded-lg border border-line bg-surface p-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+                        className="rounded-lg border border-line bg-surface p-2.5 shadow-card"
                       >
                         <p
                           title={lead.name ?? lead.phone_e164}

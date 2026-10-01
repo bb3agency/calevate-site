@@ -80,14 +80,14 @@ export function DeliveryLog({
         <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
           <table className="w-full min-w-[500px] text-sm">
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-ink-faint">
-              <th className="pb-2 font-medium">Event</th>
-              <th className="pb-2 font-medium">Result</th>
-              <th className="pb-2 font-medium">Tries</th>
-              <th className="pb-2 text-right font-medium">When</th>
+            <tr className="text-left text-[11px] uppercase tracking-wider text-ink-faint">
+              <th className="pb-2 font-semibold">Event</th>
+              <th className="pb-2 font-semibold">Result</th>
+              <th className="pb-2 font-semibold">Tries</th>
+              <th className="pb-2 text-right font-semibold">When</th>
               {/* Only rendered for a reader who could use it. A permanently empty
                   column is a promise the screen cannot keep. */}
-              {mayReadPayload && <th className="pb-2 text-right font-medium">Sent</th>}
+              {mayReadPayload && <th className="pb-2 text-right font-semibold">Sent</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">

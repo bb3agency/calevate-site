@@ -94,20 +94,20 @@ export function WalletLedgerPanel({
                   Your credit history, newest first — {ledger.data.entries.length} entries
                 </caption>
                 <thead>
-                  <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
-                    <th scope="col" className="py-2 pr-3 font-medium">
+                  <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                    <th scope="col" className="py-2 pr-3 font-semibold">
                       When
                     </th>
-                    <th scope="col" className="py-2 pr-3 font-medium">
+                    <th scope="col" className="py-2 pr-3 font-semibold">
                       What
                     </th>
-                    <th scope="col" className="py-2 pr-3 text-right font-medium">
+                    <th scope="col" className="py-2 pr-3 text-right font-semibold">
                       Amount
                     </th>
-                    <th scope="col" className="py-2 pr-3 text-right font-medium">
+                    <th scope="col" className="py-2 pr-3 text-right font-semibold">
                       Balance after
                     </th>
-                    <th scope="col" className="py-2 font-medium">
+                    <th scope="col" className="py-2 font-semibold">
                       <span className="sr-only">Receipt</span>
                     </th>
                   </tr>

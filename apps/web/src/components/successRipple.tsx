@@ -34,6 +34,9 @@ type SuccessRippleProps = ComponentPropsWithoutRef<"div"> & {
   sizeClassName?: string;
 };
 
+/** `--ease-out-strong` (globals.css), so this flourish settles on the same curve as the UI. */
+const EASE_OUT = [0.23, 1, 0.32, 1] as const;
+
 /** The ripple rings, by the delay each starts at — staggered so they read as a pulse. */
 const RIPPLE_DELAYS = [0, 0.18];
 
@@ -73,7 +76,7 @@ export function SuccessRipple({
             style={spin}
             initial={{ scale: 0.6, opacity: reduced ? 0 : 0.7 }}
             animate={reduced ? { opacity: 0 } : { scale: 1.75, opacity: 0 }}
-            transition={{ duration: reduced ? 0 : 1.1, delay: reduced ? 0 : delay, ease: "easeOut" }}
+            transition={{ duration: reduced ? 0 : 1.1, delay: reduced ? 0 : delay, ease: EASE_OUT }}
           />
         ))}
 
@@ -83,8 +86,10 @@ export function SuccessRipple({
           r={30}
           fill={disc}
           style={spin}
-          initial={reduced ? false : { scale: 0 }}
-          animate={{ scale: 1 }}
+          // From 0.6 and transparent, not from nothing: a disc growing out of a point reads as
+          // appearing from nowhere rather than settling into place.
+          initial={reduced ? false : { scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
           transition={reduced ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 18, delay: 0.05 }}
         />
 
@@ -98,7 +103,7 @@ export function SuccessRipple({
               strokeLinecap="round"
               initial={reduced ? false : { pathLength: 0 }}
               animate={{ pathLength: 1 }}
-              transition={reduced ? { duration: 0 } : { duration: 0.3, delay: 0.25, ease: "easeOut" }}
+              transition={reduced ? { duration: 0 } : { duration: 0.3, delay: 0.25, ease: EASE_OUT }}
             />
             <motion.path
               d="M60 40 L40 60"
@@ -108,7 +113,7 @@ export function SuccessRipple({
               strokeLinecap="round"
               initial={reduced ? false : { pathLength: 0 }}
               animate={{ pathLength: 1 }}
-              transition={reduced ? { duration: 0 } : { duration: 0.3, delay: 0.4, ease: "easeOut" }}
+              transition={reduced ? { duration: 0 } : { duration: 0.3, delay: 0.4, ease: EASE_OUT }}
             />
           </>
         ) : (
@@ -121,7 +126,7 @@ export function SuccessRipple({
             strokeLinejoin="round"
             initial={reduced ? false : { pathLength: 0 }}
             animate={{ pathLength: 1 }}
-            transition={reduced ? { duration: 0 } : { duration: 0.35, delay: 0.28, ease: "easeOut" }}
+            transition={reduced ? { duration: 0 } : { duration: 0.35, delay: 0.28, ease: EASE_OUT }}
           />
         )}
       </svg>

@@ -655,7 +655,7 @@ function HeldCount() {
             ? `Held accounts: ${waiting} waiting on us`
             : "Held accounts"
       }
-      className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 dark:hover:bg-white/5"
+      className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
     >
       <Hourglass className="h-4 w-4" />
       {queue.error != null ? (
@@ -692,7 +692,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
             type="button"
             onClick={onMenuToggle}
             aria-label="Open navigation"
-            className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
           >
             <Menu className="h-5 w-5" />
           </button>

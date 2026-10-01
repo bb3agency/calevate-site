@@ -7,6 +7,7 @@ import { ArrowLeft } from "lucide-react";
 import {
   Card,
   EmptyState,
+  FIELD_INLINE,
   NOTICE_TONES,
   ProblemNotice,
   ScrollRegion,
@@ -167,7 +168,7 @@ export default function TenantSpendPage({ params }: { params: Promise<{ tenantId
         <div>
           <Link
             href={`/admin/tenants/${tenantId}`}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+            className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             {tenantName ?? "Back to client"}
@@ -181,7 +182,7 @@ export default function TenantSpendPage({ params }: { params: Promise<{ tenantId
           // nobody has asked yet (ux-audit F-9a).
           max={currentISTMonth()}
           onChange={(event) => setMonth(event.target.value)}
-          className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+          className={FIELD_INLINE}
           aria-label="Billing month"
         />
       </div>

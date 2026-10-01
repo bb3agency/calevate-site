@@ -161,6 +161,14 @@ export function SmoothScroll({ children }: { children: ReactNode }) {
 /**
  * One scroll-triggered reveal. Children are laid out normally and animated FROM below.
  *
+ * `power3.out` over 0.6s from 16px: the ease-out family the rest of the product uses
+ * (`--ease-out-strong` in globals.css), long enough to read as a reveal on a page that is
+ * read once and short enough that nothing is still moving when the reader gets to it.
+ *
+ * `delay` is a STAGGER between siblings that enter together — a second column — and
+ * belongs at 30–80ms. Elements stacked down the page each have their own trigger, so a
+ * delay on them only makes the reader wait for something already on screen.
+ *
  * `as` keeps the markup semantic: a reveal wrapping a section must not turn it into a
  * `div` and cost the page its landmark, which is also what the axe sweep would object to.
  */
@@ -186,10 +194,10 @@ export function Reveal({
       if (reduced) return;
       gsap.from(scope.current, {
         opacity: 0,
-        y: 24,
-        duration: 0.7,
+        y: 16,
+        duration: 0.6,
         delay,
-        ease: "power2.out",
+        ease: "power3.out",
         scrollTrigger: {
           trigger: scope.current,
           // Fires when the element's top passes 88% of the viewport height — early
@@ -233,10 +241,10 @@ export function HeroStagger({
       if (reduced) return;
       gsap.from(gsap.utils.toArray("[data-hero-item]", scope.current), {
         opacity: 0,
-        y: 18,
-        duration: 0.65,
-        stagger: 0.08,
-        ease: "power2.out",
+        y: 16,
+        duration: 0.6,
+        stagger: 0.06,
+        ease: "power3.out",
       });
     },
     { scope, dependencies: [reduced] },

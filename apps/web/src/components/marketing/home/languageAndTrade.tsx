@@ -1,6 +1,8 @@
 import { IndustryTabs } from "@/components/marketing/industryTabs";
 import { Reveal } from "@/components/marketing/motion";
 import { Band, Chapter, HOME } from "./band";
+import { VoicePickerMock } from "./mockups/featureMockups";
+import { MockStage } from "./mockups/stage";
 
 /**
  * CHAPTER 4 — your language, your trade. BANDS 07 AND 08, ON THE ONE GROUND THEY SHARE.
@@ -47,44 +49,47 @@ export function LanguageAndTrade() {
         weight="standard"
         title="Your customers shouldn’t have to change language to reach you"
       >
-        <div className={`${HOME.contentGap} grid gap-12 lg:grid-cols-2 lg:items-start lg:gap-16`}>
+        <div className={`${HOME.contentGap} grid gap-10 lg:grid-cols-2 lg:items-start lg:gap-16`}>
           <Reveal>
             <p className={`max-w-xl text-pretty text-ink-muted ${HOME.body}`}>
-              Your callers do not switch to English for your convenience, and a
-              receptionist who makes them is one they hang up on. A new agent is a Telugu
-              agent until somebody changes it — that is the default in the database, not a
-              suggestion in a guide — and the opening line, the script and the answers all
-              move with the language it speaks.
+              Your callers do not switch to English for your convenience. A new agent is a
+              Telugu agent until somebody changes it — that is the default in the database,
+              not a suggestion in a guide — and the opening line, the script and the answers
+              all move with the language it speaks.
             </p>
-            {/* `-muted`, not `-faint`, and the GROUND is why. `--text-faint` is held to
-                4.5:1 against `--surface` and `--app` only (`tests/contrastTokens.test.ts`
-                computes exactly those two); on this chapter's brand tint it measures
-                4.43:1 — axe in a real Chromium, 9 Sep 2026. The tier moves up rather than
-                the tint being washed out to the ~25% that would rescue it, which would
-                leave the chapter with no visible ground at all. */}
-            <p className={`mt-8 max-w-xl text-ink-muted ${HOME.bodySm}`}>
+            {/* `-muted`, not `-faint`: `--text-faint` is held to 4.5:1 on `--surface` and
+                `--app` only, and measures 4.43:1 on this chapter's brand tint. */}
+            <p className={`mt-6 max-w-xl text-ink-muted ${HOME.bodySm}`}>
               Three languages are offered, and only three, because those are the ones we
               are willing to put a client’s callers in front of. We publish no score for
               how well it understands any of them: a number we cannot show you the working
               for is worth nothing.
             </p>
+            <MockStage className="mt-10 max-w-md">
+              <VoicePickerMock />
+            </MockStage>
           </Reveal>
-          <Reveal delay={0.08} as="section" className={HOME.panel}>
+          <Reveal delay={0.06} as="section" className={`${HOME.panel} shadow-raised`}>
             <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
               The same question, asked three ways
             </h3>
             <p className={`mt-2 text-ink-muted ${HOME.bodySm}`}>
               Your agent answers all three on the same number.
             </p>
-            <ul className="mt-7 space-y-4">
-              {SAME_QUESTION.map(({ lang, label, text }) => (
-                <li key={lang} className="rounded-xl border border-line bg-app/60 px-5 py-4">
-                  <p className="text-xs font-semibold tracking-wide text-ink-faint uppercase">
+            <ul className="mt-7 space-y-3">
+              {SAME_QUESTION.map(({ lang, label, text }, index) => (
+                <li
+                  key={lang}
+                  className={`flex flex-col gap-1.5 rounded-xl border px-5 py-4 ${
+                    index === 0 ? "border-brand/30 bg-brand-soft/50" : "border-line bg-app/60"
+                  }`}
+                >
+                  <span className="text-xs font-semibold tracking-wide text-ink-muted uppercase">
                     {label}
-                  </p>
-                  <p lang={lang} className="mt-1.5 text-xl text-ink sm:text-2xl">
+                  </span>
+                  <span lang={lang} className="text-xl text-ink sm:text-2xl">
                     {text}
-                  </p>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -105,13 +110,11 @@ export function LanguageAndTrade() {
         lede="A clinic needs to know what hurts and how soon. A property office needs a budget and an area. These are the field lists a new agent starts from — and then you change them, because the columns are yours rather than ours."
       >
         <IndustryTabs />
-        <Reveal delay={0.12}>
-          <p className={`mt-10 max-w-2xl text-ink-muted ${HOME.bodySm}`}>
-            Nothing is locked to a line of work. If yours is not one of these, you write the
-            list of things the agent has to find out, and that is the whole setup — the same
-            as it is for the four above.
-          </p>
-        </Reveal>
+        <p className={`mt-10 max-w-2xl text-ink-muted ${HOME.bodySm}`}>
+          Nothing is locked to a line of work. If yours is not one of these, you write the
+          list of things the agent has to find out, and that is the whole setup — the same
+          as it is for the four above.
+        </p>
       </Band>
     </Chapter>
   );

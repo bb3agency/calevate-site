@@ -63,7 +63,10 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(
         aria-busy={loading || undefined}
         // The press feedback the sample carried, minus the PNG overlay — skipped entirely
         // for a reduced-motion reader and for a button that cannot be pressed.
-        whileTap={reduced || disabled || loading ? undefined : { scale: 0.98 }}
+        whileTap={reduced || disabled || loading ? undefined : { scale: 0.97 }}
+        // Press feedback at the shared press duration and curve (`--duration-press`,
+        // `--ease-out-strong` in globals.css); motion needs the numbers, not the variables.
+        transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
         className={clsx(
           "relative inline-flex h-11 items-center justify-center gap-2 overflow-hidden rounded-md px-4 text-sm font-semibold text-white shadow-sm",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app",

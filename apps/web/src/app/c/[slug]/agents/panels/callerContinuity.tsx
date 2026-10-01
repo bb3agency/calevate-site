@@ -181,7 +181,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           </label>
           <button
             type="button"
-            className="mt-3 rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-50"
+            className="press mt-3 rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
             disabled={!attest.allowed || !readStatement || setCallerMemory.isPending}
             title={attest.reason ?? undefined}
             onClick={() => setCallerMemory.mutate({ enabled: true, accept: true })}

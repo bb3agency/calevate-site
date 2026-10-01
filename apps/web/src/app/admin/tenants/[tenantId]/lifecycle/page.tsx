@@ -136,7 +136,7 @@ export default function LifecyclePage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {tenant.name}
@@ -149,7 +149,7 @@ export default function LifecyclePage({
           Ending the relationship for good is on{" "}
           <Link
             href={`/admin/tenants/${tenantId}/closure`}
-            className="font-medium text-brand-strong hover:underline"
+            className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             Closing the account
           </Link>
@@ -326,7 +326,7 @@ function ClosedNotice({ tenantId }: { tenantId: string }) {
       <p className="mt-1 text-xs opacity-90">
         Its users have no access and its outbound dialling has stopped. This screen cannot
         reopen it — closing and reopening both live on{" "}
-        <Link href={`/admin/tenants/${tenantId}/closure`} className="font-medium underline">
+        <Link href={`/admin/tenants/${tenantId}/closure`} className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
           Closing the account
         </Link>
         , together with the date their records are erased.

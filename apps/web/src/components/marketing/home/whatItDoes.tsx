@@ -1,25 +1,23 @@
-import {
-  ArrowRight,
-  CalendarCheck,
-  Database,
-  Filter,
-  PhoneIncoming,
-  PhoneOutgoing,
-  Webhook,
-} from "lucide-react";
-
-import { Reveal } from "@/components/marketing/motion";
+import type { ReactNode } from "react";
 
 import { Band, Chapter, HOME } from "./band";
+import {
+  AnsweringVignette,
+  AnswersVignette,
+  AppointmentsVignette,
+  FollowUpVignette,
+  QualificationVignette,
+  ToolsVignette,
+} from "./mockups/capabilityVignettes";
+import { CallDetailMock } from "./mockups/featureMockups";
+import { MockStage } from "./mockups/stage";
 
 /**
- * CHAPTER 3 — what it does. Six jobs, benefit first, mechanism behind a disclosure.
- *
- * Unchanged in substance from band 05, and deliberately so: the rule the founder set is
- * that every card leads with what it does FOR YOU and the "how" is one `<details>` away.
- * That is the reason this chapter is `standard` weight rather than `anchor` — it is the
- * feature list, and a feature list is what a buyer reads AFTER they have accepted the
- * promise, not the thing that persuades them.
+ * CHAPTER 3 — what it does: one opened call, then six jobs, each led by what it does FOR
+ * YOU and shown on the screen where it happens. `standard` weight rather than `anchor`:
+ * a feature list is what a buyer reads AFTER they have accepted the promise. The
+ * mechanism sentence is visible rather than behind a "Learn more" disclosure — with a
+ * picture of the job beside it, two sentences no longer need hiding.
  *
  * The shipped surface behind each, in order:
  *  1. inbound answering — `apps/api/agents/models.py:43` (`AgentDirection`), 24/7 default
@@ -52,63 +50,72 @@ import { Band, Chapter, HOME } from "./band";
  *     reconciled.
  */
 
+/**
+ * Each card's picture is a piece of the console doing that job (`mockups/
+ * capabilityVignettes.tsx`) — not an icon in a tile, which says nothing a reader would
+ * miss. Spans vary so the grid reads as six different jobs rather than one card six times.
+ */
 const CAPABILITIES: readonly {
-  icon: typeof PhoneIncoming;
   title: string;
   benefit: string;
-  detail: string;
+  body: string;
+  figure: ReactNode;
+  span: string;
 }[] = [
   {
-    icon: PhoneIncoming,
     title: "Answering",
     benefit: "Nobody rings out, whatever time it is",
-    detail:
-      "It picks up, answers what callers ask from what you approved, and writes down what " +
-      "they wanted. An agent runs at every hour unless you tell it otherwise, and your " +
-      "dashboard counts how many enquiries arrived after you closed.",
+    body:
+      "It picks up, answers from what you approved, and writes down what they wanted. An " +
+      "agent runs at every hour unless you tell it otherwise.",
+    figure: <AnsweringVignette />,
+    span: "lg:col-span-4",
   },
   {
-    icon: PhoneOutgoing,
     title: "Follow-up",
     benefit: "Every enquiry gets a first attempt",
-    detail:
-      "Paste in a list, or let a web enquiry become a call on its own. It works through " +
-      "them in order, retries the no-answers on a ladder, and stops the moment you pause it.",
+    body:
+      "Paste in a list, or let a web enquiry become a call on its own. No-answers are " +
+      "retried on a ladder, and it stops the moment you pause it.",
+    figure: <FollowUpVignette />,
+    span: "lg:col-span-2",
   },
   {
-    icon: Filter,
     title: "Qualification",
     benefit: "Your team talks to qualified prospects first",
-    detail:
-      "Each caller comes back marked contacted, interested or hot — a fixed set of stages, " +
-      "not a note somebody has to read and interpret. A hot lead alerts you while the " +
-      "person is still thinking about it.",
+    body:
+      "Each caller comes back on a fixed set of stages, not a note somebody has to " +
+      "interpret. A hot lead alerts you while they are still thinking about it.",
+    figure: <QualificationVignette />,
+    span: "lg:col-span-2",
   },
   {
-    icon: CalendarCheck,
     title: "Appointments",
     benefit: "Callers leave the call with a time",
-    detail:
+    body:
       "The agent can book a callback during the call, and can put an appointment straight " +
       "into your calendar once your Google account is connected.",
+    figure: <AppointmentsVignette />,
+    span: "lg:col-span-2",
   },
   {
-    icon: Webhook,
     title: "Your own tools",
     benefit: "Your leads don’t get trapped inside Calevate",
-    detail:
-      "Send them to your CRM or a Google Sheet and keep the workflow your team already " +
-      "has, or download the lot as a spreadsheet. Every delivery is logged and failures " +
-      "are retried.",
+    body:
+      "Send them to your CRM or a Google Sheet, or download the lot as a spreadsheet. " +
+      "Every delivery is logged and failures are retried.",
+    figure: <ToolsVignette />,
+    span: "lg:col-span-2",
   },
   {
-    icon: Database,
     title: "Your answers",
     benefit: "It answers from what you approved, and nothing else",
-    detail:
+    body:
       "Your prices, timings and the questions you get asked every day are built into the " +
       "agent before it takes a call, so the answer comes back straight away. Nothing " +
       "reaches a caller until a person approves it.",
+    figure: <AnswersVignette />,
+    span: "lg:col-span-6",
   },
 ];
 
@@ -119,45 +126,38 @@ export function WhatItDoes() {
         id="capabilities"
         eyebrow="What it does"
         weight="standard"
+        split
         title="One AI receptionist. Several jobs."
-        lede="Each of these is one thing off your team’s plate. Open a card if you want to know exactly how it works."
+        lede="Each of these is one thing off your team’s plate, shown on the screen where it happens."
       >
-        {/* SIX CARDS, TWO-UP — NOT THREE-UP.
-            Three columns of six put six benefit lines and six disclosures on one screenful,
-            in 360px boxes at 17px/14px: a wall, and the reader's eye picks none of them.
-            Two-up is three rows of two, each card wide enough for its benefit line to set
-            on one or two lines at the page's own scale. It is not one column, because these
-            six ARE panels — each is a distinct job with its own control (the disclosure)
-            and its own outcome, which is exactly the §1 test a card has to pass. */}
-        <div className={`${HOME.contentGap} grid ${HOME.itemGap} sm:grid-cols-2`}>
-          {CAPABILITIES.map(({ icon: Icon, title, benefit, detail }, index) => (
-            <Reveal
-              as="section"
+        <MockStage
+          label="Illustration of an opened call: the Telugu conversation on one side; the summary, the captured details and the key points written from it on the other."
+          className={`${HOME.contentGap} mx-auto max-w-5xl`}
+        >
+          <CallDetailMock />
+        </MockStage>
+
+        <div className={`mt-10 grid ${HOME.itemGap} sm:mt-14 sm:grid-cols-2 lg:grid-cols-6`}>
+          {CAPABILITIES.map(({ title, benefit, body, figure, span }) => (
+            <section
               key={title}
-              delay={(index % 2) * 0.06}
-              className={`group ${HOME.panel} ${HOME.panelLift}`}
+              className={`flex flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card ${
+                span === "lg:col-span-6" ? "lg:flex-row" : ""
+              } ${HOME.panelLift} ${span}`}
             >
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
-                <Icon aria-hidden className="h-7 w-7" />
-              </span>
-              <p className="mt-6 text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
-                {title}
-              </p>
-              <h3 className={`mt-2 ${HOME.itemTitle} font-semibold text-balance text-ink`}>
-                {benefit}
-              </h3>
-              {/* The mechanism, one keystroke away. `<details>` rather than a built
-                  accordion for the reason the FAQ records: it is the platform's own
-                  disclosure widget, keyboard-operable and announced with no script at all —
-                  and this page's rule is that it is finished without its bundle. */}
-              <details className="mt-5">
-                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden dark:text-brand-bright">
-                  Learn more
-                  <ArrowRight aria-hidden className="h-4 w-4" />
-                </summary>
-                <p className={`mt-3 text-pretty text-ink-muted ${HOME.bodySm}`}>{detail}</p>
-              </details>
-            </Reveal>
+              <div className={`p-5 sm:p-7 ${span === "lg:col-span-6" ? "lg:w-1/2 lg:self-center" : ""}`}>
+                <span className="text-base font-medium text-brand-strong">{title}</span>
+                <h3 className={`mt-1.5 ${HOME.itemTitle} font-semibold text-balance text-ink`}>{benefit}</h3>
+                <p className={`mt-2 max-w-xl text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
+              </div>
+              <MockStage
+                className={`mt-auto border-t border-line bg-app/70 p-4 sm:p-6 ${
+                  span === "lg:col-span-6" ? "lg:mt-0 lg:w-1/2 lg:border-t-0 lg:border-l" : ""
+                }`}
+              >
+                {figure}
+              </MockStage>
+            </section>
           ))}
         </div>
       </Band>

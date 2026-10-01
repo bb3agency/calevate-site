@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { ArrowRight, Check, Globe, Lock, ShieldCheck } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { Reveal } from "@/components/marketing/motion";
 import { INLINE_LINK } from "@/components/marketing/pageShell";
@@ -12,6 +12,8 @@ import {
 } from "@/lib/marketing/compliance";
 
 import { Band, Chapter, HOME } from "./band";
+import { LaunchCheckMock } from "./mockups/featureMockups";
+import { MockStage } from "./mockups/stage";
 
 /**
  * CHAPTER 7 — trust. COMPRESSED IN LAYOUT AND RANKING, NOT ONE WORD IN WORDING.
@@ -49,94 +51,90 @@ export function Trust() {
         title="An automated call is regulated here, and we built for that"
         lede="The agent speaks on your registration, so these are not settings with sensible defaults — they are limits the product enforces on every dial."
       >
-        {/* THREE PANELS STACKED, NOT THREE COLUMNS.
-            These three legitimately ARE cards — each is a bounded subject with its own
-            disclosure control — so §1 does not turn them into rows. What three columns did
-            was set the one legally load-bearing block on the page in 360px boxes at 14px,
-            with two `<details>` whose closed state carries the FACT (§3) crushed into two
-            lines. Stacked full width, each panel's fact is a sentence rather than a
-            paragraph-shaped stack, and the reader meets one obligation at a time. */}
-        <div className={`${HOME.contentGap} grid ${HOME.itemGap}`}>
-          <Reveal as="section" className={HOME.panel}>
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
-              <ShieldCheck aria-hidden className="h-7 w-7" />
-            </span>
-            <h3 className={`mt-6 ${HOME.itemTitle} font-semibold text-balance text-ink`}>
-              The rules live in the code
-            </h3>
-            <p className={`mt-3 max-w-2xl text-pretty text-ink-muted ${HOME.bodySm}`}>
-              Four things are enforced on the dispatch path rather than written in a policy
-              page.
-            </p>
-            <details className="mt-5">
-              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden dark:text-brand-bright">
-                See all four
-                <ArrowRight aria-hidden className="h-4 w-4" />
-              </summary>
+        {/* The checks drawn as the screen they happen on, beside the same rules in words.
+            The panels stack rather than sitting three-up: each has a disclosure whose
+            closed state carries the fact, and the residency paragraph inside one of them
+            is verbatim and long. */}
+        <div className={`${HOME.contentGap} grid ${HOME.itemGap} lg:grid-cols-[0.85fr_1.15fr] lg:items-start`}>
+          <MockStage
+            label="Illustration of the check a campaign passes before it can call anyone: a published agent, its AI disclosure line, the DLT voice template, the calling number, the contact list and where it came from — then calls only between 9am and 9pm, with the do-not-call list removed."
+            className="lg:sticky lg:top-28"
+          >
+            <LaunchCheckMock />
+          </MockStage>
+          <div className={`grid ${HOME.itemGap}`}>
+            <Reveal as="section" className={HOME.panel}>
+              <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
+                The rules live in the code
+              </h3>
+              <p className={`mt-3 max-w-2xl text-pretty text-ink-muted ${HOME.bodySm}`}>
+                Four things are enforced on the dispatch path rather than written in a policy
+                page.
+              </p>
+              <details className="group/more mt-5">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-sm text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:min-h-11 [&::-webkit-details-marker]:hidden dark:text-brand-bright">
+                  See all four
+                  <ArrowRight
+                    aria-hidden
+                    className="h-4 w-4 transition-transform duration-(--duration-base) ease-out group-open/more:rotate-90"
+                  />
+                </summary>
+                <dl className="mt-4 space-y-4">
+                  {COMPLIANCE_INVARIANTS.map(({ title, body }) => (
+                    <div key={title}>
+                      <dt className="text-base font-semibold text-ink sm:text-lg">{title}</dt>
+                      <dd className={`mt-1.5 text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
+            </Reveal>
+
+            <Reveal as="section" className={HOME.panel}>
+              <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
+                Know where your customer data goes
+              </h3>
+              <p className={`mt-3 max-w-2xl text-pretty text-ink-muted ${HOME.bodySm}`}>
+                Which part of a call runs where, including the parts that are not Indian. In
+                full, in our words, before you sign anything.
+              </p>
+              <details className="group/more mt-5">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-sm text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:min-h-11 [&::-webkit-details-marker]:hidden dark:text-brand-bright">
+                  Where each part runs
+                  <ArrowRight
+                    aria-hidden
+                    className="h-4 w-4 transition-transform duration-(--duration-base) ease-out group-open/more:rotate-90"
+                  />
+                </summary>
+                {/* VERBATIM, AND FROM ONE DEFINITION. `/security` renders the same constant. */}
+                <p className={`mt-4 text-pretty text-ink-muted ${HOME.bodySm}`}>{WHERE_IT_RUNS}</p>
+                <p className="mt-4 text-base">
+                  <Link href="/legal/subprocessors" className={INLINE_LINK}>
+                    Read the sub-processor page
+                  </Link>
+                </p>
+              </details>
+            </Reveal>
+
+            <Reveal as="section" className={HOME.panel}>
+              <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
+                Your customers’ data stays yours
+              </h3>
               <dl className="mt-4 space-y-4">
-                {COMPLIANCE_INVARIANTS.map(({ icon: Icon, title, body }) => (
-                  <div key={title}>
-                    <dt className="flex items-center gap-2 text-base font-semibold text-ink sm:text-lg">
-                      <Icon
-                        aria-hidden
-                        className="h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright"
-                      />
-                      {title}
-                    </dt>
-                    <dd className={`mt-1.5 text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</dd>
+                {DATA_PROMISES.map(({ term, detail }) => (
+                  <div key={term}>
+                    <dt className="text-base font-semibold text-ink sm:text-lg">{term}</dt>
+                    <dd className={`mt-1.5 text-pretty text-ink-muted ${HOME.bodySm}`}>{detail}</dd>
                   </div>
                 ))}
               </dl>
-            </details>
-          </Reveal>
-
-          <Reveal as="section" delay={0.08} className={HOME.panel}>
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
-              <Globe aria-hidden className="h-7 w-7" />
-            </span>
-            <h3 className={`mt-6 ${HOME.itemTitle} font-semibold text-balance text-ink`}>
-              Know where your customer data goes
-            </h3>
-            <p className={`mt-3 max-w-2xl text-pretty text-ink-muted ${HOME.bodySm}`}>
-              Which part of a call runs where, including the parts that are not Indian. In
-              full, in our words, before you sign anything.
-            </p>
-            <details className="mt-5">
-              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden dark:text-brand-bright">
-                Where each part runs
-                <ArrowRight aria-hidden className="h-4 w-4" />
-              </summary>
-              {/* VERBATIM, AND FROM ONE DEFINITION. `/security` renders the same constant. */}
-              <p className={`mt-4 text-pretty text-ink-muted ${HOME.bodySm}`}>{WHERE_IT_RUNS}</p>
-              <p className="mt-4 text-base">
-                <Link href="/legal/subprocessors" className={INLINE_LINK}>
-                  Read the sub-processor page
-                </Link>
-              </p>
-            </details>
-          </Reveal>
-
-          <Reveal as="section" delay={0.16} className={HOME.panel}>
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
-              <Lock aria-hidden className="h-7 w-7" />
-            </span>
-            <h3 className={`mt-6 ${HOME.itemTitle} font-semibold text-balance text-ink`}>
-              Your customers’ data stays yours
-            </h3>
-            <dl className="mt-4 space-y-4">
-              {DATA_PROMISES.map(({ term, detail }) => (
-                <div key={term}>
-                  <dt className="text-base font-semibold text-ink sm:text-lg">{term}</dt>
-                  <dd className={`mt-1.5 text-pretty text-ink-muted ${HOME.bodySm}`}>{detail}</dd>
-                </div>
-              ))}
-            </dl>
-          </Reveal>
+            </Reveal>
+          </div>
         </div>
 
         {/* The testing band, compressed to what it is: a list of what gets tested. No score
             of any kind — see `TESTED_SCENARIOS` for why. */}
-        <Reveal as="section" delay={0.24} className={`mt-6 sm:mt-8 ${HOME.panel}`}>
+        <Reveal as="section" className={`mt-6 sm:mt-8 ${HOME.panel}`}>
           <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
             Your agent is run against awkward calls before it takes a real one
           </h3>
@@ -152,22 +150,20 @@ export function Trust() {
                 key={scenario}
                 className="flex items-center gap-2 rounded-full border border-line bg-app/60 px-4 py-2 text-sm font-medium text-ink-muted"
               >
-                <Check aria-hidden className="h-4 w-4 text-brand-strong dark:text-brand-bright" />
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ink/30" />
                 {scenario}
               </li>
             ))}
           </ul>
         </Reveal>
 
-        <Reveal delay={0.3}>
-          <p className={`mt-8 text-ink-muted ${HOME.bodySm}`}>
-            The whole of it is written down:{" "}
-            <Link href="/legal" className={INLINE_LINK}>
-              our legal and compliance pages
-            </Link>
-            .
-          </p>
-        </Reveal>
+        <p className={`mt-8 text-ink-muted ${HOME.bodySm}`}>
+          The whole of it is written down:{" "}
+          <Link href="/legal" className={INLINE_LINK}>
+            our legal and compliance pages
+          </Link>
+          .
+        </p>
       </Band>
     </Chapter>
   );

@@ -196,7 +196,7 @@ export default function WhyCalevatePage() {
       <section id="beyond-headcount" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="01">Beyond headcount</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Five things a salary cannot buy
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -225,7 +225,7 @@ export default function WhyCalevatePage() {
       <section id="your-team" className="scroll-mt-20 border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="02">Your team</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Calevate is not your salesperson. It is the layer that makes your salesperson
             more productive.
           </h2>
@@ -260,7 +260,7 @@ export default function WhyCalevatePage() {
       <section id="refusals" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="03">What we will not claim</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Six sentences you will not find on this website
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

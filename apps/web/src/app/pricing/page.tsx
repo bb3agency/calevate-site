@@ -215,7 +215,7 @@ export default async function PricingPage() {
       <section id="self-serve" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="00">Self-serve</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             {/* NO FIGURE HERE, DELIBERATELY: the band is overhead in the h1 and every rung
                 is in the table below, so a heading re-quoting one end of the ladder is a
                 duplicate price.
@@ -305,7 +305,7 @@ export default async function PricingPage() {
       <section id="metered" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="01">What you pay for</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Three things are metered, and all three are things that happened
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -330,7 +330,7 @@ export default async function PricingPage() {
       <section id="plan" className="scroll-mt-20 border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="02">The shape of a plan</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Five parts, and you will know the number against each one before you sign
           </h2>
           <dl className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-2">
@@ -356,7 +356,7 @@ export default async function PricingPage() {
       <section id="controls" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="03">Paying, and not overpaying</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             A phone bill that cannot surprise you
           </h2>
           <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
@@ -421,7 +421,7 @@ export default async function PricingPage() {
       <section className="border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="04">What the money buys</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             The same product, whatever you pay
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

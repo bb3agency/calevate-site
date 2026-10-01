@@ -21,6 +21,7 @@ import {
   INLINE_LINK,
   MarketingPage,
   PageIntro,
+  PILL_LINK,
   SECTION,
   SHELL,
 } from "@/components/marketing/pageShell";
@@ -340,7 +341,7 @@ function SolutionSection({
             <Eyebrow index={String(index + 1).padStart(2, "0")}>
               {solution.kicker}
             </Eyebrow>
-            <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+            <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
               {solution.title}
             </h2>
             <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -425,7 +426,7 @@ export default function SolutionsPage() {
               <li key={solution.id}>
                 <Link
                   href={`#${solution.id}`}
-                  className="inline-block rounded-full border border-line bg-surface px-3.5 py-2 text-sm font-medium text-ink-muted transition-colors hover:border-brand/50 hover:text-ink touch:py-2.5"
+                  className={PILL_LINK}
                 >
                   {solution.kicker}
                 </Link>
@@ -441,7 +442,7 @@ export default function SolutionsPage() {
 
       <section className="border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
-          <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             The goal is not to automate your business
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

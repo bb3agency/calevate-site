@@ -287,7 +287,7 @@ function CapFact({
       <dd className="mt-0.5 text-xs text-ink-muted">{note}</dd>
       {edit && (
         <dd className="mt-1.5">
-          <Link href={edit.href} className="text-xs font-medium text-brand hover:underline">
+          <Link href={edit.href} className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
             {edit.label}
           </Link>
         </dd>

@@ -12,6 +12,7 @@ import {
   INLINE_LINK,
   MarketingPage,
   PageIntro,
+  PILL_LINK,
   SECTION,
   SHELL,
 } from "@/components/marketing/pageShell";
@@ -74,7 +75,7 @@ export default function IndustriesPage() {
               <li key={industry.id}>
                 <Link
                   href={`#${industry.id}`}
-                  className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-2 text-sm font-medium text-ink-muted transition-colors hover:border-brand/50 hover:text-ink touch:py-2.5"
+                  className={PILL_LINK}
                 >
                   <industry.icon aria-hidden className="h-4 w-4" />
                   {industry.name}
@@ -100,7 +101,7 @@ export default function IndustriesPage() {
               </span>
               <div className="min-w-0">
                 <Eyebrow index={String(index + 1).padStart(2, "0")}>{industry.name}</Eyebrow>
-                <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+                <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
                   {industry.problem}
                 </h2>
               </div>
@@ -205,7 +206,7 @@ export default function IndustriesPage() {
 
       <section className="border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
-          <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Not one of these four?
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

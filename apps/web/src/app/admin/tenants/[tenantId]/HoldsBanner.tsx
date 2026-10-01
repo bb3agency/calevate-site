@@ -37,7 +37,7 @@ export function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: stri
                   "We do not have a plain description for this hold, but the check that set it does."}
               </span>
               {copy && (
-                <Link href={copy.screen(tenantId)} className="font-medium underline">
+                <Link href={copy.screen(tenantId)} className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
                   {copy.cta}
                 </Link>
               )}

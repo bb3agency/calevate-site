@@ -214,7 +214,7 @@ export default function AgentPromptPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {/* The CLIENT'S NAME, never the literal "Client": this is a WRITE surface whose
@@ -331,7 +331,7 @@ export default function AgentPromptPage({
                           { onSuccess: () => void refreshPublishing() },
                         )
                       }
-                      className="ml-auto rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
+                      className={`ml-auto ${SECONDARY_BUTTON_SM}`}
                     >
                       Roll back to this
                     </button>

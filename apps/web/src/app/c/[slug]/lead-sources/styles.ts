@@ -12,5 +12,5 @@ export const FIELD_BASE =
   "rounded-md border border-line bg-surface px-3 py-1.5 text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
 export const FIELD = `${FIELD_BASE} text-sm`;
 export const QUIET_BUTTON =
-  "flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
+  "press flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5";
 export const CODE = "break-all rounded bg-app px-2 py-1 font-mono text-xs text-ink";

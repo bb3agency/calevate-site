@@ -142,7 +142,7 @@ export function TranscriptCard({
                       onClick={() => onSeek(at)}
                       aria-label={`Play from ${formatClock(at / 1000)}, ${speaker?.label ?? turn.speaker}`}
                       aria-current={active ? "true" : undefined}
-                      className={`flex w-full gap-3 rounded-md p-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/5 ${highlight}`}
+                      className={`flex w-full gap-3 rounded-md p-1.5 text-left transition-colors duration-(--duration-fast) ease-out hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand dark:hover:bg-white/5 ${highlight}`}
                     >
                       {body}
                     </button>

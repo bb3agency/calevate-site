@@ -291,7 +291,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
                     {item.href && (
                       <Link
                         href={href(`/c/${slug}${item.href}`)}
-                        className="mt-2 inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs font-semibold text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+                        className="press mt-2 inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs font-semibold text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:hover:bg-white/5"
                       >
                         Open
                         <ArrowRight className="h-3 w-3" />

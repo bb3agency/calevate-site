@@ -517,7 +517,7 @@ export function KeyField({
           disabled={disabled}
           aria-label={revealed ? "Hide the key" : "Show the key"}
           aria-pressed={revealed}
-          className="absolute inset-y-0 right-0 flex items-center px-3 text-ink-faint hover:text-ink-muted disabled:opacity-50"
+          className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-ink-faint transition-colors duration-(--duration-fast) ease-out enabled:hover:text-ink-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
         >
           {revealed ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
         </button>
@@ -645,10 +645,10 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
       aria-label={copied ? `${label} copied` : `Copy ${label}`}
       // A compact copy affordance in the same green-reveal family as the buttons, small on
       // purpose because these sit beside dense IDs on ops screens: a soft brand tint on
-      // hover, and a settled green + check once copied. `transition-colors`, so it is frozen
-      // for a reduced-motion reader by the browser without a variant of its own.
+      // hover, and a settled green + check once copied. `press` carries the colour transition
+      // and the press scale, and drops the scale for a reduced-motion reader.
       className={clsx(
-        "inline-flex items-center justify-center rounded-md border p-1 transition-colors motion-reduce:transition-none",
+        "press inline-flex items-center justify-center rounded-md border p-1 touch:min-h-11 touch:min-w-11",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
         copied
           ? "border-brand/40 bg-brand-soft text-brand-strong"

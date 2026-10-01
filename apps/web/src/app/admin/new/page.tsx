@@ -849,7 +849,7 @@ function CreatedPanel({
             <span>
               <Link
                 href={`/admin/tenants/${created.id}/kyc`}
-                className="font-medium text-brand-strong hover:underline"
+                className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
                 Record their identity verification
               </Link>{" "}
@@ -861,7 +861,7 @@ function CreatedPanel({
             <span>
               <Link
                 href={`/admin/tenants/${created.id}/commercials`}
-                className="font-medium text-brand-strong hover:underline"
+                className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
                 Set their commercial terms
               </Link>{" "}
@@ -873,7 +873,7 @@ function CreatedPanel({
             <span>
               <Link
                 href={`/admin/tenants/${created.id}/first-campaign-review`}
-                className="font-medium text-brand-strong hover:underline"
+                className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
                 Release their first campaign
               </Link>{" "}

@@ -6,6 +6,7 @@ import { fetchPublicRateCard } from "@/lib/api/rateCard";
 import Link from "next/link";
 
 import {
+  CARD,
   ClosingCta,
   Eyebrow,
   INLINE_LINK,
@@ -107,7 +108,7 @@ export default async function RoiPage() {
       <section id="calculator" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="01">The comparison</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             Put your own volumes in
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -124,7 +125,7 @@ export default async function RoiPage() {
       <section id="against" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="02">Where it goes against us</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             A calculator that cannot lose is a brochure
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -135,7 +136,7 @@ export default async function RoiPage() {
             {AGAINST.map(({ term, detail }) => (
               <div
                 key={term}
-                className="rounded-2xl border border-line bg-surface p-5 sm:p-6"
+                className={CARD}
               >
                 <dt className="text-[17px] font-semibold text-balance text-ink">{term}</dt>
                 <dd className="mt-2 text-sm text-pretty text-ink-muted">{detail}</dd>
@@ -149,7 +150,7 @@ export default async function RoiPage() {
       <section className="border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="03">What no calculator can price</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             The rupees are the smaller half of the answer
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

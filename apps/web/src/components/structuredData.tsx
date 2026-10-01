@@ -46,6 +46,9 @@ export async function StructuredData() {
     <script
       type="application/ld+json"
       nonce={nonce}
+      // Browsers hide a nonce from the DOM after load (the attribute reads back as ""),
+      // so hydration would always report a mismatch on it. Scoped to this element only.
+      suppressHydrationWarning
       // The only way to emit a script body in React. The content is `JSON.stringify` of an
       // object this repository builds — never user input, never an API response.
       dangerouslySetInnerHTML={{ __html: json }}

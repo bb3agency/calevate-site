@@ -5,7 +5,7 @@ import { use, useState } from "react";
 import { ArrowLeft, Printer } from "lucide-react";
 
 import { InvoiceDocument } from "@/components/invoiceDocument";
-import { ProblemNotice, Skeleton } from "@/components/ui";
+import { FIELD_INLINE, PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import { currentISTMonth, useInvoice } from "@/lib/api/invoice";
 import { useTenant } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -110,7 +110,7 @@ export default function TenantInvoicePage({
         <div>
           <Link
             href={`/admin/tenants/${tenantId}`}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+            className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             {tenantName ?? "Back to client"}
@@ -124,7 +124,7 @@ export default function TenantInvoicePage({
             // No future months: a blank 2027 statement reads like a failure (F-9a).
             max={currentISTMonth()}
             onChange={(e) => setMonth(e.target.value)}
-            className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+            className={FIELD_INLINE}
             aria-label="Billing month"
           />
           <button
@@ -133,7 +133,7 @@ export default function TenantInvoicePage({
             // produces a sheet of paper that looks like an invoice and is not one.
             disabled={!data}
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
+            className={PRIMARY_BUTTON}
           >
             <Printer className="h-4 w-4" />
             Print

@@ -646,7 +646,7 @@ function VoiceRow({
   const tone = lookup(STATE_TONE, voice.state);
   const origin = lookup(ORIGIN_MEANING, voice.origin);
   return (
-    <tr className="border-t border-line align-top">
+    <tr className="border-t border-line align-top hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
       <td className="py-1.5 pr-3">
         <span className="font-medium">{voice.label}</span>
         <MonoValue className="mt-0.5 block text-[11px]">{voice.voice_id}</MonoValue>

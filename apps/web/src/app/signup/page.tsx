@@ -151,8 +151,11 @@ export default function SignupPage() {
       <Providers>
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
           <header className="border-b border-line bg-surface">
-            <div className="mx-auto flex max-w-xl items-center justify-between gap-4 px-6 py-4">
-              <Link href="/" className="text-base font-semibold tracking-tight text-ink">
+            <div className="mx-auto flex max-w-xl items-center justify-between gap-4 px-5 py-4 sm:px-6">
+              <Link
+                href="/"
+                className="rounded-md text-base font-semibold tracking-tight text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
                 Calevate
               </Link>
               <span className="flex items-center gap-1.5 text-xs text-ink-faint">
@@ -161,7 +164,7 @@ export default function SignupPage() {
               </span>
             </div>
           </header>
-          <main className="mx-auto w-full max-w-xl flex-1 px-6 py-10">
+          <main className="mx-auto w-full max-w-xl flex-1 px-5 py-10 sm:px-6 sm:py-14">
             {/* The kill switch is checked FIRST, above both the form and the account
                 gate: on a deployment that opens no workspaces, sending a stranger off to
                 create an account would be walking them one screen further into a door

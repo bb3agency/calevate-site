@@ -61,7 +61,7 @@ export function RawTranscriptControl({
             ? "Shows the full text, personal details included. Opening it is recorded in your audit log."
             : (access.reason ?? undefined)
         }
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
+        className="press inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
       >
         <Icon className="h-3.5 w-3.5" />
         {pending ? "Opening…" : showRaw ? "Hide full transcript" : "Show full transcript"}

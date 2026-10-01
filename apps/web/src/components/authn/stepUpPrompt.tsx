@@ -192,7 +192,7 @@ export function StepUpPrompt() {
   if (prompt === null) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="scrim-enter fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         ref={panel}
         role="alertdialog"
@@ -200,7 +200,7 @@ export function StepUpPrompt() {
         aria-labelledby="step-up-title"
         aria-describedby="step-up-body"
         tabIndex={-1}
-        className="w-full max-w-md rounded-card border border-line bg-surface p-4 shadow-lg outline-none sm:p-6"
+        className="dialog-enter w-full max-w-md rounded-card border border-line bg-surface p-4 shadow-overlay outline-none sm:p-6"
       >
         <div className="flex items-start justify-between gap-3">
           <h2

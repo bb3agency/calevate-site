@@ -129,7 +129,7 @@ export function InlineName({
             // meeting a hundred buttons called "Edit" cannot tell which row it is on.
             aria-label={`Edit the name for the lead on ${lead.phone_e164}`}
             title={editReason ?? "Edit this name"}
-            className="text-ink-faint hover:text-ink disabled:opacity-50"
+            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 touch:inline-flex touch:min-h-11 touch:min-w-11 touch:items-center touch:justify-center"
           >
             <Pencil className="h-3 w-3" />
           </button>

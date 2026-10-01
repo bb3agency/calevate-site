@@ -1,17 +1,9 @@
 import Link from "next/link";
 
-import {
-  ArrowRight,
-  Check,
-  Clock3,
-  Infinity as InfinityIcon,
-  ListChecks,
-  ShieldCheck,
-  TrendingDown,
-} from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 
 import { Reveal } from "@/components/marketing/motion";
-import { CTA_LABEL, CTA_PRIMARY } from "@/components/marketing/pageShell";
+import { CTA_LABEL, CTA_PRIMARY, NUDGE_ARROW } from "@/components/marketing/pageShell";
 import { RoiCalculator } from "@/components/marketing/roiCalculator";
 import type { PublicRateCard } from "@/lib/api/rateCard";
 
@@ -57,37 +49,32 @@ import { Band, Chapter, HOME } from "./band";
  * (`POST /v1/campaigns/{id}/pause`, `apps/api/campaigns/routes.py:731`).
  */
 
-const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = [
+const BEYOND: readonly { title: string; body: string }[] = [
   {
-    icon: Clock3,
     title: "Your phone doesn’t clock out",
     body:
       "Evenings, Sundays and festival days are answered at the same rate as a Tuesday " +
       "morning. There is no shift to staff for them.",
   },
   {
-    icon: InfinityIcon,
     title: "A busy hour is not a queue",
     body:
       "Fifty callers at 11am are fifty answered calls, not fifty people waiting behind " +
       "three desks.",
   },
   {
-    icon: TrendingDown,
     title: "Nothing to train, and nothing resigns",
     body:
       "No six-week ramp, no re-hiring in four months. It is doing the job the day you " +
       "switch it on, and the same job a year later.",
   },
   {
-    icon: ListChecks,
     title: "The same questions, every single call",
     body:
       "The things you said you needed to know get asked whether it is the third call of " +
       "the day or the ninetieth.",
   },
   {
-    icon: ShieldCheck,
     title: "The rules on every dial",
     body:
       "Calling hours, do-not-call scrubbing and the AI-disclosure answer are enforced on " +
@@ -114,29 +101,29 @@ export function Cost({ rateCard }: { rateCard: PublicRateCard | null }) {
       >
         <RoiCalculator rateCard={rateCard} />
 
-        <Reveal delay={0.08}>
+        <Reveal>
           <h3 className="mt-24 text-2xl font-semibold tracking-tight text-balance text-ink sm:mt-32 sm:text-3xl">
             The part a headcount comparison cannot see
           </h3>
         </Reveal>
-        {/* ONE card, five rows — not five cards. See this file's header. */}
-        <Reveal as="section" delay={0.12} className="mt-8 overflow-hidden rounded-2xl border border-line bg-surface sm:mt-10">
-          <ul className="divide-y divide-line">
-            {BEYOND.map(({ icon: Icon, title, body }) => (
-              <li key={title} className="flex flex-col gap-4 p-6 sm:flex-row sm:gap-7 sm:p-8">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
-                  <Icon aria-hidden className="h-6 w-6" />
-                </span>
-                <div>
-                  <h4 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h4>
-                  <p className={`mt-2 max-w-2xl text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
-                </div>
+        {/* ONE card divided into five cells — not five cards. See this file's header. */}
+        <Reveal as="section" className="mt-8 overflow-hidden rounded-2xl border border-line sm:mt-10">
+          <ul className="grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-6">
+            {BEYOND.map(({ title, body }, index) => (
+              <li
+                key={title}
+                className={`bg-surface p-5 sm:p-8 ${index < 2 ? "lg:col-span-3" : "lg:col-span-2"} ${
+                  index === BEYOND.length - 1 ? "sm:col-span-2" : ""
+                }`}
+              >
+                <h4 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h4>
+                <p className={`mt-2 max-w-2xl text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
               </li>
             ))}
           </ul>
         </Reveal>
 
-        <Reveal as="section" delay={0.1} className={`mt-14 ${HOME.panel} sm:mt-20`}>
+        <Reveal as="section" className={`mt-14 ${HOME.panel} sm:mt-20`}>
           <h3 className="text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             Worth a conversation?
           </h3>
@@ -149,10 +136,7 @@ export function Cost({ rateCard }: { rateCard: PublicRateCard | null }) {
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link href="/signup" className={CTA_PRIMARY}>
               {CTA_LABEL}
-              <ArrowRight
-                aria-hidden
-                className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-              />
+              <ArrowRight aria-hidden className={NUDGE_ARROW} />
             </Link>
           </div>
           {/* THIS ONE STAYS THREE-UP, and the reason is worth writing down because the
@@ -164,12 +148,7 @@ export function Cost({ rateCard }: { rateCard: PublicRateCard | null }) {
           <ul className="mt-8 grid gap-3.5 border-t border-line pt-6 sm:grid-cols-3">
             {RISK_REVERSAL.map((promise) => (
               <li key={promise} className={`flex items-start gap-2.5 text-ink-muted ${HOME.bodySm}`}>
-                <span
-                  aria-hidden
-                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                </span>
+                <Check aria-hidden className="mt-1 h-4 w-4 shrink-0 text-brand-strong" strokeWidth={2.5} />
                 {promise}
               </li>
             ))}

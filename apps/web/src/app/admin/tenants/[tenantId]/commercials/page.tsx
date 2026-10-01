@@ -88,7 +88,7 @@ export default function CommercialsPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {tenant.name}
@@ -722,7 +722,7 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="border-t border-line">
+              <tr key={row.id} className="border-t border-line hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
                 <td className="py-1.5 pr-3">
                   {row.effective_from ? formatIST(row.effective_from) : "always"}
                   {row.id === inEffectId && (

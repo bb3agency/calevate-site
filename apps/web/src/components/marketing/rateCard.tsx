@@ -165,7 +165,7 @@ void ONE_SLOT_PER_VOICE;
 
 /** One position of the switch, unselected. The selected look is a `peer-checked` variant. */
 const SWITCH =
-  "inline-flex cursor-pointer items-center rounded-full border border-line bg-surface px-5 py-2.5 text-sm font-medium text-ink-muted transition-colors hover:border-brand/50 touch:min-h-11";
+  "press inline-flex cursor-pointer items-center rounded-full border border-line bg-surface px-5 py-2.5 text-sm font-medium text-ink-muted hover:border-brand/50 touch:min-h-11";
 
 /** Both layouts of one voice's ladder. Exactly one is displayed at any width. */
 function VoicePanel({ card, voice }: { card: PublicRateCard; voice: VoiceTier }) {

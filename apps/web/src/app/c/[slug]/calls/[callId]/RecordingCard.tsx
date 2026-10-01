@@ -67,7 +67,7 @@ export function RecordingCard({
             type="button"
             disabled={recording.isPending}
             onClick={() => recording.mutate()}
-            className="inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
+            className="press inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
           >
             <AudioLines className="h-4 w-4" />
             {recording.isPending ? "Preparing…" : "Listen to this call"}

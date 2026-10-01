@@ -692,7 +692,7 @@ function LegRow({ leg }: { leg: LegSummary }) {
   const copy = lookup(LEG_COPY, leg.leg);
 
   return (
-    <tr className="border-t border-line align-top">
+    <tr className="border-t border-line align-top hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
       <td className="py-1.5 pr-3">
         {/* A leg this build has no words for prints its wire name rather than an empty
             cell — the same fallback direction `regionLabel` takes for a region code the

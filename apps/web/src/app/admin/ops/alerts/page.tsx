@@ -369,7 +369,7 @@ function Row({ episode }: { episode: AlertEpisode }) {
   // none), so the empty object is spelled here rather than trusted from the wire.
   const ids = Object.entries(episode.ids ?? {});
   return (
-    <tr className="border-b border-line/60 align-top last:border-0">
+    <tr className="border-b border-line/60 align-top last:border-0 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
       <td className="py-3 pr-3">
         <MonoValue>{episode.code}</MonoValue>
         <p className="mt-0.5 text-xs text-ink-muted">

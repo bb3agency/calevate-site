@@ -233,7 +233,7 @@ export function CallsScreen({ slug }: { slug: string }) {
                 <li key={call.id}>
                   <Link
                     href={href(`/c/${slug}/calls/${call.id}`)}
-                    className="flex items-start gap-4 rounded-lg px-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
+                    className="flex items-start gap-4 rounded-lg px-4 py-3 transition-colors duration-(--duration-fast) ease-out hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand dark:hover:bg-white/[0.04]"
                   >
                     <span
                       className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${

@@ -77,7 +77,7 @@ export function FollowUpCard({
                 type="button"
                 disabled={callback.isPending}
                 onClick={() => callback.mutate()}
-                className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
+                className="press inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
               >
                 <PhoneForwarded className="h-4 w-4" />
                 {callback.isPending ? "Calling…" : "Call back with AI"}

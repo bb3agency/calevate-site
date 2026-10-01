@@ -77,7 +77,7 @@ export function FacetPanel({
           <button
             type="button"
             onClick={() => onChange({})}
-            className="text-xs font-medium text-brand-strong hover:underline dark:text-brand-bright"
+            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-xs font-medium text-brand-strong hover:underline touch:min-h-11 dark:text-brand-bright"
           >
             Clear these filters
           </button>

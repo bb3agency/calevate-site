@@ -236,7 +236,7 @@ export function CallAudioPlayer({
           type="button"
           onClick={toggle}
           aria-label={playing ? "Pause recording" : "Play recording"}
-          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-strong text-white transition hover:opacity-90 dark:bg-brand-bright dark:text-black"
+          className="press inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-strong text-white hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:bg-brand-bright dark:text-black"
         >
           {playing ? (
             <Pause className="h-4 w-4" aria-hidden="true" />

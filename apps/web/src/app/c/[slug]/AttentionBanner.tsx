@@ -30,7 +30,7 @@ export function AttentionBanner({
       <button
         type="button"
         onClick={() => void attention.refetch()}
-        className="font-medium text-brand-strong underline"
+        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 font-medium text-brand-strong underline"
       >
         Try again
       </button>
@@ -40,7 +40,7 @@ export function AttentionBanner({
     attention.data.total > 0 && (
       <Link
         href={href}
-        className="flex items-center justify-between gap-3 rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+        className="flex items-center justify-between gap-3 rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 transition-colors duration-(--duration-fast) ease-out hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
       >
         <span>
           <span className="font-semibold tabular-nums">

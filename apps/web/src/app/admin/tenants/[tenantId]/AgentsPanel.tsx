@@ -37,7 +37,7 @@ export function AgentsPanel({ tenantId, slug }: { tenantId: string; slug: string
               <span className="text-xs text-ink-muted">{agent.direction}</span>
               <Link
                 href={`/admin/tenants/${tenantId}/agents/${agent.id}/prompt`}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink hover:bg-black/5 dark:hover:bg-white/5"
+                className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
               >
                 <ScrollText className="h-3.5 w-3.5" />
                 Prompt &amp; publishing

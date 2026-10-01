@@ -117,7 +117,7 @@ export function SubmittedList({
                         type="button"
                         onClick={() => setSelected(open ? null : source.id)}
                         aria-expanded={open}
-                        className="flex items-center gap-1 rounded-md border border-line px-2 py-1.5 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+                        className="press flex items-center gap-1 rounded-md border border-line px-2 py-1.5 text-xs font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
                       >
                         {open ? (
                           <ChevronUp className="h-3 w-3" />

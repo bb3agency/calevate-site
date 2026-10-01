@@ -73,7 +73,7 @@ const ACTOR_FILTER_LABELS: Record<string, string> = {
 
 function EntryRow({ entry }: { entry: ActivityEntry }) {
   return (
-    <tr className="align-top">
+    <tr className="align-top hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
       <td className="whitespace-nowrap px-5 py-3 text-xs text-ink-muted">{formatIST(entry.at)}</td>
       <td className="px-5 py-3">
         <span className="font-mono text-xs text-ink">{entry.action}</span>
@@ -179,7 +179,7 @@ export default function TenantActivityPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {name}

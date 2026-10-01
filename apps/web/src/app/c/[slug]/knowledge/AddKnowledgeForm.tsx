@@ -146,7 +146,7 @@ export function AddKnowledgeForm({
              luck, and a dead button with the explanation off-screen is the 403 we
              are trying not to ship. */
           title={reason ?? undefined}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
+          className="press flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
         >
           <Send className="h-3.5 w-3.5" />
           {submit.isPending ? "Submitting…" : "Submit for review"}

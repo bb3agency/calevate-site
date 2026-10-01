@@ -77,16 +77,16 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
               {lots.lots.length === 1 ? "purchase" : "purchases"}
             </caption>
             <thead>
-              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
-                <th scope="col" className="py-2 pr-3 font-medium">
+              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                <th scope="col" className="py-2 pr-3 font-semibold">
                   Credit left
                 </th>
                 {lots.tiers.map((tier) => (
-                  <th key={tier.voice_tier} scope="col" className="py-2 pr-3 text-right font-medium">
+                  <th key={tier.voice_tier} scope="col" className="py-2 pr-3 text-right font-semibold">
                     {tier.label}
                   </th>
                 ))}
-                <th scope="col" className="py-2 text-right font-medium">
+                <th scope="col" className="py-2 text-right font-semibold">
                   Bought
                 </th>
               </tr>

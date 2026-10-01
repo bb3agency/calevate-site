@@ -224,7 +224,7 @@ function HealthRow({ row }: { row: ClientHealth }) {
       <td className="px-6 py-3">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="font-semibold text-ink hover:underline"
+          className="rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {row.name}
         </Link>
@@ -269,7 +269,7 @@ function HealthRow({ row }: { row: ClientHealth }) {
             <Link
               key={href}
               href={href}
-              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
             >
               {cta}
               <ArrowRight className="h-3 w-3" />
@@ -362,7 +362,7 @@ function SignalCell({ signal, row }: { signal: HealthSignal; row: ClientHealth }
             <li key={cause}>
               <Link
                 href={causeHref(cause, row.tenant_id)}
-                className="text-ink-muted underline-offset-2 hover:underline"
+                className="rounded-sm text-ink-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
                 {causeLabel(cause)}
               </Link>

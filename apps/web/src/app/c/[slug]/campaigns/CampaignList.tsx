@@ -80,7 +80,7 @@ export function CampaignList({
                     <button
                       type="button"
                       onClick={() => onOpen(campaign.id)}
-                      className="text-sm font-semibold text-ink underline-offset-2 hover:underline"
+                      className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-left text-sm font-semibold text-ink underline-offset-2 hover:underline"
                     >
                       {campaign.name}
                     </button>
@@ -114,7 +114,7 @@ export function CampaignList({
                       <button
                         type="button"
                         onClick={() => onOpen(campaign.id)}
-                        className="font-semibold text-ink underline underline-offset-2"
+                        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 font-semibold text-ink underline underline-offset-2"
                       >
                         {note.action}
                       </button>

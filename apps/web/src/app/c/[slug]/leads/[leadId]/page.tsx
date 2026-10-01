@@ -231,7 +231,7 @@ export default function LeadDetailPage({
       {/* No <h1>: the app shell prints the page title from the nav list. */}
       <Link
         href={href(`/c/${slug}/leads`)}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
+        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11"
       >
         <ArrowLeft className="h-4 w-4" />
         Leads

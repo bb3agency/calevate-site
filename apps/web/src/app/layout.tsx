@@ -134,6 +134,14 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   interactiveWidget: "resizes-content",
+  // The browser chrome and status bar take this colour. It is `--app` (globals.css), the
+  // ground at the top of every realm, and there is ONE value because the product is
+  // light-only (D-471) — a dark-scheme value would paint a black bar over a light page.
+  themeColor: "#fafafa",
+  colorScheme: "light",
+  // No `viewportFit: "cover"`: it lets content paint under the notch, and none of the
+  // fixed chrome (shell headers, drawer, copilot) pads itself by `env(safe-area-inset-*)`
+  // yet. Enabling it before they do would put the console's header under the status bar.
 };
 
 /**

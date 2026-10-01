@@ -5,10 +5,13 @@ import { BellOff, BellRing } from "lucide-react";
 
 import {
   Card,
+  FIELD,
   FIELD_LABEL,
   NoticeBox,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -124,7 +127,7 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
               onChange={(e) => setReference(e.target.value)}
               disabled={!write.allowed}
               placeholder="e.g. ONB-2026-0042, or a ticket id"
-              className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
+              className={FIELD}
             />
             <span className="mt-1 block text-xs text-ink-faint">
               A reference, never the document itself. A grant without one is refused by the
@@ -143,7 +146,7 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
                   { onSuccess: () => setReference("") },
                 )
               }
-              className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50"
+              className={PRIMARY_BUTTON}
             >
               <BellRing aria-hidden className="h-4 w-4" />
               Record that the owner agreed
@@ -155,7 +158,7 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
               disabled={!write.allowed || record.isPending}
               title={write.reason ?? undefined}
               onClick={() => record.mutate({ status: "withdrawn", evidence: null })}
-              className="inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
+              className={SECONDARY_BUTTON}
             >
               <BellOff aria-hidden className="h-4 w-4" />
               Record a withdrawal

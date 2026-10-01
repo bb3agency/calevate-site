@@ -189,7 +189,7 @@ function Control({
          * finger cannot manage this: every slider on this surface is paired with the
          * labelled number field above it, which carries `touch:min-h-11`.
          */
-        className="mt-3 w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-line [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-line [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong focus-visible:outline-none touch:[&::-moz-range-thumb]:h-6 touch:[&::-moz-range-thumb]:w-6 touch:[&::-webkit-slider-thumb]:-mt-[9px] touch:[&::-webkit-slider-thumb]:h-6 touch:[&::-webkit-slider-thumb]:w-6 dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright"
+        className="mt-3 w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-line [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-line [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong focus-visible:outline-none focus-visible:[&::-moz-range-thumb]:ring-2 focus-visible:[&::-moz-range-thumb]:ring-brand-strong focus-visible:[&::-moz-range-thumb]:ring-offset-2 focus-visible:[&::-webkit-slider-thumb]:ring-2 focus-visible:[&::-webkit-slider-thumb]:ring-brand-strong focus-visible:[&::-webkit-slider-thumb]:ring-offset-2 touch:[&::-moz-range-thumb]:h-6 touch:[&::-moz-range-thumb]:w-6 touch:[&::-webkit-slider-thumb]:-mt-[9px] touch:[&::-webkit-slider-thumb]:h-6 touch:[&::-webkit-slider-thumb]:w-6 dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright"
       />
       {hint && <p className="mt-2 text-sm text-ink-faint">{hint}</p>}
     </div>
@@ -244,7 +244,7 @@ function RadioCards<T extends string | number>({
               aria-checked={selected}
               onClick={() => onChange(option.id)}
               className={
-                "rounded-lg border px-2.5 py-2.5 text-left transition-colors touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong " +
+                "rounded-lg border px-2.5 py-2.5 text-left transition-colors duration-(--duration-fast) ease-out touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong " +
                 (selected
                   ? "border-brand-strong bg-brand-soft/60 text-ink dark:bg-brand-strong/15"
                   : "border-line bg-app text-ink-muted hover:border-brand/50")
@@ -1200,13 +1200,13 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             The summary carries an <h3> and the body a <p>, the shape the landing tests
             require of every disclosure on the page. */}
         <details className="group rounded-2xl border border-line bg-surface/60 p-5 sm:p-6">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-4 focus-visible:ring-offset-surface">
             <h3 className="text-[15px] font-semibold text-ink">
               How we calculate this, and where the numbers come from
             </h3>
             <span
               aria-hidden
-              className="text-sm font-medium text-ink-faint transition-transform group-open:rotate-180"
+              className="text-sm font-medium text-ink-faint transition-transform duration-(--duration-base) ease-out group-open:rotate-180"
             >
               ▾
             </span>

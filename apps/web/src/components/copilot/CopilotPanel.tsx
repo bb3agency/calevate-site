@@ -206,7 +206,7 @@ export function CopilotPanel({
       ref={panel}
       role="dialog"
       aria-labelledby={labelledBy}
-      className="fixed bottom-20 right-4 z-[70] flex max-h-[min(34rem,calc(100vh-7rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-lg"
+      className="fixed bottom-20 right-4 z-[70] flex max-h-[min(34rem,calc(100dvh-7rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay"
     >
       {/* WHICH CONSOLE'S ASSISTANT THIS IS — in the chrome, not only in the words.
           Both realms rendered an identical panel, so an operator with both tabs open had

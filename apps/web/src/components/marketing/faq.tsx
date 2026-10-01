@@ -209,11 +209,11 @@ export function Faq() {
     <div className="mt-8 divide-y divide-line border-y border-line">
       {QUESTIONS.map(({ q, a }) => (
         <details key={q} className="group" onToggle={handleToggle}>
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-4 [&::-webkit-details-marker]:hidden">
-            <h3 className="text-lg font-medium text-ink sm:text-xl">{q}</h3>
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 rounded-sm py-4 transition-colors duration-(--duration-fast) ease-out hover:text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden">
+            <h3 className="text-lg font-medium text-inherit sm:text-xl">{q}</h3>
             <ChevronDown
               aria-hidden
-              className="h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
+              className="h-4 w-4 shrink-0 text-ink-faint transition-transform duration-(--duration-base) ease-out group-open:rotate-180 motion-reduce:transition-none"
             />
           </summary>
           <p className="max-w-3xl pb-6 text-base text-pretty text-ink-muted sm:text-lg">

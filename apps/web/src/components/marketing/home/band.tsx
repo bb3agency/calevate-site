@@ -6,176 +6,94 @@ import { Reveal } from "@/components/marketing/motion";
 /**
  * THE LANDING PAGE'S RHYTHM: chapters that differ, and bands that are ranked.
  *
- * ## The defect this replaces, stated so it is recognisable
+ * A **chapter** is a tonal ground and a subject; a **band** is a section inside it. Two
+ * channels rank the bands, and both are props rather than class strings at the call site
+ * because the ranking is what `publicLanding.test.tsx` asserts (`data-band-weight` and the
+ * heading's size classes) — the page once drifted to thirteen bands at one size, one
+ * reasonable-looking edit at a time:
  *
- * `app/page.tsx` was THIRTEEN bands of identical visual weight: `<Eyebrow index="01".."13">`,
- * an `<h2>` carrying the same `text-3xl sm:text-4xl` every time, `border-t border-line`
- * every time, and exactly two background treatments alternating over the lot. That is
- * UX-DOCTRINE §1's "everything equal means nothing primary" — written there about nine
- * equal `Card`s on the agent workspace — happening again one level up, on the page where
- * it costs the most: a landing page is SCANNED, and a scan needs something to catch on.
- * Measured before the change: 12,841px on a 1440px desktop, 21,488px on a 390px phone,
- * with no band louder than any other anywhere down it.
+ * - **`weight`** sizes the `<h2>`: `anchor` for the three bands the argument rests on,
+ *   `standard` for supporting ones, `quiet` for material read only by the already
+ *   interested.
+ * - **`tone`** grounds the chapter: `app`, `raised`, `brand` and one `dark`, non-
+ *   alternating, so scroll position is legible from colour alone.
  *
- * ## The model
- *
- * A **chapter** is a tonal ground and a subject. A **band** is a section inside it. Most
- * chapters hold one band; two hold two, where the second is genuinely a supporting move on
- * the same subject rather than a new topic (the shortlist argument under the lead inbox;
- * the vertical field-lists under the language argument). A chapter is where the reader's
- * eye rests, so eight chapters replace thirteen bands without a sentence being deleted.
- *
- * Two channels carry the ranking, and they are deliberately the two UX-DOCTRINE §1 already
- * names for a screen's primary surface — SIZE and COLOUR — applied to a page rather than to
- * a panel:
- *
- * - **`weight`** sizes the `<h2>`: `anchor` (56px on a desktop) for the three bands the
- *   argument rests on, `standard` (40px) for the supporting ones, `quiet` (32px) for
- *   material a buyer reads only if they are already interested. Three sizes over eleven
- *   bands, where there used to be one size over thirteen. The three grew again on 9 Sep
- *   2026 — see `HOME` below for the measurement that prompted it.
- * - **`tone`** grounds the chapter: `app`, `raised`, `brand` and one `dark`. Four
- *   treatments, non-alternating, so scroll position is legible from the colour alone.
- *
- * ## Why `weight` and `tone` are props and not classes at the call site
- *
- * Because the RANKING is the thing under test. `publicLanding.test.tsx` reads these back
- * (`data-band-weight`) and fails if every band goes back to one size — which is exactly how
- * this defect grew the first time, one reasonable-looking band at a time. A class string
- * typed per section cannot be asserted on without a test that knows Tailwind.
- *
- * ## The dark chapter
- *
- * `--brand-deep` (#0c5932), and it is the same value in both palettes — `.dark` in
- * `globals.css` redefines the surface and ink tokens, not the brand ramp — so the one band
- * that inverts is the one band that cannot drift between themes. White on it is 8.42:1 and
- * `text-white/80` is 6.03:1, both clear of WCAG 2.2 SC 1.4.3 AA (4.5:1). What
- * `tests/contrast.test.ts` bans is white type on the UNSUFFIXED brand green, which is
- * 3.38:1 — a different token from the one used here, two steps lighter on the same ramp.
- * (That sentence is written without the two class names beside each other on purpose: the
- * guard is a LINE scan and does not parse, so a comment describing the rule trips it. The
- * repo has paid for that lesson three times — see `tests/sourceScan.ts`.)
- * The product ships light-only (D-471), so nothing here reads
- * the device theme query or sets a class; the dormant `dark:` variants are kept in step
- * with the rest of the tree so the palette stays coherent if D-471 is ever superseded.
+ * The dark ground is `--brand-deep` (#0c5932), the same value in both palettes. White on it
+ * is 8.42:1 and `text-white/80` 6.03:1, both clear of WCAG 1.4.3 AA. The product ships
+ * light-only (D-471); the dormant `dark:` variants are kept in step with the rest of the
+ * tree.
  */
 
-/** The ground a chapter is painted on. */
 export type ChapterTone = "app" | "raised" | "brand" | "dark";
 
-/** How loud a band's heading is. Three steps, ranked. */
 export type BandWeight = "anchor" | "standard" | "quiet";
 
 const GROUND: Record<ChapterTone, string> = {
   app: "border-t border-line",
-  raised: "border-t border-line bg-surface/40",
-  // The brand ground is a tint, not a fill: cards inside stay `bg-surface` and lift off it.
+  raised: "border-t border-line bg-surface",
+  // A tint, not a fill: cards inside stay `bg-surface` and lift off it.
   brand: "border-t border-line bg-brand-soft/60 dark:bg-brand-strong/10",
-  // No top border — the colour change IS the boundary, and a hairline over it reads as a
-  // seam. `text-white` is set here so a child that forgets a tone inherits a legible one.
+  // No top border: the colour change is the boundary, and a hairline over it reads as a
+  // seam. `text-white` here so a child that forgets a tone inherits a legible one.
   dark: "bg-brand-deep text-white",
 };
 
 const HEADING: Record<BandWeight, string> = {
-  anchor:
-    "text-[2.25rem] leading-[1.05] sm:text-[3rem] lg:text-[3.5rem] sm:leading-[1.03]",
-  standard: "text-[1.875rem] leading-[1.14] sm:text-[2.5rem] sm:leading-[1.1]",
+  anchor: "text-[2.25rem] leading-[1.05] sm:text-[3rem] lg:text-[3.5rem] sm:leading-[1.03]",
+  standard: "text-[1.875rem] leading-[1.12] sm:text-[2.5rem] sm:leading-[1.08]",
   quiet: "text-[1.625rem] leading-[1.2] sm:text-[2rem]",
 };
 
 /**
- * THE HOMEPAGE'S TYPE AND SPACE SCALE — ONE DEFINITION, READ BY EVERY CHAPTER.
+ * THE HOMEPAGE'S TYPE AND SPACE SCALE — one definition, read by every chapter.
  *
- * ## The defect this replaces
- *
- * The 9 Sep 2026 redesign RANKED the bands against each other and changed almost nothing
- * INSIDE one. Measured on the result, at 1440×900: the page ran 12,263px over 13.6
- * screenfuls, and its body copy was **14px in 58 paragraphs and 12px in 51** — against 23
- * at 16px. 14px is the console's density, chosen for an operator reading a table of
- * fifty rows; this page is read once, at arm's length, by a stranger deciding whether to
- * ring us. The founder's call on 9 Sep 2026, after comparing it against a competitor's
- * landing page, was: **fewer elements per screen, larger type, more air, product at real
- * scale — and the page is allowed to get longer.**
- *
- * ## Why the values are named here and not typed per section
- *
- * Same reason `weight` and `tone` are props (above): the SCALE is the thing under test and
- * the thing that drifts. `py-16 sm:py-20 lg:py-24` written into eleven modules is eleven
- * places for the next reasonable-looking edit to shave 8px, and the page walks back to
- * 14px body copy one section at a time — which is exactly how it got there. A grep for
- * `HOME` finds every consumer; a grep for a Tailwind class finds a coincidence.
- *
- * `SECTION` (`pageShell`) is deliberately NOT changed: it is the rhythm the seven INTERIOR
- * pages share, and those are documents a reader arrives at already interested. Widening
- * the landing page is not a reason to re-space `/security`.
- *
- * The steps are a scale, not a set of one-offs: each token is either the next Tailwind
- * step up from what it replaced or a named rem value where Tailwind has no step there.
+ * Named here rather than typed per section because the scale is what drifts: body copy on
+ * this page once slid back to the console's 14px one module at a time. The page is read
+ * once, at arm's length, by a stranger, so prose is 18-20px. `SECTION` (`pageShell`) is
+ * deliberately separate — it is the rhythm of the interior pages.
  */
 export const HOME = {
-  /**
-   * A chapter's vertical rhythm. 96/128/160px against `SECTION`'s 64/80/96 — the air
-   * between two subjects is what makes a scan land on one of them, and this page has
-   * eight subjects, not thirteen, so it can afford it.
-   */
-  chapter: "py-24 sm:py-32 lg:py-40",
-  /** The gap when a chapter carries a SECOND band. Larger than the old `mt-16 sm:mt-20`. */
-  bandGap: "mt-24 sm:mt-32",
+  /** A chapter's vertical rhythm. */
+  chapter: "py-16 sm:py-24 lg:py-32",
+  /** The gap when a chapter carries a SECOND band. */
+  bandGap: "mt-20 sm:mt-28",
   /** Heading → lede. */
-  ledeGap: "mt-6",
-  /** The heading block → the band's content. Was `mt-10 sm:mt-12`. */
+  ledeGap: "mt-5",
+  /** The heading block → the band's content. */
   contentGap: "mt-12 sm:mt-16",
-  /**
-   * BODY COPY. 18px on a phone, 20px from `sm` — the size this page's sentences are meant
-   * to be read at, and markedly larger than the 14px console text they were set in.
-   */
+  /** Body copy: 18px on a phone, 20px from `sm`. */
   body: "text-lg sm:text-xl",
   /** Supporting copy: a caption, an aside, the sentence under a list. 16 → 18. */
   bodySm: "text-base sm:text-lg",
-  /** The title of one item in a broken-out grid or row list. Was 17px. */
+  /** The title of one item in a grid or row list. */
   itemTitle: "text-xl sm:text-2xl",
-  /** Gap between items, once a dense grid has been broken. Was `gap-4`. */
-  itemGap: "gap-6 sm:gap-8",
-  /** A panel, at the scale this page reads at. `CARD` is the console's 20/24px padding. */
-  panel: "rounded-2xl border border-line bg-surface p-6 sm:p-8 lg:p-10",
+  /** Gap between items in a grid. */
+  itemGap: "gap-5 sm:gap-6",
+  /** A panel at the scale this page reads at. `CARD` is the console's 20/24px padding. */
+  panel: "rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-8",
   /**
-   * A panel that RESPONDS to a pointer. One definition, added 9 Sep 2026, because
-   * `transition-colors hover:border-brand/40` was already typed into two chapters
-   * (`problemAndPromise`, `whatItDoes`) and a third copy would have made it the page's
-   * default by accident — the same one-string-per-module drift `HOME` itself exists for.
-   *
-   * What it adds over the border tint it replaces: 2px of lift and a shadow, so a card
-   * that answers the pointer looks lifted rather than merely outlined. Both are
-   * COMPOSITED properties — `transform` and `box-shadow` on a `will-change`-free element
-   * — so the browser does not re-lay-out the grid to draw them, which is the whole reason
-   * this is a translate and not a `mt-`.
-   *
-   * It is hover-only and idle at rest: nothing on this page moves on its own. A reader
-   * who asked for reduced motion still gets the state change, instantly — the
-   * `prefers-reduced-motion` block in `globals.css` zeroes `transition-duration` across
-   * the marketing root, so the lift snaps rather than being taken away.
+   * A panel that answers a pointer: 2px of lift and a stronger shadow. The transition
+   * names its properties because these panels sit inside `Reveal`s, and GSAP writes
+   * `opacity`/`transform` inline every frame — bare `transition` would chase each frame.
+   * Tailwind's `-translate-y-*` sets the separate `translate` property GSAP never touches.
+   * Hover-only (Tailwind 4 gates `hover:` to hover-capable pointers).
    */
   panelLift:
-    "transition duration-200 hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md",
+    "transition-[translate,border-color,box-shadow] duration-(--duration-base) ease-out hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-raised",
 } as const;
 
-/**
- * A chapter: one ground, one subject, one shell.
- *
- * The vertical rhythm (`SECTION`) is spent ONCE per chapter rather than once per band,
- * which is where most of the page's height went: two consecutive bands on one subject used
- * to pay 2×80px of top padding, 2×80px of bottom padding and a hairline to say they were
- * different topics, when they were one.
- */
+/** A chapter: one ground, one subject, one shell. */
 export function Chapter({
   tone = "app",
   children,
+  className = "",
 }: {
   tone?: ChapterTone;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className={GROUND[tone]}>
+    <div className={`${GROUND[tone]} ${className}`}>
       <div className={`${SHELL} ${HOME.chapter}`}>{children}</div>
     </div>
   );
@@ -184,8 +102,10 @@ export function Chapter({
 /**
  * One band inside a chapter: an eyebrow, a ranked `<h2>`, an optional lede, then content.
  *
- * `id` is the in-page anchor and is on the `<section>` rather than on a wrapper, so
- * `#how` still lands on the heading. `scroll-mt-20` clears the sticky header.
+ * `split` sets the lede beside the heading from `lg` up — the heading carries the claim,
+ * the lede sits where the eye lands after it, and the band's content starts a screenful
+ * higher than it would under a stacked block. `id` is on the `<section>` so an in-page
+ * link lands on the heading; `scroll-mt-20` clears the sticky header.
  */
 export function Band({
   id,
@@ -194,6 +114,7 @@ export function Band({
   lede,
   weight = "standard",
   tone = "light",
+  split = false,
   className = "",
   children,
 }: {
@@ -202,34 +123,32 @@ export function Band({
   title: ReactNode;
   lede?: ReactNode;
   weight?: BandWeight;
-  /** `dark` inverts the type for the one chapter that is painted on `--brand-deep`. */
   tone?: "light" | "dark";
-  /** Spacing when a chapter carries a SECOND band — `mt-16 sm:mt-20`, at the call site. */
+  split?: boolean;
   className?: string;
   children?: ReactNode;
 }) {
   const dark = tone === "dark";
   return (
-    <section
-      id={id}
-      data-band-weight={weight}
-      // A band after the first in the same chapter is SPACED, not ruled: the chapter's
-      // ground already says the two belong together, and a hairline between them would put
-      // back the thirteen-equal-bands reading this whole file exists to end.
-      className={`scroll-mt-20 ${className}`}
-    >
-      <Reveal>
-        <Eyebrow tone={dark ? "inverse" : "default"}>{eyebrow}</Eyebrow>
-        <h2
-          className={`mt-5 max-w-4xl font-semibold tracking-tight text-balance ${
-            dark ? "text-white" : "text-ink"
-          } ${HEADING[weight]}`}
-        >
-          {title}
-        </h2>
+    <section id={id} data-band-weight={weight} className={`scroll-mt-20 ${className}`}>
+      <Reveal
+        className={
+          split && lede ? "grid gap-5 lg:grid-cols-[1.2fr_1fr] lg:items-end lg:gap-16" : ""
+        }
+      >
+        <div>
+          <Eyebrow tone={dark ? "inverse" : "default"}>{eyebrow}</Eyebrow>
+          <h2
+            className={`mt-5 max-w-4xl font-semibold tracking-tight text-balance ${
+              dark ? "text-white" : "text-ink"
+            } ${HEADING[weight]}`}
+          >
+            {title}
+          </h2>
+        </div>
         {lede && (
           <p
-            className={`${HOME.ledeGap} max-w-3xl text-pretty ${
+            className={`${split ? "lg:pb-1.5" : HOME.ledeGap} max-w-3xl text-pretty ${
               weight === "anchor" ? "text-xl sm:text-2xl" : HOME.body
             } ${dark ? "text-white/80" : "text-ink-muted"}`}
           >

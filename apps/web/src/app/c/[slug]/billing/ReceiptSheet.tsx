@@ -59,12 +59,18 @@ export function ReceiptSheet({
       role="dialog"
       aria-modal="true"
       aria-label="Payment receipt"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6 print:static print:bg-transparent print:p-0"
+      className="scrim-enter fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6 print:static print:bg-transparent print:p-0"
     >
       <div
         ref={panel}
         tabIndex={-1}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-card bg-surface p-4 shadow-xl sm:rounded-card sm:p-6 print:max-h-none print:overflow-visible print:rounded-none print:bg-transparent print:p-0 print:shadow-none"
+        // A bottom sheet on a phone, a centred dialog from `sm` up. The sheet rises from
+        // its own height on the drawer curve (it is anchored to the bottom edge, so it
+        // should arrive from it); the dialog uses the shared modal entry. `dvh`, not `vh`:
+        // `90vh` is measured with the URL bar collapsed and pushed the print button under
+        // it. The bottom padding clears the home indicator once `viewport-fit=cover` is on
+        // and is 0 until then.
+        className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-card bg-surface p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom,0px))] shadow-overlay transition-[translate,opacity] duration-(--duration-slow) ease-drawer starting:translate-y-full motion-reduce:starting:translate-y-0 motion-reduce:starting:opacity-0 sm:rounded-card sm:p-6 sm:dialog-enter sm:starting:translate-y-0 print:max-h-none print:overflow-visible print:rounded-none print:bg-transparent print:p-0 print:shadow-none"
       >
         <div className="flex items-center justify-between gap-3 print:hidden">
           <p className="text-[17px] font-semibold text-ink">Payment receipt</p>

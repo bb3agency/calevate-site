@@ -122,7 +122,7 @@ function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: string 
           className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${state.tone}`}
         >
           {state.working ? (
-            <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
+            <Loader2 aria-hidden className="h-3 w-3 animate-spin motion-reduce:animate-none" />
           ) : shown.is_live ? (
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand-bright" />
           ) : null}

@@ -77,7 +77,7 @@ export function ConfirmDialog({
   useFocusTrap(panel, true, onCancel, "container");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="scrim-enter fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         ref={panel}
         role="dialog"
@@ -85,7 +85,7 @@ export function ConfirmDialog({
         aria-labelledby="confirm-title"
         aria-describedby="confirm-body"
         tabIndex={-1}
-        className="w-full max-w-md rounded-card border border-line bg-surface p-6 shadow-lg outline-none"
+        className="dialog-enter w-full max-w-md rounded-card border border-line bg-surface p-6 shadow-overlay outline-none"
       >
         <h2 id="confirm-title" className="text-[17px] font-semibold text-ink">
           {title}

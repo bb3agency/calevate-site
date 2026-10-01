@@ -7,6 +7,7 @@ import { TriangleAlert } from "lucide-react";
 import {
   Card,
   EmptyState,
+  FIELD_INLINE,
   NOTICE_TONES,
   ProblemNotice,
   ScrollRegion,
@@ -158,7 +159,7 @@ export default function FleetSpendPage() {
           // No future months: an empty 2027 board reads like a failure (ux-audit F-9a).
           max={currentISTMonth()}
           onChange={(event) => setMonth(event.target.value)}
-          className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+          className={FIELD_INLINE}
           aria-label="Billing month"
         />
       </div>
@@ -455,7 +456,7 @@ function FleetRow({ tenant }: { tenant: FleetTenant }) {
       <td className="px-4 py-3 sm:px-6">
         <Link
           href={`/admin/tenants/${tenant.tenant_id}/spend`}
-          className="font-medium text-ink underline underline-offset-2 hover:text-brand-strong"
+          className="rounded-sm font-medium text-ink underline underline-offset-2 hover:text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {tenant.name}
         </Link>
@@ -543,7 +544,7 @@ function UndecidableCard({ board }: { board: FleetSpend | undefined }) {
           <li key={row.tenant_id} className="py-3 first:pt-0 last:pb-0">
             <Link
               href={`/admin/tenants/${row.tenant_id}/spend`}
-              className="text-sm font-semibold text-ink underline-offset-2 hover:underline"
+              className="rounded-sm text-sm font-semibold text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
             >
               {row.name}
             </Link>

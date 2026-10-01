@@ -169,9 +169,11 @@ export function AddDocument({
               aria-valuenow={percent ?? undefined}
               className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10"
             >
+              {/* Scaled rather than resized: progress events arrive many times a second,
+                  and a width transition re-lays-out the card on every one of them. */}
               <div
-                className="h-full rounded-full bg-brand-strong transition-[width]"
-                style={{ width: `${percent ?? 10}%` }}
+                className="h-full w-full origin-left rounded-full bg-brand-strong transition-transform duration-(--duration-base) ease-out"
+                style={{ transform: `scaleX(${(percent ?? 10) / 100})` }}
               />
             </div>
           </div>

@@ -257,7 +257,7 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
       <td className="px-6 py-3">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="font-semibold text-ink hover:underline"
+          className="rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {row.name}
         </Link>
@@ -296,7 +296,7 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
             <Link
               key={href}
               href={href}
-              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
             >
               {cta}
               <ArrowRight className="h-3 w-3" />
@@ -308,7 +308,7 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
           {unknown.length > 0 && (
             <Link
               href={`/admin/tenants/${row.tenant_id}`}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium hover:underline ${NOTICE_TONES.warn}`}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press ${NOTICE_TONES.warn}`}
             >
               Open the account
               <ArrowRight className="h-3 w-3" />

@@ -433,7 +433,7 @@ function ModeToggle({
         type="button"
         aria-pressed={!raw}
         onClick={onStructured}
-        className={`rounded-l-md px-3 py-1.5 font-medium ${!raw ? "bg-brand-strong text-white" : "text-ink-muted"}`}
+        className={`rounded-l-md px-3 py-1.5 font-medium transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset touch:min-h-11 ${!raw ? "bg-brand-strong text-white focus-visible:ring-white" : "text-ink-muted hover:bg-black/5 focus-visible:ring-brand"}`}
       >
         Structured
       </button>
@@ -441,7 +441,7 @@ function ModeToggle({
         type="button"
         aria-pressed={raw}
         onClick={onRaw}
-        className={`rounded-r-md px-3 py-1.5 font-medium ${raw ? "bg-brand-strong text-white" : "text-ink-muted"}`}
+        className={`rounded-r-md px-3 py-1.5 font-medium transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset touch:min-h-11 ${raw ? "bg-brand-strong text-white focus-visible:ring-white" : "text-ink-muted hover:bg-black/5 focus-visible:ring-brand"}`}
       >
         Raw text
       </button>

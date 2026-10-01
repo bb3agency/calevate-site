@@ -33,7 +33,7 @@ export function LatestCalls({
     action={
       <Link
         href={allHref}
-        className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+        className="press inline-flex items-center rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:hover:bg-white/5"
       >
         View all
       </Link>
@@ -62,7 +62,7 @@ export function LatestCalls({
           <li key={call.id}>
             <Link
               href={callHref(call.id)}
-              className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
+              className="flex items-center gap-4 rounded-lg px-4 py-3 transition-colors duration-(--duration-fast) ease-out hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand dark:hover:bg-white/[0.04]"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
                 {call.status === "completed" ? (

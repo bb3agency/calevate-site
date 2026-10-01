@@ -121,7 +121,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
     <div className="space-y-5">
       <Link
         href={`/admin/tenants/${tenantId}`}
-        className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"
+        className="inline-flex items-center gap-1.5 rounded-sm text-sm text-ink-muted hover:text-ink touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
       >
         <ArrowLeft className="h-4 w-4" />
         {tenant.data?.name ?? "Back to the client"}

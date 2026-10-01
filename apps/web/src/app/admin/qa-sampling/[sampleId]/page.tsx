@@ -147,7 +147,7 @@ export default function QaSampleReviewPage({
     <div className="space-y-4 pb-12">
       <Link
         href="/admin/qa-sampling"
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
+        className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
       >
         <ArrowLeft className="h-4 w-4" />
         Sampling queue
@@ -312,7 +312,9 @@ function Verdicts({
               key={verdict}
               type="button"
               onClick={() => onChoose(verdict)}
-              className="rounded-card border border-line bg-surface p-4 text-left hover:bg-black/[0.02] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/[0.03]"
+              // Colour-only feedback, no scale: a card this wide shrinking by 3% reads as the grid
+              // wobbling. `enabled:` so a fieldset disabled mid-submit stops answering the pointer.
+              className="rounded-card border border-line bg-surface p-4 text-left transition-[background-color,border-color] duration-(--duration-fast) ease-out enabled:hover:border-ink-faint/40 enabled:hover:bg-black/[0.02] enabled:active:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
             >
               <span className="block text-sm font-semibold text-ink">
                 {VERDICTS[verdict].label}

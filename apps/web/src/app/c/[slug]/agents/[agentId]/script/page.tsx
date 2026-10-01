@@ -27,7 +27,7 @@ export default function AgentScriptPage({
     <div className="space-y-5 pb-12">
       <Link
         href={href(`/c/${slug}/agents/${agentId}`)}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
+        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11"
       >
         <ArrowLeft aria-hidden className="h-4 w-4" />
         Back to the agent

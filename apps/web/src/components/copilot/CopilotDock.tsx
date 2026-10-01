@@ -185,7 +185,7 @@ export function CopilotDock({
         // the launcher is the one control that floats over every screen in both consoles,
         // so it is the worst place for the two realms to look alike. The focus ring stays
         // brand in both: it marks the keyboard, not the realm.
-        className={`fixed bottom-4 right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line text-white shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
+        className={`fixed bottom-4 right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line text-white shadow-raised press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
           realm === "admin"
             ? "bg-slate-900 hover:bg-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-400"
             : "bg-brand-strong hover:bg-brand-deep"

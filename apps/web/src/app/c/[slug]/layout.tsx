@@ -288,7 +288,7 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
             type="button"
             onClick={onMenuToggle}
             aria-label="Open navigation"
-            className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
+            className="press flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -305,7 +305,7 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
                   ? `Needs attention: ${waiting} item(s)`
                   : "Needs attention"
             }
-            className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 dark:hover:bg-white/5"
+            className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
           >
             <Bell className="h-4 w-4" />
             {attention.error != null ? (
@@ -363,7 +363,7 @@ function ViewAsBanner({ slug }: { slug: string }) {
         <button
           type="button"
           onClick={() => window.location.assign(adminConsoleUrl(ADMIN_CONSOLE_PATH))}
-          className="shrink-0 rounded border border-amber-950/40 px-2 py-0.5 font-semibold underline-offset-2 hover:bg-amber-950/10 hover:underline"
+          className="press shrink-0 rounded border border-amber-950/40 px-2 py-0.5 font-semibold underline-offset-2 hover:bg-amber-950/10 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-950 touch:min-h-11"
         >
           Exit and return to the admin console
         </button>

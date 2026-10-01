@@ -149,7 +149,7 @@ export default function FeatureFlagsPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {tenant.name}
@@ -170,7 +170,7 @@ export default function FeatureFlagsPage({
             Not the platform switches. Halting outbound calling, the load-shed mode and our
             own <Term id="tm" term="telemarketer" audience="operator" /> registration are global
             and live on{" "}
-            <Link href="/admin/ops" className="font-medium underline">
+            <Link href="/admin/ops" className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
               the operations screen
             </Link>
             .

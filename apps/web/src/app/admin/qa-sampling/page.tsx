@@ -228,7 +228,7 @@ function SampleRow({ row }: { row: QaSample }) {
       <td className="px-6 py-3">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="font-semibold text-ink hover:underline"
+          className="rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {row.tenant_name}
         </Link>
@@ -268,7 +268,7 @@ function SampleRow({ row }: { row: QaSample }) {
         ) : (
           <Link
             href={`/admin/qa-sampling/${row.id}`}
-            className="inline-flex items-center gap-1.5 font-medium text-brand-strong hover:underline"
+            className="rounded-sm inline-flex items-center gap-1.5 font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             Review this call
             <ArrowRight className="h-3.5 w-3.5" />

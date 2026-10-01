@@ -145,7 +145,7 @@ export function WalletHero({
         {/* THE BALANCE. `formatINR` formats the digits the server sent and never parses
             them — `Number("10159.00")` is how ₹10,159.00 becomes ₹10,158.999999999998 on
             the screen a client checks against their own books (hard rule 7). */}
-        <div className="rounded-card border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] sm:p-6">
+        <div className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
           <p className="flex items-center gap-2 text-[13px] font-medium text-ink-muted">
             <Wallet className="h-4 w-4 text-brand" aria-hidden />
             Calling credit
@@ -177,7 +177,7 @@ export function WalletHero({
         </div>
 
         {/* THE RUNWAY, at the same weight as the balance — see the module comment. */}
-        <div className="rounded-card border border-line bg-brand-soft p-5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] sm:p-6">
+        <div className="rounded-card border border-line bg-brand-soft p-5 shadow-card sm:p-6">
           <p className="flex items-center gap-2 text-[13px] font-medium text-brand-strong">
             <Timer className="h-4 w-4" aria-hidden />
             How long this lasts

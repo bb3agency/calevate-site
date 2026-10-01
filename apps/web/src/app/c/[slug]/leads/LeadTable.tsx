@@ -59,7 +59,17 @@ export function LeadTable({ kit }: { kit: LeadRowKit }) {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {items.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
+                    <tr
+                      key={lead.id}
+                      // A ticked row stays tinted so the selection is legible when the eye
+                      // leaves the checkbox column; no transition, because ticking is a
+                      // rapid, repeated action and a fade would lag the click.
+                      className={
+                        ticked.has(lead.id)
+                          ? "bg-brand-soft/50 dark:bg-brand-strong/10"
+                          : "hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+                      }
+                    >
                       {maySelect && (
                         <td className={BODY_CELL}>
                           <input

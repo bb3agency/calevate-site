@@ -352,8 +352,13 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+/**
+ * Next's own JS entry, run with this Node rather than through `.bin/next`: the `.bin`
+ * shim is a shell script on POSIX and a `.cmd` on Windows, and `spawn` without a shell
+ * can execute neither there (ENOENT).
+ */
 function nextBin(): string {
-  const bin = join(WEB_ROOT, "node_modules", ".bin", "next");
+  const bin = join(WEB_ROOT, "node_modules", "next", "dist", "bin", "next");
   if (!existsSync(bin)) {
     throw new Error(
       `${bin} does not exist — run \`pnpm install\` in the repo root. The browser ` +
@@ -420,7 +425,7 @@ async function waitForServer(
 type TappedChild = ChildProcessByStdio<null, Readable, Readable>;
 
 function run(bin: string, args: string[], env: NodeJS.ProcessEnv): TappedChild {
-  return spawn(bin, args, {
+  return spawn(process.execPath, [bin, ...args], {
     cwd: WEB_ROOT,
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],

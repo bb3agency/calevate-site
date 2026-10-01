@@ -145,7 +145,7 @@ export default function TenantMembersPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {name}
@@ -191,7 +191,7 @@ export default function TenantMembersPage({
         Nobody is added here.{" "}
         <Link
           href={`/admin/tenants/${tenantId}/invitations`}
-          className="font-medium text-brand-strong hover:underline"
+          className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <KeyRound className="mr-1 inline h-3 w-3" aria-hidden />
           Invitations

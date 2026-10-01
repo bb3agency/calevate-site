@@ -215,7 +215,7 @@ export function BulkActionBar({
             <button
               type="button"
               onClick={onSelectWholeQuery}
-              className="font-semibold text-brand-strong underline dark:text-brand-bright"
+              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 font-semibold text-brand-strong underline dark:text-brand-bright"
             >
               Select all {formatCount(filteredTotal)} leads matching these filters
             </button>
@@ -234,7 +234,7 @@ export function BulkActionBar({
           <button
             type="button"
             onClick={onClear}
-            className="flex items-center gap-1 text-xs font-medium text-ink-muted hover:text-ink"
+            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 flex items-center gap-1 text-xs font-medium text-ink-muted hover:text-ink touch:min-h-11"
           >
             <X className="h-3.5 w-3.5" />
             Clear selection
@@ -437,7 +437,7 @@ function BulkResultSummary({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss this result"
-          className="shrink-0 text-xs font-medium underline"
+          className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 shrink-0 text-xs font-medium underline touch:min-h-11"
         >
           Dismiss
         </button>

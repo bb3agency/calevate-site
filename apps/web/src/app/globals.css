@@ -58,6 +58,37 @@
    */
   --text-muted: #475569;
   --text-faint: #64748b;
+
+  /*
+   * MOTION. One set of curves and durations for every transition in the app.
+   *
+   * The CSS keywords (`ease`, `ease-out`) are too weak to read as intentional; these are
+   * the stronger variants. Enter/exit uses the ease-out family (it moves the instant the
+   * user looks), on-screen movement uses ease-in-out, and nothing in the UI uses ease-in,
+   * which delays exactly the frame the user is watching. UI stays under 300ms; press
+   * feedback sits at 100–160ms so it reads as the control hearing the finger.
+   * `--ease-out` and `--ease-in-out` are ALSO the Tailwind `ease-out`/`ease-in-out`
+   * utilities (see `@theme` below), so existing call sites moved with this change.
+   */
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+  /* iOS-sheet curve: fast start, long settle — for panels that slide in from an edge. */
+  --ease-drawer-curve: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-press: 140ms;
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 280ms;
+
+  /*
+   * ELEVATION. Layered, low-alpha shadows tinted with the ink colour rather than pure
+   * black, so a raised surface reads as lifted off `--app` instead of outlined on it.
+   * Each step adds a wider, softer layer; a card keeps its `--line` hairline because on
+   * #fafafa a shadow this faint does not separate white from near-white on its own.
+   */
+  --elevation-1: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 1px rgb(15 23 42 / 0.02);
+  --elevation-2: 0 1px 2px rgb(15 23 42 / 0.05), 0 4px 12px -2px rgb(15 23 42 / 0.08);
+  --elevation-3: 0 2px 4px rgb(15 23 42 / 0.06), 0 12px 32px -6px rgb(15 23 42 / 0.18),
+    0 24px 64px -12px rgb(15 23 42 / 0.16);
 }
 
 /*
@@ -139,6 +170,72 @@
 
   /* The card radius, once. The design uses 14px, which is not a Tailwind step. */
   --radius-card: 14px;
+
+  /* Overriding Tailwind's own `ease-out`/`ease-in-out` rather than adding parallel names,
+     so `ease-out` means one curve everywhere it is written. */
+  --ease-out: var(--ease-out-strong);
+  --ease-in-out: var(--ease-in-out-strong);
+  --ease-drawer: var(--ease-drawer-curve);
+
+  /* `shadow-card` / `shadow-raised` / `shadow-overlay`: resting card, hovered or
+     floating control (menus, the copilot dock), and modal/drawer. */
+  --shadow-card: var(--elevation-1);
+  --shadow-raised: var(--elevation-2);
+  --shadow-overlay: var(--elevation-3);
+}
+
+/*
+ * PRESS FEEDBACK for anything pressable. Opt-in rather than a rule on every `button`,
+ * because full-width row buttons and summaries scaling by 3% would read as the layout
+ * wobbling. The scale is gated behind `prefers-reduced-motion: no-preference`; the colour
+ * transition stays, since it carries state rather than movement.
+ */
+@utility press {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: var(--duration-press);
+  transition-timing-function: var(--ease-out-strong);
+  -webkit-user-select: none;
+  user-select: none;
+
+  @media (prefers-reduced-motion: no-preference) {
+    &:active:not(:disabled):not([aria-disabled="true"]) {
+      transform: scale(0.97);
+    }
+  }
+}
+
+/*
+ * ENTRY for modals and their scrims, with `@starting-style` so a conditionally mounted
+ * dialog fades and settles in without a mount effect. Modals scale from CENTRE — they are
+ * not anchored to a trigger. There is no exit animation: these unmount, and an instant
+ * exit is the right asymmetry (slow where the user decides, fast where the system acts).
+ * A browser without `@starting-style` simply shows the dialog at rest.
+ */
+@utility dialog-enter {
+  transition-property: opacity, transform;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-out-strong);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    @starting-style {
+      transform: none;
+    }
+  }
+}
+
+@utility scrim-enter {
+  transition-property: opacity;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-out-strong);
+
+  @starting-style {
+    opacity: 0;
+  }
 }
 
 /*
@@ -166,9 +263,36 @@ body {
   height: 100%;
 }
 
+/*
+ * THE PLATFORM LAYER ON A PHONE. The grey tap flash is removed because every pressable
+ * control carries its own `:active` feedback (`press`, above); `text-size-adjust` stops
+ * landscape font inflation. Neither changes anything with a mouse.
+ */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* No double-tap-zoom wait on controls, so a tap fires `click` immediately. Controls only:
+   content must stay pinch- and double-tap-zoomable. */
+a,
+button,
+summary,
+label,
+[role="button"],
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
 html:has([data-app-shell]),
 html:has([data-app-shell]) body {
   overflow: hidden;
+  /* The shells scroll inner regions; pull-to-refresh on the page behind them would reload
+     the console mid-form. Marketing pages keep it — they are documents. */
+  overscroll-behavior: none;
 }
 
 body {
@@ -479,7 +603,9 @@ html:has([data-marketing-root]) body {
 }
 
 /* Slow vertical drift for the decorative blobs. Two speeds so paired blobs do not move
-   in lockstep. */
+   in lockstep. The ambient loops below keep the keyword `ease-in-out`, not the strong
+   token: a strong curve dwells at each extreme and turns a breathing oscillation into a
+   stop-start jerk, whereas the gentle curve is close to a sine. */
 [data-marketing-root] .mk-float { animation: mk-float 11s ease-in-out infinite; }
 [data-marketing-root] .mk-float--slow { animation: mk-float 16s ease-in-out infinite; }
 
@@ -490,11 +616,31 @@ html:has([data-marketing-root]) body {
 
 /* The live pip on the "answering" panel — a soft expanding ring. */
 [data-marketing-root] .mk-ping {
-  animation: mk-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+  animation: mk-ping 1.8s var(--ease-out-strong) infinite;
 }
 @keyframes mk-ping {
   0% { transform: scale(1); opacity: 0.6; }
   75%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
+/*
+ * The header's menu panel (siteHeader.tsx) grows out of the corner its trigger sits in.
+ *
+ * A keyframe keyed on `details[open]` rather than a transition from `@starting-style`,
+ * because the panel's visibility is the platform's `<details>` machinery and not a
+ * `display` value this stylesheet sets — `animation-name` starting to apply when `[open]`
+ * matches is the one trigger that holds however the engine hides closed content. There is
+ * no exit: `<details>` removes the panel on close, and an instant close is the right half
+ * of the asymmetry. The reduced-motion reset above lands it on its end frame.
+ */
+[data-marketing-root] .mk-menu-panel {
+  transform-origin: top right;
+}
+[data-marketing-root] details[open] > .mk-menu-panel {
+  animation: mk-menu-in var(--duration-base) var(--ease-out-strong);
+}
+@keyframes mk-menu-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
 }
 
 /*
@@ -513,7 +659,7 @@ html:has([data-marketing-root]) body {
 [data-marketing-root] .mk-iso-ping {
   transform-box: fill-box;
   transform-origin: center;
-  animation: mk-iso-ping 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+  animation: mk-iso-ping 3s var(--ease-out-strong) infinite;
 }
 
 @keyframes mk-iso-float {
@@ -535,10 +681,10 @@ html:has([data-marketing-root]) body {
 
 /*
  * ---------------------------------------------------------------------------
- * THE HERO SIMULATION (components/marketing/heroCallSim.tsx)
+ * THE HERO SEQUENCE (components/marketing/home/mockups/heroProduct.tsx)
  * ---------------------------------------------------------------------------
  *
- * A staged entrance for the call → lead card figure, written as CSS keyframes with a
+ * A staged entrance for the hero's call → lead product shot, written as CSS keyframes with a
  * per-step delay class rather than as a JavaScript timeline. Three reasons, in the order
  * they mattered:
  *
@@ -557,10 +703,10 @@ html:has([data-marketing-root]) body {
  * judgement the previous figure recorded.
  */
 [data-marketing-root] .mk-sim-step {
-  animation: mk-sim-step 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: mk-sim-step 0.5s var(--ease-out-strong) both;
 }
 [data-marketing-root] .mk-sim-field {
-  animation: mk-sim-field 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: mk-sim-field 0.45s var(--ease-out-strong) both;
 }
 /* The stagger. Named classes rather than an inline `style` so the delays are readable in
    one place and no element carries a style attribute the CSP would have to allow. */
@@ -583,3 +729,54 @@ html:has([data-marketing-root]) body {
   0% { opacity: 0; transform: translateX(10px); }
   100% { opacity: 1; transform: translateX(0); }
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * HOMEPAGE PRODUCT MOCKUPS (components/marketing/home/mockups)
+ * ---------------------------------------------------------------------------
+ *
+ * Two behaviours, both driven by `MockStage` (mockups/stage.tsx), which writes two data
+ * attributes and nothing else:
+ *
+ * - `data-stage="pending" | "in"`: a one-shot staggered entrance for the layers of a
+ *   mockup that scrolls into view. The server renders NO `data-stage`, so without the
+ *   bundle — or for a reduced-motion reader, for whom `MockStage` never sets it — every
+ *   layer is simply visible. "pending" is only ever written for a mockup that is below the
+ *   fold at hydration, so nothing the reader can already see is hidden and re-shown.
+ * - `data-offscreen`: pauses the ambient loops (waveform, live pip) while the mockup is
+ *   out of view, so a long page is not running a dozen infinite animations nobody sees.
+ *
+ * The entrance reuses `mk-sim-step` (rise 8px + fade, strong ease-out) so the hero and
+ * the rest of the page move the same way. The stagger is 60ms per step, inside the
+ * 30-80ms band where a group reads as one gesture rather than a queue.
+ */
+[data-marketing-root] [data-stage="pending"] .mk-rise {
+  opacity: 0;
+}
+[data-marketing-root] [data-stage="in"] .mk-rise {
+  animation: mk-sim-step 0.5s var(--ease-out-strong) both;
+}
+[data-marketing-root] [data-stage="in"] .mk-s1 { animation-delay: 60ms; }
+[data-marketing-root] [data-stage="in"] .mk-s2 { animation-delay: 120ms; }
+[data-marketing-root] [data-stage="in"] .mk-s3 { animation-delay: 180ms; }
+[data-marketing-root] [data-stage="in"] .mk-s4 { animation-delay: 240ms; }
+[data-marketing-root] [data-stage="in"] .mk-s5 { animation-delay: 300ms; }
+[data-marketing-root] [data-stage="in"] .mk-s6 { animation-delay: 360ms; }
+
+/* Ambient loops only. Pausing every animation under the attribute would also freeze a
+   one-shot entrance on its first frame if it started while the figure was off screen. */
+[data-marketing-root] [data-offscreen] .mk-eq,
+[data-marketing-root] [data-offscreen] .mk-ping {
+  animation-play-state: paused;
+}
+
+/* A live voice level: bars breathing out of phase. Four phase classes rather than a
+   per-bar inline delay, so a waveform of any length cycles through them. Each bar's
+   resting frame is its full drawn height, which is what reduced motion lands on. */
+[data-marketing-root] .mk-eq {
+  transform-origin: center;
+  animation: mk-bar 1.2s ease-in-out infinite;
+}
+[data-marketing-root] .mk-eq--b { animation-delay: -0.3s; }
+[data-marketing-root] .mk-eq--c { animation-delay: -0.6s; }
+[data-marketing-root] .mk-eq--d { animation-delay: -0.9s; }

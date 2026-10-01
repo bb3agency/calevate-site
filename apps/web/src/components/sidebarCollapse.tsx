@@ -185,7 +185,7 @@ export function SidebarLabel({
  * most-tapped controls and `py-2` alone left them 36px tall.
  */
 export const SIDEBAR_ROW_CLASS =
-  "mb-1 flex items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium touch:min-h-11";
+  "mb-1 flex items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand";
 
 /**
  * The footer that holds the identity block and the way out.

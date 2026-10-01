@@ -81,7 +81,10 @@ export function ColumnChooser({
           {selected.length}/{available.length}
         </span>
       </summary>
-      <div className="absolute right-0 z-20 mt-1 w-64 rounded-card border border-line bg-surface p-3 shadow-lg">
+      {/* Anchored under the trigger's right edge, so it grows from there rather than from
+          its own centre. Opening is a click, not a keystroke loop, so a short entry helps
+          place it; reduced motion keeps the fade and drops the scale. */}
+      <div className="absolute right-0 z-20 mt-1 w-64 origin-top-right rounded-card border border-line bg-surface p-3 shadow-raised transition-[opacity,scale] duration-(--duration-fast) ease-out starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100">
         <fieldset>
           <legend className="mb-2 text-xs font-semibold text-ink">
             Columns shown here and in the CSV
@@ -90,7 +93,7 @@ export function ColumnChooser({
             {available.map((column) => (
               <label
                 key={column.key}
-                className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-ink hover:bg-black/5 dark:hover:bg-white/5"
+                className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm text-ink hover:bg-black/5 touch:min-h-11 dark:hover:bg-white/5"
               >
                 <input
                   type="checkbox"
@@ -107,7 +110,7 @@ export function ColumnChooser({
           <button
             type="button"
             onClick={() => onChange(undefined)}
-            className="mt-2 text-xs font-medium text-brand-strong hover:underline dark:text-brand-bright"
+            className="mt-2 rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
           >
             Show every column
           </button>

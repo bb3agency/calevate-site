@@ -19,7 +19,7 @@ import {
   type KbSource,
 } from "@/lib/api/admin";
 
-import { DangerButton, PrimaryButton, SecondaryButton } from "./controls";
+import { DangerButton, FIELD, PrimaryButton, SecondaryButton } from "./controls";
 
 /**
  * The two knowledge queues an operator works on this client: what is waiting to be
@@ -153,7 +153,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                           value={rejectReason}
                           disabled={!kbWrite.allowed}
                           onChange={(event) => setRejectReason(event.target.value)}
-                          className="mt-1 w-full min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11"
+                          className={`mt-1 w-full ${FIELD}`}
                           /* The example must name an action the client can actually take. It used to say
                              "upload the current rate card", and there is no upload: knowledge is
                              submitted as TEXT (`POST /v1/kb/sources` refuses `kind="file"` and

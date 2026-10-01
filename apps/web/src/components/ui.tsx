@@ -47,7 +47,7 @@ export function Card({
   return (
     <section
       className={clsx(
-        "rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+        "rounded-card border border-line bg-surface shadow-card",
         className,
       )}
     >
@@ -298,7 +298,7 @@ export function Disclosure({
         "group",
         inline
           ? "border-b border-line/60 last:border-b-0"
-          : "rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+          : "rounded-card border border-line bg-surface shadow-card",
         className,
       )}
     >
@@ -391,7 +391,7 @@ export function StatTile({
   tone?: "soft" | "strong";
 }) {
   return (
-    <div className="flex items-start gap-4 rounded-card border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+    <div className="flex items-start gap-4 rounded-card border border-line bg-surface p-5 shadow-card">
       {icon && (
         <div
           className={clsx(
@@ -730,7 +730,7 @@ export function TermGloss({
         "after:hidden after:w-max after:max-w-[16rem] after:whitespace-normal after:rounded-md",
         "after:border after:border-line after:bg-surface after:px-2 after:py-1 after:text-left",
         "after:text-xs after:font-normal after:normal-case after:not-italic after:leading-snug",
-        "after:text-ink after:shadow-lg after:content-[attr(data-gloss)]",
+        "after:text-ink after:shadow-raised after:content-[attr(data-gloss)]",
         "hover:after:block focus:after:block",
       )}
     >
@@ -857,7 +857,7 @@ export function ProblemNotice({
         <button
           type="button"
           onClick={onRetry}
-          className="mt-2 rounded-md bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700"
+          className="press mt-2 rounded-md bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700 touch:min-h-11"
         >
           Try again
         </button>
@@ -1018,7 +1018,7 @@ export function TypedConfirmation({
 }
 
 export const FIELD =
-  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11";
+  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand aria-[invalid=true]:border-rose-500";
 /**
  * The same control for a FLEX ROW, where `FIELD`'s `w-full` would be wrong.
  *
@@ -1034,10 +1034,10 @@ export const FIELD =
  * any future edit here silently not reach them (ux-audit MC-2).
  */
 export const FIELD_INLINE =
-  "rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
+  "rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand aria-[invalid=true]:border-rose-500";
 /** `FIELD_INLINE` with room for a leading icon. */
 export const FIELD_INLINE_ICON =
-  "rounded-md border border-line bg-surface pl-8 pr-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
+  "rounded-md border border-line bg-surface pl-8 pr-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand aria-[invalid=true]:border-rose-500";
 /**
  * `block` IS THE FIX FOR A BUG THAT LOOKED LIKE THREE DIFFERENT DESIGNS.
  *
@@ -1062,8 +1062,10 @@ export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
  * ones matching the design, and the shared constant was the outlier. Two greens for one
  * button is exactly the drift extracting it was supposed to end.
  */
+// `[&:not(:disabled)]:hover` rather than `enabled:hover`: `:enabled` never matches an `<a>`,
+// so these constants on a `<Link>` would have no hover state at all.
 export const PRIMARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
+  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 
 /**
  * The primary button at HERO size — the one action a screen exists for.
@@ -1078,15 +1080,15 @@ export const PRIMARY_BUTTON =
  * 25 Aug 2026). One of these per screen. UX-DOCTRINE §4.
  */
 export const PRIMARY_BUTTON_LG =
-  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-3 text-base font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
+  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-3 text-base font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 
 /** The same buttons at the size an inline action wants. */
 export const PRIMARY_BUTTON_SM =
-  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
+  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 export const SECONDARY_BUTTON_SM =
-  "inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5 touch:min-h-11";
+  "inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 export const SECONDARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5 touch:min-h-11";
+  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 /**
  * The button that does something a person cannot undo.
  *
@@ -1095,7 +1097,7 @@ export const SECONDARY_BUTTON =
  * eye should refuse to find it there.
  */
 export const DANGER_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
+  "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white [&:not(:disabled)]:hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 press";
 
 /**
  * A verdict, in the tone the verdict deserves.
@@ -1135,7 +1137,8 @@ export function NoticeBox({
     >
       {icon && <span className="mt-0.5 shrink-0">{icon}</span>}
       <div className="min-w-0 flex-1">
-        {title && <p className="text-base font-semibold">{title}</p>}
+        {/* A div, not a p: callers pass a heading (FailureScreen's <h1>), and a p cannot hold one. */}
+        {title && <div className="text-base font-semibold">{title}</div>}
         {children}
       </div>
     </div>
@@ -1242,7 +1245,7 @@ export function SkipLink() {
   return (
     <a
       href={`#${MAIN_CONTENT_ID}`}
-      className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:border focus:border-line focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-lg"
+      className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:border focus:border-line focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-raised"
     >
       Skip to main content
     </a>
@@ -1329,7 +1332,7 @@ export function Skeleton({
         {Array.from({ length: rows }).map((_, i) => (
           <div
             key={i}
-            className="h-8 animate-pulse rounded bg-black/5 dark:bg-white/10"
+            className="h-8 animate-pulse rounded bg-black/5 motion-reduce:animate-none dark:bg-white/10"
           />
         ))}
       </div>
@@ -1364,7 +1367,7 @@ export function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={clsx(
-        "rounded-full px-3 py-1.5 text-xs capitalize touch:min-h-11",
+        "press rounded-full px-3 py-1.5 text-xs capitalize touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2",
         active
           ? "bg-brand-strong font-semibold text-white"
           : "border border-line bg-surface font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5",

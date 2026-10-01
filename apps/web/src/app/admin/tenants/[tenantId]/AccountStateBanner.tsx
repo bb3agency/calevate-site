@@ -42,7 +42,7 @@ export function AccountStateBanner({ tenantId, status }: { tenantId: string; sta
           Reactivating is one click on{" "}
           <Link
             href={`/admin/tenants/${tenantId}/lifecycle`}
-            className="font-medium underline"
+            className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
             Account state
           </Link>
@@ -63,7 +63,7 @@ export function AccountStateBanner({ tenantId, status }: { tenantId: string; sta
           Nobody at the client can sign in, no call or campaign runs, and no agent can be
           published. Whether their records have been erased yet — and the date they go —
           is on{" "}
-          <Link href={`/admin/tenants/${tenantId}/closure`} className="font-medium underline">
+          <Link href={`/admin/tenants/${tenantId}/closure`} className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
             Closing the account
           </Link>
           , which is also the one way to reopen it while nothing has been deleted.

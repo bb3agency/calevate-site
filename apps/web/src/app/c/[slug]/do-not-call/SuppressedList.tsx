@@ -243,7 +243,7 @@ function EntryRow({
             // announcements to a screen reader, and "remove which one?" is exactly the
             // question a mis-click answers wrongly.
             aria-label={`Remove ${entry.phone_e164} from the do-not-call list`}
-            className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/5"
+            className="press flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
           >
             <Trash2 className="h-3.5 w-3.5" />
             {removing ? "Removing…" : "Remove"}

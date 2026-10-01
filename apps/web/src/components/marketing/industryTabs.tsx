@@ -109,7 +109,7 @@ export function IndustryTabs() {
               onClick={() => setActive(index)}
               onKeyDown={(event) => onKeyDown(event, index)}
               className={
-                "flex shrink-0 items-center gap-2 rounded-full border px-5 py-3 text-base font-semibold whitespace-nowrap transition-colors touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app " +
+                "press flex shrink-0 items-center gap-2 rounded-full border px-5 py-3 text-base font-semibold whitespace-nowrap touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app " +
                 (selected
                   ? "border-brand-strong bg-brand-strong text-white"
                   : "border-line bg-surface text-ink-muted hover:border-brand/50 hover:text-ink")
@@ -130,7 +130,7 @@ export function IndustryTabs() {
           aria-labelledby={`industry-tab-${industry.id}`}
           tabIndex={0}
           hidden={index !== active}
-          className="mt-5 rounded-2xl border border-line bg-surface p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong sm:p-8"
+          className="mt-5 rounded-2xl border border-line bg-surface p-5 shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong sm:p-8"
         >
           <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
             <div>

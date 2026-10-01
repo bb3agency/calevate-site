@@ -123,23 +123,13 @@ const AA_SMALL_TEXT = 4.5;
 const BRAND_FILL_EXEMPT: Record<string, string> = {};
 
 /**
- * The ONE `sr-only`-input label still without a focus ring, and why it is not fixed here.
+ * `sr-only`-input labels allowed to lack a focus ring. EMPTY: its last entry, the agent
+ * screen's inbound/outbound cards (`agents/DirectionChoice.tsx`), now carries the ring.
  *
- * Same rule, same waiver discipline as `BRAND_FILL_EXEMPT` above: keyed by path, carrying
- * its reason, and checked below for staleness so it cannot outlive the defect. This is a
- * LIVE WCAG 2.4.7 failure and not an argued-for exception — the only entry that has ever
- * been allowed to mean "not yet".
+ * Same waiver discipline as `BRAND_FILL_EXEMPT` above: keyed by path, carrying its reason,
+ * and checked below for staleness so an entry cannot outlive the defect it names.
  */
-const SR_ONLY_FOCUS_EXEMPT: Record<string, string> = {
-  "src/app/c/[slug]/agents/DirectionChoice.tsx":
-    "the inbound/outbound radio cards on the agent screen. Identical F78 failure to the " +
-    "five fixed alongside this guard, and the fix is the same class string — but the " +
-    "label styles it inline, so it cannot be fixed from a shared constant, and this file " +
-    "belongs to a lane editing `agents/**` concurrently. Whoever lands next in that " +
-    "directory: add `has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong " +
-    "has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app` to the " +
-    "<label> className and delete this entry — the staleness test below will insist.",
-};
+const SR_ONLY_FOCUS_EXEMPT: Record<string, string> = {};
 
 // `relPosix`: `BRAND_FILL_EXEMPT` is keyed on forward slashes, so on Windows every
 // argued-for exemption stopped matching and the guard reported settled violations.

@@ -224,7 +224,7 @@ export default function CreditsPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           {tenant.name}
@@ -1596,7 +1596,7 @@ function PaymentsTable({ wallet }: { wallet: Credits }) {
           </thead>
           <tbody>
             {wallet.payments.map((payment: Payment) => (
-              <tr key={payment.payment_ref} className="border-t border-line">
+              <tr key={payment.payment_ref} className="border-t border-line hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
                 <td className="py-1.5 pr-3 font-mono">{payment.payment_ref}</td>
                 <td className="py-1.5 pr-3">{formatIST(payment.first_at)}</td>
                 <td className="py-1.5 pr-3 text-right tabular-nums">
@@ -1686,7 +1686,7 @@ function Row({ entry }: { entry: LedgerEntry }) {
   // someone who cannot separate the two greens, still reads the same movement.
   const credit = !entry.delta_inr.startsWith("-");
   return (
-    <tr className="border-t border-line">
+    <tr className="border-t border-line hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
       <td className="py-1.5 pr-3">{formatIST(entry.occurred_at)}</td>
       <td
         className={`py-1.5 pr-3 tabular-nums ${

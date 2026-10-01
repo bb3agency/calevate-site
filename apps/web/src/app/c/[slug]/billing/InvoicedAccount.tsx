@@ -102,7 +102,7 @@ function MoneyLink({
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-start gap-3 rounded-card border border-line bg-app p-3 text-left text-sm hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-4"
+        className="flex w-full items-start gap-3 rounded-card border border-line bg-app p-3 text-left text-sm transition-colors duration-(--duration-fast) ease-out hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:p-4"
       >
         <span className="mt-0.5 shrink-0 text-brand">{icon}</span>
         <span className="min-w-0">

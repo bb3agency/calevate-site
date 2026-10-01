@@ -63,7 +63,7 @@ export function ScriptCallout({
   return (
     <section
       aria-labelledby="script-callout-heading"
-      className="rounded-card border-2 border-brand bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.02)] sm:p-6"
+      className="rounded-card border-2 border-brand bg-surface p-4 shadow-card sm:p-6"
     >
       <div className="flex items-start gap-4">
         <span

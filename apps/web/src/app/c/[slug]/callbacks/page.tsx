@@ -100,7 +100,7 @@ export default function CallbacksPage() {
         action={
           <button
             type="button"
-            className="text-sm font-medium text-ink-muted underline underline-offset-2 hover:text-ink"
+            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-sm font-medium text-ink-muted underline underline-offset-2 hover:text-ink"
             onClick={() => setOpenOnly((current) => !current)}
           >
             {openOnly ? "Show all" : "Show only the ones still to come"}
@@ -217,7 +217,7 @@ function CallbackRow({
       {callback.status === "scheduled" && canStop && (
         <button
           type="button"
-          className="shrink-0 text-sm font-medium text-ink-muted underline underline-offset-2 hover:text-ink disabled:opacity-50"
+          className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 shrink-0 text-sm font-medium text-ink-muted underline underline-offset-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
           disabled={stopping}
           onClick={onStop}
         >

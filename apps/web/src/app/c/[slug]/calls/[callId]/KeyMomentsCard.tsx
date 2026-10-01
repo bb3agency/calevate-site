@@ -73,7 +73,7 @@ export function KeyMomentsCard({
                   onClick={() => onSeek(moment.at_ms)}
                   aria-label={`Play from ${formatClock(moment.at_ms / 1000)} — ${moment.label}`}
                   aria-current={active ? "true" : undefined}
-                  className={`flex w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/5 ${tone}`}
+                  className={`flex w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left transition-colors duration-(--duration-fast) ease-out hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand dark:hover:bg-white/5 ${tone}`}
                 >
                   {body}
                 </button>

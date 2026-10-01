@@ -271,7 +271,7 @@ export default function AdminClientsPage() {
         {create.allowed ? (
           <Link
             href="/admin/new"
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-strong px-3 py-2 text-sm font-semibold text-white hover:bg-brand-deep"
+            className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
           >
             <Plus className="h-4 w-4" />
             New client
@@ -279,7 +279,7 @@ export default function AdminClientsPage() {
         ) : (
           <span
             aria-disabled
-            className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink-faint"
+            className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink-faint touch:min-h-11"
           >
             <Plus className="h-4 w-4" />
             New client
@@ -400,7 +400,7 @@ export default function AdminClientsPage() {
                     <td className="px-6 py-3">
                       <Link
                         href={`/admin/tenants/${tenant.id}`}
-                        className="font-semibold text-ink hover:underline"
+                        className="rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
                       >
                         {tenant.name}
                       </Link>
@@ -435,7 +435,7 @@ export default function AdminClientsPage() {
                           <Link
                             key={rule}
                             href="/admin/holds"
-                            className={`rounded-full border px-2 py-0.5 text-xs font-medium hover:underline ${NOTICE_TONES.warn}`}
+                            className={`rounded-full border px-2 py-0.5 text-xs font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${NOTICE_TONES.warn}`}
                             title="Held for a human decision — see the work list"
                           >
                             {holdRule(rule)?.label ?? rule}
@@ -460,7 +460,7 @@ export default function AdminClientsPage() {
                           lib/api/session.tsx — it selects a credential, it grants none. */}
                       <Link
                         href={viewAsHref(tenant.slug)}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
                         title="Open this client's console as an operator — every view and every change is logged against you"
                       >
                         <Eye className="h-3.5 w-3.5" />

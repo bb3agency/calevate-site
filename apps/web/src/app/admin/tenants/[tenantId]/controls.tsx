@@ -29,7 +29,7 @@ export function NavLink({
     <Link
       href={href}
       title={title}
-      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-black/5 dark:hover:bg-white/5"
+      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand press"
     >
       {icon}
       {children}
@@ -37,8 +37,10 @@ export function NavLink({
   );
 }
 
+// `enabled:hover` rather than `hover`, so a disabled button does not darken under the
+// pointer and read as live. Each weight adds its own ring colour.
 const BUTTON_BASE =
-  "rounded-md px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center justify-center rounded-md px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 press";
 
 export function PrimaryButton({
   children,
@@ -56,7 +58,7 @@ export function PrimaryButton({
       type={type === "submit" ? "submit" : "button"}
       disabled={disabled}
       onClick={onClick}
-      className={`${BUTTON_BASE} bg-brand-strong text-white hover:bg-brand-deep`}
+      className={`${BUTTON_BASE} bg-brand-strong text-white enabled:hover:bg-brand-deep focus-visible:ring-brand`}
     >
       {children}
     </button>
@@ -77,7 +79,7 @@ export function SecondaryButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`${BUTTON_BASE} border border-line bg-surface text-ink hover:bg-black/5 dark:hover:bg-white/5`}
+      className={`${BUTTON_BASE} border border-line bg-surface text-ink enabled:hover:bg-black/5 dark:enabled:hover:bg-white/5 focus-visible:ring-brand`}
     >
       {children}
     </button>
@@ -98,7 +100,7 @@ export function DangerButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`${BUTTON_BASE} border border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950`}
+      className={`${BUTTON_BASE} border border-rose-300 text-rose-700 enabled:hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:enabled:hover:bg-rose-950 focus-visible:ring-rose-600`}
     >
       {children}
     </button>
@@ -115,4 +117,4 @@ export function DangerButton({
  * clipped off-screen rather than scrollable.
  */
 export const FIELD =
-  "min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
+  "min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand aria-[invalid=true]:border-rose-500";

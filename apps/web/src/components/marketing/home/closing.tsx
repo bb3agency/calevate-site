@@ -8,6 +8,7 @@ import {
   CTA_LABEL,
   CTA_PRIMARY,
   CTA_SECONDARY,
+  NUDGE_ARROW,
   SECTION,
   SHELL,
 } from "@/components/marketing/pageShell";
@@ -40,7 +41,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
       <div className={`${SHELL} ${SECTION}`}>
         <Reveal
           as="section"
-          className="relative isolate overflow-hidden rounded-2xl border border-line bg-surface p-8 sm:p-12 lg:p-16"
+          className="relative isolate overflow-hidden rounded-2xl border border-line bg-surface p-8 shadow-card sm:p-12 lg:p-16"
         >
           {/*
             THE GRID'S SECOND AND LAST APPEARANCE, and the argument for it is the bookend.
@@ -73,10 +74,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
           <div className="mt-10 flex flex-wrap items-center gap-3">
             <Link href="/signup" className={CTA_PRIMARY}>
               {CTA_LABEL}
-              <ArrowRight
-                aria-hidden
-                className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-              />
+              <ArrowRight aria-hidden className={NUDGE_ARROW} />
             </Link>
             {/* Only when there is an address to give — an invented one bounces. */}
             {SIGNUP_CONTACT_EMAIL && (
@@ -110,7 +108,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
             {devSlug && (
               <Link
                 href={`/c/${devSlug}`}
-                className="mt-4 ml-4 inline-flex items-center gap-2 rounded-full bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep"
+                className="press mt-4 ml-4 inline-flex items-center gap-2 rounded-full bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface touch:min-h-11"
               >
                 Open {devSlug}
                 <ArrowRight aria-hidden className="h-4 w-4" />
@@ -129,7 +127,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
             </p>
             <Link
               href="/signup"
-              className="mt-5 inline-flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-base font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              className="press mt-5 inline-flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-base font-semibold text-ink hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               How to get one
               <ArrowRight aria-hidden className="h-4 w-4" />

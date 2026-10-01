@@ -152,7 +152,7 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
   const seconds = String(remaining % 60).padStart(2, "0");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="scrim-enter fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         ref={panel}
         role="alertdialog"
@@ -160,7 +160,7 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
         aria-labelledby="admin-idle-title"
         aria-describedby="admin-idle-body"
         tabIndex={-1}
-        className="w-full max-w-md rounded-card border border-line bg-surface p-4 shadow-lg outline-none sm:p-6"
+        className="dialog-enter w-full max-w-md rounded-card border border-line bg-surface p-4 shadow-overlay outline-none sm:p-6"
       >
         <h2 id="admin-idle-title" className="flex items-center gap-2 text-[17px] font-semibold text-ink">
           <Timer aria-hidden className="h-4 w-4" />

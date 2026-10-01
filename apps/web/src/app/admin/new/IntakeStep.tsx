@@ -1027,7 +1027,7 @@ function RowSection<T>({
               aria-label={`Remove ${title.toLowerCase()} ${index + 1}`}
               disabled={disabled}
               onClick={() => onChange(rows.filter((_, i) => i !== index))}
-              className="absolute right-2 top-2 rounded-md p-1.5 text-ink-faint enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5"
+              className="absolute right-2 top-2 inline-flex items-center justify-center rounded-md p-1.5 text-ink-faint enabled:hover:bg-rose-50 enabled:hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5 touch:min-h-11 touch:min-w-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 press"
             >
               <Trash2 aria-hidden className="h-4 w-4" />
             </button>

@@ -254,7 +254,7 @@ export function AutodialerNoticePanel() {
           {current.undeclared_clis.length > 0 && (
             <button
               type="button"
-              className="text-sm text-accent underline"
+              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-sm text-accent underline"
               onClick={() => setNumbers(withEveryCallingNumber(declared, current).join("\n"))}
             >
               {"Add my agents' numbers"}
@@ -274,7 +274,7 @@ export function AutodialerNoticePanel() {
             {current.recorded && current.state === "notified" && (
               <button
                 type="button"
-                className="text-sm text-ink-muted underline"
+                className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-sm text-ink-muted underline disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={record.isPending}
                 onClick={() =>
                   record.mutate({

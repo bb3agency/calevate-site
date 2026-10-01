@@ -64,7 +64,7 @@ export const SECTION = "py-20 sm:py-24 lg:py-32";
  * reason: inside a `px-5` shell, a flat `p-6` spends 88px of a 360px viewport on gutter
  * before any words.
  */
-export const CARD = "rounded-2xl border border-line bg-surface p-5 sm:p-6";
+export const CARD = "rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6";
 
 /** The grid under a band's heading block. One gap, one top margin, everywhere. */
 export const GRID = "mt-10 grid gap-4 sm:mt-12";
@@ -91,14 +91,36 @@ export const CTA_LABEL = "Get started";
  */
 
 export const CTA_PRIMARY =
-  "group inline-flex items-center gap-2 rounded-full bg-brand-strong px-7 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+  "group press inline-flex items-center gap-2 rounded-full bg-brand-strong px-7 py-3.5 text-base font-semibold text-white shadow-card hover:bg-brand-deep hover:shadow-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
 
 export const CTA_SECONDARY =
-  "inline-flex items-center gap-2 rounded-full border border-line bg-surface px-7 py-3.5 text-base font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+  "press inline-flex items-center gap-2 rounded-full border border-line bg-surface px-7 py-3.5 text-base font-semibold text-ink hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+
+/**
+ * The arrow inside a call to action or a card link, which nudges toward where the link
+ * goes when its `group` is hovered. `transition-transform` alone, so the nudge never
+ * inherits the colour timing of the control around it.
+ */
+export const NUDGE_ARROW =
+  "h-4 w-4 shrink-0 transition-transform duration-(--duration-fast) ease-out group-hover:translate-x-0.5";
+
+/**
+ * A pill link in an "On this page" row or a list of documents. Its own tap-target floor,
+ * because at `text-sm` with `py-2` the pill is 36px — short of the 44px a thumb needs.
+ */
+export const PILL_LINK =
+  "press inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-2 text-sm font-medium text-ink-muted hover:border-brand/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app touch:min-h-11";
+
+/**
+ * A whole card that is one link. No `press` scale: a card-sized surface shrinking reads as
+ * the grid wobbling, so the press is a tint and the hover is a lift in shadow.
+ */
+export const CARD_LINK =
+  "group flex h-full flex-col rounded-2xl border border-line bg-surface p-5 shadow-card transition-[border-color,box-shadow,background-color] duration-(--duration-base) ease-out hover:border-brand/50 hover:shadow-raised active:bg-brand-soft/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
 
 /** An inline link in body copy, in one place so eight pages cannot spell it eight ways. */
 export const INLINE_LINK =
-  "font-semibold text-brand-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong dark:text-brand-bright";
+  "rounded-sm font-semibold text-brand-strong underline underline-offset-2 transition-colors duration-(--duration-fast) ease-out hover:text-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong dark:text-brand-bright dark:hover:text-brand-bright";
 
 /**
  * The small editorial label above a band: an optional index, a hairline, a word.
@@ -168,14 +190,14 @@ export function PageIntro({
         <div className="mk-grid-lines absolute inset-0" />
         <div className="mk-blob mk-blob--a mk-float absolute -top-24 -left-24 h-72 w-72" />
       </div>
-      <div className={`${SHELL} pt-10 pb-12 sm:pt-14 sm:pb-16`}>
+      <div className={`${SHELL} pt-10 pb-12 sm:pt-16 sm:pb-20 lg:pt-20 lg:pb-24`}>
         <p className="text-xs font-semibold tracking-[0.18em] text-brand-strong uppercase dark:text-brand-bright">
           {eyebrow}
         </p>
-        <h1 className="mt-4 max-w-4xl text-[2.25rem] leading-[1.08] font-semibold tracking-tight text-balance text-ink sm:text-5xl sm:leading-[1.05]">
+        <h1 className="mt-4 max-w-4xl text-[2.25rem] leading-[1.08] font-semibold tracking-tight text-balance text-ink sm:text-5xl sm:leading-[1.05] lg:text-[3.5rem] lg:leading-[1.03]">
           {title}
         </h1>
-        <p className="mt-5 max-w-2xl text-lg text-pretty text-ink-muted">
+        <p className="mt-5 max-w-2xl text-lg text-pretty text-ink-muted sm:mt-6 sm:text-xl">
           {lede}
         </p>
         {children}
@@ -196,8 +218,8 @@ export function ClosingCta({ line }: { line: string }) {
   return (
     <section className="border-t border-line bg-surface/40">
       <div className={`${SHELL} ${SECTION}`}>
-        <div className="rounded-2xl border border-line bg-surface p-6 sm:p-10">
-          <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+        <div className="rounded-2xl border border-line bg-surface p-6 shadow-card sm:p-10">
+          <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             {line}
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -208,10 +230,7 @@ export function ClosingCta({ line }: { line: string }) {
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link href="/signup" className={CTA_PRIMARY}>
               {CTA_LABEL}
-              <ArrowRight
-                aria-hidden
-                className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-              />
+              <ArrowRight aria-hidden className={NUDGE_ARROW} />
             </Link>
           </div>
         </div>
@@ -245,7 +264,7 @@ export function MarketingFooter() {
             <li>
               <Link
                 href="/"
-                className="inline-block py-1 text-ink-muted underline-offset-4 hover:text-ink hover:underline touch:py-3.5"
+                className="inline-block rounded-sm py-1 text-ink-muted underline-offset-4 transition-colors duration-(--duration-fast) ease-out hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:py-3.5"
               >
                 Home
               </Link>
@@ -254,7 +273,7 @@ export function MarketingFooter() {
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className="inline-block py-1 text-ink-muted underline-offset-4 hover:text-ink hover:underline touch:py-3.5"
+                  className="inline-block rounded-sm py-1 text-ink-muted underline-offset-4 transition-colors duration-(--duration-fast) ease-out hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:py-3.5"
                 >
                   {item.label}
                 </Link>
@@ -277,7 +296,7 @@ export function MarketingFooter() {
               <li key={doc.slug}>
                 <Link
                   href={`/legal/${doc.slug}`}
-                  className="inline-block py-1 text-ink-faint underline-offset-4 hover:text-ink hover:underline touch:py-3.5"
+                  className="inline-block rounded-sm py-1 text-ink-faint underline-offset-4 transition-colors duration-(--duration-fast) ease-out hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:py-3.5"
                 >
                   {doc.title}
                 </Link>

@@ -80,11 +80,15 @@ export const NAV_ROUTES: readonly { href: string; label: string }[] = PUBLIC_ROU
 export const HEADER_CTA = { href: "/signup", label: "Get started" } as const;
 
 const NAV_LINK =
-  "rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap text-ink-muted transition-colors hover:bg-black/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong dark:hover:bg-white/5";
+  "press rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap text-ink-muted hover:bg-black/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong dark:hover:bg-white/5";
 
-/** The same link, sized for a thumb inside the menu panel. */
+/**
+ * The same link, sized for a thumb inside the menu panel. A full-width row, so it gets a
+ * tint on `:active` rather than `press`'s scale — a whole row shrinking reads as the menu
+ * wobbling, and a phone has no hover to show the row was hit.
+ */
 const MENU_LINK =
-  "block rounded-lg px-3 py-3 text-base font-medium text-ink transition-colors hover:bg-brand-soft/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong";
+  "block rounded-lg px-3 py-3 text-base font-medium text-ink transition-colors duration-(--duration-fast) ease-out hover:bg-brand-soft/60 active:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong";
 
 export function SiteHeader() {
   return (
@@ -113,16 +117,17 @@ export function SiteHeader() {
               header rather than off the page. */}
           <details className="group relative xl:hidden">
             <summary
-              className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden dark:hover:bg-white/5"
+              className="press flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:h-11 touch:w-11 [&::-webkit-details-marker]:hidden dark:hover:bg-white/5"
               aria-label="Menu"
             >
               <Menu aria-hidden className="h-5 w-5" />
             </summary>
             {/* `right-0` and a fixed width: anchored to the button, never wider than the
-                narrowest phone this page is designed for. */}
+                narrowest phone this page is designed for. `mk-menu-panel` scales it in from
+                that corner (globals.css). */}
             <nav
               aria-label="Pages menu"
-              className="absolute right-0 z-40 mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-lg"
+              className="mk-menu-panel absolute right-0 z-40 mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-raised"
             >
               <ul>
                 {NAV_ROUTES.map((item) => (
