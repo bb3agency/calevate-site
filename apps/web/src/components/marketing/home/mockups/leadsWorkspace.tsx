@@ -64,7 +64,7 @@ export function LeadsWorkspace() {
   return (
     <MockStage
       label="Illustration of the leads screen for a property office: callers listed with their stage, budget, location, flat size and whether they want a site visit, and one hot lead opened to show its history."
-      className="relative mt-12 sm:mt-16 lg:pr-[21.5rem] xl:pr-[25.5rem]"
+      className="relative mt-12 sm:mt-16 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]"
     >
       <Window
         title="Leads"
@@ -107,10 +107,12 @@ export function LeadsWorkspace() {
         </span>
       </Window>
 
-      {/* The opened lead: a side sheet over the list on a desktop, under it on a phone. */}
+      {/* The opened lead: a side sheet beside the list on a desktop, under it on a phone. A grid
+          column rather than an absolute sheet, so the stage grows to the taller of the two and
+          the sheet cannot hang into the band below. */}
       <Panel
         elevation="overlay"
-        className="mk-rise mk-s4 relative mt-4 p-5 lg:absolute lg:top-14 lg:right-0 lg:mt-0 lg:w-80 xl:w-96"
+        className="mk-rise mk-s4 relative mt-4 p-5 lg:mt-14"
       >
         <span className="flex items-center gap-3">
           <Avatar name="Lakshmi Prasanna" tone="brand" className="h-10 w-10 text-[12px]" />

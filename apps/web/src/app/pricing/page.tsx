@@ -17,17 +17,25 @@ import {
 } from "@/lib/api/rateCard";
 import Link from "next/link";
 
-import { Check, Info, Receipt, ShieldCheck, Wallet } from "lucide-react";
+import { ArrowDown, ArrowRight, Info } from "lucide-react";
 
+import { MockStage } from "@/components/marketing/home/mockups/stage";
+import { Reveal } from "@/components/marketing/motion";
+import {
+  CreditHistoryMock,
+  CreditOverviewMock,
+  LowCreditNoticeMock,
+  SpendingLimitMock,
+} from "@/components/marketing/pricing/billingMockups";
 import { RateCard } from "@/components/marketing/rateCard";
 
 import {
-  CARD,
   ClosingCta,
   Eyebrow,
   INLINE_LINK,
   MarketingPage,
   PageIntro,
+  PILL_LINK,
   SECTION,
   SHELL,
 } from "@/components/marketing/pageShell";
@@ -60,6 +68,13 @@ import {
  * as a product tier: the names live once in `apps/api/billing/rates.py::VOICE_TIER_LABELS`
  * and travel on the card, so a client meets one name for a voice and we can change the
  * vendor under it without a rename. Never type a tier name into this file.
+ *
+ * **The console mockups draw no rupee figure.** "Every ₹ on this page came from the rate
+ * card" is a test, not a guideline, so the billing screens under `#controls` mask their
+ * amounts and carry their sample data in minutes, days and dates
+ * (`components/marketing/pricing/billingMockups.tsx`). They are placed beside the three
+ * promises they illustrate rather than in a gallery of their own: each card's sentence is
+ * the claim and its screen is the evidence the product keeps it.
  */
 export const metadata: Metadata = publicPageMetadata({
   path: "/pricing",
@@ -178,6 +193,17 @@ function bandSentence(card: PublicRateCard, voice: VoiceTier): string {
   return `${formatRateINR(dearest)} a minute, down to ${formatRateINR(cheapest)} on the largest pack`;
 }
 
+/** Section heading, the interior pages' one size. */
+const H2 =
+  "mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl";
+
+/** A bento cell: a claim, then the screen that keeps it. */
+const CELL = "flex min-w-0 flex-col rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-7";
+
+/** The soft ground a mockup sits on inside a cell, so the drawn UI reads as a screen. */
+const MOCK_GROUND =
+  "min-w-0 rounded-xl bg-[radial-gradient(circle_at_50%_0%,var(--brand-soft),transparent_75%)] p-3 sm:p-5";
+
 export default async function PricingPage() {
   // The one request this page makes. `fetchPublicRateCard` never throws — it logs and
   // returns null — so there is no `try` here and no figure to fall back to: a page that
@@ -186,12 +212,14 @@ export default async function PricingPage() {
   // operator's save and the route's minute of edge cache is a cache of a constant rather
   // than a staleness window on a live price.
   const rateCard = await fetchPublicRateCard();
+  // The voice the mockups name is the one an agent can be put on today, by the card's name.
+  const offeredVoice = rateCard === null ? null : tierLabel(rateCard, "studio");
   return (
     <MarketingPage>
       {/* THE PRICE IS THE HEADLINE: a buyer's whole reason for arriving is the number, so
-          it leads and the managed-plan caveat sits at the bottom in one line. `rateCard` is
-          null only when the API cannot be reached; the fallback says so rather than printing
-          a figure we cannot stand behind. */}
+          it leads and the managed-plan caveat sits below the card in one line. `rateCard`
+          is null only when the API cannot be reached; the fallback says so rather than
+          printing a figure we cannot stand behind. */}
       <PageIntro
         eyebrow="Pricing"
         title={
@@ -209,22 +237,32 @@ export default async function PricingPage() {
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
             : `The ${tierLabel(rateCard, "clear")} voice is ${bandSentence(rateCard, "clear")} on the same card. ${UNPRICED_TIER_NOTICE} No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, and credit does not expire.`
         }
-      />
+      >
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href="#self-serve" className={PILL_LINK}>
+            Every pack, both voices
+            <ArrowDown aria-hidden className="h-4 w-4" />
+          </Link>
+          <Link href="#controls" className={PILL_LINK}>
+            What the billing screen shows you
+            <ArrowDown aria-hidden className="h-4 w-4" />
+          </Link>
+        </div>
+      </PageIntro>
 
       {/* --- Self-serve rate card (D-545) --------------------------------------- */}
-      <section id="self-serve" className="scroll-mt-20 border-t border-line">
+      <section id="self-serve" className="scroll-mt-20">
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="00">Self-serve</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
+          <h2 className={H2}>
             {/* NO FIGURE HERE, DELIBERATELY: the band is overhead in the h1 and every rung
                 is in the table below, so a heading re-quoting one end of the ladder is a
                 duplicate price.
 
                 Whether the rate falls is ASKED OF THE CARD, never typed — it is false the
-                moment either column goes flat, and the next card takes the cheaper voice
-                flat at ₹4.00 (`docs/PIPECAT-MIGRATION.md` §12). `every` and not `some`:
-                this heading sits above the switch and speaks for both voices, so a claim
-                true of only one of them is not a claim it may make. */}
+                moment either column goes flat (`docs/PIPECAT-MIGRATION.md` §12). `every`
+                and not `some`: this heading sits above the switch and speaks for both
+                voices, so a claim true of only one of them is not a claim it may make. */}
             {rateCard === null
               ? "Our self-serve rate"
               : VOICE_TIERS.every((voice) => ladderFalls(rateCard, voice))
@@ -239,55 +277,45 @@ export default async function PricingPage() {
             </p>
           ) : (
             <>
-              <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                {/* THIS CARD IS PUBLISHED; A MANAGED PLAN IS QUOTED — the page has to say
-                    which is which, because it says both. It says nothing about how an
-                    ACCOUNT is opened: `self_serve_signup_enabled` is a live switch and the
-                    door that reads it is the homepage's, so a second sentence here would be
-                    a second place to get it wrong. It also does not repeat the lede's
-                    "credit does not expire" or the heading's falling rate (UX-DOCTRINE §5:
-                    two spellings of one fact is a defect). */}
-                This is a published price, not a quote, and there is no minimum. The rates
-                you bought at stay with that credit until it is spent.
-              </p>
-              <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                {/* The client picks the voice themselves — `PATCH /v1/agents/{agent_id}/
-                    voice` is a CLIENT-realm door (`agents:write` on `owner` and `staff`,
-                    D-586) and the picker is on their own agent screen
-                    (`app/c/[slug]/agents/panels/delivery.tsx`). Never restore "tell your
-                    account manager": it sells a self-serve product as one with a support
-                    queue in front of a two-click control. */}
-                A voice is set per agent rather than for the whole account, and you choose
-                it yourself on each agent&rsquo;s own screen — moving an agent to the other
-                voice costs nothing and changes none of your credit.
-              </p>
-              {/* The rate card itself: the switch, and one voice's ladder at a time.
-                  Extracted to `components/marketing/rateCard.tsx` (UX-DOCTRINE §6 —
-                  extract by SUBJECT) because the table is now two layouts and a control,
-                  and this route module is already four times its budget. */}
-              <RateCard card={rateCard} />
-              <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
-                Talk time is the minutes your agents actually speak for, not connected
-                time. Credit is spent oldest purchase first, at the rates that purchase was
-                made at.
-              </p>
+              <div className="mt-4 grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-10">
+                <p className="text-base text-pretty text-ink-muted">
+                  {/* THIS CARD IS PUBLISHED; A MANAGED PLAN IS QUOTED — the page has to say
+                      which is which, because it says both. It says nothing about how an
+                      ACCOUNT is opened: `self_serve_signup_enabled` is a live switch and the
+                      door that reads it is the homepage's. */}
+                  This is a published price, not a quote, and there is no minimum. The rates
+                  you bought at stay with that credit until it is spent.
+                </p>
+                <p className="text-base text-pretty text-ink-muted">
+                  {/* The client picks the voice themselves — `PATCH /v1/agents/{agent_id}/
+                      voice` is a CLIENT-realm door (D-586) and the picker is on their own
+                      agent screen (`app/c/[slug]/agents/panels/delivery.tsx`). Never route
+                      the buyer to a person for a two-click control. */}
+                  A voice is set per agent rather than for the whole account, and you choose
+                  it yourself on each agent&rsquo;s own screen — moving an agent to the other
+                  voice costs nothing and changes none of your credit.
+                </p>
+              </div>
+              {/* `RateCard` opens with its own top margin (it is also used without a frame); inside
+                  this frame the card's padding is that space, so the margin is cancelled. */}
+              <div className="mt-8 rounded-2xl border border-line bg-surface p-4 shadow-card sm:mt-10 sm:p-8 [&>fieldset:first-child]:mt-0">
+                <RateCard card={rateCard} />
+                <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
+                  Talk time is the minutes your agents actually speak for, not connected
+                  time. Credit is spent oldest purchase first, at the rates that purchase was
+                  made at.
+                </p>
+              </div>
             </>
           )}
-        </div>
-      </section>
 
-      {/* The managed-plan caveat, placed after the reader has seen what things cost.
-          Those figures genuinely are not publishable — every money column on `plans` is
-          nullable with no default — but that is a footnote to a price list, not a
-          substitute for one. */}
-      <section className="border-t border-line bg-surface/40">
-        <div className={`${SHELL} ${SECTION}`}>
-          <div className="flex items-start gap-3">
-            <Info
-              aria-hidden
-              className="mt-0.5 h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright"
-            />
-            <p className="max-w-2xl text-base text-pretty text-ink-muted">
+          {/* The managed-plan caveat, placed after the reader has seen what things cost.
+              Those figures genuinely are not publishable — every money column on `plans`
+              is nullable with no default — but that is a footnote to a price list, not a
+              substitute for one. */}
+          <div className="mt-6 flex items-start gap-3 rounded-2xl border border-dashed border-line px-5 py-4 sm:px-6">
+            <Info aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright" />
+            <p className="max-w-3xl text-base text-pretty text-ink-muted">
               <span className="font-medium text-ink">Calling a lot?</span>{" "}
               Above a certain volume a monthly plan with minutes included usually costs less
               than paying by the minute. Those are agreed with you rather than published —
@@ -301,148 +329,191 @@ export default async function PricingPage() {
         </div>
       </section>
 
-      {/* --- 01 What is metered -------------------------------------------------- */}
-      <section id="metered" className="scroll-mt-20 border-t border-line">
+      {/* --- 01 Prepaid, caps and the invoice — each promise beside its screen ---- */}
+      <section id="controls" className="scroll-mt-20 border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="01">What you pay for</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            Three things are metered, and all three are things that happened
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            {/* Every call writes a usage_event carrying our own unit cost (hard rule 7,
-                `apps/api/db/registry.py:89` — the table is append-only). */}
-            Every call writes a usage record of its own, with the rate that applied to it.
-            A correction is a new entry rather than an edit, so a bill can be explained line
-            by line months later.
-          </p>
-          <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
-            {METERED.map(({ title, body }) => (
-              <section key={title} className={CARD}>
-                <h3 className="text-[17px] font-semibold text-ink">{title}</h3>
-                <p className="mt-2 text-sm text-pretty text-ink-muted">{body}</p>
-              </section>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* --- 02 The shape of a plan ---------------------------------------------- */}
-      <section id="plan" className="scroll-mt-20 border-t border-line bg-surface/40">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="02">The shape of a plan</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            Five parts, and you will know the number against each one before you sign
-          </h2>
-          <dl className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-2">
-            {PLAN_SHAPE.map(({ term, detail }) => (
-              <div key={term} className={CARD}>
-                <dt className="flex items-start gap-2.5 text-[17px] font-semibold text-ink">
-                  <span
-                    aria-hidden
-                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
-                  >
-                    <Check className="h-3 w-3" />
-                  </span>
-                  {term}
-                </dt>
-                <dd className="mt-2 pl-7.5 text-sm text-pretty text-ink-muted">{detail}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </section>
-
-      {/* --- 03 Prepaid, caps and the invoice ------------------------------------ */}
-      <section id="controls" className="scroll-mt-20 border-t border-line">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="03">Paying, and not overpaying</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            A phone bill that cannot surprise you
-          </h2>
-          <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
-            <section className={CARD}>
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                <Wallet aria-hidden className="h-5 w-5" />
-              </span>
-              <h3 className="mt-4 text-[17px] font-semibold text-ink">Prepaid credit</h3>
-              <p className="mt-2 text-sm text-pretty text-ink-muted">
-                {/* apps/api/billing/wallet.py — the client-side read of the prepaid wallet;
-                    apps/api/billing/credit_packs.py; compliance.service.credits_exhausted
-                    is the ONE predicate, and since D-551 it decides both directions: the
-                    dial gate refuses outbound, and `agents/service.py::
-                    reconcile_inbound_answering` silences answering at the engine. A
-                    pricing page that promised only the outbound half would sell a phone
-                    line the product does not keep answering. The warning email on the
-                    way down is `apps/workers/wallet_alerts.py`, published on the ledger
-                    entry that crosses `low_balance_threshold_inr`. */}
+          <Reveal>
+            <Eyebrow index="01">Paying, and not overpaying</Eyebrow>
+            <h2 className={H2}>A phone bill that cannot surprise you</h2>
+          </Reveal>
+          {/* Every cell carries its span at BOTH layouts (`col-span-full` below `lg`), and the
+              invoice cell is its own two-track grid with `minmax(0, …)` tracks: a bare `1fr`
+              is `minmax(auto, 1fr)`, which lets the mockup's min-content width starve the
+              text column down to one word per line. */}
+          <div className="mt-10 grid grid-cols-1 gap-5 sm:mt-12 lg:grid-cols-12">
+            <section className={`${CELL} col-span-full lg:col-span-7`}>
+              <h3 className="text-[17px] font-semibold text-ink sm:text-xl">Prepaid credit</h3>
+              <p className="mt-2 max-w-xl text-sm text-pretty text-ink-muted sm:text-base">
+                {/* apps/api/billing/wallet.py and credit_packs.py; `compliance.service.
+                    credits_exhausted` is the ONE predicate, and since D-551 it decides both
+                    directions: the dial gate refuses outbound, and `agents/service.py::
+                    reconcile_inbound_answering` silences answering at the engine. The
+                    warning email is `apps/workers/wallet_alerts.py`. */}
                 When the credit is exhausted, calling stops rather than continuing on to a
                 bill you did not agree to: nothing goes out, and your agents stop answering
                 incoming calls until you top up. We email the account owner before it
                 happens.
               </p>
+              <MockStage
+                className={`${MOCK_GROUND} mt-6 flex flex-1 flex-col gap-3`}
+                label="Illustration: the Billing overview — the calling credit with its amount hidden, about 23 days of calling left at the recent pace, two purchases listed oldest first, and the warning that credit is running low."
+              >
+                <CreditOverviewMock voiceLabel={offeredVoice} />
+                <LowCreditNoticeMock />
+              </MockStage>
             </section>
-            <section className={CARD}>
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                <ShieldCheck aria-hidden className="h-5 w-5" />
-              </span>
-              <h3 className="mt-4 text-[17px] font-semibold text-ink">Two ceilings, and the stricter one wins</h3>
-              <p className="mt-2 text-sm text-pretty text-ink-muted">
-                {/* `plans.hard_cap_min` / `hard_cap_spend` are ADMIN-owned; `client_cap_min`
-                    / `client_cap_spend` are the client's and "may never be set looser than
-                    the admin's" (`apps/api/billing/models.py:259-269`). The EFFECTIVE cap is
-                    the stricter of the pair, derived in `apps/api/billing/caps.py` and read
-                    from there by both the meter and the client route. Zero means "stop my
-                    outbound calling now". */}
+
+            <section className={`${CELL} col-span-full lg:col-span-5`}>
+              <h3 className="text-[17px] font-semibold text-ink sm:text-xl">
+                Two ceilings, and the stricter one wins
+              </h3>
+              <p className="mt-2 text-sm text-pretty text-ink-muted sm:text-base">
+                {/* `plans.hard_cap_*` are ADMIN-owned; `client_cap_*` are the client's and
+                    may never be set looser (`apps/api/billing/models.py`). The EFFECTIVE cap
+                    is the stricter of the pair, derived in `apps/api/billing/caps.py`. */}
                 A cap is a limit on the account rather than a warning email. There is one in
                 your arrangement that your staff cannot raise, and one you set yourself that
                 can be as low as you like — including zero, which stops your outbound calling
                 on the spot. Whichever is stricter is the one that applies.
               </p>
+              <MockStage
+                className={`${MOCK_GROUND} mt-6 flex flex-1 flex-col justify-center`}
+                label="Illustration: the spending limit card — a limit of 3,000 minutes set by the client is in force, below the 5,000-minute limit on the plan."
+              >
+                <SpendingLimitMock />
+              </MockStage>
             </section>
-            <section className={CARD}>
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                <Receipt aria-hidden className="h-5 w-5" />
-              </span>
-              <h3 className="mt-4 text-[17px] font-semibold text-ink">An invoice you can check</h3>
-              <p className="mt-2 text-sm text-pretty text-ink-muted">
-                {/* apps/api/billing/invoice.py — an invoice is DERIVED from the usage
-                    ledger at the plan in effect for that period (billing/plans.py), so it
-                    does not change when you look at it twice. GST: billing/gst.py. */}
-                A month&apos;s invoice is assembled from those usage records at the plan in
-                effect for that month, with GST worked out on it. It reads the same next year
-                as it does today.
-              </p>
+
+            <section
+              className="col-span-full grid min-w-0 grid-cols-1 gap-6 rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] lg:items-center lg:gap-10"
+            >
+              <div className="min-w-0">
+                <h3 className="text-[17px] font-semibold text-ink sm:text-xl">
+                  An invoice you can check
+                </h3>
+                <p className="mt-2 max-w-xl text-sm text-pretty text-ink-muted sm:text-base">
+                  {/* apps/api/billing/invoice.py — an invoice is DERIVED from the usage
+                      ledger at the plan in effect for that period (billing/plans.py), so it
+                      does not change when you look at it twice. GST: billing/gst.py. */}
+                  A month&apos;s invoice is assembled from those usage records at the plan in
+                  effect for that month, with GST worked out on it. It reads the same next year
+                  as it does today.
+                </p>
+              </div>
+              <MockStage
+                className={MOCK_GROUND}
+                label="Illustration: the credit history — each top-up and each day of calls is its own line, with when, what, the amount and the balance after."
+              >
+                <CreditHistoryMock />
+              </MockStage>
             </section>
           </div>
+          <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
+            Illustrations of the billing screens, not a real account. Rupee amounts are
+            hidden in them: the only prices this page shows are the ones on the published
+            rate card.
+          </p>
+        </div>
+      </section>
+
+      {/* --- 02 What is metered -------------------------------------------------- */}
+      <section id="metered" className="scroll-mt-20 border-t border-line">
+        <div className={`${SHELL} ${SECTION}`}>
+          <Reveal>
+            <Eyebrow index="02">What you pay for</Eyebrow>
+            <h2 className={H2}>
+              Three things are metered, and all three are things that happened
+            </h2>
+            <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+              {/* Every call writes a usage_event carrying our own unit cost (hard rule 7,
+                  `apps/api/db/registry.py` — the table is append-only). */}
+              Every call writes a usage record of its own, with the rate that applied to it.
+              A correction is a new entry rather than an edit, so a bill can be explained line
+              by line months later.
+            </p>
+          </Reveal>
+          {/* ONE card in three cells rather than three cards: a homogeneous list is rows in
+              one surface (UX-DOCTRINE §1), as the homepage's cost chapter does it. */}
+          <Reveal className="mt-10 overflow-hidden rounded-2xl border border-line sm:mt-12">
+            <div className="grid grid-cols-1 gap-px bg-line lg:grid-cols-3">
+              {METERED.map(({ title, body }, index) => (
+                <section key={title} className="bg-surface p-5 sm:p-8">
+                  <span aria-hidden className="font-mono text-xs text-ink-faint">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <h3 className="mt-3 text-[17px] font-semibold text-ink sm:text-xl">{title}</h3>
+                  <p className="mt-2 text-sm text-pretty text-ink-muted sm:text-base">{body}</p>
+                </section>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* --- 03 The shape of a plan ---------------------------------------------- */}
+      <section id="plan" className="scroll-mt-20 border-t border-line bg-surface/40">
+        <div className={`${SHELL} ${SECTION} lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:gap-16`}>
+          <Reveal>
+            <Eyebrow index="03">The shape of a plan</Eyebrow>
+            <h2 className={H2}>
+              Five parts, and you will know the number against each one before you sign
+            </h2>
+          </Reveal>
+          {/* Drawn as the order form it is: five lines, and against each a blank that is
+              filled in with you. The blanks are deliberate — no money column on `plans` has
+              a published value (D-11). */}
+          <Reveal className="mt-10 lg:mt-0">
+            <dl className="divide-y divide-line rounded-2xl border border-line bg-surface shadow-card">
+              {PLAN_SHAPE.map(({ term, detail }) => (
+                <div
+                  key={term}
+                  className="grid gap-1 p-5 sm:grid-cols-[minmax(0,1fr)_8rem] sm:gap-x-6 sm:px-7"
+                >
+                  <dt className="text-[17px] font-semibold text-ink">{term}</dt>
+                  <dd className="text-sm text-pretty text-ink-muted sm:col-start-1">{detail}</dd>
+                  <span
+                    aria-hidden
+                    className="hidden self-center border-b border-dashed border-ink/25 pt-5 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:block"
+                  />
+                </div>
+              ))}
+            </dl>
+          </Reveal>
         </div>
       </section>
 
       {/* --- 04 What you get for it ---------------------------------------------- */}
-      <section className="border-t border-line bg-surface/40">
+      <section className="border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="04">What the money buys</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            The same product, whatever you pay
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            There is no feature ladder here and no tier that withholds the compliance
-            controls.{" "}
-            <Link href="/solutions" className={INLINE_LINK}>
-              Every job on the Solutions page
-            </Link>{" "}
-            is available to every account, the calling-hours and do-not-call rules are
-            enforced on every dial for everybody, and the honest answer about being an AI is
-            not something a cheaper plan turns off. What changes with the arrangement is the
-            price of a minute, not what a minute does.
-          </p>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            A managed plan is the part that is a conversation — the monthly fee, the talk
-            time in it and the rate past it are agreed with you.{" "}
-            <Link href="/roi" className={INLINE_LINK}>
-              Bring your own numbers
-            </Link>{" "}
-            and we will tell you where we land against them.
-          </p>
+          <Reveal>
+            <Eyebrow index="04">What the money buys</Eyebrow>
+            <h2 className={H2}>The same product, whatever you pay</h2>
+          </Reveal>
+          <div className="mt-6 grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-10">
+            <p className="text-base text-pretty text-ink-muted">
+              There is no feature ladder here and no tier that withholds the compliance
+              controls.{" "}
+              <Link href="/solutions" className={INLINE_LINK}>
+                Every job on the Solutions page
+              </Link>{" "}
+              is available to every account, the calling-hours and do-not-call rules are
+              enforced on every dial for everybody, and the honest answer about being an AI is
+              not something a cheaper plan turns off. What changes with the arrangement is the
+              price of a minute, not what a minute does.
+            </p>
+            <p className="text-base text-pretty text-ink-muted">
+              A managed plan is the part that is a conversation — the monthly fee, the talk
+              time in it and the rate past it are agreed with you.{" "}
+              <Link href="/roi" className={INLINE_LINK}>
+                Bring your own numbers
+              </Link>{" "}
+              and we will tell you where we land against them.
+            </p>
+          </div>
+          <Link href="/roi" className={`${PILL_LINK} mt-8`}>
+            Compare it against hiring
+            <ArrowRight aria-hidden className="h-4 w-4" />
+          </Link>
         </div>
       </section>
 

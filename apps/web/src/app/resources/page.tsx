@@ -1,22 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { ArrowRight } from "lucide-react";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
 
+import { Band, Chapter, HOME } from "@/components/marketing/home/band";
 import {
-  CARD,
   CARD_LINK,
   ClosingCta,
-  Eyebrow,
   MarketingPage,
   NUDGE_ARROW,
-  PageIntro,
   PILL_LINK,
-  SECTION,
-  SHELL,
 } from "@/components/marketing/pageShell";
+import { LeadStatusSample, RedactedSample } from "@/components/marketing/resources/samples";
+import { JumpLinks, PageHero } from "@/components/marketing/why/pageHero";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 /**
@@ -110,7 +109,7 @@ const READING: readonly { href: string; title: string; body: string }[] = [
  * Each is a thing in the product. The two regulatory-adjacent entries deliberately describe
  * the PRODUCT's behaviour and route to the documents rather than paraphrasing a rule.
  */
-const GLOSSARY: readonly { term: string; detail: string }[] = [
+const GLOSSARY: readonly { term: string; detail: string; sample?: ReactNode }[] = [
   {
     term: "Agent",
     detail:
@@ -131,6 +130,7 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
       "How interested somebody turned out to be: new, contacted, interested, hot, won or " +
       "lost. A fixed set rather than free text, so two people reading the same list read " +
       "the same thing.",
+    sample: <LeadStatusSample />,
   },
   {
     term: "Campaign",
@@ -189,6 +189,7 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
       "What a transcript looks like by default: numbers, IDs and card details stripped " +
       "out. Reading the raw text takes a specific role and writes an audit entry naming " +
       "who read it.",
+    sample: <RedactedSample />,
   },
   {
     term: "Publishing",
@@ -267,91 +268,117 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
   },
 ];
 
+/** A glossary entry's anchor, so the index above the list can jump to it. */
+function termId(term: string): string {
+  return `term-${term
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}`;
+}
+
+const SECTIONS = [
+  { href: "#reading", label: "Where to start" },
+  { href: "#documents", label: "The documents" },
+  { href: "#glossary", label: "Glossary" },
+] as const;
+
 export default function ResourcesPage() {
   return (
     <MarketingPage>
-      <PageIntro
-        eyebrow="Resources"
+      <PageHero
+        label="Resources"
         title="Where to start, and what the words mean"
         lede="No case studies and no whitepapers — there is no client in production to write one about, and we would rather say that than invent one. What is here instead is a map of the site and a glossary."
+        nav={<JumpLinks links={SECTIONS} />}
       />
 
-      {/* --- 01 Where to start --------------------------------------------------- */}
-      <section id="reading" className="scroll-mt-20 border-t border-line">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="01">Where to start</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            Six pages, in the order they are useful
-          </h2>
-          <ul className="mt-10 grid gap-3 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
-            {READING.map(({ href, title, body }) => (
+      {/* --- Where to start ------------------------------------------------------ */}
+      <Chapter tone="app">
+        <Band id="reading" eyebrow="Where to start" title="Six pages, in the order they are useful">
+          <ol className={`${HOME.contentGap} grid gap-3 sm:grid-cols-2 lg:grid-cols-3`}>
+            {READING.map(({ href, title, body }, i) => (
               <li key={href}>
-                <Link
-                  href={href}
-                  className={CARD_LINK}
-                >
-                  <span className="flex items-center gap-2 text-[17px] font-semibold text-balance text-ink">
-                    {title}
-                    <ArrowRight
-                      aria-hidden
-                      className={`${NUDGE_ARROW} text-ink-faint`}
-                    />
+                <Link href={href} className={`${CARD_LINK} sm:p-6`}>
+                  <span className="font-mono text-sm font-semibold text-brand-strong">
+                    {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span className="mt-2 text-sm text-pretty text-ink-muted">{body}</span>
+                  {/* Inline rather than a flex row: in a flex row a title that wraps takes
+                      the full width and pushes the arrow to the far edge, away from the
+                      words it belongs to. */}
+                  <span className="mt-2 block text-lg font-semibold text-balance text-ink sm:text-xl">
+                    {title}
+                    <ArrowRight aria-hidden className={`${NUDGE_ARROW} ml-1.5 inline-block align-[-0.125em] text-ink-faint`} />
+                  </span>
+                  <span className="mt-2 text-base text-pretty text-ink-muted">{body}</span>
                 </Link>
               </li>
             ))}
-          </ul>
-        </div>
-      </section>
+          </ol>
+        </Band>
+      </Chapter>
 
-      {/* --- 02 The documents ---------------------------------------------------- */}
-      <section id="documents" className="scroll-mt-20 border-t border-line bg-surface/40">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="02">The documents</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            Everything we publish, in full
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Which of these applies to you depends on whether you buy Calevate, work for a
-            business that does, or received a call from one — each page says so at the top.
-          </p>
-          <ul className="mt-8 flex flex-wrap gap-2">
+      {/* --- The documents ------------------------------------------------------- */}
+      <Chapter tone="raised">
+        <Band
+          id="documents"
+          eyebrow="The documents"
+          title="Everything we publish, in full"
+          lede="Which of these applies to you depends on whether you buy Calevate, work for a business that does, or received a call from one — each page says so at the top."
+        >
+          <ul className={`${HOME.contentGap} grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
             {LEGAL_DOCUMENTS.map((doc) => (
               <li key={doc.slug}>
-                <Link
-                  href={`/legal/${doc.slug}`}
-                  className={PILL_LINK}
-                >
-                  {doc.shortTitle}
+                <Link href={`/legal/${doc.slug}`} className={CARD_LINK}>
+                  <span className="flex items-start justify-between gap-2 text-lg font-semibold text-ink">
+                    {doc.shortTitle}
+                    <ArrowRight aria-hidden className={`${NUDGE_ARROW} mt-1.5 text-ink-faint`} />
+                  </span>
+                  <span className="mt-1.5 text-sm text-pretty text-ink-muted">{doc.summary}</span>
                 </Link>
               </li>
             ))}
           </ul>
-        </div>
-      </section>
+        </Band>
+      </Chapter>
 
-      {/* --- 03 Glossary --------------------------------------------------------- */}
-      <section id="glossary" className="scroll-mt-20 border-t border-line">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="03">Glossary</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            The words we use, in plain language
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Every entry is a thing in the product — something you set up, a state a record
-            can be in, or a control you operate.
-          </p>
-          <dl className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2">
-            {GLOSSARY.map(({ term, detail }) => (
-              <div key={term} className={CARD}>
-                <dt className="text-[17px] font-semibold text-ink">{term}</dt>
-                <dd className="mt-2 text-sm text-pretty text-ink-muted">{detail}</dd>
+      {/* --- Glossary ------------------------------------------------------------ */}
+      <Chapter tone="app">
+        <Band
+          id="glossary"
+          eyebrow="Glossary"
+          title="The words we use, in plain language"
+          lede="Every entry is a thing in the product — something you set up, a state a record can be in, or a control you operate."
+        >
+          <nav aria-label="Glossary terms" className="mt-8">
+            <ul className="flex flex-wrap gap-2">
+              {GLOSSARY.map(({ term }) => (
+                <li key={term}>
+                  <a href={`#${termId(term)}`} className={PILL_LINK}>
+                    {term}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          {/* Each `<dt>` is followed directly by its `<dd>`: `marketingPages.test.tsx`
+              reads a definition as the dt's next sibling. */}
+          <dl className={`${HOME.contentGap} grid gap-x-12 md:grid-cols-2`}>
+            {GLOSSARY.map(({ term, detail, sample }) => (
+              <div
+                key={term}
+                id={termId(term)}
+                className="scroll-mt-24 border-t border-line py-6 sm:py-7"
+              >
+                <dt className="text-lg font-semibold text-ink sm:text-xl">{term}</dt>
+                <dd className={`mt-2 text-pretty text-ink-muted ${HOME.bodySm}`}>
+                  {detail}
+                  {sample}
+                </dd>
               </div>
             ))}
           </dl>
-        </div>
-      </section>
+        </Band>
+      </Chapter>
 
       <ClosingCta line="Still have a question this site does not answer?" />
     </MarketingPage>

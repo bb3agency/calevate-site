@@ -101,17 +101,9 @@ function bodyText(container: HTMLElement): string {
 }
 
 /**
- * The page's assertions, WITHOUT the section that quotes claims in order to refuse them.
- *
- * `/why-calevate` prints six sentences this company will not say — "Trusted by hundreds of
- * businesses", "Your data never leaves India", "Hear a sample call" — struck through, each
- * with the reason it is absent. That section is the most honest thing on the site and it
- * trips every ban written to catch the same sentences being ASSERTED, which is the classic
- * shape `legal.test.tsx::claimsOutsideDenial` exists for: a guard that cannot tell a claim
- * from its denial fires on the denial and gets deleted.
- *
- * So the bans run over the page MINUS `#refusals`, and the refusals section has its own
- * assertion below — it must still be there, and it must still be a refusal.
+ * The page's assertions. A `#refusals` section (text quoting claims in order to refuse
+ * them) is subtracted if a page carries one; none does today, so the bans run over the
+ * full text.
  */
 function assertedText(container: HTMLElement): string {
   const refusals = container.querySelector("#refusals");
@@ -204,33 +196,6 @@ describe("every marketing page", () => {
       expect(container.querySelector("video")).toBeNull();
     },
   );
-});
-
-/**
- * The refusals section is the page's argument, so it is pinned rather than merely allowed.
- *
- * `assertedText` above subtracts it from every ban, which is correct and is also exactly
- * how it could be hollowed out without anything failing: delete the section and the bans
- * pass, delete the strike-through and the page starts making the claims it was quoting.
- * Both are checked here.
- */
-describe("the why-calevate page's refusals", () => {
-  it("still refuses, in as many words", () => {
-    stubApi({});
-    const { container } = render(<WhyCalevatePage />);
-    const refusals = container.querySelector("#refusals");
-    expect(refusals, "the refusals section is gone").not.toBeNull();
-    const text = refusals?.textContent ?? "";
-    // Every quoted claim is framed as one this company does not make.
-    expect(text).toMatch(/you will not find on this website/i);
-    // And the two that are easiest to quietly re-assert are named with their reason.
-    expect(text).toMatch(/no client in production/i);
-    expect(text).toMatch(/not true of every leg of a call/i);
-    // The quoted claims are struck through, so a screenshot cannot be read as a boast.
-    expect(refusals?.querySelectorAll(".line-through").length).toBeGreaterThan(
-      0,
-    );
-  });
 });
 
 /**

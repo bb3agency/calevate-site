@@ -1,19 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
-import {
-  CalendarCheck,
-  Check,
-  Database,
-  Filter,
-  PhoneIncoming,
-  PhoneOutgoing,
-  Webhook,
-  X,
-} from "lucide-react";
+import { Check, X } from "lucide-react";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
 
+import { HOME } from "@/components/marketing/home/band";
+import { MockStage } from "@/components/marketing/home/mockups/stage";
+import { Reveal } from "@/components/marketing/motion";
 import {
   CARD,
   ClosingCta,
@@ -22,9 +17,16 @@ import {
   MarketingPage,
   PageIntro,
   PILL_LINK,
-  SECTION,
   SHELL,
 } from "@/components/marketing/pageShell";
+import {
+  AnsweringMock,
+  AnswersMock,
+  AppointmentsMock,
+  DeliveryMock,
+  FollowUpMock,
+  QualificationMock,
+} from "@/components/marketing/solutions/solutionMockups";
 
 /**
  * `/solutions` — the six jobs an agent does, at the length the homepage deliberately
@@ -58,6 +60,13 @@ import {
  *    for an upload button that does not exist (`apps/api/kb/routes.py:44` refuses `url`
  *    and `file`; there is no file input anywhere in this console).
  *
+ * ## Each job is SHOWN on the screen where it happens (1 Oct 2026)
+ *
+ * The approved homepage set the pattern: a section shows the product rather than
+ * describing it. So every job carries a drawn slice of the console doing it
+ * (`components/marketing/solutions/solutionMockups.tsx`: real labels, illustrative data,
+ * captioned as an illustration), and the three lists sit around it unchanged.
+ *
  * ## DEPTH IS NOT VOLUME — the 9 Sep 2026 cut
  *
  * "Where the detail lives" was read as "where the prose lives", and each bullet had grown a
@@ -81,10 +90,13 @@ export const metadata: Metadata = publicPageMetadata({
 
 interface Solution {
   readonly id: string;
-  readonly icon: typeof PhoneIncoming;
   readonly kicker: string;
   readonly title: string;
   readonly lede: string;
+  /** The console screen where the job happens (`components/marketing/solutions`). */
+  readonly figure: ReactNode;
+  /** The figure's accessible name: it is exposed as one image. */
+  readonly figureLabel: string;
   /** What actually happens, in the owner's words. */
   readonly does: readonly string[];
   /** What the client sets up, so the buyer knows the work on their side. */
@@ -96,7 +108,9 @@ interface Solution {
 const SOLUTIONS: readonly Solution[] = [
   {
     id: "answering",
-    icon: PhoneIncoming,
+    figure: <AnsweringMock />,
+    figureLabel:
+      "Illustration of the call log across a whole day, after-hours calls marked, beside the agent’s opening-notice switches and its handover switch.",
     kicker: "Answering",
     title: "Nobody rings out, whatever time it is",
     lede:
@@ -146,7 +160,9 @@ const SOLUTIONS: readonly Solution[] = [
   },
   {
     id: "follow-up",
-    icon: PhoneOutgoing,
+    figure: <FollowUpMock />,
+    figureLabel:
+      "Illustration of a pasted contact list, a web enquiry becoming a first call, and a campaign working through its list.",
     kicker: "Follow-up",
     title: "Every enquiry gets a first attempt",
     lede:
@@ -196,7 +212,9 @@ const SOLUTIONS: readonly Solution[] = [
   },
   {
     id: "qualification",
-    icon: Filter,
+    figure: <QualificationMock />,
+    figureLabel:
+      "Illustration of the leads list by stage with a property office’s own columns, the funnel from calls to customers, and a hot-lead alert.",
     kicker: "Qualification",
     title: "Your team talks to qualified prospects first",
     lede:
@@ -223,7 +241,9 @@ const SOLUTIONS: readonly Solution[] = [
   },
   {
     id: "appointments",
-    icon: CalendarCheck,
+    figure: <AppointmentsMock />,
+    figureLabel:
+      "Illustration of the call-backs list and a calendar day with the appointment the agent added.",
     kicker: "Appointments",
     title: "Callers leave the call with a time",
     lede:
@@ -257,7 +277,9 @@ const SOLUTIONS: readonly Solution[] = [
   },
   {
     id: "delivery",
-    icon: Webhook,
+    figure: <DeliveryMock />,
+    figureLabel:
+      "Illustration of a signed webhook endpoint, a Google Sheet connection and the delivery log.",
     kicker: "Your own tools",
     title: "Your leads don’t get trapped inside Calevate",
     lede:
@@ -285,7 +307,9 @@ const SOLUTIONS: readonly Solution[] = [
   },
   {
     id: "answers",
-    icon: Database,
+    figure: <AnswersMock />,
+    figureLabel:
+      "Illustration of the knowledge screen: a fact submitted for review, facts in their review states, and an uploaded price list waiting to be confirmed.",
     kicker: "Your answers",
     title: "It answers from what you approved, and nothing else",
     lede: "The question every owner asks second is “what if it says the wrong thing”.",
@@ -316,6 +340,13 @@ const SOLUTIONS: readonly Solution[] = [
   },
 ];
 
+/**
+ * One job: the claim and what happens beside it, the screen where it happens under them
+ * at full width (a mockup squeezed into half a row reads as texture), then the two lists
+ * the buyer with a pen reads. The `never` list stays on the page at full strength — it
+ * carries the 9pm window, the do-not-call scrub and the AI-disclosure sentence, and
+ * UX-DOCTRINE §3 forbids putting a compliance sentence behind a disclosure.
+ */
 function SolutionSection({
   solution,
   index,
@@ -323,88 +354,73 @@ function SolutionSection({
   solution: Solution;
   index: number;
 }) {
-  const Icon = solution.icon;
   return (
     <section
       id={solution.id}
-      className={
-        "scroll-mt-20 border-t border-line " +
-        (index % 2 === 1 ? "bg-surface/40" : "")
-      }
+      className={"scroll-mt-20 border-t border-line " + (index % 2 === 1 ? "bg-surface" : "")}
     >
-      <div className={`${SHELL} ${SECTION}`}>
-        <div className="flex items-start gap-4">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-            <Icon aria-hidden className="h-5 w-5" />
-          </span>
-          <div className="min-w-0">
-            <Eyebrow index={String(index + 1).padStart(2, "0")}>
-              {solution.kicker}
-            </Eyebrow>
-            <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
+      <div className={`${SHELL} ${HOME.chapter}`}>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-16">
+          <Reveal>
+            <Eyebrow index={String(index + 1).padStart(2, "0")}>{solution.kicker}</Eyebrow>
+            <h2 className="mt-5 max-w-3xl text-[1.875rem] leading-[1.12] font-semibold tracking-tight text-balance text-ink sm:text-[2.5rem] sm:leading-[1.08]">
               {solution.title}
             </h2>
-            <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+            <p className="mt-5 max-w-xl text-lg text-pretty text-ink-muted sm:text-xl">
               {solution.lede}
             </p>
-          </div>
-        </div>
-
-        <div className="mt-10 grid items-start gap-4 lg:grid-cols-3">
-          <div className={`${CARD} lg:col-span-2`}>
-            <h3 className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
-              What happens
-            </h3>
+          </Reveal>
+          <Reveal delay={0.06} className="lg:pt-2">
+            <h3 className="text-base font-semibold text-ink">What happens</h3>
             <ul className="mt-4 space-y-3">
               {solution.does.map((line) => (
                 <li
                   key={line}
-                  className="flex items-start gap-2.5 text-[15px] text-pretty text-ink-muted"
+                  className="flex items-start gap-2.5 text-base text-pretty text-ink-muted"
                 >
-                  <span
+                  <Check
                     aria-hidden
-                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
-                  >
-                    <Check className="h-3 w-3" />
-                  </span>
+                    className="mt-1 h-4 w-4 shrink-0 text-brand-strong"
+                    strokeWidth={2.5}
+                  />
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </Reveal>
+        </div>
+
+        <MockStage label={solution.figureLabel} className="mt-10 sm:mt-14">
+          {solution.figure}
+        </MockStage>
+        <p className="mt-4 text-sm text-pretty text-ink-muted">
+          An illustration of the product, not a recording, a real customer or a measurement.
+        </p>
+
+        <div className="mt-10 grid gap-4 sm:mt-12 md:grid-cols-2">
+          <div className={CARD}>
+            <h3 className="text-base font-semibold text-ink">What you set up</h3>
+            <ul className="mt-3 space-y-2.5">
+              {solution.yours.map((line) => (
+                <li key={line} className="text-[15px] text-pretty text-ink-muted">
                   {line}
                 </li>
               ))}
             </ul>
           </div>
-
-          <div className="grid gap-4">
-            <div className={CARD}>
-              <h3 className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
-                What you set up
-              </h3>
-              <ul className="mt-3 space-y-2">
-                {solution.yours.map((line) => (
-                  <li key={line} className="text-sm text-pretty text-ink-muted">
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className={CARD}>
-              <h3 className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
-                What it does not do
-              </h3>
-              <ul className="mt-3 space-y-2.5">
-                {solution.never.map((line) => (
-                  <li
-                    key={line}
-                    className="flex items-start gap-2.5 text-sm text-pretty text-ink-muted"
-                  >
-                    <X
-                      aria-hidden
-                      className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint"
-                    />
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            </div>
+          <div className={CARD}>
+            <h3 className="text-base font-semibold text-ink">What it does not do</h3>
+            <ul className="mt-3 space-y-2.5">
+              {solution.never.map((line) => (
+                <li
+                  key={line}
+                  className="flex items-start gap-2.5 text-[15px] text-pretty text-ink-muted"
+                >
+                  <X aria-hidden className="mt-1 h-4 w-4 shrink-0 text-ink-muted" />
+                  {line}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>
@@ -424,10 +440,7 @@ export default function SolutionsPage() {
           <ul className="flex flex-wrap gap-2">
             {SOLUTIONS.map((solution) => (
               <li key={solution.id}>
-                <Link
-                  href={`#${solution.id}`}
-                  className={PILL_LINK}
-                >
+                <Link href={`#${solution.id}`} className={PILL_LINK}>
                   {solution.kicker}
                 </Link>
               </li>
@@ -441,16 +454,16 @@ export default function SolutionsPage() {
       ))}
 
       <section className="border-t border-line">
-        <div className={`${SHELL} ${SECTION}`}>
+        <div className={`${SHELL} ${HOME.chapter}`}>
           <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
             The goal is not to automate your business
           </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+          <p className="mt-4 max-w-2xl text-lg text-pretty text-ink-muted">
             It is to automate the first layer of a call — the picking up, the
             asking, the writing down, the chasing. The conversation where
             somebody decides is still your salesperson&apos;s.
           </p>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+          <p className="mt-4 max-w-2xl text-lg text-pretty text-ink-muted">
             See{" "}
             <Link href="/why-calevate" className={INLINE_LINK}>
               why Calevate

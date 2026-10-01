@@ -51,8 +51,11 @@ export function HowItWorks() {
           {STEPS.map(({ step, title, body, figure }) => (
             <li
               key={step}
-              className="flex flex-col overflow-hidden rounded-2xl border border-line bg-app shadow-card"
+              className="flex flex-col overflow-hidden rounded-2xl border border-line bg-app shadow-card lg:row-span-2 lg:grid lg:grid-cols-1 lg:grid-rows-subgrid lg:gap-0"
             >
+              {/* Subgrid at lg: the three figures share one row height and the three captions
+                  another, so every step's number and title start on the same line however tall
+                  its mockup is. */}
               <MockStage className="flex items-center justify-center bg-[radial-gradient(circle_at_50%_0%,var(--brand-soft),transparent_70%)] p-4 sm:p-8 lg:min-h-80">
                 <div className="w-full max-w-xs">{figure}</div>
               </MockStage>

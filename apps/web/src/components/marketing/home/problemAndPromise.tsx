@@ -84,7 +84,7 @@ export function ProblemAndPromise() {
       >
         {/* One reveal for the row, not one per item: three things arriving one after the
             other on scroll is a queue, not an entrance. */}
-        <Reveal as="ul" className={`${HOME.contentGap} grid gap-px overflow-hidden rounded-2xl border border-line bg-line md:grid-cols-3`}>
+        <Reveal as="ul" className={`${HOME.contentGap} grid gap-px overflow-hidden rounded-2xl border border-line bg-line lg:grid-cols-3`}>
           {PROBLEMS.map(({ title, body }) => (
             <li key={title} className="bg-surface p-5 sm:p-8">
               <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h3>

@@ -1,68 +1,54 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
-import {
-  Clock3,
-  Filter,
-  Handshake,
-  Infinity as InfinityIcon,
-  ListChecks,
-  PhoneOutgoing,
-  ShieldCheck,
-  TrendingDown,
-  X,
-} from "lucide-react";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
 
+import { Band, Chapter, HOME } from "@/components/marketing/home/band";
+import { AnsweringVignette, AnswersVignette } from "@/components/marketing/home/mockups/capabilityVignettes";
+import { FollowUpMini, QualifiedMini } from "@/components/marketing/home/mockups/featureMockups";
+import { MockStage } from "@/components/marketing/home/mockups/stage";
+import { FieldListMock } from "@/components/marketing/home/mockups/stepMockups";
+import { ClosingCta, INLINE_LINK, MarketingPage } from "@/components/marketing/pageShell";
 import {
-  CARD,
-  ClosingCta,
-  Eyebrow,
-  INLINE_LINK,
-  MarketingPage,
-  PageIntro,
-  SECTION,
-  SHELL,
-} from "@/components/marketing/pageShell";
+  BusyHourMock,
+  DialRulesMock,
+  RecordedVsSortedMock,
+  WhyHeroMock,
+} from "@/components/marketing/why/mockups";
+import { PageHero } from "@/components/marketing/why/pageHero";
 
 /**
  * `/why-calevate` — the case, including the parts that argue against us.
  *
- * ## Three arguments, in the order a buyer actually raises them
+ * ## Two arguments, in the order a buyer actually raises them
  *
  * 1. **Why not just hire somebody?** The answer is not "we are cheaper" — the calculator
  *    on `/roi` is honest enough to say when we are not. It is the five properties a
  *    headcount cannot have at any salary.
  * 2. **Does this replace my staff?** No, and the section says why in the founder's own
  *    framing: it is the layer that makes a salesperson more productive, not a salesperson.
- * 3. **Why should I believe any of this?** Because of what is NOT on this website. That
- *    last section is the one that could not be written by a competitor who does not keep
- *    the same rule, and it is the most persuasive thing here precisely because it costs us
- *    something.
- *
- * ## The refusals section is load-bearing and must not be softened
- *
- * Every item in it is a real constraint this repository operates under, and each is
- * checked by something: `publicLanding.test.tsx` bans the price, count, uptime, accuracy
- * and residency shapes on the homepage; D-36 records Telugu extraction quality as
- * UNMEASURED until task #87 scores it; `docs/POSITIONING-QUALIFICATION-LAYER.md` names
- * each conversion statistic that was refused for want of a primary source (hard rule 11).
- * If any of those stops being true, this section changes in the same commit — a page that
- * boasts about a discipline it has quietly dropped is worse than one that never claimed it.
  */
 export const metadata: Metadata = publicPageMetadata({
   path: "/why-calevate",
   title: "Why Calevate — Calevate",
   description:
-    "What a headcount comparison cannot price, why an AI layer does not replace your " +
-    "sales team, and the claims this company will not make.",
+    "What a headcount comparison cannot price, and why an AI layer does not replace " +
+    "your sales team.",
 });
 
-/** The five properties a headcount cannot have. Each is a behaviour, not an adjective. */
-const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = [
+/**
+ * The five properties a headcount cannot have. Each is a behaviour, not an adjective, and
+ * each card's picture is the console screen where that behaviour shows. `span` varies so the
+ * grid reads as five different things rather than one card five times. Every cell names its
+ * span at BOTH grid breakpoints (two columns from `sm`, six from `lg`), so no cell depends on
+ * one breakpoint's class winning over another's in the stylesheet.
+ */
+const BEYOND: readonly { title: string; body: string; figure: ReactNode; span: string }[] = [
   {
-    icon: Clock3,
+    figure: <AnsweringVignette />,
+    span: "col-span-1 sm:col-span-1 lg:col-span-3",
     title: "Your phone doesn’t clock out",
     body:
       "Evenings, Sundays and festival days are answered at the same rate as a Tuesday " +
@@ -71,7 +57,8 @@ const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = 
       "somebody on the phone even on a quiet night.",
   },
   {
-    icon: InfinityIcon,
+    figure: <BusyHourMock />,
+    span: "col-span-1 sm:col-span-1 lg:col-span-3",
     title: "A busy hour is not a queue",
     body:
       "Fifty callers at 11am are fifty answered calls rather than fifty people waiting " +
@@ -79,7 +66,8 @@ const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = 
       "carrying that headcount through every quiet week as well.",
   },
   {
-    icon: TrendingDown,
+    figure: <AnswersVignette />,
+    span: "col-span-1 sm:col-span-1 lg:col-span-2",
     title: "Nothing to train, and nothing resigns",
     body:
       "No six-week ramp, no re-hiring in four months, no re-teaching the price list to " +
@@ -87,7 +75,8 @@ const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = 
       "later.",
   },
   {
-    icon: ListChecks,
+    figure: <FieldListMock />,
+    span: "col-span-1 sm:col-span-1 lg:col-span-2",
     title: "The same questions, every single call",
     body:
       "The things you said you needed to know get asked whether it is the third call of " +
@@ -95,7 +84,8 @@ const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = 
       "is not a virtue you can ask a tired person for at 7pm.",
   },
   {
-    icon: ShieldCheck,
+    figure: <DialRulesMock />,
+    span: "col-span-1 sm:col-span-2 lg:col-span-2",
     title: "The rules on every dial",
     body:
       "Calling hours, do-not-call scrubbing and the honest answer about being an AI are " +
@@ -104,10 +94,13 @@ const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = 
   },
 ];
 
-/** The qualification argument — the same three shipped surfaces the homepage names. */
-const QUALIFICATION: readonly { icon: typeof Filter; title: string; body: string }[] = [
+/**
+ * The qualification argument — the same three shipped surfaces the homepage names, each
+ * drawn as the step it is: the first call, the row it leaves, the sorted list.
+ */
+const QUALIFICATION: readonly { title: string; body: string; figure: ReactNode }[] = [
   {
-    icon: PhoneOutgoing,
+    figure: <FollowUpMini />,
     title: "Everyone on the list gets the first call",
     body:
       "All of them, in the order they came in. A web enquiry becomes a call without " +
@@ -115,14 +108,14 @@ const QUALIFICATION: readonly { icon: typeof Filter; title: string; body: string
       "timed on every one.",
   },
   {
-    icon: Filter,
+    figure: <RecordedVsSortedMock />,
     title: "They come back sorted, not just recorded",
     body:
       "Each one lands as a row, marked contacted, interested or hot. A hot lead alerts " +
       "you while they are still thinking about it.",
   },
   {
-    icon: Handshake,
+    figure: <QualifiedMini />,
     title: "Your people open the day on a shortlist",
     body:
       "Your team talks to people who already said yes. Nobody spends the morning finding " +
@@ -130,172 +123,100 @@ const QUALIFICATION: readonly { icon: typeof Filter; title: string; body: string
   },
 ];
 
-/**
- * What is deliberately absent from this website, and why.
- *
- * Each `why` names the constraint rather than the virtue — a reason a reader can check is
- * worth more than a promise about our character.
- */
-const REFUSALS: readonly { claim: string; why: string }[] = [
-  {
-    claim: "“Trusted by hundreds of businesses”",
-    why:
-      "There is no client in production yet. A customer count, a logo wall, a testimonial " +
-      "and a case study would all be fabrications, so this site has none of them and will " +
-      "not have one until there is somebody real to name.",
-  },
-  {
-    claim: "“Industry-leading uptime and accuracy”",
-    why:
-      "Nothing here measures either. The console itself refuses to print a latency figure " +
-      "because the column was dropped, and how well the agent understands Telugu is " +
-      "recorded internally as unmeasured until somebody scores it properly. A number we " +
-      "cannot show you the working for is worth nothing.",
-  },
-  {
-    claim: "“₹X per month, cancel any time”",
-    why:
-      "Commercial terms are agreed with each client, so a fixed figure here would be a " +
-      "quote nobody can honour. What you can have instead is the shape of the bill and a " +
-      "calculator you drive with your own numbers.",
-  },
-  {
-    claim: "“Calling within a minute makes you N× more likely to qualify a lead”",
-    why:
-      "That family of statistics traces back to studies we could not read. Repeating a " +
-      "number because everybody repeats it is how a false claim gets into a contract, so " +
-      "the argument here is made with arithmetic you supply the inputs for.",
-  },
-  {
-    claim: "“Your data never leaves India”",
-    why:
-      "It is not true of every leg of a call, and the page that explains where each part " +
-      "runs says so in full rather than in a privacy policy nobody reads. A residency " +
-      "claim is the first thing a buyer in this market asks for, which is exactly why it " +
-      "is the one we will not stretch.",
-  },
-  {
-    claim: "“Hear a sample call”",
-    why:
-      "There is no recorded sample call. The conversation on the homepage is a written " +
-      "illustration and is labelled as one — a button playing audio we do not have would " +
-      "be the same defect as a page linking to a route nobody built.",
-  },
-];
-
 export default function WhyCalevatePage() {
   return (
     <MarketingPage>
-      <PageIntro
-        eyebrow="Why Calevate"
+      <PageHero
+        label="Why Calevate"
         title="The case, including the parts that argue against us"
         lede="Three questions decide this: why not just hire somebody, does it replace my staff, and why should I believe a word of it. The third one is answered by what this website refuses to say."
+        product={
+          <MockStage label="Illustration of one call: the agent's first line says it is an AI assistant and that the call is recorded, the details the caller gave land as a lead, and a running campaign shows the calling-hours and do-not-call rules applied.">
+            <WhyHeroMock />
+          </MockStage>
+        }
       />
 
-      {/* --- 01 Beyond headcount ------------------------------------------------ */}
-      <section id="beyond-headcount" className="scroll-mt-20 border-t border-line">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="01">Beyond headcount</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            Five things a salary cannot buy
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            The cost comparison is on{" "}
-            <Link href="/roi" className={INLINE_LINK}>
-              the ROI page
-            </Link>
-            , and it is built to be believed rather than to win — at low volume it will tell
-            you the running costs come out close.
-          </p>
-          <div className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
-            {BEYOND.map(({ icon: Icon, title, body }) => (
-              <section key={title} className={CARD}>
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                  <Icon aria-hidden className="h-5 w-5" />
-                </span>
-                <h3 className="mt-4 text-[17px] font-semibold text-balance text-ink">{title}</h3>
-                <p className="mt-2 text-sm text-pretty text-ink-muted">{body}</p>
+      {/* --- Beyond headcount ---------------------------------------------------- */}
+      <Chapter tone="app">
+        <Band
+          id="beyond-headcount"
+          eyebrow="Beyond headcount"
+          title="Five things a salary cannot buy"
+          lede={
+            <>
+              The cost comparison is on{" "}
+              <Link href="/roi" className={INLINE_LINK}>
+                the ROI page
+              </Link>
+              , and it is built to be believed rather than to win — at low volume it will
+              tell you the running costs come out close.
+            </>
+          }
+        >
+          <div className={`${HOME.contentGap} grid grid-cols-1 ${HOME.itemGap} sm:grid-cols-2 lg:grid-cols-6`}>
+            {BEYOND.map(({ title, body, figure, span }) => (
+              <section
+                key={title}
+                className={`flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card ${HOME.panelLift} ${span}`}
+              >
+                <div className="p-5 sm:p-7">
+                  <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h3>
+                  <p className={`mt-2 max-w-xl text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
+                </div>
+                {/* The ground takes the rest of the cell and centres its screen, so a short screen
+                    in a tall row leaves tinted ground rather than a white gap under the copy. */}
+                <MockStage className="flex flex-1 flex-col justify-center border-t border-line bg-app/70 p-4 sm:p-6">
+                  {figure}
+                </MockStage>
               </section>
             ))}
           </div>
-        </div>
-      </section>
+          <p className={`mt-6 text-ink-muted ${HOME.bodySm}`}>
+            The screens are illustrations, not a real customer or a measurement.
+          </p>
+        </Band>
+      </Chapter>
 
-      {/* --- 02 Not a replacement ----------------------------------------------- */}
-      <section id="your-team" className="scroll-mt-20 border-t border-line bg-surface/40">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="02">Your team</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            Calevate is not your salesperson. It is the layer that makes your salesperson
-            more productive.
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Sales organisations that can afford it already split this job in two: one person
-            works out who is worth talking to, another has the conversation. Calevate is the
-            first half of that split, which is the half nobody enjoys and the half that
-            scales badly with people.
-          </p>
-          <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
-            {QUALIFICATION.map(({ icon: Icon, title, body }) => (
-              <section key={title} className={CARD}>
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                  <Icon aria-hidden className="h-5 w-5" />
-                </span>
-                <h3 className="mt-5 text-[17px] font-semibold text-ink">{title}</h3>
-                <p className="mt-1.5 text-sm text-pretty text-ink-muted">{body}</p>
-              </section>
+      {/* --- Not a replacement --------------------------------------------------- */}
+      <Chapter tone="raised">
+        <Band
+          id="your-team"
+          eyebrow="Your team"
+          title="Calevate is not your salesperson. It is the layer that makes your salesperson more productive."
+          lede="Sales organisations that can afford it already split this job in two: one person works out who is worth talking to, another has the conversation. Calevate is the first half of that split, which is the half nobody enjoys and the half that scales badly with people."
+        >
+          <ol className={`${HOME.contentGap} grid grid-cols-1 ${HOME.itemGap} lg:grid-cols-3`}>
+            {QUALIFICATION.map(({ title, body, figure }, i) => (
+              <li
+                key={title}
+                // Each item spans two rows of the list's grid and shares them (subgrid), so
+                // the three screens get one height per row and the numbered copy beneath
+                // starts on one line instead of wherever its own screen happened to end.
+                className="row-span-2 grid min-w-0 grid-cols-1 grid-rows-subgrid gap-0 overflow-hidden rounded-2xl border border-line bg-app/60 shadow-card"
+              >
+                <MockStage className="flex flex-col justify-center border-b border-line p-4 sm:p-6">
+                  {figure}
+                </MockStage>
+                <div className="p-5 sm:p-7">
+                  <span className="font-mono text-sm font-semibold text-brand-strong">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <h3 className={`mt-1.5 ${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h3>
+                  <p className={`mt-2 text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
+                </div>
+              </li>
             ))}
-          </div>
-          <p className="mt-8 max-w-2xl text-base text-pretty text-ink">
+          </ol>
+          <p className={`mt-10 max-w-3xl font-semibold text-pretty text-ink ${HOME.body}`}>
             This is not your team replaced. It is the part of their day that was never
             selling.
           </p>
-          <p className="mt-4 max-w-2xl text-sm text-ink-faint">
+          <p className={`mt-3 text-ink-muted ${HOME.bodySm}`}>
             No conversion statistic appears anywhere on this site.
           </p>
-        </div>
-      </section>
-
-      {/* --- 03 What we will not claim ------------------------------------------ */}
-      <section id="refusals" className="scroll-mt-20 border-t border-line">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="03">What we will not claim</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl lg:text-4xl">
-            Six sentences you will not find on this website
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Every one of them is standard in this category, and every one of them is
-            something we cannot stand behind today. They are absent by rule rather than by
-            oversight: the site is tested for their absence.
-          </p>
-          <dl className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-2">
-            {REFUSALS.map(({ claim, why }) => (
-              <div key={claim} className={CARD}>
-                <dt className="flex items-start gap-2.5 text-[17px] font-semibold text-ink">
-                  <X aria-hidden className="mt-1 h-4 w-4 shrink-0 text-ink-faint" />
-                  <span className="line-through decoration-ink-faint/60">{claim}</span>
-                </dt>
-                <dd className="mt-2 text-sm text-pretty text-ink-muted">{why}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-8 max-w-2xl text-base text-pretty text-ink-muted">
-            What replaces them is narrower and checkable:{" "}
-            <Link href="/solutions" className={INLINE_LINK}>
-              what the product does
-            </Link>
-            ,{" "}
-            <Link href="/security" className={INLINE_LINK}>
-              where your customers’ data goes
-            </Link>{" "}
-            and{" "}
-            <Link href="/roi" className={INLINE_LINK}>
-              arithmetic you drive yourself
-            </Link>
-            .
-          </p>
-        </div>
-      </section>
+        </Band>
+      </Chapter>
 
       <ClosingCta line="Judge it on the parts you can check" />
     </MarketingPage>
