@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Metric } from "@/components/console/metric";
 import { Panel } from "@/components/console/panel";
 import {
+  Disclosure,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
@@ -20,6 +21,7 @@ import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
 import { useUsage, useWriteAccess } from "@/lib/api/hooks";
+import { formatBillingMonth } from "@/lib/billingMonth";
 import type { Session } from "@/lib/api/client";
 
 import { SpendPanel } from "./SpendPanel";
@@ -93,7 +95,7 @@ export function UsageTab({
   return (
     <div className="space-y-5">
       <p className="text-sm text-ink-muted">
-        {data ? `Billing month ${data.month} (Indian Standard Time).` : "This month's usage."}
+        {data ? `${formatBillingMonth(data.month)} so far, in Indian Standard Time.` : "This month's usage."}
       </p>
 
       {usage.error && <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />}
@@ -182,7 +184,13 @@ export function UsageTab({
             />
           </div>
 
-          <Panel title="This month">
+          {/* The breakdown behind the four figures above, closed: the closed state states the
+              total, and the rows are the working (UX-DOCTRINE §3 — a disclosure carries the
+              fact, the click buys the detail). */}
+          <Disclosure
+            title="This month's charges"
+            subtitle={`Total so far ${formatINR(data.month_charges_inr)}`}
+          >
             <dl className="space-y-2 text-sm">
               <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
               <Row
@@ -275,7 +283,7 @@ export function UsageTab({
               Usage appears a couple of minutes after each call ends, once the recording
               and summary have been processed.
             </p>
-          </Panel>
+          </Disclosure>
         </>
       )}
 
@@ -283,20 +291,21 @@ export function UsageTab({
           this tab that can look backwards — `GET /v1/usage` answers for the OPEN month
           only, and driving both from one picker would silently show a past month's
           breakdown under this month's totals. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-        <p className="text-sm text-ink-muted">
-          Every rupee of a month&rsquo;s calling charge, against the agent and the call
-          that produced it.
-        </p>
-        <input
-          type="month"
-          value={month}
-          onChange={(event) => onMonthChange(event.target.value)}
-          className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
-          aria-label="Billing month for the breakdown"
-        />
-      </div>
-      <SpendPanel session={session} slug={slug} month={month} />
+      <Disclosure
+        title="By agent and by call"
+        subtitle="Every rupee of a month’s calling charge, against the agent and the call that produced it."
+      >
+        <div className="space-y-5">
+          <input
+            type="month"
+            value={month}
+            onChange={(event) => onMonthChange(event.target.value)}
+            className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink touch:min-h-11"
+            aria-label="Billing month for the breakdown"
+          />
+          <SpendPanel session={session} slug={slug} month={month} />
+        </div>
+      </Disclosure>
 
       {/* Its own query and its own permission, so it is not hidden by a failed usage read:
           the limit is the control an owner reaches for when spend surprises them, and that

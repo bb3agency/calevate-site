@@ -76,7 +76,7 @@ export function LaunchGate({
   )?.rule;
 
   /** Where a client goes to clear a rule, for the rules whose fix lives on another screen. */
-  const destination = (rule: string): ChecklistItem["link"] => {
+  const destination = (rule: string): { href: string; label: string } | undefined => {
     const at = (path: string) => href(`/c/${session.orgSlug}${path}`);
     if (rule === "no_credits") return { href: at("/billing?tab=credits"), label: "Add calling credit" };
     if (rule === "spend_cap")
@@ -94,13 +94,16 @@ export function LaunchGate({
 
   const items: ChecklistItem[] = blockers.map((blocker) => {
     const note = lookup(BLOCKER_COPY, blocker.rule);
+    const to = destination(blocker.rule);
     return {
       id: blocker.rule,
       label: note?.text ?? blocker.reason,
       // A rule we chase is a wait, not a task; the badge says whose desk it is on.
       state: note?.owner === "calevate" ? "waiting" : "todo",
+      // Whose desk it is on, under the sentence; the way to the fix is the row's action,
+      // which `Checklist` drops below long sentences rather than squeezing them.
       detail: note?.owner ? OWNER_BADGE[note.owner] : undefined,
-      link: destination(blocker.rule),
+      link: to,
     };
   });
 

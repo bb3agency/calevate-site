@@ -76,7 +76,7 @@ export function NumberField({
   };
 
   return (
-    <section aria-label="Check or add numbers" className="space-y-3">
+    <section aria-label="Check or add numbers" className="max-w-xl space-y-3">
       <div>
         <div className="flex items-center gap-1.5">
           <label htmlFor={fieldId} className="text-[13px] font-medium text-ink">

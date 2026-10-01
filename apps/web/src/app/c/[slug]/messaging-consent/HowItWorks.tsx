@@ -20,7 +20,7 @@ export function HowItWorks() {
       <h2 id="consent-rules-heading" className="text-[15px] font-semibold text-ink">
         How this record works
       </h2>
-      <ul className="mt-3 space-y-2.5 text-[13px] leading-relaxed text-ink-muted">
+      <ul className="mt-3 max-w-3xl space-y-2.5 text-[13px] leading-relaxed text-ink-muted">
         <Rule
           title={`An opt-in lasts ${CONSENT_VALIDITY_DAYS} days.`}
         >

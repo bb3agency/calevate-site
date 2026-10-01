@@ -66,7 +66,6 @@ const AWAITING_A_DECISION = [
   "interior/skeleton-swap",
   "interior/sticky-header",
   "interior/streaming-text",
-  "interior/task-steps",
   "interior/tree-view",
   "interior/wizard-steps",
 ];

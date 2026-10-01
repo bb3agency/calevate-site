@@ -1,6 +1,5 @@
 "use client";
 
-import { SettingRow } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton, ToggleSwitch } from "@/components/ui";
 import { type Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -12,7 +11,7 @@ import {
 const LABEL = "Only call people who have opted in";
 
 /**
- * Whether this account dials a number with no opt-in on file — one setting, one row.
+ * Whether this account dials a number with no opt-in on file: one setting, one switch.
  *
  * The two sentences under the row are what keep the switch from reading as permission,
  * so both stay on screen in BOTH positions and never move behind an ⓘ (UX-DOCTRINE §8.7):
@@ -30,20 +29,17 @@ export function ConsentPosture({ session }: { session: Session }) {
       {policy.error != null && <ProblemNotice error={policy.error} />}
       {enabled !== undefined && (
         <>
-          <SettingRow
+          {/* The whole label is the switch's target, not a bare 20px track: a setting row
+              whose control is a lone switch would be too small a target on a phone. */}
+          <ToggleSwitch
             label={LABEL}
             hint="Checked before every outbound call, campaigns included."
-            control={
-              <ToggleSwitch
-                label={<span className="sr-only">{LABEL}</span>}
-                checked={enabled}
-                // Disabled while the write is in flight too: a switch that moves back under
-                // the reader's finger when the request fails is worse than one that waits.
-                disabled={!write.allowed || set.isPending}
-                onChange={(next) => set.mutate(next)}
-                className="inline-flex"
-              />
-            }
+            checked={enabled}
+            // Disabled while the write is in flight too: a switch that moves back under
+            // the reader's finger when the request fails is worse than one that waits.
+            disabled={!write.allowed || set.isPending}
+            onChange={(next) => set.mutate(next)}
+            className="py-3.5"
           />
           <div className="space-y-1 pb-2">
             <p className="text-[13px] text-ink-muted">

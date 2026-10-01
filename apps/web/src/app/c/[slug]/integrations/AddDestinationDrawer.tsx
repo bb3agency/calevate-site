@@ -10,7 +10,7 @@ import type { Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
 import type { EndpointOptions } from "@/lib/api/integrations";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "../campaigns/choices";
+import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { CopyRow } from "../lead-sources/IssuedSecretNotice";
 import { SheetsForm, SheetsUnavailable } from "./SheetsForm";
 import { WebhookForm } from "./WebhookForm";
@@ -69,7 +69,9 @@ export function AddDestinationDrawer({
           <p className="font-medium text-ink">Copy this now — we will not show it again.</p>
           <CopyRow label="Signing secret" value={secret} copyLabel="Copy signing secret" />
           <p className="flex items-center gap-1 text-xs text-ink-muted">
-            Check the <code>X-Calevate-Signature</code> header on every request.
+            <span>
+              Check the <code>X-Calevate-Signature</code> header on every request.
+            </span>
             <InfoTip label="How to verify a delivery">
               It is the HMAC-SHA256 of <code>{"{timestamp}.{body}"}</code> using this secret.
               Reject anything older than five minutes.

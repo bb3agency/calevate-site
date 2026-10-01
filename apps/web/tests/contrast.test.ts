@@ -426,12 +426,16 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
    * an offender, exactly as an absent one always was.
    */
   function importedConst(file: string, text: string, name: string): string {
+    // A relative import, or the `@/` alias: the shared choice-card classes live in
+    // `src/components/console/choiceCard.ts` and three screens import them by alias.
     const from = text.match(
-      new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*"(\\.[^"]+)"`),
+      new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*"((?:\\.|@/)[^"]+)"`),
     );
     if (!from) return "";
     for (const ext of [".ts", ".tsx"]) {
-      const candidate = resolve(dirname(file), `${from[1]}${ext}`);
+      const candidate = from[1].startsWith("@/")
+        ? resolve(process.cwd(), "src", `${from[1].slice(2)}${ext}`)
+        : resolve(dirname(file), `${from[1]}${ext}`);
       if (!existsSync(candidate)) continue;
       const sibling = readFileSync(candidate, "utf8");
       const declared = sibling.match(

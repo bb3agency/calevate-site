@@ -119,7 +119,7 @@ function BlankField({
           placeholder={blankKey}
           size={Math.max(6, Math.min(LONG_BLANK, (value || blankKey).length + 1))}
           onChange={(event) => onChange(blankKey, event.target.value)}
-          className={`${common} inline max-w-full py-0 align-baseline field-sizing-content touch:min-h-11 touch:text-base`}
+          className={`${common} inline max-w-full py-0 align-baseline max-sm:block max-sm:w-full field-sizing-content touch:min-h-11 touch:text-base`}
         />
       )}
     </span>

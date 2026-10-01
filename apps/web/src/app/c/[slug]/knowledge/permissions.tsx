@@ -1,6 +1,6 @@
 "use client";
 
-import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton, ToggleSwitch } from "@/components/ui";
 import { useMe, type WriteAccess } from "@/lib/api/hooks";
 import { useSetStaffCuration, useStaffCuration } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
@@ -36,25 +36,17 @@ export function StaffCurationSwitch({ write }: { write: WriteAccess }) {
   const on = curation.data.staff_may_curate_knowledge;
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2">
-        <div className="text-sm">
-          <span className="font-medium">Let staff add knowledge</span>
-          <span className="block text-ink-muted">
-            {on
-              ? "Team members with the staff role can add knowledge. What they add goes to your agent without review, the same as yours."
-              : "Only owners can add knowledge on this account."}
-          </span>
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={on}
-            disabled={!write.allowed || setCuration.isPending}
-            onChange={(e) => setCuration.mutate(e.target.checked)}
-          />
-          <span>{on ? "On" : "Off"}</span>
-        </label>
-      </div>
+      <ToggleSwitch
+        label="Let staff add knowledge"
+        hint={
+          on
+            ? "Team members with the staff role can add knowledge. What they add goes to your agent without review, the same as yours."
+            : "Only owners can add knowledge on this account."
+        }
+        checked={on}
+        disabled={!write.allowed || setCuration.isPending}
+        onChange={(next) => setCuration.mutate(next)}
+      />
       <RestrictionNote reason={write.reason} />
       {setCuration.error && <ProblemNotice error={setCuration.error} />}
     </div>
@@ -78,7 +70,7 @@ export function SubmissionConsequence() {
   const me = useMe(session);
   if (!me.data?.role) return null;
   return (
-    <p className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-muted">
+    <p className="text-xs text-ink-muted">
       <span>
         What you add goes to your agent as soon as we have finished reading it — nobody
         approves it first, and you do not wait for us.

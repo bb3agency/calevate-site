@@ -131,10 +131,21 @@ export function AgentHeader({ agent, slug }: { agent: Agent; slug: string }) {
       <PageHeader
         back={{ href: href(`/c/${slug}/agents`), label: "All agents" }}
         title={agent.name}
-        status={<LiveBadge agent={agent} />}
+        status={
+          <>
+            <LiveBadge agent={agent} />
+            {/* With no primary the menu sits on the title line, so a phone does not spend
+                a whole row on one ⋯ button. */}
+            {!primary && items.length > 0 && (
+              <span className="ml-auto">
+                <RowMenu label={agent.name} items={items} />
+              </span>
+            )}
+          </>
+        }
         description={detail}
         actions={
-          primary || items.length > 0 ? (
+          primary ? (
             <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
               {primary}
               {items.length > 0 && <RowMenu label={agent.name} items={items} />}

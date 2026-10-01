@@ -4,7 +4,6 @@ import { useId, useRef, useState } from "react";
 import { Link2, Paperclip, Upload } from "lucide-react";
 
 import {
-  Card,
   FIELD_HINT,
   FIELD_INLINE,
   FIELD_LABEL,
@@ -95,8 +94,9 @@ export function AddDocument({
     progress && progress.total ? Math.min(100, Math.round((progress.loaded / progress.total) * 100)) : null;
 
   return (
-    <Card title="Add a file or a web page">
-      <div className="space-y-4">
+    <div>
+      <h3 className="text-sm font-semibold text-ink">Add a file or a web page</h3>
+      <div className="mt-2 space-y-4">
         <p className="text-sm text-ink-muted">
           <span>
             Send us what you already have — a price list, a menu, a leaflet, or a photo of
@@ -232,6 +232,6 @@ export function AddDocument({
           </form>
         </div>
       </div>
-    </Card>
+    </div>
   );
 }

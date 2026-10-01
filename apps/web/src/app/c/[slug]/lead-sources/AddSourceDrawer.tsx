@@ -17,7 +17,7 @@ import {
 import type { useAgents } from "@/lib/api/agents";
 import type { useCreateLeadSource } from "@/lib/api/leadSources";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "../campaigns/choices";
+import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { IssuedSecretNotice, type IssuedSecret } from "./IssuedSecretNotice";
 import { META_SOURCE, WEBHOOK_KINDS, sourceLabel } from "./sourceKinds";
 import { FIELD } from "./styles";

@@ -117,11 +117,14 @@ export function TeamScreen() {
   const [inviting, setInviting] = useState(false);
 
   /* Colleagues' email addresses are owner-only (`org:manage`), so the roster is not even
-     requested for a session that may not read it; the email column appears only when it
-     arrived. A failed roster read hides the column rather than blanking the team. */
-  const mayReadRoster = me.data?.permissions.includes("org:manage") ?? false;
+     requested for a session that may not read it, or while `/v1/me` has not said. The
+     column appears only when the roster arrived; a failed read says so under the table
+     rather than passing for a team with no addresses. */
+  const mayReadRoster =
+    me.data !== undefined && me.data.permissions.includes("org:manage");
   const roster = useTeamMembers(session, { enabled: mayReadRoster });
-  const emailById = new Map((roster.data ?? []).map((person) => [person.id, person.email]));
+  const emailById = new Map<string, string>();
+  if (roster.data) for (const person of roster.data) emailById.set(person.id, person.email);
 
   /* `.data`, never `.data ?? []` — the difference between "the server said none" and
      "the server did not answer" is this screen's whole honesty (§52). */
@@ -325,7 +328,7 @@ export function TeamScreen() {
               access to this business made on no evidence. */}
           <p className="text-[13px] text-ink-muted">
             {formatCount(people.length)} {people.length === 1 ? "person" : "people"}
-            {pending
+            {pending && pending.length > 0
               ? ` · ${formatCount(pending.length)} unused ${pending.length === 1 ? "link" : "links"}`
               : ""}
           </p>
@@ -337,6 +340,19 @@ export function TeamScreen() {
             className="rounded-card border border-line bg-surface"
           />
         </section>
+      )}
+
+      {roster.isError && (
+        <p className="text-[13px] text-ink-muted">
+          We could not load your colleagues&apos; email addresses, so they are not shown.{" "}
+          <button
+            type="button"
+            onClick={() => void roster.refetch()}
+            className="font-medium text-ink underline underline-offset-2 touch:min-h-11"
+          >
+            Try again
+          </button>
+        </p>
       )}
 
       {/* Only from a list the server actually sent empty: over a failed read this sentence

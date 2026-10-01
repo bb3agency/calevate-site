@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ListPlus, Pause, Play } from "lucide-react";
+import { ListPlus, Pause, Play } from "lucide-react";
 
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProgressBar } from "@/components/interior/progress-bar";
@@ -112,15 +112,8 @@ export function CampaignDetail({
   return (
     <div className="space-y-5">
       <div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-sm text-[13px] font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-        >
-          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-          All campaigns
-        </button>
         <PageHeader
+          back={{ onClick: onBack, label: "All campaigns" }}
           title={campaign?.name ?? "Campaign"}
           status={status ? <CampaignStatusPill status={status} /> : undefined}
           description={facts}

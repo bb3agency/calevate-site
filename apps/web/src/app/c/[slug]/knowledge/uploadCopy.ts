@@ -202,6 +202,42 @@ export function uploadState(upload: KbUpload): UploadState {
  * client who picks a `.doc` gets a 422 whose remediation names the fix. Both halves are
  * worth having; only one of them is worth making them discover.
  */
+/**
+ * The steps a MOVING upload is on, from the server's own states — or `null` once it has
+ * settled (live, failed, refused, replaced), where the status chip says it all.
+ *
+ * Since D-658 an account member's own upload needs nobody's approval, so its path is
+ * received → read → in use; a machine-read document adds the one step that is the client's
+ * own, checking what we read. Content still waiting for review (operator-added, or sent
+ * in a view-as session) shows no steps: the next one is a person, not this pipeline.
+ */
+export function uploadSteps(
+  upload: KbUpload,
+): { steps: { id: string; label: string }[]; current: number } | null {
+  if (upload.is_live) return null;
+  if (awaitsConfirmation(upload)) {
+    return {
+      steps: [
+        { id: "received", label: "Received" },
+        { id: "read", label: "Read" },
+        { id: "checked", label: "Checked by you" },
+        { id: "live", label: "In use" },
+      ],
+      current: 2,
+    };
+  }
+  const base = [
+    { id: "received", label: "Received" },
+    { id: "read", label: "Read" },
+    { id: "live", label: "In use" },
+  ];
+  if (upload.ingest_status === "received" || upload.ingest_status === "converting") {
+    return { steps: base, current: 1 };
+  }
+  if (upload.ingest_status === "processing") return { steps: base, current: 2 };
+  return null;
+}
+
 export const ACCEPTED_EXTENSIONS = [
   ".pdf",
   ".docx",

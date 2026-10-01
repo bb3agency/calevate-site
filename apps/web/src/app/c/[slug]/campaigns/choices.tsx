@@ -8,46 +8,11 @@ import { type Classification, type ConsentSource } from "@/lib/api/campaigns";
  * offer them.
  *
  * Extracted from `page.tsx` (UX-DOCTRINE §6: extract by SUBJECT). One subject: the closed
- * sets — call category, consent source, weekday — plus the choice-card classes they are
- * all rendered with. None of the wording changed in the move; `CONSENT_SOURCES` in
+ * sets — call category, consent source, weekday. The choice-card classes they are
+ * rendered with are shared (`components/console/choiceCard.ts`). None of the wording changed in the move; `CONSENT_SOURCES` in
  * particular is a compliance artefact whose neutrality is the point, and its argument is
  * kept with it below.
  */
-/**
- * The screen's field and control styling, written once.
- *
- * Local constants rather than a fifth trip to `ui.tsx`: this is the only screen in the
- * console with a real FORM on it, so a `Field`/`PrimaryButton` primitive would be
- * generalised from one caller. They belong in `ui.tsx` the moment a second screen needs
- * them — which is a note for whoever builds `/agents`, not a reason to move them today.
- */
-
-/**
- * A radio rendered as a card.
- *
- * Selection is a brand ring plus a tick, NOT a brand fill. `--brand-soft` has no dark
- * value by design (it is the medallion tint, and `ui.tsx` uses it with a fixed dark-green
- * foreground), so a filled card would need its own text colour in each theme to stay
- * readable — a two-colour pair that the next person to add an option will get wrong. A
- * ring changes nothing about the text.
- */
-/*
- * The FOCUS ring, on the card rather than on the input.
- *
- * The `<input type="radio">` inside each of these cards is `sr-only`, which deletes the
- * browser's own focus indicator — WCAG 2.4.7 Focus Visible (AA), failure technique F78,
- * exactly. `has-[:focus-visible]` puts it back on the label that hides it, so a keyboard
- * user tabbing into the group can see where they are; `focus-visible` rather than `focus`
- * so a mouse click does not leave a ring behind. `ring-offset-2` separates it from
- * `CHOICE_ON`'s selection ring, so "focused" and "chosen" stay two readable states.
- * `tests/contrast.test.ts` guards this at the source, because axe cannot evaluate a focus
- * indicator and jsdom has no layout to evaluate one in.
- */
-export const CHOICE_CARD =
-  "relative block cursor-pointer rounded-card border p-3 transition-colors " +
-  "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app";
-export const CHOICE_ON = "border-brand ring-1 ring-brand bg-surface";
-export const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";
 
 /**
  * The five answers, in the client's language.

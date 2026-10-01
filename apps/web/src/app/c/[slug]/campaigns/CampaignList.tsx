@@ -80,6 +80,7 @@ export function CampaignList({
       sort: { value: (row) => row.status },
       cell: (row) => <CampaignStatusPill status={row.status} />,
       flash: (row) => row.status,
+      hideBelow: "sm",
     },
     {
       id: "reach",
@@ -149,7 +150,13 @@ function NameCell({
       >
         {campaign.name}
       </button>
-      <p className="text-xs capitalize text-ink-faint">{campaign.classification}</p>
+      <p className="flex items-center gap-2 text-xs capitalize text-ink-faint">
+        {campaign.classification}
+        {/* Below `sm` the status column is dropped, so the pill rides here. */}
+        <span className="sm:hidden">
+          <CampaignStatusPill status={campaign.status} />
+        </span>
+      </p>
       {/* Visible below `sm`, where the progress column is dropped. */}
       <div className="mt-1.5 sm:hidden">
         <ReachBar reached={campaign.connected} total={campaign.contacts} />
@@ -222,7 +229,7 @@ function RowActions({
             {action === "pause" ? "Pause" : "Resume"}
           </span>
         </button>
-      ) : campaign.status === "draft" ? (
+      ) : campaign.status === "draft" && campaign.consent_provenance_blocker !== "consent_source_refused" ? (
         <button
           type="button"
           onClick={() => onOpen(campaign.id)}

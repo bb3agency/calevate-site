@@ -20,7 +20,8 @@ import { Term } from "@/lib/glossary";
 
 import { ConsentProvenanceFields } from "./ConsentProvenance";
 import type { CampaignFormState } from "./campaignForm";
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON, CLASSIFICATIONS, CONSENT_SOURCES } from "./choices";
+import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { CLASSIFICATIONS, CONSENT_SOURCES } from "./choices";
 
 /** A read this flow is BUILT from: its failure is a dead picker, not an empty one. */
 interface ListQuery<T> {

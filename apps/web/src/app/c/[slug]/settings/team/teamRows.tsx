@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { DataColumn } from "@/components/console/dataTable";
 import { InfoTip } from "@/components/console/infoTip";
 import { RowMenu } from "@/components/console/rowMenu";
-import { FIELD, NoticeBox, PRIMARY_BUTTON_SM, formatIST } from "@/components/ui";
+import { FIELD_INLINE, NoticeBox, PRIMARY_BUTTON_SM, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
   ROLE_COPY,
@@ -98,7 +98,7 @@ function RoleControl({
         value={staged ?? member.role}
         disabled={busy}
         onChange={(e) => setStaged(e.target.value as MemberRole)}
-        className={`${FIELD} w-auto py-1 text-sm`}
+        className={`${FIELD_INLINE} w-36`}
       >
         {ROLES.map((value) => (
           <option key={value} value={value}>

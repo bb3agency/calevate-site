@@ -21,7 +21,8 @@ import {
   type ConsentSource,
 } from "@/lib/api/campaigns";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON, CONSENT_SOURCES } from "./choices";
+import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { CONSENT_SOURCES } from "./choices";
 
 /**
  * WHERE THIS LIST CAME FROM — the consent-provenance question, and the two places that

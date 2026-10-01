@@ -48,10 +48,7 @@ export function PhoneNumberScreen() {
       {numbers.isLoading || !rows ? (
         !numbers.error && <Skeleton rows={3} />
       ) : none ? (
-        <p className="text-sm text-ink-muted">
-          No number set up yet. If numbers are on offer above, you can take one yourself;
-          otherwise your account manager arranges it while your agent is being set up.
-        </p>
+        <p className="text-sm text-ink-muted">No number set up yet.</p>
       ) : (
         <>
           {ours.length > 0 && (

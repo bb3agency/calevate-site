@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -11,8 +12,7 @@ import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import { AddDocument } from "./AddDocument";
 import { KnowledgeDelivery } from "./KnowledgeDelivery";
 import { AddKnowledgeForm } from "./AddKnowledgeForm";
-import { SubmittedList } from "./SubmittedList";
-import { UploadList } from "./UploadList";
+import { SourcesList } from "./SourcesList";
 import { StaffCurationSwitch, SubmissionConsequence } from "./permissions";
 import { useKnowledgeCopilot } from "./copilot";
 
@@ -131,90 +131,65 @@ export function KnowledgeScreen() {
   const hasNoAgents = Boolean(agents.data) && agentOptions.length === 0;
 
   return (
-    <div className="space-y-5 pb-12">
-      {/* WHAT THIS SCREEN MAY PROMISE (`docs/TRD.md:948`): in-call retrieval is T0 and
-          nothing else — approved facts are compiled into the agent's own prompt at
-          publish time (`apps/api/agents/t0.py`). The agent does not read a document and
-          does not look anything up while a caller is on the line, so the copy says
-          "part of what it already knows" rather than anything retrieval-shaped. It is
-          the faster arrangement, not the poorer one, and it is written that way.
-          `tests/knowledgeApproval.test.tsx` pins the sentence and bans the shapes. */}
-      <p className="text-sm text-ink-muted">
-        What your agent knows. What you add goes to your agent once it has been
-        read, without anyone approving it, and becomes part of what the agent
-        already knows when it picks up — hours, address, prices, the questions
-        you get asked every day.
-      </p>
+    <div className="space-y-6 pb-12">
+      {/* WHAT THIS SCREEN MAY PROMISE: approved facts are compiled into the agent's own
+          prompt at publish time, so the copy says "part of what it already knows" rather
+          than anything retrieval-shaped (`tests/knowledgeApproval.test.tsx` pins it). */}
+      <PageHeader
+        description="What your agent knows. What you add goes to your agent once it has been read, without anyone approving it, and becomes part of what the agent already knows when it picks up — hours, address, prices, the questions you get asked every day."
+      />
 
       <RestrictionNote reason={write.reason} />
 
-      <SubmissionConsequence />
-
-      <StaffCurationSwitch write={curationWrite} />
-
       {sources.error && (
-        <ProblemNotice
-          error={sources.error}
-          onRetry={() => sources.refetch()}
-        />
+        <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />
       )}
-      {/* Without this the form simply refused to submit and never said why: no agent
-          list means no agent to teach, and the disabled button looked like a bug. */}
+      {/* No agent list means no agent to teach; without this the form refused to submit
+          and never said why. */}
       {agents.error && (
         <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />
       )}
       {submit.error && <ProblemNotice error={submit.error} />}
 
-      <div className="grid gap-5 lg:grid-cols-12">
-        <div className="lg:col-span-5">
-          <AddKnowledgeForm
-            agentOptions={agentOptions}
-            selectedAgentId={selectedAgentId}
-            onAgentId={setAgentId}
-            hasNoAgents={hasNoAgents}
-            name={name}
-            onName={setName}
-            body={body}
-            onBody={setBody}
-            submit={submit}
-            canWrite={write.allowed}
+      {/* THE DROP ZONE: everything a client can teach, in one place at the top — a file or
+          a photo, a web page, or a fact typed in. */}
+      <section
+        aria-label="Add to your agent"
+        className="space-y-4 rounded-card border border-line bg-surface p-4 sm:p-5"
+      >
+        <SubmissionConsequence />
+        <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
+          <AddDocument
+            agentId={selectedAgentId}
+            agentName={agentOptions.length === 1 ? (agentOptions[0]?.name ?? null) : null}
+            allowed={write.allowed}
             reason={write.reason}
           />
-
-          {/* THE DOOR THE FOUNDER FOUND MISSING, beside the text form and not instead of
-              it: "where is a client able to upload files or docs or links?". A short
-              correction is still fastest typed; a price list is not. */}
-          <div className="mt-5">
-            <AddDocument
-              agentId={selectedAgentId}
-              agentName={
-                agentOptions.length === 1
-                  ? (agentOptions[0]?.name ?? null)
-                  : null
-              }
-              allowed={write.allowed}
+          <div className="lg:border-l lg:border-line lg:pl-8">
+            <AddKnowledgeForm
+              agentOptions={agentOptions}
+              selectedAgentId={selectedAgentId}
+              onAgentId={setAgentId}
+              hasNoAgents={hasNoAgents}
+              name={name}
+              onName={setName}
+              body={body}
+              onBody={setBody}
+              submit={submit}
+              canWrite={write.allowed}
               reason={write.reason}
             />
           </div>
         </div>
+      </section>
 
-        {/* ONE right-hand column holding both lists, rather than two grid children.
-            As siblings of the grid, "Submitted" would drop to a second row and sit under
-            the form on the left instead of under the documents it belongs beside — and
-            the two panels are one answer to one question ("what have I taught it"). */}
-        <div className="space-y-5 lg:col-span-7">
-          {/* FIRST in this column, above the two "what have I taught it" lists, because
-              it answers the question a client arrives with. Those lists end at
-              "approved"; this is the only place on any screen that says whether the
-              approved words are what the agent is actually answering callers out of
-              (`apps/api/kb/delivery.py`). A client who published an hour ago and is
-              wondering why the phone has not caught up should not have to scroll past
-              two queues that both say everything is fine. */}
-          <KnowledgeDelivery />
-          <UploadList agentNames={agentNames} />
-          <SubmittedList agentNames={agentNames} sources={sources} />
-        </div>
-      </div>
+      {/* Whether what was added has reached the phone — the question a client arrives
+          with when the agent has not caught up (`apps/api/kb/delivery.py`). */}
+      <KnowledgeDelivery />
+
+      <SourcesList agentNames={agentNames} sources={sources} />
+
+      <StaffCurationSwitch write={curationWrite} />
     </div>
   );
 }

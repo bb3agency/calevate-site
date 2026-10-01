@@ -770,6 +770,11 @@ async def _run() -> str:
     # negative, which is a story about an overdrawn client rather than a working one.
     balance = await _ensure_opening_credit(tenant_id)
     calls = await _seed_calls(tenant_id=tenant_id, agent_id=agent_id, owner_user_id=owner_id)
+    # Imported here, not at the top: that module reads this one's constants, and a
+    # top-level import each way would be a cycle.
+    from scripts.seed_dev_outreach import seed_outreach
+
+    outreach = await seed_outreach()
 
     return "\n".join(
         [
@@ -779,6 +784,8 @@ async def _run() -> str:
             f"  wallet   INR {balance} (prepaid; top-ups on /c/{TENANT_SLUG}/credits)",
             f"  agent    {agent_id}  status={agent_status}",
             f"  calls    +{calls} this run ({len(DEMO_CALLS)} defined, re-runs add none)",
+            "",
+            outreach,
             "",
             "ADMIN CONSOLE  (admin.calevate.tech / http://localhost:3000 admin realm)",
             f"  email     {ADMIN_EMAIL}",

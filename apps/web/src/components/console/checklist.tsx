@@ -77,31 +77,38 @@ function Progress({ label, done, total }: { label: string; done: number; total: 
 
 function Row({ item }: { item: ChecklistItem }) {
   const disabled = item.disabledReason !== undefined;
+  const action =
+    !disabled && item.link ? (
+      <Link
+        href={item.link.href}
+        className="inline-flex max-w-full items-center gap-1 rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+      >
+        {item.link.label}
+        <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      </Link>
+    ) : !disabled && item.action ? (
+      item.action
+    ) : null;
   return (
     <li className={`flex items-start gap-3 py-3 first:pt-0 last:pb-0 ${disabled ? "opacity-70" : ""}`}>
       <span className="mt-0.5">
         <Marker state={item.state} />
       </span>
-      <div className="min-w-0 flex-1">
-        <p className={`text-[14px] font-medium ${item.state === "done" ? "text-ink-muted" : "text-ink"}`}>
-          <span className="sr-only">{STATE_TEXT[item.state]}: </span>
-          {item.label}
-        </p>
-        {(disabled || item.detail) && (
-          <p className="mt-0.5 text-[13px] text-ink-muted">{disabled ? item.disabledReason : item.detail}</p>
-        )}
+      {/* The text and the action WRAP rather than share a line at any cost: the text asks
+          for at least 14rem, and when that and the action do not both fit, the action
+          drops under the text instead of squeezing it to a word per line. */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+        <div className="min-w-0 grow basis-56">
+          <p className={`text-[14px] font-medium ${item.state === "done" ? "text-ink-muted" : "text-ink"}`}>
+            <span className="sr-only">{STATE_TEXT[item.state]}: </span>
+            {item.label}
+          </p>
+          {(disabled || item.detail) && (
+            <div className="mt-0.5 text-[13px] text-ink-muted">{disabled ? item.disabledReason : item.detail}</div>
+          )}
+        </div>
+        {action && <div className="max-w-full shrink-0">{action}</div>}
       </div>
-      {!disabled && item.link ? (
-        <Link
-          href={item.link.href}
-          className="inline-flex shrink-0 items-center gap-1 self-center rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-        >
-          {item.link.label}
-          <ArrowRight aria-hidden className="h-3.5 w-3.5" />
-        </Link>
-      ) : !disabled && item.action ? (
-        <div className="shrink-0 self-center">{item.action}</div>
-      ) : null}
     </li>
   );
 }

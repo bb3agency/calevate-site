@@ -101,7 +101,7 @@ export function WalletLedgerPanel({
         ) : (
           <>
             <ScrollRegion label="Credit history">
-              <table className="w-full min-w-[34rem] border-collapse text-sm">
+              <table className="relative w-full min-w-[34rem] border-collapse text-sm">
                 <caption className="sr-only">
                   Your credit history, newest first — {ledger.data.entries.length} entries
                 </caption>

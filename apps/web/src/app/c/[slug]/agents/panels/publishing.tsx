@@ -94,11 +94,17 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
   const voice = state.voice;
   // Absent on an older API build; a missing fact is honest, an invented one is not.
   if (!voice) return null;
+  // No voice configured at all is its own answer, and the server's headline says it ("No
+  // voice has been set on this agent."): an agent published with none speaks in the
+  // calling system's default, which is not a voice we can name — but it is not "unknown".
+  const noneSet = voice.live === null && voice.configured === null;
   const heard = voice.live
     ? clientVoiceName(voice.live)
-    : published
-      ? "We cannot say from here"
-      : "Nothing yet";
+    : noneSet
+      ? "None chosen"
+      : published
+        ? "We cannot say from here"
+        : "Nothing yet";
   const tier = voiceTierRate(state.voice_tier_rates, voice.live?.voice_tier);
   return (
     <>
@@ -107,7 +113,9 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
         hint={
           voice.live
             ? "The voice the calling system is speaking in right now."
-            : published
+            : noneSet
+              ? voice.headline
+              : published
               ? "The calling system has a voice for this agent; we have no record of which one. Choosing one below will settle it."
               : "Nothing is on the calling system yet, so no caller hears a voice at all."
         }

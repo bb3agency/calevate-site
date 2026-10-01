@@ -1,19 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import {
-  CheckCircle2,
-  ExternalLink,
-  FileText,
-  Globe,
-  ImageIcon,
-  Loader2,
-  Trash2,
-} from "lucide-react";
+import { CheckCircle2, FileText, Globe, ImageIcon, Trash2 } from "lucide-react";
 
+import { RowMenu } from "@/components/console/rowMenu";
+import { TaskSteps } from "@/components/interior/task-steps";
 import {
-  Card,
-  EmptyState,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
@@ -28,75 +20,21 @@ import {
   useDeleteUpload,
   useKbChunks,
   useKbUpload,
-  useKbUploads,
   useOriginalLink,
   type KbUpload,
 } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
-import { awaitsConfirmation, fileSize, isMachineRead, uploadState } from "./uploadCopy";
-
-/**
- * EVERY DOCUMENT AND WEB PAGE THIS ACCOUNT HAS SENT, each saying where it is.
- *
- * The list is read once and then left alone; each row that is still MOVING watches itself
- * (`useKbUpload`) and stops the moment it settles. That is the founder's "per-item live
- * status" without the shape it is usually built as — a whole list re-read on a tight timer
- * because one row in it might change.
- */
-export function UploadList({ agentNames }: { agentNames: Record<string, string> }) {
-  const session = useClientSession();
-  const uploads = useKbUploads(session);
-
-  if (uploads.isLoading) {
-    return (
-      <Card title="Files and web pages">
-        <Skeleton rows={3} />
-      </Card>
-    );
-  }
-  // A failed read gets a refusal and NO list. "Nothing here yet" over a request that never
-  // answered tells a client the price list they sent this morning was never received.
-  if (uploads.error || !uploads.data) {
-    return (
-      <Card title="Files and web pages">
-        <ProblemNotice
-          error={uploads.error ?? new Error("We could not load what you have sent.")}
-          onRetry={() => void uploads.refetch()}
-        />
-      </Card>
-    );
-  }
-
-  return (
-    <Card title="Files and web pages" bodyClassName="p-2">
-      {uploads.data.length ? (
-        <ul className="divide-y divide-line">
-          {uploads.data.map((upload) => (
-            <UploadRow
-              key={upload.id}
-              upload={upload}
-              agentName={lookup(agentNames, upload.agent_id) ?? null}
-            />
-          ))}
-        </ul>
-      ) : (
-        <EmptyState
-          title="Nothing sent yet"
-          hint="Send your price list, your menu or a photo of your printed rates — whatever callers ask about most."
-        />
-      )}
-    </Card>
-  );
-}
+import { awaitsConfirmation, fileSize, isMachineRead, uploadState, uploadSteps } from "./uploadCopy";
 
 const KIND_ICONS = {
   url: Globe,
   image: ImageIcon,
 } as const;
 
-function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: string | null }) {
+/** One file, photo or web page the account sent, watching itself while it moves. */
+export function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: string | null }) {
   const session = useClientSession();
   // The row's OWN poll while it is moving, and silence once it is not. `watch.data ?? upload`
   // rather than a manufactured empty: the list's own answer is a real fact about this row,
@@ -113,98 +51,97 @@ function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: string 
   const size = fileSize(shown.byte_size);
   const needsReview = awaitsConfirmation(shown);
 
+  const steps = uploadSteps(shown);
+  const kind = shown.source_kind === "url" ? "Web page" : shown.source_kind === "image" ? "Photo" : "File";
+
   return (
-    <li className="px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <Icon aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
-        <span className="min-w-0 break-words text-sm font-semibold text-ink">{shown.name}</span>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${state.tone}`}
-        >
-          {state.working ? (
-            <Loader2 aria-hidden className="h-3 w-3 animate-spin motion-reduce:animate-none" />
-          ) : shown.is_live ? (
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand-bright" />
-          ) : null}
-          {state.label}
-        </span>
-        <span className="ml-auto flex flex-wrap items-center gap-2 text-xs text-ink-faint">
-          {size && <span className="tabular-nums">{size}</span>}
-          {agentName && (
-            <span title={agentName} className="truncate">
-              {agentName}
+    <li className="py-3">
+      <div className="flex items-start gap-3">
+        <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words text-sm font-medium text-ink">{shown.name}</span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${state.tone}`}
+            >
+              {shown.is_live && (
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand-bright" />
+              )}
+              {state.label}
             </span>
+          </div>
+          <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-faint">
+            <span>{kind}</span>
+            {size && <span className="tabular-nums">{size}</span>}
+            {agentName && (
+              <span title={agentName} className="truncate">
+                {agentName}
+              </span>
+            )}
+            {shown.change_detected_at && (
+              <span className="whitespace-nowrap">
+                Page changed {formatIST(shown.change_detected_at)}
+              </span>
+            )}
+          </p>
+          <p className="mt-1 text-xs text-ink-muted">{state.meaning}</p>
+
+          {/* The SPECIFIC reason, when the server has one. It is written for a client
+              (`kb/routes.py::UploadOut.ingest_detail`: "a sentence to show the client …
+              never a key or a stack"), so it is shown as it stands. */}
+          {shown.ingest_detail && (
+            <p className="mt-1 break-words text-xs text-ink-muted">{shown.ingest_detail}</p>
           )}
-          {shown.change_detected_at && (
-            <span className="whitespace-nowrap">
-              Page changed {formatIST(shown.change_detected_at)}
-            </span>
+
+          {/* Steps only while the row is MOVING, from the server's own ingest and review
+              states — never a percentage nobody measured. */}
+          {steps && (
+            <TaskSteps
+              steps={steps.steps}
+              current={steps.current}
+              label={`Progress of ${shown.name}`}
+              className="mt-2 max-w-xs"
+            />
           )}
-        </span>
-      </div>
 
-      <p className="mt-1 text-xs text-ink-muted">{state.meaning}</p>
-
-      {/* The SPECIFIC reason, when the server has one. It is written for a client
-          (`kb/routes.py::UploadOut.ingest_detail`: "a sentence to show the client … never
-          a key or a stack"), so it is shown as it stands rather than paraphrased. */}
-      {shown.ingest_detail && (
-        <p className="mt-1 break-words rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink-muted">
-          {shown.ingest_detail}
-        </p>
-      )}
-
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {needsReview && (
-          <button
-            type="button"
-            onClick={() => setReviewing((open) => !open)}
-            aria-expanded={reviewing}
-            className={PRIMARY_BUTTON_SM}
-          >
-            {reviewing ? "Hide what we read" : "Read it and confirm"}
-          </button>
-        )}
-
-        {/* A LINK HAS NOTHING TO DOWNLOAD, and the API says so by name rather than with an
-            empty answer — so the row offers the page itself instead. */}
-        {shown.source_kind === "url" && shown.source_url ? (
-          <a
-            href={shown.source_url}
-            target="_blank"
-            rel="noreferrer noopener"
-            className={SECONDARY_BUTTON_SM}
-          >
-            <ExternalLink aria-hidden className="h-3 w-3" />
-            Open the page
-          </a>
-        ) : (
-          <button
-            type="button"
-            disabled={original.isPending}
-            /* FETCHED ON THE CLICK. The address lasts five minutes, so one painted when
-               the list loaded is dead by the time anybody presses it — and a dead link
-               here reads as "your document is gone". */
-            onClick={() =>
-              original.mutate(shown.id, {
-                onSuccess: (answer) => window.open(answer.url, "_blank", "noopener,noreferrer"),
-              })
-            }
-            className={SECONDARY_BUTTON_SM}
-          >
-            <ExternalLink aria-hidden className="h-3 w-3" />
-            {original.isPending ? "Opening…" : "Open the file you sent"}
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setConfirmingRemoval(true)}
-          className={SECONDARY_BUTTON_SM}
-        >
-          <Trash2 aria-hidden className="h-3 w-3" />
-          Remove
-        </button>
+          {needsReview && (
+            <button
+              type="button"
+              onClick={() => setReviewing((open) => !open)}
+              aria-expanded={reviewing}
+              className={`${PRIMARY_BUTTON_SM} mt-2`}
+            >
+              {reviewing ? "Hide what we read" : "Read it and confirm"}
+            </button>
+          )}
+        </div>
+        <RowMenu
+          label={shown.name}
+          items={[
+            /* A LINK HAS NOTHING TO DOWNLOAD, and the API says so by name, so the row
+               offers the page itself. A file's address is FETCHED ON THE CLICK: it lasts
+               five minutes, so one painted when the list loaded would be dead by the time
+               anybody pressed it — and a dead link here reads as "your document is gone". */
+            shown.source_kind === "url" && shown.source_url
+              ? {
+                  id: "open",
+                  label: "Open the page",
+                  onSelect: () => {
+                    window.open(shown.source_url ?? "", "_blank", "noopener,noreferrer");
+                  },
+                }
+              : {
+                  id: "open",
+                  label: original.isPending ? "Opening…" : "Open the file you sent",
+                  disabled: original.isPending,
+                  onSelect: () =>
+                    original.mutate(shown.id, {
+                      onSuccess: (answer) => window.open(answer.url, "_blank", "noopener,noreferrer"),
+                    }),
+                },
+            { id: "remove", label: "Remove", tone: "danger", onSelect: () => setConfirmingRemoval(true) },
+          ]}
+        />
       </div>
 
       {original.error && (

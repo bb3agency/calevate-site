@@ -722,7 +722,9 @@ describe("removing a document, and reading the original", () => {
     });
 
     await screen.findByText("Price list.pdf");
-    fireEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+    // Remove lives in the row's menu since the round-2 redesign (RowMenu).
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Price list.pdf" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^remove$/i }));
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
@@ -755,16 +757,18 @@ describe("removing a document, and reading the original", () => {
     // link on the review step reads as "your document is gone".
     expect(calls.some((c) => c.path.endsWith("/original"))).toBe(false);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /open the file you sent/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Price list.pdf" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /open the file you sent/i }));
     await waitFor(() => expect(opened).toHaveBeenCalled());
     expect(opened.mock.calls[0][0]).toContain("signature=abc");
   });
 
   it("sends a web page's reader to the page itself, which has no stored file", async () => {
     // `original_download` refuses a link by name (`kb_upload_not_a_file`), so offering the
-    // same button on a link would be a control that can only fail.
+    // same button on a link would be a control that can only fail. The page opens in a new
+    // tab from the row's menu (round-2 RowMenu), so the assertion is on where it opens.
+    const opened = vi.fn();
+    vi.stubGlobal("open", opened);
     await renderKnowledge([
       upload({
         name: "Our prices page",
@@ -774,11 +778,14 @@ describe("removing a document, and reading the original", () => {
       }),
     ]);
 
-    const link = await screen.findByRole("link", { name: /open the page/i });
-    expect(link.getAttribute("href")).toBe("https://clinic.example/prices");
+    fireEvent.click(
+      await screen.findByRole("button", { name: "More actions for Our prices page" }),
+    );
     expect(
-      screen.queryByRole("button", { name: /open the file you sent/i }),
+      screen.queryByRole("menuitem", { name: /open the file you sent/i }),
     ).toBeNull();
+    fireEvent.click(await screen.findByRole("menuitem", { name: /open the page/i }));
+    expect(opened.mock.calls[0]?.[0]).toBe("https://clinic.example/prices");
   });
 });
 
@@ -806,5 +813,25 @@ describe("who may add, and what happens to what they add", () => {
     expect(container.textContent).toContain(
       "Only an account owner can add knowledge to this account.",
     );
+  });
+});
+
+describe("the steps a moving upload is on (D-658)", () => {
+  it("shows received → read → in use while it is being read, and none once it is live", async () => {
+    await renderKnowledge([
+      upload({ ingest_status: "converting", review_state: "approved", is_live: false }),
+    ]);
+    const steps = await screen.findByRole("list", { name: "Progress of Price list.pdf" });
+    expect(steps.textContent).toContain("Received");
+    expect(steps.textContent).toContain("Read");
+    expect(steps.textContent).toContain("In use");
+    // No review step: an account member's own upload needs nobody's approval.
+    expect(steps.textContent).not.toMatch(/review/i);
+  });
+
+  it("draws no steps for an upload that is already in use", async () => {
+    await renderKnowledge([upload({ is_live: true })]);
+    await screen.findByText("Price list.pdf");
+    expect(screen.queryByRole("list", { name: /Progress of/ })).toBeNull();
   });
 });

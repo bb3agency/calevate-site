@@ -2,8 +2,8 @@
 
 import { AlertTriangle, CheckCircle2, Clock, FileQuestion } from "lucide-react";
 
+import { Panel } from "@/components/console/panel";
 import {
-  Card,
   EmptyState,
   MonoValue,
   NOTICE_TONES,
@@ -50,15 +50,15 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
 
   if (delivery.isLoading) {
     return (
-      <Card title="On the phone" className={className}>
+      <Panel title="On the phone" className={className}>
         <Skeleton rows={3} />
-      </Card>
+      </Panel>
     );
   }
 
   if (delivery.error || !delivery.data) {
     return (
-      <Card title="On the phone" className={className}>
+      <Panel title="On the phone" className={className}>
         <ProblemNotice
           error={
             delivery.error ??
@@ -66,14 +66,14 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
           }
           onRetry={() => void delivery.refetch()}
         />
-      </Card>
+      </Panel>
     );
   }
 
   const { items, not_delivered_count } = delivery.data;
 
   return (
-    <Card
+    <Panel
       title="On the phone"
       className={className}
       action={
@@ -84,9 +84,9 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
           </span>
         ) : undefined
       }
-      bodyClassName="p-2 sm:p-3"
+      bodyClassName="px-3 pb-3"
     >
-      <p className="px-2 pb-3 pt-1 text-[12px] text-ink-muted">
+      <p className="px-1 pb-3 text-[12px] text-ink-muted">
         Adding a document is not the same as your agent knowing it yet. This is what each
         agent is actually answering callers out of, right now.
       </p>
@@ -102,7 +102,7 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
           ))}
         </ul>
       )}
-    </Card>
+    </Panel>
   );
 }
 

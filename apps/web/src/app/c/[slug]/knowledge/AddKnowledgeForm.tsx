@@ -2,7 +2,6 @@
 
 import { Send } from "lucide-react";
 
-import { Card } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import type { Agent } from "@/lib/api/agents";
 import { useSubmitKnowledge } from "@/lib/api/kb";
@@ -45,9 +44,10 @@ export function AddKnowledgeForm({
   const valid = useFormValidation();
 
   return (
-    <Card title="Add knowledge">
+    <div>
+      <h3 className="text-sm font-semibold text-ink">Add a fact</h3>
       <form
-        className="space-y-3"
+        className="mt-2 space-y-3"
         noValidate
         onSubmit={valid.onSubmit(() => {
           if (!selectedAgentId) return;
@@ -116,7 +116,7 @@ export function AddKnowledgeForm({
           id="kb-body"
           required
           minLength={10}
-          rows={8}
+          rows={4}
           value={body}
           onChange={(e) => onBody(e.target.value)}
           aria-label="What the agent should say"
@@ -146,13 +146,13 @@ export function AddKnowledgeForm({
              luck, and a dead button with the explanation off-screen is the 403 we
              are trying not to ship. */
           title={reason ?? undefined}
-          className="press flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
+          className="press flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong sm:w-auto px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
         >
           <Send className="h-3.5 w-3.5" />
           {submit.isPending ? "Adding…" : "Add to agent"}
         </button>
       </form>
-    </Card>
+    </div>
 
   );
 }

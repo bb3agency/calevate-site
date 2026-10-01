@@ -291,7 +291,9 @@ export function ModelPicker({
           )}
           {blocked && audience === "client" && (
             <span className="mt-0.5 flex items-center gap-0.5 pl-6 text-xs font-medium text-warn">
-              Unavailable<span className="sr-only"> — {choice.unavailable}</span>
+              <span>
+                Unavailable<span className="sr-only"> — {choice.unavailable}</span>
+              </span>
               <InfoTip label={`${choice.label} unavailable`}>
                 <p>{choice.unavailable}</p>
               </InfoTip>

@@ -119,9 +119,10 @@ describe("the event catalogue", () => {
     });
 
     // Two events offered on each form and nothing else (a hardcoded list would still show
-    // `lead.updated`), plus the webhook form's three `call.completed` opt-ins: 2 + 3 = 5.
+    // `lead.updated`). The webhook form's three `call.completed` opt-ins appear only once
+    // that event is ticked, and this catalogue does not offer it, so: 2.
     const dialog = await choose("webhook");
-    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(5);
+    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
     await choose("sheet");
     expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
     expect(dialog.textContent).not.toContain("lead.updated");
@@ -192,6 +193,20 @@ describe("the event catalogue", () => {
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
   });
 
+  it("offers the call-finished extras only once that event is chosen, warning included", async () => {
+    await render({
+      [EVENTS_PATH]: options({ events: ["lead.created", "call.completed"] }),
+    });
+    const dialog = await choose("webhook");
+    expect(dialog.textContent).not.toContain("When a call finishes, also send");
+
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /A call finishes/ }));
+    expect(dialog.textContent).toContain("When a call finishes, also send");
+    // The unredacted option carries its warning whenever it is on screen.
+    expect(dialog.textContent).toContain("Sends the FULL transcript");
+    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(5);
+  });
+
   it("names an event it cannot subscribe to instead of faking a checkbox for it", async () => {
     // The request body takes a literal union, so a checkbox for an event outside it could
     // only ever produce a 422; it means our OpenAPI snapshot is behind the deployment.
@@ -199,10 +214,10 @@ describe("the event catalogue", () => {
       [EVENTS_PATH]: options({ events: ["lead.created", "call.transferred"] }),
     });
 
-    // One recognised event plus the webhook form's three opt-ins: 1 + 3 = 4. A faked
-    // checkbox for the unknown event would make it 5.
+    // One recognised event, and the `call.completed` opt-ins stay hidden because that event
+    // is not ticked: 1. A faked checkbox for the unknown event would make it 2.
     const dialog = await choose("webhook");
-    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(4);
+    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
     expect(dialog.textContent).toContain("call.transferred");
     expect(dialog.textContent).toContain("cannot subscribe to yet");
   });
@@ -440,6 +455,9 @@ describe("D-587 on the create paths", () => {
     // correctly disabled for a reason this clause is not about. Asserting it enabled
     // would demand that a view-as session be handed raw transcripts by default, which is
     // the opposite of what anybody wants.
+    // The `call.completed` opt-ins appear once that event is ticked; tick it so the probe
+    // covers them too.
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /A call finishes/ }));
     const gated = dialog.querySelectorAll("form input:disabled");
     expect(gated.length, "more than the raw-transcript box is gated").toBe(1);
     await choose("sheet");

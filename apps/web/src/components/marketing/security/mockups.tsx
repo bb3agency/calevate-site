@@ -115,7 +115,7 @@ export function AuditLogMock() {
 }
 
 /**
- * The calling window on a new campaign (`campaigns/NewCampaignForm.tsx`): the platform's
+ * The calling window on a new campaign (`campaigns/NewCampaignFlow.tsx`): the platform's
  * 9am–9pm bound drawn on a day, and the optional narrower window inside it, with the form's
  * own "Only call during specific hours" and its caption.
  */

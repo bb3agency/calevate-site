@@ -110,6 +110,7 @@ import {
   KB_ALL_DELIVERED,
   LANES,
   NO_MAINTENANCE,
+  prepaidWallet,
   voiceCatalogue,
   LIVE_CALLS_PATH,
 } from "./fixtures/sharedReads";
@@ -1933,7 +1934,10 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents/lanes": LANES,
       "/v1/me": ME,
       "/v1/agents/agent-1": AGENT,
-      // Overview's setup checklist and the Script section read the script's version.
+      // Overview's setup checklist reads the agreements; it and the Script section read
+      // the script's version.
+      "/v1/legal/readiness": LEGAL_READINESS,
+      "/v1/billing/wallet": { ...prepaidWallet(), outbound_stopped: true },
       "/v1/agents/agent-1/script": {
         script: {
           opening_line: "Namaskaram, this is Sri Clinic.",

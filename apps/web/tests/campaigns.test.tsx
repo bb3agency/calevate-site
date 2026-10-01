@@ -329,10 +329,10 @@ describe("the campaign list", () => {
 
     // A row with nothing wrong says nothing: one control, which is the campaign name.
     // The refused row adds exactly one more, the correction link.
-    // Name + "Launch…" on a plain draft; the refused one adds the provenance answer link.
-    // (Rows are table rows since the round-2 redesign, and a draft's row offers Launch….)
+    // Rows are table rows since the round-2 redesign. A plain draft: name + "Launch…". The
+    // refused list: name + its correction link, and NO Launch… (it cannot launch).
     expect(rows[0].querySelectorAll("button")).toHaveLength(2);
-    expect(rows[1].querySelectorAll("button")).toHaveLength(3);
+    expect(rows[1].querySelectorAll("button")).toHaveLength(2);
 
     // NO EMPTY CONTROLS. The bug `lookup` closed rendered a badge with no text and a
     // clickable button with no label onto a compliance row, because the copy table

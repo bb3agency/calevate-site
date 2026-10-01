@@ -12,7 +12,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage } from "./harness";
-import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
+import { LANES, LEGAL_READY, prepaidWallet, voiceCatalogue } from "./fixtures/sharedReads";
 
 /*
  * THE WORKSPACE IS A SETTINGS LAYOUT (D-657): one section is mounted at a time, chosen by
@@ -317,7 +317,9 @@ function routes(over: Record<string, unknown> = {}) {
     // both are read on this screen, and an unanswered read is a stray `role="alert"`.
     "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
-    // Overview's setup checklist reads the script's version.
+    // Overview's setup checklist reads the agreements and the script's version.
+    "/v1/legal/readiness": LEGAL_READY,
+    "/v1/billing/wallet": prepaidWallet(),
     "/v1/agents/agent-1/script": {
       script: {
         opening_line: "Namaskaram.",
@@ -1939,6 +1941,114 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     expect(
       await screen.findByText("An agent with no script cannot be switched on."),
     ).toBeTruthy();
+  });
+});
+
+/**
+ * THE SETUP CHECKLIST STATES WHAT THE SERVER SAID, AND SAYS SO WHEN IT COULD NOT ASK.
+ *
+ * The defect these pin: "Add calling credit" read UNCHECKED on an account holding ₹5,000,
+ * because the row was inferred from the voice tier rates (null when no credit LOT prices a
+ * minute) instead of read from the wallet the dashboard's credit tile reads.
+ */
+describe("the setup checklist reflects the real state", () => {
+  function row(label: string): HTMLElement {
+    const li = screen.getByText(label).closest("li");
+    expect(li, `no checklist row "${label}"`).not.toBeNull();
+    return li as HTMLElement;
+  }
+
+  it("counts credit as added when the wallet holds a positive balance, whatever the tier rates say", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/billing/wallet": prepaidWallet({ balance_inr: "5000.00" }),
+        // No credit lot prices a minute — the state that used to read as "no credit".
+        "/v1/agents/agent-1/pending": settled({
+          voice_tier_rates: [
+            { voice_tier: "clear", label: "Clear", inr_per_min: null, further_open_lots: 0 },
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("Add calling credit");
+    const credit = row("Add calling credit");
+    expect(credit.textContent).toContain("Done");
+    expect(credit.textContent).toContain("₹5,000.00 left");
+    expect(within(credit).queryByRole("link", { name: /Top up/ })).toBeNull();
+  });
+
+  it("asks for credit when the server says calls have stopped for want of it", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/billing/wallet": prepaidWallet({ balance_inr: "0.00", outbound_stopped: true }),
+      }),
+    );
+
+    await screen.findByText("Add calling credit");
+    const credit = row("Add calling credit");
+    expect(credit.textContent).toContain("To do");
+    expect(within(credit).getByRole("link", { name: /Top up/ })).toBeTruthy();
+  });
+
+  it("says it could not check, rather than 'to do', when the wallet read failed", async () => {
+    await renderClientPage(
+      page,
+      routes({ "/v1/billing/wallet": problem(503, { title: "Service unavailable" }) }),
+    );
+
+    await screen.findByText("Add calling credit");
+    const credit = row("Add calling credit");
+    expect(credit.textContent).toContain("We could not check this just now");
+    expect(credit.textContent).not.toContain("To do");
+  });
+
+  it("leaves credit off the list for an account billed by invoice", async () => {
+    await renderClientPage(
+      page,
+      routes({ "/v1/billing/wallet": prepaidWallet({ prepaid: false }) }),
+    );
+
+    await screen.findByText("Choose a voice");
+    expect(screen.queryByText("Add calling credit")).toBeNull();
+  });
+
+  it("names the voice as not chosen when the server says none is set", async () => {
+    const none = settled({
+      voice: {
+        configured: null,
+        live: null,
+        republish_required: false,
+        unnamed_note: null,
+        headline: "No voice has been set on this agent.",
+      },
+    });
+    const first = await renderClientPage(page, routes({ "/v1/agents/agent-1/pending": none }));
+    await screen.findByText("Choose a voice");
+    expect(row("Choose a voice").textContent).toContain("To do");
+    first.unmount();
+
+    // …and the Voice section says the same thing, rather than "we cannot say".
+    openSection("voice");
+    await renderClientPage(page, routes({ "/v1/agents/agent-1/pending": none }));
+    await screen.findByText("Voice callers hear");
+    expect(factValue("Voice callers hear")).toBe("None chosen");
+    expect(document.body.textContent).toContain("No voice has been set on this agent.");
+  });
+
+  it("says whose step a missing phone number is, instead of offering an Add that cannot add", async () => {
+    await renderClientPage(
+      page,
+      routes({ "/v1/agents/agent-1": agent({ inbound_number_count: 0 }) }),
+    );
+
+    await screen.findByText("Give it a phone number to answer");
+    const number = row("Give it a phone number to answer");
+    expect(number.textContent).toContain("Your account manager arranges the number.");
+    expect(number.textContent).not.toContain("To do");
+    expect(within(number).getByRole("link", { name: /Details/ })).toBeTruthy();
   });
 });
 
