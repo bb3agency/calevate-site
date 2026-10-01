@@ -40,8 +40,9 @@ from apps.api.admin.routes import MarginOut, TierSplitOut
 from apps.api.agents import prompts
 from apps.api.agents.prompt_routes import PromptVersionOut
 from apps.api.billing import service as billing
+from apps.api.billing.gst import GST_STATUS_SENTENCE
 from apps.api.billing.invoice import build_invoice
-from apps.api.billing.routes import InvoiceOut
+from apps.api.billing.routes import AdminInvoiceOut, InvoiceOut
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import AttentionOut, PerformanceOut, UsagePanelOut
@@ -835,8 +836,8 @@ async def test_the_invoice_answers_a_declared_model_with_an_overage_line() -> No
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body) == set(InvoiceOut.model_fields)
-    invoice = InvoiceOut.model_validate(body)
+    assert set(body) == set(AdminInvoiceOut.model_fields)
+    invoice = AdminInvoiceOut.model_validate(body)
 
     # Suffix read from the shipped function, not re-derived: it was `tenant_id.hex[:8]`
     # until D-114 found that layout collides for any two tenants onboarded within 65
@@ -867,17 +868,13 @@ async def test_the_invoice_answers_a_declared_model_with_an_overage_line() -> No
     )
 
     # No GST registration is configured here, so the document is a BILL OF SUPPLY: no tax
-    # is charged, the total is the subtotal, and the words say so (CGST s.32, Rule 49). The
-    # 18% figure survives only as a clearly-labelled internal estimate.
+    # is charged, the total is the subtotal, and the words say so (CGST s.32, Rule 49).
     assert invoice.subtotal_inr == "10159.00"
     assert invoice.gst_rate_pct == "0"
     assert invoice.gst_inr == "0.00"
     assert invoice.total_inr == "10159.00"
     assert invoice.tax_components == []
-    assert invoice.tax_note is not None and "no tax is charged" in invoice.tax_note
-    assert invoice.estimated_gst_rate_pct == "18"
-    assert invoice.estimated_gst_inr == "1828.62"
-    assert invoice.estimated_total_inr == "11987.62"
+    assert invoice.tax_note is not None and GST_STATUS_SENTENCE in invoice.tax_note
     assert invoice.usage.minutes_used == "120.00"
     assert invoice.usage.calls == 1
     assert invoice.usage.included_minutes == 100
@@ -909,6 +906,8 @@ async def test_the_invoice_matches_what_build_invoice_produced() -> None:
     # shape rather than value: it must parse as a timestamp, and everything else must
     # match the service's output exactly.
     stamp = body.pop("generated_at")
+    # The operator-only field (D-659) is the route's, not the service's.
+    assert isinstance(body.pop("document_blockers"), list)
     assert datetime.fromisoformat(stamp).tzinfo is not None, "an aware ISO-8601 timestamp"
     without_stamp = expected.model_dump(mode="json")
     without_stamp.pop("generated_at")
@@ -921,7 +920,7 @@ async def test_a_tenant_with_no_plan_still_gets_an_invoice_that_validates() -> N
     async with _client() as http:
         response = await http.get(f"/v1/admin/tenants/{tenant_id}/invoice", headers=admin)
     assert response.status_code == 200, response.text
-    invoice = InvoiceOut.model_validate(response.json())
+    invoice = AdminInvoiceOut.model_validate(response.json())
     assert invoice.line_items == [], "absence states the absence of a charge"
     assert invoice.total_inr == "0.00"
 

@@ -1,15 +1,10 @@
 """Client-realm knowledge-base endpoints (FLOWS §7): submit, preview, list.
 
-The split of permissions IS the workflow: a client owner (`kb:write`) SUBMITS and
-previews here; approval and publish live on the ADMIN router instead. That is not
-bureaucracy — the agent speaks under the client's own PE registration, so a change to
-what it says is a change to a legal instrument, and a human reads it first.
-
-Why approval is not simply another route in this file: an admin reaching a tenant does
-so through impersonation, and impersonation is READ-ONLY by D-22. An approve endpoint
-here would be permanently un-callable — reachable only with a tenant context that
-refuses mutations. So the mutating half goes where D-22 says it goes: "mutations still
-go through admin surfaces", with the tenant named explicitly in the path.
+What the account's own people add here is approved on submission and published by a
+worker with no human step (D-658, `kb/curation.goes_live_without_review`). The admin
+approve and publish routes remain for everything else — a view-as operator's submission,
+an intake seed, a changed link — and live on the ADMIN router because D-22 says
+"mutations still go through admin surfaces", with the tenant named explicitly in the path.
 """
 
 from __future__ import annotations
@@ -28,7 +23,12 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
 from apps.api.kb import delivery, service, uploads
-from apps.api.kb.curation import read_switch, requires_kb_curation, write_switch
+from apps.api.kb.curation import (
+    goes_live_without_review,
+    read_switch,
+    requires_kb_curation,
+    write_switch,
+)
 
 router = APIRouter(prefix="/v1/kb", tags=["knowledge-base"])
 
@@ -122,7 +122,14 @@ async def list_sources(
     response_model=SubmitOut,
     status_code=201,
     openapi_extra=permission_meta("kb:write"),
-    summary="Submit knowledge for review — chunked, previewable, NOT yet live",
+    summary="Add knowledge — an account member's goes to the agent without review",
+    description=(
+        "An account member's submission (the owner, or staff the owner lets curate) is "
+        "approved on submission and published to the agent by a background job: `status` "
+        "is `approved`, and the source turns live once that job has run and the agent is "
+        "published. A view-as session's submission is `pending_approval` and waits for "
+        "an admin."
+    ),
 )
 async def submit(
     payload: SubmitIn,
@@ -144,6 +151,9 @@ async def submit(
         kind=payload.kind,
         uri=payload.uri,
         submitted_by=principal.user_id,
+        auto_approve=goes_live_without_review(
+            realm=principal.realm, impersonating=principal.impersonating
+        ),
     )
     return SubmitOut.model_validate(result)
 
@@ -175,8 +185,9 @@ class UploadOut(Strict):
     THE TWO STATES ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE FACTS, and collapsing
     them into one "status" is the mistake this model exists to avoid. `ingest_status` is
     how far the machinery got (are the bytes read, has the voice platform indexed them);
-    `review_state` is whether a human has approved it. A document can be `processed` and
-    still `pending_approval` — indexed, ready, and deliberately not live.
+    `review_state` is whether it is approved — on submission for the account's own people
+    (D-658), by an admin for anything else. A document can be `processed` and still
+    `pending_approval` — read, ready, and deliberately not live.
     """
 
     id: UUID
@@ -204,8 +215,8 @@ class UploadOut(Strict):
     #: labelled as such where the person confirming it can see the label.
     text_provenance: str | None = None
     #: When a re-scrape last found this link's page materially changed. A NEW version is
-    #: submitted for review when that happens; the live one keeps answering until somebody
-    #: approves the new one.
+    #: submitted when that happens: published like the link itself when a member linked
+    #: the page, for review when an operator did.
     change_detected_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -236,7 +247,8 @@ class DownloadOut(Strict):
     description=(
         "Accepts a PDF, a Word document, plain text, a CSV, a spreadsheet or a photograph "
         "of a printed page, up to 20 MB. A PDF is sent to the voice platform as it is; "
-        "everything else has its text read out first and chunked for review. Poll "
+        "everything else has its text read out first and chunked. An account member's "
+        "upload is published once it has been read, with no review. Poll "
         "`GET /v1/kb/uploads` for `ingest_status`."
     ),
 )
@@ -258,12 +270,12 @@ async def upload_document(
         content_type=file.content_type,
         data=data,
         submitted_by=principal.user_id,
-        # The founder's rule, and the ONE place the authority is read
-        # (`uploads.may_self_approve`). WHEN it takes effect is `create_upload`'s to
-        # decide: a PDF is approvable the moment it lands because the artefact a reviewer
-        # reads is the file itself, while a document whose text has not been extracted yet
-        # cannot be approved by anybody — so that promotion waits for the ingest job.
-        auto_approve=uploads.may_self_approve(principal),
+        # D-658. WHEN it takes effect is `create_upload`'s to decide: a PDF is approved the
+        # moment it lands because the file is the document, while text not yet read out
+        # cannot be approved, so that promotion waits for the ingest job.
+        auto_approve=goes_live_without_review(
+            realm=principal.realm, impersonating=principal.impersonating
+        ),
     )
     return UploadOut.model_validate(result)
 
@@ -313,9 +325,10 @@ _READ_CHUNK_BYTES = 1024 * 1024
     openapi_extra=permission_meta("kb:write"),
     summary="Add a web page as knowledge",
     description=(
-        "The voice platform reads the page itself. We re-read it on a schedule and submit "
-        "a new version for review when the page changes materially — the live version "
-        "keeps answering until somebody approves the new one."
+        "An account member's link is published once it is registered, with no review. "
+        "We re-read the page on a schedule; when it changes materially the new version "
+        "is published the same way, because the account linked the page and its updates "
+        "are the account's. A page an operator linked is re-submitted for review instead."
     ),
 )
 async def add_link(
@@ -331,7 +344,9 @@ async def add_link(
         name=payload.name,
         url=payload.url,
         submitted_by=principal.user_id,
-        auto_approve=uploads.may_self_approve(principal),
+        auto_approve=goes_live_without_review(
+            realm=principal.realm, impersonating=principal.impersonating
+        ),
     )
     return UploadOut.model_validate(result)
 
@@ -372,10 +387,10 @@ async def read_upload(
     "/uploads/{upload_id}/original",
     response_model=DownloadOut,
     openapi_extra=permission_meta("agents:read"),
-    summary="A short-lived link to the uploaded file, for reviewing it",
+    summary="A short-lived link to the uploaded file",
     description=(
-        "The approval gate is a human reading what the agent will be handed. For a PDF "
-        "that is the file itself; there are no chunks to preview and none are invented."
+        "For a PDF the file itself is what the agent is handed; there are no chunks to "
+        "preview and none are invented."
     ),
 )
 async def download_original(
@@ -392,11 +407,11 @@ async def download_original(
     "/uploads/{upload_id}/confirm",
     response_model=UploadOut,
     openapi_extra=permission_meta("kb:write"),
-    summary="Approve what was read out of this document, and publish it",
+    summary="Approve an upload that is waiting for review, and publish it",
     description=(
-        "The account owner's own approval. Text read off a photograph is never approved "
-        "automatically, whoever uploaded it — a model told us what it thought it said, and "
-        "a person has to agree before an agent recites it on a phone call."
+        "The account's own approval of a version nobody in the account added: a "
+        "view-as session's upload, or a changed page an operator linked. What an account "
+        "member uploads or links is approved on its own and never needs this."
     ),
 )
 async def confirm_upload(
@@ -604,10 +619,9 @@ async def get_staff_curation(
     summary="Let this account's staff curate knowledge, or stop letting them",
     description=(
         "Off for every account until its owner turns it on. Switching it on lets members "
-        "with the `staff` role submit knowledge for review and dismiss or teach a "
-        "knowledge gap — and nothing else. It does not let them approve or publish "
-        "anything: a staff-submitted source lands in the same review queue an owner's "
-        "does, and still needs approval before an agent can say a word of it."
+        "with the `staff` role add knowledge (text, documents, links) and dismiss or "
+        "teach a knowledge gap — and nothing else. What they add goes to the agent "
+        "without review, exactly as the owner's does (D-658)."
     ),
 )
 async def set_staff_curation(

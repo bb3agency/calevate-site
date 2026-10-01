@@ -112,7 +112,8 @@ describe("the confirmation is only asked where TRAI's exception is open", () => 
       routes("160", state({ applicable: false })),
     );
 
-    await screen.findByText("+918041234567");
+    // Displayed grouped for reading (`formatPhone`) since the round-2 redesign.
+    await screen.findByText("+91 80412 34567");
     expect(screen.queryByText(STATEMENT)).toBeNull();
     expect(
       screen.queryByRole("button", { name: /confirm and accept/i }),

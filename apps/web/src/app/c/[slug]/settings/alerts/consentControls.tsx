@@ -33,7 +33,7 @@ export function GrantControl({
 }) {
   return (
     <div className="space-y-3">
-      <p className="rounded-card border border-line bg-surface p-4 text-sm text-ink">{notice}</p>
+      <blockquote className="border-l-2 border-brand pl-4 text-sm text-ink">{notice}</blockquote>
       {/* Shared ActionButton: the spinner rides `loading` while the opt-in is recorded, and
           the disabled logic is unchanged (`disabled || loading`). The accessible name stays
           "I agree…" through the write, so `whatsappAlerts.test.tsx`'s `/I agree/` — and a

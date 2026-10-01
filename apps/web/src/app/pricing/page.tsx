@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
+import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 
 import {
   cardFromRate,
@@ -392,12 +393,12 @@ export default async function PricingPage() {
                   An invoice you can check
                 </h3>
                 <p className="mt-2 max-w-xl text-sm text-pretty text-ink-muted sm:text-base">
-                  {/* apps/api/billing/invoice.py — an invoice is DERIVED from the usage
+                  {/* apps/api/billing/invoice.py — a statement is DERIVED from the usage
                       ledger at the plan in effect for that period (billing/plans.py), so it
-                      does not change when you look at it twice. GST: billing/gst.py. */}
-                  A month&apos;s invoice is assembled from those usage records at the plan in
-                  effect for that month, with GST worked out on it. It reads the same next year
-                  as it does today.
+                      does not change when you look at it twice. GST: lib/gstStatus.ts. */}
+                  A month&apos;s statement is assembled from those usage records at the plan in
+                  effect for that month, and it reads the same next year as it does today.{" "}
+                  {GST_STATUS_SENTENCE}
                 </p>
               </div>
               <MockStage

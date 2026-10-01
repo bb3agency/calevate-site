@@ -48,6 +48,9 @@ import {
  *  assertions below moved from "must not appear" to "must appear, and never in a URL". */
 const PHONE_A = "+919876543210";
 const PHONE_B = "+919912347788";
+/** How the screen PRINTS them (`formatPhone`): grouped for reading. */
+const SHOWN_A = "+91 98765 43210";
+const SHOWN_B = "+91 99123 47788";
 /** The national-format digits of `PHONE_A`, which is the form a URL would carry. */
 const PHONE_A_DIGITS = "9876543210";
 
@@ -338,7 +341,7 @@ describe("the number on the row", () => {
       }),
     );
 
-    expect(await screen.findByText(PHONE_A)).toBeTruthy();
+    expect(await screen.findByText(SHOWN_A)).toBeTruthy();
     // Rendered as TEXT, never as a `tel:` href — an `href` is a URL wherever it points,
     // and URLs reach logs, referrers and browser history.
     for (const link of Array.from(container.querySelectorAll("a"))) {
@@ -360,7 +363,7 @@ describe("the number on the row", () => {
       routes({ "POST /v1/leads/search": leadList([lead({ name: null })]) }),
     );
 
-    await screen.findByText(PHONE_A);
+    await screen.findByText(SHOWN_A);
     expect(container.textContent).toContain("No name");
     // The masked number is the identifier for a nameless lead; nothing else stands in.
     expect(container.textContent).not.toContain("Unknown caller");
@@ -411,12 +414,12 @@ describe("the D-21 dispatch verdict, per lead", () => {
     fireEvent.click(screen.getByRole("button", { name: /Call with AI/ }));
     await screen.findByText("Calling now");
 
-    expect(row(PHONE_A).textContent).toContain(
+    expect(row(SHOWN_A).textContent).toContain(
       "This number is on your do-not-call list.",
     );
-    expect(row(PHONE_A).textContent).not.toContain("Calling now");
-    expect(row(PHONE_B).textContent).toContain("Calling now");
-    expect(row(PHONE_B).textContent).not.toContain("do-not-call");
+    expect(row(SHOWN_A).textContent).not.toContain("Calling now");
+    expect(row(SHOWN_B).textContent).toContain("Calling now");
+    expect(row(SHOWN_B).textContent).not.toContain("do-not-call");
     // One refusal was issued, so exactly one may be on screen.
     expectTextCount(container, "This number is on your do-not-call list.", 1);
   });

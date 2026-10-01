@@ -1,6 +1,7 @@
 "use client";
 
-import { EmptyState, ScrollRegion, formatCount } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
+import { ScrollRegion, formatCount } from "@/components/ui";
 import type { Performance } from "@/lib/api/performance";
 
 /**
@@ -18,6 +19,26 @@ import type { Performance } from "@/lib/api/performance";
 export function ratePct(value: number | null | undefined): string | null {
   return value === null || value === undefined ? null : `${value}%`;
 }
+
+/**
+ * What each panel's figures mean, behind the panel's ⓘ. Explanation only — the conditional
+ * shortfall sentence under the histogram is a fact about this period and stays visible.
+ */
+export const FUNNEL_NOTE =
+  "Answered means the call reached a real conversation — not voicemail or a missed call. " +
+  "Interested counts customers, not calls: three calls to the same person count once.";
+export const OUTCOMES_NOTE =
+  "The tag your agent recorded, or how the call ended when it recorded none.";
+export const HOURS_NOTE =
+  "Each bar counts the calls that STARTED in that hour, Indian Standard Time.";
+
+/**
+ * Bars grow once, on first paint (`@starting-style`), and never on a period switch: the
+ * width and height change in place, because re-animating every switch is motion on a
+ * repeated action. Reduced motion paints the final frame.
+ */
+const BAR_ENTER =
+  "transition-[scale,opacity] duration-(--duration-slow) ease-out starting:opacity-0 motion-reduce:transition-none";
 
 /** Said, rather than left for the reader to notice numbers moving under them. */
 export function Updating({ busy }: { busy: boolean }) {
@@ -38,10 +59,7 @@ const FUNNEL_SHADES = ["bg-brand-strong", "bg-brand", "bg-brand-bright"] as cons
 export function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
   if (funnel.calls === 0) {
     return (
-      <EmptyState
-        title="No calls in this period"
-        hint="Once your agent starts taking or making calls, you will see them here."
-      />
+      <EmptyState message="No calls in this period. Once your agent takes or makes calls, they appear here." />
     );
   }
   const stages = [
@@ -56,7 +74,7 @@ export function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
           <div className="w-20 shrink-0 text-sm text-ink-muted">{stage.label}</div>
           <div className="h-6 flex-1 overflow-hidden rounded-md bg-black/[0.04] dark:bg-white/10">
             <div
-              className={`h-full rounded-md ${FUNNEL_SHADES[index]}`}
+              className={`h-full origin-left rounded-md ${FUNNEL_SHADES[index]} ${BAR_ENTER} starting:scale-x-90`}
               style={{
                 width: `${stage.count > 0 ? Math.max((stage.count / funnel.calls) * 100, 2) : 0}%`,
               }}
@@ -68,11 +86,6 @@ export function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
           </div>
         </div>
       ))}
-      <p className="text-xs text-ink-muted">
-        Answered means the call reached a real conversation — not voicemail or a missed
-        call. Interested counts customers, not calls: three calls to the same person count
-        once.
-      </p>
     </div>
   );
 }
@@ -92,10 +105,7 @@ export function Outcomes({ outcomes }: { outcomes: Record<string, number> }) {
   const rows = Object.entries(outcomes).sort(([, a], [, b]) => b - a);
   if (rows.length === 0) {
     return (
-      <EmptyState
-        title="Nothing to show yet"
-        hint="Call results will appear here after your first calls."
-      />
+      <EmptyState message="Nothing to show yet. Call results appear after your first calls." />
     );
   }
   const busiest = Math.max(...rows.map(([, count]) => count));
@@ -118,15 +128,12 @@ export function Outcomes({ outcomes }: { outcomes: Record<string, number> }) {
           </div>
           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/[0.04] dark:bg-white/10">
             <div
-              className="h-full rounded-full bg-brand"
+              className={`h-full origin-left rounded-full bg-brand ${BAR_ENTER} starting:scale-x-90`}
               style={{ width: `${busiest > 0 ? Math.max((count / busiest) * 100, 2) : 0}%` }}
             />
           </div>
         </div>
       ))}
-      <p className="pt-1 text-xs text-ink-muted">
-        The tag your agent recorded, or how the call ended when it recorded none.
-      </p>
     </div>
   );
 }
@@ -206,7 +213,7 @@ export function HourHistogram({ hours, calls }: { hours: number[]; calls: number
               </span>
               <div className="flex h-[120px] w-full items-end">
                 <div
-                  className={`w-full rounded-t-sm ${
+                  className={`w-full origin-bottom rounded-t-sm ${BAR_ENTER} starting:scale-y-90 ${
                     count > 0 ? "bg-brand" : "bg-black/[0.06] dark:bg-white/10"
                   }`}
                   // Relative to the busiest hour; a silent hour keeps a 2px baseline so
@@ -223,16 +230,12 @@ export function HourHistogram({ hours, calls }: { hours: number[]; calls: number
           ))}
         </div>
       </ScrollRegion>
-      <p className="mt-2 text-xs text-ink-muted">
-        Each bar counts the calls that STARTED in that hour, Indian Standard Time.
-        {started < calls && (
-          <>
-            {" "}
-            {formatCount(started)} of {formatCount(calls)} calls in this period have a
-            start time; the rest never reached the network, so they are not in this chart.
-          </>
-        )}
-      </p>
+      {started < calls && (
+        <p className="mt-2 text-xs text-ink-muted">
+          {formatCount(started)} of {formatCount(calls)} calls in this period have a start
+          time; the rest never reached the network, so they are not in this chart.
+        </p>
+      )}
     </div>
   );
 }

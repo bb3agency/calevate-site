@@ -5,7 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent } from "@/lib/api/agents";
@@ -13,6 +13,31 @@ import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage } from "./harness";
 import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
+
+/*
+ * THE WORKSPACE IS A SETTINGS LAYOUT (D-657): one section is mounted at a time, chosen by
+ * `?section=`. Each describe below opens the section that owns its subject; the default is
+ * Overview, which is also what a real visit opens first.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/c/acme/agents/agent-1",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+function openSection(id: string) {
+  nav.params = new URLSearchParams(`section=${id}`);
+}
+beforeEach(() => {
+  nav.params = new URLSearchParams();
+});
 
 /**
  * ONE agent's screen — where a client checks what their phone line is saying, changes what
@@ -292,15 +317,33 @@ function routes(over: Record<string, unknown> = {}) {
     // both are read on this screen, and an unanswered read is a stray `role="alert"`.
     "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
+    // Overview's setup checklist reads the script's version.
+    "/v1/agents/agent-1/script": {
+      script: {
+        opening_line: "Namaskaram.",
+        steps: [],
+        faqs: [],
+        faq_fallback: "",
+        end_call_extra_rules: [],
+        variables: [],
+        raw_override: null,
+      },
+      version: 4,
+      is_freeform: false,
+      has_pending: false,
+      standard_variables: [],
+    },
     ...over,
   };
 }
 
 /** The value rendered under a `dt`, read off the `dd` beside it. */
+/** The value beside a label: a `<dd>` after its `<dt>`, or a `SettingRow`'s value cell. */
 function factValue(label: string): string {
   const term = screen.getByText(label);
-  const value = term.nextElementSibling;
-  expect(value, `no <dd> after "${label}"`).not.toBeNull();
+  if (term.tagName === "DT") return term.nextElementSibling?.textContent ?? "";
+  const value = term.parentElement?.parentElement?.nextElementSibling?.firstElementChild;
+  expect(value, `no value beside "${label}"`).toBeTruthy();
   return value?.textContent ?? "";
 }
 
@@ -367,8 +410,10 @@ describe("which script callers are actually hearing", () => {
       }),
     );
 
-    await screen.findByText(/no caller hears it at all/);
+    // The header says it, and no banner claims anything is waiting.
+    await screen.findByText(/Not on the calling system yet/);
     expect(container.textContent).not.toContain("what callers hear right now");
+    expect(container.textContent).not.toContain("Changes waiting to go live");
   });
 
   it("does not report an agent as settled when the pending read failed", async () => {
@@ -392,6 +437,7 @@ describe("which script callers are actually hearing", () => {
 });
 
 describe("which voice callers are actually hearing", () => {
+  beforeEach(() => openSection("voice"));
   /**
    * A voice is TWO facts once it can be changed without being published, and this screen is
    * where a client finds out which one their callers get — and, since D-547 gave the
@@ -610,6 +656,7 @@ describe("which voice callers are actually hearing", () => {
 });
 
 describe("the numbers come from the server", () => {
+  beforeEach(() => openSection("calls"));
   it("formats the worst-case cost as grouped rupees from the string the API sent", async () => {
     // `worst_case_call_cost_inr` is an exact NUMERIC crossing the wire as a STRING (hard
     // rule 7). `Number("1500.00")` is how ₹1,500.00 turns into a float on a screen a client
@@ -674,6 +721,7 @@ describe("the numbers come from the server", () => {
   });
 
   it("sends the owner of an empty wallet to the thing that FIXES it, not to us", async () => {
+    openSection("voice");
     // `inr_per_min` is null for exactly one reason (`billing/lots.py::TierRate`): no open
     // lot, i.e. an empty or overdrawn wallet. There is no rate because there is no credit,
     // and the rate is the one frozen on the pack they buy — so "your account manager can"
@@ -884,7 +932,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     );
 
     const aiSwitch = await within(
-      await waitFor(() => card("What it says about itself")),
+      await waitFor(() => card("What it says at the start of every call")),
     ).findByRole("switch", { name: /say it is an ai assistant/i });
     // The switch fails closed until `/v1/me` has said this session holds `org:manage`.
     await waitFor(() => expect(aiSwitch.hasAttribute("disabled")).toBe(false));
@@ -909,7 +957,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     };
     const { calls } = await renderClientPage(page, routes({ "/v1/me": staff }));
 
-    const panel = await waitFor(() => card("What it says about itself"));
+    const panel = await waitFor(() => card("What it says at the start of every call"));
     expect(
       await within(panel).findByText("Only an account owner can switch these notices."),
     ).toBeTruthy();
@@ -925,6 +973,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
 });
 
 describe("editing what an agent captures (the extraction variables)", () => {
+  beforeEach(() => openSection("captured"));
   /** One extraction field on the wire, with `reason` (the renamed per-field hint). */
   function field(
     over: Partial<Agent["extraction_fields"][number]> = {},
@@ -945,7 +994,16 @@ describe("editing what an agent captures (the extraction variables)", () => {
     return { fields, version, changed: true };
   }
 
-  const captures = "What it captures";
+  const captures = "What it writes down";
+
+  /** Saved variables are one-line rows until edited; open every editor. */
+  async function openEditors(panel: HTMLElement) {
+    await act(async () => {
+      for (const edit of within(panel).queryAllByRole("button", { name: /^Edit / })) {
+        fireEvent.click(edit);
+      }
+    });
+  }
 
   it("renders the agent's current variables in editable inputs, keys read-only", async () => {
     await renderClientPage(
@@ -967,6 +1025,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     // The labels are the current values, sitting in inputs — not a static list any more.
     expect(within(panel).getByDisplayValue("Reason for visit")).toBeTruthy();
     expect(within(panel).getByDisplayValue("Budget")).toBeTruthy();
@@ -992,6 +1051,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     expect(within(panel).getAllByLabelText("Name")).toHaveLength(1);
     await act(async () => {
       fireEvent.click(await pressable(panel, /Add variable/));
@@ -1020,6 +1080,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     // The inputs are disabled until write access resolves off `/v1/me`; gate on that first,
     // or an edit fired at first paint lands on a dead control (see `pressable`).
     await pressable(panel, /Add variable/);
@@ -1070,6 +1131,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     await pressable(panel, /Add variable/); // wait for write access before editing
     await act(async () => {
       fireEvent.change(within(panel).getByLabelText("Name"), {
@@ -1111,6 +1173,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     await pressable(panel, /Add variable/); // wait for write access before toggling
     await act(async () => {
       fireEvent.click(within(panel).getByRole("switch"));
@@ -1141,6 +1204,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     // pressable waits for the delete control to be live (write access resolves off `/v1/me`).
     await act(async () => {
       fireEvent.click(await pressable(panel, /Delete Reason for visit/));
@@ -1188,6 +1252,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     await pressable(panel, /Add variable/); // wait for write access before editing
     // Make something change so Save lights, then save into the refusal.
     await act(async () => {
@@ -1230,6 +1295,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
 
     await screen.findByText("Reception");
     const panel = card(captures);
+    await openEditors(panel);
     await act(async () => {
       fireEvent.click(await pressable(panel, /Add variable/));
     });
@@ -1258,25 +1324,40 @@ describe("editing what an agent captures (the extraction variables)", () => {
   });
 });
 
-describe("the controls this session may not use are absent, not waiting to 403", () => {
-  it("offers no Apply, Undo or cap editor", async () => {
-    // Apply/Undo/call-cap are `POST|PATCH /v1/admin/tenants/{tid}/agents/{aid}/…` and
-    // require `agents:write` — held by `operator`/`superadmin`, by neither client role, and
-    // refused outright to an impersonating operator (D-22). Every session that can reach
-    // this screen would be refused the click, so the button must not exist: the repo's rule
-    // is that a control which can only 403 is worse than no control.
-    const { container } = await renderClientPage(
+describe("applying a staged script from the header (D-657)", () => {
+  it("offers the owner Apply on the client-realm door, CAS on the staged version", async () => {
+    // CHANGED with D-657: this test used to assert there was NO Apply here, on the premise
+    // that applying is admin-only. The client realm has its own door —
+    // `POST /v1/agents/{id}/script/apply`, `org:manage` (`script_routes.py`), the one the
+    // builder already used — so the workspace header now offers it, CAS on the staged
+    // version the banner shows.
+    const { calls } = await renderClientPage(
       page,
-      routes({ "/v1/agents/agent-1/pending": STAGED }),
+      routes({
+        "/v1/agents/agent-1/pending": STAGED,
+        "POST /v1/agents/agent-1/script/apply": {
+          applied: true,
+          live_version: 9,
+          engine_synced: true,
+        },
+      }),
     );
 
     await screen.findByText("Changes waiting to go live");
+    const apply = screen.getByRole("button", { name: "Apply changes" });
+    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(apply);
+    });
+    const posted = calls.find((call) => call.path === "/v1/agents/agent-1/script/apply");
+    expect(posted?.method).toBe("POST");
+    expect(JSON.parse(posted?.body ?? "{}")).toEqual({ expected_version: 9 });
+  });
+
+  it("offers no Apply when nothing is waiting", async () => {
+    await renderClientPage(page, routes());
+    await screen.findByText("Reception");
     expect(screen.queryByRole("button", { name: /^apply/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
-    // Whoever DOES apply it is named, so the absence reads as an answer rather than a
-    // missing feature.
-    expect(container.textContent).toContain("account manager");
   });
 
   it("issues no admin-realm request from a client screen", async () => {
@@ -1345,47 +1426,45 @@ const SWITCHED_OFF = {
 };
 
 describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
+  // CHANGED with D-657: the moves left the stacked "Switching it on and off" card. The one
+  // that moves an agent forward is the header's primary; Switch off is in the header's ⋯
+  // menu; Delete, with its consequences, is in Advanced. The server's transition table is
+  // what each test still pins.
   it("offers a live agent only the moves the server's transition table allows", async () => {
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    const panel = card("Switching it on and off");
-    // `live -> {paused}` ONLY (lifecycle.AGENT_TRANSITIONS). "Switch on" was never one of
-    // them, and Delete stopped being one at D-527: a working agent is refused with
-    // `agent_is_live` until it is switched off, so offering it here would be a click that
-    // could only ever be refused.
-    expect(
-      within(panel).getByRole("button", { name: /Switch off/ }),
-    ).toBeTruthy();
+    // `live -> {paused}` ONLY (lifecycle.AGENT_TRANSITIONS).
+    expect(screen.queryByRole("button", { name: "Switch on" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bring it back" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "More actions for Reception" }));
+    });
+    expect(await screen.findByRole("menuitem", { name: /Switch off/ })).toBeTruthy();
+  });
+
+  it("will not offer to delete a working agent, and says the one thing to do first", async () => {
+    openSection("advanced");
+    await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    const panel = screen.getByRole("region", { name: "Delete this agent" });
     expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(
-      within(panel).queryByRole("button", { name: /Switch on/ }),
-    ).toBeNull();
-    expect(
-      within(panel).queryByRole("button", { name: /Bring it back/ }),
-    ).toBeNull();
+    expect(panel.textContent).toContain("has to be switched off before it can be deleted");
   });
 
   it("offers a switched-off agent the delete the live one could not have", async () => {
-    // The other half of the rule, and the half that makes it a two-step rather than a
-    // wall: the move the live agent was refused is right there once it is switched off.
+    openSection("advanced");
     await renderClientPage(page, routes(SWITCHED_OFF));
 
     await screen.findByText("Reception");
-    const panel = card("Switching it on and off");
-    expect(
-      within(panel).getByRole("button", { name: /Switch on/ }),
-    ).toBeTruthy();
-    expect(within(panel).getByRole("button", { name: /Delete/ })).toBeTruthy();
-    expect(
-      within(panel).queryByRole("button", { name: /Switch off/ }),
-    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Switch on" })).toBeTruthy();
+    const panel = screen.getByRole("region", { name: "Delete this agent" });
+    expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
   });
 
   it("offers an archived agent a restore and nothing else, and says it comes back switched off", async () => {
-    // `archived -> {paused}` only: a restore never puts an agent straight back on the
-    // phone, because the voice platform may have drifted while it sat retired and only a
-    // publish can establish what it is holding.
+    // `archived -> {paused}` only: a restore never puts an agent straight back on the phone.
     await renderClientPage(
       page,
       routes({
@@ -1398,21 +1477,14 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     );
 
     await screen.findByText("Reception");
-    // "Bringing it back", not "Switching it on and off": on a deleted agent the only move
-    // there is is the restore, and a heading offering a switch it does not have is the
-    // same class of lie as the script button this screen used to show.
-    const panel = card("Bringing it back");
-    expect(
-      within(panel).getByRole("button", { name: /Bring it back/ }),
-    ).toBeTruthy();
-    expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(
-      within(panel).queryByRole("button", { name: /Switch off/ }),
-    ).toBeNull();
-    expect(panel.textContent).toContain("comes back switched OFF");
+    expect(screen.getByRole("button", { name: "Bring it back" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Delete/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Switch off" })).toBeNull();
+    expect(document.body.textContent).toContain("comes back switched off");
   });
 
   it("restates what deleting does before it does it, and only then posts", async () => {
+    openSection("advanced");
     const { calls } = await renderClientPage(
       page,
       routes({
@@ -1427,7 +1499,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     );
 
     await screen.findByText("Reception");
-    const panel = card("Switching it on and off");
+    const panel = screen.getByRole("region", { name: "Delete this agent" });
 
     // FIRST PRESS: the consequences, no request. The one a client most needs is that the
     // history survives — an owner who believes Delete erases their call log will leave a
@@ -1467,9 +1539,10 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
      *    focus would fall to `<body>` and a keyboard-only owner would have to Tab back
      *    through the page to finish an action they had started.
      */
+    openSection("advanced");
     await renderClientPage(page, routes(SWITCHED_OFF));
     await screen.findByText("Reception");
-    const panel = card("Switching it on and off");
+    const panel = screen.getByRole("region", { name: "Delete this agent" });
 
     const trigger = await pressable(panel, /^Delete…$/);
     // Focused the way a keyboard user arrives at it, then activated. `fireEvent.click`
@@ -1519,12 +1592,13 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     );
 
     await screen.findByText("Reception");
-    const panel = card("Switching it on and off");
+    const switchOn = screen.getByRole("button", { name: "Switch on" });
+    await waitFor(() => expect(switchOn.hasAttribute("disabled")).toBe(false));
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Switch on/));
+      fireEvent.click(switchOn);
     });
 
-    const alert = await within(panel).findByRole("alert");
+    const alert = await screen.findByRole("alert");
     // `ApiProblem` leads with `detail` (falling back to `title`), and `ProblemNotice`
     // prints the remediation under it — so BOTH halves are asserted: what happened, and
     // what the client can do about it. A refusal with no second line is a dead end.
@@ -1563,10 +1637,7 @@ describe("a deleted agent offers nothing to tweak (the founder's screenshot)", (
     expect(screen.queryByRole("link", { name: /script builder/i })).toBeNull();
     expect(document.body.textContent).not.toContain("Write the script first");
     // And it says what IS true, in place of the sentence that was not.
-    expect(document.body.textContent).toContain("What it said on a call");
-    expect(document.body.textContent).toContain(
-      "cannot be changed while the agent is deleted",
-    );
+    expect(document.body.textContent).toContain("cannot be changed while it is deleted");
   });
 
   it("renders no write control anywhere on the screen except the restore", async () => {
@@ -1576,7 +1647,7 @@ describe("a deleted agent offers nothing to tweak (the founder's screenshot)", (
     // The switches, the save buttons and the teach-it form are all gone, not disabled.
     for (const name of [
       /Save changes/,
-      /Submit for review/,
+      /Add to agent/,
       /Let AI draft/i,
       /Switch off/,
       /Switch on/,
@@ -1587,7 +1658,7 @@ describe("a deleted agent offers nothing to tweak (the founder's screenshot)", (
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     // The one available action, named in the copy and present as the only button.
-    expect(screen.getByRole("button", { name: /Bring it back/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bring it back" })).toBeTruthy();
   });
 
   it("still READS: the badge, what it captured and what it was are all on the page", async () => {
@@ -1598,12 +1669,13 @@ describe("a deleted agent offers nothing to tweak (the founder's screenshot)", (
 
     await screen.findByText("Reception");
     expect(screen.getAllByText("Deleted").length).toBeGreaterThan(0);
-    expect(card("What it captured")).toBeTruthy();
+    expect(card("What it writes down")).toBeTruthy();
     expect(card("What it is").textContent).toContain("Bring it back first");
   });
 });
 
 describe("changing what an agent is", () => {
+  beforeEach(() => openSection("advanced"));
   it("sends only the field that moved", async () => {
     // `AgentUpdateIn` treats an omitted field as "leave this alone" and REFUSES a body that
     // names nothing, which is why the button is dead until something differs. Sending all
@@ -1666,6 +1738,7 @@ describe("changing what an agent is", () => {
 });
 
 describe("teaching the agent", () => {
+  beforeEach(() => openSection("knowledge"));
   it("files a submission against THIS agent, with no picker to get wrong", async () => {
     const { calls } = await renderClientPage(
       page,
@@ -1680,6 +1753,10 @@ describe("teaching the agent", () => {
 
     await screen.findByText("What it knows");
     const panel = card("What it knows");
+    // The form opens from a button (D-657), so the section is a list until someone teaches.
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Teach it a fact/));
+    });
     await act(async () => {
       fireEvent.change(within(panel).getByLabelText("What this is about"), {
         target: { value: "Clinic hours" },
@@ -1692,7 +1769,7 @@ describe("teaching the agent", () => {
       );
     });
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Submit for review/));
+      fireEvent.click(await pressable(panel, /Add to agent/));
     });
 
     // Matched on the METHOD too: `/v1/kb/sources` is also the LIST read this panel makes
@@ -1757,7 +1834,7 @@ describe("the screen when the agent could not be read", () => {
     // Not one sentence about an agent we could not read — every panel below is a claim
     // about a specific agent's phone line.
     expect(container.textContent).not.toContain("What it says");
-    expect(container.textContent).not.toContain("Switching it on and off");
+    expect(container.textContent).not.toContain("Overview");
     expect(container.textContent).not.toContain("What it knows");
     // The way back is still there, because a 404 on a bookmarked agent is the case where a
     // person most needs it.
@@ -1766,93 +1843,111 @@ describe("the screen when the agent could not be read", () => {
 });
 
 /**
- * THE HIERARCHY ITSELF — the property that a "does it render?" test cannot see.
+ * THE HIERARCHY ITSELF (D-657) — the property a "does it render?" test cannot see.
  *
- * The defect these exist for is not a missing control; every control on this screen worked
- * before. It is that the screen was a flat stack of nine equally-weighted cards in which
- * the SCRIPT — the most-edited thing an owner owns, and the thing the product actually is
- * — was a small text link inside the fifth of them. A test that only asserts the link
- * EXISTS would have passed on the broken screen, so these assert the three things that
- * distinguish a primary surface from a link: POSITION (first), SIZE (the hero button, and
- * the only one), and SINGULARITY (nothing else competes).
- *
- * See docs/UX-DOCTRINE.md §1 and §3 — this file is that document's executable half for the
- * agent workspace.
+ * REPLACED with D-657. These tests used to pin the SCRIPT as the screen's hero: first
+ * heading after the name, and the only `PRIMARY_BUTTON_LG`. The founder's decision made the
+ * workspace a settings layout whose header holds the ONE action that moves the agent
+ * forward, so two properties are pinned instead: the header holds the single primary, and
+ * Overview — the section that opens first — renders the truthful-answer guarantee ABOVE
+ * both opening-notice switches (doctrine §8 rule 7). The script keeps its own section,
+ * whose entry point is still pinned below.
  */
-describe("the script is the screen's primary surface", () => {
-  it("offers the builder as a link, not a buried note", async () => {
-    const { container } = await renderClientPage(page, routes());
+describe("the header holds the one primary, and Overview keeps the guarantee first", () => {
+  const HEADER_PRIMARY = "bg-brand-strong px-4 py-2";
+
+  it("puts a single primary in the header, and no hero-sized button anywhere", async () => {
+    const { container } = await renderClientPage(page, routes(SWITCHED_OFF));
 
     await screen.findByText("Reception");
-    const open = screen.getByRole("link", { name: /Open the script builder/ });
-    expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-1/script");
-    // Its own heading, at hero scale, so a first-time owner scanning headings finds it.
+    const header = container.querySelector("header") as HTMLElement;
+    const primaries = [...header.querySelectorAll("a, button")].filter((node) =>
+      node.className.includes(HEADER_PRIMARY),
+    );
+    expect(primaries).toHaveLength(1);
+    expect(primaries[0].textContent).toContain("Switch on");
     expect(
-      screen.getByRole("heading", { name: "What it says on a call" }),
-    ).toBeTruthy();
-    expect(container.textContent).toContain("The script is the agent.");
+      [...container.querySelectorAll("a, button")].filter((node) =>
+        node.className.includes("px-5 py-3 text-base"),
+      ),
+    ).toHaveLength(0);
   });
 
-  it("puts it FIRST — above every panel on the screen", async () => {
+  it("offers no primary at all on a live agent with nothing waiting", async () => {
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    const headings = [...container.querySelectorAll("h1, h2, h3")].map(
-      (node) => node.textContent ?? "",
+    const header = container.querySelector("header") as HTMLElement;
+    expect(
+      [...header.querySelectorAll("a, button")].filter((node) =>
+        node.className.includes(HEADER_PRIMARY),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("renders the guarantee above both switches, on the section that opens first", async () => {
+    await renderClientPage(page, routes());
+
+    const guarantee = await screen.findByText(
+      "Whatever these settings say, the agent always answers honestly when a caller asks.",
     );
-    // The page's own `h1` is the agent's name; the very next heading is the script.
-    expect(headings[0]).toBe("Reception");
-    expect(headings[1]).toBe("What it says on a call");
+    const switches = screen.getAllByRole("switch");
+    expect(switches.length).toBeGreaterThanOrEqual(2);
+    for (const toggle of switches.slice(0, 2)) {
+      expect(
+        guarantee.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    expect(guarantee.closest("details")).toBeNull();
   });
 
-  it("gives it the screen's ONLY hero-sized call to action", async () => {
-    // UX-DOCTRINE §1/§4: primacy is position + size + weight + colour, and a second hero
-    // deletes it. `px-5 py-3 text-base` is `PRIMARY_BUTTON_LG` (components/ui.tsx); every
-    // other primary on this workspace is a form's own submit at body scale.
+  it("offers the builder from the Script section", async () => {
+    openSection("script");
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    const heroes = [...container.querySelectorAll("a, button")].filter((node) =>
-      node.className.includes("px-5 py-3 text-base"),
-    );
-    expect(heroes).toHaveLength(1);
-    expect(heroes[0].textContent).toContain("Open the script builder");
-  });
-
-  it("says what a change does NOT do — nothing reaches a live call by accident", async () => {
-    const { container } = await renderClientPage(page, routes());
-
-    await screen.findByText("Reception");
+    const open = await screen.findByRole("link", { name: /Open the script builder/ });
+    expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-1/script");
     expect(container.textContent).toContain(
       "A change never reaches a live call until you apply it",
     );
   });
 
-  it("tells an unpublished agent that the script is what unblocks it", async () => {
-    const { container } = await renderClientPage(
+  it("tells an agent with no script that the script is what unblocks it", async () => {
+    await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1": agent({ status: "draft", published: false }),
+        "/v1/agents/agent-1/script": {
+          script: {
+            opening_line: "",
+            steps: [],
+            faqs: [],
+            faq_fallback: "",
+            end_call_extra_rules: [],
+            variables: [],
+            raw_override: null,
+          },
+          version: null,
+          is_freeform: false,
+          has_pending: false,
+          standard_variables: [],
+        },
       }),
     );
 
-    await screen.findByText("Reception");
-    expect(container.textContent).toContain(
-      "an agent with none cannot be switched on",
-    );
+    expect(
+      await screen.findByText("An agent with no script cannot be switched on."),
+    ).toBeTruthy();
   });
 });
 
 /**
  * WHAT IS BEHIND A CLICK AND WHAT IS NOT — the disclosure contract (UX-DOCTRINE §3, §8).
  *
- * Two failures these catch, and they fail in opposite directions:
- *
- * - a rarely-touched panel drifting back into the foreground, which is how nine equal
- *   cards happen again; and — far worse —
- * - a COMPLIANCE control drifting behind a disclosure. A client can switch either opening
- *   notice off, so the switches and the guarantee they do not reach must be readable with
- *   no click at all. §8 is absolute about this, and this is what enforces it.
+ * A rarely-touched panel drifting back into the foreground is how nine equal cards happen
+ * again; a COMPLIANCE control drifting behind a disclosure is far worse, and §8 is absolute
+ * about it.
  */
 describe("progressive disclosure defaults", () => {
   /** Is this panel inside a `<details>` a reader would have to open? */
@@ -1863,6 +1958,7 @@ describe("progressive disclosure defaults", () => {
   }
 
   it("keeps the set-once panels closed by default", async () => {
+    openSection("advanced");
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
@@ -1871,49 +1967,44 @@ describe("progressive disclosure defaults", () => {
     expect(disclosed("The model it thinks with")).toBe(true);
   });
 
-  it("never hides a compliance control or the script behind one", async () => {
+  it("never hides a compliance control behind one", async () => {
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    // The two opening notices, the truthful-answer guarantee, what callers hear right now,
-    // and switching the agent on and off — none of these may cost a click.
-    expect(disclosed("What it says about itself")).toBe(false);
-    expect(disclosed("What callers hear right now")).toBe(false);
-    expect(disclosed("Switching it on and off")).toBe(false);
-    expect(disclosed("What it captures")).toBe(false);
+    expect(disclosed("What it says at the start of every call")).toBe(false);
+  });
+
+  it("never hides what it captures or what it knows behind one", async () => {
+    openSection("captured");
+    const first = await renderClientPage(page, routes());
+    await screen.findByText("Reception");
+    expect(disclosed("What it writes down")).toBe(false);
+    first.unmount();
+
+    openSection("knowledge");
+    await renderClientPage(page, routes());
+    await screen.findByText("Reception");
     expect(disclosed("What it knows")).toBe(false);
-    // The hero itself is not in a `<details>` at all.
-    const hero = screen.getByRole("heading", {
-      name: "What it says on a call",
-    });
-    expect(hero.closest("details")).toBeNull();
   });
 
   it("names what is inside a closed disclosure, so the fact survives the click", async () => {
-    // GOV.UK's own research on the Details component records that some users avoid
-    // clicking a reveal at all (govuk-design-system src/components/details/index.md, read
-    // 25 Aug 2026). A disclosure whose closed state says nothing is a panel nobody opens,
-    // so the FACT stays outside and only the CONTROL goes behind the click.
+    // Some users never click a reveal (GOV.UK Details research, read 25 Aug 2026), so the
+    // FACT stays outside and only the CONTROL goes behind the click.
+    openSection("advanced");
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
     const model = card("The model it thinks with");
-    expect(model.querySelector("summary")?.textContent).toContain(
-      "gpt-4o-mini",
-    );
+    expect(model.querySelector("summary")?.textContent).toContain("gpt-4o-mini");
   });
 
   it("is a native details/summary, so it is keyboard-operable with no JS", async () => {
-    // WCAG 2.1.1 Keyboard (Level A). `<summary>` is focusable and toggles on Enter and
-    // Space in every browser; a hand-rolled `<div onClick>` accordion is none of that,
-    // which is why UX-DOCTRINE §3 names ONE disclosure mechanism for the whole console.
+    openSection("advanced");
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
     const summary = card("What it is").querySelector("summary");
     expect(summary).not.toBeNull();
-    // The title inside it is a real heading, so it appears in a screen reader's heading
-    // list rather than being reachable only by tabbing.
     expect(within(summary as HTMLElement).getByRole("heading")).toBeTruthy();
   });
 });

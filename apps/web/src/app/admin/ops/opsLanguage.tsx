@@ -38,7 +38,7 @@
  */
 
 import clsx from "clsx";
-import { Check, Copy, Eye, EyeOff, Lock } from "lucide-react";
+import { Eye, EyeOff, Lock } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
@@ -628,37 +628,6 @@ export function DangerZone({
  * support ticket. Deliberately NOT offered for any secret value: there is no secret value
  * on screen to copy, and this must never become the exception that puts one there.
  * ──────────────────────────────────────────────────────────────────────────── */
-
-export function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        void navigator.clipboard?.writeText(value).then(
-          () => setCopied(true),
-          () => setCopied(false),
-        );
-      }}
-      // The accessible name IS the state — a screen reader hears "Copy tenant id", then
-      // "tenant id copied". Kept verbatim: ~10 screens and the a11y sweep read it.
-      aria-label={copied ? `${label} copied` : `Copy ${label}`}
-      // A compact copy affordance in the same green-reveal family as the buttons, small on
-      // purpose because these sit beside dense IDs on ops screens: a soft brand tint on
-      // hover, and a settled green + check once copied. `press` carries the colour transition
-      // and the press scale, and drops the scale for a reduced-motion reader.
-      className={clsx(
-        "press inline-flex items-center justify-center rounded-md border p-1 touch:min-h-11 touch:min-w-11",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
-        copied
-          ? "border-brand/40 bg-brand-soft text-brand-strong"
-          : "border-transparent text-ink-faint hover:border-brand/30 hover:bg-brand-soft/50 hover:text-brand-strong",
-      )}
-    >
-      {copied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
-    </button>
-  );
-}
 
 /* Re-export the danger button class so a panel building a destructive action inside a
  * DangerZone imports its button from the same place as the zone. */

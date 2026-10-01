@@ -73,6 +73,12 @@ const STAFF: Member = {
   role: "staff",
 };
 
+/** The owner-only roster (`/v1/team/members`): the same people, with their addresses. */
+const ROSTER = [
+  { id: OWNER.id, name: "Anita", email: "anita@clinic.example", role: "owner", joined_at: "2026-07-01T09:00:00Z" },
+  { id: STAFF.id, name: "Priya", email: "priya.k@clinic.example", role: "staff", joined_at: "2026-07-02T09:00:00Z" },
+];
+
 const INVITE: PendingInvitation = {
   id: "0192f0aa-3333-7000-8000-000000000003",
   email: "ravi@clinic.example",
@@ -94,6 +100,7 @@ async function renderTeam(
   return await renderClientPage(<TeamPage />, {
     "/v1/me": over.me ?? ME,
     "/v1/members": over.members ?? [OWNER, STAFF],
+    "/v1/team/members": ROSTER,
     "/v1/invitations": over.invitations ?? [],
     // What the two writes answer when they land, so a test about what a press SENDS does
     // not also leave an unanswered write behind.
@@ -108,22 +115,30 @@ async function renderTeam(
 
 describe("who may change the team", () => {
   it("gives an owner a role control and a Remove for a colleague", async () => {
-    await renderTeam();
+    const { container } = await renderTeam();
 
     await screen.findByText("Priya");
+    // Remove lives in the row's menu since the round-2 redesign (RowMenu): the menu
+    // button is the control, and the item inside it is the Remove.
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Priya" }));
     expect(
-      screen.getByRole("button", { name: "Remove Priya from this account" }),
+      await screen.findByRole("menuitem", { name: "Remove from account" }),
     ).toBeTruthy();
     expect(
       screen.getByRole("combobox", { name: /Role for Priya/ }),
     ).toBeTruthy();
+    // The owner-only roster adds each colleague's address.
+    await waitFor(() => expect(container.textContent).toContain("priya.k@clinic.example"));
   });
 
   it("offers a staff member no controls, and says why where they would be", async () => {
-    const { container } = await renderTeam({ me: STAFF_ME });
+    const { container, calls } = await renderTeam({ me: STAFF_ME });
 
     await screen.findByText("Priya");
-    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^More actions for / })).toBeNull();
+    // Colleagues' addresses are owner-only: the roster is not even requested for staff.
+    expect(calls.some((c) => c.path.startsWith("/v1/team/members"))).toBe(false);
+    expect(container.textContent).not.toContain("priya.k@clinic.example");
     expect(screen.queryByRole("combobox", { name: /Role for/ })).toBeNull();
     // The reason, not just the absence: a control that vanishes without a sentence is
     // indistinguishable from a screen that failed to render it.
@@ -137,7 +152,7 @@ describe("who may change the team", () => {
     // D-22: support must be able to SEE who has access.
     await screen.findByText("Priya");
     await screen.findByText("Anita");
-    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^More actions for / })).toBeNull();
     // THE SENTENCE MOVED WITH THE RULE (D-587). It read "viewing this account read-only"
     // because view-as refused every mutation; the refusal is now per-permission and
     // per-ACT, and the copy says which way out — the operator console, or asking the
@@ -150,7 +165,7 @@ describe("who may change the team", () => {
     const { container } = await renderTeam();
 
     await screen.findByText("Anita");
-    expect(screen.queryByRole("button", { name: /Remove Anita/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /More actions for Anita/ })).toBeNull();
     expect(
       screen.queryByRole("combobox", { name: /Role for Anita/ }),
     ).toBeNull();
@@ -179,7 +194,7 @@ describe("who may change the team", () => {
     });
 
     await screen.findByText("Anita");
-    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^More actions for / })).toBeNull();
     expect(screen.queryByRole("combobox", { name: /Role for/ })).toBeNull();
     expect(container.textContent).toContain(
       "We could not check whether you can",
@@ -224,6 +239,7 @@ describe("what a click actually sends", () => {
     const { container } = await renderClientPage(<TeamPage />, {
       "/v1/me": ME,
       "/v1/members": [OWNER, STAFF],
+      "/v1/team/members": ROSTER,
       "/v1/invitations": [],
       [`/v1/members/${STAFF.id}`]: problem(422, {
         title: "Request rejected by a business rule",
@@ -251,6 +267,7 @@ describe("what a click actually sends", () => {
     const { container } = await renderClientPage(<TeamPage />, {
       "/v1/me": ME,
       "/v1/members": [OWNER, STAFF],
+      "/v1/team/members": ROSTER,
       "/v1/invitations": [],
       [`/v1/members/${STAFF.id}`]: {
         user_id: STAFF.id,
@@ -260,9 +277,8 @@ describe("what a click actually sends", () => {
     });
 
     await screen.findByText("Priya");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove Priya from this account" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Priya" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from account" }));
     // Removal is confirmed now (TEAM-1). The dialog is the second press; the assertion
     // that the FIRST press sent nothing lives in its own test below.
     fireEvent.click(
@@ -329,37 +345,43 @@ describe("what the invite flow shows", () => {
     // that creates one share this entry. This test is about the POST; the list panel
     // reads the same object, finds no length and renders its empty state, which is
     // harmless here and is asserted properly in the tests above.
-    const { container, calls } = await renderClientPage(<TeamPage />, {
+    const { calls } = await renderClientPage(<TeamPage />, {
       "/v1/me": ME,
       "/v1/members": [OWNER],
+      "/v1/team/members": ROSTER,
       "/v1/invitations": created,
     });
 
     await screen.findByText("Anita");
+    // The invite form opens in a drawer from the header's Invite button (round-2).
+    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
     fireEvent.change(
-      screen.getByRole("textbox", { name: "Email address to invite" }),
+      await screen.findByRole("textbox", { name: "Email address to invite" }),
       {
         target: { value: "priya@clinic.example" },
       },
     );
-    fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
+    // Renamed from "Create invite link": the link is emailed and never shown (D-190).
+    fireEvent.click(screen.getByRole("button", { name: /Send invite/ }));
 
     await waitFor(() => {
       const post = calls.find((c) => c.method === "POST");
       expect(post?.path).toBe("/v1/invitations");
     });
+    // The confirmation renders in the invite drawer, which is portalled to <body>, so the
+    // page is read from there — a wider net for the token, not a narrower one.
     // D-190: the token is not in the response and is therefore not on the screen. This
     // assertion used to be `toContain(created.token)` — the inversion is the fix.
     await waitFor(() =>
-      expect(container.textContent).toContain("Invitation sent to"),
+      expect(document.body.textContent).toContain("Invitation sent to"),
     );
-    expect(container.textContent).not.toContain("tok_");
+    expect(document.body.textContent).not.toContain("tok_");
     // WAS `not.toContain("priya@clinic.example")` beside a masked-form assertion.
     // D-436: the owner who just typed the address is the one person who has to be able
     // to check it — a typo in an invitation is a key mailed to a stranger. The TOKEN
     // assertion above is the one that matters here and is untouched.
-    expect(container.textContent).toContain("priya@clinic.example");
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain("priya@clinic.example");
+    expect(document.body.textContent).toContain(
       "We cannot show or re-send the link",
     );
   });
@@ -368,11 +390,10 @@ describe("what the invite flow shows", () => {
     const { container } = await renderTeam({ invitations: [INVITE] });
 
     await screen.findByText(INVITE.email);
-    expect(
-      screen.getByRole("button", {
-        name: `Revoke the invitation for ${INVITE.email}`,
-      }),
-    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: `More actions for ${INVITE.email}` }),
+    );
+    expect(await screen.findByRole("menuitem", { name: "Revoke invite" })).toBeTruthy();
     expect(container.textContent).toContain("1 unused link");
   });
 
@@ -380,7 +401,7 @@ describe("what the invite flow shows", () => {
     await renderTeam({ me: STAFF_ME, invitations: [INVITE] });
 
     await screen.findByText(INVITE.email);
-    expect(screen.queryByRole("button", { name: /^Revoke / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^More actions for / })).toBeNull();
   });
 });
 
@@ -438,9 +459,8 @@ describe("no colleague's access changes on one unconfirmed press", () => {
     const { calls } = await renderTeam();
 
     await screen.findByText("Priya");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove Priya from this account" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Priya" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from account" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(calls.filter((c) => c.method === "DELETE")).toEqual([]);
@@ -461,9 +481,8 @@ describe("no colleague's access changes on one unconfirmed press", () => {
     const { calls } = await renderTeam();
 
     await screen.findByText("Priya");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove Priya from this account" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Priya" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from account" }));
     fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "Keep their access",
@@ -473,7 +492,7 @@ describe("no colleague's access changes on one unconfirmed press", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(calls.filter((c) => c.method === "DELETE")).toEqual([]);
     expect(
-      screen.getByRole("button", { name: "Remove Priya from this account" }),
+      screen.getByRole("button", { name: "More actions for Priya" }),
     ).toBeTruthy();
   });
 });

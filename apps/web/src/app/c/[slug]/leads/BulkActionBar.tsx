@@ -161,7 +161,7 @@ export function BulkActionBar({
       <div
         role="group"
         aria-label="Bulk actions"
-        className="rounded-card border border-line bg-surface px-4 py-3"
+        className="rounded-xl border border-line bg-surface px-4 py-3 shadow-card"
       >
         <BulkResultSummary result={result} nameFor={nameFor} onDismiss={onDismissResult} />
       </div>
@@ -210,7 +210,7 @@ export function BulkActionBar({
         filteredTotal !== undefined &&
         selection.ids.length === pageSize &&
         filteredTotal > pageSize && (
-          <p className="rounded-card border border-line bg-surface px-4 py-2 text-sm text-ink-muted">
+          <p className="rounded-xl bg-ink/[0.03] px-4 py-2.5 text-sm text-ink-muted">
             All {formatCount(pageSize)} leads on this page are selected.{" "}
             <button
               type="button"
@@ -225,7 +225,10 @@ export function BulkActionBar({
       <div
         role="group"
         aria-label="Bulk actions"
-        className="rounded-card border border-line bg-surface px-4 py-3"
+        // A selection toolbar that stays in reach: pinned to the bottom of the scrolling
+        // console while rows are ticked, so the action is beside the rows wherever the
+        // reader has scrolled to. Enters with the pane fade (reduced motion: none).
+        className="settings-enter sticky bottom-3 z-20 rounded-xl border border-line bg-surface/95 px-4 py-3 shadow-overlay backdrop-blur supports-[backdrop-filter]:bg-surface/85"
       >
         {/* THE SCOPE, in words, above the controls — never a bare "N selected", which is
             the sentence that does not say WHICH n. */}
@@ -313,7 +316,7 @@ export function BulkActionBar({
             person reads what will happen, to how many rows, in which scope, and only
             then meets the button. */}
         {confirming && count !== undefined && (
-          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          <div className="mt-3 rounded-lg border border-warn-line bg-warn-soft p-3 text-sm text-warn">
             <p className="flex items-start gap-2 font-semibold">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
@@ -412,7 +415,7 @@ function BulkResultSummary({
       role="status"
       className={
         failed
-          ? "mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          ? "mt-3 rounded-lg border border-warn-line bg-warn-soft p-3 text-sm text-warn"
           : "mt-3 rounded-lg border border-line bg-app p-3 text-sm text-ink"
       }
     >

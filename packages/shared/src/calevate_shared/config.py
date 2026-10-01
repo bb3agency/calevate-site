@@ -1606,8 +1606,8 @@ class Settings(BaseSettings):
     # invoice, and Rule 46(g) makes the HSN/SAC of the supply one too. The LEGAL PERSON
     # is settled — Calevate is a trade name of a sole proprietor (`docs/legal/
     # LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`) — but the REGISTRATION is not: we are not
-    # registered for GST and are not required to be at present turnover (§4), so there is
-    # no GSTIN to print and no tax to collect. They are therefore config with NO DEFAULT
+    # registered for GST, being below the registration threshold (D-659), so there is no
+    # GSTIN to print and no tax to collect. They are therefore config with NO DEFAULT
     # and no placeholder. A hardcoded specimen GSTIN would be the worst possible outcome: an
     # official-looking document that fails validation in the recipient's return months
     # later, and CGST s.32 prohibits an unregistered person from collecting tax at all.
@@ -1621,11 +1621,10 @@ class Settings(BaseSettings):
     #
     # UNSET IS A SUPPORTED STATE, it is what every environment is in today, and while we
     # are not GST-registered it is the CORRECT state rather than a gap:
-    # `billing/gst.py::SupplierIdentity.is_registered` is False, the document renders as
-    # a BILL OF SUPPLY (CGST Rule 49) that names the missing keys, and it refuses the
-    # "Tax Invoice" heading rather than printing an invalid one. It does NOT change what
-    # the client owes — `invoice.py` argues why a forgotten variable must never silently
-    # move money.
+    # `billing/gst.py::SupplierIdentity.is_registered` is False and the document renders
+    # as a BILL OF SUPPLY (CGST Rule 49) carrying `gst.GST_STATUS_SENTENCE`. Only the
+    # operator's copy names these keys; a client never sees a setting name. It does NOT
+    # change what the client owes.
     gst_supplier_legal_name: str | None = Field(default=None, max_length=200)
     gst_supplier_address: str | None = Field(default=None, max_length=1000)
     # 15 characters. Its first two digits are the supplier's State and are what decides

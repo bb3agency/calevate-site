@@ -50,6 +50,8 @@ from apps.api.copilot import write_tools
 from apps.api.core.context import Principal
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb import curation
+from apps.api.kb import service as kb_service
+from apps.api.kb.service import PUBLISH_KB_SOURCE_JOB
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -135,6 +137,33 @@ async def _submit(http: AsyncClient, token: str, slug: str, agent_id: uuid.UUID)
     return await http.post(SUBMIT, headers=_h(token, slug), json=payload)
 
 
+async def _pending_source(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
+    """A source waiting for an admin: submitted at the service level, which never
+    auto-approves (`submit_source`'s default), the way an operator's intake seed is."""
+    async with tenant_session(tenant_id) as session:
+        created = await kb_service.submit_source(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Consultation fee", body=BODY
+        )
+    assert created["status"] == "pending_approval"
+    return str(created["id"])
+
+
+async def _publish_promised(source_id: object) -> bool:
+    """Whether the submission's transaction queued `publish_kb_source` for this source."""
+    async with untenanted_session() as session:
+        return bool(
+            (
+                await session.execute(
+                    text(
+                        "SELECT 1 FROM outbox_messages WHERE job = :job "
+                        "AND payload->>'source_id' = :sid"
+                    ),
+                    {"job": PUBLISH_KB_SOURCE_JOB, "sid": str(source_id)},
+                )
+            ).first()
+        )
+
+
 # --- (A) the owner's switch --------------------------------------------------------
 
 
@@ -163,11 +192,11 @@ async def test_a_staff_member_in_an_untouched_tenant_is_refused_exactly_as_befor
 
 @pytest.mark.asyncio
 async def test_an_owner_turns_it_on_and_that_tenants_staff_may_then_curate() -> None:
-    """The whole point, end to end through HTTP — and the source still lands UNAPPROVED.
+    """The whole point, end to end through HTTP — and the source goes live like the owner's.
 
-    The second assertion is the one that keeps this a delegation rather than a bypass: a
-    staff submission goes through `kb.service.submit_source`, the same one door
-    `kb/proposals.py` documents, and comes out `pending_approval` like everybody else's.
+    D-658: what the account's own people add needs no approval, staff included once the
+    owner let them in. It still goes through `kb.service.submit_source`, the one door, and
+    the publish is promised in the same transaction (an outbox row), not left to a person.
     """
     tenant_id, agent_id, slug = await _tenant()
     _, owner = await _member(tenant_id, "owner")
@@ -190,11 +219,8 @@ async def test_an_owner_turns_it_on_and_that_tenants_staff_may_then_curate() -> 
                 text("SELECT status FROM kb_sources WHERE id = :s"), {"s": source_id}
             )
         ).scalar()
-    assert status == "pending_approval", (
-        "the preview-and-approve gate must apply to a staff submission identically — a "
-        "staff member who could submit straight to live would be the bypass the switch "
-        "was carefully written not to be"
-    )
+    assert status == "approved", "a staff member's knowledge waited for a reviewer (D-658)"
+    assert await _publish_promised(source_id)
 
 
 @pytest.mark.asyncio
@@ -331,7 +357,8 @@ async def test_owner_behaviour_is_unchanged_in_both_positions_of_the_switch(
                 {"s": response.json()["id"]},
             )
         ).scalar()
-    assert status == "pending_approval"
+    assert status == "approved"
+    assert await _publish_promised(response.json()["id"])
 
 
 @pytest.mark.asyncio
@@ -621,15 +648,14 @@ async def test_every_admin_tier_approves_as_themselves_and_the_row_names_realm_a
     IDENTITY, resolved by `write_audit` from the principal rather than passed by the
     handler.
     """
-    tenant_id, agent_id, slug = await _tenant()
-    _, owner = await _member(tenant_id, "owner")
+    tenant_id, agent_id, _ = await _tenant()
+    await _member(tenant_id, "owner")
     token = await _admin(admin_role)
 
+    # A source nobody in the account added (an operator's seed) — since D-658 the owner's
+    # own would already be approved and there would be nothing for an admin to do.
+    source_id = await _pending_source(tenant_id, agent_id)
     async with _client() as http:
-        submitted = await _submit(http, owner, slug, agent_id)
-        assert submitted.status_code == 201, submitted.text
-        source_id = submitted.json()["id"]
-
         approved = await http.post(
             APPROVE.format(tenant_id=tenant_id, source_id=source_id),
             headers={"Authorization": f"Bearer {token}"},
@@ -677,14 +703,12 @@ async def test_the_admin_approval_path_names_the_admin_even_from_inside_view_as(
     refusal used to prove.
     """
     tenant_id, agent_id, slug = await _tenant()
-    _, owner = await _member(tenant_id, "owner")
+    await _member(tenant_id, "owner")
     token = await _admin()
     admin_id = token.rsplit(":", 1)[-1]
 
+    source_id = await _pending_source(tenant_id, agent_id)
     async with _client() as http:
-        submitted = await _submit(http, owner, slug, agent_id)
-        source_id = submitted.json()["id"]
-
         headers = await view_as_headers(http, token, slug)
         approved = await http.post(
             APPROVE.format(tenant_id=tenant_id, source_id=source_id), headers=headers

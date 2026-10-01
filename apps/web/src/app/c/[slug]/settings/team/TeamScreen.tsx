@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { UserPlus } from "lucide-react";
 
+import { DataTable } from "@/components/console/dataTable";
+import { EmptyState } from "@/components/console/emptyState";
+import { PageHeader } from "@/components/console/pageHeader";
 import {
-  Card,
-  EmptyState,
   NoticeBox,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -20,6 +23,7 @@ import {
   useRemoveMember,
   useRevokeInvitation,
   useSetMemberRole,
+  useTeamMembers,
   type Member,
   type MemberRole,
 } from "@/lib/api/members";
@@ -28,8 +32,8 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { ROLES } from "./roles";
-import { InviteForm } from "./InviteForm";
-import { InvitationRow, MemberRow } from "./teamRows";
+import { InviteDrawer } from "./InviteForm";
+import { teamColumns, type TeamRow } from "./teamRows";
 
 /**
  * Team — who has access to this account, and who may change that (ROADMAP M3).
@@ -110,11 +114,20 @@ export function TeamScreen() {
    * that a removal was intended and says nothing about whose.
    */
   const [removing, setRemoving] = useState<Member | null>(null);
+  const [inviting, setInviting] = useState(false);
+
+  /* Colleagues' email addresses are owner-only (`org:manage`), so the roster is not even
+     requested for a session that may not read it; the email column appears only when it
+     arrived. A failed roster read hides the column rather than blanking the team. */
+  const mayReadRoster = me.data?.permissions.includes("org:manage") ?? false;
+  const roster = useTeamMembers(session, { enabled: mayReadRoster });
+  const emailById = new Map((roster.data ?? []).map((person) => [person.id, person.email]));
 
   /* `.data`, never `.data ?? []` — the difference between "the server said none" and
      "the server did not answer" is this screen's whole honesty (§52). */
   const people = members.data;
-  const pending = invitations.data;
+  // `Array.isArray`, not a cast: a list endpoint answering with anything else is no list.
+  const pending = Array.isArray(invitations.data) ? invitations.data : undefined;
   const myId = me.data?.user_id ?? null;
 
   /*
@@ -208,171 +221,144 @@ export function TeamScreen() {
     },
   });
 
+  const rows: TeamRow[] = [
+    ...(people ?? []).map((member) => ({
+      kind: "member" as const,
+      id: `member-${member.id}`,
+      member,
+      email: emailById.get(member.id) ?? null,
+    })),
+    ...(pending ?? []).map((invitation) => ({
+      kind: "invite" as const,
+      id: `invite-${invitation.id}`,
+      invitation,
+    })),
+  ];
+  const columns = teamColumns({
+    myId,
+    canManage: write.allowed,
+    restriction: write.reason,
+    showEmail: roster.data !== undefined,
+    busyMember:
+      changeRole.isPending
+        ? (changeRole.variables?.userId ?? null)
+        : remove.isPending
+          ? (remove.variables ?? null)
+          : null,
+    busyInvite: revoke.isPending ? (revoke.variables ?? null) : null,
+    onRole: (member, next) =>
+      changeRole.mutate({
+        userId: member.id,
+        role: next,
+        // The CAS guard: the role this row was RENDERING, so a change made by another
+        // owner in the meantime is reported, not overwritten.
+        expectedRole: member.role as MemberRole,
+      }),
+    onRemove: (member) => setRemoving(member),
+    onRevoke: (invitation) => revoke.mutate(invitation.id),
+  });
+
   return (
     <div className="space-y-5 pb-12">
-      <p className="text-sm text-ink-muted">
-        Everyone who can sign in to this account.
-      </p>
+      <PageHeader
+        description="Everyone who can sign in to this account."
+        actions={
+          write.allowed ? (
+            <button
+              type="button"
+              onClick={() => setInviting(true)}
+              className={PRIMARY_BUTTON}
+            >
+              <UserPlus aria-hidden className="h-4 w-4" />
+              Invite
+            </button>
+          ) : undefined
+        }
+      />
 
       <RestrictionNote reason={write.reason} />
 
-      {write.allowed && (
-        <InviteForm
-          email={email}
-          setEmail={setEmail}
-          role={role}
-          setRole={setRole}
-        />
+      {/* A removal refusal belongs inside the dialog while it is open — see below. */}
+      {(changeRole.error != null || (remove.error != null && removing == null)) && (
+        <ProblemNotice error={changeRole.error ?? remove.error} />
+      )}
+      {revoke.error != null && <ProblemNotice error={revoke.error} />}
+      {members.error != null && (
+        <ProblemNotice error={members.error} onRetry={() => members.refetch()} />
+      )}
+      {invitations.error != null && (
+        <ProblemNotice error={invitations.error} onRetry={() => invitations.refetch()} />
       )}
 
-      <Card
-        title="People"
-        action={
-          /* No count until the server has sent a list. "1 person" while the request is
-             in flight is a statement about who has access to this business, made on no
-             evidence. */
-          people ? (
-            <span className="text-xs text-ink-faint">
-              {formatCount(people.length)}{" "}
-              {people.length === 1 ? "person" : "people"}
-            </span>
-          ) : undefined
-        }
-        bodyClassName="p-2"
-      >
-        {/* A removal refusal belongs inside the dialog while it is open — see below. */}
-        {(changeRole.error != null ||
-          (remove.error != null && removing == null)) && (
-          <div className="mb-3 px-4 pt-2">
-            <ProblemNotice error={changeRole.error ?? remove.error} />
-          </div>
-        )}
-        {members.error != null && (
-          <div className="mb-3 px-4 pt-2">
-            <ProblemNotice
-              error={members.error}
-              onRetry={() => members.refetch()}
-            />
-          </div>
-        )}
+      {remove.data && (
+        <NoticeBox tone="warn" title="Access removed">
+          {remove.data.leads_still_assigned > 0
+            ? `${formatCount(remove.data.leads_still_assigned)} ${
+                remove.data.leads_still_assigned === 1 ? "lead is" : "leads are"
+              } still assigned to them. Those leads were not touched — reassign them from the Leads screen so somebody picks them up.`
+            : "They had no leads assigned, so nothing needs reassigning."}
+        </NoticeBox>
+      )}
 
-        {/* Loading is a skeleton; a failure is the notice above and NOTHING else. There
-            is deliberately no "you are the only member" fallback: that sentence, wrong,
-            sends an owner off to re-invite people who already have access — and reads as
-            an assurance that nobody else can see this account. */}
-        {members.isLoading ? (
-          <div className="p-4">
-            <Skeleton rows={4} />
-          </div>
-        ) : !people ? null : people.length ? (
-          <ul className="divide-y divide-line">
-            {people.map((member) => (
-              <MemberRow
-                key={member.id}
-                member={member}
-                isMe={member.id === myId}
-                canManage={write.allowed}
-                restriction={write.reason}
-                busy={
-                  (changeRole.isPending &&
-                    changeRole.variables?.userId === member.id) ||
-                  (remove.isPending && remove.variables === member.id)
-                }
-                onRole={(next) =>
-                  changeRole.mutate({
-                    userId: member.id,
-                    role: next,
-                    // The CAS guard: the role this row was RENDERING, so a change made
-                    // by another owner in the meantime is reported, not overwritten.
-                    expectedRole: member.role as MemberRole,
-                  })
-                }
-                onRemove={() => setRemoving(member)}
-              />
-            ))}
-          </ul>
-        ) : (
-          <EmptyState
-            title="Nobody is on this account yet"
-            hint="That is unusual — an account always has at least one owner. Reload the page, and tell us if it stays empty."
+      {/* Loading is a skeleton; a failure is the notice above and NOTHING else. There is
+          deliberately no "you are the only member" fallback: wrong, it sends an owner off to
+          re-invite people who already have access. */}
+      {members.isLoading ? (
+        <Skeleton rows={4} label="Loading your team" />
+      ) : !people ? null : people.length === 0 ? (
+        <EmptyState
+          className="rounded-card border border-line bg-surface"
+          message={
+            <>
+              <span className="block font-medium text-ink">Nobody is on this account yet</span>
+              <span className="mt-1 block">
+                That is unusual — an account always has at least one owner. Reload the page,
+                and tell us if it stays empty.
+              </span>
+            </>
+          }
+        />
+      ) : (
+        <section className="space-y-2">
+          {/* Counts only from lists the server actually sent: "1 person" while a request is
+              in flight, or "0 unused links" over a failed one, is a claim about who has
+              access to this business made on no evidence. */}
+          <p className="text-[13px] text-ink-muted">
+            {formatCount(people.length)} {people.length === 1 ? "person" : "people"}
+            {pending
+              ? ` · ${formatCount(pending.length)} unused ${pending.length === 1 ? "link" : "links"}`
+              : ""}
+          </p>
+          <DataTable
+            label="People who can sign in, and unused invitations"
+            columns={columns}
+            rows={rows}
+            getRowId={(row) => row.id}
+            className="rounded-card border border-line bg-surface"
           />
-        )}
+        </section>
+      )}
 
-        {remove.data && (
-          <div className="px-4 pb-3 pt-1">
-            <NoticeBox tone="warn" title="Access removed">
-              {remove.data.leads_still_assigned > 0
-                ? `${formatCount(remove.data.leads_still_assigned)} ${
-                    remove.data.leads_still_assigned === 1
-                      ? "lead is"
-                      : "leads are"
-                  } still assigned to them. Those leads were not touched — reassign them from the Leads screen so somebody picks them up.`
-                : "They had no leads assigned, so nothing needs reassigning."}
-            </NoticeBox>
-          </div>
-        )}
-
-        <p className="px-4 pb-3 pt-1 text-xs text-ink-faint">
-          An account always keeps at least one owner: the last one cannot be
-          removed or moved to staff. Nobody can change their own role — ask
-          another owner.
+      {/* Only from a list the server actually sent empty: over a failed read this sentence
+          would tell an owner no unused key to their account exists. */}
+      {pending && pending.length === 0 && (
+        <p className="text-[13px] text-ink-muted">
+          <span className="font-medium text-ink">No unused invites.</span> Invite links expire
+          after 72 hours and can only be used once, by the person they were sent to.
         </p>
-      </Card>
+      )}
 
-      <Card
-        title="Pending invites"
-        action={
-          pending ? (
-            <span className="text-xs text-ink-faint">
-              {formatCount(pending.length)} unused{" "}
-              {pending.length === 1 ? "link" : "links"}
-            </span>
-          ) : undefined
-        }
-        bodyClassName="p-2"
-      >
-        {revoke.error != null && (
-          <div className="mb-3 px-4 pt-2">
-            <ProblemNotice error={revoke.error} />
-          </div>
-        )}
-        {invitations.error != null && (
-          <div className="mb-3 px-4 pt-2">
-            <ProblemNotice
-              error={invitations.error}
-              onRetry={() => invitations.refetch()}
-            />
-          </div>
-        )}
+      <InviteDrawer
+        open={inviting}
+        onClose={() => setInviting(false)}
+        email={email}
+        setEmail={setEmail}
+        role={role}
+        setRole={setRole}
+      />
 
-        {/* Same rule, and the same reason it matters twice: "no pending invites" over a
-            failed request tells an owner that no unused key to their account exists. */}
-        {invitations.isLoading ? (
-          <div className="p-4">
-            <Skeleton rows={2} />
-          </div>
-        ) : !pending ? null : pending.length ? (
-          <ul className="divide-y divide-line">
-            {pending.map((invitation) => (
-              <InvitationRow
-                key={invitation.id}
-                invitation={invitation}
-                canManage={write.allowed}
-                busy={revoke.isPending && revoke.variables === invitation.id}
-                onRevoke={() => revoke.mutate(invitation.id)}
-              />
-            ))}
-          </ul>
-        ) : (
-          <EmptyState
-            title="No unused invites"
-            hint="Invite links expire after 72 hours and can only be used once, by the person they were sent to."
-          />
-        )}
-      </Card>
-
-      {/* Closes only on success. A refused removal (the last owner, a stale row) leaves
-          the person on the account, and closing the dialog would say otherwise. */}
+      {/* Closes only on success. A refused removal (the last owner, a stale row) leaves the
+          person on the account, and closing the dialog would say otherwise. */}
       {removing && (
         <ConfirmDialog
           title={`Remove ${removing.name ?? "this member"} from this account?`}
@@ -385,19 +371,17 @@ export function TeamScreen() {
             remove.reset();
             setRemoving(null);
           }}
-          onConfirm={() =>
-            remove.mutate(removing.id, { onSuccess: () => setRemoving(null) })
-          }
+          onConfirm={() => remove.mutate(removing.id, { onSuccess: () => setRemoving(null) })}
         >
           <p>
-            They will be signed out and will not be able to sign in to this
-            account again unless you invite them back.
+            They will be signed out and will not be able to sign in to this account again
+            unless you invite them back.
           </p>
-          {/* Said BEFORE the click. The `Access removed` notice on the list already
-              reports this afterwards, which is the wrong moment to learn it. */}
+          {/* Said BEFORE the click; the "Access removed" notice reports it afterwards,
+              which is the wrong moment to learn it. */}
           <p>
-            Any leads assigned to them stay assigned to them and are not
-            reassigned — you would pick those up from the Leads screen.
+            Any leads assigned to them stay assigned to them and are not reassigned — you
+            would pick those up from the Leads screen.
           </p>
         </ConfirmDialog>
       )}

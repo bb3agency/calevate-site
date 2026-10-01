@@ -1,22 +1,24 @@
 "use client";
 
+import { Checklist, type ChecklistItem } from "@/components/console/checklist";
+import { PageHeader } from "@/components/console/pageHeader";
+import { Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
 import { useKycRecord } from "@/lib/api/kyc";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { useClientSession } from "@/lib/api/session";
-import { useCopilotSurface } from "@/lib/copilot/registry";
-import { noFill } from "@/lib/copilot/types";
 import { Term } from "@/lib/glossary";
 
-import { DltRegistration } from "./DltRegistration";
-import { SubscriberVerification } from "./SubscriberVerification";
+import { useVerificationCopilot } from "./copilot";
+import { DltDetails, dltItem } from "./DltRegistration";
+import { KycSections, PhoneNumbers, WhatWeKeep, kycItem } from "./SubscriberVerification";
 
 /**
  * Business verification — the page somebody opens because their calls stopped.
  *
  * `check_dispatch` refuses a self-serve account's outbound with `kyc_missing` /
  * `kyc_not_verified`, `launch_blockers` previews the same two names, and
- * `POST /v1/numbers/purchase` refuses every tier on the same fact. Until now none of
- * those refusals had anywhere to send anyone.
+ * `POST /v1/numbers/purchase` refuses every tier on the same fact; this is where they send
+ * the client.
  *
  * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE, and it is a decision rather than
  * an unfinished feature: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`, and
@@ -33,9 +35,7 @@ import { SubscriberVerification } from "./SubscriberVerification";
  * this file is the console's only such claim, so `tests/capability_claim_guard_test.py`
  * uses it to prove the TSX scanner still works, BY THIS EXACT PATH. Deleting it does not
  * merely lose a true statement; it leaves that arm of the scanner unproven, and moving it
- * to a sibling module fails that test. So this screen is not a status readout;
- * it is the answer to "what do I do now", and it is written for the worst moment to
- * arrive with no page.
+ * to a sibling module fails that test.
  *
  * Five things it has to get right, each of them a decision the API already made:
  *
@@ -72,114 +72,74 @@ import { SubscriberVerification } from "./SubscriberVerification";
  * and there is no control to gate. It therefore keeps working inside a D-22 "view as
  * client" session — the session a support person is in exactly when this account is the
  * thing being discussed. `tests/readiness_copy_actionability_test.py` asserts that
- * read-only-ness over this whole directory, which is what lets `readiness.ROW_COPY` go
- * on telling a client to SEND us something rather than to type it here.
+ * read-only-ness over this whole directory.
  *
- * The screen itself is the two sibling modules below (UX-DOCTRINE §6): this route keeps
- * the intro, the assistant declaration and nothing else.
+ * The page reads both records once and composes the halves: one checklist of the two
+ * verdicts, then the KYC sections (`SubscriberVerification.tsx`) and the DLT details
+ * (`DltRegistration.tsx`). A failed read of either is its own refusal and never blanks
+ * the other: the client whose KYC read fails is often asking why campaigns are refused.
  */
 export default function VerificationPage() {
   const session = useClientSession();
-  /*
-   * THE SAME TWO READS THE SECTIONS BELOW MAKE, and not a third round trip: TanStack
-   * dedupes by query key, so calling the hooks here shares the sections' own answers.
-   * Declaring the surface in the page rather than inside the two children is what keeps
-   * the launcher on screen while they are loading and after either has failed — the
-   * child effects commit first, so a child declaration would also shadow the other's.
-   */
   const kyc = useKycRecord(session);
   const dlt = usePeRegistration(session);
 
-  /*
-   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
-   *
-   * READ-ONLY: nothing on this screen is editable by anyone in the client realm — both
-   * verdicts are recorded by Calevate, which is the point of them.
-   *
-   * `signatory_name` and `document_ref` are on the payload and are NOT declared: the
-   * first names a human being and the second identifies their identity document, which
-   * is the densest personal data this account holds about its own owner. The STATUS of
-   * each is what a person on this screen is asking about, and it identifies nobody.
-   */
-  useCopilotSurface({
-    route: "/c/{slug}/verification",
-    title: "Verification",
-    realm: "client",
-    fields: [],
-    facts: [
-      {
-        key: "kyc_state",
-        label: "Has the business-verification record loaded?",
-        value: kyc.data ? "yes" : kyc.error ? "no — it failed to load" : "still loading",
-      },
-      ...(kyc.data
-        ? [
-            {
-              key: "kyc_verified",
-              label: "Is the business behind this account verified?",
-              value: kyc.data.is_verified ? "yes" : "no",
-            },
-            { key: "kyc_status", label: "Verification status", value: kyc.data.status ?? "nothing submitted" },
-            { key: "kyc_entity_type", label: "Kind of business recorded", value: kyc.data.entity_type ?? "none recorded" },
-            { key: "kyc_document_kind", label: "Kind of document on file", value: kyc.data.document_kind ?? "none" },
-            { key: "kyc_submitted_at", label: "Submitted (UTC)", value: kyc.data.submitted_at ?? "never" },
-            { key: "kyc_verified_at", label: "Verified (UTC)", value: kyc.data.verified_at ?? "not verified" },
-            {
-              key: "kyc_rejection_reason",
-              label: "Why it was rejected, if it was",
-              value: kyc.data.rejection_reason ?? "not rejected",
-            },
-            {
-              key: "number_purchase_available",
-              label: "May this account be given a phone number yet?",
-              value: kyc.data.number_purchase_available ? "yes" : "no",
-            },
-          ]
-        : []),
-      {
-        key: "dlt_state",
-        label: "Has the DLT registration record loaded?",
-        value: dlt.data ? "yes" : dlt.error ? "no — it failed to load" : "still loading",
-      },
-      ...(dlt.data
-        ? [
-            {
-              key: "dlt_recorded",
-              label: "Is a DLT registration on file?",
-              value: dlt.data.recorded ? "yes" : "no",
-            },
-            { key: "dlt_active", label: "Is it active?", value: dlt.data.is_active ? "yes" : "no" },
-            { key: "dlt_status", label: "Registration status", value: dlt.data.status ?? "none" },
-            {
-              key: "dlt_tm_link_status",
-              label: "Is Calevate linked as the telemarketer on it?",
-              value: dlt.data.tm_link_status ?? "not stated",
-            },
-            { key: "dlt_registered_at", label: "Registered (UTC)", value: dlt.data.registered_at ?? "never" },
-            { key: "dlt_verified_at", label: "Verified (UTC)", value: dlt.data.verified_at ?? "not verified" },
-          ]
-        : []),
-    ],
-    apply: noFill,
-  });
+  useVerificationCopilot(kyc, dlt);
+
+  if (kyc.isLoading || dlt.isLoading) return <Skeleton rows={8} />;
+
+  const kycRecord = kyc.data;
+  const pe = dlt.data;
+  // Only rows whose state the server returned: a failed read is a refusal, never an unticked box (§52).
+  const items: ChecklistItem[] = [...(kycRecord ? [kycItem(kycRecord)] : []), ...(pe ? [dltItem(pe)] : [])];
+  const blocked = (kycRecord && !kycRecord.is_verified) || (pe && !pe.is_active);
 
   return (
-    <div className="space-y-5 pb-12">
-      <p className="text-sm text-ink-muted">
-        Indian telecom rules require two separate things of a business before it may place
-        calls: that the business behind the connection is identified, and that it is
-        registered with the{" "}
-        <Term id="dlt" /> registrar to
-        run campaigns. Both are below. Either one outstanding stops outgoing calls; neither
-        one affects the calls coming in.
-      </p>
+    <div className="space-y-8 pb-12">
+      <PageHeader
+        description={
+          <>
+            Indian telecom rules ask two things of a business before it places outgoing
+            calls: that it is identified, and that it is registered with the{" "}
+            <Term id="dlt" /> registrar. Neither affects the calls coming in.
+          </>
+        }
+      />
 
-      {/* Two independent reads, two independent sections. Composed rather than nested so
-          a failure of one is never allowed to blank the other: a client whose KYC read
-          503s is very often the same client trying to find out why their campaigns are
-          refused, and the answer to that question lives in the second section. */}
-      <SubscriberVerification session={session} />
-      <DltRegistration session={session} />
+      <div className="space-y-3">
+        {(kyc.error || !kycRecord) && (
+          <ProblemNotice
+            error={kyc.error ?? new Error("The verification record did not load.")}
+            onRetry={() => void kyc.refetch()}
+          />
+        )}
+        {(dlt.error || !pe) && (
+          <ProblemNotice
+            error={dlt.error ?? new Error("Your DLT registration did not load, so we cannot say where it stands.")}
+            onRetry={() => void dlt.refetch()}
+          />
+        )}
+        {items.length > 0 && <Checklist label="Before outgoing calls can start" headingLevel={2} items={items} />}
+        {blocked && (
+          <p className="text-sm font-semibold text-ink">
+            Calls coming IN are unaffected — your agent keeps answering the phone.
+          </p>
+        )}
+      </div>
+
+      {kycRecord && <KycSections record={kycRecord} />}
+      {pe && <DltDetails registration={pe} />}
+
+      <div className="space-y-3">
+        {kycRecord && (
+          <Disclosure title="Where your calling number comes from" subtitle="Exotel, Plivo or Vobiz, in your own name.">
+            <PhoneNumbers record={kycRecord} />
+          </Disclosure>
+        )}
+        <Disclosure title="What we keep, and what we never ask for" subtitle="Registration numbers only, never Aadhaar or PAN.">
+          <WhatWeKeep />
+        </Disclosure>
+      </div>
     </div>
   );
 }

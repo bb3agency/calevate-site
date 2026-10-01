@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 
-import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
+import { Card, ProblemNotice, Skeleton, formatINR } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
-import { Panel } from "@/components/console/panel";
 import { useWallet, walletState } from "@/lib/api/wallet";
 
 /**
@@ -35,9 +34,9 @@ export function CallingCreditTile({
 }) {
   if (wallet.isLoading) {
     return (
-      <Panel title="Calling credit" className="rounded-none border-0 shadow-none">
+      <Card density="compact" title="Calling credit" className="rounded-none border-0 shadow-none">
         <Skeleton rows={2} label="Loading your calling credit" />
-      </Panel>
+      </Card>
     );
   }
   // `|| !wallet.data` for the PAUSED query (offline): `isLoading` is false, `error` is
@@ -45,12 +44,12 @@ export function CallingCreditTile({
   // "—" to a client whose wallet may be empty (§52).
   if (wallet.error || !wallet.data) {
     return (
-      <Panel title="Calling credit" className="rounded-none border-0 shadow-none">
+      <Card density="compact" title="Calling credit" className="rounded-none border-0 shadow-none">
         <ProblemNotice
           error={wallet.error ?? new Error("Your calling credit did not load.")}
           onRetry={() => void wallet.refetch()}
         />
-      </Panel>
+      </Card>
     );
   }
 

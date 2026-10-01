@@ -48,6 +48,7 @@ async function renderTeam() {
   return await renderClientPage(<TeamPage />, {
     "/v1/me": ME,
     "/v1/members": [{ id: ME.user_id as string, name: "Anita", role: "owner" }],
+    "/v1/team/members": [],
     "/v1/invitations": [],
     "POST /v1/invitations": {
       id: "0192f0aa-3333-7000-8000-000000000003",
@@ -64,12 +65,14 @@ describe("an address that is not one", () => {
   it("says so in our words, sends nothing, and takes the invitation once it is fixed", async () => {
     const page = await renderTeam();
     await screen.findByText("Anita");
+    // The invite form opens in a drawer from the header's Invite button (round-2 redesign).
+    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
 
-    const field = screen.getByLabelText(
+    const field = (await screen.findByLabelText(
       "Email address to invite",
-    ) as HTMLInputElement;
+    )) as HTMLInputElement;
     fireEvent.change(field, { target: { value: "priya" } });
-    fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Send invite/ }));
 
     const message = await screen.findByText(
       "Enter an email address, like name@example.com.",
@@ -93,7 +96,7 @@ describe("an address that is not one", () => {
       ).toBeNull(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Send invite/ }));
     await waitFor(() =>
       expect(
         page.calls.some(
@@ -315,7 +318,7 @@ describe("two answers missing at once", () => {
       "What the agent should say",
     ) as HTMLTextAreaElement;
 
-    fireEvent.click(screen.getByRole("button", { name: /Submit for review/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add to agent/ }));
 
     expect(await screen.findByText("Say what this is about.")).toBeTruthy();
     expect(screen.getByText("Write what the agent should say.")).toBeTruthy();
@@ -327,12 +330,12 @@ describe("two answers missing at once", () => {
     // control, so the two cannot drift.
     fireEvent.change(title, { target: { value: "A" } });
     fireEvent.change(body, { target: { value: "Long enough to pass." } });
-    fireEvent.click(screen.getByRole("button", { name: /Submit for review/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add to agent/ }));
     expect(await screen.findByText("Use at least 2 characters.")).toBeTruthy();
     expect(page.calls.some((c) => c.method === "POST")).toBe(false);
 
     fireEvent.change(title, { target: { value: "Parking" } });
-    fireEvent.click(screen.getByRole("button", { name: /Submit for review/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add to agent/ }));
     await waitFor(() =>
       expect(
         page.calls.some(

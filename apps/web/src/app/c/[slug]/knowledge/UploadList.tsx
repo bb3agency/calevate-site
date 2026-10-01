@@ -229,7 +229,7 @@ function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: string 
             Your agent stops using this straight away, and we delete our copy of it. Callers
             who ask about it will get whatever else you have taught the agent.
           </p>
-          <p>You can send it again later, and it goes through review again if you do.</p>
+          <p>You can send it again later.</p>
         </ConfirmDialog>
       )}
     </li>

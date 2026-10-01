@@ -51,7 +51,7 @@ export function useKnowledgeCopilot({
         label: "What it should know",
         type: "textarea",
         value: body,
-        help: "Prose, in the language the agent answers in. Once it is approved it becomes part of what the agent already knows when it picks up.",
+        help: "Prose, in the language the agent answers in. Once it has reached the agent it becomes part of what the agent already knows when it picks up.",
       },
       {
         id: "kb-agent",

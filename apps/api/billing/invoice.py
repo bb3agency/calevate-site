@@ -35,7 +35,14 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 
 from .charges import one_time_charge_lines
-from .gst import Gstin, parse_gstin, resolve_place_of_supply, split_tax, supplier_identity
+from .gst import (
+    GST_STATUS_SENTENCE,
+    Gstin,
+    parse_gstin,
+    resolve_place_of_supply,
+    split_tax,
+    supplier_identity,
+)
 from .service import (
     BASE_OVERAGE_RUNG,
     SECOND_OVERAGE_RUNG,
@@ -74,11 +81,11 @@ GST_RATE_PCT = Decimal("18")
 # collecting tax and CGST Rule 49 governs the bill of supply an unregistered (or
 # exempt-only) supplier issues instead — no tax component, and no input tax credit for the
 # recipient (LEGAL-OPS-PLAYBOOK §4.4). Stated in words on the document's face because "no
-# CGST/SGST line" is the absence of something, and a reader needs the presence of a
-# sentence telling them the absence is deliberate and lawful, not an omission.
+# CGST/SGST line" is the absence of something. The middle sentence is the one GST
+# statement every client surface uses (`gst.GST_STATUS_SENTENCE`, D-659).
 BILL_OF_SUPPLY_TAX_NOTE = (
-    "Bill of supply. Calevate is not registered for GST, so no tax is charged on this "
-    "document and no input tax credit is available (CGST Act s.32; CGST Rules r.49)."
+    f"Bill of supply. {GST_STATUS_SENTENCE} "
+    "No input tax credit can be claimed against this document."
 )
 
 # THE TAX ON THIS DOCUMENT IS STATED IN PAISE, AND CGST s.170 SAYS IT IS ROUNDED TO THE
@@ -149,9 +156,9 @@ BILL_OF_SUPPLY_TAX_NOTE = (
 #
 # **The blocking half is external and is not ours to code around.** Rule 46 binds a
 # REGISTERED PERSON issuing a tax invoice. The legal person is settled — a sole proprietor
-# trading as Calevate — but it is NOT registered for GST and is not required to be at
-# present turnover (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §4), `supplier.is_registered` is
-# false in every deployment, and this document
+# trading as Calevate — but it is NOT registered for GST, being below the registration
+# threshold (D-659), `supplier.is_registered` is false in every deployment, and this
+# document
 # therefore says `bill_of_supply` (see `BILL_OF_SUPPLY_TAX_NOTE`) — which
 # 46(b) does not govern. Nothing is out of compliance today; what exists is a scheme whose
 # CONSECUTIVENESS would still need building the moment the four `GST_SUPPLIER_*` values are
@@ -379,20 +386,14 @@ async def build_invoice(
     so the document says whether it is IGST or CGST+SGST — a recipient credits those to
     different ledgers and cannot claim tax charged under the wrong one (Rule 46(l)-(m)).
 
-    **When Calevate is NOT registered the document is a BILL OF SUPPLY, and it charges no
-    tax.** With no `GST_SUPPLIER_*` values this returns
-    ``document_type = "bill_of_supply"`` — Rule 49's own name for the document, the name
-    the published Terms use, and the name printed on the sheet — lists the missing keys in
-    ``document_blockers``, and — the fix in this slice — ``gst_inr`` is ₹0.00,
-    ``tax_components`` is empty, ``total_inr`` equals the subtotal, and ``tax_note`` states
-    in words that no tax is charged and no input tax credit is available (CGST s.32,
-    Rule 49). This SUPERSEDES the earlier choice to compute an 18% line on every document:
-    presenting a collectible CGST+SGST line on a document an unregistered person issues is
-    precisely the tax s.32 forbids collecting, so the "a missing config key must never move
-    money" instinct was reaching for the wrong safety. Money still does not move on a
-    missing key — the client-facing total is the subtotal either way — and ``estimated_*``
-    fields carry what 18% WOULD add once registered, labelled an estimate so nothing renders
-    it as due. The registered tax-invoice path is unchanged.
+    **When Calevate is NOT registered — the normal state (D-659) — the document is a BILL
+    OF SUPPLY and charges no tax.** With no `GST_SUPPLIER_*` values this returns
+    ``document_type = "bill_of_supply"`` (Rule 49's own name for the document, and the
+    name the published Terms use), ``gst_inr`` ₹0.00, no ``tax_components``, ``total_inr``
+    equal to the subtotal, and ``tax_note`` saying so in words (CGST s.32, Rule 49).
+    Nothing here names a setting and nothing estimates a tax: the client is told the one
+    GST sentence, and which settings a registration would need is the operator route's
+    business (`routes.AdminInvoiceOut.document_blockers`).
 
     Must run under a tenant-scoped session — `usage_summary` and `read_kyc` read RLS'd
     tables.
@@ -547,15 +548,6 @@ async def build_invoice(
     # NOT collect tax; CGST Rule 49: an unregistered supplier issues a BILL OF SUPPLY with
     # no tax component and gives no input tax credit — LEGAL-OPS-PLAYBOOK §4.4).
     #
-    # This USED TO compute an 18% line into `total_inr` on every document, bill of supply
-    # included, on the stated grounds that "a missing config key must never move money".
-    # That was the wrong horn of the dilemma: presenting a collectible CGST+SGST line on a
-    # document an unregistered person issues is exactly the tax s.32 forbids collecting, so
-    # the "safe" choice was itself non-compliant. The fix keeps money stable WITHOUT
-    # charging tax that may not be charged: the client-facing `total_inr` on a bill of
-    # supply is the subtotal, no tax head is printed, and the words say so — while an
-    # `estimated_*` pair carries what 18% WOULD add once registered, clearly labelled an
-    # estimate so no reader treats it as due. The registered path is untouched.
     if supplier.is_registered:
         # THE TAX IS COMPUTED ONCE, IN `gst.split_tax`, AND THE TOTAL IS THE SUM OF THE
         # HEADS IT PRINTS (Rule 46(l)-(m): the heads are stated separately, so they are the
@@ -570,8 +562,6 @@ async def build_invoice(
         ]
         document_rate = GST_RATE_PCT
         tax_note: str | None = None
-        estimated_gst_inr: Decimal | None = None
-        estimated_total_inr: Decimal | None = None
     else:
         # BILL OF SUPPLY. No tax is charged, no head is printed, and the total is the
         # subtotal. `document_rate` is 0 because 18% is not applied to this document —
@@ -581,12 +571,6 @@ async def build_invoice(
         tax_components = []
         document_rate = Decimal("0")
         tax_note = BILL_OF_SUPPLY_TAX_NOTE
-        # INTERNAL ESTIMATE ONLY (what 18% would add once registered), computed through the
-        # same `split_tax` so its rounding matches a real tax invoice's. Never a collectible
-        # line: it rides in `estimated_*` fields the client-facing total does not include.
-        estimated = split_tax(subtotal_inr=subtotal, rate_pct=GST_RATE_PCT, place=place)
-        estimated_gst_inr = sum((c.amount_inr for c in estimated), start=Decimal("0.00"))
-        estimated_total_inr = to_paise(subtotal + estimated_gst_inr)
 
     # Rule 46(b): at most sixteen characters (see the block above RULE_46B_MAX_SERIAL_CHARS).
     # `CAL` + the two-digit year and month + a base-36 tenant suffix, all alphanumerics,
@@ -607,7 +591,6 @@ async def build_invoice(
         # what the published Terms tell the client they will receive. The console renders
         # the heading from THIS, never from a literal.
         "document_type": "tax_invoice" if supplier.is_registered else "bill_of_supply",
-        "document_blockers": list(supplier.missing),
         "supplier": {
             "legal_name": supplier.legal_name,
             "address": supplier.address,
@@ -638,8 +621,7 @@ async def build_invoice(
         "line_items": line_items,
         "subtotal_inr": subtotal,
         # The rate APPLIED to this document: 18% on a tax invoice, 0 on a bill of supply
-        # (no tax is charged, so no rate is applied). The statutory rate a registration
-        # would bring is carried in `estimated_gst_rate_pct` instead.
+        # (no tax is charged, so no rate is applied).
         "gst_rate_pct": document_rate,
         "gst_inr": gst,
         # The heads, itemised (Rule 46(l)-(m)). Empty on a bill of supply, which charges no
@@ -650,13 +632,6 @@ async def build_invoice(
         # The words that make an unregistered document a compliant bill of supply: no tax
         # charged, no input tax credit (CGST s.32, Rule 49). None on a tax invoice.
         "tax_note": tax_note,
-        # INTERNAL ESTIMATE, never a collectible amount: what tax and total WOULD be once
-        # Calevate is GST-registered. Present only on a bill of supply, so a screen can show
-        # the client the eventual figure without ever presenting it as due. None on a tax
-        # invoice, where the real `gst_inr`/`total_inr` already carry it.
-        "estimated_gst_rate_pct": GST_RATE_PCT if not supplier.is_registered else None,
-        "estimated_gst_inr": estimated_gst_inr,
-        "estimated_total_inr": estimated_total_inr,
         "usage": {
             "minutes_used": usage["minutes_used"],
             "calls": usage["calls"],

@@ -231,12 +231,15 @@ describe("the column chooser reaches the table AND the file", () => {
     // and it is deliberately absent from the CSV. The assertion still pins that the
     // DATA columns are the server's, in the server's order, which is what this test is
     // about — the mirroring between the table and the file.
+    // "More" is the row-actions column (`RowMenu`), a control like "Select": its header
+    // is visually hidden text, and it is not part of the server's list or the CSV.
     expect(headers).toEqual([
       "Select",
       "Name",
       "Phone",
       "Budget band",
       "Updated",
+      "More",
     ]);
   });
 

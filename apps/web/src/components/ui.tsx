@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
+import { InfoTip } from "@/components/console/infoTip";
 
 import { ApiProblem } from "@/lib/api/client";
 
@@ -34,16 +35,30 @@ import { ApiProblem } from "@/lib/api/client";
 export function Card({
   title,
   action,
+  info,
+  density = "default",
   children,
   className,
   bodyClassName,
 }: {
   title?: string;
   action?: ReactNode;
+  /**
+   * Help prose behind an ⓘ beside the title (`components/console/infoTip.tsx`). Never a
+   * compliance sentence or an error: those stay visible (UX-DOCTRINE §3, §8.7).
+   */
+  info?: ReactNode;
+  /**
+   * `compact` is the console's denser panel: a 15px title with no divider under it and
+   * 16px of padding — for side columns and dense screens where the default's document-
+   * like header is too heavy. Same element and the same `h2` either way.
+   */
+  density?: "default" | "compact";
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
 }) {
+  const compact = density === "compact";
   return (
     <section
       className={clsx(
@@ -54,9 +69,20 @@ export function Card({
       {/* `flex-wrap`: the header is a title beside an action, and on a 320px screen the
           pair does not fit on one line — unwrapped, the action was what got squeezed. */}
       {(title || action) && (
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-6">
+        <header
+          className={
+            compact
+              ? "flex flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-3.5"
+              : "flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-6"
+          }
+        >
           {title && (
-            <h2 className="text-[17px] font-semibold text-ink">{title}</h2>
+            <div className="flex min-w-0 items-center gap-1">
+              <h2 className={compact ? "text-[15px] font-semibold text-ink" : "text-[17px] font-semibold text-ink"}>
+                {title}
+              </h2>
+              {info && <InfoTip label={title}>{info}</InfoTip>}
+            </div>
           )}
           {action}
         </header>
@@ -65,7 +91,7 @@ export function Card({
           48px of a 288px content strip — a sixth of the screen — on whitespace, and it is
           what pushed `/admin/tenants/[tenantId]`'s inner grid past the viewport (its
           single column's min-content is 288px and the padded box left it 238px). */}
-      <div className={bodyClassName ?? "p-4 sm:p-6"}>{children}</div>
+      <div className={compact ? (bodyClassName ?? "px-4 pb-4") : (bodyClassName ?? "p-4 sm:p-6")}>{children}</div>
     </section>
   );
 }
@@ -266,8 +292,8 @@ const SWITCH_TRACK =
  *   disclosure sits INSIDE a card's body, under that `h2`, so it takes `3` there —
  *   otherwise the heading list reads as two peers where one contains the other.
  * - **`subtitle` is not expected.** §3 requires the closed state to carry the FACT rather
- *   than a tease; in the inline variant the TITLE is the fact ("No GST is added, and we
- *   cannot issue a tax invoice") and the body is only the elaboration, so a subtitle would
+ *   than a tease; in the inline variant the TITLE is the fact ("No GST, and no tax
+ *   invoice") and the body is only the elaboration, so a subtitle would
  *   be a third line of text on a strip that exists to remove text.
  */
 export function Disclosure({
@@ -1410,6 +1436,21 @@ export function formatCallCap(seconds: number): string {
   if (minutes === 0) return `${rest} seconds`;
   if (rest === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
   return `${minutes} min ${rest} s`;
+}
+
+/**
+ * A phone number for READING: "+91 98765 43210" from the E.164 "+919876543210".
+ *
+ * Display only. The E.164 string stays the value everywhere else — in request bodies, in
+ * what a copy button puts on the clipboard, in what a test or a CSV compares — and it is
+ * never put in a URL (hard rule 6). An Indian mobile (+91 and ten digits) is grouped 5-5,
+ * the way it is written on a business card; every other shape is returned unchanged
+ * rather than guessed at, because a wrongly grouped number reads as a different number.
+ */
+export function formatPhone(e164: string | null | undefined): string {
+  if (!e164) return "—";
+  const india = /^\+91(\d{5})(\d{5})$/.exec(e164);
+  return india ? `+91 ${india[1]} ${india[2]}` : e164;
 }
 
 /** A count, grouped the way an Indian reader groups one (1,20,000 — not 120,000). */

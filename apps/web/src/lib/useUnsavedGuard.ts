@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { createContext, useContext, useEffect, useId } from "react";
 
 /**
  * ASK BEFORE THROWING SOMEBODY'S TYPING AWAY — the half of the question that belongs to
@@ -46,6 +46,17 @@ import { useEffect } from "react";
  * again so a saved form does not nag on the way out.
  */
 export function useUnsavedGuard(dirty: boolean): void {
+  // An in-app move this hook CAN see: a settings section switch (`SettingsLayout`), which
+  // unmounts the section and its draft. The layout provides this registry and asks before
+  // switching while any section reports unsaved edits. Outside one, it is a no-op.
+  const registry = useContext(UnsavedRegistry);
+  const id = useId();
+  useEffect(() => {
+    if (!registry) return;
+    registry.report(id, dirty);
+    return () => registry.report(id, false);
+  }, [registry, id, dirty]);
+
   useEffect(() => {
     if (!dirty) return;
     const ask = (event: BeforeUnloadEvent) => {
@@ -59,3 +70,11 @@ export function useUnsavedGuard(dirty: boolean): void {
     return () => window.removeEventListener("beforeunload", ask);
   }, [dirty]);
 }
+
+/**
+ * Where `useUnsavedGuard` reports a draft to a container that can move the reader without
+ * unloading the page. `report(id, dirty)` is called whenever a guarded form's dirtiness
+ * changes and with `false` when it unmounts.
+ */
+export type UnsavedRegistryValue = { report: (id: string, dirty: boolean) => void };
+export const UnsavedRegistry = createContext<UnsavedRegistryValue | null>(null);

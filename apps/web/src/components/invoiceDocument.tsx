@@ -2,6 +2,7 @@
 
 import { ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
+import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 
 /**
  * THE invoice sheet — one component, rendered by both realms (SLICE AL).
@@ -84,7 +85,7 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
         </div>
       </header>
 
-      {!isTaxInvoice && <NotATaxInvoice blockers={data.document_blockers} />}
+      {!isTaxInvoice && <NotATaxInvoice note={data.tax_note} />}
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <section>
@@ -213,38 +214,22 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
 }
 
 /**
- * The refusal, on the face of the document.
+ * What the document is, on its face: the server's tax note, which carries the one GST
+ * sentence every client surface uses (D-659).
  *
- * §52's rule is that a failure is a refusal and never a confident emptiness. This is the
- * same rule applied to a LEGAL claim rather than to a failed request: the document cannot
- * be a tax invoice, so it says so, says what that means for the reader, and — for the
- * operator who can fix it — names the configuration that is missing.
- *
- * It is `role="note"` rather than `role="alert"`: nothing has gone wrong at request time,
- * and an alert here would be announced on a document a client opens every month.
+ * Unregistered is the normal state, not a fault, so this is a plain note: no warning
+ * colour and no settings names (the operator's screen lists those from `AdminInvoiceOut`).
+ * `role="note"` rather than `role="alert"` on a document a client opens every month. The
+ * shared sentence is the fallback for a server that sent no note.
  */
-function NotATaxInvoice({ blockers }: { blockers: string[] }) {
+function NotATaxInvoice({ note }: { note: string | null }) {
   return (
     <div
       role="note"
-      className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+      className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
     >
       <p className="font-semibold">This is not a tax invoice.</p>
-      <p className="mt-1">
-        Calevate is not registered for GST, and is not required to be at its present
-        turnover. An unregistered supplier may not collect tax at all, so this is a bill
-        of supply: no tax is charged on it and no input tax credit can be claimed against
-        it. It states what this month&apos;s service comes to. If we register for GST, the
-        documents issued from that date will be tax invoices.
-      </p>
-      {blockers.length > 0 && (
-        // For US, not for the client — but on the same sheet, because the person who can
-        // fix it is the person most likely to be looking at it, and a refusal that does
-        // not say what would satisfy it is half an answer.
-        <p className="mt-2 text-xs">
-          Missing configuration: <span className="font-mono">{blockers.join(", ")}</span>
-        </p>
-      )}
+      <p className="mt-1">{note ?? GST_STATUS_SENTENCE}</p>
     </div>
   );
 }

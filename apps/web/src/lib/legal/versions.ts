@@ -225,6 +225,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:08da8ec4267eb694e62c808b635e0437124eee0907aa3f65f13202ca3edb47df",
       },
+      // D-658. The staff-curation paragraph says what staff add goes to the agents once
+      // read, without review by the owner or by us. Non-material: the terms never
+      // promised a review, and curation by staff is still the owner's switch.
+      {
+        revision: "8",
+        material: false,
+        contentHash:
+          "sha256:7706c8531b181e6e579cf419ac34c91f957e550aaa8c1598a59c547ae947454f",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

@@ -148,8 +148,9 @@ export function ToolsVignette() {
 }
 
 /**
- * Your answers — a fact on the knowledge screen, in its review states ("Live", "In review",
- * `knowledge/SubmittedList.tsx`): only the approved one reaches a caller.
+ * Your answers — facts on the knowledge screen, live on the agent ("Live",
+ * `knowledge/SubmittedList.tsx`). There is no review state to show for what the business
+ * adds (D-658).
  */
 export function AnswersVignette() {
   return (
@@ -166,7 +167,7 @@ export function AnswersVignette() {
           <span className="font-semibold text-ink">Do you do braces for adults?</span>
           <span className="text-ink-muted">Yes — consultation first, with Dr. Rao.</span>
         </span>
-        <Tag>In review</Tag>
+        <Tag tone="emerald">Live</Tag>
       </Line>
     </span>
   );

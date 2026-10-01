@@ -1,8 +1,11 @@
 """Agent-proposed knowledge: the KB half of one copilot write tool.
 
 The system can DRAFT a knowledge entry and hand it to a person in the business. Nothing it
-drafts reaches a caller's ear without two separate human acts — a confirmation and then an
-approval — and this module exists to make the second half of that structural.
+drafts reaches a caller's ear until a person in the business CONFIRMS it — the signed
+proposal in `copilot/write_tools.py` — and the confirmed text then takes the one door every
+submission takes (`submit_source`), so the model can never write into `kb_sources` on its
+own. Once confirmed by the account's own people it is approved and published like anything
+else they add (D-658).
 
 ═══ WHAT IS HERE AND WHAT IS NOT, BECAUSE THIS MODULE USED TO BE BOTH ═══
 
@@ -48,8 +51,9 @@ existing SELECT changes no route and trips no behavioural test.
 ═══ AND THE GATE THAT WAS ALREADY THERE ═══
 
 `submit_proposed_source` calls `kb.service.submit_source` — the same function the "Add
-knowledge" form calls, with the same arguments, producing the same state: a
-`pending_approval` source and its preview chunks. There is no second write path into
+knowledge" form calls, with the same arguments, producing the same state: a source and its
+preview chunks, approved on submission when the person who confirmed is the account's own
+(D-658) and `pending_approval` otherwise. There is no second write path into
 `kb_sources` and no argument this lane can pass that the form cannot, so every downstream
 guard (preview, approve, publish, drift sweep, deletion) applies unchanged, because none
 of them can tell the two apart except by the audit row. A test asserts this module
@@ -71,9 +75,9 @@ from apps.workers.redaction import redact
 #: Who raised the subject. `gap_digest` — the knowledge-gap detector found a topic callers
 #: keep reaching and the system asked; `copilot` — a person was chatting to the dashboard
 #: assistant and a fact came up. The BODY is the person's words in both cases; what differs
-#: is who raised the subject, which is exactly what a reviewer needs to know. Both origins
-#: ship, both mint the same proposal through the same registry and land in the same review
-#: queue: origin varies no gate, it is provenance shown to whoever approves.
+#: is who raised the subject. Both origins ship, both mint the same proposal through the
+#: same registry and take the same door: origin varies no gate, it is provenance recorded
+#: in the audit row.
 ProposalOrigin = Literal["gap_digest", "copilot"]
 PROPOSAL_ORIGINS: Final[tuple[ProposalOrigin, ...]] = ("gap_digest", "copilot")
 
@@ -216,13 +220,13 @@ async def submit_proposed_source(
     agent_id: UUID,
     name: str,
     body: str,
+    auto_approve: bool,
 ) -> dict[str, Any]:
     """THE ONE DOOR, and it is somebody else's door.
 
     `kb.service.submit_source` with `kind="text"` — byte for byte the call
     `POST /v1/kb/sources` makes. `submitted_by` is the person who CONFIRMED, not the model
-    and not the proposer, because that is who the review queue has to be able to ask about
-    it.
+    and not the proposer, because that is who is accountable for the words.
 
     A wrapper this thin is worth its line for one reason: it is the name the source
     inventory and the no-INSERT test look for, so "the confirm path has exactly one door
@@ -237,6 +241,7 @@ async def submit_proposed_source(
         body=body,
         kind="text",
         submitted_by=actor_id,
+        auto_approve=auto_approve,
     )
 
 

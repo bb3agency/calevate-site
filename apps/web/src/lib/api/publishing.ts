@@ -13,11 +13,11 @@
  *   PATCH /v1/agents/{agent_id}/call-cap                    client realm, `agents:write`
  *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-cap     ADMIN realm (onboarding)
  *
- * A client can SEE that a script is waiting; only an operator can apply it, because
- * only an operator can author it (`publishing_routes.py` states the argument at
- * length). So there is deliberately NO client-realm apply hook here — the same rule
- * `agents.ts` and `kb.ts` already follow: a button that could only ever 403 is worse
- * than no button, and the client screen says who does apply it instead.
+ * The two admin doors above are the OPERATOR's apply and undo. The account owner applies
+ * and undoes a staged SCRIPT through its own client-realm door,
+ * `POST /v1/agents/{agent_id}/script/{apply,undo}` (`org:manage`,
+ * `apps/api/agents/script_routes.py`), whose hooks live in `script.ts` beside the builder
+ * that authors the script.
  *
  * **THE CALL CAP IS NOT ADMIN-ONLY (D-586).** The apply argument does not cover it: a cap
  * is not a script, it cannot change one word the agent says, and the money it bounds is the

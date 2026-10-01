@@ -9,16 +9,16 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ListChecks, Plus, Save } from "lucide-react";
+import { Plus, Save } from "lucide-react";
 
 import {
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
-  SectionHeading,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
+import { InfoTip } from "@/components/console/infoTip";
 import { useToast } from "@/components/interior/toaster";
 import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -241,15 +241,22 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
 
   return (
     <section>
-      <SectionHeading icon={<ListChecks className="h-3.5 w-3.5" />}>
-        What it writes down
-      </SectionHeading>
-
-      <p className="mt-2 text-sm text-ink-muted">
-        These are the columns in your {leadsHref} table. The agent fills them in from the
-        conversation — it never reads a form aloud, so a caller who answers early is not
-        asked twice.
-      </p>
+      <div className="flex items-center gap-1">
+        <h3 className="text-[15px] font-semibold text-ink">What it writes down</h3>
+        <InfoTip label="What it writes down">
+          <p>
+            The agent fills these in from the conversation — it never reads a form aloud, so
+            a caller who answers early is not asked twice.
+          </p>
+          <p>
+            A variable marked Required is what the agent is told to capture on every call; a
+            call that ends without one still becomes a lead, with that column left empty.
+            The optional reason is fed to the AI so it fills the column more accurately —
+            leave it blank to use just the name.
+          </p>
+        </InfoTip>
+      </div>
+      <p className="mt-1 text-sm text-ink-muted">These are the columns in your {leadsHref} table.</p>
 
       <RestrictionNote reason={write.reason} />
       {save.error && (
@@ -277,12 +284,12 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
         })}
       >
         {rows.length === 0 ? (
-          <p className="rounded-lg border border-line bg-app px-3 py-3 text-sm text-ink-muted">
+          <p className="text-sm text-ink-muted">
             No variables yet. Calls still turn into leads with the caller name, number and a
             summary — add a variable to capture a business-specific detail on top of that.
           </p>
         ) : (
-          <ul className="space-y-3">
+          <ul className="divide-y divide-line border-y border-line">
             {rows.map((row, index) => (
               <FieldEditorRow
                 eg={eg}
@@ -312,18 +319,6 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
           Add variable
         </button>
 
-        <p className="text-xs text-ink-muted">
-          {/* What `required` does, without promising an interrogation the product does not
-              do: it marks the field REQUIRED in the extraction instruction, and a call that
-              ends without it still becomes a lead with that column left empty
-              (packages/shared/.../extraction.py). */}
-          A variable marked <span className="font-medium text-ink">Required</span> is what
-          the agent is told to capture on every call; a call that ends without one still
-          becomes a lead, with that column left empty. The optional{" "}
-          <span className="font-medium text-ink">reason</span> is fed to the AI so it fills
-          the column more accurately — leave it blank to use just the name.
-        </p>
-
         <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
           <button
             type="submit"
@@ -335,7 +330,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
             {save.isPending ? "Saving…" : "Save variables"}
           </button>
           {clientError ? (
-            <span className="text-xs text-amber-700 dark:text-amber-400">{clientError}</span>
+            <span className="text-xs text-warn">{clientError}</span>
           ) : dirty ? (
             <span className="text-xs text-ink-muted">You have unsaved changes.</span>
           ) : (
@@ -395,19 +390,17 @@ function ArchivedExtractionList({
 
   return (
     <section>
-      <SectionHeading icon={<ListChecks className="h-3.5 w-3.5" />}>
-        What it writes down
-      </SectionHeading>
+      <h3 className="text-[15px] font-semibold text-ink">What it writes down</h3>
       {agent.extraction_fields.length > 0 ? (
         <ul className="mt-2 divide-y divide-line">
           {agent.extraction_fields.map((field) => (
             <li key={field.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 py-2.5">
               <span className="text-sm font-medium text-ink">{field.label}</span>
-              <span className="rounded bg-app px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+              <span className="text-xs text-ink-muted">
                 {lookup(FIELD_TYPE_COPY, field.type) ?? field.type}
               </span>
               {field.required && (
-                <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-strong">
+                <span className="text-xs font-medium text-brand-strong">
                   Required
                 </span>
               )}

@@ -21,7 +21,6 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  NoticeBox,
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import type { FaqEntry, ScriptStep } from "@/lib/api/script";
@@ -315,19 +314,20 @@ export function RawEditor({
 }) {
   return (
     <section>
-      <NoticeBox tone="neutral" title="Raw editing" className="mb-3">
-        You are editing the script as plain text. The platform still adds the AI/recording
-        answer underneath — you cannot remove it. Switch back to the structured builder any
-        time.
-      </NoticeBox>
       <textarea
         className={`${FIELD} font-mono`}
         rows={16}
         value={value}
         aria-label="Raw script text"
+        aria-describedby="raw-script-hint"
         onFocus={(e) => trackFocus(e.currentTarget)}
         onChange={(e) => onChange(e.target.value)}
       />
+      <p id="raw-script-hint" className="mt-2 text-xs text-ink-muted">
+        You are editing the script as plain text. The platform still adds the AI/recording
+        answer underneath — you cannot remove it. Switch back to the structured builder any
+        time.
+      </p>
     </section>
   );
 }

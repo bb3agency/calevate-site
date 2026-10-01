@@ -327,7 +327,9 @@ describe("the mobile drawer is a drawer at every width", () => {
    * and two copies is how one of them drifts back.
    */
   it("both shells set the drawer width through that one expression", () => {
-    for (const shell of ["app/c/[slug]/layout.tsx", "app/admin/layout.tsx"]) {
+    // The client shell's sidebar moved out of `layout.tsx` into its own module when the
+    // layout was split by subject; the expression is asserted where it now lives.
+    for (const shell of ["app/c/[slug]/ClientSidebar.tsx", "app/admin/layout.tsx"]) {
       const source = read(join(SRC, shell));
       expect(
         source,
@@ -361,8 +363,9 @@ describe("every scroll container can be reached from a keyboard", () => {
       "does not model — it hardcodes `overflow-x-auto`. It carries the same `role=region` " +
       "+ `aria-label` + `tabIndex={0}` inline, and the assertion checks that rather than " +
       "waiving it. (The screen's delivery-log table IS a `ScrollRegion`.)",
-    "app/c/[slug]/agents/[agentId]/script/ScriptBuilder.tsx":
-      "The compiled-prompt `<pre>` scrolls VERTICALLY (`max-h-[28rem]` + `whitespace-pre-" +
+    "app/c/[slug]/agents/[agentId]/script/ScriptToolbar.tsx":
+      "The compiled-prompt `<pre>` (moved here from ScriptBuilder.tsx with the drawer that " +
+      "holds it, D-657) scrolls VERTICALLY (`max-h-[60vh]` + `whitespace-pre-" +
       "wrap`, so it never scrolls sideways), which `ScrollRegion` does not model — it " +
       "hardcodes `overflow-x-auto`. It carries the same `role=region` + `aria-label` + " +
       "`tabIndex={0}` inline, exactly as the integrations delivered-payload `<pre>` does, " +

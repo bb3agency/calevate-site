@@ -184,6 +184,12 @@ async function open(name: RegExp = /Show the certificate|Show details/) {
   fireEvent.click(await screen.findByRole("button", { name }));
 }
 
+/** Open one of the screen's two tasks; each opens in a drawer. */
+async function task(name: "Export someone's data" | "Erase someone's data") {
+  fireEvent.click(await screen.findByRole("button", { name }));
+  await screen.findByRole("dialog", { name });
+}
+
 /** Fill a labelled field the way a person does — by its visible label. */
 function type(label: string | RegExp, value: string): void {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -193,6 +199,7 @@ describe("data rights — subject access export", () => {
   it("posts the number in the body and offers the file without rendering it", async () => {
     const view = await render({ [EXPORT_PATH]: EXPORT_DOCUMENT });
 
+    await task("Export someone's data");
     type("Their phone number", PHONE);
     fireEvent.click(screen.getByRole("button", { name: /Build the export/ }));
 
@@ -225,6 +232,7 @@ describe("data rights — subject access export", () => {
       }),
     });
 
+    await task("Export someone's data");
     type("Their phone number", PHONE);
     fireEvent.click(screen.getByRole("button", { name: /Build the export/ }));
 
@@ -244,6 +252,7 @@ describe("data rights — filing an erasure", () => {
       [STATUS_PATH]: pendingRequest(),
     });
 
+    await task("Erase someone's data");
     const submit = screen.getByRole("button", {
       name: /Erase this person's data/,
     });
@@ -274,6 +283,7 @@ describe("data rights — filing an erasure", () => {
       [LIST_PATH]: [],
     });
 
+    await task("Erase someone's data");
     type(/Number to erase permanently/, PHONE);
     // The typed ERASE confirms INTENT; this button confirms TARGET.
     fireEvent.click(
@@ -307,6 +317,7 @@ describe("data rights — filing an erasure", () => {
       },
       [LIST_PATH]: [],
     });
+    await task("Erase someone's data");
     type(/Number to erase permanently/, PHONE);
     fireEvent.click(
       screen.getByRole("button", { name: /Check whose record this is first/ }),
@@ -362,6 +373,7 @@ describe("data rights — filing an erasure", () => {
       [STATUS_PATH]: pendingRequest(),
     });
 
+    await task("Erase someone's data");
     type(/Number to erase permanently/, PHONE);
     type(/Type ERASE to confirm/, "ERASE");
     fireEvent.click(
@@ -407,7 +419,7 @@ describe("data rights — §52: a failed status read is a refusal, never an answ
     expect(
       (
         screen.getByRole("button", {
-          name: /Build the export/,
+          name: /Export someone's data/,
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -486,6 +498,7 @@ describe("data rights — the erasure register", () => {
       [LIST_PATH]: [summary()],
     });
 
+    await task("Erase someone's data");
     type(/Number to erase permanently/, PHONE);
     type(/Type ERASE to confirm/, "ERASE");
     fireEvent.click(
@@ -518,14 +531,14 @@ describe("data rights — permissions", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: /Build the export/,
+          name: /Export someone's data/,
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
     expect(
       (
         screen.getByRole("button", {
-          name: /Erase this person's data/,
+          name: /Erase someone's data/,
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -549,9 +562,11 @@ describe("data rights — permissions", () => {
  */
 describe("data rights — the obligations printed on the screen", () => {
   it("states the consequences of an erasure above the control that files one", async () => {
-    const view = await render({});
+    await render({});
+    await task("Erase someone's data");
     await screen.findByRole("button", { name: /Erase this person's data/ });
-    const text = view.container.textContent ?? "";
+    // The erasure opens in a drawer, portalled to the body: read the document.
+    const text = document.body.textContent ?? "";
 
     // Irreversibility, and that it reaches the client's OWN record of the person.
     expect(text).toContain("This cannot be undone");

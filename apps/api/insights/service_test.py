@@ -208,18 +208,47 @@ async def test_teach_records_the_answer_and_seeds_a_kb_draft() -> None:
         )
         assert taught.status == "taught"
         assert taught.resolution == "Consultation is 500 rupees."
-        # A pending_approval KB draft was seeded for this agent.
+        # Taught by the account's own people, the entry is approved on submission (D-658).
         drafts = (
             await session.execute(
                 text(
                     "SELECT status, name FROM kb_sources WHERE agent_id = :a "
-                    "AND status = 'pending_approval'"
+                    "AND status = 'approved'"
                 ),
                 {"a": agent_id},
             )
         ).all()
         assert any("Pricing" in row.name for row in drafts)
         assert (await service.list_gaps(session, status="open")).open_count == 0
+
+
+async def test_teach_from_a_view_as_session_waits_for_an_admin() -> None:
+    tenant_id, agent_id = await _tenant()
+    call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
+    await service.record_call_gaps(
+        tenant_id=tenant_id, agent_id=agent_id, call_id=call_id, turns=_pricing_turns()
+    )
+    operator = Principal(
+        realm="admin", user_id=None, tenant_id=tenant_id, role="operator", impersonating=True
+    )
+    async with tenant_session(tenant_id) as session:
+        gap = (await service.list_gaps(session)).items[0]
+        await service.teach_gap(
+            session,
+            gap.id,
+            principal=operator,
+            payload=GapTeachIn(answer="Consultation is 500 rupees.", create_kb_draft=True),
+        )
+        statuses = (
+            (
+                await session.execute(
+                    text("SELECT status FROM kb_sources WHERE agent_id = :a"), {"a": agent_id}
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert statuses == ["pending_approval"]
 
 
 async def test_teach_without_a_draft_still_records_the_answer() -> None:

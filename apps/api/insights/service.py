@@ -505,12 +505,10 @@ async def teach_gap(
 ) -> KnowledgeGapOut:
     """Record the answer the agent was missing, and (by default) seed a KB draft from it.
 
-    The KB draft goes in as an ordinary `pending_approval` source through `kb.submit_source`
-    — the ONE clean, tenant-safe entry point that module exposes — so it lands in the same
-    review queue any other submission does rather than reaching around the KB module's
-    boundary. It is a DRAFT on purpose: teaching a gap proposes a fact; publishing it is
-    still the reviewed step (`kb.approve_source` → `kb.publish_source`), exactly as it is
-    for a source a client pastes in themselves.
+    The KB entry goes in through `kb.submit_source` — the ONE clean, tenant-safe entry
+    point that module exposes — so it takes exactly the path any other submission does:
+    taught by the account's own people it is approved on submission and published by the
+    worker (D-658); taught from a view-as session it waits in the admin queue.
     """
     row = await _load_gap(session, gap_id)
     agent_id: UUID = row.agent_id  # type: ignore[attr-defined]
@@ -521,6 +519,7 @@ async def teach_gap(
         # Local import: the KB module is an api peer and a module-level import would drag it
         # (and its engine coupling) into the worker that imports this module for detection.
         from apps.api.kb import service as kb
+        from apps.api.kb.curation import goes_live_without_review
 
         created = await kb.submit_source(
             session,
@@ -529,6 +528,9 @@ async def teach_gap(
             name=f"{_KB_DRAFT_PREFIX} {topic_label}",
             body=payload.answer,
             submitted_by=principal.user_id,
+            auto_approve=goes_live_without_review(
+                realm=principal.realm, impersonating=principal.impersonating
+            ),
         )
         kb_source_id = UUID(str(created["id"]))
     # THE DRAFT ABOVE IS WRITTEN BEFORE THIS CLAIM AND THAT IS SAFE ONLY BECAUSE THE CLAIM

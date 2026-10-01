@@ -134,7 +134,7 @@ from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
 from apps.workers.kb_index_sync import INDEX_SYNC_MINUTES, sync_knowledge_index
 from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
-from apps.workers.kb_ingest import ingest_kb_source, sweep_kb_uploads
+from apps.workers.kb_ingest import ingest_kb_source, publish_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.maintenance import (
@@ -274,6 +274,10 @@ FUNCTIONS: list[Any] = [
         # and the client watches an upload sit at "received" for ever while every one of
         # our screens reports it as queued.
         ingest_kb_source,
+        # D-658. Publishes knowledge an account member typed, taught or confirmed from the
+        # assistant; enqueued through the OUTBOX in the submission's transaction, so an
+        # unregistered name here leaves the source "approved, not live" for ever.
+        publish_kb_source,
         # D-538. Queued in the SAME transaction as the closure it announces, so a client
         # is never told about a closure that rolled back and a closure never commits with
         # nobody told. Registered here because an unregistered job name is a DLQ
@@ -1001,7 +1005,8 @@ CRON_JOBS = [
     _cron(
         traced_job(sweep_kb_uploads),
         walk=bounded(
-            "two untenanted reads, each capped per tick, then one session per tenant named in them"
+            "two untenanted reads and one per-tenant read, each capped per tick, then one "
+            "session per tenant named in them"
         ),
         minute=set(KB_UPLOAD_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,

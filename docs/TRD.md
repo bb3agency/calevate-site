@@ -1093,7 +1093,8 @@ Tier model (unchanged in intent; T1–T3 now provider-backed):
   callback, call tagged needs_follow_up. Never invents prices/medical/legal facts.
 
 Ingestion (workers, offline — OURS regardless of provider): parse (LlamaParse for
-messy PDFs) → chunk preview → **client/admin approve** → **English gloss (D-487)** →
+messy PDFs) → chunk → **approved on submission for the account's own people (D-658);
+admin approve for anything else** → **English gloss (D-487)** →
 push to BOTH targets (engine KB API for in-call; managed service for CRM/memory) →
 version bump → T0 recompilation.
 
@@ -1109,8 +1110,11 @@ one; retrieval scores it as a second key BEHIND A SCRIPT GATE and returns the or
 line, taking Tenglish to **0.542** and English to **0.875** while leaving Telugu-script
 questions bit-identical. It is a RETRIEVAL KEY and never an utterance, so it does not
 widen the approval gate above it, and it is provider-independent — our own stored text,
-written before the D-28 bake-off and given to whichever store wins. The preview-and-approve gate stays ours — a bad upload must
-not poison live calls, whichever store serves it. Resolved-call transcripts are
+written before the D-28 bake-off and given to whichever store wins. Since D-658 there is no human gate on what the account's own people add (the founder:
+"if any knowledge is added from the owner's company/staff then no need to verify
+anything"); what stands between a bad upload and a live call is the automated set —
+the invisible-character refusal, the size and format ceilings, the OCR legibility filter,
+the pack's shadow-text strip — plus rollback, whichever store serves it. Resolved-call transcripts are
 indexed into the managed service as the per-client corpus (compounding, uncopyable).
 
 ⚠ **THE GATE BELOW IS CLOSED (D-502) AND IS KEPT AS THE SCORECARD A RE-OPENING WOULD BE

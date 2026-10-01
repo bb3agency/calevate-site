@@ -152,7 +152,9 @@ async function openCampaign(
     ...routes,
   });
   fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
-  await screen.findByText(waitFor);
+  // The panel's heading, not any text: the header's status pill prints the same word
+  // ("Scheduled") since the round-2 redesign.
+  await screen.findByRole("heading", { name: waitFor });
   return rendered;
 }
 
@@ -312,7 +314,7 @@ describe("a campaign waiting for its start", () => {
       }),
     });
     fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
-    await screen.findByText("Scheduled");
+    await screen.findByRole("heading", { name: "Scheduled" });
     expect(rendered.container.textContent).toContain("10:00");
   });
 

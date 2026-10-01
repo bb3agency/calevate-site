@@ -35,7 +35,7 @@ import { redirect } from "next/navigation";
 export async function redirectToBillingTab(
   params: Promise<{ slug: string }>,
   searchParams: Promise<Record<string, string | string[] | undefined>>,
-  tab: "overview" | "credits" | "transactions" | "usage",
+  tab: "credits" | "transactions" | "usage" | "statements",
 ): Promise<never> {
   const { slug } = await params;
   const query = new URLSearchParams();

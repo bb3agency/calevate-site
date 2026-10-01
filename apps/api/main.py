@@ -122,6 +122,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import lots_router as credit_lots_admin_router
     from apps.api.billing.credit_routes import router as credits_admin_router
+    from apps.api.billing.history_routes import router as billing_history_router
     from apps.api.billing.payment_routes import public_router as public_rate_card_router
     from apps.api.billing.payment_routes import refund_router
     from apps.api.billing.payment_routes import router as topups_router
@@ -437,6 +438,9 @@ def _mount_routers(application: FastAPI) -> None:
     # adds what we PAID. Declared with the other `/v1/billing/*` routers for the ordering
     # reason they give.
     application.include_router(billing_spend_router)
+    # The statement list and the daily spend series (D-660): literal `/v1/billing/statements`
+    # and `/v1/billing/spend/daily`, with the other `/v1/billing/*` routers for their reason.
+    application.include_router(billing_history_router)
     application.include_router(spend_admin_router)
     # THE CLIENT'S OWN WALLET (2 Sep 2026): balance, how long it lasts, where it went,
     # the ledger with a receipt per payment, and the payments that failed. Literal

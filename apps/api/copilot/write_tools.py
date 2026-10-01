@@ -111,6 +111,7 @@ from apps.api.copilot.actions import (
     WriteRefusedError,
     action_schema,
     actor_for,
+    actor_realm,
     assistant_closed_to,
     may_act,
     parse_args,
@@ -133,6 +134,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
 from apps.api.kb import proposals as kb_proposals
+from apps.api.kb.curation import goes_live_without_review
 from apps.api.reliability.service import (
     claim_idempotency,
     complete_idempotency,
@@ -614,12 +616,18 @@ async def _plan_propose_knowledge(
         if gap is not None:
             raise WriteRefusedError(gap)
     name = strip_invisible(parsed.name.strip())
+    live = _goes_live(actor)
     return Plan(
         object_id=str(parsed.agent_id),
         title="Add this to your agent's knowledge",
         summary=(
-            f"Save “{name}” to this agent's knowledge. It goes to review first and the "
-            "agent cannot use it until it is approved. Nothing changes until you confirm."
+            f"Save “{name}” to this agent's knowledge. "
+            + (
+                "Once you confirm, it goes to your agent without review. "
+                if live
+                else "It goes to review first and the agent cannot use it until it is approved. "
+            )
+            + "Nothing changes until you confirm."
         ),
         # Nothing is being replaced — a submission is a new VERSION of a named source, and
         # `None` is the honest answer to "what is it now" rather than a sentence invented
@@ -628,8 +636,10 @@ async def _plan_propose_knowledge(
         proposed=name,
         cost=None,
         reversal=(
-            "Nothing reaches a caller until somebody approves it. Whoever reviews it can "
-            "reject it, and you can edit or remove it under Knowledge afterwards."
+            "You can edit or remove it under Knowledge afterwards."
+            if live
+            else "Nothing reaches a caller until somebody approves it. Whoever reviews it "
+            "can reject it, and you can edit or remove it under Knowledge afterwards."
         ),
         args={
             "agent_id": str(parsed.agent_id),
@@ -641,6 +651,11 @@ async def _plan_propose_knowledge(
     )
 
 
+def _goes_live(actor: ToolActor) -> bool:
+    """D-658's rule for the person confirming, through the one predicate that states it."""
+    return goes_live_without_review(realm=actor_realm(actor), impersonating=actor.impersonating)
+
+
 async def _execute_propose_knowledge(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
@@ -650,7 +665,7 @@ async def _execute_propose_knowledge(
     `applied` is unconditionally True, and it is the one executor where that is right
     rather than lazy: the other three ask the world to reach a state it may already be in,
     while this one appends a new source VERSION. Submitting the same wording twice is two
-    versions, both of which a reviewer sees; there is no "it was already like that".
+    versions, both recorded; there is no "it was already like that".
 
     The content guard runs again on what the signature carried back — see
     `proposable_refusal` on why twice — and a failure here is a `ProblemError`, not a
@@ -675,17 +690,20 @@ async def _execute_propose_knowledge(
         agent_id=parsed.agent_id,
         name=parsed.name,
         body=parsed.body,
+        auto_approve=_goes_live(actor),
     )
     return Executed(
         applied=True,
         detail=(
-            "That knowledge is saved and waiting for review. The agent starts using it "
-            "once it is approved."
+            "That knowledge is saved and is being sent to your agent."
+            if created["status"] == "approved"
+            else "That knowledge is saved and waiting for review. The agent starts using "
+            "it once it is approved."
         ),
         # IDS, COUNTS AND CLOSED-SET STRINGS (hard rules 4 and 6). Not the title, not the
         # body: `audit_log` is append-only, so text written into it is text a DPDP erasure
         # cannot reach, and the `kb_sources` row is where the words live and where deletion
-        # already gets to them. `origin` is here because an owner reviewing the queue has to
+        # already gets to them. `origin` is here because whoever reads the trail has to
         # tell "your agent noticed this" from "this came up in conversation"; the realm is
         # NOT, because `write_audit` derives `actor_type` from the principal and hashes it
         # into the chain, and a second spelling of the same fact is a second thing to keep
@@ -818,14 +836,14 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
     # instead, so the row still answers "which source did this produce".
     object_type="agent",
     audit_action="kb.source_proposed",
-    where="under Knowledge, in the review queue",
+    where="under Knowledge",
     schema=action_schema(
         "propose_knowledge",
         "Propose adding a fact to one agent's knowledge, so it can answer that question in "
         "future. Only for something the person has just told you about their own business "
         "— never invent a price, a policy or an opening time, and never repeat something a "
-        "caller said. Confirming puts it in the review queue; it is NOT live until "
-        "somebody approves it." + PROPOSES_ONLY,
+        "caller said. Confirming adds it to the agent's knowledge without review; the "
+        "agent starts using it once it has been published to the agent." + PROPOSES_ONLY,
         {
             "agent_id": {
                 "type": "string",

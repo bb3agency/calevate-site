@@ -44,11 +44,13 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.gst import GST_STATUS_SENTENCE, supplier_identity
 from apps.api.billing.invoice import build_invoice
 from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 
 router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/invoice", tags=["admin"])
@@ -83,10 +85,9 @@ class Strict(BaseModel):
 class InvoiceSupplierOut(Strict):
     """Who issued this document (Rule 46(a)-(b), CGST Rules 2017).
 
-    EVERY FIELD IS NULLABLE and today every one of them is null: the legal entity has not
-    been chosen, so there is no GSTIN to print (ROADMAP M0). That is not a gap in this
-    schema, it is the state the schema exists to represent honestly — see
-    `document_type`.
+    EVERY FIELD IS NULLABLE and today every one of them is null: Calevate is not
+    GST-registered (D-659), so there is no GSTIN to print. That is the normal state, not a
+    gap — see `document_type`.
     """
 
     legal_name: str | None
@@ -127,8 +128,7 @@ class InvoiceLineItemOut(Strict):
     qty: str
     unit_inr: str
     amount_inr: str
-    # Rule 46(g). Null until `GST_SUPPLY_SAC` is configured, which is one of the reasons
-    # the document refuses to call itself a tax invoice.
+    # Rule 46(g). Null while Calevate is not GST-registered.
     sac: str | None
 
 
@@ -179,9 +179,9 @@ class InvoiceOut(Strict):
     still reproduce `amount_inr` when a client checks it by hand, which is why the
     overage rate is published at its true precision rather than rounded like a rupee.
 
-    ONE model for both realms. The client and the operator receive byte-identical
-    documents for the same tenant-month (`generated_at` aside), which is asserted in
-    `tests/invoice_gst_test.py` and is the property that makes this feature trustworthy.
+    ONE document for both realms. The client and the operator receive identical documents
+    for the same tenant-month (`generated_at` aside); the operator's `AdminInvoiceOut`
+    adds one operator-only field and nothing else, asserted in `tests/invoice_gst_test.py`.
     """
 
     # Deterministic: CAL{YYMM}{tenant suffix} — one number per tenant-month, exactly
@@ -196,9 +196,6 @@ class InvoiceOut(Strict):
     # looks like a tax invoice and is not is worse than one that admits what it is, so
     # the server decides this and the browser never writes the words itself.
     document_type: str
-    # The environment variables standing between this document and being a tax invoice,
-    # named as an operator types them. Empty on a `tax_invoice`.
-    document_blockers: list[str]
     supplier: InvoiceSupplierOut
     organization: InvoiceOrganizationOut
     place_of_supply: InvoicePlaceOfSupplyOut
@@ -217,26 +214,30 @@ class InvoiceOut(Strict):
     # The words that make an unregistered document a compliant BILL OF SUPPLY — no tax
     # charged, no input tax credit (CGST s.32, Rule 49). Null on a tax invoice.
     tax_note: str | None
-    # INTERNAL ESTIMATE, never a collectible amount: what the tax and total WOULD be once
-    # Calevate is GST-registered. Present only on a bill of supply so a screen can preview
-    # the eventual figure without ever presenting it as due; null on a tax invoice, where
-    # `gst_inr`/`total_inr` already carry the real amounts.
-    estimated_gst_rate_pct: str | None
-    estimated_gst_inr: str | None
-    estimated_total_inr: str | None
     usage: InvoiceUsageOut
+
+
+class AdminInvoiceOut(InvoiceOut):
+    """The operator's copy: the client's document plus why it is not a tax invoice.
+
+    `document_blockers` names the `GST_SUPPLIER_*` settings a registration would need, as
+    an operator types them. It lives ONLY here (D-659): unset is the normal state while
+    Calevate is below the registration threshold, and a settings name on a client's
+    statement is an internal, not an explanation.
+    """
+
+    document_blockers: list[str]
 
 
 def _out(invoice: dict[str, Any]) -> InvoiceOut:
     """`extra="forbid"`: a field `build_invoice` grows without the schema growing with it
-    fails HERE rather than reaching a browser the generated client cannot type. Shared by
-    both realms so neither can quietly publish a field the other does not."""
+    fails HERE rather than reaching a browser the generated client cannot type."""
     return InvoiceOut.model_validate({k: _stringify(v) for k, v in invoice.items()})
 
 
 @router.get(
     "",
-    response_model=InvoiceOut,
+    response_model=AdminInvoiceOut,
     openapi_extra=permission_meta("billing:read"),
     summary="One tenant's invoice statement for an IST billing month (deterministic number)",
 )
@@ -245,7 +246,7 @@ async def tenant_invoice(
     request: Request,
     month: str | None = None,
     principal: Principal = Depends(requires("billing:read", realm="admin")),
-) -> InvoiceOut:
+) -> AdminInvoiceOut:
     async with tenant_session(tenant_id) as scoped:
         invoice = await build_invoice(scoped, tenant_id=tenant_id, month=month)
         # D-482 L-1: a direct-admin read of one client's bill joins the audit trail,
@@ -253,7 +254,10 @@ async def tenant_invoice(
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
-    return _out(invoice)
+    return AdminInvoiceOut(
+        **_out(invoice).model_dump(),
+        document_blockers=list(supplier_identity(get_settings()).missing),
+    )
 
 
 @client_router.get(
@@ -264,11 +268,9 @@ async def tenant_invoice(
     description=(
         "The same statement the Calevate team sees for this account, recomputed from the "
         "usage ledger on every request — there is no stored invoice row to go stale. "
-        "Requires `billing:read`, which account owners hold and staff do not. The "
-        "document states whether it is a tax invoice or a bill of supply. It is a bill "
-        "of supply (CGST Rules r.49) while Calevate is not registered for GST, which it "
-        "is not and is not required to be at present turnover: an unregistered supplier "
-        "may not collect tax at all (CGST s.32)."
+        "Requires `billing:read`, which account owners hold and staff do not. "
+        "`document_type` is `bill_of_supply` (CGST Rules r.49): "
+        f"{GST_STATUS_SENTENCE}"
     ),
 )
 async def my_invoice(

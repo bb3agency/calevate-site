@@ -131,7 +131,7 @@ describe("the way OUT of the marketing site, which is served on the apex", () =>
  * apex refuses both. So a bare `/admin` is a 404 everywhere except the one hostname the
  * screens below are never served on:
  *
- *   - The impersonation banner in `app/c/[slug]/layout.tsx` — "Exit and return to the
+ *   - The impersonation banner in `app/c/[slug]/ViewAsBanner.tsx` — "Exit and return to the
  *     admin console" — assigned `/admin` from the CLIENT hostname. The one control an
  *     operator is guaranteed to use, at the one moment they are guaranteed to be on the
  *     wrong host for it.
@@ -185,8 +185,9 @@ describe("every link out of the client realm and the auth screens into the opera
   it("routes the exit from a view-as session through the helper", () => {
     // The other half: the negative above is satisfiable by deleting the exit entirely,
     // and there was no exit at all before D-4xx. This asserts the feature still exists.
+    // The banner moved out of the layout into its own module when the shell was split.
     const layout = readFileSync(
-      join(process.cwd(), "src/app/c/[slug]/layout.tsx"),
+      join(process.cwd(), "src/app/c/[slug]/ViewAsBanner.tsx"),
       "utf8",
     );
     expect(layout).toContain("adminConsoleUrl(ADMIN_CONSOLE_PATH)");

@@ -37,6 +37,8 @@ import { noContent, problem, renderClientPage } from "./harness";
  */
 
 const PHONE = "+919876543210";
+/** How the list and the dialog show it (`formatPhone`): grouped for reading, still in full. */
+const SHOWN = "+91 98765 43210";
 /** The national-format digits, which is the form a URL would carry. */
 const PHONE_DIGITS = "9876543210";
 
@@ -117,7 +119,7 @@ describe("what the list says may be undone", () => {
   it("offers Remove only where the server said removable", async () => {
     const { container } = await renderList([entry({ source: "manual" })]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     expect(removeButtons()).toHaveLength(1);
     expect(container.textContent).toContain("Added by your team");
   });
@@ -130,7 +132,7 @@ describe("what the list says may be undone", () => {
       entry({ removable: false, source: "call_optout", scope: "tenant" }),
     ]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     expect(removeButtons()).toHaveLength(0);
     expect(container.textContent).toContain("opt-out — cannot be undone");
     // The reason takes the button's place — a row with neither is a dead end.
@@ -152,7 +154,7 @@ describe("what the list says may be undone", () => {
       entry({ removable: false, scope: "global", source: "regulator" }),
     ]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     expect(container.textContent).toContain("platform-wide");
     expect(container.textContent).not.toContain("national list");
     expect(container.textContent).toContain("removed by operations only");
@@ -169,7 +171,7 @@ describe("what the list says may be undone", () => {
       entry({ removable: false, source: "manual", scope: "tenant" }),
     ]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     expect(removeButtons()).toHaveLength(0);
     expect(container.textContent).toContain("cannot be undone");
   });
@@ -182,7 +184,7 @@ describe("what the list says may be undone", () => {
       entry({ removable: true, source: "call_optout", scope: "tenant" }),
     ]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     expect(removeButtons()).toHaveLength(1);
   });
 
@@ -194,7 +196,7 @@ describe("what the list says may be undone", () => {
       entry({ source: "a_source_added_later" }),
     ]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     expect(container.textContent).toContain("a_source_added_later");
     expect(removeButtons()).toHaveLength(1);
   });
@@ -204,7 +206,7 @@ describe("what the list says may be undone", () => {
     // both. Rendering the button for a `staff` viewer would be rendering a 403.
     const { container } = await renderList([entry()], READ_ONLY_ME);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     expect(removeButtons()).toHaveLength(0);
     expect(container.textContent).toContain(
       "Only an account owner can add or remove numbers",
@@ -213,7 +215,9 @@ describe("what the list says may be undone", () => {
     // IS removable, by someone else.
     expect(container.textContent).not.toContain("cannot be undone");
     // The write form goes with the permission, rather than waiting to answer 403.
-    expect(screen.queryByLabelText("Numbers to suppress")).toBeNull();
+    // One field checks and adds; what goes with the permission is the Add action.
+    fireEvent.change(screen.getByLabelText("Phone numbers"), { target: { value: PHONE } });
+    expect(screen.queryByRole("button", { name: /^Add / })).toBeNull();
   });
 
   it("deletes by entry id, and never sends the number anywhere", async () => {
@@ -224,7 +228,7 @@ describe("what the list says may be undone", () => {
       "DELETE /v1/dnc/0192f0aa-4444-7000-8000-000000000001": noContent(),
     });
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     fireEvent.click(removeButtons()[0]);
     // Un-suppressing is confirmed now (🔒 DNC-1): the press opens the dialog and the
     // DELETE is the SECOND press. `confirmUnsuppress` asserts the first press sent
@@ -279,7 +283,9 @@ describe("when the list itself does not load", () => {
     await screen.findByText(
       /We could not check whether you can add or remove numbers/,
     );
-    expect(screen.queryByLabelText("Numbers to suppress")).toBeNull();
+    // One field checks and adds; what goes with the permission is the Add action.
+    fireEvent.change(screen.getByLabelText("Phone numbers"), { target: { value: PHONE } });
+    expect(screen.queryByRole("button", { name: /^Add / })).toBeNull();
     expect(container.textContent).not.toContain("Only an account owner");
   });
 
@@ -326,9 +332,7 @@ describe("adding numbers", () => {
       [LIST_PATH]: [],
       "/v1/dnc": answer,
     });
-    const box = (await screen.findByLabelText(
-      "Numbers to suppress",
-    )) as HTMLTextAreaElement;
+    const box = (await screen.findByLabelText("Phone numbers")) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: `${PHONE}\n9876543211` } });
     fireEvent.click(screen.getByRole("button", { name: /^Add 2 numbers/ }));
     return { ...rendered, box };
@@ -401,7 +405,7 @@ describe("checking a number", () => {
       [LIST_PATH]: [],
       "/v1/dnc/check": answer,
     });
-    fireEvent.change(await screen.findByLabelText("Phone number to check"), {
+    fireEvent.change(await screen.findByLabelText("Phone numbers"), {
       target: { value: PHONE },
     });
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
@@ -528,14 +532,14 @@ describe("un-suppressing is confirmed before it happens", () => {
   it("sends nothing on the first press, and names the number in the dialog", async () => {
     const { calls } = await renderList([entry()]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     fireEvent.click(removeButtons()[0]);
 
     const dialog = await screen.findByRole("dialog");
     expect(calls.filter((call) => call.method === "DELETE")).toEqual([]);
     // Target, not merely intent: a confirmation that cannot say WHICH number confirms
     // that a removal was meant and says nothing about whose.
-    expect(within(dialog).getByText(PHONE)).toBeTruthy();
+    expect(within(dialog).getByText(SHOWN)).toBeTruthy();
     // …and the consequence, in the client's terms rather than as a restatement of the
     // command (NN/g, *Preventing User Errors*).
     expect(dialog.textContent).toContain("able to ring this person again");
@@ -544,7 +548,7 @@ describe("un-suppressing is confirmed before it happens", () => {
   it("leaves the number suppressed when the client backs out", async () => {
     const { calls } = await renderList([entry()]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     fireEvent.click(removeButtons()[0]);
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(
@@ -564,7 +568,7 @@ describe("un-suppressing is confirmed before it happens", () => {
     // implementation and this is the assertion that this dialog actually uses it.
     await renderList([entry()]);
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     fireEvent.click(removeButtons()[0]);
 
     const dialog = await screen.findByRole("dialog");
@@ -588,7 +592,7 @@ describe("un-suppressing is confirmed before it happens", () => {
       }),
     });
 
-    await screen.findByText(PHONE);
+    await screen.findByText(SHOWN);
     fireEvent.click(removeButtons()[0]);
     await confirmUnsuppress(calls);
 
@@ -630,7 +634,7 @@ describe("do not call — the compliance notice printed on the screen", () => {
       [LIST_PATH]: [],
       "/v1/dnc/check": { valid: true, suppressed: false, scope: null },
     });
-    fireEvent.change(await screen.findByLabelText("Phone number to check"), {
+    fireEvent.change(await screen.findByLabelText("Phone numbers"), {
       target: { value: PHONE },
     });
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
@@ -648,7 +652,7 @@ describe("do not call — the compliance notice printed on the screen", () => {
       [LIST_PATH]: [],
       "/v1/dnc/check": { valid: true, suppressed: true, scope: "tenant" },
     });
-    fireEvent.change(await screen.findByLabelText("Phone number to check"), {
+    fireEvent.change(await screen.findByLabelText("Phone numbers"), {
       target: { value: PHONE },
     });
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
@@ -661,6 +665,8 @@ describe("do not call — the compliance notice printed on the screen", () => {
     // Three of the four are permanent, and the note is `aria-describedby` the select, so
     // it is read WITH the control rather than sitting beside it (WCAG 3.3.2).
     const { container } = await renderList([]);
+    // The reason appears with the first number typed, before Add can be pressed.
+    fireEvent.change(await screen.findByLabelText("Phone numbers"), { target: { value: PHONE } });
     const select = await screen.findByLabelText("Reason");
 
     expect(select.getAttribute("aria-describedby")).toBe("dnc-source-note");

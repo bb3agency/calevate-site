@@ -50,7 +50,6 @@ import { Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
 import {
   DANGER_BUTTON,
-  NOTICE_TONES,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
@@ -125,7 +124,14 @@ export const MOVE_COPY: Record<LifecycleMove, MoveCopy> = {
  * The moves available on this agent, from `movesFor` — which mirrors the server's
  * transition table and fails closed on a status this build has never seen.
  */
-export function AgentLifecycle({ agent }: { agent: Agent }) {
+export function AgentLifecycle({
+  agent,
+  only,
+}: {
+  agent: Agent;
+  /** Show just these moves (the workspace header owns the others). */
+  only?: readonly LifecycleMove[];
+}) {
   const session = useClientSession();
   const move = useAgentLifecycle(session, agent.id);
   /* `org:manage`, the OWNER's own permission — NOT `agents:write`, which is admin-only and
@@ -137,7 +143,7 @@ export function AgentLifecycle({ agent }: { agent: Agent }) {
   );
   const [confirming, setConfirming] = useState<LifecycleMove | null>(null);
 
-  const moves = movesFor(agent.status);
+  const moves = movesFor(agent.status).filter((key) => !only || only.includes(key));
   if (moves.length === 0) {
     /* Not an empty panel: a status we cannot place is a fact worth stating, because the
        alternative is a client staring at an agent with no controls and no explanation. */
@@ -159,7 +165,7 @@ export function AgentLifecycle({ agent }: { agent: Agent }) {
         const Icon = copy.icon;
         const open = confirming === key;
         return (
-          <div key={key} className="rounded-card border border-line bg-app p-4">
+          <div key={key}>
             <p className="text-sm font-semibold text-ink">{copy.label}</p>
             <p className="mt-1 text-xs text-ink-muted">{copy.hint}</p>
 
@@ -178,7 +184,7 @@ export function AgentLifecycle({ agent }: { agent: Agent }) {
                  two sibling buttons would silently take away. */
               <div
                 role="status"
-                className={`mt-3 rounded-lg border p-3 text-xs ${NOTICE_TONES.warn}`}
+                className="mt-3 rounded-lg border border-danger-line bg-danger-soft p-3 text-xs text-ink"
               >
                 <p className="font-semibold">{copy.confirm.title}</p>
                 <ul className="mt-2 list-inside list-disc space-y-1">

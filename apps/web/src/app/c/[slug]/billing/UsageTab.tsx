@@ -2,15 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Coins, Gauge, PhoneCall, Timer } from "lucide-react";
 
+import { Metric } from "@/components/console/metric";
+import { Panel } from "@/components/console/panel";
 import {
-  Card,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  StatTile,
   formatCount,
   formatINR,
   formatRupeeRate,
@@ -139,29 +138,26 @@ export function UsageTab({
             </p>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-line pb-6 xl:grid-cols-4">
             {/* The server's decimal string, printed as sent — minutes are metered to the
                 same precision the invoice bills. */}
-            <StatTile
+            <Metric
               label="Minutes used"
               value={data.minutes_used}
-              icon={<Timer className="h-5 w-5" />}
               hint={
                 data.included_minutes > 0
                   ? `${formatCount(data.included_minutes)} included`
                   : "Pay as you go"
               }
             />
-            <StatTile
+            <Metric
               label="Calls"
               value={formatCount(data.calls)}
-              icon={<PhoneCall className="h-5 w-5" />}
               hint="Billed calls this month"
             />
-            <StatTile
+            <Metric
               label="Extra minutes"
               value={data.overage_minutes}
-              icon={<Gauge className="h-5 w-5" />}
               hint={
                 hasNonZeroDigit(data.overage_minutes)
                   ? "Beyond your plan"
@@ -179,16 +175,14 @@ export function UsageTab({
                 could ever see. What a client's minutes actually cost at two different
                 prices is now a real fact and a different one: the two VOICE QUALITIES
                 (D-547), which are below, from the lot splits, and named by the server. */}
-            <StatTile
+            <Metric
               label="Extra charges"
               value={formatINR(data.overage_cost_inr)}
-              icon={<Coins className="h-5 w-5" />}
-              tone="strong"
               hint={`${formatRupeeRate(data.overage_rate_inr)} per extra minute`}
             />
           </div>
 
-          <Card title="This month">
+          <Panel title="This month">
             <dl className="space-y-2 text-sm">
               <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
               <Row
@@ -281,7 +275,7 @@ export function UsageTab({
               Usage appears a couple of minutes after each call ends, once the recording
               and summary have been processed.
             </p>
-          </Card>
+          </Panel>
         </>
       )}
 
@@ -376,7 +370,7 @@ function SpendLimit({ session }: { session: Session }) {
   const spendField = spend ?? (current.client_cap_spend_inr ?? "");
 
   return (
-    <Card title="Your spending limit">
+    <Panel title="Your spending limit">
       <p className="text-sm text-ink-muted">
         Set your own limit for this month. Outgoing calls stop when you reach it. Incoming
         calls are never affected.
@@ -470,7 +464,7 @@ function SpendLimit({ session }: { session: Session }) {
           </div>
         )}
       </div>
-    </Card>
+    </Panel>
   );
 }
 

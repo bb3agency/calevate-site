@@ -1,0 +1,93 @@
+"use client";
+
+/**
+ * SCRIPT — what the agent says, summarised, and the way into the builder.
+ *
+ * The builder is its own route because it has its own unsaved state and its own Save/Apply
+ * ladder (doctrine §3: split, do not hide). This section only says what is there and which
+ * version callers hear, from the reads the builder itself uses.
+ */
+
+import Link from "next/link";
+import { ArrowRight, Sparkles } from "lucide-react";
+
+import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import type { Agent } from "@/lib/api/agents";
+import { usePendingChanges } from "@/lib/api/publishing";
+import { useScript } from "@/lib/api/script";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
+
+import { stagedScript } from "../../panels/publishing";
+
+export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
+  const { href } = useClientRealm();
+  const session = useClientSession();
+  const script = useScript(session, agent.id);
+  const pending = usePendingChanges(session, agent.id);
+  const builder = href(`/c/${slug}/agents/${agent.id}/script`);
+
+  const staged = pending.data ? stagedScript(pending.data) : undefined;
+  const data = script.data;
+
+  return (
+    <div className="space-y-5">
+      <p className="max-w-prose text-sm text-ink-muted">
+        The script decides what the agent says and how it handles a call. A change never
+        reaches a live call until you apply it.
+      </p>
+
+      {script.error && <ProblemNotice error={script.error} onRetry={() => void script.refetch()} />}
+      {script.isLoading ? (
+        <Skeleton rows={3} />
+      ) : data ? (
+        <SettingRows>
+          <SettingRow
+            label="Callers hear"
+            value={
+              !agent.published
+                ? "Nothing yet — not on the calling system"
+                : staged
+                  ? staged.live_version === null
+                    ? "Nothing live yet"
+                    : `Version ${staged.live_version}`
+                  : data.version === null
+                    ? "No script yet"
+                    : `Version ${data.version}`
+            }
+          />
+          {staged && (
+            <SettingRow label="Waiting to be applied" value={`Version ${staged.staged_version}`} />
+          )}
+          <SettingRow
+            label="Opening line"
+            value={
+              data.is_freeform
+                ? "Written as free text"
+                : data.script.opening_line.trim() || "Not written yet"
+            }
+          />
+          {!data.is_freeform && (
+            <SettingRow
+              label="Steps and answers"
+              value={`${data.script.steps.length} ${data.script.steps.length === 1 ? "step" : "steps"} · ${data.script.faqs.length} ${data.script.faqs.length === 1 ? "answer" : "answers"}`}
+            />
+          )}
+        </SettingRows>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Link href={builder} className={PRIMARY_BUTTON}>
+          Open the script builder
+          <ArrowRight aria-hidden className="h-4 w-4" />
+        </Link>
+        {data && data.version === null && (
+          <Link href={`${builder}${builder.includes("?") ? "&" : "?"}assist=1`} className={SECONDARY_BUTTON}>
+            <Sparkles aria-hidden className="h-4 w-4" />
+            Draft it with AI
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}

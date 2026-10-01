@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useMemo } from "react";
 
-import { EmptyState, ProblemNotice, Skeleton } from "@/components/ui";
+import { Card, ProblemNotice, Skeleton } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { DataTable } from "@/components/console/dataTable";
-import { Panel } from "@/components/console/panel";
 import type { useCalls } from "@/lib/api/hooks";
 
 import { callColumns } from "./calls/callColumns";
@@ -26,7 +26,7 @@ export function LatestCalls({
 }) {
   const columns = useMemo(() => callColumns({ callHref, compact: true }), [callHref]);
   return (
-    <Panel
+    <Card density="compact"
       title="Latest calls"
       action={
         <Link
@@ -52,10 +52,7 @@ export function LatestCalls({
           />
         </div>
       ) : !recent.data.length ? (
-        <EmptyState
-          title="No calls yet"
-          hint="They appear here within a couple of minutes of the call ending."
-        />
+        <EmptyState message="No calls yet — they appear here a couple of minutes after a call ends." />
       ) : (
         <DataTable
           rows={recent.data}
@@ -64,6 +61,6 @@ export function LatestCalls({
           label="Latest calls"
         />
       )}
-    </Panel>
+    </Card>
   );
 }

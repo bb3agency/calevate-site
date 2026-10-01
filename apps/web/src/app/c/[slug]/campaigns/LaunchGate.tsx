@@ -1,23 +1,20 @@
 "use client";
 
-import Link from "next/link";
-import { CheckCircle2, CircleAlert, Rocket } from "lucide-react";
+import { CheckCircle2, Rocket } from "lucide-react";
 
+import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { Card, ProblemNotice, Skeleton } from "@/components/ui";
-import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { lookup } from "@/lib/lookup";
 import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
 import {
   type useCampaignProgress,
-  type useLaunchCheck,
   type useLaunchCampaign,
-  type useScheduleCampaign,
-  type useSetRecurrence,
+  type useLaunchCheck,
 } from "@/lib/api/campaigns";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 
-import { ArmingForms } from "./ArmingForms";
-import { LaunchConfirm } from "./LaunchConfirm";
 import { ConsentProvenanceAnswer } from "./ConsentProvenance";
+import { LaunchConfirm } from "./LaunchConfirm";
 import {
   AUTODIALER_NOTICE_BLOCKERS,
   BLOCKER_COPY,
@@ -27,24 +24,20 @@ import {
   PLATFORM_BLOCKER,
   PlatformOutageNotice,
 } from "./blockerCopy";
-import type { ScheduleFormState } from "./campaignForm";
 
 /**
- * BEFORE YOU LAUNCH — the compliance gate, its to-do list, and the two ways to arm it
- * for later.
+ * BEFORE YOU LAUNCH: the compliance gate as a checklist, and the launch it guards.
  *
- * Extracted from `page.tsx` (UX-DOCTRINE §6). One subject, and it is the screen's whole
- * reason for existing: **the launch button is disabled with its reasons on screen, not
- * after a click.** Nothing in here is disclosed and nothing is shortened — UX-DOCTRINE §3
- * forbids putting a compliance control or the sentence that qualifies it behind a
- * `<Disclosure>`, and hard rule 5 forbids a bypass. The client never sees one, because
- * there isn't one: `POST /launch` re-runs the identical gate server-side.
+ * PRIMARY JOB of a draft's screen. **The launch button is disabled with its reasons on
+ * screen, not after a click**: `/launch-check` returns named blockers so they can be listed
+ * as a to-do, each in `BLOCKER_COPY`'s words (the server's own `reason` for a rule this
+ * build does not know, never dropped) with where to go to fix it. There is no bypass to
+ * show, because `POST /launch` re-runs the identical gate (hard rule 5). Nothing here is
+ * disclosed: UX-DOCTRINE §3 forbids putting a compliance control or the sentence that
+ * qualifies it behind one.
  *
- * The SCHEDULE and REPEAT forms render on both verdicts, and that exception is the
- * SERVER's rather than this screen's: arming a schedule runs no compliance gate — the
- * gate runs when it FIRES, on every occurrence (D-79, `campaigns/scheduling.py`
- * decision 3). The blocker list stays above them and `FireTimeRefusal` states the
- * fire-time consequence beside them; the full argument is at their call site below.
+ * Only blockers are listed, because only blockers are what the server returns. A checklist
+ * padded with "done" rows we inferred would be the screen stating facts it was never told.
  */
 export function LaunchGate({
   campaignId,
@@ -52,9 +45,6 @@ export function LaunchGate({
   check,
   progress,
   launch,
-  schedule,
-  repeat,
-  scheduleForm,
   canWrite,
   writeReason,
   refusal,
@@ -64,9 +54,6 @@ export function LaunchGate({
   check: ReturnType<typeof useLaunchCheck>;
   progress: ReturnType<typeof useCampaignProgress>;
   launch: ReturnType<typeof useLaunchCampaign>;
-  schedule: ReturnType<typeof useScheduleCampaign>;
-  repeat: ReturnType<typeof useSetRecurrence>;
-  scheduleForm: ScheduleFormState;
   canWrite: boolean;
   /** The refusal sentence itself, or `null` while `/v1/me` has not answered. */
   writeReason: string | null;
@@ -76,291 +63,105 @@ export function LaunchGate({
   const session = useClientSession();
   const { href } = useClientRealm();
 
-  // Our outage is split off from the client's list BEFORE anything is rendered, so it
-  // can never be counted, bulleted or badged alongside things this business can
-  // actually do. See PLATFORM_BLOCKER.
-  const allBlockers = check.data?.blockers ?? [];
-  const platformOutage = allBlockers.find((b) => b.rule === PLATFORM_BLOCKER);
-  const clientBlockers = allBlockers.filter((b) => b.rule !== PLATFORM_BLOCKER);
-  // Which of the two provenance blockers is on this campaign, if either — the answer
-  // form is the same either way, but the question it asks is not ("record" vs
-  // "correct"), and neither should appear when the launch check is clean.
-  const provenanceBlocker = clientBlockers.find(
-    (b) =>
-      b.rule === "consent_provenance_missing" ||
-      b.rule === "consent_source_refused",
+  // A scheduled campaign has not launched either; the same gate runs when it fires.
+  if (status !== "draft" && status !== "scheduled") return null;
+
+  // Our own outage is split off before anything is counted: it is never one of the
+  // client's to-dos.
+  const all = check.data?.blockers ?? [];
+  const outage = all.find((b) => b.rule === PLATFORM_BLOCKER);
+  const blockers = all.filter((b) => b.rule !== PLATFORM_BLOCKER);
+  const provenanceRule = blockers.find(
+    (b) => b.rule === "consent_provenance_missing" || b.rule === "consent_source_refused",
   )?.rule;
-  const blockedOnKyc = clientBlockers.some((b) => KYC_BLOCKERS.includes(b.rule));
-  const blockedOnAutodialerNotice = clientBlockers.some((b) =>
-    AUTODIALER_NOTICE_BLOCKERS.includes(b.rule),
-  );
-  const blockedOnFirstCampaign = clientBlockers.some((b) =>
-    FIRST_CAMPAIGN_BLOCKERS.includes(b.rule),
-  );
-  /* THE TWO MONEY GATES, each with a screen behind it — the same shape as the KYC and
-     first-campaign links below: the bullet says WHY, the link says WHERE. They are
-     separate booleans and separate links because they end differently: an empty wallet is
-     fixed in two minutes with a card, and a monthly limit is a number the account owner
-     chose and may not want to move. */
-  const blockedOnCredits = clientBlockers.some((b) => b.rule === "no_credits");
-  const blockedOnSpendCap = clientBlockers.some((b) => b.rule === "spend_cap");
-  /* The series refusal has a destination too, and it is the one blocker whose second way
-     out the client can only take on another screen: an ordinary number carries service
-     and reminder campaigns once the business confirms it is the sender of them
-     (`campaigns/sender_attestation.py`). Without the link the bullet names a page nobody
-     can find. */
-  const blockedOnNumberSeries = clientBlockers.some(
-    (b) => b.rule === "number_series_mismatch",
-  );
+
+  /** Where a client goes to clear a rule, for the rules whose fix lives on another screen. */
+  const destination = (rule: string): ChecklistItem["link"] => {
+    const at = (path: string) => href(`/c/${session.orgSlug}${path}`);
+    if (rule === "no_credits") return { href: at("/billing?tab=credits"), label: "Add calling credit" };
+    if (rule === "spend_cap")
+      return { href: at("/billing?tab=usage"), label: "See your monthly spending limit" };
+    if (rule === "number_series_mismatch")
+      return { href: at("/phone-number"), label: "Go to Your phone number" };
+    if (KYC_BLOCKERS.includes(rule))
+      return { href: at("/verification"), label: "See what we need to verify your business" };
+    if (AUTODIALER_NOTICE_BLOCKERS.includes(rule))
+      return { href: at("/agreements"), label: "Record your autodialler notice" };
+    if (FIRST_CAMPAIGN_BLOCKERS.includes(rule))
+      return { href: at("/campaign-review"), label: FIRST_CAMPAIGN_REVIEW_LABEL };
+    return undefined;
+  };
+
+  const items: ChecklistItem[] = blockers.map((blocker) => {
+    const note = lookup(BLOCKER_COPY, blocker.rule);
+    return {
+      id: blocker.rule,
+      label: note?.text ?? blocker.reason,
+      // A rule we chase is a wait, not a task; the badge says whose desk it is on.
+      state: note?.owner === "calevate" ? "waiting" : "todo",
+      detail: note?.owner ? OWNER_BADGE[note.owner] : undefined,
+      link: destination(blocker.rule),
+    };
+  });
 
   return (
-    <>
-          {/* `scheduled` shares this card with `draft`: a campaign waiting for Monday
-              has not launched, its blockers are still the launch gate's, and the server
-              re-runs exactly this check when the schedule fires. Rendering it only for
-              `draft` would leave a scheduled campaign with no card at all — a status and
-              nothing else, which §52 says a screen may not stop at. */}
-          {(status === "draft" || status === "scheduled") && (
-            <Card
-              title={
-                status === "scheduled"
-                  ? "Before it starts"
-                  : "Before you launch"
-              }
-            >
-              {check.isLoading ? (
-                <Skeleton rows={3} />
-              ) : check.error ? (
-                /* Without this the card renders an empty blocker list under a
-                   dead button: "you cannot launch, and we will not say why". */
-                <ProblemNotice
-                  error={check.error}
-                  onRetry={() => check.refetch()}
-                />
-              ) : check.data?.ready ? (
-                <div className="space-y-3">
-                  <p className="flex items-center gap-2 text-sm font-medium text-brand-strong dark:text-brand-bright">
-                    <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0" />
-                    Everything checks out.
-                  </p>
-                  {/* NOT a bare button. Launching dials real Indian phone numbers under
-                      TRAI and a placed call cannot be recalled, so it gets the same
-                      three-beat gate as every other irreversible control in this product
-                      — review, restatement, type-the-count — rather than being the one
-                      with none. `LaunchConfirm` carries the full argument, including why
-                      it has no size threshold where `BulkActionBar` has one. */}
-                  <LaunchConfirm
-                    contacts={progress.data?.total}
-                    concurrency={progress.data?.concurrency}
-                    callingHours={progress.data?.calling_hours}
-                    numberE164={progress.data?.number_e164}
-                    canWrite={canWrite}
-                    writeReason={refusal}
-                    pending={launch.isPending}
-                    onLaunch={() => launch.mutate()}
-                  />
-
-                  {/* THE ONE PLACE THE TOP-OF-SCREEN RESTRICTION NOTE IS REPEATED, and
-                      the exception is earned: this is the only branch where the sentence
-                      immediately above a dead control says everything is fine. A `staff`
-                      user — no longer a view-as operator, who since D-587 holds
-                      `leads:dispatch` and may press it — reads "Everything checks
-                      out", presses nothing, and has to scroll past the tiles and the
-                      contact list to find out why — which is how a working compliance
-                      gate gets reported as a broken button. The other three controls
-                      keep the single note; they sit under a reason of their own. */}
-                  {!canWrite && writeReason && (
-                    <p className="text-xs text-ink-muted">{writeReason}</p>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Above the list, in its own shape, and never inside it. */}
-                  {platformOutage && (
-                    <PlatformOutageNotice reason={platformOutage.reason} />
-                  )}
-
-                  {/* A campaign blocked ONLY by our outage has an empty to-do list, and
-                      an empty list under "Before you launch" reads as "we will not say
-                      why". Say the true thing: your side is done. */}
-                  {clientBlockers.length === 0 ? (
-                    <p className="text-sm text-ink-muted">
-                      Everything on your side is ready. There is nothing else to
-                      do here.
-                    </p>
-                  ) : (
-                    <ul className="space-y-2.5">
-                      {clientBlockers.map((blocker) => {
-                        // The server's own `reason` is the fallback, never dropped: a
-                        // blocker this build has no copy for is still a blocker, and an
-                        // unnamed one would read as "you cannot launch, and we will not
-                        // say why" — the exact failure this card exists to prevent.
-                        const note = lookup(BLOCKER_COPY, blocker.rule);
-                        return (
-                          <li
-                            key={blocker.rule}
-                            className="flex gap-2.5 text-sm"
-                          >
-                            <CircleAlert
-                              aria-hidden
-                              className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
-                            />
-                            <span className="text-ink-muted">
-                              {note?.text ?? blocker.reason}
-                              {note?.owner && (
-                                <span className="ml-2 whitespace-nowrap rounded-full border border-line px-1.5 py-0.5 text-[11px] font-medium text-ink-faint">
-                                  {OWNER_BADGE[note.owner]}
-                                </span>
-                              )}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-
-                  {/* The reason above says WHY; this says where to go. Carries the
-                      view-as marker like every other in-realm link, so an operator
-                      following it from a "view as client" session does not drop back
-                      to a client token two pages in (lib/api/session.tsx). */}
-                  {/* THE WALLET, one click away. The bullet above says what stopped —
-                      since D-551 that is the dialling AND the answering; this is the
-                      two-minute fix, and without it a client whose phone has gone quiet is
-                      left hunting for "Calling credit" at the bottom of a settings menu. */}
-                  {blockedOnCredits && (
-                    <p className="text-sm">
-                      <Link
-                        href={href(`/c/${session.orgSlug}/billing?tab=credits`)}
-                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                      >
-                        Add calling credit
-                      </Link>{" "}
-                      <span className="text-ink-muted">
-                        — it takes a minute, and your campaigns and your agents&apos;
-                        answering both start again as soon as it lands.
-                      </span>
-                    </p>
-                  )}
-
-                  {/* The monthly limit is the client's OWN and lives on Usage (D-34 R-11),
-                      so this is a destination and not an account-manager queue. */}
-                  {blockedOnSpendCap && (
-                    <p className="text-sm">
-                      <Link
-                        href={href(`/c/${session.orgSlug}/billing?tab=usage`)}
-                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                      >
-                        See your monthly spending limit
-                      </Link>{" "}
-                      <span className="text-ink-muted">
-                        — it is your own setting, and you can raise it there.
-                      </span>
-                    </p>
-                  )}
-
-                  {blockedOnNumberSeries && (
-                    <p className="text-sm">
-                      <Link
-                        href={href(`/c/${session.orgSlug}/phone-number`)}
-                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                      >
-                        Go to Your phone number
-                      </Link>{" "}
-                      <span className="text-ink-muted">
-                        — each number there says whether it can carry campaign calls,
-                        and what to confirm if it is an ordinary one.
-                      </span>
-                    </p>
-                  )}
-
-                  {blockedOnKyc && (
-                    <p className="text-sm">
-                      <Link
-                        href={href(`/c/${session.orgSlug}/verification`)}
-                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                      >
-                        See what we need to verify your business
-                      </Link>{" "}
-                      <span className="text-ink-muted">
-                        — incoming calls are unaffected while this is
-                        outstanding.
-                      </span>
-                    </p>
-                  )}
-
-                  {blockedOnAutodialerNotice && (
-                    <p className="text-sm">
-                      <Link
-                        href={href(`/c/${session.orgSlug}/agreements`)}
-                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                      >
-                        Record your autodialler notice
-                      </Link>{" "}
-                      <span className="text-ink-muted">
-                        — it is on the Agreements screen, beside the numbers your
-                        agents call from.
-                      </span>
-                    </p>
-                  )}
-
-                  {/* Same shape as the KYC link above, and for the same reason: the
-                      bullet says WHY, this says where to go. The trailing sentence is
-                      the one thing the server's per-campaign reason structurally cannot
-                      say — the hold is on the ACCOUNT, so it is not a gate this client
-                      will meet again on their next campaign. */}
-                  {blockedOnFirstCampaign && (
-                    <p className="text-sm">
-                      <Link
-                        href={href(`/c/${session.orgSlug}/campaign-review`)}
-                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                      >
-                        {FIRST_CAMPAIGN_REVIEW_LABEL}
-                      </Link>{" "}
-                      <span className="text-ink-muted">
-                        — it is a one-off check on your account, not on each
-                        campaign, and incoming calls are unaffected.
-                      </span>
-                    </p>
-                  )}
-
-                  {/* The one blocker with a control attached, rendered under the
-                      sentence that asks for it. `consent_source_refused` gets the form
-                      too — a client who mis-answered must be able to correct the record
-                      without rebuilding the campaign, and a client who answered truly
-                      simply leaves it and the refusal stands. */}
-                  {provenanceBlocker && (
-                    <ConsentProvenanceAnswer
-                      campaignId={campaignId}
-                      correcting={
-                        provenanceBlocker === "consent_source_refused"
-                      }
-                    />
-                  )}
-
-                  {/* Disabled WITH the reasons above it — SURFACES §2b. A blocked
-                      feature that is merely missing teaches the client nothing. */}
-                  <button
-                    type="button"
-                    disabled
-                    className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-app px-4 py-2 text-sm font-semibold text-ink-faint"
-                  >
-                    <Rocket aria-hidden className="h-4 w-4" />
-                    Launch campaign
-                  </button>
-                </div>
-              )}
-
-              <ArmingForms
-                status={status}
-                check={check}
-                schedule={schedule}
-                repeat={repeat}
-                scheduleForm={scheduleForm}
-                canWrite={canWrite}
-                refusal={refusal}
-              />
-            </Card>
+    <Card title={status === "scheduled" ? "Before it starts" : "Before you launch"}>
+      {check.isLoading ? (
+        <Skeleton rows={3} />
+      ) : check.error ? (
+        // Without this the card would sit over a dead button saying nothing.
+        <ProblemNotice error={check.error} onRetry={() => check.refetch()} />
+      ) : check.data?.ready ? (
+        <div className="space-y-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-brand-strong">
+            <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0" />
+            Everything checks out.
+          </p>
+          {/* Launching dials real numbers and cannot be recalled: review, restatement,
+              type-the-count. `LaunchConfirm` carries the argument. */}
+          <LaunchConfirm
+            contacts={progress.data?.total}
+            concurrency={progress.data?.concurrency}
+            callingHours={progress.data?.calling_hours}
+            numberE164={progress.data?.number_e164}
+            canWrite={canWrite}
+            writeReason={refusal}
+            pending={launch.isPending}
+            onLaunch={() => launch.mutate()}
+          />
+          {/* Repeated here only: this is the one branch where the line above a dead
+              control says everything is fine. */}
+          {!canWrite && writeReason && <p className="text-xs text-ink-muted">{writeReason}</p>}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {outage && <PlatformOutageNotice reason={outage.reason} />}
+          {items.length === 0 ? (
+            // Blocked only by our outage: say the true thing, that their side is done.
+            <p className="text-sm text-ink-muted">
+              Everything on your side is ready. There is nothing else to do here.
+            </p>
+          ) : (
+            <Checklist label="Still to do" items={items} />
           )}
-    </>
+          {/* The one blocker with a control: answered here, against this draft, so a
+              client never has to rebuild a list to record a date. */}
+          {provenanceRule && (
+            <ConsentProvenanceAnswer
+              campaignId={campaignId}
+              correcting={provenanceRule === "consent_source_refused"}
+            />
+          )}
+          <button
+            type="button"
+            disabled
+            className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-app px-4 py-2 text-sm font-semibold text-ink-faint touch:min-h-11"
+          >
+            <Rocket aria-hidden className="h-4 w-4" />
+            Launch campaign
+          </button>
+        </div>
+      )}
+    </Card>
   );
 }

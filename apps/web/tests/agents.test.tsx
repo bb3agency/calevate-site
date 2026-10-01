@@ -162,15 +162,30 @@ async function pressable(
   return button;
 }
 
-/** The rows under one section heading, so a claim is read off the section it is about. */
-function section(title: string): HTMLElement {
-  // The heading's card — `Card` renders `<h2>` inside a `<section>`, which is the element
-  // that owns the rows. Scoped rather than global, because "Working right now" and "Not
-  // working" both contain agent names and a bare `getByText` cannot say which one it read.
-  const heading = screen.getByRole("heading", { name: title });
-  const card = heading.closest("section");
-  expect(card, `no <section> around "${title}"`).not.toBeNull();
-  return card as HTMLElement;
+/**
+ * The working roster — ONE list since D-657, working agents first, each row's state in its
+ * pill. Scoped rather than global, because the deleted list also holds agent names.
+ */
+function roster(): HTMLElement {
+  return screen.getByRole("list", { name: "Your agents" });
+}
+
+/** The row for one agent. */
+function row(name: string, scope: HTMLElement = roster()): HTMLElement {
+  const li = within(scope).getByText(name).closest("li");
+  expect(li, `no row for "${name}"`).not.toBeNull();
+  return li as HTMLElement;
+}
+
+/** Open a row's ⋯ menu and choose Delete. */
+async function chooseDelete(name: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: `More actions for ${name}` }));
+  });
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete…" }));
+  });
+  return screen.getByRole("dialog");
 }
 
 describe("which of my agents is on the dearer voice", () => {
@@ -208,7 +223,7 @@ describe("which of my agents is on the dearer voice", () => {
     );
 
     await screen.findByText("Front desk");
-    const working = section("Working right now");
+    const working = roster();
     expect(within(working).getByLabelText("Studio voice")).toBeTruthy();
     expect(within(working).getByLabelText("Clear voice")).toBeTruthy();
     // The QUALITY, never the vendor that synthesises it.
@@ -221,7 +236,7 @@ describe("which of my agents is on the dearer voice", () => {
     await renderClientPage(page, routes({ "/v1/agents/stats": [] }));
 
     await screen.findByText("Reception");
-    const working = section("Working right now");
+    const working = roster();
     expect(within(working).queryByLabelText(/voice$/)).toBeNull();
     expect(working.textContent).not.toContain("Studio");
     expect(working.textContent).not.toContain("Clear");
@@ -242,12 +257,16 @@ describe("which agents are working right now", () => {
     );
 
     await screen.findByText("Front desk");
-    const working = section("Working right now");
-    expect(within(working).getByText("Front desk")).toBeTruthy();
-    expect(within(working).queryByText("Weekend line")).toBeNull();
-    expect(
-      within(section("Not working")).getByText("Weekend line"),
-    ).toBeTruthy();
+    // CHANGED with D-657: one list, working agents first, instead of two headed groups.
+    // The bucket is the pill on the row, and the header counts the working ones.
+    const names = within(roster())
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+    expect(names[0]).toContain("Front desk");
+    expect(names[1]).toContain("Weekend line");
+    expect(within(row("Front desk")).getByText("Live")).toBeTruthy();
+    expect(within(row("Weekend line")).getByText("Paused")).toBeTruthy();
+    expect(screen.getByText("1 of 2 answering calls")).toBeTruthy();
   });
 
   it("does not call an agent live when it is not on the calling system, whatever its status says", async () => {
@@ -270,12 +289,9 @@ describe("which agents are working right now", () => {
     );
 
     await screen.findByText("Half built");
-    expect(
-      within(section("Working right now")).queryByText("Half built"),
-    ).toBeNull();
-    const idle = section("Not working");
-    expect(within(idle).getByText("Half built")).toBeTruthy();
-    expect(within(idle).getByText("Being set up")).toBeTruthy();
+    expect(within(row("Half built")).getByText("Being set up")).toBeTruthy();
+    // The one sentence the old empty "Working right now" group carried, now in the header.
+    expect(screen.getByText("Nothing is answering your calls")).toBeTruthy();
   });
 
   it("says how many lines each answering agent picks up in parallel", async () => {
@@ -300,7 +316,7 @@ describe("which agents are working right now", () => {
     );
 
     await screen.findByText("Front desk");
-    const working = section("Working right now");
+    const working = roster();
     expect(within(working).getByText(/Answers 3 numbers/)).toBeTruthy();
     expect(within(working).queryByText(/Answers 0 numbers/)).toBeNull();
   });
@@ -323,7 +339,8 @@ describe("what the screen says when it could not read the agents", () => {
     // evidence for it. Nor may the section headings render — an empty "Working right now"
     // says nothing is answering the phone.
     expect(container.textContent).not.toContain("No agents yet");
-    expect(container.textContent).not.toContain("Working right now");
+    expect(container.textContent).not.toContain("answering your calls");
+    expect(container.textContent).not.toContain("answering calls");
     expect(container.textContent).not.toContain("How changes take effect");
   });
 
@@ -336,7 +353,7 @@ describe("what the screen says when it could not read the agents", () => {
       routes({ "/v1/agents": [] }),
     );
 
-    await screen.findByText("No agents yet");
+    await screen.findByText(/No agents yet/);
     expect(
       screen.getByRole("link", { name: /Build your first agent/ }),
     ).toBeTruthy();
@@ -369,14 +386,17 @@ describe("deleting an agent from the roster", () => {
     await renderClientPage(page, routes(ROSTER));
     await screen.findByText("Front desk");
 
-    // NAMED, because six rows each offering a control called only "Delete" is a list a
-    // screen-reader user cannot navigate and a voice user cannot address.
+    // NAMED, because six rows each offering a control called only "More" is a list a
+    // screen-reader user cannot navigate. CHANGED with D-657: Delete moved from an inline
+    // button into each row's ⋯ menu, which is on every row, working or not.
     expect(
-      screen.getByRole("button", { name: "Delete Front desk" }),
+      screen.getByRole("button", { name: "More actions for Front desk" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Delete Weekend line" }),
+      screen.getByRole("button", { name: "More actions for Weekend line" }),
     ).toBeTruthy();
+    await chooseDelete("Weekend line");
+    expect(screen.getByRole("dialog").textContent).toContain("Delete Weekend line");
   });
 
   it("will not delete a working agent, and offers the one thing to do first", async () => {
@@ -394,16 +414,7 @@ describe("deleting an agent from the roster", () => {
     );
     await screen.findByText("Front desk");
 
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: "Delete Front desk" }),
-      );
-    });
-
-    /* Scoped to the SECTION, not the document: a `Skeleton` is also `role="status"` (it
-       carries the sr-only "Loading…"), and the lane guide below is still fetching while
-       this panel is open — a document-wide query is a race, not an assertion. */
-    const panel = within(section("Working right now")).getByRole("status");
+    const panel = await chooseDelete("Front desk");
     expect(panel.textContent).toContain("Front desk is working right now");
     expect(panel.textContent).toContain(
       "switched off before it can be deleted",
@@ -441,13 +452,7 @@ describe("deleting an agent from the roster", () => {
     );
     await screen.findByText("Weekend line");
 
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: "Delete Weekend line" }),
-      );
-    });
-
-    const panel = within(section("Not working")).getByRole("status");
+    const panel = await chooseDelete("Weekend line");
     // The sentence that makes the word "delete" honest, and it is the DETAIL screen's
     // sentence — `MOVE_COPY`, imported, not a second wording that could drift from it.
     expect(panel.textContent).toContain("stay in your call log");
@@ -482,7 +487,7 @@ describe("deleting an agent from the roster", () => {
 
     // Bringing it back is on its own screen, where the rest of that agent's life is.
     expect(
-      screen.queryByRole("button", { name: "Delete Old receptionist" }),
+      screen.queryByRole("button", { name: "More actions for Old receptionist" }),
     ).toBeNull();
   });
 });
@@ -513,7 +518,9 @@ describe("the archive is a second request, and a failed one is not an empty one"
     );
 
     await screen.findByText("Old receptionist");
-    const archive = section("Deleted");
+    const archive = screen
+      .getByRole("heading", { name: "Deleted (1)" })
+      .closest("details") as HTMLElement;
     expect(within(archive).getByText("Old receptionist")).toBeTruthy();
     /* Read off the SECTION's own text, not by a regex over the document: "Retired " sits
        on a `<span>` inside an `<a>` that also matches it, and a bare `getByText` there
@@ -522,9 +529,7 @@ describe("the archive is a second request, and a failed one is not an empty one"
        rather than merely the word appearing. */
     expect(archive.textContent).toContain("Deleted 02 Jul");
     // And it is not in the working roster, which is the whole reason it is a second read.
-    expect(
-      within(section("Working right now")).queryByText("Old receptionist"),
-    ).toBeNull();
+    expect(within(roster()).queryByText("Old receptionist")).toBeNull();
   });
 
   it("renders a refusal rather than an absent section when the archive read failed", async () => {
@@ -575,7 +580,7 @@ describe("the roster says which agents carry their own AI model", () => {
     );
 
     await screen.findByText("Front desk");
-    const live = section("Working right now");
+    const live = roster();
     const own = within(live)
       .getByText("Front desk")
       .closest("li") as HTMLElement;
@@ -610,7 +615,7 @@ describe("the roster says which agents carry their own AI model", () => {
     );
 
     await screen.findByText("Front desk");
-    const row = within(section("Working right now"))
+    const row = within(roster())
       .getByText("Front desk")
       .closest("li");
     expect(row!.textContent).not.toContain("Its own AI model");
@@ -629,7 +634,7 @@ describe("the activity figures come from the server or are absent", () => {
     );
 
     await screen.findByText("Reception");
-    const working = section("Working right now");
+    const working = roster();
     expect(within(working).getByText(/4,102 calls handled/)).toBeTruthy();
     expect(within(working).getByText(/last used /)).toBeTruthy();
   });

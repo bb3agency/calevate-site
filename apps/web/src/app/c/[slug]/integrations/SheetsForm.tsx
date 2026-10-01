@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import {
-  Card,
   FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
@@ -50,12 +49,12 @@ export function SheetsUnavailable({
   footnote: string;
 }) {
   return (
-    <Card title="Send events to a Google Sheet">
+    <div className="space-y-3">
       <NoticeBox tone="neutral" title={headline}>
         <p className="mt-1">{remediation}</p>
         <p className="mt-2 text-xs opacity-80">{footnote}</p>
       </NoticeBox>
-    </Card>
+    </div>
   );
 }
 
@@ -126,7 +125,7 @@ export function SheetsForm({
         headline={unavailable.message}
         remediation={
           unavailable.remediation ??
-          "Set up a delivery to your own system above instead, or ask us to enable Google Sheets for your account."
+          "Set up a delivery to your own system instead, or ask us to enable Google Sheets for your account."
         }
         footnote="Nothing was created, so there is nothing to undo. Reload this page once we have told you Sheets is switched on for your account."
       />
@@ -134,10 +133,10 @@ export function SheetsForm({
   }
 
   return (
-    <Card title="Send events to a Google Sheet">
-      <p className="-mt-2 text-xs text-ink-faint">
+    <div className="space-y-3">
+      <p className="text-xs text-ink-faint">
         We append a row per event. Share the sheet with the Google account we give you —
-        until we connect it on our side, deliveries appear as failures below.
+        until we connect it on our side, deliveries appear as failures in the log.
       </p>
       {create.error && (
         <div className="mt-3">
@@ -222,6 +221,6 @@ export function SheetsForm({
           {create.isPending ? "Adding…" : "Add sheet"}
         </button>
       </form>
-    </Card>
+    </div>
   );
 }

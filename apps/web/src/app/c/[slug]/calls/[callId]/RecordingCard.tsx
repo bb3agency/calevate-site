@@ -2,8 +2,7 @@
 
 import { AudioLines } from "lucide-react";
 
-import { ProblemNotice } from "@/components/ui";
-import { Panel } from "@/components/console/panel";
+import { Card, ProblemNotice } from "@/components/ui";
 import {
   CallAudioPlayer,
   type CallAudioPlayerHandle,
@@ -35,7 +34,7 @@ export function RecordingCard({
   durationS: number | null;
 }) {
   return (
-    <Panel title="Recording">
+    <Card density="compact" title="Recording">
       {recording.error && <ProblemNotice error={recording.error} />}
       {recording.data ? (
         <div className="space-y-2">
@@ -76,6 +75,6 @@ export function RecordingCard({
           <p className="text-xs text-ink-faint">Opening the recording is recorded in your audit log.</p>
         </div>
       )}
-    </Panel>
+    </Card>
   );
 }

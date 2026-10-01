@@ -48,7 +48,8 @@ Personas:
 - **P1 Calevate Admin (Sri/team):** onboards clients, builds agents, monitors quality,
   manages billing. Uses admin console.
 - **P2 Client Owner (SMB owner):** buys outcomes ("no missed calls", "qualified leads").
-  Views dashboard, leads, recordings; approves KB content; pays invoices.
+  Views dashboard, leads, recordings; adds KB content, which goes to the agent with no
+  approval step (D-658); pays invoices.
 - **P3 Client Staff:** works the Leads table daily; must NOT see billing or org settings.
 - **P4 Caller (end customer):** speaks Telugu/Hindi/mixed; expects a natural, fast,
   honest conversation; has DPDP/TRAI rights (disclosure, consent, opt-out).
@@ -132,7 +133,7 @@ used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-h
     marked):** branching section-graph script builder with a Flexible↔Strict adherence slider
     and an **AI copilot ("Swara") that edits the whole flow by voice/text**; tiered voice
     catalog (personality×language×gender) that doubles as the price lever; ambient-sound bed;
-    per-agent **KB** (docs/webpages, on-demand retrieval) with a teach-and-approve flow;
+    per-agent **KB** (docs/webpages, on-demand retrieval) with a teach flow;
     in-call actions (**WhatsApp via Interakt/AiSensy/Meta Cloud**, Custom API, Google Calendar);
     schema-driven extraction → dynamic CRM columns; leads rollup (table/grid/kanban) + call log
     + conversations viewer with a full outcome enum; Performance suite (connect rate, conversion

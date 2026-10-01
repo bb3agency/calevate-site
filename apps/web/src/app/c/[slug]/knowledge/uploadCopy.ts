@@ -174,13 +174,12 @@ export function uploadState(upload: KbUpload): UploadState {
     };
   }
 
-  // Read, indexed, and not live: somebody has to say yes. Which somebody depends on who
-  // submitted it, and the row cannot know that — so the sentence names the wait, and the
-  // panel above the list explains whose it is.
+  // Approved and not live yet: the publish has not run. An account member's own upload is
+  // approved without anybody (D-658), so this names no person — only the step left.
   if (upload.review_state === "approved") {
     return {
       label: "Approved, not in use yet",
-      meaning: "This is approved. Your agent starts using it at the next publish.",
+      meaning: "Nothing is needed from you. Your agent starts using it once we have sent it over.",
       tone: WORK_TONE,
       working: false,
       awaitingConfirmation: false,

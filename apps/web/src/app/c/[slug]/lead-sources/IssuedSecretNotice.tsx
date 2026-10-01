@@ -1,71 +1,89 @@
 "use client";
 
-import { NOTICE_TONES, formatIST } from "@/components/ui";
+import type { ReactNode } from "react";
+
+import { CopyButton } from "@/components/interior/copy-button";
+import { formatIST } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
 
-import { CODE, QUIET_BUTTON } from "./styles";
+import { CODE } from "./styles";
 
 export interface IssuedSecret {
-  /** Null when the client supplied it themselves (Meta) — there is nothing to show. */
+  /** Null for Meta: the client brought their own App Secret, so nothing was minted. */
   secret: string | null;
   header: string;
-  /** Only on creation: where to send leads. Null after a rotation, which changes
-   *  nothing about the address. */
+  /** Set on create; a rotation does not move the address. */
   path: string | null;
-  /** Only after a rotation with a grace window: when the OLD secret stops working. */
+  /** When the previous secret stops working, on a rotation with a grace window. */
   expiresAt: string | null;
 }
 
 /**
- * The one moment the plaintext is on screen.
+ * What a create or a rotation just issued, each value with its own copy button.
  *
- * It says "copy it now" because that is literally true — no route returns it again —
- * and, after a rotation, it says when the old one stops working. A rotation banner
- * without that deadline is the dangerous version: a client who reads "rotated" as "the
- * old key is dead" will scramble, and one who reads it as "nothing changed" will never
- * update their form. The date is the only sentence that produces the right behaviour.
+ * The secret exists in plaintext only in this response: nothing re-reads it, so the
+ * sentence that says so is the first thing on the panel and is not softened.
  */
-export function IssuedSecretNotice({
-  issued,
-  onDismiss,
-}: {
-  issued: IssuedSecret;
-  onDismiss: () => void;
-}) {
+export function IssuedSecretNotice({ issued }: { issued: IssuedSecret }) {
   return (
-    <div className={`mt-3 rounded-lg border p-3 text-sm ${NOTICE_TONES.warn}`}>
+    <div className="space-y-4 text-sm">
       {issued.secret ? (
         <>
-          <p className="font-medium">Copy this secret now — we will not show it again.</p>
-          <code className={`${CODE} mt-2 block`}>{issued.secret}</code>
-          <p className="mt-2 text-xs">
-            Send it in the <code className="font-mono">{issued.header}</code> header on
-            every submission.
-          </p>
+          <p className="font-medium text-ink">Copy this secret now — we will not show it again.</p>
+          <CopyRow label="Secret" value={issued.secret} copyLabel="Copy secret" />
+          <CopyRow
+            label="Header"
+            value={issued.header}
+            copyLabel="Copy header name"
+            hint="Send the secret in this header on every submission."
+          />
         </>
       ) : (
-        <p className="font-medium">
-          Saved. We store your app secret and verify every notification against it —
-          there is nothing new for you to copy.
+        <p className="font-medium text-ink">
+          Saved. We store your app secret and verify every notification against it — there is
+          nothing new for you to copy.
         </p>
       )}
       {issued.path && (
-        <p className="mt-2 text-xs">
-          Send leads to <code className="font-mono">{`${API_BASE}${issued.path}`}</code>
-        </p>
+        <CopyRow
+          label="Address"
+          value={`${API_BASE}${issued.path}`}
+          copyLabel="Copy address"
+          hint="Send leads here."
+        />
       )}
       {issued.expiresAt && (
-        <p className="mt-2 text-xs">
-          Your previous secret keeps working until {formatIST(issued.expiresAt)} — update
-          your form before then and no lead is lost.
+        <p className="text-ink-muted">
+          Your previous secret keeps working until {formatIST(issued.expiresAt)} — update your
+          form before then and no lead is lost.
         </p>
       )}
       {issued.expiresAt === null && issued.path === null && (
-        <p className="mt-2 text-xs">The previous secret stopped working immediately.</p>
+        <p className="text-ink-muted">The previous secret stopped working immediately.</p>
       )}
-      <button type="button" onClick={onDismiss} className={`${QUIET_BUTTON} mt-3`}>
-        I&apos;ve saved it
-      </button>
+    </div>
+  );
+}
+
+export function CopyRow({
+  label,
+  value,
+  copyLabel,
+  hint,
+}: {
+  label: string;
+  value: string;
+  copyLabel: string;
+  hint?: ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-ink-muted">{label}</p>
+      <div className="mt-1 flex items-start gap-1">
+        <code className={`${CODE} min-w-0 flex-1`}>{value}</code>
+        <CopyButton value={value} label={copyLabel} />
+      </div>
+      {hint && <p className="mt-1 text-xs text-ink-faint">{hint}</p>}
     </div>
   );
 }

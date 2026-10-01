@@ -9,7 +9,8 @@
  * what makes it the piece a reviewer can hold in their head.
  */
 
-import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
 
 import {
   FIELD,
@@ -71,40 +72,79 @@ export function FieldEditorRow({
   validation: FormValidation;
 }) {
   const named = row.label.trim() || "this variable";
-  return (
-    <li className="rounded-card border border-line bg-app p-4">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          Variable {index + 1}
+  // A saved variable is a one-line row until somebody edits it; a new one opens ready to
+  // fill. Five fully-open editors were most of this screen's length.
+  const [open, setOpen] = useState(row.isNew);
+  const typeLabel = hasKey(FIELD_TYPE_COPY, row.type) ? FIELD_TYPE_COPY[row.type] : row.type;
+  const controls = (
+    <div className="flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        onClick={onMoveUp}
+        disabled={disabled || index === 0}
+        aria-label={`Move ${named} up`}
+        className={SECONDARY_BUTTON_SM}
+      >
+        <ChevronUp aria-hidden className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onMoveDown}
+        disabled={disabled || index === total - 1}
+        aria-label={`Move ${named} down`}
+        className={SECONDARY_BUTTON_SM}
+      >
+        <ChevronDown aria-hidden className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={disabled}
+        aria-label={`Delete ${named}`}
+        className={SECONDARY_BUTTON_SM}
+      >
+        <Trash2 aria-hidden className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
+  if (!open) {
+    return (
+      <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-ink">{named}</span>
+          <span className="block text-xs text-ink-muted">
+            {typeLabel}
+            {row.required ? " · Required" : ""}
+            {" · "}
+            <span className="font-mono">{row.key}</span>
+          </span>
         </span>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={`Edit ${named}`}
+          className={SECONDARY_BUTTON_SM}
+        >
+          <Pencil aria-hidden className="h-3.5 w-3.5" />
+          Edit
+        </button>
+        {controls}
+      </li>
+    );
+  }
+
+  return (
+    <li className="settings-enter py-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-ink-muted">Variable {index + 1}</span>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onMoveUp}
-            disabled={disabled || index === 0}
-            aria-label={`Move ${named} up`}
-            className={SECONDARY_BUTTON_SM}
-          >
-            <ChevronUp aria-hidden className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onMoveDown}
-            disabled={disabled || index === total - 1}
-            aria-label={`Move ${named} down`}
-            className={SECONDARY_BUTTON_SM}
-          >
-            <ChevronDown aria-hidden className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={disabled}
-            aria-label={`Delete ${named}`}
-            className={SECONDARY_BUTTON_SM}
-          >
-            <Trash2 aria-hidden className="h-4 w-4" />
-          </button>
+          {!row.isNew && (
+            <button type="button" onClick={() => setOpen(false)} className={SECONDARY_BUTTON_SM}>
+              Done
+            </button>
+          )}
+          {controls}
         </div>
       </div>
 

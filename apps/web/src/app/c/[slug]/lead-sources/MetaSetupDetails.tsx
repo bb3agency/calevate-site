@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Copy, Eye, EyeOff, Inbox, ShieldAlert } from "lucide-react";
+import { Eye, EyeOff, Inbox, ShieldAlert } from "lucide-react";
 
+import { CopyButton } from "@/components/interior/copy-button";
 import { NOTICE_TONES } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
 import type { MetaSetup } from "@/lib/api/leadSources";
@@ -91,7 +92,7 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
               {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               {revealed ? "Hide" : "Reveal"}
             </button>
-            <CopyButton value={setup.verify_token} label="Copy token" />
+            <CopyButton value={setup.verify_token} label="Copy verify token" />
           </div>
         </SetupRow>
 
@@ -117,7 +118,7 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
       <p className="flex items-start gap-2 text-xs text-ink-muted">
         <Inbox className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
         Showing these details does not connect anything, and we cannot see your Meta
-        setup from here. The first row in “Recent deliveries” below is what tells you it
+        setup from here. The first row in “Recent deliveries” is what tells you it
         worked.
       </p>
     </div>
@@ -143,45 +144,9 @@ function SetupRow({
 
 function CopyableValue({ value }: { value: string }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1">
       <code className={CODE}>{value}</code>
-      <CopyButton value={value} label="Copy" />
+      <CopyButton value={value} label="Copy callback URL" />
     </div>
-  );
-}
-
-/**
- * Copy to clipboard, or nothing at all.
- *
- * `navigator.clipboard` is undefined outside a secure context — it is not merely
- * blocked, the property is absent on plain http, which is exactly how local and
- * on-prem deployments run
- * (developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText). A button that throws
- * `Cannot read properties of undefined` is worse than no button, and the
- * `document.execCommand("copy")` fallback is deprecated and needs a selected DOM node,
- * so this renders nothing there: the value is on screen and selectable either way.
- */
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const available = typeof navigator !== "undefined" && Boolean(navigator.clipboard);
-  if (!available) return null;
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        void navigator.clipboard.writeText(value).then(
-          () => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          },
-          // A denied clipboard permission must not look like a successful copy.
-          () => setCopied(false),
-        );
-      }}
-      className={QUIET_BUTTON}
-    >
-      <Copy className="h-3.5 w-3.5" />
-      {copied ? "Copied" : label}
-    </button>
   );
 }

@@ -57,7 +57,10 @@ export function CopilotPanel({
   onClose,
   onNavigate,
   labelledBy,
+  placement = "floating",
 }: {
+  /** Where the launcher is (`CopilotDock`): the panel opens beside it. */
+  placement?: "floating" | "header";
   session: Session;
   holder: SurfaceHolder;
   realm: "client" | "admin";
@@ -206,7 +209,7 @@ export function CopilotPanel({
       ref={panel}
       role="dialog"
       aria-labelledby={labelledBy}
-      className="fixed bottom-20 right-4 z-[70] flex max-h-[min(34rem,calc(100dvh-7rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay"
+      className={`${panelPlacement(placement)} flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay`}
     >
       {/* WHICH CONSOLE'S ASSISTANT THIS IS — in the chrome, not only in the words.
           Both realms rendered an identical panel, so an operator with both tabs open had
@@ -656,4 +659,11 @@ export function CopilotPanel({
       )}
     </div>
   );
+}
+
+/** Beside the launcher: above a floating one, under a header one. */
+export function panelPlacement(placement: "floating" | "header"): string {
+  return placement === "header"
+    ? "fixed right-4 top-[80px] z-[70] max-h-[min(34rem,calc(100dvh-6.5rem))]"
+    : "fixed bottom-20 right-4 z-[70] max-h-[min(34rem,calc(100dvh-7rem))]";
 }

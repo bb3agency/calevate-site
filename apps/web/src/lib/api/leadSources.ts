@@ -138,6 +138,8 @@ export function useMetaRedrive(session: Session) {
 export interface LeadSource {
   id: string;
   source: string;
+  /** Where the sender posts, built by the server (`ingest/routes.py::_ingest_path`). */
+  ingest_path: string;
   agent_id: string | null;
   active: boolean;
   mapping: Record<string, string>;

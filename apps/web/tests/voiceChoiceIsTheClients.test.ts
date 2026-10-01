@@ -21,9 +21,9 @@ import { copyUnder } from "./copyScan";
  * for the `live` lane of `agents/publishing.LANES`**: `PATCH /v1/agents/{agent_id}/voice`
  * is a CLIENT-realm door with no tenant in it, `agents:write` joined
  * `ROLE_PERMISSIONS["owner"]` and `["staff"]`, and the write re-publishes a live agent in
- * the same transaction. The picker that drives it is mounted at
- * `src/app/c/[slug]/agents/panels/delivery.tsx:165`, inside the card "How it sounds, and
- * how long a call may run" (`AgentWorkspace.tsx:221`) on the client's own agent screen.
+ * the same transaction. The picker that drives it is `VoiceChoice` in
+ * `src/app/c/[slug]/agents/panels/delivery.tsx`, the Voice section of the client's own
+ * agent screen (`?section=voice`, D-657).
  *
  * D-586 shipped with a closing note — "the client console has no picker or cap field on
  * these two doors yet" — and that note is the state all three sentences described. It has
@@ -175,8 +175,8 @@ describe("changing an agent's voice is the client's own control (D-586)", () => 
       "D-586 (11 Sep 2026) supersedes D-21 for the `live` lane: an agent's voice is the " +
         "ACCOUNT's to change. `PATCH /v1/agents/{agent_id}/voice` is a client-realm door, " +
         "`agents:write` is on `owner` and `staff`, and the picker is mounted on the " +
-        "client's own agent screen (`app/c/[slug]/agents/panels/delivery.tsx:165`, the " +
-        'card "How it sounds, and how long a call may run"). A sentence telling a client ' +
+        "client's own agent screen (`VoiceChoice` in `app/c/[slug]/agents/panels/delivery.tsx`, " +
+        "the Voice section). A sentence telling a client " +
         "to ask a person for it sends a paying owner to a support queue for a control two " +
         "clicks away — and on `/pricing` it sells a self-serve product as a managed one. " +
         "Say where the control is, not who to ask for it.",

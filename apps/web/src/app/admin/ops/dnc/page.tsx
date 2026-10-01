@@ -14,7 +14,6 @@ import {
 
 import { useAdminAccess } from "@/app/admin/access";
 import {
-  CopyButton,
   DANGER_BUTTON,
   dncSourceCopy,
   MonoValue,
@@ -36,6 +35,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { CopyButton } from "@/components/interior/copy-button";
 import { useFormValidation } from "@/components/formValidation";
 import { DNC_LIST_LIMIT, MAX_NUMBERS_PER_ADD, parsePastedNumbers } from "@/lib/api/dnc";
 import {
@@ -541,7 +541,7 @@ function EntryRow({
             `CopyButton`); the number is already on screen, so this adds no disclosure. */}
         <span className="inline-flex items-center gap-1.5">
           <MonoValue className="tabular-nums text-ink">{entry.phone_e164}</MonoValue>
-          <CopyButton value={entry.phone_e164} label={entry.phone_e164} />
+          <CopyButton value={entry.phone_e164} label={`Copy ${entry.phone_e164}`} />
         </span>
         {/* Fails VISIBLE: a source this build cannot name still gets its row and, through
             `dncSourceCopy`, its raw value read back — a suppression an operator cannot

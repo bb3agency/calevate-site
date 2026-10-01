@@ -12,13 +12,7 @@
 import { CircleAlert, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
-import {
-  NOTICE_TONES,
-  ProblemNotice,
-  RestrictionNote,
-  SectionHeading,
-  ToggleSwitch,
-} from "@/components/ui";
+import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
 import { useSetDisclosure, type Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -78,23 +72,19 @@ import { Term } from "@/lib/glossary";
 export function OpeningNotices({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const setDisclosure = useSetDisclosure(session, agent.id);
-  // `PATCH /v1/agents/{id}/disclosure` is `org:manage`. Staff can read this panel and
-  // must not be handed switches the route answers with a 403.
   const write = useWriteAccess(session, "org:manage", "switch these notices");
   const locked = setDisclosure.isPending || !write.allowed;
 
   return (
-    <section>
-      <SectionHeading icon={<ShieldCheck className="h-3.5 w-3.5" />}>
+    <section aria-labelledby="opening-notices-heading">
+      <h3 id="opening-notices-heading" className="text-[15px] font-semibold text-ink">
         What it says at the start of every call
-      </SectionHeading>
+      </h3>
 
       {/* FIRST, and deliberately not last: the guarantee has to be read before the
           switches, or a client reads two "off" positions and infers the opposite. */}
-      <p
-        className={`mt-2 flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES.neutral}`}
-      >
-        <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+      <p className="mt-2 flex items-start gap-2 text-sm text-ink">
+        <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
         <span>{agent.truthful_answer_rule}</span>
       </p>
 
@@ -105,7 +95,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 divide-y divide-line rounded-card border border-line bg-surface">
         <NoticeToggle
           label="Say it is an AI assistant"
           hint="Spoken first, before anything else, in your language."
@@ -125,10 +115,6 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
             <>
               Calls are still recorded — this only stops the agent announcing it. Telling
               callers their call is recorded is still your responsibility under the{" "}
-              {/* The whole term is inside the box: with the word "Act" left outside it,
-                  the accessible name read "DPDP: India's Digital Personal Data Protection
-                  Act" and the sentence then said "Act" again. The visible words are
-                  unchanged. */}
               <Term id="dpdp" term="DPDP Act" />; with this off, it has to be covered by your own privacy notice or
               consent. If a caller asks, the agent still says yes.
             </>
@@ -137,23 +123,20 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         />
 
         {/* NO SWITCH, deliberately (D-507): this sentence is spoken exactly when the agent
-            remembers callers, so the only control over it is the memory setting itself.
-            Shown as a bordered card like the two above so it reads as part of the same
-            opening, and without the toggle affordance so it cannot read as one more thing
-            to turn off. */}
+            remembers callers, so the only control over it is the memory setting itself
+            (Call handling). Drawn as a row of the same list, without a toggle affordance,
+            so it reads as part of the opening and not as one more thing to turn off. */}
         {agent.caller_memory_enabled && (
-          <div className="rounded-card border border-line bg-app p-4">
+          <div className="p-4">
             <p className="text-sm font-medium text-ink">Say that it remembers callers</p>
             <p className="mt-0.5 text-xs text-ink-muted">
               Spoken last, after the sentences above.
             </p>
-            <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
+            <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
               “{agent.caller_memory_notice_line}”
             </blockquote>
-            <p
-              className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs ${NOTICE_TONES.neutral}`}
-            >
-              <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+            <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
+              <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
                 This one has no switch. It is said because this agent remembers what callers
                 asked about between calls — turn that off and the sentence goes with it. An
@@ -167,15 +150,13 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
 
       {/* The server's composition, quoted — this is the actual first utterance. */}
       <div className="mt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          What callers hear first
-        </p>
+        <p className="text-xs font-medium text-ink-muted">What callers hear first</p>
         {agent.opening_line.trim() ? (
-          <blockquote className="mt-2 border-l-2 border-brand pl-3 text-sm italic text-ink">
+          <blockquote className="mt-1 border-l-2 border-brand pl-3 text-sm italic text-ink">
             “{agent.opening_line}”
           </blockquote>
         ) : (
-          <p className="mt-2 text-sm text-ink-muted">
+          <p className="mt-1 text-sm text-ink-muted">
             Nothing. The agent opens straight into its script. It still answers honestly if
             a caller asks whether it is an AI or whether the call is recorded.
           </p>
@@ -228,16 +209,14 @@ function NoticeToggle({
       checked={checked}
       disabled={pending}
       onChange={onChange}
-      className="rounded-card border border-line bg-app p-4"
+      className="p-4"
     >
-      <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
+      <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
         “{quote}”
       </blockquote>
       {!checked && (
-        <p
-          className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs ${NOTICE_TONES.warn}`}
-        >
-          <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+        <p className="mt-2 flex items-start gap-2 rounded-lg border border-warn-line bg-warn-soft p-3 text-xs text-ink">
+          <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
           <span>{offNote}</span>
         </p>
       )}

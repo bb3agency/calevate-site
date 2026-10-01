@@ -50,19 +50,17 @@
  * describe different states.
  */
 
-import { History, PhoneForwarded, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
   FIELD,
   FIELD_LABEL,
   NOTICE_TONES,
-  NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
-  SectionHeading,
   Skeleton,
   ToggleSwitch,
   formatIST,
@@ -74,6 +72,7 @@ import {
   type HandoffIn,
   type HandoffOut,
 } from "@/lib/api/agents";
+import { InfoTip } from "@/components/console/infoTip";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -158,32 +157,36 @@ export function Handover({ agent }: { agent: Agent }) {
 
   return (
     <section>
-      <SectionHeading icon={<PhoneForwarded className="h-3.5 w-3.5" />}>
-        Putting a caller through to a person
-      </SectionHeading>
-
-      <p className="mt-2 text-sm text-ink-muted">
-        When someone asks to speak to a person, your agent rings the first person on this
-        list who is available and connects the caller to them. Everyone here is tried in
-        order — the second person is rung when the first is switched off or outside their
-        hours, not when they miss the call.
+      <div className="flex items-center gap-1">
+        <h3 className="text-[15px] font-semibold text-ink">Putting a caller through to a person</h3>
+        <InfoTip label="Putting a caller through">
+          <p>
+            When someone asks to speak to a person, your agent rings the first person on this
+            list who is available and connects the caller to them. Everyone here is tried in
+            order — the second person is rung when the first is switched off or outside their
+            hours, not when they miss the call.
+          </p>
+        </InfoTip>
+      </div>
+      <p className="mt-1 text-sm text-ink-muted">
+        Rings the first available person on this list when a caller asks for one.
       </p>
 
-      {/* THE TWO LIMITS, STATED ONCE AND PLAINLY. Neither is a footnote: a client who
+      {/* THE TWO LIMITS, STATED PLAINLY AND VISIBLY. Neither is a footnote: a client who
           believed the person answering hears a summary first would tell their own callers
-          so. See the module docstring. */}
-      <NoticeBox tone="neutral" className="mt-3">
-        <p>
+          so. */}
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-ink-muted">
+        <li>
           The person taking the call is not told anything before they pick up — the phone
           system we use puts the caller straight through. What was said is on this page and
           on the call the moment it ends.
-        </p>
-        <p className="mt-2">
+        </li>
+        <li>
           If nobody answers, we do not try the next person on the same call: the agent
           offers your caller a call-back instead, and books it for the next time we are
           allowed to ring them.
-        </p>
-      </NoticeBox>
+        </li>
+      </ul>
 
       {write.reason && (
         <div className="mt-4">
@@ -211,10 +214,10 @@ export function Handover({ agent }: { agent: Agent }) {
             — and the sentence that fixes each one comes from the same place the publish
             reads, so the screen cannot say "working" while the publish disagrees. */}
         {data.unavailable_reason ? (
-          <NoticeBox tone="warn" className="mt-4">
+          <div className="mt-4 rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
             <p className="font-medium">Nobody is available to take a call right now.</p>
             {data.remediation && <p className="mt-1">{data.remediation}</p>}
-          </NoticeBox>
+          </div>
         ) : (
           <p className={`mt-4 rounded-md px-3 py-2 text-sm ${NOTICE_TONES.ok}`}>
             A caller asking for a person right now would reach{" "}
@@ -356,7 +359,7 @@ export function Handover({ agent }: { agent: Agent }) {
 
       {data.recent.length > 0 && (
         <div className="mt-5">
-          <SectionHeading icon={<History className="h-3.5 w-3.5" />}>Recent handovers</SectionHeading>
+          <h4 className="text-sm font-semibold text-ink">Recent handovers</h4>
           <ul className="mt-2 space-y-2 text-sm">
             {data.recent.map((attempt) => (
               <li key={attempt.id} className="rounded-md border border-line px-3 py-2">

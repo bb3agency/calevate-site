@@ -1,5 +1,5 @@
 import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import type { Agent } from "@/lib/api/agents";
@@ -164,6 +164,30 @@ function consentDateInput(container: HTMLElement): HTMLInputElement {
   return input!;
 }
 
+/**
+ * The create flow sits behind "New campaign" since the round-2 redesign (a list first,
+ * then a step flow). These open it, and answer the first step so a test can reach the
+ * agent, number and template questions on the second.
+ */
+async function openNewCampaign(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "New campaign" }));
+  await screen.findByRole("heading", { name: "Who should we call?" });
+}
+
+async function reachWhatStep(container: HTMLElement): Promise<void> {
+  await openNewCampaign();
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Diwali reminder" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: /Contact list/ }), {
+    target: { value: "9876543210,Priya" },
+  });
+  fireEvent.click(consentRadios(container)[0]);
+  fireEvent.change(consentDateInput(container), { target: { value: "2026-08-01" } });
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  await screen.findByRole("heading", { name: "What will they hear?" });
+}
+
 describe("the create form's consent declaration", () => {
   it("does not carry one campaign's declaration into the next one", async () => {
     /**
@@ -184,41 +208,38 @@ describe("the create form's consent declaration", () => {
       }),
     );
 
-    await screen.findByText("New campaign");
+    await openNewCampaign();
     const before = consentRadios(container);
-    // A premise check: if the form ever stops offering the five answers, the assertions
-    // below would pass by rendering nothing at all.
     expect(before).toHaveLength(5);
 
     fireEvent.click(before[0]);
     fireEvent.change(consentDateInput(container), {
       target: { value: "2026-08-01" },
     });
-    // The answer really is on the form — otherwise the reset below proves nothing.
     expect(consentRadios(container).some((r) => r.checked)).toBe(true);
     expect(consentDateInput(container).value).toBe("2026-08-01");
 
-    // Away and back, the way the screen allows: open a campaign, then "Start another".
-    fireEvent.click(screen.getByRole("button", { name: CAMPAIGN.name }));
+    // Leave the flow, open a campaign, come back, and start again.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
     await screen.findByText("Before you launch");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Start another campaign" }),
-    );
-    await screen.findByText("New campaign");
+    fireEvent.click(screen.getByRole("button", { name: "All campaigns" }));
+    await openNewCampaign();
 
-    // The declaration is gone — both halves, because the API takes them as one object
-    // and half an answer is still an answer nobody gave.
     expect(consentRadios(container).some((r) => r.checked)).toBe(false);
     expect(consentDateInput(container).value).toBe("");
-    // …and the consequence is visible rather than implied: the button is dead again and
-    // says why, so the next campaign cannot be created without somebody answering.
-    const create = screen.getByRole("button", {
-      name: "Create campaign",
-    }) as HTMLButtonElement;
-    expect(create.disabled).toBe(true);
-    expect(container.textContent).toContain(
-      "Answer both questions about your list above",
+    // And the step will not let an unanswered declaration through.
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Second list" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: /Contact list/ }), {
+      target: { value: "9876543210" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Answer both questions about your list",
     );
+    expect(screen.queryByRole("heading", { name: "What will they hear?" })).toBeNull();
   });
 });
 
@@ -284,7 +305,8 @@ describe("a campaign whose progress the screen could not read", () => {
 
     // …and once it lands, the server's numbers do appear, so the guard above is not
     // simply hiding the tiles for good.
-    await screen.findByText("Connected");
+    // The header's facts line arrives with the read, and only then.
+    await screen.findByText(/0 contacts/);
   });
 });
 
@@ -296,7 +318,7 @@ describe("the campaign list", () => {
     );
 
     await screen.findByRole("button", { name: CAMPAIGN.name });
-    const rows = container.querySelectorAll("li");
+    const rows = container.querySelectorAll("tbody tr");
     expect(rows).toHaveLength(2);
 
     // `consent_source_refused` is the launch gate's vocabulary. A client reading this
@@ -307,8 +329,10 @@ describe("the campaign list", () => {
 
     // A row with nothing wrong says nothing: one control, which is the campaign name.
     // The refused row adds exactly one more, the correction link.
-    expect(rows[0].querySelectorAll("button")).toHaveLength(1);
-    expect(rows[1].querySelectorAll("button")).toHaveLength(2);
+    // Name + "Launch…" on a plain draft; the refused one adds the provenance answer link.
+    // (Rows are table rows since the round-2 redesign, and a draft's row offers Launch….)
+    expect(rows[0].querySelectorAll("button")).toHaveLength(2);
+    expect(rows[1].querySelectorAll("button")).toHaveLength(3);
 
     // NO EMPTY CONTROLS. The bug `lookup` closed rendered a badge with no text and a
     // clickable button with no label onto a compliance row, because the copy table
@@ -370,7 +394,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
       }),
     );
 
-    await screen.findByText("New campaign");
+    await reachWhatStep(container);
     const picker = container.querySelector<HTMLSelectElement>("select");
     expect(picker, "the create form has no agent picker").not.toBeNull();
     const options = Array.from(picker!.options).map(
@@ -390,6 +414,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
       landingRoutes([], { "/v1/agents": [agentIn({ name: "Follow-ups" })] }),
     );
 
+    await reachWhatStep(container);
     await screen.findByText("Which agent makes these calls");
     const picker = container.querySelector<HTMLSelectElement>("select");
     expect(
@@ -415,7 +440,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
       }),
     );
 
-    await screen.findByText("Which agent makes these calls");
+    await reachWhatStep(container);
     const picker = container.querySelector<HTMLSelectElement>("select");
     expect(picker!.options[0].textContent).toContain(
       "not able to call out yet",
@@ -494,7 +519,7 @@ describe("the three reads the create form is built from", () => {
       landingRoutes([], { "/v1/agents": [] }),
     );
 
-    await screen.findByText("New campaign");
+    await reachWhatStep(container);
     expect(container.textContent).toContain(NO_AGENT_CLAIM);
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -526,11 +551,12 @@ describe("the three reads the create form is built from", () => {
     // in-flight frame now held open forever, the "and then it appears" half needs its own
     // render — otherwise the guard could be suppressing the sentence for good and this
     // suite would not notice.
-    await renderClientPage(
+    const { container } = await renderClientPage(
       <CampaignsPage />,
       landingRoutes([], { "/v1/agents": [] }),
     );
 
+    await reachWhatStep(container);
     await screen.findByText(new RegExp(NO_AGENT_CLAIM));
   });
 
@@ -565,9 +591,80 @@ describe("the three reads the create form is built from", () => {
       landingRoutes([]),
     );
 
-    await screen.findByText("New campaign");
+    await reachWhatStep(container);
     expect(container.textContent).toContain("No numbers yet");
     expect(container.textContent).toContain("None registered yet");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("creating a campaign is two calls: the draft, then its list", () => {
+  /** Walk the four steps with a one-row list, and press Create. */
+  async function createWithOneRow(container: HTMLElement): Promise<void> {
+    await reachWhatStep(container);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "When should we call?" });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Check and create" });
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+  }
+
+  it("sends the list to the draft the create returned, and lands on that draft", async () => {
+    const rendered = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], {
+        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0 },
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      }),
+    );
+    await createWithOneRow(rendered.container);
+
+    await screen.findByText("Before you launch");
+    const upload = await vi.waitFor(() => {
+      const call = rendered.calls.find(
+        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts`,
+      );
+      expect(call).toBeDefined();
+      return call!;
+    });
+    expect(JSON.parse(upload.body ?? "{}").contacts).toEqual([
+      { phone: "9876543210", name: "Priya" },
+    ]);
+  });
+
+  it("keeps the list and offers the retry when the upload is refused", async () => {
+    const rendered = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], {
+        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: problem(503, {
+          title: "Upstream unavailable",
+          detail: "We could not save those contacts just now.",
+          retryable: true,
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      }),
+    );
+    await createWithOneRow(rendered.container);
+
+    await screen.findByText("We could not save those contacts just now.");
+    // The draft exists, so the screen is on it, with the pasted list still there…
+    expect(screen.getByText("Before you launch")).toBeTruthy();
+    const list = screen.getByRole("textbox", { name: "Contact list, as CSV" }) as HTMLTextAreaElement;
+    expect(list.value).toContain("9876543210");
+    // …and one press sends it again.
+    const retry = screen.getByRole("button", { name: "Add contacts" }) as HTMLButtonElement;
+    expect(retry.disabled).toBe(false);
+    fireEvent.click(retry);
+    await vi.waitFor(() =>
+      expect(
+        rendered.calls.filter(
+          (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts`,
+        ),
+      ).toHaveLength(2),
+    );
   });
 });

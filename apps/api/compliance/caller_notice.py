@@ -536,8 +536,8 @@ PEOPLE FOR MARKETING, SAY SO HERE AND SAY WHAT YOU RELY ON TO DO IT}}}}
 
 Call recordings are kept for at least 90 days. That is a floor our calling provider
 Calevate applies to every account as a matter of its own policy, not a period we have
-been told the law requires — {{IF YOUR OWN SECTOR REGULATOR SETS A LONGER RECORD-KEEPING
-PERIOD, SAY SO HERE AND NAME IT}}. The record of what you agreed to is kept as evidence
+been told the law requires — {{{{IF YOUR OWN SECTOR REGULATOR SETS A LONGER RECORD-KEEPING
+PERIOD, SAY SO HERE AND NAME IT}}}}. The record of what you agreed to is kept as evidence
 that the contact was permitted, for as long as we may need to show it.
 
 ## Your rights

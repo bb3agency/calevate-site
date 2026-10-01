@@ -126,6 +126,33 @@ ATTEMPT_LIMIT: Final = 10
 PENDING_GRACE_HOURS: Final = 24
 
 
+#: THE THREE OUTGOING BUCKETS, as SQL select-list expressions over `credit_ledger`'s own
+#: `delta`, `reason` and `meta` — calls, dashboard-AI blocks, operator corrections, in that
+#: order. ONE spelling, read by the trailing-window drawdown below and by the daily spend
+#: series (`billing/history.py`), so "what left the wallet" has one definition and the
+#: series sums to the drawdown for the same window by construction rather than by care.
+#:
+#: The AI bucket is separated by `meta->>'kind'` rather than by a sixth ledger `reason`,
+#: because that is how the writer distinguishes them (`ai_quota.purchase_extra` writes
+#: `reason='usage'` with `kind = 'ai_assist_overage'`). Binds `:ai_kind`.
+DRAWDOWN_BUCKETS_SQL: Final = (
+    "COALESCE(SUM(-delta) FILTER ("
+    "  WHERE delta < 0 AND reason = 'usage'"
+    "  AND (meta->>'kind') IS DISTINCT FROM :ai_kind), 0), "
+    "COALESCE(SUM(-delta) FILTER ("
+    "  WHERE delta < 0 AND reason = 'usage'"
+    "  AND (meta->>'kind') = :ai_kind), 0), "
+    "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'), 0)"
+)
+
+#: Credit that LANDED: payments, pack bonuses, positive adjustments and goodwill grants
+#: (D-535). Shared with the statement list's "credit added" for the reason above.
+CREDIT_ADDED_SQL: Final = (
+    "COALESCE(SUM(delta) FILTER ("
+    "  WHERE delta > 0 AND reason IN ('topup', 'bonus', 'adjustment', 'grant')), 0)"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class Runway:
     """How long the balance lasts, and how confident we are entitled to be about it.
@@ -289,25 +316,7 @@ async def read_runway(
                 # it is what makes it an index scan on `ix_credit_ledger_tenant_recent`
                 # (the same argument `read_credits` records), and because it makes the
                 # answer depend on the argument rather than on which session it was handed.
-                #
-                # The AI-assist bucket is separated by `meta->>'kind'` rather than by a
-                # sixth ledger `reason`, because that is how the writer already
-                # distinguishes them (`ai_quota.purchase_extra` writes `reason='usage'`
-                # with `kind = 'ai_assist_overage'`). Reading it any other way here would
-                # be a second definition of "this row is AI, not a call".
-                "SELECT "
-                "COALESCE(SUM(-delta) FILTER ("
-                "  WHERE delta < 0 AND reason = 'usage'"
-                "  AND (meta->>'kind') IS DISTINCT FROM :ai_kind), 0), "
-                "COALESCE(SUM(-delta) FILTER ("
-                "  WHERE delta < 0 AND reason = 'usage'"
-                "  AND (meta->>'kind') = :ai_kind), 0), "
-                "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'), 0), "
-                # `grant` JOINS THIS FILTER (D-535). It is the fourth way credit lands on
-                # a wallet, and a goodwill grant missing from "added" would leave a client
-                # watching a balance rise with nothing on the screen accounting for it.
-                "COALESCE(SUM(delta) FILTER ("
-                "  WHERE delta > 0 AND reason IN ('topup', 'bonus', 'adjustment', 'grant')), 0), "
+                f"SELECT {DRAWDOWN_BUCKETS_SQL}, {CREDIT_ADDED_SQL}, "
                 "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'refund'), 0) "
                 "FROM credit_ledger "
                 "WHERE tenant_id = :tid AND occurred_at >= :since"
@@ -625,6 +634,8 @@ async def read_wallet(
 __all__ = [
     "ATTEMPT_LIMIT",
     "BURN_WINDOW_DAYS",
+    "CREDIT_ADDED_SQL",
+    "DRAWDOWN_BUCKETS_SQL",
     "LEDGER_LIMIT",
     "MAX_RUNWAY_DAYS",
     "MIN_BURN_HISTORY_DAYS",

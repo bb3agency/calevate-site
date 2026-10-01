@@ -207,7 +207,9 @@ WEB_CREDIT_REGIONS: tuple[tuple[str, str, str | None], ...] = (
         None,
     ),
     ("apps/web/src/app/c/[slug]/DashboardScreen.tsx", "calling_credit", None),
-    ("apps/web/src/app/c/[slug]/billing/page.tsx", '"outbound_stopped"', None),
+    # RE-AIMED, not dropped: the hub's body moved out of `page.tsx` into `BillingScreen.tsx`
+    # in the round-2 console redesign (UX-DOCTRINE §6), with the copilot facts it carries.
+    ("apps/web/src/app/c/[slug]/billing/BillingScreen.tsx", '"outbound_stopped"', None),
     # ⚠ BOTH SCREENS WERE SPLIT BY SUBJECT (UX-DOCTRINE §6, Sep 2026) and these two
     # anchors moved out of their `page.tsx` with the copy they name. The guard is re-aimed
     # rather than dropped, exactly as its own failure message instructs.

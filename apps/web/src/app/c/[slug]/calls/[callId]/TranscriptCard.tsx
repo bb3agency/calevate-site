@@ -2,8 +2,7 @@
 
 import { Eye, ShieldCheck, User } from "lucide-react";
 
-import { EmptyState, NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
-import { Panel } from "@/components/console/panel";
+import { Card, EmptyState, NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
@@ -47,7 +46,7 @@ export function TranscriptCard({
   onSeek: (ms: number) => void;
 }) {
   return (
-    <Panel
+    <Card density="compact"
       className={className}
       title="Transcript"
       action={
@@ -165,6 +164,6 @@ export function TranscriptCard({
           />
         )}
       </div>
-    </Panel>
+    </Card>
   );
 }

@@ -6,10 +6,12 @@ turns "where is the recipient" into "CGST+SGST or IGST". None of it is a Calevat
 decision. What IS a Calevate decision — our legal entity, its GSTIN, its registered
 address, the SAC our supply is classified under — is CONFIG, resolved here from
 `Settings` and never hardcoded. The legal person is settled — a sole proprietor trading
-as Calevate (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`) — but it is NOT registered
-for GST and is not required to be at present turnover (playbook §4), so there is no GSTIN
-to print, and a placeholder GSTIN on a document an accountant files is worse than no
-document.
+as Calevate (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`) — and it is NOT registered
+for GST because its turnover is below the registration threshold (D-659), so there is no
+GSTIN to print, and a placeholder GSTIN on a document an accountant files is worse than no
+document. Absent `GST_SUPPLIER_*` settings are therefore the NORMAL state, not a fault:
+the client is told `GST_STATUS_SENTENCE` and nothing else, and only the operator's copy
+of the statement names the settings a registration would need.
 
 ## The sources this module is built on (verified Aug 2026, not recalled)
 
@@ -68,6 +70,21 @@ from typing import Literal
 from calevate_shared.config import Settings
 
 from .service import to_paise
+
+#: What a CLIENT is told about GST, everywhere they are told anything: the statement's tax
+#: note, the payment receipt, and — as the identical TypeScript constant
+#: `apps/web/src/lib/gstStatus.ts::GST_STATUS_SENTENCE` — the console and the marketing
+#: pages. `tests/gst_status_test.py` fails when the two copies differ.
+#:
+#: The basis is the founder's statement of 1 Oct 2026 (D-659): an MSME sole proprietorship
+#: below the ₹20 lakh aggregate-turnover threshold for services (₹10 lakh in
+#: special-category States), which secondary sources agree on (cleartax.in/s/gst-registration,
+#: batchwise.ai/gst/gst-registration-thresholds). REPORTED, not read from CBIC or CGST Act
+#: s.22/s.24 — which is why the sentence names no figure.
+GST_STATUS_SENTENCE = (
+    "Calevate is a sole proprietorship below the GST registration threshold, so it is not "
+    "registered for GST, charges no GST and does not issue tax invoices."
+)
 
 # GST state codes — the first two digits of every GSTIN, and the vocabulary Rule 46(n)'s
 # "name of the State" is drawn from. 25 (old Daman & Diu) and 28 (undivided Andhra
@@ -194,12 +211,12 @@ class SupplierIdentity:
 
     @property
     def missing(self) -> tuple[str, ...]:
-        """Which environment variables an operator must set, named as they are typed.
+        """Which environment variables a registration would need set, named as typed.
 
-        Errors are part of the interface (CLAUDE.md), including the interface an
-        operator meets: "GST_SUPPLIER_GSTIN is not set" is actionable, "this invoice is
-        invalid" is not. This tuple is the ONE list of what a tax invoice needs from
-        config, and it is what the document prints when it refuses.
+        OPERATOR-ONLY. The admin invoice route publishes it (`AdminInvoiceOut`) so an
+        operator configuring a future registration sees which value is absent or
+        malformed; the client's statement never carries it, because unset is the normal
+        state and a settings name is an internal (D-659).
         """
         absent: list[str] = []
         if not self.legal_name:
@@ -225,9 +242,9 @@ def supplier_identity(settings: Settings) -> SupplierIdentity:
 
     A malformed GSTIN or SAC is treated as ABSENT rather than accepted: the alternative
     is printing a number that fails validation on the recipient's side, where it becomes
-    their problem months later. `SupplierIdentity.missing` then names the variable, so
-    the operator sees `GST_SUPPLIER_GSTIN` on the document and re-reads what they typed
-    rather than wondering which of four values the refusal is about.
+    their problem months later. `SupplierIdentity.missing` then names the variable on the
+    operator's copy, so they re-read what they typed rather than wondering which of four
+    values is wrong.
     """
     sac = (settings.gst_supply_sac or "").strip()
     return SupplierIdentity(
@@ -356,6 +373,7 @@ def split_tax(
 
 __all__ = [
     "GST_STATE_NAMES",
+    "GST_STATUS_SENTENCE",
     "UT_WITHOUT_LEGISLATURE",
     "Gstin",
     "PlaceOfSupply",

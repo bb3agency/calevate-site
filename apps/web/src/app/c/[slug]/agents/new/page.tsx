@@ -1,34 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { use } from "react";
-import { ArrowLeft } from "lucide-react";
-
-import { useClientRealm } from "@/lib/api/session";
 
 import { BuildAgent } from "./BuildAgent";
 
-/**
- * Build an agent (D-440) — the route module, and almost nothing else.
- *
- * Everything about the form lives in `./BuildAgent.tsx` (UX-DOCTRINE §6: a Next route
- * module may export only `default` and route-segment fields (D-196), so it cannot be split
- * by extraction and the answer is to keep almost nothing in it).
- */
+/** Build an agent. The route module stays thin (D-196); the flow is `./BuildAgent.tsx`. */
 export default function NewAgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const { href } = useClientRealm();
-
   return (
-    <div className="space-y-5 pb-12">
-      <Link
-        href={href(`/c/${slug}/agents`)}
-        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11"
-      >
-        <ArrowLeft aria-hidden className="h-4 w-4" />
-        All agents
-      </Link>
-
+    <div className="mx-auto max-w-2xl pb-12">
       <BuildAgent slug={slug} />
     </div>
   );

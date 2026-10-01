@@ -30,16 +30,11 @@
  * same channel with its own sentence, which `ProblemNotice` shows unchanged.
  */
 
-import { BookOpenCheck, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import {
-  NOTICE_TONES,
-  ProblemNotice,
-  RestrictionNote,
-  SectionHeading,
-  ToggleSwitch,
-} from "@/components/ui";
+import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
 import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -89,22 +84,29 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
 
   return (
     <section>
-      <SectionHeading icon={<BookOpenCheck className="h-3.5 w-3.5" />}>
-        Remembering callers, and calling them back
-      </SectionHeading>
-
-      <p className="mt-2 text-sm text-ink-muted">
-        Two things, always on or off together. Your agents remember the people they have
-        spoken to, so someone who rings again is greeted with what they asked about last
-        time. And when a caller asks to be rung back at a particular time, that call is
-        booked for exactly then and goes out already knowing the conversation.
+      <div className="flex items-center gap-1">
+        <h3 className="text-[15px] font-semibold text-ink">
+          Remembering callers, and calling them back
+        </h3>
+        <InfoTip label="Remembering callers">
+          <p>
+            Two things, always on or off together. Your agents remember the people they have
+            spoken to, so someone who rings again is greeted with what they asked about last
+            time. And when a caller asks to be rung back at a particular time, that call is
+            booked for exactly then and goes out already knowing the conversation.
+          </p>
+        </InfoTip>
+      </div>
+      <p className="mt-1 text-sm text-ink-muted">
+        Greets returning callers with what they asked last time, and books the call-backs
+        they ask for.
       </p>
 
       {setCallerMemory.error && !needsAttestation && (
         <ProblemNotice error={setCallerMemory.error} />
       )}
 
-      <div className="mt-4 rounded-card border border-line bg-app p-4">
+      <div className="mt-4">
         <ToggleSwitch
           label="Remember callers and book their call-backs"
           checked={agent.caller_memory_enabled}
@@ -118,15 +120,12 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
         </p>
 
         {agent.caller_memory_enabled ? (
-          <p
-            className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs ${NOTICE_TONES.neutral}`}
-          >
-            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+          <p className="mt-3 flex items-start gap-2 text-xs text-ink-muted">
+            <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Your agents now say at the start of every call that a short note is kept.
-              That sentence cannot be switched off on its own — it appears under{" "}
-              <strong>What it says about itself</strong> above, and it goes away when this
-              goes off.
+              That sentence cannot be switched off on its own — it appears with the opening notices on{" "}
+              <strong>Overview</strong>, and it goes away when this goes off.
             </span>
           </p>
         ) : null}

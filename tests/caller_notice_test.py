@@ -21,6 +21,7 @@ These tests hold the draft to the two properties that make it worth generating a
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 from apps.api.admin import service as admin_service
@@ -399,6 +400,35 @@ async def test_the_disclaimer_travels_with_the_text_and_the_blanks_are_visible()
     assert "{{YOUR REGISTERED BUSINESS NAME}}" in draft.markdown  # type: ignore[attr-defined]
     assert "{{YOUR CONTACT FOR DATA QUESTIONS" in draft.markdown  # type: ignore[attr-defined]
     assert any("advocate" in question for question in draft.open_questions)  # type: ignore[attr-defined]
+
+
+def _brace_runs(markdown: str) -> list[str]:
+    return re.findall(r"\{+|\}+", markdown)
+
+
+async def test_every_blank_in_the_rendered_notice_is_double_braced() -> None:
+    """The disclaimer tells the client "anything in double braces is a blank only you can
+    fill", so a blank in any other spelling is one they are told does not exist.
+
+    `_render` is an f-string, where a literal brace pair must be written `{{{{`; the
+    regulator blank was written `{{` and so reached clients as `{IF YOUR OWN SECTOR
+    REGULATOR …}`. Checked with every optional section switched on (memory, handover), so
+    a blank added to one of them is held to the same spelling.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    plain = (await _draft(tenant_id)).markdown  # type: ignore[attr-defined]
+    await _remember_callers(tenant_id, agent_id)
+    await _hand_callers_to_a_person(tenant_id, agent_id)
+    full = (await _draft(tenant_id)).markdown  # type: ignore[attr-defined]
+
+    for markdown in (plain, full):
+        runs = _brace_runs(markdown)
+        assert runs, "the draft must carry blanks for this assertion to mean anything"
+        assert set(runs) == {"{{", "}}"}, [run for run in runs if run not in ("{{", "}}")]
+        # Strictly alternating open/close: no blank nested in, or left open before, another.
+        assert runs == ["{{", "}}"] * (len(runs) // 2)
+    assert "{{IF YOUR OWN SECTOR REGULATOR" in plain
 
 
 async def test_the_draft_contains_no_callers_data() -> None:

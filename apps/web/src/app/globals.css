@@ -269,6 +269,52 @@
   }
 }
 
+/*
+ * A PANE THAT REPLACES ANOTHER — a settings section, a step of a flow. It fades up 4px as
+ * it mounts (`@starting-style`, so keying the element on the section is the trigger).
+ * There is no exit: the old pane unmounts at once, which is the right asymmetry. Reduced
+ * motion paints the final frame.
+ */
+@utility settings-enter {
+  transition-property: opacity, transform;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-out-strong);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition-property: none;
+  }
+}
+
+/*
+ * A SHEET's entry (`components/console/drawer.tsx`): it rises from the bottom edge on a
+ * phone and slides in from the right from `sm`, on the drawer curve. Like `dialog-enter`
+ * there is no exit — it unmounts. Reduced motion paints it in place.
+ */
+@utility sheet-enter {
+  transition-property: transform;
+  transition-duration: var(--duration-slow);
+  transition-timing-function: var(--ease-drawer-curve);
+
+  @starting-style {
+    transform: translateY(100%);
+  }
+
+  @media (min-width: 40rem) {
+    @starting-style {
+      transform: translateX(100%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition-property: none;
+  }
+}
+
 @utility scrim-enter {
   transition-property: opacity;
   transition-duration: var(--duration-fast);

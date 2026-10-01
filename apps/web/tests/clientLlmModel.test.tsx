@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
@@ -12,6 +12,21 @@ import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage, stillLoading } from "./harness";
 import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
+
+// An agent's own model is in the workspace's Advanced section (D-657); the settings page
+// reads no section, so the one mock serves both screens in this file.
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams("section=advanced"),
+  usePathname: () => "/c/acme/agents/agent-1",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
 
 /**
  * A CLIENT CHOOSING THE MODEL THEIR AGENTS THINK WITH — the account default, and one
@@ -588,7 +603,9 @@ describe("the account's default model", () => {
       }),
     );
 
-    await screen.findByText("The model your agents use");
+    // CHANGED with D-657: the card title "The model your agents use" became the page
+    // header's one-line description; the picker's legend is the stable anchor.
+    await screen.findByText("Model for all your agents");
     // Neither the withdrawn sentence nor the one that replaced it, and no signpost to a
     // console the operator no longer needs for this.
     await waitFor(() => expect(radio(/^gpt-4o-mini/).disabled).toBe(false));

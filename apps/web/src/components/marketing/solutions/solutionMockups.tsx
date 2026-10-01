@@ -429,15 +429,14 @@ export function DeliveryMock() {
 
 /**
  * Your answers — "Knowledge base" (`app/c/[slug]/knowledge`: the "Add knowledge" form's
- * "What this knowledge is about" / "What the agent should say" / "Submit for review", the
- * review states "Live", "In review", "Approved, not live yet", and "Files and web pages"
- * with an upload waiting at "Read it and confirm").
+ * "What this knowledge is about" / "What the agent should say" / "Add to agent", facts
+ * "Live", and "Files and web pages" with an upload at "Being read" — `knowledge/uploadCopy.ts`).
  */
 export function AnswersMock() {
   const facts = [
     { topic: "Sunday timings", says: "Sundays 10 AM to 1 PM, by appointment only.", state: "Live", tone: "emerald" },
-    { topic: "Braces for adults", says: "Yes — a consultation first, with Dr Rao.", state: "In review", tone: "slate" },
-    { topic: "Parking", says: "Free parking behind the building.", state: "Approved, not live yet", tone: "sky" },
+    { topic: "Braces for adults", says: "Yes — a consultation first, with Dr Rao.", state: "Live", tone: "emerald" },
+    { topic: "Parking", says: "Free parking behind the building.", state: "Live", tone: "emerald" },
   ] as const;
   return (
     <span className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] lg:items-start">
@@ -455,7 +454,7 @@ export function AnswersMock() {
         </span>
         <span className="flex justify-end">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-strong px-4 py-1.5 text-[12px] font-semibold text-white">
-            Submit for review
+            Add to agent
             <ArrowRight aria-hidden className="h-3 w-3" />
           </span>
         </span>
@@ -479,7 +478,7 @@ export function AnswersMock() {
           <span className="mk-rise mk-s4 flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2">
             <FileText aria-hidden className="h-4 w-4 shrink-0 text-ink-muted" />
             <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink">Price list.pdf</span>
-            <Tag tone="amber">Read it and confirm</Tag>
+            <Tag tone="sky">Being read</Tag>
           </span>
         </span>
       </Window>

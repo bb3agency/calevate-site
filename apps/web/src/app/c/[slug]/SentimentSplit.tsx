@@ -1,7 +1,6 @@
 "use client";
 
-import { formatCount } from "@/components/ui";
-import { Panel } from "@/components/console/panel";
+import { Card, formatCount } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 const SENTIMENT_TONES: Record<string, string> = {
@@ -19,7 +18,7 @@ export function SentimentSplit({ split }: { split: Record<string, number> }) {
   const rows = Object.entries(split);
   const total = rows.reduce((sum, [, count]) => sum + count, 0);
   return (
-    <Panel title="How callers sounded">
+    <Card density="compact" title="How callers sounded">
       {total === 0 ? (
         <p className="text-[13px] text-ink-muted">
           We haven&apos;t rated any calls in the last 7 days yet.
@@ -47,6 +46,6 @@ export function SentimentSplit({ split }: { split: Record<string, number> }) {
           </ul>
         </div>
       )}
-    </Panel>
+    </Card>
   );
 }

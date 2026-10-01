@@ -1,11 +1,26 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
 
 import { renderClientPage } from "./harness";
 import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
+
+// The handover panel lives in the workspace's Call handling section (D-657), so every test
+// here opens that section.
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams("section=calls"),
+  usePathname: () => "/c/acme/agents/agent-1",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
 
 /**
  * PUTTING A CALLER THROUGH TO A PERSON — the client's own screen (D-533).

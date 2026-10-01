@@ -1,54 +1,48 @@
 "use client";
 
 /**
- * THE TWO PANELS THE BUILD FORM IS MADE OF — the call cap, and the compliance floor.
- *
- * Split out of `new/page.tsx` (UX-DOCTRINE §6: a route module may export only `default`,
- * so it cannot be split by extraction and the answer is to keep almost nothing in it).
- * Neither of these is about creating an agent; one is a bounded server-driven field and the
- * other is a statement of what every agent is born with.
+ * THE TWO PIECES THE BUILD FLOW IS MADE OF besides its questions — the call cap, and the
+ * compliance floor. Neither is about creating an agent: one is a bounded server-driven
+ * field, the other a statement of what every agent is born with.
  */
 
 import { ShieldCheck } from "lucide-react";
 
-import { FIELD, FIELD_HINT, FIELD_LABEL, NOTICE_TONES, Skeleton, formatCallCap } from "@/components/ui";
-import type { FormValidation } from "@/components/formValidation";
+import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, Skeleton, formatCallCap } from "@/components/ui";
 import type { useLanes } from "@/lib/api/publishing";
 
 /**
- * The cost-runaway guard (SURFACES §2b), asked at creation in minutes.
+ * The cost-runaway guard, asked at creation in minutes, closed by default with the
+ * standard limit named in its closed state.
  *
- * Every bound is the server's. The field does not render until `GET /v1/agents/lanes`
- * answers, because a minimum and a maximum this build invented are two numbers a client
- * would be refused on with no way to know why — and a blank input over a failed read would
- * silently create the agent on the platform default while looking like a choice.
+ * Every bound is the server's: the field does not render until `GET /v1/agents/lanes`
+ * answers, because a minimum and maximum this build invented are numbers a client would be
+ * refused on with no way to know why. The step's `validate` checks the range.
  */
 export function CallCapField({
   lanes,
   value,
   onChange,
-  validation,
 }: {
   lanes: ReturnType<typeof useLanes>;
   value: string;
   onChange: (next: string) => void;
-  /**
-   * The form's validation, passed in rather than started here: a hook of its own would
-   * give this field a second `onSubmit` that the form never calls, so a number outside
-   * the lane's range would be refused by nobody.
-   */
-  validation: FormValidation;
 }) {
-  if (lanes.isLoading) return <Skeleton rows={2} />;
-  // The refusal is rendered by the caller, above; there is nothing honest to put here.
+  if (lanes.isLoading) return <Skeleton rows={1} />;
   if (!lanes.data) return null;
   const { call_cap_default_s, call_cap_min_s, call_cap_max_s } = lanes.data;
   return (
-    <div className="max-w-sm">
-      <label className="block">
-        <span className={FIELD_LABEL}>Longest one call may run (optional)</span>
+    <Disclosure
+      title="Longest one call may run"
+      subtitle={
+        value.trim() === ""
+          ? `${formatCallCap(call_cap_default_s)} (the standard limit)`
+          : `${value.trim()} minutes`
+      }
+    >
+      <label className="block max-w-sm">
+        <span className={FIELD_LABEL}>Minutes (optional)</span>
         <input
-          {...validation.field("callCap", "Enter how long one call may run, or leave it blank.")}
           type="number"
           inputMode="numeric"
           min={Math.ceil(call_cap_min_s / 60)}
@@ -65,29 +59,35 @@ export function CallCapField({
           one stuck call running up a bill.
         </span>
       </label>
-      {validation.error("callCap")}
-    </div>
+    </Disclosure>
   );
 }
 
+/** The range check for the step, in the field's own terms; `null` when it is fine. */
+export function callCapProblem(lanes: ReturnType<typeof useLanes>, value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed === "" || !lanes.data) return null;
+  const minutes = Number(trimmed);
+  const min = Math.ceil(lanes.data.call_cap_min_s / 60);
+  const max = Math.floor(lanes.data.call_cap_max_s / 60);
+  if (!Number.isInteger(minutes) || minutes < min || minutes > max) {
+    return `Enter a whole number of minutes between ${min} and ${max}, or leave it blank.`;
+  }
+  return null;
+}
+
 /**
- * What every agent is born with, said before it is built rather than discovered after.
- *
- * Each sentence here is enforced server-side and can be pointed at: both notice lines are
- * written by `create_agent` from the language templates and are NOT NULL with non-empty
- * CHECK constraints (hard rule 5); both toggles start TRUE at the INSERT; and the truthful
- * answer is appended to every prompt by `compose_engine_prompt` and re-verified against
- * the engine on every publish and every drift sweep, so no column, config row or script
- * can withdraw it. Nothing on this panel is a claim this screen made up.
+ * What every agent is born saying. Three sentences, word for word, shown before the
+ * agent exists so nobody discovers them on a recording.
  */
 export function ComplianceFloor() {
   return (
-    <div className={`rounded-card border p-4 ${NOTICE_TONES.neutral}`}>
-      <p className="flex items-center gap-2 text-sm font-semibold">
-        <ShieldCheck aria-hidden className="h-4 w-4 shrink-0" />
+    <section aria-labelledby="compliance-floor-heading" className="border-t border-line pt-4">
+      <p id="compliance-floor-heading" className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <ShieldCheck aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
         What it will say about itself
       </p>
-      <ul className="mt-2 space-y-1.5 text-sm">
+      <ul className="mt-2 space-y-1.5 text-sm text-ink-muted">
         <li>
           It starts every call by saying it is an AI assistant and that the call is being
           recorded. Both sentences are written for you in the language you chose.
@@ -102,6 +102,6 @@ export function ComplianceFloor() {
           off by you, by us, or by anything written in its script.
         </li>
       </ul>
-    </div>
+    </section>
   );
 }

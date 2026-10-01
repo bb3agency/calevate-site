@@ -9,10 +9,10 @@ back as an assertion. What is asserted here is what is THIS TOOL'S:
 
 1. **It is registered for real** — in `WRITE_TOOLS`, in `service.tool_array()`, under
    `kb:write`. A tool nobody offers is a half-wired feature.
-2. **Proposing writes nothing, and confirming lands in the review queue and nowhere else.**
-   The row a confirmed proposal creates is `pending_approval`, `is_active = false`, with
-   preview chunks — identical to a pasted submission, which is what makes every downstream
-   guard apply unchanged.
+2. **Proposing writes nothing, and confirming takes the form's one door.** The row a
+   confirmed proposal creates is identical to a pasted submission — approved on submission
+   when the confirming person is the account's own (D-658), not active until the publish
+   job runs, with chunks — which is what makes every downstream guard apply unchanged.
 3. **The content wall**, including the redaction guard, refusing without ever quoting what
    it refused.
 4. **Nothing caller-derived can ride along.** A source inventory over this lane (the
@@ -186,7 +186,7 @@ def test_the_tool_schema_is_the_strict_subset_and_offers_only_citable_topics() -
 # --- 2. propose reads, confirm writes, and the queue is the same one ----------
 
 
-async def test_proposing_writes_nothing_and_confirming_lands_in_the_review_queue() -> None:
+async def test_proposing_writes_nothing_and_confirming_takes_the_forms_door() -> None:
     tenant, agent = await _tenant()
     principal = _principal(tenant)
 
@@ -199,13 +199,13 @@ async def test_proposing_writes_nothing_and_confirming_lands_in_the_review_queue
     assert proposal.object_id == str(agent)
     assert proposal.proposed == "Saturday hours"
     assert proposal.current is None
-    assert "review" in proposal.summary
+    assert "without review" in proposal.summary, "the plan must say it goes live (D-658)"
 
     confirmed = await _confirm(tenant, proposal.token, principal)
     assert confirmed.applied is True
 
-    # THE STATE IS THE FORM'S STATE. `pending_approval`, not active, with preview chunks —
-    # which is what makes approve/publish and every downstream guard apply unchanged.
+    # THE STATE IS THE FORM'S STATE. Approved on submission (D-658: the confirming person
+    # is the account's own), not yet active — the publish job makes it live — with chunks.
     async with tenant_session(tenant) as session:
         row = (
             await session.execute(
@@ -221,7 +221,7 @@ async def test_proposing_writes_nothing_and_confirming_lands_in_the_review_queue
                 text("SELECT count(*) FROM kb_documents WHERE source_id = :i"), {"i": row.id}
             )
         ).scalar()
-    assert row.status == "pending_approval"
+    assert row.status == "approved"
     assert row.is_active is False
     assert row.kind == "text"
     assert row.version == 1
@@ -271,7 +271,7 @@ async def test_a_confirmed_proposal_writes_an_audit_row_of_ids_only(
     assert record.origin == "gap_digest", "provenance is what a reviewer reads first"
     assert record.topic_key == "timings"
     assert record.via == "copilot"
-    assert record.status == "pending_approval"
+    assert record.status == "approved"
     assert record.source_id
     # The drafted words are in `kb_sources`, where deletion reaches them — never in a
     # ledger row and never in a log line.

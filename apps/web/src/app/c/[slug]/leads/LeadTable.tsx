@@ -2,7 +2,9 @@
 
 import { useMemo } from "react";
 
-import { Card, EmptyState, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { Card, EmptyState, SECONDARY_BUTTON_SM, formatPhone } from "@/components/ui";
+import { RowMenu } from "@/components/console/rowMenu";
+import { copyText } from "@/components/interior/copy-button";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import type { Lead } from "@/lib/api/leads";
 
@@ -22,7 +24,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
   const {
     items, columns, canCall, maySelect, ticked, allOfPageTicked,
     toggleRow, toggleAllOnPage, renderCell, rowFailure, callCell,
-    filtered, askTerm, onClearFilters,
+    filtered, askTerm, onClearFilters, hrefFor, callHref,
   } = kit;
 
   const tableColumns = useMemo(() => {
@@ -69,8 +71,27 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
       }),
     );
     if (canCall) out.push({ id: "call", header: "Call", cell: (lead) => callCell(lead) });
+    // The row's secondary actions, so the row itself stays one target (its name link).
+    out.push({
+      id: "more",
+      header: "More",
+      renderHeader: () => null,
+      className: "w-10 text-right",
+      cell: (lead) => (
+        <RowMenu
+          label={lead.name ?? formatPhone(lead.phone_e164)}
+          items={[
+            { id: "open", label: "Open lead", href: hrefFor(lead) },
+            ...(lead.last_call_id
+              ? [{ id: "call", label: "Open the last call", href: callHref(lead.last_call_id) }]
+              : []),
+            { id: "copy", label: "Copy phone number", onSelect: () => void copyText(lead.phone_e164) },
+          ]}
+        />
+      ),
+    });
     return out;
-  }, [maySelect, columns, canCall, allOfPageTicked, toggleAllOnPage, ticked, toggleRow, renderCell, rowFailure, callCell]);
+  }, [maySelect, columns, canCall, allOfPageTicked, toggleAllOnPage, ticked, toggleRow, renderCell, rowFailure, callCell, hrefFor, callHref]);
 
   return (
     <Card bodyClassName="p-1 sm:p-2">

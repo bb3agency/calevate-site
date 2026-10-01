@@ -173,15 +173,19 @@ describe("every screen that uses a term explains it", () => {
       "Not screen copy: it is the LABEL of a fact this screen declares to the assistant, " +
       "and the screen itself glosses the term where a person reads it — " +
       "`TmRegistrationPanel.tsx`, the panel this fact is about.",
-    "src/app/c/[slug]/verification/page.tsx:tm":
+    "src/app/c/[slug]/verification/copilot.ts:tm":
       "Not screen copy: it is the LABEL of a fact this screen declares to the assistant, " +
       "and the screen glosses the term where a person reads it — " +
       "`verification/DltRegistration.tsx`, the section this fact is about. Same case as " +
       "`admin/ops/OpsSurface.tsx:tm` above.",
+    "src/app/c/[slug]/verification/copilot.ts:dlt":
+      "Same entry, same reason: the assistant declaration moved out of `page.tsx`, which " +
+      "glosses DLT in its description, and a `.ts` module producing plain strings for a " +
+      "model cannot hold an element.",
     "src/app/c/[slug]/campaigns/campaignsCopilotSurface.ts:dlt":
       "Not screen copy: it is the LABEL of a control this screen declares to the " +
       "assistant, and the screen glosses the term where a person reads it — " +
-      "`campaigns/NewCampaignForm.tsx` and `campaigns/blockerCopy.tsx`. Same case as " +
+      "`campaigns/NewCampaignFlow.tsx` and `campaigns/blockerCopy.tsx`. Same case as " +
       "`admin/ops/OpsSurface.tsx:tm` above, and a `.ts` data module producing plain " +
       "strings for a model cannot hold an element anyway.",
     "src/app/c/[slug]/campaigns/campaignsCopilotSurface.ts:series140":

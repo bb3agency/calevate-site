@@ -1,9 +1,12 @@
 "use client";
 
-import { BellOff, BellRing, CircleAlert, Info, ShieldCheck } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 
+import { InfoTip } from "@/components/console/infoTip";
+import { PageHeader } from "@/components/console/pageHeader";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
-  Card,
+  Disclosure,
   MonoValue,
   NoticeBox,
   ProblemNotice,
@@ -133,12 +136,21 @@ export function AlertsScreen() {
   });
 
   return (
-    <div className="max-w-2xl space-y-5 pb-12">
-      <p className="text-sm text-ink-muted">
-        When a call produces a hot lead, we message the account owner within two minutes.
-        The email always goes out; WhatsApp only goes out if you have agreed to receive it
-        here.
-      </p>
+    <div className="max-w-2xl space-y-6 pb-12">
+      <PageHeader
+        description={
+          <>
+            Hot leads always reach you by email. WhatsApp is optional.{" "}
+            <InfoTip label="hot-lead alerts" className="-my-3">
+              <p>
+                When a call produces a hot lead, we message the account owner within two
+                minutes. The email always goes out; WhatsApp only goes out if you have
+                agreed to receive it here.
+              </p>
+            </InfoTip>
+          </>
+        }
+      />
 
       <RestrictionNote reason={write.reason} />
 
@@ -146,137 +158,133 @@ export function AlertsScreen() {
         <ProblemNotice error={state.error} onRetry={() => state.refetch()} />
       )}
 
-      {/* Loading is a skeleton, failure is the refusal above and nothing else. "Alerts are
-          off" over a failed read is the sentence that makes a client turn on something
-          that is already on. */}
       {state.isLoading ? (
-        <Card>
-          <Skeleton rows={4} />
-        </Card>
+        <Skeleton rows={3} label="Checking your alert settings" />
       ) : !current ? null : (
         <>
-          <Card title="WhatsApp alerts">
-            <div className="space-y-4">
-              <NoticeBox
-                tone={current.messageable ? "ok" : "neutral"}
-                icon={
+          <section className="rounded-card border border-line bg-surface px-4 sm:px-5">
+            <SettingRows>
+              <SettingRow
+                label="WhatsApp alerts"
+                hint={
                   current.messageable ? (
-                    <BellRing aria-hidden className="h-5 w-5" />
+                    <>
+                      We message the mobile number on your profile. We do not need it typed
+                      here and we never show it back to you.
+                      {current.captured_at && (
+                        <> You agreed on {formatIST(current.captured_at)}.</>
+                      )}
+                    </>
+                  ) : current.status === "withdrawn" ? (
+                    "You turned these off. Hot leads still reach you by email and are on your dashboard."
                   ) : (
-                    <BellOff aria-hidden className="h-5 w-5" />
+                    "Nobody has agreed to receive them on this account yet. Hot leads still reach you by email and are on your dashboard."
                   )
                 }
-                title={
-                  current.messageable
-                    ? "Hot-lead alerts are on for your WhatsApp"
-                    : "Hot-lead alerts are not going to your WhatsApp"
-                }
-              >
+                value={<AlertStatePill on={current.messageable} />}
+              />
+              {/* The consent controls sit under the row, in full: granting is an agreement to
+                  the server's own notice text, so it is that text and a button naming the
+                  act — never a switch that records consent without the notice being read. */}
+              <div className="py-4">
+                {record.error != null && <ProblemNotice error={record.error} />}
                 {current.messageable ? (
-                  <p className="mt-1">
-                    We message the mobile number on your profile. We do not need it typed
-                    here and we never show it back to you.
-                    {current.captured_at && (
-                      <> You agreed on {formatIST(current.captured_at)}.</>
-                    )}
-                  </p>
+                  <WithdrawControl
+                    allowed={write.allowed}
+                    reason={write.reason}
+                    pending={record.isPending}
+                    onWithdraw={() =>
+                      record.mutate({
+                        status: "withdrawn",
+                        noticeVersion: current.current_notice_version,
+                      })
+                    }
+                  />
                 ) : (
-                  <p className="mt-1">
-                    {current.status === "withdrawn"
-                      ? "You turned these off. Hot leads still reach you by email and are on your dashboard."
-                      : "Nobody has agreed to receive them on this account yet. Hot leads still reach you by email and are on your dashboard."}
-                  </p>
+                  <GrantControl
+                    notice={current.current_notice_text}
+                    allowed={write.allowed && current.delivery_available}
+                    reason={
+                      write.reason ??
+                      (current.delivery_available
+                        ? null
+                        : "We cannot send WhatsApp messages yet, so there is nothing to agree to.")
+                    }
+                    pending={record.isPending}
+                    onGrant={() =>
+                      record.mutate({
+                        status: "granted",
+                        noticeVersion: current.current_notice_version,
+                      })
+                    }
+                  />
                 )}
-              </NoticeBox>
+              </div>
+            </SettingRows>
+          </section>
 
-              {/* The channel's own readiness, said separately from consent — they are
-                  different questions and collapsing them would either hide this control
-                  until a vendor account exists or promise a message nothing can send. */}
-              {!current.delivery_available && (
-                <NoticeBox
-                  tone="warn"
-                  icon={<CircleAlert aria-hidden className="h-5 w-5" />}
-                  title="We cannot send WhatsApp messages yet"
-                >
-                  <p className="mt-1">
-                    This is on our side, not yours: the WhatsApp business connection is not
-                    live yet. Agreeing now would record your consent for something we cannot
-                    do, so the control is held back until it works. Email alerts are
-                    unaffected.
-                  </p>
-                </NoticeBox>
-              )}
+          {!current.delivery_available && (
+            <NoticeBox
+              tone="warn"
+              icon={<CircleAlert aria-hidden className="h-5 w-5" />}
+              title="We cannot send WhatsApp messages yet"
+            >
+              <p className="mt-1">
+                This is on our side, not yours: the WhatsApp business connection is not
+                live yet. Agreeing now would record your consent for something we cannot
+                do, so the control is held back until it works. Email alerts are
+                unaffected.
+              </p>
+            </NoticeBox>
+          )}
 
-              {record.error != null && <ProblemNotice error={record.error} />}
-
-              {current.messageable ? (
-                <WithdrawControl
-                  allowed={write.allowed}
-                  reason={write.reason}
-                  pending={record.isPending}
-                  onWithdraw={() =>
-                    record.mutate({
-                      status: "withdrawn",
-                      // Sent for shape only: the server records no notice version against
-                      // a withdrawal, because taking consent back is not an agreement to
-                      // anything.
-                      noticeVersion: current.current_notice_version,
-                    })
-                  }
-                />
-              ) : (
-                <GrantControl
-                  notice={current.current_notice_text}
-                  allowed={write.allowed && current.delivery_available}
-                  reason={
-                    write.reason ??
-                    (current.delivery_available
-                      ? null
-                      : "We cannot send WhatsApp messages yet, so there is nothing to agree to.")
-                  }
-                  pending={record.isPending}
-                  onGrant={() =>
-                    record.mutate({
-                      status: "granted",
-                      // The version THIS screen is showing, not a constant in the bundle:
-                      // a build showing older wording must be refused, not recorded.
-                      noticeVersion: current.current_notice_version,
-                    })
-                  }
-                />
-              )}
-            </div>
-          </Card>
-
-          <Card title="What we send, and what we never send">
+          <Disclosure
+            variant="inline"
+            headingLevel={2}
+            title="What we send, and what we never send"
+            subtitle="One message per hot lead, to you only. Never marketing, and never to your customers."
+          >
             <ul className="space-y-2 text-sm text-ink-muted">
-              <li className="flex gap-2">
-                <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+              <li>
                 One message per hot lead, to the owner. Never marketing, and never to your
                 customers — this setting is about messages to YOU.
               </li>
-              <li className="flex gap-2">
-                <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+              <li>
                 Whether your agents may message your customers is a different question with
                 its own record, on the Messaging consent screen.
               </li>
-              <li className="flex gap-2">
-                <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+              <li>
                 Turning this off is a new entry, not a deletion: we keep the record that
                 you agreed and the record that you withdrew, which is what lets us show
                 anyone asking exactly what was on when.
               </li>
             </ul>
-            <p className="mt-3 text-xs text-ink-faint">
-              Wording in force:{" "}
-              <MonoValue>{current.current_notice_version}</MonoValue>
-              {current.notice_version && current.notice_version !== current.current_notice_version && (
-                <> · you agreed to <MonoValue>{current.notice_version}</MonoValue></>
-              )}
+            <p className="mb-3 mt-3 text-xs text-ink-faint">
+              Wording in force: <MonoValue>{current.current_notice_version}</MonoValue>
+              {current.notice_version &&
+                current.notice_version !== current.current_notice_version && (
+                  <>
+                    {" "}
+                    · you agreed to <MonoValue>{current.notice_version}</MonoValue>
+                  </>
+                )}
             </p>
-          </Card>
+          </Disclosure>
         </>
       )}
     </div>
+  );
+}
+
+/** On or off, in words; the colour is the second channel (WCAG 1.4.1). */
+function AlertStatePill({ on }: { on: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[13px] font-medium ${
+        on ? "border-brand/30 bg-brand-soft text-brand-strong" : "border-line bg-ink/[0.04] text-ink-muted"
+      }`}
+    >
+      {on ? "On" : "Off"}
+    </span>
   );
 }

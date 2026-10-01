@@ -1,19 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, type ReactNode } from "react";
 
-import {
-  Card,
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  RestrictionNote,
-} from "@/components/ui";
-import { useFormValidation } from "@/components/formValidation";
-import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
+import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { StepFlow } from "@/components/console/stepFlow";
+import { DIRECTION_COPY, LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
 import {
   useCreateAgent,
   type Agent,
@@ -22,71 +14,47 @@ import {
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useLanes } from "@/lib/api/publishing";
-import { useClientSession } from "@/lib/api/session";
-import { hasKey } from "@/lib/lookup";
-
-import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { hasKey, lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText, noFill } from "@/lib/copilot/types";
-import { CallCapField, ComplianceFloor } from "./BuildAgentForm";
+
+import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
+import { CallCapField, ComplianceFloor, callCapProblem } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
 
 /**
- * Build an agent (D-440).
+ * Build an agent (D-440) — a short step flow: what it does, what it is called, then check
+ * and build.
  *
- * ## What this form is allowed to ask, and what it deliberately does not
+ * ## What it asks, and what it deliberately does not
  *
- * Four fields, and they are the four `lifecycle.create_agent` takes: a name, which way its
- * calls go, the language it speaks, and how long one of its calls may run. Everything
- * else a person might expect on a "create agent" form is absent ON PURPOSE, and each
- * absence is a rule rather than a gap:
+ * The four things `lifecycle.create_agent` takes: which way its calls go, a name, the
+ * language, and how long one call may run (closed by default, with the standard limit in
+ * its closed state). Absent ON PURPOSE:
  *
- * - **No disclosure wording.** `create_agent` writes both sentences itself from the
- *   language templates with both toggles ON, and there is no argument to it that can
- *   produce an agent with no AI disclosure on file — which is what the dial gate reads and
- *   what the truthful answer needs something to say. The create form is the one place a
- *   client is not yet thinking about TRAI, and the compliance floor is not theirs to get
- *   wrong. The panel below states what the agent will be born saying, so nobody discovers
- *   it on a recording.
- * - **No script.** A new agent is a DRAFT with nothing to say, and that is the point of
- *   the state: `publish_agent` refuses an agent with no prompt version by name
- *   (`agent_has_no_script`), so it cannot be switched on until its script is written in the
- *   builder — which is why "Write its script" is the primary action on the created panel
- *   below. Seeding a placeholder would be a phone line saying something nobody wrote.
- * - **No capture columns and no voice.** Both are admin-realm (D-21): a schema change
- *   regenerates prompt hints and needs a regression run, and a voice change is an ear test
- *   we have to do. Offering either here would be a control that could only ever 403.
+ * - **No disclosure wording.** `create_agent` writes both sentences from the language
+ *   templates with both toggles ON, and nothing here can produce an agent with no AI
+ *   disclosure on file. The review step states what the agent will be born saying.
+ * - **No script.** A new agent is a draft with nothing to say; `publish_agent` refuses it by
+ *   name (`agent_has_no_script`) until the builder writes one, which is why "Write its
+ *   script" is the primary action once it exists.
  *
- * ## §52 and the failure paths
- *
- * The call-cap bounds are the SERVER's (`GET /v1/agents/lanes`) — the input is not
- * rendered until they arrive, because a minimum and a maximum this build invented are two
- * numbers a client would be refused on. A creation that fails renders the API's own
- * problem with its remediation; a creation that succeeds does not bounce the browser
- * somewhere, it says what was made and what has to happen next, because "created" and
- * "able to take calls" are different facts and the gap between them is the thing a first
- * -time owner most needs explained.
+ * Direction gets a step of its own because it is the one choice that changes what the agent
+ * is; name and language share a step because the language default is right for most
+ * owners. A refusal is the API's own problem, on the review step, with the inputs kept.
  */
 export function BuildAgent({ slug }: { slug: string }) {
   const session = useClientSession();
+  const { href } = useClientRealm();
+  const router = useRouter();
   const lanes = useLanes(session);
   const create = useCreateAgent(session);
-
-  /**
-   * The permission is the one the ROUTE requires — `org:manage`, the OWNER's.
-   * `agents:write` is the neighbouring name and is the wrong one: it is admin-only and
-   * neither client role holds it, so gating on it would disable this button for exactly
-   * the person it was built for.
-   *
-   * An operator in a view-as session CAN use this form: `org:manage` is writable there and
-   * no named act covers creating an agent (D-587), so `/v1/me` sends the permission
-   * through. The gate stays because `staff` does not hold it, and a failed `/v1/me` must
-   * close the button WITH a sentence rather than silently.
-   */
+  /* `org:manage`, the OWNER's permission that the route requires — `agents:write` is
+     admin-only and would close this for the person it was built for. */
   const write = useWriteAccess(session, "org:manage", "create an agent");
 
   const [name, setName] = useState("");
-  const valid = useFormValidation();
   const [direction, setDirection] = useState<AgentDirection>("inbound");
   const [language, setLanguage] = useState<AgentLanguage>("te-IN");
   const [capMinutes, setCapMinutes] = useState("");
@@ -214,46 +182,52 @@ export function BuildAgent({ slug }: { slug: string }) {
         },
   );
 
-  return (
-    <>
-      {created ? (
-        <CreatedPanel agent={created} slug={slug} />
-      ) : (
-        <>
-          <RestrictionNote reason={write.reason} />
-          {create.error && <ProblemNotice error={create.error} />}
-          {lanes.error && (
-            <ProblemNotice error={lanes.error} onRetry={() => void lanes.refetch()} />
-          )}
 
-          <Card title="Build an agent">
-            <form
-              className="space-y-6"
-              noValidate
-              onSubmit={valid.onSubmit(() => {
-                create.mutate(
-                  {
-                    name,
-                    direction,
-                    language_primary: language,
-                    // Blank means "use the standard limit" — `null`, never 0 and never
-                    // unlimited. The server resolves NULL to the platform default.
-                    max_call_duration_s: capMinutes === "" ? null : Number(capMinutes) * 60,
-                  },
-                  { onSuccess: (agent) => setCreated(agent) },
-                );
-              })}
-            >
-              {/* The message is outside the wrapping `<label>` so it describes the field
-                  rather than becoming part of its name. */}
-              <div className="max-w-sm">
-                <label className="block">
-                  <span className={FIELD_LABEL}>What do you want to call it?</span>
+  if (created) return <CreatedPanel agent={created} slug={slug} />;
+
+  const trimmed = name.trim();
+  return (
+    <div className="space-y-4">
+      <RestrictionNote reason={write.reason} />
+      {lanes.error && <ProblemNotice error={lanes.error} onRetry={() => void lanes.refetch()} />}
+      <StepFlow
+        label="New agent"
+        onCancel={() => router.push(href(`/c/${slug}/agents`))}
+        cancelLabel="Cancel and go back to your agents"
+        submitLabel="Build this agent"
+        pending={create.isPending}
+        error={create.error ? <ProblemNotice error={create.error} /> : undefined}
+        onSubmit={() => {
+          if (!write.allowed) return;
+          create.mutate(
+            {
+              name: trimmed,
+              direction,
+              language_primary: language,
+              max_call_duration_s: capMinutes.trim() === "" ? null : Number(capMinutes) * 60,
+            },
+            { onSuccess: (agent) => setCreated(agent) },
+          );
+        }}
+        steps={[
+          {
+            id: "direction",
+            title: "What should it do?",
+            hint: "You can run several agents side by side, each on its own number.",
+            content: <DirectionPicker name="direction" value={direction} onChange={setDirection} />,
+          },
+          {
+            id: "details",
+            title: "What is it called, and what does it speak?",
+            validate: () =>
+              trimmed.length < 2
+                ? "Give this agent a name of at least two characters."
+                : callCapProblem(lanes, capMinutes),
+            content: (
+              <div className="space-y-5">
+                <label className="block max-w-sm">
+                  <span className={FIELD_LABEL}>Name</span>
                   <input
-                    {...valid.field("name", "Give this agent a name.")}
-                    /* The copilot field id, which is what the "filled" outline is drawn
-                       on. It overrides the generated one; the message is tied to the
-                       control by `aria-describedby` either way. */
                     id="new-agent-name"
                     required
                     minLength={2}
@@ -263,86 +237,62 @@ export function BuildAgent({ slug }: { slug: string }) {
                     placeholder="e.g. Front desk"
                     className={FIELD}
                   />
+                  <span className={FIELD_HINT}>Only you see this. Callers never hear it.</span>
+                </label>
+                <label className="block max-w-sm">
+                  <span className={FIELD_LABEL}>Language</span>
+                  <select
+                    id="new-agent-language"
+                    value={language}
+                    // Narrowed by `hasKey`, never cast: the value is a string and the field
+                    // is a closed union.
+                    onChange={(event) => {
+                      if (hasKey(LANGUAGE_NAMES, event.target.value)) setLanguage(event.target.value);
+                    }}
+                    className={FIELD}
+                  >
+                    {LANGUAGE_CHOICES.map((choice) => (
+                      <option key={choice.value} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))}
+                  </select>
                   <span className={FIELD_HINT}>
-                    Only you see this name — it is how you tell your agents apart here and
-                    on your call log. Callers never hear it.
+                    It greets and answers callers in this language. You can change it later.
                   </span>
                 </label>
-                {valid.error("name")}
+                <CallCapField lanes={lanes} value={capMinutes} onChange={setCapMinutes} />
               </div>
-
-              <fieldset>
-                <legend className={FIELD_LABEL}>What should it do?</legend>
-                <DirectionPicker name="direction" value={direction} onChange={setDirection} />
-                <p className={FIELD_HINT}>
-                  You can have several agents answering at once — each picks up its own
-                  number, so an after-hours line and a sales line run side by side.
-                </p>
-              </fieldset>
-
-              <label className="block max-w-sm">
-                <span className={FIELD_LABEL}>What language does it speak?</span>
-                <select
-                  id="new-agent-language"
-                  value={language}
-                  /* NARROWED, never cast: `event.target.value` is a `string` and
-                     `AgentCreateIn.language_primary` is a closed union. `hasKey` is the
-                     repo's one way of turning the first into the second (src/lib/lookup.ts),
-                     and it reads `Object.hasOwn` so a value of "constructor" is absent
-                     rather than present-but-wrong. */
-                  onChange={(event) => {
-                    if (hasKey(LANGUAGE_NAMES, event.target.value)) {
-                      setLanguage(event.target.value);
-                    }
-                  }}
-                  className={FIELD}
-                >
-                  {LANGUAGE_CHOICES.map((choice) => (
-                    <option key={choice.value} value={choice.value}>
-                      {choice.label}
-                    </option>
-                  ))}
-                </select>
-                <span className={FIELD_HINT}>
-                  The language it greets and answers callers in, and the language the two
-                  things it announces at the start of a call are written in. You can change
-                  it later on the agent&apos;s own screen.
-                </span>
-              </label>
-
-              <CallCapField
-                lanes={lanes}
-                value={capMinutes}
-                onChange={setCapMinutes}
-                validation={valid}
-              />
-
+            ),
+          },
+        ]}
+        review={{
+          title: "Check and build",
+          content: (
+            <div className="space-y-4">
+              <dl className="divide-y divide-line border-y border-line text-sm">
+                <ReviewRow label="Does">{lookup(DIRECTION_COPY, direction)?.label ?? direction}</ReviewRow>
+                <ReviewRow label="Name">{trimmed}</ReviewRow>
+                <ReviewRow label="Speaks">{lookup(LANGUAGE_NAMES, language) ?? language}</ReviewRow>
+              </dl>
               <ComplianceFloor />
+              <p className="text-xs text-ink-muted">
+                It is created switched off. Nothing rings anyone until it has a script and you
+                switch it on.
+              </p>
+            </div>
+          ),
+        }}
+      />
+    </div>
+  );
+}
 
-              <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
-                <button
-                  type="submit"
-                  /* The name rule is NOT repeated here. A button that stays dead until
-                     the second character explains nothing; pressing it now answers. */
-                  disabled={!write.allowed || create.isPending}
-                  /* The reason travels WITH the control as well as sitting at the top of
-                     the screen: a dead button whose explanation is off-screen on a phone is
-                     the 403 this pattern exists to avoid shipping. */
-                  title={write.reason ?? undefined}
-                  className={PRIMARY_BUTTON}
-                >
-                  <Sparkles aria-hidden className="h-4 w-4" />
-                  {create.isPending ? "Building…" : "Build this agent"}
-                </button>
-                <span className="text-xs text-ink-muted">
-                  It is created switched off. Nothing rings anyone until it has a script and
-                  you switch it on.
-                </span>
-              </div>
-            </form>
-          </Card>
-        </>
-      )}
-    </>
+function ReviewRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 py-2.5">
+      <dt className="text-ink-muted">{label}</dt>
+      <dd className="text-right font-medium text-ink">{children}</dd>
+    </div>
   );
 }

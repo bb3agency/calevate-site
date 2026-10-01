@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Me } from "@/lib/api/client";
 import type { Invoice } from "@/lib/api/invoice";
+import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { Wallet, WalletLedger } from "@/lib/api/wallet";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -14,7 +15,7 @@ import {
   type SurfaceHolder,
 } from "@/lib/copilot/registry";
 
-import { renderBillingHub } from "./billingHub";
+import { hubUsageIdle, renderBillingHub } from "./billingHub";
 import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
@@ -216,13 +217,7 @@ const BILL_OF_SUPPLY: Invoice = {
   month: INVOICE_MONTH,
   generated_at: "2026-09-01T04:30:00Z",
   document_type: "bill_of_supply",
-  document_blockers: ["GST_SUPPLIER_GSTIN"],
-  estimated_gst_inr: "180.00",
-  estimated_gst_rate_pct: "18",
-  estimated_total_inr: "1180.00",
-  tax_note:
-    "Bill of supply. Calevate is not registered for GST, so no tax is charged on this " +
-    "document and no input tax credit is available (CGST Act s.32; CGST Rules r.49).",
+  tax_note: `Bill of supply. ${GST_STATUS_SENTENCE} No input tax credit can be claimed against this document.`,
   supplier: {
     legal_name: "Calevate",
     address: "Hyderabad",
@@ -825,15 +820,15 @@ describe("where the money went", () => {
       }),
     );
 
-    // ONE empty state per tab, and both SAY what will appear rather than rendering a
-    // blank. They are on different tabs now (D-525), so the count is asserted per tab:
-    // "where it went" is Overview's and the history is Transactions'.
+    // ONE empty state per view, and both SAY what will appear rather than rendering a
+    // blank. They are on different views (D-525, D-655), so the count is asserted per
+    // view: "where it went" is at the foot of Usage and the history is Transactions'.
     await waitFor(() =>
       expect(
         screen.getAllByText(/Nothing has moved on your credit yet/),
       ).toHaveLength(1),
     );
-    fireEvent.click(await screen.findByRole("tab", { name: "Transactions" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Transactions" }));
     await screen.findByText(/Payments you make and calls your agents handle/);
     // And the export offers nothing to download rather than a file with a header row
     // and no rows.
@@ -1023,7 +1018,7 @@ describe("the ledger and its receipts", () => {
     // OVERVIEW, rather than being buried in the spend it is not part of.
     await screen.findByText("Refunded to you", { selector: "dt" });
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Transactions" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Transactions" }));
     const table = await screen.findByRole("table", { name: /credit history/i });
     const rows = within(table).getAllByRole("row");
     // "Compensating adjustment" is what the admin console calls this row. Nobody outside
@@ -1046,9 +1041,7 @@ describe("the ledger and its receipts", () => {
           supplier_address: "Hyderabad",
           organization_name: "Sri Clinic",
           organization_billing_email: "owner@sriclinic.example",
-          note:
-            "This is a receipt for calling credit added to your account. No tax has been " +
-            "charged on it. It is not a tax invoice.",
+          note: `This is a receipt for calling credit added to your account. ${GST_STATUS_SENTENCE}`,
         },
       }),
       "Transactions",
@@ -1067,7 +1060,7 @@ describe("the ledger and its receipts", () => {
     expect(
       within(dialog).getByRole("heading", { name: "Receipt" }),
     ).toBeTruthy();
-    expect(dialog.textContent).toContain("It is not a tax invoice.");
+    expect(dialog.textContent).toContain(GST_STATUS_SENTENCE);
     expect(dialog.textContent).not.toMatch(/TAX INVOICE|GSTIN/);
     await expectNoA11yViolations(
       container,
@@ -1177,8 +1170,11 @@ describe("the states that are not a balance", () => {
     // offer nothing; now the three money questions each have a link, because an invoiced
     // client who lands here has usually been sent by somebody who assumed they had a
     // balance and needs to be told where theirs actually is.
-    expect(screen.getByRole("button", { name: /Usage/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Transactions/ })).toBeTruthy();
+    // The views sit right under this header since the round-2 redesign (D-655 peer
+    // views), so the three answers are the view switch rather than links inside the panel.
+    expect(screen.getByRole("radio", { name: "Usage" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Transactions" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Statements" })).toBeTruthy();
     // Prepaid is what an account gets unless an operator says otherwise, so this screen
     // says so — a client reading it who expected a wallet is reading OUR misconfiguration.
     await screen.findByText(/Most accounts pay as they go/);
@@ -1291,6 +1287,8 @@ describe("the facts the hub hands the assistant", () => {
         <Probe onHolder={(next) => (holder = next)} />
       </>,
       routes({
+        // The default Usage view's own reads, unanswered (`billingHub.tsx`).
+        ...hubUsageIdle(),
         [LOTS_ROUTE]: {
           ...LOTS,
           tiers: [

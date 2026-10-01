@@ -381,7 +381,8 @@ describe("the dashboard renders what the server said, or says it could not", () 
     );
 
     // WAS `not.toContain(RAW)`. D-436 reversed it: the rail exists to be acted on.
-    expect(await screen.findByText(PHONE)).toBeTruthy();
+    // Printed grouped for reading (`formatPhone`); the E.164 form stays the value.
+    expect(await screen.findByText("+91 98765 43210")).toBeTruthy();
     // The half that did NOT change — URLs reach logs, referrers and browser history.
     for (const link of Array.from(container.querySelectorAll("a"))) {
       expect(link.getAttribute("href") ?? "").not.toContain("9876543210");

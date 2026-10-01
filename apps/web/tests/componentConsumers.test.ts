@@ -62,7 +62,6 @@ const AWAITING_A_DECISION = [
   "interior/loading-button",
   "interior/new-items-pill",
   "interior/otp-input",
-  "interior/progress-bar",
   "interior/show-more",
   "interior/skeleton-swap",
   "interior/sticky-header",

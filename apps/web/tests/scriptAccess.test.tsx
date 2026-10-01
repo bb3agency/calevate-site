@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
@@ -49,20 +49,25 @@ const page = (
   <AgentScriptPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />
 );
 
-function routes(who: Me) {
+function routes(who: Me, script: ScriptOut = SCRIPT) {
   return {
     "/v1/me": who,
     "/v1/agents/agent-1": agentRow(),
-    "/v1/agents/agent-1/script": SCRIPT,
+    "/v1/agents/agent-1/script": script,
     "PUT /v1/agents/agent-1/script": { version: 4, staged: true },
   };
 }
 
 describe("saving the call script", () => {
   it("is open to an owner", async () => {
+    // Nothing staged, so the toolbar's one primary is Save (with a version waiting and a
+    // clean editor it is Apply instead — D-657's one-primary rule).
     const { calls } = await renderClientPage(
       page,
-      routes(me("owner", ["agents:read", "org:read", "org:manage"])),
+      routes(me("owner", ["agents:read", "org:read", "org:manage"]), {
+        ...SCRIPT,
+        has_pending: false,
+      }),
     );
     const save = await screen.findByRole("button", { name: "Save script" });
     await waitFor(() => expect(save.matches(":disabled")).toBe(false));
@@ -81,15 +86,25 @@ describe("saving the call script", () => {
     expect(
       await screen.findByText("Only an account owner can save or apply this script."),
     ).toBeTruthy();
-    for (const name of ["Save script", "Apply to live calls", /undo changes/i]) {
-      expect(screen.getByRole("button", { name }).matches(":disabled")).toBe(true);
-    }
+    // CHANGED with D-657: the toolbar shows ONE primary — Apply here, because a version is
+    // staged and nothing is unsaved — and Undo and the compiled prompt moved into its ⋯
+    // menu. Each refused control is still shown, disabled, with the reason on screen.
+    const applyButton = screen.getByRole("button", { name: "Apply to live calls" });
+    expect(applyButton.matches(":disabled")).toBe(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "More actions for this script" }));
+    });
+    expect(
+      (await screen.findByRole("menuitem", { name: /undo changes/i })).getAttribute(
+        "aria-disabled",
+      ),
+    ).toBe("true");
     // Previewing is `agents:read`, so it stays open.
     expect(
-      screen.getByRole("button", { name: /view compiled prompt/i }).matches(":disabled"),
-    ).toBe(false);
+      screen.getByRole("menuitem", { name: /view compiled prompt/i }).getAttribute("aria-disabled"),
+    ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save script" }));
+    fireEvent.click(applyButton);
     expect(calls.some((call) => call.method !== "GET")).toBe(false);
   });
 });

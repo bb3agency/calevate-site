@@ -22,7 +22,7 @@ import type { PaymentReceipt } from "@/lib/api/wallet";
  *
  * ## Why it is not called a tax invoice, and why that word is not decided here
  *
- * The business is not registered for GST and is not required to be at present turnover,
+ * The business is not registered for GST, being below the registration threshold (D-659),
  * so there is no GSTIN to print and no tax may lawfully be collected (CGST s.32;
  * `billing/gst.py` refuses to render a tax invoice without one). What this is, is a
  * RECEIPT: an acknowledgement that money was received for prepaid calling credit.

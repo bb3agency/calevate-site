@@ -1,16 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Coins, PhoneCall, Timer } from "lucide-react";
 
+import { Metric } from "@/components/console/metric";
+import { Panel } from "@/components/console/panel";
 import {
-  Card,
   EmptyState,
   NOTICE_TONES,
   ProblemNotice,
   ScrollRegion,
   Skeleton,
-  StatTile,
   formatCount,
   formatINR,
   formatIST,
@@ -97,16 +96,15 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-line pb-6 xl:grid-cols-4">
         {/* The month's CALLING charge, which is what the rows below itemise. The retainer
             is published separately and on purpose — see the file header. */}
-        <StatTile
+        <Metric
           label={`Calling charge · ${data.month}`}
           value={formatINR(data.period_charge_inr)}
-          icon={<Coins className="h-5 w-5" />}
           hint="What your calls cost this month, before the monthly fee below."
         />
-        <StatTile
+        <Metric
           label="Monthly fee"
           value={data.retainer_inr === null ? "None" : formatINR(data.retainer_inr)}
           hint={
@@ -120,16 +118,14 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
             and cannot look back; this one has a picker. Two tiles both reading "Minutes
             used" with two different figures is the kind of screen a client screenshots
             and asks us to explain, so each says which month it means. */}
-        <StatTile
+        <Metric
           label={`Minutes used · ${data.month}`}
           value={data.minutes_used}
-          icon={<Timer className="h-5 w-5" />}
           hint="Metered to the same precision your statement bills."
         />
-        <StatTile
+        <Metric
           label={`Calls · ${data.month}`}
           value={formatCount(data.calls)}
-          icon={<PhoneCall className="h-5 w-5" />}
         />
       </div>
 
@@ -142,7 +138,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
 
       <Residual data={data} />
 
-      <Card title="By agent" bodyClassName="p-0">
+      <Panel title="By agent" bodyClassName="pb-2">
         {data.by_agent.length === 0 ? (
           <div className="p-6">
             <EmptyState
@@ -154,7 +150,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
           <ScrollRegion label="Charge by agent">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
-                <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                <tr className="border-b border-line text-left text-[12px] text-ink-muted">
                   <th className="px-4 py-3 font-semibold sm:px-6">Agent</th>
                   <th className="px-4 py-3 text-right font-semibold sm:px-6">Calls</th>
                   <th className="px-4 py-3 text-right font-semibold sm:px-6">Minutes</th>
@@ -173,11 +169,11 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
             </table>
           </ScrollRegion>
         )}
-      </Card>
+      </Panel>
 
-      <Card
+      <Panel
         title="Your costliest calls"
-        bodyClassName="p-0"
+        bodyClassName="pb-2"
         action={
           data.top_calls_truncated ? (
             <span className="text-xs text-ink-muted">
@@ -198,7 +194,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
           <ScrollRegion label="Your costliest calls">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                <tr className="border-b border-line text-left text-[12px] text-ink-muted">
                   <th className="px-4 py-3 font-semibold sm:px-6">When</th>
                   <th className="px-4 py-3 font-semibold sm:px-6">Agent</th>
                   <th className="px-4 py-3 font-semibold sm:px-6">Direction</th>
@@ -214,7 +210,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
             </table>
           </ScrollRegion>
         )}
-      </Card>
+      </Panel>
     </div>
   );
 }

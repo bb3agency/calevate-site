@@ -584,12 +584,13 @@ describe("what the page promises the agent knows", () => {
     const { container } = render(await Home());
     const text = container.textContent ?? "";
     // The capability card: "built into the agent" is the T0 mechanism in the owner's own
-    // words, and the approval half is the product property FLOWS §7 exists for.
+    // words, and since D-658 the honest second half is that nobody approves it first.
     expect(text).toContain("built into the agent");
-    expect(text).toContain("until a person approves it");
-    // The FAQ answer. Both halves are load-bearing: WHERE the answers come from (facts a
-    // person approved, not a document) and WHEN they get there (before the call).
-    expect(text).toContain("From facts somebody has approved");
+    expect(text).toContain("there is no approval step");
+    expect(text).not.toContain("until a person approves it");
+    // The FAQ answer. Both halves are load-bearing: WHERE the answers come from (facts the
+    // business added, not the internet) and WHEN they get there (before the call).
+    expect(text).toContain("From facts your business has added");
     expect(text).toContain("written into the agent before it takes a call");
   });
 });

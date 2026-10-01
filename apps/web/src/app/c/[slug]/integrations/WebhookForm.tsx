@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Card, FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import type { Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
@@ -44,7 +44,7 @@ export function WebhookForm({
   const callCompletedSelected = events.includes("call.completed");
 
   return (
-    <Card title="Send events to your own system">
+    <div className="space-y-3">
       {create.error && (
         <div className="mb-3">
           <ProblemNotice error={create.error} />
@@ -184,6 +184,6 @@ export function WebhookForm({
           {create.isPending ? "Adding…" : "Add endpoint"}
         </button>
       </form>
-    </Card>
+    </div>
   );
 }

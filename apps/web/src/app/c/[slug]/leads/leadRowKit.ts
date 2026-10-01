@@ -27,6 +27,8 @@ export interface LeadRowKit {
   ownerCell: (lead: Lead, className: string) => ReactNode;
   statusCell: (lead: Lead, className: string) => ReactNode;
   hrefFor: (lead: Lead) => string;
+  /** A call's screen, by id — the "Open the last call" row action. */
+  callHref: (callId: string) => string;
   /** The SERVER's count for a stage, or `undefined` when it did not say. */
   stageCount: (stage: LeadStatus) => number | undefined;
   /**

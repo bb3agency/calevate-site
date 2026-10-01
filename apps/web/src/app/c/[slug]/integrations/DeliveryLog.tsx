@@ -56,7 +56,7 @@ export function DeliveryLog({
   payload: ReturnType<typeof useDeliveryPayload>;
 }) {
   return (
-    <Card title="Recent deliveries">
+    <Card title="Recent deliveries" density="compact">
       {/* Why the payload column is not here — said ONLY when the answer is ours rather
           than the server's. A staff reader who genuinely lacks `calls:read_raw` gets no
           column and no sentence, which is the deliberate design ("a permanently empty
@@ -80,7 +80,7 @@ export function DeliveryLog({
         <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
           <table className="w-full min-w-[500px] text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider text-ink-faint">
+            <tr className="text-left text-xs text-ink-faint">
               <th className="pb-2 font-semibold">Event</th>
               <th className="pb-2 font-semibold">Result</th>
               <th className="pb-2 font-semibold">Tries</th>

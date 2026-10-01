@@ -34,6 +34,7 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing.gst import (
+    GST_STATUS_SENTENCE,
     UT_WITHOUT_LEGISLATURE,
     parse_gstin,
     resolve_place_of_supply,
@@ -309,6 +310,8 @@ async def test_the_client_and_admin_documents_are_identical(gst_registered: Any)
     admin_body = as_admin.json()
     assert client_body.pop("generated_at")
     assert admin_body.pop("generated_at")
+    # The operator's copy adds exactly one field, its own; everything else is identical.
+    assert admin_body.pop("document_blockers") == []
     assert client_body == admin_body
     # And it is a REAL document, not two identical empties: the comparison would pass on
     # two error shapes, so pin that the thing being compared has the figures on it.
@@ -320,22 +323,20 @@ async def test_the_client_and_admin_documents_are_identical(gst_registered: Any)
 
 
 async def test_without_the_identity_config_it_refuses_to_be_a_tax_invoice() -> None:
-    """The state EVERY deployment is in today (ROADMAP M0: no legal entity, no GST
-    registration). The document says what it is and names the variables that would make
-    it something else, rather than printing an official-looking sheet that fails in the
-    recipient's return months later."""
+    """The state EVERY deployment is in (D-659: below the GST registration threshold, so
+    not registered). The client's document says what it is in the one GST sentence and
+    names NO setting — unset is the normal state, and a settings name is an internal."""
     org = await _tenant_with_usage()
 
     async with _client() as http:
-        body = (await http.get(CLIENT_PATH, headers=await _client_headers(org))).json()
+        response = await http.get(CLIENT_PATH, headers=await _client_headers(org))
+    body = response.json()
 
     assert body["document_type"] == "bill_of_supply"
-    assert body["document_blockers"] == [
-        "GST_SUPPLIER_LEGAL_NAME",
-        "GST_SUPPLIER_ADDRESS",
-        "GST_SUPPLIER_GSTIN",
-        "GST_SUPPLY_SAC",
-    ]
+    assert "document_blockers" not in body
+    for setting in ("GST_SUPPLIER", "GST_SUPPLY_SAC", "gst_supplier", "gst_supply_sac"):
+        assert setting not in response.text, f"{setting} leaked onto the client's statement"
+    assert GST_STATUS_SENTENCE in body["tax_note"]
     assert body["supplier"] == {
         "legal_name": None,
         "address": None,
@@ -356,13 +357,31 @@ async def test_without_the_identity_config_it_refuses_to_be_a_tax_invoice() -> N
     assert body["gst_inr"] == "0.00"
     assert body["gst_rate_pct"] == "0"
     assert body["total_inr"] == "10159.00", "no tax is added to a bill of supply"
-    assert "no tax is charged" in body["tax_note"]
     assert "input tax credit" in body["tax_note"]
-    # The 18% figure is kept ONLY as a clearly-labelled internal estimate, never as a
-    # collectible amount — so a missing config key still moves no money on the document.
-    assert body["estimated_gst_rate_pct"] == "18"
-    assert body["estimated_gst_inr"] == "1828.62"
-    assert body["estimated_total_inr"] == "11987.62"
+    # No estimate of a tax that is not charged: the document models one state.
+    assert not [key for key in body if key.startswith("estimated_")]
+
+
+async def test_the_operator_copy_names_the_settings_a_registration_would_need() -> None:
+    """The operator-facing signal survives on the ADMIN route only (D-659)."""
+    org = await _tenant_with_usage()
+    admin_token = await _make_admin()
+
+    async with _client() as http:
+        body = (
+            await http.get(
+                f"/v1/admin/tenants/{org['id']}/invoice",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+        ).json()
+
+    assert body["document_type"] == "bill_of_supply"
+    assert body["document_blockers"] == [
+        "GST_SUPPLIER_LEGAL_NAME",
+        "GST_SUPPLIER_ADDRESS",
+        "GST_SUPPLIER_GSTIN",
+        "GST_SUPPLY_SAC",
+    ]
 
 
 async def test_a_partial_identity_is_still_a_refusal(gst_registered: Any) -> None:
@@ -372,8 +391,15 @@ async def test_a_partial_identity_is_still_a_refusal(gst_registered: Any) -> Non
     gst_registered(gstin="36AABCC1234D1Z")  # 14 characters — one short
     org = await _tenant_with_usage()
 
+    admin_token = await _make_admin()
+
     async with _client() as http:
-        body = (await http.get(CLIENT_PATH, headers=await _client_headers(org))).json()
+        body = (
+            await http.get(
+                f"/v1/admin/tenants/{org['id']}/invoice",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+        ).json()
 
     assert body["document_type"] == "bill_of_supply"
     assert body["document_blockers"] == ["GST_SUPPLIER_GSTIN"]
@@ -394,7 +420,7 @@ async def test_with_the_identity_configured_it_is_a_tax_invoice(gst_registered: 
         body = (await http.get(CLIENT_PATH, headers=await _client_headers(org))).json()
 
     assert body["document_type"] == "tax_invoice"
-    assert body["document_blockers"] == []
+    assert "document_blockers" not in body
     assert body["supplier"]["legal_name"] == "Calevate"
     assert body["supplier"]["address"] == "Plot 42, Madhapur, Hyderabad 500081"
     assert body["supplier"]["gstin"] == SUPPLIER_GSTIN

@@ -221,9 +221,9 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 |---|---|---|---|
 | GST-1 | Tax invoice particulars (Rule 46, CGST Rules) | **MET in code** | `apps/api/billing/invoice.py` — supplier + recipient identity and GSTIN, serial, date, per-line SAC, taxable value, rate, tax head, place of supply; place of supply resolved per IGST s.12(2)(a). |
 | GST-2 | 18% on SaaS, SAC 998315 | **MET** | `billing/invoice.py` header comment cites both; `gst_supply_sac` default. |
-| GST-3 | Unregistered person must not collect tax (CGST s.32) | **MET** | The module refuses to render a tax invoice without a supplier GSTIN, and issues a proforma instead. |
+| GST-3 | Unregistered person must not collect tax (CGST s.32) | **MET** | The module refuses to render a tax invoice without a supplier GSTIN and issues a bill of supply (CGST Rules r.49) with no tax line; the client reads `gst.GST_STATUS_SENTENCE` and never a settings name (D-659). |
 | GST-4 | Corrections by credit/debit note under s.34 | **MET** | Explicit in `billing/invoice.py`; append-only ledgers make it the only available shape. |
-| GST-5 | GST registration itself | **EXTERNAL** | `{{GSTIN}}`. Blocks GST-1..GST-4 from being anything but code. |
+| GST-5 | GST registration itself | **NOT REQUIRED (REPORTED)** | Founder, 1 Oct 2026 (D-659): an MSME sole proprietorship below the ₹20 lakh services threshold (₹10 lakh in special-category States), which cleartax.in and batchwise.ai agree on; not read from CGST Act s.22/s.24 here. Re-check on crossing it — registration switches GST-1..GST-4 on through config. |
 | GST-6 | e-invoicing (IRN) above ₹5 crore turnover | **NOT ENGAGED** | Re-check on crossing the threshold. Added to §8. |
 | GST-7 | Payment aggregator onboarding requires published refund/cancellation policy, terms, privacy policy, and real contact details incl. a working phone | **MET as of this change** | `/legal/refunds`, `/legal/terms`, `/legal/privacy`, `{{CONTACT_PHONE}}`. **None of these existed before**, which would have failed Razorpay onboarding at the first review. |
 | GST-8 | No raw card data stored | **MET** | `apps/api/billing/payments.py` — gateway-hosted; nothing in the schema holds a PAN. |

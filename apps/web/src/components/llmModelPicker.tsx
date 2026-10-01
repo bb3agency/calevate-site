@@ -72,6 +72,7 @@
 
 import { CheckCircle2 } from "lucide-react";
 
+import { InfoTip } from "@/components/console/infoTip";
 import { formatRupeeRate } from "@/components/ui";
 import { providerLabel } from "@/lib/api/llmModels";
 import { compareRates, rateDifference } from "@/lib/llmRates";
@@ -192,6 +193,7 @@ export function ModelPicker({
   baselineSurcharge,
   disabled,
   onChange,
+  audience = "operator",
 }: {
   /** Scopes the radio group, so an agent screen and a settings screen never share one. */
   name: string;
@@ -208,6 +210,12 @@ export function ModelPicker({
   baselineSurcharge: string | null;
   disabled?: boolean;
   onChange: (next: string | null) => void;
+  /**
+   * Who reads the rows. `"client"` folds each refusal to one word with the server's
+   * sentence behind an ⓘ — an owner scanning prices needs to know a row is out, not the
+   * same reason five times over. The default renders exactly as before.
+   */
+  audience?: "client" | "operator";
 }) {
   const row = (choice: ModelChoice) => {
     const checked = choice.value === value;
@@ -276,9 +284,17 @@ export function ModelPicker({
               rather than muted: it is the difference between "this costs more" and
               "this cannot be chosen at all", and a reader skimming prices must not
               have to work out which rows are real. */}
-          {blocked && (
+          {blocked && audience === "operator" && (
             <span className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400">
               Cannot be chosen — {choice.unavailable}
+            </span>
+          )}
+          {blocked && audience === "client" && (
+            <span className="mt-0.5 flex items-center gap-0.5 pl-6 text-xs font-medium text-warn">
+              Unavailable<span className="sr-only"> — {choice.unavailable}</span>
+              <InfoTip label={`${choice.label} unavailable`}>
+                <p>{choice.unavailable}</p>
+              </InfoTip>
             </span>
           )}
         </span>

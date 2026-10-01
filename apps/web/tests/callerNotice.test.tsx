@@ -1,7 +1,8 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
+import { printableClone } from "@/components/noticeDocument";
 import type { CallerNotice } from "@/lib/api/callerNotice";
 import type { Me } from "@/lib/api/client";
 
@@ -74,9 +75,28 @@ const NOTICE: CallerNotice = {
   open_questions: [
     "Who is your grievance officer, and how does a caller reach them?",
   ],
-  // The disclaimer is inside the document as well as beside it — that is the property the
-  // first test below exists to pin, so the fixture has to carry it in both places.
-  notice_markdown: `# Privacy notice\n\n${DISCLAIMER}\n\nWhen you call us, an AI assistant answers.\n`,
+  // Real-shaped: the server's markdown carries the itemised list, the periods and the
+  // blanks, and the disclaimer is inside the document as well as beside it — the property
+  // the second test below exists to pin, so the fixture has to carry it in both places.
+  notice_markdown: [
+    `> ${DISCLAIMER}`,
+    "",
+    "# How {{YOUR REGISTERED BUSINESS NAME}} handles your information when you call us",
+    "",
+    "## What we collect",
+    "",
+    "- **Your name** — So we can address you and match you to your enquiry.",
+    "- **Your phone number** — So we can call you back about your enquiry.",
+    "",
+    "## How long we keep it",
+    "",
+    "- Call recordings: 90 days",
+    "- Lead records: 365 days",
+    "",
+    "{{YOUR REGISTERED BUSINESS NAME}} answers data questions at",
+    "{{YOUR CONTACT FOR DATA QUESTIONS — NAME, EMAIL, PHONE}}.",
+    "",
+  ].join("\n"),
 };
 
 const ROUTES = { "/v1/me": OWNER, "/v1/compliance/caller-notice": NOTICE };
@@ -85,12 +105,12 @@ describe("the caller-notice draft", () => {
   it("itemises what is collected and how long it is kept", async () => {
     await renderClientPage(<CallerNoticePage />, ROUTES);
 
+    // Read from the document itself: the itemisation is the server's list, rendered, and
+    // no longer repeated in cards beside it.
     expect(await screen.findByText("Your phone number")).toBeTruthy();
-    expect(
-      screen.getByText("So we can call you back about your enquiry."),
-    ).toBeTruthy();
-    expect(screen.getByText("Call recordings")).toBeTruthy();
-    expect(screen.getByText("365 days")).toBeTruthy();
+    expect(screen.getByText(/So we can call you back about your enquiry\./)).toBeTruthy();
+    expect(screen.getByText("Call recordings: 90 days")).toBeTruthy();
+    expect(screen.getByText("Lead records: 365 days")).toBeTruthy();
   });
 
   it("keeps the draft warning both beside the document and inside it", async () => {
@@ -167,6 +187,65 @@ describe("the caller-notice draft", () => {
     // Nothing that could be mistaken for the answer: no empty state, no document card.
     expect(screen.queryByText("Nothing itemised yet")).toBeNull();
     expect(screen.queryByRole("button", { name: /copy/i })).toBeNull();
+  });
+
+  it("fills a blank everywhere it appears and counts it as done", async () => {
+    await renderClientPage(<CallerNoticePage />, ROUTES);
+    await screen.findByText("Your name");
+
+    // The business name appears twice in the draft: one value, both places.
+    const fields = screen.getAllByLabelText("Your registered business name");
+    expect(fields).toHaveLength(2);
+    fireEvent.change(fields[0], { target: { value: "Sunrise Dental Care" } });
+
+    for (const field of screen.getAllByLabelText("Your registered business name")) {
+      expect((field as HTMLInputElement).value).toBe("Sunrise Dental Care");
+    }
+    expect(screen.getByText("1 of 2 done")).toBeTruthy();
+  });
+
+  it("prints the filled text, and an unfilled blank exactly as the server wrote it", async () => {
+    await renderClientPage(<CallerNoticePage />, ROUTES);
+    await screen.findByText("Your name");
+    fireEvent.change(screen.getAllByLabelText("Your registered business name")[0], {
+      target: { value: "Sunrise Dental Care" },
+    });
+
+    const sheet = screen.getByRole("article", { name: "Draft privacy notice" });
+    const printed = printableClone(sheet, { "YOUR REGISTERED BUSINESS NAME": "Sunrise Dental Care" });
+
+    // No form controls travel to the printer: a cloned input would print empty.
+    expect(printed.querySelectorAll("input, textarea")).toHaveLength(0);
+    expect(printed.textContent?.split("Sunrise Dental Care")).toHaveLength(3);
+    expect(printed.textContent).toContain("{{YOUR CONTACT FOR DATA QUESTIONS — NAME, EMAIL, PHONE}}");
+    expect(printed.textContent).toContain(DISCLAIMER);
+  });
+
+  it("keeps typed blanks in this browser", async () => {
+    window.localStorage.clear();
+    await renderClientPage(<CallerNoticePage />, ROUTES);
+    await screen.findByText("Your name");
+    await waitFor(() => expect(screen.getAllByLabelText("Your registered business name")).toHaveLength(2));
+    fireEvent.change(screen.getAllByLabelText("Your registered business name")[0], {
+      target: { value: "Sunrise Dental Care" },
+    });
+    await waitFor(() =>
+      expect(window.localStorage.getItem("calevate:caller-notice:acme")).toContain("Sunrise Dental Care"),
+    );
+    window.localStorage.clear();
+  });
+
+  it("does not leave a client's words in an operator's browser", async () => {
+    window.localStorage.clear();
+    await renderClientPage(<CallerNoticePage />, {
+      ...ROUTES,
+      "/v1/me": { ...OWNER, impersonating: true },
+    });
+    await screen.findByText("Your name");
+    fireEvent.change(screen.getAllByLabelText("Your registered business name")[0], {
+      target: { value: "Sunrise Dental Care" },
+    });
+    expect(window.localStorage.length).toBe(0);
   });
 
   it("has no accessibility violations", async () => {

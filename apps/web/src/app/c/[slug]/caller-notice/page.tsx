@@ -1,88 +1,44 @@
 "use client";
 
-import { useState } from "react";
-import {
-  ClipboardCheck,
-  Copy,
-  HelpCircle,
-  MicOff,
-  ShieldAlert,
-} from "lucide-react";
+import { useMemo, useRef } from "react";
 
-import {
-  Card,
-  EmptyState,
-  NoticeBox,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  ScrollRegion,
-  Skeleton,
-  formatCount,
-} from "@/components/ui";
+import { PageHeader } from "@/components/console/pageHeader";
+import { RowMenu } from "@/components/console/rowMenu";
+import { CopyButton } from "@/components/interior/copy-button";
+import { NoticeDocument, printableClone } from "@/components/noticeDocument";
+import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import { useCallerNotice, type CallerNotice } from "@/lib/api/callerNotice";
+import { useMe } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { blankKeys, fill, toPlainText, valueOf } from "@/lib/noticeDraft/blanks";
+import { parseNotice } from "@/lib/noticeDraft/blocks";
+import { printDocument } from "@/lib/printDocument";
+
+import { downloadText } from "./download";
+import { FillPanel } from "./FillPanel";
+import { useBlankValues } from "./useBlankValues";
 
 /**
- * The privacy notice a client owes their OWN callers (LEGAL-SURFACE F-8, D-179).
+ * The privacy notice a client owes their OWN callers (LEGAL-SURFACE F-8, D-179), as a
+ * draft document they fill in and hand to their advocate.
  *
- * The endpoint behind this shipped complete and reachable by nothing, which on this
- * particular surface is worse than an unbuilt feature: DPDP Rule 3 makes the notice the
- * CLIENT's obligation, while every fact it must state — which fields their agents
- * extract, how long each record is kept, which agents announce themselves — lives in our
- * database and on our screens. So the party who owes the notice could not see what it had
- * to say, and wrote it from memory or not at all.
+ * The words are the server's `notice_markdown`, rendered and never rewritten: rebuilding
+ * them here would give one legal document two spellings. The disclaimer is shown above
+ * the sheet AND stays inside it, because a warning that lives only beside the document
+ * stops travelling once the text is copied out. The blanks are filled in this browser
+ * only (`useBlankValues`); Copy, Download and Print all produce the filled text.
  *
- * ## It is a DRAFT and the screen never lets that out of sight
- *
- * The disclaimer is rendered ABOVE the document and is also inside the markdown the
- * client copies, because a warning that lives only in the envelope stops travelling the
- * moment the text is pasted into a website. Both copies come from the server's
- * `DRAFT_WARNING` — this screen does not compose a second wording of it.
- *
- * ## The prose is not rebuilt here
- *
- * `notice_markdown` arrives rendered and is handed over verbatim. Re-deriving it from
- * `collected` and `retention` in the browser would put the wording — the part an advocate
- * reviews — outside the thing that was reviewed, and would give one legal document two
- * spellings. The structured lists ARE re-rendered, because a table a client can scan is
- * not the same artefact as the paragraph they publish.
- *
- * ## Two lists that are absences, and why they are named rather than counted
- *
- * `ai_disclosure_off` and `recording_notice_off` are the agents whose opening
- * announcements are switched off (D-163). With an announcement off, the obligation does
- * not disappear — it MOVES, onto this notice — so the client needs to know which agent,
- * not how many. An agent always answers truthfully when a caller asks outright, and that
- * is enforced server-side and cannot be withdrawn; the toggle only governs what is
- * VOLUNTEERED. The copy says exactly that, because "recording notice off" read alone
- * suggests a product that hides recording, which is not what it does.
- *
- * ## No `useWriteAccess` gate
- *
- * There is nothing to write. The endpoint asks for `org:read` precisely so a read-only
- * "view as client" support session (D-22) can open it while a client is on the phone
- * asking how to write their notice — gating the screen on write access would close the
- * case it was built for.
+ * No `useWriteAccess` gate: nothing is written to us, and the endpoint takes `org:read`
+ * so a read-only "view as client" session (D-22) can open it with a client on the phone.
  */
 export default function CallerNoticePage() {
   const session = useClientSession();
   const notice = useCallerNotice(session);
 
-  /*
-   * THE DRAFT CALLER NOTICE, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
-   *
-   * The document itself is NOT sent — `notice_markdown` is a page of prose the server
-   * composed and the copilot has no business rewriting, and sending it would put most of
-   * this account's data map into every question asked from this screen for no gain.
-   * What is declared is its SHAPE: how many items are itemised, how many retention lines,
-   * which agents have an announcement switched off, and what the server flagged as still
-   * open. Those are the four things a person on this screen is actually asking about.
-   *
-   * The agent NAMES in `ai_disclosure_off` are the client's own labels for their own
-   * agents, the same strings the roster and the campaign picker already declare.
-   */
+  // The document is declared by SHAPE, not text: the copilot has no business rewriting a
+  // legal draft, and the four facts below are what a person on this screen asks about.
   useCopilotSurface({
     route: "/c/{slug}/caller-notice",
     title: "What you tell your callers",
@@ -93,23 +49,15 @@ export default function CallerNoticePage() {
         key: "state",
         label: "What is on screen",
         value: notice.data
-          ? "the draft notice below has loaded"
+          ? "the draft notice has loaded"
           : notice.isError
             ? "the draft failed to load, so nothing is shown"
             : "still loading",
       },
       ...(notice.data
         ? [
-            {
-              key: "collected_items",
-              label: "Details itemised as collected from callers",
-              value: String(notice.data.collected.length),
-            },
-            {
-              key: "retention_lines",
-              label: "Retention lines (how long each kind of record is kept)",
-              value: String(notice.data.retention.length),
-            },
+            { key: "collected_items", label: "Details itemised as collected from callers", value: String(notice.data.collected.length) },
+            { key: "retention_lines", label: "Retention lines (how long each kind of record is kept)", value: String(notice.data.retention.length) },
             {
               key: "ai_disclosure_off",
               label: "Agents that do NOT announce they are an AI at the start",
@@ -120,239 +68,79 @@ export default function CallerNoticePage() {
               label: "Agents that do NOT announce the call is recorded",
               value: notice.data.recording_notice_off.join(", ") || "none — every agent announces it",
             },
-            {
-              key: "open_questions",
-              label: "Things the draft says it cannot answer yet",
-              value: notice.data.open_questions.join("; ") || "none",
-            },
+            { key: "open_questions", label: "Things the draft says it cannot answer yet", value: notice.data.open_questions.join("; ") || "none" },
           ]
         : []),
     ],
     apply: noFill,
   });
 
-  return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        {/* No <h1>: the app shell prints the page title from the nav list (layout.tsx);
-            a second heading here argues with it after a rename (ux-audit INT-3/CN-1). */}
-        <p className="max-w-3xl text-sm text-ink-muted">
-          Indian data-protection law requires you to tell your callers, item by
-          item, what you collect from them and how long you keep it. This is a
-          draft, built from the details your agents collect, how long you keep
-          each kind of record, and what your agents announce at the start of a call.
-        </p>
-      </header>
-
-      {notice.isLoading ? (
-        <Card title="Draft notice">
-          <Skeleton rows={6} label="Loading your privacy notice" />
-        </Card>
-      ) : notice.isError ? (
-        <ProblemNotice error={notice.error} />
-      ) : notice.data ? (
-        <NoticeBody notice={notice.data} />
-      ) : null}
-    </div>
-  );
-}
-
-function NoticeBody({ notice }: { notice: CallerNotice }) {
-  return (
-    <div className="space-y-6">
-      {/* The disclaimer is the server's sentence, rendered before anything it qualifies. */}
-      <NoticeBox
-        tone="warn"
-        icon={<ShieldAlert aria-hidden className="h-4 w-4" />}
-        title="This is a draft, not legal advice"
-      >
-        {notice.disclaimer}
-      </NoticeBox>
-
-      <Card
-        title="What you collect"
-        action={
-          <span className="text-xs text-ink-faint">
-            {formatCount(notice.collected.length)} items
-          </span>
-        }
-      >
-        {notice.collected.length === 0 ? (
-          <EmptyState
-            title="Nothing itemised yet"
-            hint="Once an agent is live and set up to collect details from calls, every detail it captures appears here."
-          />
-        ) : (
-          <ul className="divide-y divide-line">
-            {notice.collected.map((item) => (
-              <li
-                key={`${item.what}::${item.why}`}
-                className="py-3 first:pt-0 last:pb-0"
-              >
-                <p className="text-sm font-medium text-ink">{item.what}</p>
-                <p className="mt-0.5 text-sm text-ink-muted">{item.why}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card title="How long you keep it">
-        {notice.retention.length === 0 ? (
-          <EmptyState
-            title="Nothing set yet"
-            hint="How long each kind of record is kept is set up with you when your account is created."
-          />
-        ) : (
-          <ul className="divide-y divide-line">
-            {notice.retention.map((line) => (
-              <li
-                key={line.what}
-                className="flex items-baseline justify-between gap-4 py-3 first:pt-0 last:pb-0"
-              >
-                <span className="text-sm text-ink">{line.what}</span>
-                <span className="text-sm tabular-nums text-ink-muted">
-                  {formatCount(line.days)} days
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <AnnouncementsOff notice={notice} />
-
-      {notice.open_questions.length > 0 ? (
-        <Card title="Only you can answer these">
-          <p className="mb-3 text-sm text-ink-muted">
-            The draft leaves these blank. They are facts about your business
-            that we do not hold.
-          </p>
-          <ul className="space-y-2">
-            {notice.open_questions.map((question) => (
-              <li key={question} className="flex gap-2 text-sm text-ink">
-                <HelpCircle
-                  aria-hidden
-                  className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint"
-                />
-                <span>{question}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
-
-      <DraftDocument markdown={notice.notice_markdown} />
-    </div>
-  );
-}
-
-/**
- * The two announcement lists, rendered only when they are non-empty.
- *
- * Rendered TOGETHER rather than as two cards because a client reads them as one question
- * — "what does my notice have to carry that my agents do not say out loud?" — and they
- * are separate obligations under separate regimes (D-163), so they are separately
- * labelled inside it.
- */
-function AnnouncementsOff({ notice }: { notice: CallerNotice }) {
-  const groups = [
-    {
-      key: "ai",
-      label: "These agents do not announce that they are AI",
-      agents: notice.ai_disclosure_off,
-    },
-    {
-      key: "recording",
-      label: "These agents do not announce that the call is recorded",
-      agents: notice.recording_notice_off,
-    },
-  ].filter((group) => group.agents.length > 0);
-
-  if (groups.length === 0) return null;
-
-  return (
-    <Card title="Announcements your agents do not make">
-      {/* Stated before the lists, because "disclosure off" read alone describes a product
-          that conceals — and this one cannot. The truthful answer is enforced server-side
-          on every published agent and no setting withdraws it. */}
-      <p className="mb-3 text-sm text-ink-muted">
-        Every agent still answers truthfully whenever a caller asks whether they
-        are speaking to an AI or whether the call is recorded — that cannot be
-        switched off. These settings govern only what is said unprompted at the
-        start of a call, so where one is off, your written notice is where the
-        obligation lands.
-      </p>
-      <div className="space-y-4">
-        {groups.map((group) => (
-          <div key={group.key}>
-            <p className="flex items-center gap-2 text-xs font-medium text-ink-muted">
-              <MicOff aria-hidden className="h-3.5 w-3.5" />
-              {group.label}
-            </p>
-            <ul className="mt-1.5 flex flex-wrap gap-1.5">
-              {group.agents.map((name) => (
-                <li
-                  key={name}
-                  className="rounded-md bg-surface-muted px-2 py-1 text-sm text-ink"
-                >
-                  {name}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+  if (notice.isError) return <ProblemNotice error={notice.error} />;
+  if (!notice.data) {
+    return (
+      <div className="mx-auto max-w-[46rem] rounded-sm border border-line bg-surface p-8">
+        <Skeleton rows={8} label="Loading your privacy notice" />
       </div>
-    </Card>
-  );
+    );
+  }
+  return <Draft notice={notice.data} />;
 }
 
-/**
- * The document itself, as the server rendered it, with a copy button.
- *
- * Shown as PLAIN TEXT rather than parsed into HTML on purpose. What the client needs is
- * the source they paste into their own site or hand to their advocate; rendering it would
- * mean this screen decides how the document looks, and the thing on the clipboard would
- * no longer be the thing on the screen.
- */
-function DraftDocument({ markdown }: { markdown: string }) {
-  const [copied, setCopied] = useState(false);
+function Draft({ notice }: { notice: CallerNotice }) {
+  const session = useClientSession();
+  const me = useMe(session);
+  // Not persisted until we know this is not a support session.
+  const persist = me.data !== undefined && !me.data.impersonating;
+  const { values, set, clear } = useBlankValues(session.orgSlug, persist);
+  const sheet = useRef<HTMLElement>(null);
 
-  // `navigator.clipboard` is absent in insecure contexts and in the test environment, so
-  // failure is a state the button reports rather than an exception that reaches the page.
-  // The textarea below is the fallback that always works: the text is selectable.
-  const copy = () => {
-    void navigator.clipboard
-      ?.writeText(markdown)
-      .then(() => setCopied(true))
-      .catch(() => setCopied(false));
+  const blocks = useMemo(() => parseNotice(notice.notice_markdown), [notice.notice_markdown]);
+  const keys = useMemo(() => blankKeys(notice.notice_markdown), [notice.notice_markdown]);
+  const filled = fill(notice.notice_markdown, values);
+  const done = keys.filter((key) => valueOf(values, key) !== null).length;
+
+  const print = () => {
+    if (sheet.current) void printDocument(printableClone(sheet.current, values), { title: "Privacy notice (draft)" });
   };
 
   return (
-    <Card
-      title="The draft"
-      action={
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={copy}>
-          {copied ? (
-            <ClipboardCheck aria-hidden className="h-3.5 w-3.5" />
-          ) : (
-            <Copy aria-hidden className="h-3.5 w-3.5" />
-          )}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      }
-    >
-      <p className="mb-3 text-sm text-ink-muted">
-        Give this to your advocate to review before you publish it.
+    <div className="space-y-5 pb-12">
+      <PageHeader
+        description={
+          keys.length > 0
+            ? `A draft notice for your callers, built from your settings. ${done} of ${keys.length} blanks filled.`
+            : "A draft notice for your callers, built from your settings."
+        }
+        actions={
+          <>
+            <CopyButton value={filled} label="Copy" variant="text" />
+            <RowMenu
+              label="the draft"
+              items={[
+                { id: "txt", label: "Download as text (.txt)", onSelect: () => downloadText(toPlainText(filled), "privacy-notice-draft.txt", "text/plain") },
+                { id: "md", label: "Download as Markdown (.md)", onSelect: () => downloadText(filled, "privacy-notice-draft.md", "text/markdown") },
+              ]}
+            />
+            <button type="button" onClick={print} className={PRIMARY_BUTTON}>
+              Print or save as PDF
+            </button>
+          </>
+        }
+      />
+
+      {/* The server's own sentence, word for word, before the document it qualifies. */}
+      <p role="note" className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-[13px] leading-snug text-warn">
+        {notice.disclaimer}
       </p>
-      <ScrollRegion
-        label="Draft privacy notice"
-        className="max-h-96 overflow-y-auto"
-      >
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs text-ink">
-          {markdown}
-        </pre>
-      </ScrollRegion>
-    </Card>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
+        <aside aria-label="Your blanks and announcements" className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1">
+          <FillPanel notice={notice} keys={keys} values={values} onClear={clear} />
+        </aside>
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1 settings-enter">
+          <NoticeDocument ref={sheet} blocks={blocks} values={values} onChange={set} />
+        </div>
+      </div>
+    </div>
   );
 }

@@ -327,8 +327,9 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     #: HOW the text was obtained (`parsed` / `ocr`) and BY WHAT — the reader's name, or
     #: the model id when a model read a photograph. Provenance, the argument
     #: `kb_documents.gloss_model` makes: "machine-generated" is worth nothing unless the
-    #: row says which machine. `ocr` is also a GATE and not only a label: text a model read
-    #: off a photograph is never auto-approved, whoever uploaded it.
+    #: row says which machine. The client's screen shows it beside the upload, so text a
+    #: model read off a photograph is labelled as such once it is live (D-658 removed the
+    #: confirmation that used to hold it back for an account member's upload).
     text_provenance: Mapped[str | None] = mapped_column(Text)
     extractor: Mapped[str | None] = mapped_column(Text)
     ingest_status: Mapped[str] = mapped_column(

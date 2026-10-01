@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ScrollRegion, StatusBadge, formatCount, formatIST } from "@/components/ui";
+import { ScrollRegion, StatusBadge, formatCount, formatIST, formatPhone } from "@/components/ui";
 
 import { STATUSES } from "./StatusSelect";
 import { INLINE_EDIT } from "./leadsTable";
@@ -22,17 +22,23 @@ export function LeadBoard({ kit }: { kit: LeadRowKit }) {
            count in each header is the SERVER's figure for that stage, so a column can
            legitimately show more than it holds — and says so underneath rather than
            letting the header be read as "this is all of them". */
-        <ScrollRegion label="Leads by stage" className="pb-2">
-          <div className="grid min-w-[960px] grid-cols-6 gap-3">
+        <ScrollRegion label="Leads by stage" className="snap-x pb-2">
+          {/* One lane per stage at a readable width; the row scrolls (and snaps a lane to
+              the edge) wherever six lanes do not fit, a phone included. */}
+          <div className="flex gap-3">
             {STATUSES.map((s) => {
               const columnLeads = items.filter((l) => l.status === s);
               const total = stageCount(s);
               const hidden = total === undefined ? 0 : total - columnLeads.length;
               return (
-                <div key={s} className="rounded-card border border-line bg-app p-2">
-                  <div className="flex items-center justify-between px-1 pb-2">
+                <section
+                  key={s}
+                  aria-label={s}
+                  className="w-[260px] shrink-0 snap-start rounded-xl bg-ink/[0.03] p-1.5 xl:w-auto xl:min-w-[200px] xl:flex-1"
+                >
+                  <div className="flex items-center justify-between px-2 pb-2 pt-1">
                     <StatusBadge value={s} />
-                    <span className="text-xs font-semibold tabular-nums text-ink-muted">
+                    <span className="text-[12px] font-medium tabular-nums text-ink-muted">
                       {formatCount(total)}
                     </span>
                   </div>
@@ -40,10 +46,10 @@ export function LeadBoard({ kit }: { kit: LeadRowKit }) {
                     {columnLeads.map((lead) => (
                       <div
                         key={lead.id}
-                        className="rounded-lg border border-line bg-surface p-2.5 shadow-card"
+                        className="rounded-lg bg-surface p-3 shadow-card ring-1 ring-ink/[0.06]"
                       >
                         <p
-                          title={lead.name ?? lead.phone_e164}
+                          title={lead.name ?? formatPhone(lead.phone_e164)}
                           className="truncate text-sm font-semibold text-ink"
                         >
                           {/* The list of leads without a captured name is long; the
@@ -52,17 +58,17 @@ export function LeadBoard({ kit }: { kit: LeadRowKit }) {
                             href={hrefFor(lead)}
                             className="hover:underline"
                           >
-                            {lead.name ?? lead.phone_e164}
+                            {lead.name ?? formatPhone(lead.phone_e164)}
                           </Link>
                         </p>
-                        <p className="mt-0.5 truncate text-xs text-ink-faint">
+                        <p className="mt-0.5 truncate text-[12px] text-ink-faint">
                           {lead.source} · {formatIST(lead.updated_at)}
                         </p>
                         {/* No drag-and-drop: the same PATCH the table uses, behind a
                             select, works everywhere including on a phone. */}
                         {statusCell(
                           lead,
-                          `mt-1.5 w-full ${INLINE_EDIT} border-line capitalize`,
+                          `mt-2 w-full ${INLINE_EDIT} border-line bg-app capitalize`,
                         )}
                         {/* Same control as the table, for the reason the dispatch
                             button below states: the board is where someone works the
@@ -71,7 +77,7 @@ export function LeadBoard({ kit }: { kit: LeadRowKit }) {
                         <div className="mt-1.5">
                           {ownerCell(
                             lead,
-                            `w-full ${INLINE_EDIT} border-line`,
+                            `w-full ${INLINE_EDIT} border-line bg-app`,
                           )}
                         </div>
                         {/* The failure lands on the CARD for the same reason it lands on
@@ -98,7 +104,7 @@ export function LeadBoard({ kit }: { kit: LeadRowKit }) {
                       <p className="px-1 py-3 text-center text-xs text-ink-faint">No leads</p>
                     )}
                   </div>
-                </div>
+                </section>
               );
             })}
           </div>

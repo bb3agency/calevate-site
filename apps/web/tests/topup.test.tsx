@@ -1074,8 +1074,11 @@ describe("the payment window", () => {
     // The panel in its most-rendered state: the rate card, the form and the live pay
     // control. The sweep in `a11y.test.tsx` renders rather than drives, so it cannot
     // reach this state at all.
+    // The top-up lives in the Add credit drawer (round-2), portalled to <body>; the
+    // `container` here IS the body so the secret check above reads the whole document, and
+    // the accessibility sweep is aimed at the drawer — the dialog this flow happens in.
     await expectNoA11yViolations(
-      container,
+      screen.getByRole("dialog", { name: "Add credit" }),
       "c/[slug]/usage — top-up with a live order",
     );
   });

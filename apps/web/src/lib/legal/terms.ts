@@ -217,7 +217,9 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "the in-app assistant, which spends the AI allowance on your account; and " +
               "they may curate the knowledge your agents answer from, but only if you as " +
               "owner switch that on. It is off until you turn it on, and neither staff " +
-              "nor anyone at Calevate viewing your account can turn it on for you.",
+              "nor anyone at Calevate viewing your account can turn it on for you. What " +
+              "staff add goes to your agents once it has been read, without review by you " +
+              "or by us, the same as what you add yourself.",
             "The information you give us must be accurate — your legal name, your GST " +
               "registration details and place of supply if you have them, and the " +
               "documents you produce for identity verification. Today those GST details " +

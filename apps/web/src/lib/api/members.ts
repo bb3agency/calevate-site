@@ -11,9 +11,10 @@
  *   meantime the API answers 409 rather than applying a click made against a stale
  *   picture. So the mutation takes the value the row rendered, never a value re-read
  *   from a cache at submit time.
- * - **Addresses come back MASKED and there is no unmasked variant to ask for.**
- *   `email` is in the API's `RAW_PII_FIELDS`; `GET /v1/members` omits it entirely and
- *   the invitation list carries `email_masked`. Nothing here reconstructs one.
+ * - **Addresses are on the managers' read only.** `GET /v1/members` (`org:read`, a picker)
+ *   carries no email; `GET /v1/team/members` (`org:manage`) carries each colleague's
+ *   address and the date they joined (D-660); the invitation list carries the full
+ *   invited address (D-436).
  * - **The invitation token is returned exactly once.** It is never stored (only its
  *   SHA-256 is) and there is no endpoint that can show it again, so the create response
  *   is held in component state and deliberately NOT written into the query cache — a
@@ -31,6 +32,8 @@ import type { components } from "./schema";
 type Schemas = components["schemas"];
 
 export type Member = Schemas["MemberOut"];
+/** A colleague with their address — `GET /v1/team/members`, `org:manage` only. */
+export type TeamMember = Schemas["MemberContactOut"];
 export type PendingInvitation = Schemas["InvitationOut"];
 export type CreatedInvitation = Schemas["InvitationCreatedOut"];
 export type MemberRemoved = Schemas["MemberRemovedOut"];
@@ -38,6 +41,7 @@ export type MemberRole = Schemas["MemberRoleIn"]["role"];
 
 export const teamKeys = {
   members: (org: string) => ["members", org] as const,
+  roster: (org: string) => ["members", org, "roster"] as const,
   invitations: (org: string) => ["invitations", org] as const,
 };
 
@@ -47,6 +51,26 @@ export function useMembers(session: Session): UseQueryResult<Member[]> {
     queryFn: () => apiRequest<Member[]>(session, "/v1/members"),
     // A team changes when somebody on this screen changes it; the mutations below
     // invalidate the key when they do.
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * The team WITH email addresses and join dates, for the people who manage it.
+ *
+ * `org:manage` on the server — owners hold it, staff do not. Gate the call on the
+ * permission (`enabled: false` for a staff session) so a staff screen does not render a
+ * 403 as an outage. Keyed under `teamKeys.members`, so every team mutation below
+ * invalidates it with the plain list.
+ */
+export function useTeamMembers(
+  session: Session,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<TeamMember[]> {
+  return useQuery({
+    queryKey: teamKeys.roster(session.orgSlug),
+    queryFn: () => apiRequest<TeamMember[]>(session, "/v1/team/members"),
+    enabled: options.enabled ?? true,
     staleTime: 60_000,
   });
 }

@@ -3,9 +3,12 @@
 The founder's instruction, verbatim: *"we will use api calls for OCR of text in images
 and if the OCR is not accurate we will discard that image file"*. This module is the
 first half. The second half — what "not accurate" MEANS — is the interesting half, and
-the answer this module implements is that **a person confirms the text before it can
-become knowledge**; everything mechanical here is a filter in front of that, never a
-substitute for it. See `_legibility_reason` and `ExtractedText.needs_confirmation`.
+the answer this module implemented was that **a person confirms the text before it can
+become knowledge**. D-658 (the founder: what the account's own people add needs no
+verification) removed that confirmation for an account member's upload, so the mechanical
+checks in `_legibility_reason` are now the only thing between a read and the agent. They
+catch a read that FAILED and cannot catch a fluent misreading — that risk is accepted, not
+solved. See `ExtractedText.needs_confirmation`.
 
 ═══ WHICH LEG, AND WHY ═══
 
@@ -279,7 +282,7 @@ async def ocr_images(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> ExtractedText:
-    """Photographs → one block of text a human must confirm before it becomes knowledge.
+    """Photographs → one block of text, marked as a model's reading (`needs_confirmation`).
 
     Raises `OcrUnavailableError` when no leg is configured, `DocumentTooLargeError` when
     the caller hands us more or bigger images than the bounds allow, and
@@ -355,16 +358,9 @@ async def ocr_images(
         provenance="ocr",
         unit_count=len(pages),
         unit_name="images",
-        # ⚠ NOT A FLAG A CALLER MAY TURN OFF, and the reason is the whole design. A vision
-        # model returns no confidence score, so there is no number to threshold; the
-        # checks in `_legibility_reason` catch a read that FAILED, and cannot catch the
-        # dangerous one — a fluent, confident transcription that says 260 where the menu
-        # says 280. The only instrument that can is the person who owns the menu. Showing
-        # them the text and requiring a confirmation costs one screen and means a garbled
-        # OCR can never reach a phone call silently. (This is separate from, and additional
-        # to, the submission review policy: an owner's own submissions are auto-approved
-        # and staff's are reviewed, and neither of those asks "did the machine read this
-        # right".)
+        # A model's reading, with no confidence score behind it. Since D-658 the ingest job
+        # no longer holds it back for an account member's confirmation; the flag records
+        # the fact so a future policy can act on it without re-deriving it.
         needs_confirmation=True,
         model=DOCUMENT_OCR_MODEL,
         # `None` where the provider told us nothing, which throughout this repository
@@ -431,12 +427,12 @@ async def _transcribe(
 def _legibility_reason(text: str, *, finish_reason: str | None) -> str | None:
     """Why this transcription must be discarded, or `None` to keep it.
 
-    ⚠ **THIS IS A FILTER IN FRONT OF THE HUMAN CONFIRMATION AND IT IS NOT AN ACCURACY
-    MEASURE.** Every check here answers "did the read FAIL", which is decidable. None of
-    them answers "is this what the page says", which is not — no vision model returns a
-    confidence score, and a heuristic that pretended to would be worse than none, because
-    it would license skipping the confirmation. Passing all four checks earns a
-    transcription the right to be SHOWN TO ITS OWNER, and nothing more.
+    ⚠ **THIS IS NOT AN ACCURACY MEASURE.** Every check here answers "did the read FAIL",
+    which is decidable. None of them answers "is this what the page says", which is not —
+    no vision model returns a confidence score. Since D-658 an account member's photo goes
+    live once it passes these four checks, with no person reading it first, so a fluent
+    misreading ("260" where the menu says "280") reaches the agent; that is the founder's
+    accepted risk, and a heuristic pretending to catch it would be worse than none.
 
     THE FOUR, and the failure each is the only defence against:
 

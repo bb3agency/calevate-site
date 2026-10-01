@@ -133,7 +133,7 @@ function AttemptRow({ attempt }: { attempt: TopUpAttempt }) {
             {copy?.icon ?? <HelpCircle className="h-4 w-4" />}
           </span>
           {formatINR(attempt.amount_inr)}
-          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-brand-strong">
+          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-strong">
             {copy?.title ?? attempt.outcome}
           </span>
         </p>

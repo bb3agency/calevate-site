@@ -95,10 +95,10 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
   const stale = problemCode(record.error) === STALE_STATEMENT_CODE;
 
   return (
-    <div className="mt-3 rounded-card border border-line bg-app p-4">
-      <p className="text-sm font-medium text-ink">
+    <section className="border-t border-line pt-4">
+      <h3 className="text-sm font-semibold text-ink">
         Calling out from this number
-      </p>
+      </h3>
       <p className="mt-1 text-sm text-ink-muted">
         This is an ordinary phone number, not a registered{" "}
         <Term id="series140" term="140-series" /> or{" "}
@@ -234,6 +234,6 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
           confirm again later.
         </ConfirmDialog>
       )}
-    </div>
+    </section>
   );
 }

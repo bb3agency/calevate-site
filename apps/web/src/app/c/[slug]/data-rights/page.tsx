@@ -1,67 +1,42 @@
 "use client";
 
+import { useState } from "react";
+
+import { Drawer } from "@/components/console/drawer";
+import { PageHeader } from "@/components/console/pageHeader";
+import { PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
 import { useDeletionRequests } from "@/lib/api/dataRights";
+import { useActAccess } from "@/lib/api/hooks";
 import { Term } from "@/lib/glossary";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
+import { useSubjectExportAccess } from "./access";
 import { Erasure } from "./Erasure";
 import { Register } from "./Register";
 import { SubjectExport } from "./SubjectExport";
 
 /**
- * Data rights (DPDP §11, SEC-COMP §4) — the screen for the two requests a data principal
- * can make of a client, and the certificate that answers the second one.
- *
- * All three endpoints behind this shipped built, audited, worker-backed and producing
- * proof certificates, with ZERO callers. A client honouring someone's rights therefore
- * did it by curl or by emailing us — for an obligation that has a statutory clock on it.
- * That is what this closes; it is a compliance surface, not a convenience.
- *
- * The screen is three sibling modules, one per subject (UX-DOCTRINE §6), in the order a
- * client meets them — ask what we hold, ask us to erase it, then check what happened:
- *
- * - `SubjectExport.tsx` — what we hold about a person, and why the file is never painted
- *   on screen.
- * - `Erasure.tsx` — the irreversible act, its consequences stated above the button.
- * - `Register.tsx` — the account's own register and the proof certificates, read from the
- *   server rather than from this browser's memory.
+ * Data rights (DPDP §11, SEC-COMP §4): the two requests a data principal can make of a
+ * client, and the certificate that answers the second. The register is the page; exporting
+ * and erasing are tasks that open in a drawer, each with its consequences stated above
+ * its control (`SubjectExport.tsx`, `Erasure.tsx`, `Register.tsx`).
  */
 export default function DataRightsPage() {
   const session = useClientSession();
-  /*
-   * The SAME read `Register` makes, shared through the query cache rather than
-   * fetched twice. Declared here and not in the card for the reason `settings/models`
-   * gives: child effects commit before their parent's, so the innermost registration
-   * wins — one declaration per screen, and it belongs where the launcher is wanted on
-   * every state including the loading and failed ones.
-   */
+  // The same read `Register` makes, served from cache; read here so the one copilot
+  // declaration (below) covers every state, including loading and failed.
   const requests = useDeletionRequests(session);
+  const [task, setTask] = useState<"export" | "erase" | null>(null);
+  const exportAccess = useSubjectExportAccess(session);
+  // The same act check the erasure form makes (D-587): `org:manage` alone would arm the
+  // button for a view-as operator and let the typed ERASE end in a 403.
+  const eraseAccess = useActAccess(session, "org:manage", "compliance.erasure_request", "file an erasure request");
 
-  /*
-   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
-   *
-   * ## Nothing here is writable, and nothing personal leaves
-   *
-   * The two boxes on this screen take a phone number, and what they do with it is build a
-   * file containing everything this account holds about that person, or erase them. Those
-   * are the two acts on this console with a statutory clock and no undo, and they are
-   * addressed at a named human being — so neither box is declared at all, and the phrase
-   * ERASE the erasure form makes a person type is the ceremony this deliberately leaves
-   * alone. Filling in either from a model's guess is not a feature.
-   *
-   * ## The register IS declared, because the numbers in it are already one-way hashed
-   *
-   * `subject_ref` is a hash, not a number, and the screen says so — but even that is not
-   * sent: the assistant is told how many requests there are and how they are progressing,
-   * which is what an owner answering a regulator's question needs, and the register
-   * itself stays on the screen.
-   *
-   * §52 IS CARRIED INTO THE FACT rather than flattened: "this account has been asked to
-   * erase nobody" is an answer a client could repeat to a regulator, and "we could not
-   * read the register" is not. The assistant must not be able to confuse them either.
-   */
+  // Neither phone box is declared: both act on a named person, with a statutory clock and
+  // no undo. The register is declared as counts only, and "could not read the register"
+  // is carried into the fact rather than flattened into "nobody asked" (§52).
   useCopilotSurface({
     route: "/c/{slug}/data-rights",
     title: "Data rights",
@@ -102,19 +77,51 @@ export default function DataRightsPage() {
   });
 
   return (
-    <div className="space-y-5 pb-12">
-      <p className="text-sm text-ink-muted">
-        Under India&rsquo;s data protection law a person can ask you what you hold about
-        them, and can ask you to erase it. You are the{" "}
-        <Term id="dataFiduciary" />{" "}
-        and Calevate holds the records on your behalf, so both requests are answered from
-        here. Every request below is recorded against your account, so there is a lasting
-        record of who asked and when.
-      </p>
+    <div className="space-y-6 pb-12">
+      <PageHeader
+        description={
+          <>
+            Answer a person who asks what you hold about them, or asks you to erase it. You
+            are the <Term id="dataFiduciary" />; every request is recorded against your
+            account.
+          </>
+        }
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setTask("export")}
+              disabled={!exportAccess.allowed}
+              title={exportAccess.reason ?? undefined}
+              className={PRIMARY_BUTTON}
+            >
+              {"Export someone's data"}
+            </button>
+            {/* Never styled like the primary beside it: this one cannot be undone. */}
+            <button
+              type="button"
+              onClick={() => setTask("erase")}
+              disabled={!eraseAccess.allowed}
+              title={eraseAccess.reason ?? undefined}
+              className={`${SECONDARY_BUTTON} enabled:text-danger`}
+            >
+              {"Erase someone's data"}
+            </button>
+          </>
+        }
+      />
 
-      <SubjectExport session={session} />
-      <Erasure session={session} />
+      <RestrictionNote reason={exportAccess.reason} />
+      {eraseAccess.reason !== exportAccess.reason && <RestrictionNote reason={eraseAccess.reason} />}
+
       <Register session={session} />
+
+      <Drawer open={task === "export"} onClose={() => setTask(null)} title="Export someone's data" width="md">
+        <SubjectExport session={session} />
+      </Drawer>
+      <Drawer open={task === "erase"} onClose={() => setTask(null)} title="Erase someone's data" width="md">
+        <Erasure session={session} onFiled={() => setTask(null)} />
+      </Drawer>
     </div>
   );
 }

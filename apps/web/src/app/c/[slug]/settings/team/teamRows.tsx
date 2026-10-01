@@ -1,15 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, Mail, ShieldCheck, Trash2, UserMinus } from "lucide-react";
 
-import {
-  FIELD,
-  NoticeBox,
-  PRIMARY_BUTTON_SM,
-  SECONDARY_BUTTON_SM,
-  formatIST,
-} from "@/components/ui";
+import type { DataColumn } from "@/components/console/dataTable";
+import { InfoTip } from "@/components/console/infoTip";
+import { RowMenu } from "@/components/console/rowMenu";
+import { FIELD, NoticeBox, PRIMARY_BUTTON_SM, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
   ROLE_COPY,
@@ -22,221 +18,266 @@ import {
 import { ROLES } from "./roles";
 
 /**
- * The three rows this screen is made of: the confirmation an invitation was sent, one
- * person on the account, and one unused invite link. One subject — a row about a human
- * being — kept out of the screen that decides what may be done to them.
+ * The team table: one row per person on the account, then one per unused invitation.
+ * A row is about a human being, so it is kept out of the screen that decides what may be
+ * done to them.
  */
+export type TeamRow =
+  | { kind: "member"; id: string; member: Member; email: string | null }
+  | { kind: "invite"; id: string; invitation: PendingInvitation };
+
+export type TeamTableContext = {
+  myId: string | null;
+  canManage: boolean;
+  restriction: string | null;
+  /** Shown only when the owner-only roster loaded; staff never see colleagues' addresses. */
+  showEmail: boolean;
+  busyMember: string | null;
+  busyInvite: string | null;
+  onRole: (member: Member, role: MemberRole) => void;
+  onRemove: (member: Member) => void;
+  onRevoke: (invitation: PendingInvitation) => void;
+};
 
 /**
  * Confirmation that the invitation was sent — NOT the link.
  *
- * This panel used to print the raw invite token and tell the owner to forward it, because
- * the client realm had no mailer. It has had one since D-170, and the printed token was
- * the last half of D-185's finding: a token anyone but the invitee can see is a token
- * that can be redeemed by anyone but the invitee, which let an owner squat a stranger's
- * address (D-190 removed the field from the response entirely, so there is nothing left
- * here to print).
- *
- * The copy says what actually happened — queued, not delivered. The outbox dispatches it
- * within seconds, but "we emailed them" would be a claim about a vendor's behaviour that
- * this screen has no way to observe, and the sentence a client needs when it does not
- * arrive is "check the spam folder, or revoke and re-invite", not a link to paste.
+ * A token anyone but the invitee can see can be redeemed by anyone but the invitee
+ * (D-185, D-190 removed it from the response), so there is nothing to print. The copy
+ * says what happened — queued, not delivered — and what to do if it does not arrive.
  */
 export function IssuedInvite({ invitation }: { invitation: CreatedInvitation }) {
   return (
-    <div className="mt-4">
-      <NoticeBox tone="ok" title={`Invitation sent to ${invitation.email}`}>
-        <p>
-          We have emailed them a link. It works once, only from that address, and stops
-          working {formatIST(invitation.expires_at)}.
-        </p>
-        <p className="mt-2 text-xs">
-          If it does not arrive, ask them to check their spam folder. We cannot show or
-          re-send the link — revoke the invite below and create a new one instead.
-        </p>
-      </NoticeBox>
+    <NoticeBox tone="ok" title={`Invitation sent to ${invitation.email}`}>
+      <p>
+        We have emailed them a link. It works once, only from that address, and stops
+        working {formatIST(invitation.expires_at)}.
+      </p>
+      <p className="mt-2 text-xs">
+        If it does not arrive, ask them to check their spam folder. We cannot show or
+        re-send the link — revoke the invite below and create a new one instead.
+      </p>
+    </NoticeBox>
+  );
+}
+
+function roleLabel(role: string): string {
+  // `lookup()`, not `ROLE_COPY[role]`: a wire string indexing a literal walks the
+  // prototype chain (src/lib/lookup.ts).
+  return lookup(ROLE_COPY, role)?.label ?? role;
+}
+
+/**
+ * The role control for one colleague. The select STAGES the choice and a second, named
+ * press commits it: mutating straight from `onChange` let one stray scroll wheel grant
+ * `org:manage` — including the power to remove the person who granted it. The staged
+ * sentence says what the change does before it is made (GOV.UK's check-answers shape);
+ * removal, which destroys access, gets the dialog instead.
+ */
+function RoleControl({
+  member,
+  busy,
+  onRole,
+}: {
+  member: Member;
+  busy: boolean;
+  onRole: (role: MemberRole) => void;
+}) {
+  const who = member.name ?? "this member";
+  const [staged, setStaged] = useState<MemberRole | null>(null);
+  // Once the write lands `member.role` becomes the staged value, so this goes null on its
+  // own: the Save button disappears because the change happened, not because of a timer.
+  const pendingRole = staged && staged !== member.role ? staged : null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="sr-only" htmlFor={`role-${member.id}`}>
+        Role for {who}
+      </label>
+      <select
+        id={`role-${member.id}`}
+        value={staged ?? member.role}
+        disabled={busy}
+        onChange={(e) => setStaged(e.target.value as MemberRole)}
+        className={`${FIELD} w-auto py-1 text-sm`}
+      >
+        {ROLES.map((value) => (
+          <option key={value} value={value}>
+            {ROLE_COPY[value].label}
+          </option>
+        ))}
+      </select>
+      {pendingRole && (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onRole(pendingRole)}
+            aria-label={`Save ${who} as ${ROLE_COPY[pendingRole].label}`}
+            className={PRIMARY_BUTTON_SM}
+          >
+            {busy ? "Saving…" : "Save role"}
+          </button>
+          <span className="basis-full text-xs text-ink-muted">
+            {pendingRole === "owner"
+              ? `${who} will be able to see your invoice, invite and remove people — including you.`
+              : `${who} will lose access to billing and will no longer be able to change who is on this team.`}
+          </span>
+        </>
+      )}
     </div>
   );
 }
 
-export function MemberRow({
-  member,
-  isMe,
-  canManage,
-  restriction,
-  busy,
-  onRole,
-  onRemove,
-}: {
-  member: Member;
-  isMe: boolean;
-  canManage: boolean;
-  restriction: string | null;
-  busy: boolean;
-  onRole: (role: MemberRole) => void;
-  onRemove: () => void;
-}) {
-  // `lookup()`, not `ROLE_COPY[...]`: `member.role` is a WIRE string, and indexing a
-  // literal with one walks the prototype chain — a role of `constructor` resolves to
-  // the `Object` function instead of missing. See src/lib/lookup.ts.
-  const copy = lookup(ROLE_COPY, member.role);
-  const who = member.name ?? "this member";
-  /**
-   * The role chosen in the dropdown but NOT yet saved, or null while it matches the
-   * server's. No effect resets it: once the write lands, `member.role` becomes the staged
-   * value and `pendingRole` below goes null on its own, so the button and its sentence
-   * disappear because the change has happened rather than because a timer said so.
-   */
-  const [staged, setStaged] = useState<MemberRole | null>(null);
-  const pendingRole = staged && staged !== member.role ? staged : null;
+function NameCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
+  if (row.kind === "invite") {
+    // The whole address (D-436): an owner must be able to see the address they typed is
+    // the one they meant, and to tell two invites at one domain apart.
+    return (
+      <span className="block min-w-0">
+        <span className="break-all font-mono text-ink">{row.invitation.email}</span>
+        <span className="block text-xs text-ink-muted sm:hidden">
+          Invited · expires {formatIST(row.invitation.expires_at)}
+        </span>
+      </span>
+    );
+  }
+  const isMe = ctx.myId !== null && row.member.id === ctx.myId;
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
-      <span
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
-        aria-hidden
-      >
-        {member.role === "owner" ? (
-          <ShieldCheck className="h-4 w-4" />
-        ) : (
-          <Mail className="h-4 w-4" />
-        )}
-      </span>
-      {/* `name` is nullable and there is deliberately no email to fall back to — a
-          fallback that leaks is not a fallback (see `MemberOut` on the API). */}
-      <span className="text-ink">{member.name ?? "Unnamed member"}</span>
-      {isMe && <span className="text-xs text-ink-faint">(you)</span>}
-      <span className="text-xs text-ink-muted">{copy?.label ?? member.role}</span>
-
-      <span className="ml-auto flex items-center gap-2">
-        {isMe ? (
-          /* The reason where the control would have been, rather than a disabled
-             control with no explanation — the API refuses self-directed changes so
-             that a mis-click cannot cost somebody their own access. */
-          <span className="text-xs text-ink-faint">
-            You cannot change your own access — ask another owner.
-          </span>
-        ) : canManage ? (
-          <>
-            <label className="sr-only" htmlFor={`role-${member.id}`}>
-              Role for {who}
-            </label>
-            {/*
-             * The select STAGES the choice; a second, named press commits it.
-             *
-             * It used to mutate straight out of `onChange`, so one stray scroll wheel over
-             * a focused dropdown granted a colleague `billing:read` and `org:manage` —
-             * including the power to remove the person who granted it — with no
-             * are-you-sure moment anywhere in the interaction. This file's own comment
-             * three lines up says the API refuses self-directed changes "so that a
-             * mis-click cannot cost somebody their own access"; the rule was right and was
-             * being applied to exactly one row.
-             *
-             * Staged rather than a modal, deliberately, and NOT because a modal was too
-             * much work: the consequence here is a sentence about capabilities, and
-             * GOV.UK's check-answers pattern is about seeing what you are about to commit
-             * rather than being interrupted. The sentence renders beside the control, in
-             * the row it concerns, and the button says which change it makes — so the
-             * confirmation carries target as well as intent. Removal, which destroys
-             * access rather than changing it, gets the dialog.
-             */}
-            <select
-              id={`role-${member.id}`}
-              value={staged ?? member.role}
-              disabled={busy}
-              onChange={(e) => setStaged(e.target.value as MemberRole)}
-              className={`${FIELD} py-1 text-xs`}
-            >
-              {ROLES.map((value) => (
-                <option key={value} value={value}>
-                  {ROLE_COPY[value].label}
-                </option>
-              ))}
-            </select>
-            {pendingRole && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onRole(pendingRole)}
-                aria-label={`Save ${who} as ${ROLE_COPY[pendingRole].label}`}
-                className={PRIMARY_BUTTON_SM}
-              >
-                <ShieldCheck className="h-3.5 w-3.5" />
-                {busy ? "Saving…" : "Save role"}
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onRemove}
-              // Named for the row: a list of identical "Remove" buttons is a list of
-              // identical announcements to a screen reader.
-              aria-label={`Remove ${who} from this account`}
-              className={SECONDARY_BUTTON_SM}
-            >
-              <UserMinus className="h-3.5 w-3.5" />
-              {busy ? "Working…" : "Remove"}
-            </button>
-            {/* What the staged change actually does, said BEFORE it is made rather than
-                discovered afterwards. `basis-full` so it takes its own line under the
-                controls instead of squeezing them. */}
-            {pendingRole && (
-              <span className="basis-full text-xs text-ink-muted">
-                {pendingRole === "owner"
-                  ? `${who} will be able to see your invoice, invite and remove people — including you.`
-                  : `${who} will lose access to billing and will no longer be able to change who is on this team.`}
-              </span>
-            )}
-          </>
-        ) : (
-          <span className="text-xs text-ink-faint">
-            {restriction ?? "Only an account owner can change this."}
-          </span>
-        )}
-      </span>
-    </li>
+    <span className="block min-w-0">
+      <span className="text-ink">{row.member.name ?? "Unnamed member"}</span>
+      {isMe && <span className="ml-1.5 text-xs text-ink-faint">(you)</span>}
+      {ctx.showEmail && row.email && (
+        <span className="block truncate text-xs text-ink-muted md:hidden">{row.email}</span>
+      )}
+    </span>
   );
 }
 
-export function InvitationRow({
-  invitation,
-  canManage,
-  busy,
-  onRevoke,
-}: {
-  invitation: PendingInvitation;
-  canManage: boolean;
-  busy: boolean;
-  onRevoke: () => void;
-}) {
+function RoleCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
+  if (row.kind === "invite") {
+    return <span className="text-ink-muted">{roleLabel(row.invitation.role)}</span>;
+  }
+  const isMe = ctx.myId !== null && row.member.id === ctx.myId;
+  if (isMe) {
+    // The reason where the control would have been: the API refuses self-directed changes
+    // so a mis-click cannot cost somebody their own access.
+    return (
+      <span className="block">
+        <span className="text-ink-muted">{roleLabel(row.member.role)}</span>
+        <span className="block text-xs text-ink-faint">
+          You cannot change your own access — ask another owner.
+        </span>
+      </span>
+    );
+  }
+  if (ctx.canManage) {
+    return (
+      <RoleControl
+        member={row.member}
+        busy={ctx.busyMember === row.member.id}
+        onRole={(role) => ctx.onRole(row.member, role)}
+      />
+    );
+  }
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
-      <span
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink-muted dark:bg-white/10"
-        aria-hidden
-      >
-        <KeyRound className="h-4 w-4" />
+    <span className="block">
+      <span className="text-ink-muted">{roleLabel(row.member.role)}</span>
+      <span className="block text-xs text-ink-faint">
+        {ctx.restriction ?? "Only an account owner can change this."}
       </span>
-      {/* The whole address (D-436): an owner has to be able to see that the address
-          they typed is the one they meant, and to tell two invites at one domain apart. */}
-      <span className="font-mono text-ink">{invitation.email}</span>
-      <span className="text-xs text-ink-muted">
-        {lookup(ROLE_COPY, invitation.role)?.label ?? invitation.role}
-      </span>
-      <span className="ml-auto whitespace-nowrap text-xs text-ink-faint">
-        expires {formatIST(invitation.expires_at)}
-      </span>
-      {canManage && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onRevoke}
-          aria-label={`Revoke the invitation for ${invitation.email}`}
-          className={SECONDARY_BUTTON_SM}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          {busy ? "Revoking…" : "Revoke"}
-        </button>
-      )}
-    </li>
+    </span>
   );
+}
+
+function StatusCell({ row }: { row: TeamRow }) {
+  if (row.kind === "member") return <span className="text-ink-muted">Active</span>;
+  return (
+    <span className="whitespace-nowrap text-ink-muted">
+      Invited · expires {formatIST(row.invitation.expires_at)}
+    </span>
+  );
+}
+
+function ActionsCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
+  if (!ctx.canManage) return null;
+  if (row.kind === "invite") {
+    const busy = ctx.busyInvite === row.invitation.id;
+    return (
+      <RowMenu
+        label={row.invitation.email}
+        items={[
+          {
+            id: "revoke",
+            label: busy ? "Revoking…" : "Revoke invite",
+            tone: "danger",
+            disabled: busy,
+            onSelect: () => ctx.onRevoke(row.invitation),
+          },
+        ]}
+      />
+    );
+  }
+  if (ctx.myId !== null && row.member.id === ctx.myId) return null;
+  const busy = ctx.busyMember === row.member.id;
+  return (
+    <RowMenu
+      label={row.member.name ?? "this member"}
+      items={[
+        {
+          id: "remove",
+          label: "Remove from account",
+          tone: "danger",
+          disabled: busy,
+          onSelect: () => ctx.onRemove(row.member),
+        },
+      ]}
+    />
+  );
+}
+
+export function teamColumns(ctx: TeamTableContext): DataColumn<TeamRow>[] {
+  return [
+    { id: "name", header: "Name", cell: (row) => <NameCell row={row} ctx={ctx} /> },
+    ...(ctx.showEmail
+      ? [
+          {
+            id: "email",
+            header: "Email",
+            hideBelow: "md" as const,
+            cell: (row: TeamRow) =>
+              row.kind === "member" ? (
+                <span className="text-ink-muted">{row.email ?? "—"}</span>
+              ) : null,
+          },
+        ]
+      : []),
+    {
+      id: "role",
+      header: "Role",
+      renderHeader: () => (
+        <span className="inline-flex items-center gap-1">
+          Role
+          <InfoTip label="roles">
+            <p>
+              An account always keeps at least one owner: the last one cannot be removed or
+              moved to staff. Nobody can change their own role — ask another owner.
+            </p>
+          </InfoTip>
+        </span>
+      ),
+      cell: (row) => <RoleCell row={row} ctx={ctx} />,
+    },
+    {
+      id: "status",
+      header: "Status",
+      hideBelow: "sm",
+      cell: (row) => <StatusCell row={row} />,
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      align: "right",
+      cell: (row) => <ActionsCell row={row} ctx={ctx} />,
+    },
+  ];
 }

@@ -1,9 +1,10 @@
 "use client";
 
+import { Panel } from "@/components/console/panel";
 import { BadgeIndianRupee, PhoneCall, Sparkles, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Card, EmptyState, formatINR, hasNonZeroDigit } from "@/components/ui";
+import { EmptyState, formatINR, hasNonZeroDigit } from "@/components/ui";
 import type { Drawdown } from "@/lib/api/wallet";
 
 /**
@@ -60,7 +61,7 @@ export function WhereItWent({
   const refunded = hasNonZeroDigit(drawdown.refunded_inr);
 
   return (
-    <Card title={`Where your credit went in the last ${windowDays} days`}>
+    <Panel title={`Where your credit went in the last ${windowDays} days`}>
       {rows.length === 0 && !added && !refunded ? (
         <EmptyState
           title="Nothing has moved on your credit yet"
@@ -112,6 +113,6 @@ export function WhereItWent({
           )}
         </dl>
       )}
-    </Card>
+    </Panel>
   );
 }

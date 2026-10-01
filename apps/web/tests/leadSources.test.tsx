@@ -99,13 +99,14 @@ function setup(over: Partial<MetaSetup> = {}): MetaSetup {
 /** The "Retries absorbed" cell of the row a source occupies, by column position.
  *  Source · Reference · Outcome · Retries absorbed · Last seen — the Reference column
  *  (the sender's own id for the delivery) is what shifted this from 2. */
-const RETRIES_COLUMN = 3;
+const RETRIES_COLUMN = 2;
 
 /** The Source column now shows the friendly label (`sourceLabel`), which the lead-source
  *  LIST above the table shows too — so a row is found by its label WITHIN the deliveries
  *  table, never page-wide, to keep the anchor unambiguous. */
 function retriesCell(sourceLabelText: string): string {
-  const row = within(screen.getByRole("table"))
+  // Two tables since the round-2 redesign (sources and deliveries): name the log.
+  const row = within(screen.getByRole("table", { name: "Ingest activity" }))
     .getByText(sourceLabelText)
     .closest("tr");
   expect(row, `no row for ${sourceLabelText}`).not.toBeNull();
@@ -116,6 +117,7 @@ function leadSource(over: Partial<LeadSource> = {}): LeadSource {
   return {
     id: SOURCE_ID,
     source: "meta_lead_ads",
+    ingest_path: `/hooks/v1/ingest/meta/${SOURCE_ID}`,
     agent_id: null,
     active: true,
     mapping: { phone: "phone_number" },
@@ -142,8 +144,27 @@ async function renderPage(routes: Record<string, unknown> = {}, me: Me = ME) {
     [AGENTS_PATH]: [],
     ...routes,
   });
-  await screen.findByText("Try a sample lead");
+  await screen.findByText("Recent deliveries");
   return rendered;
+}
+
+/**
+ * A source's secondary actions live in its "⋯" menu since the round-2 redesign (they were
+ * pickers and cards under the list). Rows are named "<kind> · <first 8 of the id>".
+ */
+async function chooseRowAction(rowId: string, item: string): Promise<void> {
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: new RegExp(`More actions for .* · ${rowId.slice(-8)}$`),
+    }),
+  );
+  fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+}
+
+/** "Add source" opens the create drawer. */
+async function openAdd(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "Add source" }));
+  await screen.findByRole("dialog");
 }
 
 describe("the delivery log", () => {
@@ -161,15 +182,15 @@ describe("the delivery log", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain("No deliveries yet");
     // …and no count in the card header either: it is only stated when rows were sent.
-    expect(container.textContent).not.toContain("with activity");
+    expect(container.textContent).not.toContain("0 deliveries");
   });
 
   it("says nothing has arrived only when the server said so", async () => {
     const { container } = await renderPage({ [ACTIVITY_PATH]: { items: [] } });
 
-    await screen.findByText("No deliveries yet");
+    await screen.findByText(/No deliveries yet/);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(container.textContent).toContain("0 sources with activity");
+    expect(container.textContent).toContain("0 deliveries");
   });
 
   it("shows a rejection with its reason, and absorbed retries as a count", async () => {
@@ -234,7 +255,8 @@ describe("the delivery log", () => {
       });
 
       await screen.findByText("no dialable phone number");
-      expect(container.querySelectorAll("tbody tr").length).toBe(2);
+      const log = screen.getByRole("table", { name: "Ingest activity" });
+      expect(log.querySelectorAll("tbody tr").length).toBe(2);
       expect(container.textContent).toContain("15");
       expect(
         warnings.filter((w) => String(w[0]).includes("same key")),
@@ -285,10 +307,8 @@ describe("the leads we could not read", () => {
   }
 
   async function pickMetaSource(routes: Record<string, unknown> = {}) {
-    const rendered = await renderPage(routes);
-    fireEvent.change(screen.getByLabelText("Meta lead source"), {
-      target: { value: SOURCE_ID },
-    });
+    const rendered = await renderPage({ [META_PATH]: setup(), ...routes });
+    await chooseRowAction(SOURCE_ID, "Meta setup and recovery");
     return rendered;
   }
 
@@ -356,14 +376,14 @@ describe("the leads we could not read", () => {
   it("refuses rather than reporting that nothing is waiting, when the read failed", async () => {
     // The same rule the delivery log holds to, and it costs more here: told nothing is
     // waiting, a client stops looking for leads that are sitting in the inbox.
-    const { container } = await pickMetaSource({
+    await pickMetaSource({
       [ACTIVITY_PATH]: problem(503, { title: "Service unavailable" }),
     });
 
     // `findAllByRole`: the delivery log below refuses on the same failed read, so there
     // are two refusals on screen and exactly one of them is this block's.
     expect((await screen.findAllByRole("alert")).length).toBeGreaterThan(0);
-    expect(container.textContent).not.toContain(
+    expect(document.body.textContent).not.toContain(
       "Nothing is waiting for this source.",
     );
     expect(
@@ -372,15 +392,15 @@ describe("the leads we could not read", () => {
   });
 
   it("shows a skeleton rather than a count while the read is still in flight", async () => {
-    const { container } = await pickMetaSource({
+    await pickMetaSource({
       [ACTIVITY_PATH]: stillLoading(),
     });
 
     await screen.findByText("Leads we recorded but could not read");
-    expect(container.textContent).not.toContain(
+    expect(document.body.textContent).not.toContain(
       "Nothing is waiting for this source.",
     );
-    expect(container.textContent).not.toContain("leads are waiting");
+    expect(document.body.textContent).not.toContain("leads are waiting");
     expect(
       screen.queryByRole("button", { name: "Recover unread leads" }),
     ).toBeNull();
@@ -412,7 +432,7 @@ describe("the leads we could not read", () => {
   });
 
   it("marks the recoverable row in the delivery log and leaves the others alone", async () => {
-    const { container } = await pickMetaSource({
+    await pickMetaSource({
       [ACTIVITY_PATH]: {
         items: [
           stranded(),
@@ -429,7 +449,7 @@ describe("the leads we could not read", () => {
     // The Meta lead id is rendered, which is what a client quotes to Meta support and
     // the only durable handle on a lead we never read.
     await screen.findByText("900000000000123");
-    expect(container.textContent).toContain("900000000000127");
+    expect(document.body.textContent).toContain("900000000000127");
     expect(screen.getAllByText(/Recoverable — use/)).toHaveLength(1);
   });
 
@@ -438,9 +458,7 @@ describe("the leads we could not read", () => {
       { [ACTIVITY_PATH]: { items: [stranded()] } },
       READ_ONLY_ME,
     );
-    fireEvent.change(screen.getByLabelText("Meta lead source"), {
-      target: { value: SOURCE_ID },
-    });
+    await chooseRowAction(SOURCE_ID, "Meta setup and recovery");
 
     await screen.findByText("1 lead is waiting.");
     expect(
@@ -456,12 +474,14 @@ describe("the leads we could not read", () => {
     // "2 of 2 recovered" left standing under a different Page is not a stale number, it
     // is a statement about the wrong Page's leads — the same reason the setup card
     // resets its verify token on this change.
-    const { container } = await pickMetaSource({
+    await pickMetaSource({
       [ACTIVITY_PATH]: { items: [stranded()] },
       [SOURCES_PATH]: sourceList(
         leadSource(),
         leadSource({ id: SECOND_META_SOURCE_ID, source: "meta_lead_ads" }),
       ),
+      // Opening the second source's drawer reads its setup too.
+      [`/v1/lead-sources/${SECOND_META_SOURCE_ID}/meta/setup`]: setup(),
       [`POST ${REDRIVE_PATH}`]: {
         candidates: 1,
         accepted: 1,
@@ -475,18 +495,16 @@ describe("the leads we could not read", () => {
     );
     await screen.findByText("1 of 1 recovered.");
 
-    // To a DIFFERENT Meta source, not to the empty option: clearing the picker hides
-    // the whole block, so an empty value would pass whether or not the result is reset.
-    fireEvent.change(screen.getByLabelText("Meta lead source"), {
-      target: { value: SECOND_META_SOURCE_ID },
-    });
+    // Close it and open a DIFFERENT Meta source: the result must not follow.
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    await chooseRowAction(SECOND_META_SOURCE_ID, "Meta setup and recovery");
 
     await screen.findByText("Nothing is waiting for this source.");
-    expect(container.textContent).not.toContain("recovered.");
+    expect(document.body.textContent).not.toContain("recovered.");
   });
 
   it("renders a refusal, not a result, when the re-drive itself fails", async () => {
-    const { container } = await pickMetaSource({
+    await pickMetaSource({
       [ACTIVITY_PATH]: { items: [stranded()] },
       [`POST ${REDRIVE_PATH}`]: problem(404, {
         title: "Lead source not found",
@@ -498,66 +516,63 @@ describe("the leads we could not read", () => {
     );
 
     await screen.findByRole("alert");
-    expect(container.textContent).not.toContain("recovered.");
+    expect(document.body.textContent).not.toContain("recovered.");
   });
 });
 
 describe("what the screen claims about a connection", () => {
   async function showSetup(over: Partial<MetaSetup> = {}) {
     const rendered = await renderPage({ [META_PATH]: setup(over) });
-    fireEvent.change(screen.getByLabelText("Meta lead source"), {
-      target: { value: SOURCE_ID },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
+    await chooseRowAction(SOURCE_ID, "Meta setup and recovery");
     return rendered;
   }
 
   it("says the setup details are not evidence that anything is connected", async () => {
-    const { container } = await showSetup();
+    await showSetup();
 
     await screen.findByText(/Showing these details does not connect anything/);
-    expect(container.textContent).toContain("Recent deliveries");
+    expect(document.body.textContent).toContain("Recent deliveries");
   });
 
   it("states the retrieval gap BEFORE the credentials, and names the server's reason", async () => {
     // `lead_retrieval_available: false` means a verified delivery is recorded and then
     // refused: we cannot read what the person typed. Someone about to point ad spend at
     // this has to read it first, not discover it from a column of rejections.
-    const { container } = await showSetup();
+    await showSetup();
 
     await screen.findByText(/lead answers are not collected yet/);
-    expect(container.textContent).toContain("meta_access_token_missing");
-    expect(container.textContent).not.toContain(
+    expect(document.body.textContent).toContain("meta_access_token_missing");
+    expect(document.body.textContent).not.toContain(
       "Lead answers will be collected.",
     );
   });
 
   it("does not print the retrieval warning when the deployment can retrieve", async () => {
-    const { container } = await showSetup({
+    await showSetup({
       lead_retrieval_available: true,
       lead_retrieval_reason: null,
     });
 
     await screen.findByText("Lead answers will be collected.");
-    expect(container.textContent).not.toContain(
+    expect(document.body.textContent).not.toContain(
       "lead answers are not collected yet",
     );
     // Still not a claim that anything is wired up — that remains the inbox's job.
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Showing these details does not connect anything",
     );
   });
 
   it("keeps the verify token hidden until asked, and out of every URL", async () => {
-    const { container, calls } = await showSetup();
+    const { calls } = await showSetup();
 
     await screen.findByText("Verify token");
     // Masked on arrival: a credential on screen by default is a credential in every
     // screen-share and every screenshot attached to a support ticket.
-    expect(container.textContent).not.toContain(TOKEN);
+    expect(document.body.textContent).not.toContain(TOKEN);
 
     fireEvent.click(screen.getByRole("button", { name: "Reveal" }));
-    expect(container.textContent).toContain(TOKEN);
+    expect(document.body.textContent).toContain(TOKEN);
 
     // The callback URL is displayable precisely because it carries no secret — the token
     // goes in Meta's own field. If it ever ends up in the URL it is published in the
@@ -577,10 +592,12 @@ describe("what the screen claims about a connection", () => {
 describe("the dry run", () => {
   async function runTest(answer: unknown) {
     const rendered = await renderPage({ [TEST_PATH]: answer });
-    fireEvent.change(screen.getByLabelText("Lead source to test"), {
-      target: { value: SOURCE_ID },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Run test/ }));
+    // One press: the drawer opens and sends this source's own sample.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: new RegExp(`Send test lead to .* · ${SOURCE_ID.slice(-8)}`),
+      }),
+    );
     return rendered;
   }
 
@@ -613,7 +630,7 @@ describe("the dry run", () => {
   });
 
   it("does not say a call would be placed when the gate said it would not", async () => {
-    const { container } = await runTest({
+    await runTest({
       would_call: false,
       steps: [
         {
@@ -628,30 +645,37 @@ describe("the dry run", () => {
     await screen.findByText(
       "A real submission like this would NOT get a call.",
     );
-    expect(container.textContent).not.toContain("WOULD get a call");
+    expect(document.body.textContent).not.toContain("WOULD get a call");
     // Which rule refused is what tells the client where to look.
-    expect(container.textContent).toContain("rule: dnc");
+    expect(document.body.textContent).toContain("rule: dnc");
     // …and the verdict is scoped to now: the gate re-reads the list at the real dial.
-    expect(container.textContent).toContain("That is the answer right now.");
+    expect(document.body.textContent).toContain("That is the answer right now.");
   });
 
   it("does not send anything when the sample is not valid JSON", async () => {
-    const { calls } = await renderPage();
+    const { calls } = await runTest({ would_call: true, steps: [] });
+    await screen.findByText("A real submission like this WOULD get a call.");
 
-    fireEvent.change(screen.getByLabelText("Lead source to test"), {
-      target: { value: SOURCE_ID },
-    });
     fireEvent.change(screen.getByLabelText("Sample lead payload (JSON)"), {
       target: { value: "{ phone_number: " },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Run test/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Run again" }));
 
     await screen.findByText(/doesn't look like valid JSON/);
-    expect(calls.filter((c) => c.path === TEST_PATH)).toHaveLength(0);
+    // Only the opening run went out; the broken sample never left the page.
+    expect(calls.filter((c) => c.path === TEST_PATH)).toHaveLength(1);
+  });
+
+  it("shapes the sample from the source's own field names", async () => {
+    const { calls } = await runTest({ would_call: true, steps: [] });
+    await screen.findByText("A real submission like this WOULD get a call.");
+    const body = JSON.parse(calls.find((c) => c.path === TEST_PATH)?.body ?? "{}");
+    // The fixture maps phone to `phone_number`; an unmapped name falls back to `name`.
+    expect(body.payload).toEqual({ phone_number: "9876543210", name: "Priya" });
   });
 
   it("renders a refusal, not a verdict, when the dry run itself fails", async () => {
-    const { container } = await runTest(
+    await runTest(
       problem(404, {
         title: "Lead source not found",
         detail: "No such lead source.",
@@ -659,8 +683,8 @@ describe("the dry run", () => {
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).not.toContain("WOULD get a call");
-    expect(container.textContent).not.toContain("would NOT get a call");
+    expect(document.body.textContent).not.toContain("WOULD get a call");
+    expect(document.body.textContent).not.toContain("would NOT get a call");
   });
 
   /**
@@ -675,7 +699,7 @@ describe("the dry run", () => {
    * stale state is not an edge case, it is the second thing anybody does with it.
    */
   it("retracts the verdict when the payload it was about is edited", async () => {
-    const { container } = await runTest({
+    await runTest({
       would_call: true,
       steps: [
         {
@@ -691,11 +715,11 @@ describe("the dry run", () => {
       target: { value: '{"phone_number":"9000000000"}' },
     });
 
-    expect(container.textContent).not.toContain("WOULD get a call");
+    expect(document.body.textContent).not.toContain("WOULD get a call");
   });
 
-  it("retracts the verdict when a DIFFERENT lead source is picked", async () => {
-    const { container } = await runTest({
+  it("retracts the verdict when the test is closed", async () => {
+    await runTest({
       would_call: true,
       steps: [
         {
@@ -707,11 +731,9 @@ describe("the dry run", () => {
     });
     await screen.findByText("A real submission like this WOULD get a call.");
 
-    fireEvent.change(screen.getByLabelText("Lead source to test"), {
-      target: { value: FORM_SOURCE_ID },
-    });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
 
-    expect(container.textContent).not.toContain("WOULD get a call");
+    expect(document.body.textContent).not.toContain("WOULD get a call");
   });
 
   it("retracts a REFUSAL on edit too — it is a verdict about that sample as well", async () => {
@@ -727,56 +749,31 @@ describe("the dry run", () => {
 });
 
 describe("controls are gated on the permission their route requires", () => {
-  it("disables BOTH org:manage buttons for a viewer who lacks it, and says so once", async () => {
-    // The dry-run writes nothing and still requires `org:manage` (ingest/routes.py: a
-    // dry-run is an action taken on the client's behalf), and the Meta setup requires it
-    // because its response carries a credential. One permission, two buttons — and the
-    // reason has to cover both rather than naming one of them.
-    const { container } = await renderPage({}, READ_ONLY_ME);
+  it("disables the org:manage controls for a viewer who lacks it, and says so once", async () => {
+    const { container, calls } = await renderPage({ [META_PATH]: setup() }, READ_ONLY_ME);
 
     expect(container.textContent).toContain(
       "Only an account owner can test or set up a lead source.",
     );
-
-    fireEvent.change(screen.getByLabelText("Lead source to test"), {
-      target: { value: SOURCE_ID },
-    });
-    fireEvent.change(screen.getByLabelText("Meta lead source"), {
-      target: { value: SOURCE_ID },
-    });
-    expect(
-      (screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Show setup details",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    for (const button of screen.getAllByRole("button", { name: /Send test lead to/ })) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+    // The Meta drawer still opens (its recovery count is a read), but the setup read is an
+    // org:manage route and is not made.
+    await chooseRowAction(SOURCE_ID, "Meta setup and recovery");
+    await screen.findByRole("dialog");
+    expect(calls.filter((c) => c.path === META_PATH)).toHaveLength(0);
+    expect(screen.queryByText("Verify token")).toBeNull();
   });
 
   it("enables them for an owner, so the disabled state is the permission and not the form", async () => {
-    await renderPage();
+    await renderPage({ [META_PATH]: setup() });
 
-    fireEvent.change(screen.getByLabelText("Lead source to test"), {
-      target: { value: SOURCE_ID },
-    });
-    fireEvent.change(screen.getByLabelText("Meta lead source"), {
-      target: { value: SOURCE_ID },
-    });
-    expect(
-      (screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Show setup details",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(false);
+    for (const button of screen.getAllByRole("button", { name: /Send test lead to/ })) {
+      expect((button as HTMLButtonElement).disabled).toBe(false);
+    }
+    await chooseRowAction(SOURCE_ID, "Meta setup and recovery");
+    await screen.findByText("Verify token");
   });
 
   it("renders no heading of its own — the shell already prints the page title", async () => {
@@ -820,46 +817,39 @@ describe("provisioning a lead source", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain("No lead sources yet");
-    // …and the pickers must not read as "you have none" either.
-    expect(container.textContent).toContain(
-      "We could not load your lead sources",
-    );
+    // The refusal is the server's own words; the old picker's "could not load" option
+    // went with the picker.
+    expect(container.textContent).toContain("We could not read your lead sources.");
   });
 
   it("says the account has none only when the server said so", async () => {
-    const { container } = await renderPage({ [SOURCES_PATH]: sourceList() });
-    await screen.findByText("No lead sources yet");
-    expect(container.textContent).not.toContain(
-      "We could not load your lead sources",
-    );
+    await renderPage({ [SOURCES_PATH]: sourceList() });
+    await screen.findByText(/No lead sources yet/);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows a fingerprint in the list and never a secret", async () => {
     const { container } = await renderPage();
-    await screen.findByText("Your lead sources");
-    expect(container.textContent).toContain("key ···a1b2c3d4");
+    expect((await screen.findAllByText(/key ···a1b2c3d4/)).length).toBeGreaterThan(0);
     // The list response has no secret field at all; this pins the screen to that.
     expect(container.textContent).not.toContain("Copy this secret now");
   });
 
   it("disables every provisioning control for a viewer without org:manage", async () => {
     await renderPage({}, READ_ONLY_ME);
-    await screen.findByText("Your lead sources");
     expect(
-      (
-        screen.getByRole("button", {
-          name: "Add lead source",
-        }) as HTMLButtonElement
-      ).disabled,
+      ((await screen.findByRole("button", { name: "Add source" })) as HTMLButtonElement).disabled,
     ).toBe(true);
-    for (const button of screen.getAllByRole("button", {
-      name: "New secret",
-    })) {
-      expect((button as HTMLButtonElement).disabled).toBe(true);
+    for (const toggle of screen.getAllByRole("switch")) {
+      expect((toggle as HTMLInputElement).disabled).toBe(true);
     }
-    for (const button of screen.getAllByRole("button", { name: "Turn off" })) {
-      expect((button as HTMLButtonElement).disabled).toBe(true);
-    }
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: new RegExp(`More actions for .* · ${SOURCE_ID.slice(-8)}$`),
+      }),
+    );
+    const rotate = await screen.findByRole("menuitem", { name: /Issue a new secret/ });
+    expect(rotate.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("keeps saying the old secret works until the deadline the server gave", async () => {
@@ -884,7 +874,7 @@ describe("provisioning a lead source", () => {
         detail: "That App Secret did not verify against Meta.",
       }),
     });
-    fireEvent.click(screen.getAllByRole("button", { name: "New secret" })[0]);
+    await chooseRowAction(SOURCE_ID, "Issue a new secret");
     fireEvent.change(screen.getByLabelText("New Meta App Secret"), {
       target: { value: "meta-app-secret-123" },
     });
@@ -904,7 +894,7 @@ describe("provisioning a lead source", () => {
         previous_secret_expires_at: "2026-08-14T05:30:00Z",
       },
     });
-    fireEvent.click(screen.getAllByRole("button", { name: "New secret" })[0]);
+    await chooseRowAction(SOURCE_ID, "Issue a new secret");
     fireEvent.change(screen.getByLabelText("New Meta App Secret"), {
       target: { value: "meta-app-secret-123" },
     });
@@ -918,7 +908,7 @@ describe("provisioning a lead source", () => {
     // A "0 minutes" option reads as tidiest and drops every lead submitted while the
     // client updates their form. The label has to say what it is for.
     await renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "New secret" })[0]);
+    await chooseRowAction(SOURCE_ID, "Issue a new secret");
     const options = screen.getByLabelText(
       "How long the old secret keeps working",
     );
@@ -930,7 +920,7 @@ describe("provisioning a lead source", () => {
 
   it("asks for the Meta App Secret only for a Meta source, and requires it", async () => {
     await renderPage();
-    const kind = screen.getByLabelText("Lead source kind");
+    await openAdd();
     // A website form: we mint, so there is nothing to ask for.
     expect(screen.queryByLabelText("Meta App Secret")).toBeNull();
     expect(
@@ -941,7 +931,7 @@ describe("provisioning a lead source", () => {
       ).disabled,
     ).toBe(false);
 
-    fireEvent.change(kind, { target: { value: "meta_lead_ads" } });
+    fireEvent.click(screen.getByRole("radio", { name: /Meta Lead Ads/ }));
     const secret = screen.getByLabelText("Meta App Secret");
     expect(secret).toBeTruthy();
     // Meta signs with a secret only the client holds, so the form cannot be submitted
@@ -959,6 +949,7 @@ describe("provisioning a lead source", () => {
       [SOURCES_PATH]: sourceList(),
       [CREATE_PATH]: CREATED,
     });
+    await openAdd();
     fireEvent.change(screen.getByLabelText("Your form's phone field name"), {
       target: { value: "phone_number" },
     });
@@ -982,11 +973,14 @@ describe("provisioning a lead source", () => {
   });
 
   it("shows the minted secret once, with its header and address", async () => {
-    const { container } = await renderPage({
+    await renderPage({
       [SOURCES_PATH]: sourceList(),
       [CREATE_PATH]: CREATED,
     });
+    await openAdd();
     fireEvent.click(screen.getByRole("button", { name: "Add lead source" }));
+    // The drawer renders in a portal, so read the document rather than the page root.
+    const container = document.body;
 
     await screen.findByText(
       "Copy this secret now — we will not show it again.",
@@ -1019,17 +1013,20 @@ describe("the agent that answers a new lead source", () => {
         retryable: true,
       }),
     });
+    expect(container.textContent).not.toContain("Not yet — save leads, don't call");
+    await openAdd();
+    const drawer = document.body;
 
     // The refusal is PRESENT — not merely the picker absent, which an empty card also
     // satisfies — and it says what saving anyway would have done.
-    expect(container.textContent).toContain(
+    expect(drawer.textContent).toContain(
       "We could not read your agents just now",
     );
-    expect(container.textContent).toContain(
+    expect(drawer.textContent).toContain(
       "would create a source that never rings anyone",
     );
     expect(screen.queryByLabelText("Agent to answer these leads")).toBeNull();
-    expect(container.textContent).not.toContain(
+    expect(drawer.textContent).not.toContain(
       "Not yet — save leads, don't call",
     );
 
@@ -1045,7 +1042,9 @@ describe("the agent that answers a new lead source", () => {
 
   it("offers 'don't call' when the server actually said the account has no agents", async () => {
     // The premise of the test above. An empty list is a FACT here; the option is right.
-    const { container } = await renderPage({ [AGENTS_PATH]: [] });
+    await renderPage({ [AGENTS_PATH]: [] });
+    await openAdd();
+    const container = document.body;
 
     expect(screen.getByLabelText("Agent to answer these leads")).toBeDefined();
     expect(container.textContent).toContain("Not yet — save leads, don't call");
@@ -1062,7 +1061,9 @@ describe("the agent that answers a new lead source", () => {
   });
 
   it("waits rather than claiming the list is empty while it is still reading", async () => {
-    const { container } = await renderPage({ [AGENTS_PATH]: stillLoading() });
+    await renderPage({ [AGENTS_PATH]: stillLoading() });
+    await openAdd();
+    const container = document.body;
 
     const picker = screen.getByLabelText(
       "Agent to answer these leads",

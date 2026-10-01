@@ -194,6 +194,19 @@ test is that every view is complete on its own and the reader picks ONE. It neve
 to a compliance control or its qualifying sentence, a screen's primary job, an error or
 refusal, or content a reader goes through in order; those keep §3's rules above.
 
+**D-657 makes the agent workspace a SETTINGS LAYOUT.** It has a slim header with name,
+live state and the one Publish action, then a section menu: Overview · Script · Voice ·
+Call handling · Captured details · Knowledge · Advanced. Each section is short and complete
+on its own. The opening-notice switches and the truthful-answer guarantee above them live
+in **Overview**, above the fold, so §8 rule 7 still holds: they are never behind a section
+switch. The same layout may be used by any screen whose parts are settings an owner
+visits one at a time rather than reads in sequence.
+
+**Copy (D-657).** Explanatory copy may be rewritten shorter, and should be: one line that
+names the job, with the reasoning behind an ⓘ. Sentences that carry a legal or compliance
+obligation, and every server-owned wording, are not rewritten. They keep their words and
+may only change presentation.
+
 ---
 
 ## §4 Action hierarchy

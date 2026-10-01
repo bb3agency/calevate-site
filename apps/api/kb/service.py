@@ -1,7 +1,9 @@
 """KB ingestion, approval and publish (FLOWS §7).
 
-    client submits TEXT → chunk → PREVIEW → admin approves → version bump →
-    engine KB sync → T0 recompilation → live.   Rollback = reactivate the prior version.
+    account member submits TEXT → chunk → approved on submission → outbox
+    `publish_kb_source` → version bump → engine KB sync → T0 recompilation → live.
+    Anyone else's submission → `pending_approval` → admin approves → admin publishes.
+    Rollback = reactivate the prior version.
 
 "TEXT", and only text: `SUPPORTED_SUBMISSION_KINDS` below refuses a document or a URL by
 name rather than accepting one and quietly chunking whatever was pasted beside it. There
@@ -9,10 +11,13 @@ is no verification step after `live` either, and FLOWS §7 now says why — we c
 engine's knowledge base a question, so "3 canned questions answered from new content" is a
 live PSTN call (pilot gate 8), never a step this function could run.
 
-The approval gate is the point. A client editing what their agent says is a client
-editing a legal instrument — the agent speaks on their behalf under their PE
-registration — so a human sees the chunks before they reach the engine. D-28 keeps
-that gate ours no matter which vector provider wins the bake-off.
+WHO IS REVIEWED (D-658). What the account's own people add — the owner, and staff the
+owner let curate (`kb/curation.goes_live_without_review`) — is approved on submission and
+published without a human step: the agent speaks in the client's name, and the client is
+the one deciding what it says. What anybody else puts into an account (a view-as
+operator, an intake seed, a changed page an operator linked) still lands
+`pending_approval` and waits for an admin. The automated gates below — the
+invisible-character refusal, the size ceilings, the chunker — run on every path either way.
 
 Chunking is paragraph-aware with a size cap rather than a fixed window: KB answers are
 read aloud, and a chunk cut mid-sentence becomes a sentence the agent says badly.
@@ -22,7 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.engine import AgentConfig, KBSourceRef, VoiceEngine
@@ -47,6 +52,7 @@ from apps.api.kb.pdf_render import (
     RenderedKnowledgePdf,
     render_knowledge_pdf,
 )
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.retrieval.supermemory_index import refresh_indexed_source
 
 log = get_logger(__name__)
@@ -77,15 +83,21 @@ MIN_CHUNK_CHARS = 80
 #: named candidate and is an EXTERNAL blocker: a vendor account nobody has opened.
 SUPPORTED_SUBMISSION_KINDS: frozenset[str] = frozenset({"text"})
 
+#: The worker job that publishes an auto-approved typed submission (D-658). A constant
+#: because `scripts/check_job_wiring.py` resolves enqueue arguments through module constants.
+PUBLISH_KB_SOURCE_JOB: Final = "publish_kb_source"
+
 
 #: Characters a reviewer cannot see and a downstream reader still acts on.
 #:
-#: **THE APPROVAL GATE IS A HUMAN READING A PREVIEW, so a character that makes the preview
-#: and the published text say different things is a bypass of it — not a formatting
-#: nuisance.** The named attack is Trojan Source (Boucher & Anderson, 2021, CVE-2021-42574):
+#: **A CHARACTER THAT MAKES THE PREVIEW AND THE PUBLISHED TEXT SAY DIFFERENT THINGS IS A WAY
+#: TO PUT WORDS IN THE AGENT'S MOUTH THAT NOBODY CAN SEE — not a formatting nuisance.** Since
+#: D-658 most knowledge reaches the agent with no reviewer at all, so this refusal is the
+#: gate rather than a backstop behind one. The named attack is Trojan Source (Boucher &
+#: Anderson, 2021, CVE-2021-42574):
 #: `U+202E RIGHT-TO-LEFT OVERRIDE` and its relatives reorder a run VISUALLY while leaving
-#: the stored order untouched, so "Refunds are ‮never‬ given" is read one way by the admin
-#: who approves it and spoken the other way by the agent. Every other consumer of this text
+#: the stored order untouched, so "Refunds are ‮never‬ given" is read one way by whoever
+#: reads the preview and spoken the other way by the agent. Every other consumer of this text
 #: — the [T0 FACTS] block the agent actually speaks from, the engine document, the dashboard
 #: copilot's quotation — takes the logical order.
 #:
@@ -288,6 +300,7 @@ async def insert_source_version(
     uri: str | None,
     submitted_by: UUID | None,
     auto_approve: bool = False,
+    approver: UUID | None = None,
 ) -> tuple[UUID, int, str]:
     """Mint the next VERSION row of a named source. Answers `(id, version, status)`.
 
@@ -300,16 +313,18 @@ async def insert_source_version(
 
     ═══ AUTO-APPROVAL, AND WHY IT IS A PARAMETER RATHER THAN A ROLE READ ═══
 
-    The founder's decision is that an OWNER's submission is auto-approved and a STAFF
-    member's is reviewed. WHO is asking is a question about a request — realm, role,
-    impersonation, and the account's own staff-curation switch — and `kb/curation.py`
-    already answers it in exactly one place. This function takes the ANSWER, so the ladder
-    is not re-implemented here and a service-level caller (a worker re-ingesting a changed
-    link, a test) gets the safe default: review.
+    The founder's decision (D-658) is that whatever the account's own people add is
+    approved on submission. WHO is asking is a question about a request — realm and
+    impersonation — and `kb/curation.goes_live_without_review` answers it in exactly one
+    place. This function takes the ANSWER, so the rule is not re-implemented here and a
+    service-level caller (a worker re-ingesting a changed link, an intake seed, a test)
+    gets the safe default: review.
 
     An auto-approval records `approved_by = submitted_by`, so the audit question "who
     cleared this" has the same shape as an admin approval and never answers NULL. It is a
     real approval by the person who is accountable for the account, not an absence of one.
+    `approver` names that person when nobody submitted the version: a re-read of a page a
+    member linked, approved in the name of the member who linked it.
     """
     # Hard rule 1 does not reach this INSERT on its own: PostgreSQL runs
     # referential-integrity checks with row security bypassed, so `kb_sources.agent_id`
@@ -375,7 +390,7 @@ async def insert_source_version(
             "status": status,
             "version": version,
             "by": submitted_by,
-            "approved_by": submitted_by if auto_approve else None,
+            "approved_by": (approver or submitted_by) if auto_approve else None,
             "auto": auto_approve,
         },
     )
@@ -394,10 +409,14 @@ async def submit_source(
     submitted_by: UUID | None = None,
     auto_approve: bool = False,
 ) -> dict[str, Any]:
-    """Create the next VERSION of a named source, chunked and awaiting approval.
+    """Create the next VERSION of a named source, chunked, and approved or awaiting approval.
 
-    Nothing here touches the engine. A submission is a proposal; only `publish_source`
-    changes what the agent knows.
+    Nothing here touches the engine; only `publish_source` changes what the agent knows. An
+    AUTO-APPROVED submission enqueues that publish through the outbox in this transaction
+    (`PUBLISH_KB_SOURCE_JOB`), so the version and the promise to publish it commit or roll
+    back together. The publish is a job and not a call here because it takes the agent's
+    publish lock and, on an engine with a hosted knowledge base, makes vendor calls budgeted
+    in minutes — not something a request handler holds open.
 
     A kind we cannot ingest is refused BEFORE anything is written — see
     `SUPPORTED_SUBMISSION_KINDS` for why the alternative (accept it, chunk the pasted
@@ -458,6 +477,12 @@ async def submit_source(
                 "title": name,
                 "content": chunk,
             },
+        )
+    if status == "approved":
+        await enqueue_outbox(
+            session,
+            job=PUBLISH_KB_SOURCE_JOB,
+            payload={"tenant_id": str(tenant_id), "source_id": str(source_id)},
         )
     return {
         "id": source_id,
@@ -1936,6 +1961,54 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     return int(version)
 
 
+#: A LATER version of the same named source that has ever been approved. Pending and
+#: rejected successors do not count: neither can go live, so neither may hold an
+#: approved predecessor back.
+_APPROVED_SUCCESSOR_SQL = """
+SELECT s.agent_id,
+       EXISTS (
+         SELECT 1 FROM kb_sources n
+         WHERE n.agent_id = s.agent_id AND n.name = s.name AND n.version > s.version
+           AND n.approved_at IS NOT NULL
+       )
+FROM kb_sources s WHERE s.id = :sid
+"""
+
+
+async def publish_unless_superseded(
+    session: AsyncSession, *, tenant_id: UUID, source_id: UUID
+) -> int | None:
+    """`publish_source` for a submission nobody pressed Publish on — or None if a later
+    approved version of the same name already exists.
+
+    The automatic publish (D-658) runs from a queue, and a queue does not keep the order in
+    which two versions of one price list were typed: publishing v1 after v2 would archive
+    v2 and put the older wording back on the phone. The admin route does NOT go through
+    here, because publishing an older version on purpose is FLOWS §7's rollback.
+
+    The check is made UNDER the agent's publish lock, which `publish_source` then takes
+    again (it is re-entrant), so no successor can be published between the check and this
+    version's activation.
+    """
+    row = (await session.execute(text(_APPROVED_SUCCESSOR_SQL), {"sid": source_id})).first()
+    if row is None:
+        raise ProblemError.not_found("Knowledge source")
+    await _lock_agent_publishes(session, agent_id=row[0])
+    superseded = (await session.execute(text(_APPROVED_SUCCESSOR_SQL), {"sid": source_id})).first()
+    if superseded is None or superseded[1]:
+        # Never live and never going to be: archived, so no screen shows it as waiting and
+        # it stays addressable as a FLOWS §7 rollback target.
+        await session.execute(
+            text(
+                "UPDATE kb_sources SET status = 'archived', updated_at = now() "
+                "WHERE id = :sid AND NOT is_active"
+            ),
+            {"sid": source_id},
+        )
+        return None
+    return await publish_source(session, tenant_id=tenant_id, source_id=source_id)
+
+
 async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> bool:
     """Take one source off the agent: withdraw the vendor's copy and stop it being live.
 
@@ -2241,6 +2314,7 @@ async def list_sources(
 
 __all__ = [
     "MAX_CHUNK_CHARS",
+    "PUBLISH_KB_SOURCE_JOB",
     "SUPPORTED_SUBMISSION_KINDS",
     "active_knowledge",
     "approve_source",
@@ -2250,6 +2324,7 @@ __all__ = [
     "project_chunks",
     "publish_lock_key",
     "publish_source",
+    "publish_unless_superseded",
     "recorded_handles_of_agent",
     "refresh_projection_keys",
     "reject_source",

@@ -161,7 +161,7 @@ export function TopUp({ session }: { session: Session }) {
   if (capability.isLoading) return <Skeleton rows={2} />;
   if (capability.error) {
     return (
-      <div className="mt-4 border-t border-line pt-4">
+      <div>
         <ProblemNotice error={capability.error} onRetry={() => void capability.refetch()} />
       </div>
     );
@@ -184,7 +184,7 @@ export function TopUp({ session }: { session: Session }) {
        catalogue is the same for everyone and is as true on a bank-transfer deployment as
        on a card one. */
     return (
-      <div className="mt-4 space-y-4 border-t border-line pt-4">
+      <div className="space-y-4">
         <p className="text-sm text-ink-muted">
           We cannot take card or UPI payment on this account yet. To add credit, transfer
           the amount to us by bank — talk to your account manager for the details — and
@@ -224,7 +224,7 @@ export function TopUp({ session }: { session: Session }) {
   const order = intent.data ?? null;
 
   return (
-    <div className="mt-4 space-y-4 border-t border-line pt-4">
+    <div className="space-y-4">
       <RestrictionNote reason={write.reason} />
 
       {/* THE OUTCOME OF THE LAST PAYMENT, above the controls that would start another —
@@ -597,7 +597,7 @@ function PackChooser({
 
       {/* A LIST, because that is what it is: a screen reader announces how many packs
           there are before the reader commits to walking them. */}
-      <ul aria-label="Prepaid credit packs" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ul aria-label="Prepaid credit packs" className="grid gap-3 sm:grid-cols-2">
         {packs.map((pack) => {
           const covers = match !== null && match.pack.pack_id === pack.pack_id;
           return (
@@ -608,7 +608,7 @@ function PackChooser({
               } ${covers ? "ring-2 ring-brand" : ""}`}
             >
               {pack.best_value && (
-                <p className="-mx-4 -mt-4 mb-3 bg-brand-strong px-4 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+                <p className="-mx-4 -mt-4 mb-3 bg-brand-strong px-4 py-1 text-[12px] font-semibold text-white">
                   Best value
                 </p>
               )}

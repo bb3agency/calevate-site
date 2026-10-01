@@ -154,7 +154,7 @@ const SOLUTIONS: readonly Solution[] = [
       // a call tool). The constraint that actually holds is about WHAT it may draw on, and
       // that is what this line says. A sentence claiming it looks nothing up mid-call
       // stood here and was false on both runnable engines.
-      "It does not answer from anything but the material you approved and published. It is not a search engine and it does not learn from your documents.",
+      "It does not answer from anything but the material your business added. It is not a search engine and it does not learn from your documents.",
       "It does not put a caller through to a person while they are on the line. Asking for somebody gets a call-back offered instead, and the caller is told that rather than being left holding.",
     ],
   },
@@ -309,33 +309,31 @@ const SOLUTIONS: readonly Solution[] = [
     id: "answers",
     figure: <AnswersMock />,
     figureLabel:
-      "Illustration of the knowledge screen: a fact submitted for review, facts in their review states, and an uploaded price list waiting to be confirmed.",
+      "Illustration of the knowledge screen: a fact being added, facts live on the agent, and an uploaded price list being read.",
     kicker: "Your answers",
-    title: "It answers from what you approved, and nothing else",
+    title: "It answers from what you added, and nothing else",
     lede: "The question every owner asks second is “what if it says the wrong thing”.",
     does: [
       // T0 and nothing else (docs/TRD.md:948) — the approved facts are compiled into the
       // agent's own prompt at publish time (apps/api/agents/t0.py).
       "Your prices, timings and the questions you get asked every day are built INTO the agent before it takes a call, so the answer comes back straight away.",
-      // apps/api/kb/service.py:348 'pending_approval', :437 the CAS approve.
-      "A fact somebody submits is pending until a person approves it. Nothing reaches a caller until that has happened.",
+      // D-658: what the account's own people add is approved on submission and published by
+      // a worker (`kb/curation.goes_live_without_review`, `workers/kb_ingest.publish_kb_source`).
+      "What you or your staff add goes to the agent once it has been read. There is no approval step to wait for.",
       // apps/api/agents/service.py:1193 publish_agent; compose_engine_prompt appends the
       // truthful-answer promise above the client's script (hard rule 5).
       "Publishing is the moment a change reaches live calls, and the truthful answers about being an AI and about recording are appended above your script every single time.",
     ],
     yours: [
       "The facts themselves, in your words.",
-      "Who is allowed to approve them.",
+      "Which of your staff may add them.",
     ],
     never: [
-      // WAS "It does not read a PDF, a brochure or a price list. There is no document
-      // upload." That stopped being true with D-534: `POST /v1/kb/uploads` accepts a PDF
-      // (`kb/uploads.py:155`), the console has the door
-      // (`app/c/[slug]/knowledge/AddDocument.tsx`), and an approved upload reaches the
-      // agent by the same publish path as pasted text. What is still true, and is the
-      // half a buyer needs, is that a person approves the text first.
-      "It does not take a document's word for it. A price list or a brochure can be uploaded, and the text taken out of it waits for a person to approve it before any caller hears it.",
-      "It does not search the open internet, and it does not answer from anything you have not approved.",
+      // A price list or brochure can be uploaded (D-534, `POST /v1/kb/uploads`) and goes to
+      // the agent once read, with no approval step (D-658). What still holds is the source:
+      // the agent answers from what the business added and from nothing else.
+      "It does not fill a gap with a guess. A price list or a brochure can be uploaded, and the agent answers from the text read out of it and nothing beyond it.",
+      "It does not search the open internet, and it does not answer from anything your business has not added.",
     ],
   },
 ];

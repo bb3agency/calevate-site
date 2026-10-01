@@ -164,7 +164,8 @@ describe("the call detail screen", () => {
     // WAS `not.toContain(RAW_NUMBER)`. D-436: this is the screen a callback starts
     // from. `RAW_NUMBER` keeps its meaning further down, where it is a number the
     // caller SPOKE inside the transcript — that one is still gated on `calls:read_raw`.
-    expect(await screen.findByText("+919876543210")).toBeTruthy();
+    // Printed grouped for reading (`formatPhone`); the E.164 form stays the value.
+    expect(await screen.findByText("+91 98765 43210")).toBeTruthy();
     for (const link of Array.from(container.querySelectorAll("a"))) {
       expect(link.getAttribute("href") ?? "").not.toMatch(/\d{10}/);
     }

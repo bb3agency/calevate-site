@@ -4,7 +4,6 @@ import { useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
 
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   NoticeBox,
@@ -31,7 +30,14 @@ const ERASE_CONFIRMATION = "ERASE";
  * console's big-red-switch idiom (`admin/ops/page.tsx`) and the right shape for the same
  * reason: the decision has to be made before the click, not discovered after it.
  */
-export function Erasure({ session }: { session: Session }) {
+export function Erasure({
+  session,
+  onFiled,
+}: {
+  session: Session;
+  /** Called once a NEW request is filed; the register shows it from there. */
+  onFiled?: () => void;
+}) {
   // `org:manage` AND the named act, because since D-587 the permission is no longer the
   // whole answer: `org:manage` is writable in a view-as session, and filing an erasure is
   // refused inside it by name (`compliance/deletion_routes.py:294`,
@@ -62,7 +68,7 @@ export function Erasure({ session }: { session: Session }) {
   const armed = phone.trim().length >= 8 && confirmation === ERASE_CONFIRMATION;
 
   return (
-    <Card title="Erase a person's data">
+    <div>
       <NoticeBox
         tone="stop"
         icon={<AlertTriangle aria-hidden className="h-5 w-5" />}
@@ -91,20 +97,21 @@ export function Erasure({ session }: { session: Session }) {
         noValidate
         onSubmit={valid.onSubmit(() => {
           file.mutate(phone.trim(), {
-            onSuccess: () => {
+            onSuccess: (result) => {
               // The filed request arrives from the register, which the mutation
               // invalidates — nothing is remembered here.
               setPhone("");
               setConfirmation("");
               preview.reset();
+              // An erasure that was already running files nothing new; the form stays
+              // open to say so rather than closing as if it had.
+              if (!result.already_open) onFiled?.();
             },
           });
         })}
       >
-        {/* Not "Their phone number", which the export field above already carries: two
-            controls with one accessible name is a screen reader announcing the erasure
-            field as the export field, on the one screen where confusing the two is
-            unrecoverable. */}
+        {/* Not "Their phone number", which is the export field's name: the two forms must
+            never be confusable, by eye or by screen reader, when one of them is erasure. */}
         <Field
           id="erasure-phone"
           label="Number to erase permanently"
@@ -220,6 +227,6 @@ export function Erasure({ session }: { session: Session }) {
           progress is below.
         </p>
       )}
-    </Card>
+    </div>
   );
 }

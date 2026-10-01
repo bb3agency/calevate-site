@@ -327,7 +327,7 @@ export function BuyNumber() {
   const bought = purchase.data;
 
   return (
-    <Card title="Getting a phone number">
+    <Card title="Get a number" density="compact">
       {offers.isLoading || kyc.isLoading ? (
         <div className="p-4">
           <Skeleton rows={3} label="Loading what we can supply" />

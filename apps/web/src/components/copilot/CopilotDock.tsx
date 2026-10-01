@@ -70,9 +70,17 @@ export function CopilotDock({
   session,
   realm,
   navigation,
+  placement = "floating",
 }: {
   session: Session;
   realm: "client" | "admin";
+  /**
+   * WHERE THE LAUNCHER LIVES. `floating` is the bottom-right button. `header` renders it as
+   * an ordinary control in the shell's top bar, and the panel then opens under the bar: a
+   * floating button sits over whatever is in that corner of the page, and on the client
+   * dashboard that was the last figure of the right-hand column.
+   */
+  placement?: "floating" | "header";
   /**
    * WHAT THE ASSISTANT NEEDS IN ORDER TO OPEN A SCREEN (D-524). Absent on the admin realm,
    * which has no screen inventory — and absent means the panel is given no `onNavigate`, so
@@ -185,7 +193,11 @@ export function CopilotDock({
         // the launcher is the one control that floats over every screen in both consoles,
         // so it is the worst place for the two realms to look alike. The focus ring stays
         // brand in both: it marks the keyboard, not the realm.
-        className={`fixed bottom-4 right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line text-white shadow-raised press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
+        className={`${
+          placement === "header"
+            ? "flex h-9 w-9 items-center justify-center rounded-md touch:h-11 touch:w-11"
+            : "fixed bottom-4 right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line shadow-raised"
+        } text-white press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
           realm === "admin"
             ? "bg-slate-900 hover:bg-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-400"
             : "bg-brand-strong hover:bg-brand-deep"
@@ -234,7 +246,7 @@ export function CopilotDock({
           refused, and cannot drift from it. The admin realm never sets it. */}
       {isOpen &&
         (session.impersonateOrg ? (
-          <ViewAsPanel labelledBy={titleId} onClose={closePanel} />
+          <ViewAsPanel labelledBy={titleId} onClose={closePanel} placement={placement} />
         ) : (
           <CopilotPanel
             session={session}
@@ -243,6 +255,7 @@ export function CopilotDock({
             labelledBy={titleId}
             onNavigate={navigation === undefined ? undefined : navigateTo}
             onClose={closePanel}
+            placement={placement}
           />
         ))}
     </>
@@ -250,7 +263,7 @@ export function CopilotDock({
 }
 
 /** Mounted by `app/c/[slug]/layout.tsx`, INSIDE `ClientRealmProvider`. */
-export function ClientCopilotDock() {
+export function ClientCopilotDock({ placement }: { placement?: "floating" | "header" } = {}) {
   // `useClientRealm()` rather than `useClientSession()`: the assistant can now open a screen
   // (D-524), and both halves of that come from this context — the account's slug, which the
   // route template on the wire is missing, and `href`, which carries a view-as session's
@@ -261,6 +274,7 @@ export function ClientCopilotDock() {
       session={realm.session}
       realm="client"
       navigation={{ slug: realm.session.orgSlug, href: realm.href }}
+      placement={placement}
     />
   );
 }

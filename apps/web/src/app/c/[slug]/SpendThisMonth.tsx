@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 
-import { ProblemNotice, Skeleton, formatCount, formatINR } from "@/components/ui";
+import { Card, ProblemNotice, Skeleton, formatCount, formatINR } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
-import { Panel } from "@/components/console/panel";
 import type { useUsage } from "@/lib/api/hooks";
 
 /** Inside the dashboard's money block, which already draws the outline. */
@@ -26,19 +25,19 @@ export function SpendThisMonth({
 }) {
   if (usage.isLoading) {
     return (
-      <Panel title="Spend this month" className={FLAT}>
+      <Card density="compact" title="Spend this month" className={FLAT}>
         <Skeleton rows={2} />
-      </Panel>
+      </Card>
     );
   }
   if (usage.error || !usage.data) {
     return (
-      <Panel title="Spend this month" className={FLAT}>
+      <Card density="compact" title="Spend this month" className={FLAT}>
         <ProblemNotice
           error={usage.error ?? new Error("Your spend did not load.")}
           onRetry={() => void usage.refetch()}
         />
-      </Panel>
+      </Card>
     );
   }
   return (

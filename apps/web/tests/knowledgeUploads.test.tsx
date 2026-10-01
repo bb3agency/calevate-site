@@ -788,11 +788,12 @@ describe("who may add, and what happens to what they add", () => {
 
     await screen.findByText(/Add a file or a web page/i);
     expect(container.textContent).toContain("you do not wait for us");
-    // And the one exception, stated rather than discovered.
-    expect(container.textContent).toContain("anything read off a photo");
+    // D-658: no exception for a photo, and no review for anybody in the account.
+    expect(container.textContent).toContain("nobody approves it first");
+    expect(container.textContent).not.toContain("read off a photo");
   });
 
-  it("tells a staff member their document is reviewed first, and closes the control", async () => {
+  it("tells a staff member nobody reviews what they add, and closes the control when they may not", async () => {
     // A staff member in an account whose owner has not switched curation on holds no
     // `kb:write`, so the upload control is dead — and it says why, beside itself, rather
     // than answering 403 after they have chosen a 20 MB file.
@@ -800,9 +801,8 @@ describe("who may add, and what happens to what they add", () => {
 
     await screen.findByText(/Add a file or a web page/i);
     expect(filePicker().disabled).toBe(true);
-    expect(container.textContent).toContain(
-      "reviewed before your agent starts using it",
-    );
+    expect(container.textContent).toContain("nobody approves it first");
+    expect(container.textContent).not.toContain("reviewed before your agent starts using it");
     expect(container.textContent).toContain(
       "Only an account owner can add knowledge to this account.",
     );

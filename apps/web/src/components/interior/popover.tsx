@@ -45,7 +45,8 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
-function usePlacement({
+/** Fixed-position placement under (or above) an anchor; shared by `Popover` and `RowMenu`. */
+export function usePopoverPlacement({
   open,
   anchorRef,
   side,
@@ -186,7 +187,7 @@ export function Popover({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const { wrapRef, panelRef, contentRef, side: at } = usePlacement({
+  const { wrapRef, panelRef, contentRef, side: at } = usePopoverPlacement({
     open,
     anchorRef,
     side,

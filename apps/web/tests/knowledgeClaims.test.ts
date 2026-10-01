@@ -50,13 +50,13 @@ import { relPosix } from "./repoPaths";
  *
  * 1. **We do not train on, fine-tune on, or learn from a client's material**, and no agent
  *    answers an arbitrary question. Unchanged, and the one shape carried over untouched.
- * 2. **Nothing a client submits reaches a caller until it has been approved AND
- *    published.** Ingest is asynchronous (`kb/uploads.py` — `UPLOAD_RECEIVED`,
- *    `UPLOAD_CONVERTING`, "a per-item status a client can read while the engine indexes
- *    asynchronously"), approval is a human step (FLOWS §7, `kb/service.approve_source`),
- *    and `approved` is still not `live` — the two-step ladder `SubmittedList.tsx` exists
- *    for. Copy that couples adding knowledge to an immediacy word promises a state the
- *    product does not have.
+ * 2. **Nothing a client submits reaches a caller the instant it is sent.** Since D-658
+ *    nobody approves what the account's own people add, but ingest and publish are still
+ *    asynchronous work: a document is read first (`kb/uploads.py` — `UPLOAD_RECEIVED`,
+ *    `UPLOAD_CONVERTING`), and every submission is published by a worker job
+ *    (`publish_kb_source` / `ingest_kb_source`) after the request has answered, so
+ *    `approved` is still not `live`. Copy that couples adding knowledge to an immediacy
+ *    word promises a state the product does not have.
  * 3. **We read what a client GIVES us, never their systems.** There is no connector that
  *    reads a client's website, drive, inbox or CRM for answers: a link is fetched once at
  *    submission through `integrations/egress_guard.assert_public_http_url` and re-fetched
@@ -108,13 +108,12 @@ interface BannedShape {
 const BANNED: readonly BannedShape[] = [
   {
     // WAS `upload-it-and-the-agent-will-know` AND `knowledge-you-uploaded`, both of which
-    // banned a thing the product now does (D-534 shipped the uploads door). What it could
-    // never do is make it live without a person: `publish_source` runs after approval, and
-    // conversion and indexing are asynchronous before that.
+    // banned a thing the product now does (D-534 shipped the uploads door). What it still
+    // cannot do is make it live inside the request: reading and publishing are worker jobs.
     name: "live-the-moment-you-add-it",
     pattern:
       /\b(upload\w*|add\w*|paste\w*|submit\w*|send\w*)\b[^.]{0,60}\b(knowledge|price list|rate card|brochure|catalogue|menu|faq|document|documents)\b[^.]{0,60}\b(immediately|instantly|right away|straight away|at once|within seconds|in seconds)\b/i,
-    why: "knowledge is converted, then approved by a person, then published before any caller hears it (apps/api/kb/uploads.py, apps/api/kb/service.py::approve_source, FLOWS §7); `approved` is not `live`",
+    why: "knowledge is read, then published by a worker job before any caller hears it (apps/api/kb/uploads.py, apps/workers/kb_ingest.py::publish_kb_source, FLOWS §7); no person approves it (D-658) but `approved` is still not `live`",
     fires: "Upload your price list and the agent answers from it immediately.",
     quietOn:
       "Your prices and timings are built into the agent before it takes a call, so the answer comes back straight away.",

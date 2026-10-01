@@ -5,9 +5,8 @@ import { useState } from "react";
 import { BrainCircuit, Info, IndianRupee, Save, Sparkles } from "lucide-react";
 
 import {
-  Card,
+  Disclosure,
   FIELD_HINT,
-  NoticeBox,
   ProblemNotice,
   RestrictionNote,
   formatRupeeRate,
@@ -162,102 +161,90 @@ export function OrganizationDefault({
 
   return (
     <>
-      <Card title="The model your agents use">
-        <form
-          className="space-y-5"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!changed) return;
-            save.mutate(
-              { default_llm_model: selected },
-              { onSuccess: () => toast({ tone: "success", title: "AI model saved" }) },
-            );
-          }}
-        >
-          <NoticeBox
-            tone="neutral"
-            icon={<BrainCircuit aria-hidden className="h-5 w-5" />}
-            title={`In force now: ${defaults.effective_default}`}
-          >
-            <p className="mt-1">
-              {defaults.default_llm_model === null
-                ? "You have not picked a model, so your agents run on the one Calevate uses by default."
-                : "You picked this model for your account."}
-              {/* The model named above is the one we INTEND to run; this says when it is
-                  not the one answering yet. Same sentence the picker's rows carry, because
-                  it is the same fact and the same one action. */}
-              {inForceBlocked && (
-                <> It is not switched on for your account yet, so your calls run our
-                standard model until it is — ask your Calevate team to enable it.</>
-              )}
-              {inForceSurchargeInr !== null ? (
-                // WHAT IT ADDS TO THEIR BILL, in words for the zero case, because "₹0.00
-                // a minute" is a rupee amount of nothing and "no extra charge" is the
-                // answer to the question they asked.
-                compareRates(inForceSurchargeInr, "0") === "same" ? (
-                  <> It adds nothing to what you are charged for a minute.</>
-                ) : (
-                  <>
-                    {" "}
-                    It adds {formatRupeeRate(inForceSurchargeInr)} to every minute you are
-                    charged for.
-                  </>
-                )
+      <form
+        className="space-y-5"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!changed) return;
+          save.mutate(
+            { default_llm_model: selected },
+            { onSuccess: () => toast({ tone: "success", title: "AI model saved" }) },
+          );
+        }}
+      >
+        <div className="border-y border-line py-3.5">
+          <p className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
+            <BrainCircuit aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
+            {`In force now: ${defaults.effective_default}`}
+          </p>
+          <p className="mt-0.5 text-[13px] text-ink-muted">
+            {defaults.default_llm_model === null
+              ? "You have not picked a model, so your agents run on the one Calevate uses by default."
+              : "You picked this model for your account."}
+            {inForceSurchargeInr !== null ? (
+              compareRates(inForceSurchargeInr, "0") === "same" ? (
+                <> It adds nothing to what you are charged for a minute.</>
               ) : (
-                // The catalogue does not price what is in force — a model withdrawn from
-                // the list, or an older API. Saying so beats printing a number we do not
-                // have, and beats saying nothing at all on a screen about a price.
-                <> We cannot show its price from here; your account manager can.</>
-              )}
-            </p>
-          </NoticeBox>
-
-          <RestrictionNote reason={write.reason} />
-          {/* The server's own refusal, with its remediation — never a generic toast. An
-              unknown model and a model this plan does not include are different answers
-              and only the API knows which one this was. */}
-          {save.error != null && <ProblemNotice error={save.error} />}
-
-          <ModelPicker
-            name="organization-llm-default"
-            legend="Model for all your agents"
-            hint="Figures are what a model adds to every minute you are charged for."
-            choices={choices}
-            value={selected}
-            baselineSurcharge={inForceSurchargeInr}
-            disabled={!write.allowed || save.isPending}
-            onChange={(next) => setPicked({ model: next })}
-          />
-
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Shared ActionButton: it carries the spinner while the save is in flight
-                (`loading`) so the panel no longer spells "Saving…" itself, and it disables
-                during the request the same way the old button did (`disabled || loading`).
-                The accessible name is the children and does NOT change with `loading`, so
-                `clientLlmModel.test.tsx`'s `getByRole(button, /Save model/)` — and a screen
-                reader — keeps pointing at the same control mid-save. */}
-            <ActionButton
-              type="submit"
-              loading={save.isPending}
-              disabled={!write.allowed || !changed}
-              title={write.reason ?? undefined}
-            >
-              <Save aria-hidden className="h-4 w-4" />
-              Save model
-            </ActionButton>
-            {!changed && !save.isPending && (
-              <span className="text-xs text-ink-muted">Nothing has been changed yet.</span>
+                <>
+                  {" "}
+                  It adds {formatRupeeRate(inForceSurchargeInr)} to every minute you are
+                  charged for.
+                </>
+              )
+            ) : (
+              <> We cannot show its price from here; your account manager can.</>
             )}
-          </div>
+          </p>
+        </div>
+        {/* The model named above is the one we INTEND to run; this says when it is not the
+            one answering yet. A warning, not help text: it changes what a call runs on. */}
+        {inForceBlocked && (
+          <p className="rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
+            It is not switched on for your account yet, so your calls run our standard model
+            until it is — ask your Calevate team to enable it.
+          </p>
+        )}
+
+        <RestrictionNote reason={write.reason} />
+        {/* The server's own refusal, with its remediation — never a generic toast. */}
+        {save.error != null && <ProblemNotice error={save.error} />}
+
+        <ModelPicker
+          name="organization-llm-default"
+          legend="Model for all your agents"
+          hint="Figures are what a model adds to every minute you are charged for."
+          choices={choices}
+          value={selected}
+          baselineSurcharge={inForceSurchargeInr}
+          disabled={!write.allowed || save.isPending}
+          onChange={(next) => setPicked({ model: next })}
+          audience="client"
+        />
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* The accessible name is the children and does NOT change while saving, so a
+              screen reader (and `clientLlmModel.test.tsx`) keeps the same control. */}
+          <ActionButton
+            type="submit"
+            loading={save.isPending}
+            disabled={!write.allowed || !changed}
+            title={write.reason ?? undefined}
+          >
+            <Save aria-hidden className="h-4 w-4" />
+            Save model
+          </ActionButton>
           <span className={FIELD_HINT}>
             This takes effect on the next call. Calls already running finish on the model
             they started on.
           </span>
-        </form>
-      </Card>
+        </div>
+      </form>
 
-      <Card title="What this does and does not change">
+      <Disclosure
+        title="How the model is billed"
+        subtitle="A model's figure is added to your plan's per-minute rate, as its own line on your statement."
+      >
         <ul className="space-y-2 text-sm text-ink-muted">
           <li className="flex gap-2">
             <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
@@ -305,7 +292,7 @@ export function OrganizationDefault({
             </span>
           </li>
         </ul>
-      </Card>
+      </Disclosure>
     </>
   );
 }

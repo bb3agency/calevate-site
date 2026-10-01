@@ -131,8 +131,8 @@ export function AddKnowledgeForm({
             they write — and what they write is what the agent carries verbatim,
             so better input is the only lever there is. */}
         <p className="text-xs text-ink-muted">
-          Submitting a topic that already exists creates a new version; the previous
-          one stays until this is approved.
+          Adding a topic that already exists creates a new version; the previous one
+          stays in use until the new one has reached your agent.
         </p>
         <button
           type="submit"
@@ -149,7 +149,7 @@ export function AddKnowledgeForm({
           className="press flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
         >
           <Send className="h-3.5 w-3.5" />
-          {submit.isPending ? "Submitting…" : "Submit for review"}
+          {submit.isPending ? "Adding…" : "Add to agent"}
         </button>
       </form>
     </Card>

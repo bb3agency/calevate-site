@@ -57,7 +57,7 @@ export function liveState(agent: Agent): LiveState {
       label: "Being set up",
       tone: "border-line bg-app text-ink-muted",
       detail:
-        "Not on the calling system yet, so it cannot take or make calls. Your account manager finishes this before your first call.",
+        "Not on the calling system yet, so it cannot take or make calls. Switching it on puts it there.",
     };
   }
   if (agent.status === "paused") {

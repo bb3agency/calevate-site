@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ShieldAlert } from "lucide-react";
+import { ArrowRight, ShieldAlert } from "lucide-react";
 
 import {
-  MonoValue,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
@@ -12,8 +11,10 @@ import {
   StatusBadge,
   formatCount,
   formatIST,
+  formatPhone,
 } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
+import { PageHeader } from "@/components/console/pageHeader";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { useEditLead, useLead, useLeadTimeline, useMembers } from "@/lib/api/leads";
 import { useClientRealm } from "@/lib/api/session";
@@ -182,14 +183,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
 
   return (
     <div className="space-y-4 pb-12">
-      {/* No <h1>: the app shell prints the page title from the nav list. */}
-      <Link
-        href={href(`/c/${slug}/leads`)}
-        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Leads
-      </Link>
+      <PageHeader back={{ href: href(`/c/${slug}/leads`), label: "Leads" }} />
 
       {lead.error && <ProblemNotice error={lead.error} onRetry={() => void lead.refetch()} />}
 
@@ -202,43 +196,45 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
           aria-label="Lead"
           className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5"
         >
-          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <span className="text-xl font-semibold tracking-tight text-ink">
-                  {lead.data.name ?? <span className="font-normal text-ink-faint">No name</span>}
-                </span>
+          {/* IN FULL (D-436) and as text, never an `href` (hard rule 6); the copy button
+              copies the E.164 form. */}
+          <PageHeader
+            title={lead.data.name ?? <span className="font-normal text-ink-faint">No name</span>}
+            status={
+              <>
                 <StatusBadge value={lead.data.status} />
                 {lead.data.is_repeat_caller && (
                   <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[12px] font-medium text-brand-strong">
                     Repeat caller
                   </span>
                 )}
-              </div>
-              {/* IN FULL (D-436), as text and never an `href` (hard rule 6). Mono because
-                  a number is compared against a person's records digit by digit. */}
-              <div className="mt-1 flex items-center gap-1">
-                <MonoValue className="text-[15px] tabular-nums text-ink-muted">
-                  {lead.data.phone_e164}
-                </MonoValue>
-                <CopyButton value={lead.data.phone_e164} label="Copy phone number" />
-              </div>
-              <p className="mt-1 text-[13px] text-ink-faint">
-                {lead.data.source} · {formatCount(lead.data.call_count)}{" "}
-                {lead.data.call_count === 1 ? "call" : "calls"} · updated{" "}
-                {formatIST(lead.data.updated_at)}
-              </p>
-            </div>
-            {lead.data.last_call_id && (
-              <Link
-                href={href(`/c/${slug}/calls/${lead.data.last_call_id}`)}
-                className="inline-flex items-center gap-1 rounded-sm text-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-              >
-                Open the last call
-                <ArrowRight aria-hidden className="h-3.5 w-3.5" />
-              </Link>
-            )}
-          </div>
+              </>
+            }
+            description={
+              <>
+                <span className="flex items-center gap-1 text-[15px] tabular-nums text-ink">
+                  {formatPhone(lead.data.phone_e164)}
+                  <CopyButton value={lead.data.phone_e164} label="Copy phone number" />
+                </span>
+                <span className="block text-[13px] text-ink-faint">
+                  {lead.data.source} · {formatCount(lead.data.call_count)}{" "}
+                  {lead.data.call_count === 1 ? "call" : "calls"} · updated{" "}
+                  {formatIST(lead.data.updated_at)}
+                </span>
+              </>
+            }
+            actions={
+              lead.data.last_call_id && (
+                <Link
+                  href={href(`/c/${slug}/calls/${lead.data.last_call_id}`)}
+                  className="inline-flex items-center gap-1 rounded-sm text-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+                >
+                  Open the last call
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+                </Link>
+              )
+            }
+          />
 
           {/* What the agent captured about this person — the same fields as the table's
               extraction columns, read through `lookup` (they are client-named keys). */}

@@ -46,10 +46,29 @@ function writeFallback(text: string): boolean {
 }
 
 /**
- * The one clipboard path in the console. `navigator.clipboard` first; the deprecated
- * `execCommand` route only where the async API is missing or refused (an insecure
- * origin, or an older WebView).
+ * Put `text` on the clipboard: `navigator.clipboard` first, the deprecated `execCommand`
+ * route only where the async API is missing or refused (an insecure origin, an older
+ * WebView). Resolves to whether it worked. The one clipboard path in the console; the
+ * hook below and any "Copy" menu item go through it.
  */
+export async function copyText(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    return writeFallback(text);
+  } catch {
+    try {
+      return writeFallback(text);
+    } catch {
+      return false;
+    }
+  }
+}
+
+/** The copy button's state (idle → copied / error → idle) over `copyText`. */
 export function useCopyToClipboard({ timeout = 2000 }: { timeout?: number } = {}) {
   const [status, setStatus] = useState<CopyStatus>("idle");
   const [ticket, setTicket] = useState(0);
@@ -64,21 +83,7 @@ export function useCopyToClipboard({ timeout = 2000 }: { timeout?: number } = {}
 
   const copy = useCallback(async (text: string) => {
     if (!text) return false;
-    let ok = false;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        ok = true;
-      } else {
-        ok = writeFallback(text);
-      }
-    } catch {
-      try {
-        ok = writeFallback(text);
-      } catch {
-        ok = false;
-      }
-    }
+    const ok = await copyText(text);
     if (!mounted.current) return ok;
     setStatus(ok ? "copied" : "error");
     setTicket((t) => t + 1);

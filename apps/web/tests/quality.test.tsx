@@ -146,7 +146,9 @@ describe("the client's quality report", () => {
     });
     // Newest first by default — the server's order, kept.
     await screen.findByText("No defects found across 58 scenarios");
-    expect(screen.getByRole("group", { name: "Choose a month" })).toBeTruthy();
+    // A SegmentedControl since the round-2 redesign (D-655: each month is a complete
+    // report and the reader picks one), so the picker is a radiogroup of radios.
+    expect(screen.getByRole("radiogroup", { name: "Choose a month" })).toBeTruthy();
   });
 
   /**
@@ -178,7 +180,7 @@ describe("the client's quality report", () => {
       });
       await screen.findByText("No defects found across 58 scenarios");
       expect(
-        screen.getByRole("button", { name: "September 2026" }),
+        screen.getByRole("radio", { name: "September 2026" }),
       ).toBeTruthy();
       // The report's own line names the same month, in words rather than as a wire
       // format — and the same UTC-anchored day, not the one the browser's zone lands on.

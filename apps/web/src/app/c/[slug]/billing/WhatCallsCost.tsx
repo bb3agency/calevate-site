@@ -10,7 +10,9 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Card, Disclosure, formatRupeeRate } from "@/components/ui";
+import { Panel } from "@/components/console/panel";
+import { Disclosure, formatRupeeRate } from "@/components/ui";
+import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { CreditPacks } from "@/lib/api/billing";
 import { UNPRICED_TIER_NOTICE, ladderFalls } from "@/lib/api/rateCard";
 
@@ -73,11 +75,11 @@ import {
  *    this wallet (`apps/api/billing/ai_quota.py`, one row, `ref = ai_assist:<YYYY-MM>`) and
  *    `WhereItWent` renders it as "Extra AI help", with a "Corrections" row beside it.
  *
- * 6. **The GST position, stated as a benefit AND as a warning.** `billing/gst.py` is
- *    explicit: the legal person is a sole proprietor trading as Calevate, is NOT registered
- *    for GST and is not required to be at present turnover, so under CGST s.32 we may not
- *    collect tax and under Rule 49 what we issue is a BILL OF SUPPLY, which confers no input
- *    tax credit. Both halves are said here, and the warning is never behind the click.
+ * 6. **The GST position, stated as a benefit AND as a warning.** The sentence is the
+ *    shared `GST_STATUS_SENTENCE` (D-659): a sole proprietorship below the registration
+ *    threshold, not GST-registered, so no GST is charged and no tax invoice is issued — and
+ *    so no input tax credit. Both halves are said here, and the warning is never behind the
+ *    click.
  *
  * ## DENSITY — one line each, the sentence behind a click (founder, 4 Sep 2026)
  *
@@ -112,7 +114,7 @@ export function WhatCallsCost({
 }) {
   const band = card && labels ? rateBand(card) : undefined;
   return (
-    <Card title="What calls cost">
+    <Panel title="What calls cost">
       <p className="text-sm text-ink-muted">
         Calling is charged out of your credit as you use it, and 1 credit is ₹1.
         {band &&
@@ -231,16 +233,14 @@ export function WhatCallsCost({
 
         <Fact
           icon={<ReceiptText className="h-4 w-4" aria-hidden />}
-          claim="No GST is added, and we cannot issue a tax invoice"
+          claim="No GST, and no tax invoice"
         >
-          Calevate is not registered for GST, so nothing is added on top — the
-          price you see is the price you pay. The other side of that is real and
-          worth knowing before you buy: what we can issue is a bill of supply,
-          not a tax invoice, so a business that needs to claim input tax credit
-          on this spend will not be able to.
+          {GST_STATUS_SENTENCE} The price you see is the price you pay, and a
+          business that needs to claim input tax credit on this spend will not be
+          able to.
         </Fact>
       </div>
-    </Card>
+    </Panel>
   );
 }
 

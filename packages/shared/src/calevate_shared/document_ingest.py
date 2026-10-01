@@ -175,11 +175,12 @@ OCR_IMAGE_MIME_TYPES: Final[frozenset[str]] = frozenset(
 class ExtractedText:
     """One converted upload: the text, how we got it, and whether a human must confirm it.
 
-    `needs_confirmation` IS THE PRODUCT DECISION, and it is a field rather than a
-    computed property so that a future provenance cannot quietly default to False.
-    Everything read by OCR requires the person who uploaded it to look at the extracted
-    text and say "yes, that is my menu" before it can be submitted as knowledge — see
-    `apps/workers/document_ocr.py` for why no heuristic is allowed to stand in for that.
+    `needs_confirmation` says a MODEL produced this text, so no number backs its accuracy
+    (`apps/workers/document_ocr.py` says why no heuristic can). It is a field rather than a
+    computed property so that a future provenance cannot quietly default to False. Since
+    D-658 it no longer holds an account member's upload back for their confirmation — the
+    founder ruled that what the account's own people add needs no verification — so it is
+    a fact recorded about the reading, and the upload carries `text_provenance = 'ocr'`.
 
     `unit_count` / `unit_name` are what a cost line and an operator screen need ("4
     pages", "312 rows", "2 sheets") without anybody having to look at the content.

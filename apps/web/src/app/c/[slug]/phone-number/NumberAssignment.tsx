@@ -92,8 +92,8 @@ export function NumberAssignment({
     agentId !== null && !agents.data.some((agent) => agent.id === agentId) ? agentId : null;
 
   return (
-    <div className="mt-3 rounded-card border border-line bg-app p-4">
-      <p className="text-sm font-medium text-ink">Put this number on an agent</p>
+    <section className="border-t border-line pt-4">
+      <h3 className="text-sm font-semibold text-ink">Put this number on an agent</h3>
 
       <div className="mt-3">
         <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
@@ -192,6 +192,6 @@ export function NumberAssignment({
       >
         {assign.isPending ? "Saving…" : "Save"}
       </button>
-    </div>
+    </section>
   );
 }

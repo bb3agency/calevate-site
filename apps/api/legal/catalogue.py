@@ -352,6 +352,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "agreed to a document that never named the thing now refusing every "
                 "outbound call they make.",
             ),
+            Revision(
+                "8",
+                False,
+                "Clause 4's staff paragraph now says that what staff add to the agents' "
+                "knowledge goes to the agents once it has been read, without review by the "
+                "owner or by Calevate (D-658). Non-material — the terms never promised a "
+                "review, staff curation is still off until the owner turns it on, and "
+                "nothing anybody agreed to changes meaning.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

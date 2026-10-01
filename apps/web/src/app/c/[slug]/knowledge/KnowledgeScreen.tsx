@@ -140,8 +140,8 @@ export function KnowledgeScreen() {
           the faster arrangement, not the poorer one, and it is written that way.
           `tests/knowledgeApproval.test.tsx` pins the sentence and bans the shapes. */}
       <p className="text-sm text-ink-muted">
-        What your agent knows. Everything you add is reviewed by your account
-        manager, and once it is approved it becomes part of what the agent
+        What your agent knows. What you add goes to your agent once it has been
+        read, without anyone approving it, and becomes part of what the agent
         already knows when it picks up — hours, address, prices, the questions
         you get asked every day.
       </p>

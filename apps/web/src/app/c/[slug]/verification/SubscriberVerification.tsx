@@ -1,17 +1,16 @@
 "use client";
 
-import type { ComponentType } from "react";
-import { PhoneIncoming, PhoneOutgoing, PhoneOff, ShieldAlert, ShieldCheck } from "lucide-react";
+import type { ComponentType, ReactNode } from "react";
+import { PhoneIncoming, PhoneOutgoing, PhoneOff } from "lucide-react";
 
-import { Card, MonoValue, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import type { ChecklistItem } from "@/components/console/checklist";
+import { MonoValue, formatIST } from "@/components/ui";
 import {
   DOCUMENT_KINDS,
   documentKindLabel,
   entityTypeLabel,
-  useKycRecord,
   type KycRecord,
 } from "@/lib/api/kyc";
-import type { Session } from "@/lib/api/client";
 import { Term } from "@/lib/glossary";
 
 import {
@@ -36,144 +35,84 @@ import {
  * verdict names the state, the next step follows it, and the consequences qualify it —
  * a client who has read the first two has already left, which is the point.
  */
-export function SubscriberVerification({ session }: { session: Session }) {
-  const record = useKycRecord(session);
-
-  if (record.isLoading) return <Skeleton rows={6} />;
-
-  /**
-   * A refusal we received, or an answer that never arrived — one branch, because to the
-   * client they are the same sentence and it is not "you are cleared".
-   *
-   * The second half used to `return null`. `isLoading` is false whenever the query is
-   * pending but not FETCHING — which is what TanStack Query does while the browser is
-   * offline (`fetchStatus: "paused"`) — so a client on a train got a blank page where
-   * the state of their verification should be. There is no `ApiProblem` to render in
-   * that case, and `ProblemNotice` says exactly the right thing for it.
-   */
-  if (record.error || !record.data) {
-    return (
-      <ProblemNotice
-        error={record.error ?? new Error("The verification record did not load.")}
-        onRetry={() => void record.refetch()}
-      />
-    );
-  }
-
-  const kyc = record.data;
-
+export function KycSections({ record }: { record: KycRecord }) {
   return (
-    <div className="space-y-5">
-      <Verdict record={kyc} />
-
-      {!kyc.is_verified && (
+    <>
+      {!record.is_verified && (
         <>
           <WhatWeNeed />
           <WhatItAffects />
         </>
       )}
-
-      <PhoneNumbers record={kyc} />
-
-      {kyc.recorded && <OnFile record={kyc} />}
-
-      <Card title="What we keep, and what we never ask for">
-        <ul className={LIST}>
-          <li>
-            <span className={LEAD_IN}>There is nothing to upload here, on purpose.</span> We
-            record your business&apos;s public registration number — the one anyone can
-            look up on the government register — and a reference to where our paperwork
-            is filed. No scan, no photograph and no copy of any document is stored.
-          </li>
-          <li>
-            <span className={LEAD_IN}>Never send an Aadhaar or an individual&apos;s PAN.</span>{" "}
-            We do not ask for one, we have nowhere to put one, and a value shaped like an
-            Aadhaar is refused by the system rather than merely discouraged. What we need
-            identifies the business, not a person.
-          </li>
-          <li>
-            <span className={LEAD_IN}>Verification is ours to do, not yours to declare.</span>{" "}
-            There is no control on this page that sets your own status — the rules make
-            confirming who holds the connection our job, not something you can claim about
-            yourself, so a business marking itself verified would be worth nothing to
-            anyone.
-          </li>
-          <li>
-            {/* This bullet used to end "your campaign screen names the DLT ones
-                separately" — true while the DLT state had no page. It is on this one
-                now, so the sentence points down the page instead of away from it. */}
-            <span className={LEAD_IN}>
-              This is separate from your{" "}
-              <Term id="dlt" />{" "}
-              registration.
-            </span>{" "}
-            The two overlap in the documents they rest on, but they are held by different
-            people for different purposes, and neither one clears the other. Your campaign
-            registration is the next section.
-          </li>
-        </ul>
-      </Card>
-    </div>
+      {record.recorded && <OnFile record={record} />}
+    </>
   );
 }
 
-/**
- * Where the account stands, in one box.
- *
- * `is_verified` decides the green path — never `status === "verified"` — so a status
- * this build has never heard of cannot be rendered as cleared. An unknown status falls
- * back to "not verified yet, ask us where it stands", which is vaguer than we would
- * like and still the only answer that cannot be wrong.
- *
- * The ICON is keyed on the same boolean rather than on the tone, for the same reason:
- * a shield with a tick is the most-read pixel in the box, and it must be answering the
- * gate's question and not a copy table's mood.
- */
-function Verdict({ record }: { record: KycRecord }) {
-  const copy = verdictCopy(record);
-  const Icon = record.is_verified ? ShieldCheck : ShieldAlert;
+/** "What we keep, and what we never ask for" — the identity-document refusals, in words. */
+export function WhatWeKeep() {
   return (
-    <NoticeBox tone={copy.tone} icon={<Icon className="h-5 w-5" />} title={copy.headline}>
-      <div className="min-w-0">
-        {record.is_verified ? (
-          <p className="mt-1">
-            {describeVerification(record)} {copy.next}
-          </p>
-        ) : (
-          <p className="mt-1">{copy.next}</p>
-        )}
-        {/* Guaranteed non-null when the status is `rejected`
-            (`ck_kyc_records_rejected_names_its_reason`), so a client is never told
-            "rejected" with no reason. Shown on any state that is not yet cleared, because
-            a reason left over from an earlier refusal is still the last thing we told
-            them and still the thing they are answering — but never under a verified
-            record, where it would explain a decision that has since been reversed. */}
-        {!record.is_verified && record.rejection_reason && (
-          <p className="mt-2 rounded-md bg-white/60 p-2 dark:bg-black/20">
-            <span className="font-semibold">What we said:</span> {record.rejection_reason}
-          </p>
-        )}
-        {!record.is_verified && (
-          <p className="mt-2 font-semibold">
-            Calls coming IN are unaffected — your agent keeps answering the phone.
-          </p>
-        )}
-      </div>
-    </NoticeBox>
+    <ul className={LIST}>
+      <li>
+        <span className={LEAD_IN}>There is nothing to upload here, on purpose.</span> We
+        record your business&apos;s public registration number — the one anyone can
+        look up on the government register — and a reference to where our paperwork
+        is filed. No scan, no photograph and no copy of any document is stored.
+      </li>
+      <li>
+        <span className={LEAD_IN}>Never send an Aadhaar or an individual&apos;s PAN.</span>{" "}
+        We do not ask for one, we have nowhere to put one, and a value shaped like an
+        Aadhaar is refused by the system rather than merely discouraged. What we need
+        identifies the business, not a person.
+      </li>
+      <li>
+        <span className={LEAD_IN}>Verification is ours to do, not yours to declare.</span>{" "}
+        There is no control on this page that sets your own status — the rules make
+        confirming who holds the connection our job, not something you can claim about
+        yourself, so a business marking itself verified would be worth nothing to
+        anyone.
+      </li>
+      <li>
+        <span className={LEAD_IN}>
+          This is separate from your{" "}
+          <Term id="dlt" />{" "}
+          registration.
+        </span>{" "}
+        The two overlap in the documents they rest on, but they are held by different
+        people for different purposes, and neither one clears the other. Your campaign
+        registration is on this page too.
+      </li>
+    </ul>
   );
 }
 
 /**
- * The call to action — the one thing the client can actually do.
- *
- * The document list is the one DoT's business-connection instructions ask a licensee
- * for (entity registration, address, GST where applicable, the authorised signatory),
- * which is why the address requirement mentions the city: the operator will not issue a
- * number against an address in a different one.
+ * Business verification as one checklist row: the verdict as its label, the next step as
+ * its detail, and the last refusal reason (non-null whenever the status is `rejected`)
+ * while the account is not yet cleared, never under a verified record.
  */
+export function kycItem(record: KycRecord): ChecklistItem {
+  const copy = verdictCopy(record);
+  return {
+    id: "kyc",
+    label: copy.headline,
+    state: record.is_verified ? "done" : "todo",
+    detail: (
+      <>
+        {record.is_verified ? `${describeVerification(record)} ${copy.next}`.trim() : copy.next}
+        {!record.is_verified && record.rejection_reason && (
+          <span className="mt-1 block text-ink">
+            <span className="font-semibold">What we said:</span> {record.rejection_reason}
+          </span>
+        )}
+      </>
+    ),
+  };
+}
+
 function WhatWeNeed() {
   return (
-    <Card title="What to send us">
+    <Section title="What to send us">
       <p className="text-sm text-ink-muted">
         Send these to your account manager and we will verify the account. We only need
         the numbers below — not copies of anything.
@@ -201,7 +140,11 @@ function WhatWeNeed() {
           A name only — we do not record their identity document.
         </li>
       </ul>
-    </Card>
+      <p className="mt-3 text-sm text-ink">
+        <span className={LEAD_IN}>Never send an Aadhaar or an individual&apos;s PAN.</span>{" "}
+        What we need identifies the business, not a person.
+      </p>
+    </Section>
   );
 }
 
@@ -230,7 +173,7 @@ function WhatWeNeed() {
  */
 function WhatItAffects() {
   return (
-    <Card title="What this affects while it is outstanding">
+    <Section title="What this affects while it is outstanding">
       <ul className="space-y-3 text-sm text-ink-muted">
         <Affected icon={PhoneIncoming} tone="ok" claim="Incoming calls: unaffected, on every plan.">
           Your agent answers the phone exactly as before. Nothing on this page can stop
@@ -253,7 +196,7 @@ function WhatItAffects() {
           and whatever you pay us. Numbers you already have keep working.
         </Affected>
       </ul>
-    </Card>
+    </Section>
   );
 }
 
@@ -295,9 +238,9 @@ function Affected({
  * has read, and each operator publishes its own. The KYC sentence is here because it
  * is true on both sides at once: their operator asks for the documents we ask for.
  */
-function PhoneNumbers({ record }: { record: KycRecord }) {
+export function PhoneNumbers({ record }: { record: KycRecord }) {
   return (
-    <Card title="Where your calling number comes from">
+    <div>
       <p className="text-sm text-ink-muted">
         Calevate does not sell, rent or supply telephone numbers. Your calling number is
         a connection you take in your own name, on your own account with an Indian
@@ -328,7 +271,7 @@ function PhoneNumbers({ record }: { record: KycRecord }) {
           never affected.
         </p>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -365,7 +308,7 @@ function OnFile({ record }: { record: KycRecord }) {
   const present = rows.filter((row) => row.value !== null && row.value !== "");
 
   return (
-    <Card title="What we hold about your business">
+    <Section title="What we hold about your business">
       <dl className="divide-y divide-line">
         {present.map((row) => (
           <div key={row.label} className="flex flex-wrap justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0">
@@ -379,6 +322,15 @@ function OnFile({ record }: { record: KycRecord }) {
       <p className="mt-3 text-xs text-ink-faint">
         That is the whole record — there is nothing else stored about your identity.
       </p>
-    </Card>
+    </Section>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+      {children}
+    </section>
   );
 }

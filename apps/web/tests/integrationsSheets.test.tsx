@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
@@ -80,6 +80,26 @@ function options(over: Record<string, unknown> = {}) {
   return { ...OPTIONS, ...over };
 }
 
+/**
+ * Both forms sit in the "Add destination" drawer since the round-2 redesign, one at a
+ * time behind a choice of destination. The drawer renders in a portal, so assertions
+ * read the dialog or `document.body` rather than the page root.
+ */
+async function openDrawer(): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole("button", { name: "Add destination" }));
+  return screen.findByRole("dialog");
+}
+
+async function choose(destination: "webhook" | "sheet"): Promise<HTMLElement> {
+  const dialog = screen.queryByRole("dialog") ?? (await openDrawer());
+  fireEvent.click(
+    within(dialog).getByRole("radio", {
+      name: destination === "sheet" ? /Google Sheet/ : /your own system/,
+    }),
+  );
+  return dialog;
+}
+
 function render(over: Partial<Routes> = {}) {
   return renderClientPage(<IntegrationsPage />, {
     "/v1/me": OWNER,
@@ -92,25 +112,21 @@ function render(over: Partial<Routes> = {}) {
 
 describe("the event catalogue", () => {
   it("builds both forms from the server's list rather than a local copy", async () => {
-    const { container, calls } = await render({
+    const { calls } = await render({
       [EVENTS_PATH]: options({
         events: ["lead.created", "campaign.completed"],
       }),
     });
 
-    await screen.findByText("Send events to a Google Sheet");
+    // Two events offered on each form and nothing else (a hardcoded list would still show
+    // `lead.updated`), plus the webhook form's three `call.completed` opt-ins: 2 + 3 = 5.
+    const dialog = await choose("webhook");
+    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(5);
+    await choose("sheet");
+    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(dialog.textContent).not.toContain("lead.updated");
     expect(calls.filter((c) => c.path === EVENTS_PATH)).toHaveLength(1);
-    // Two events offered, twice — once per form — and nothing else. A hardcoded list would
-    // still be showing `lead.updated` and `call.completed` here. Plus the webhook form's
-    // three `call.completed` opt-in checkboxes (recording / transcript / raw transcript),
-    // which live only on that form: 2 + 2 + 3 = 7.
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(
-      7,
-    );
-    expect(container.textContent).not.toContain("lead.updated");
-    expect(container.textContent).not.toContain("call.completed");
   });
-
   it("withholds both forms and refuses when the catalogue cannot be read", async () => {
     // §52. The alternative — falling back to the four names this build knows — puts a
     // form on screen that was built from nothing, and hides the failure behind it.
@@ -177,22 +193,18 @@ describe("the event catalogue", () => {
   });
 
   it("names an event it cannot subscribe to instead of faking a checkbox for it", async () => {
-    // The generated request body takes a literal union, so an event outside it cannot be
-    // put in a typed request — a checkbox for it could only ever produce a 422. It means
-    // our OpenAPI snapshot is behind the deployment, which is worth saying once.
-    const { container } = await render({
+    // The request body takes a literal union, so a checkbox for an event outside it could
+    // only ever produce a 422; it means our OpenAPI snapshot is behind the deployment.
+    await render({
       [EVENTS_PATH]: options({ events: ["lead.created", "call.transferred"] }),
     });
 
-    await screen.findByText("Send events to a Google Sheet");
-    // One recognised event (`lead.created`) as a checkbox on each form, and NOT
-    // `call.transferred` — plus the webhook form's three `call.completed` opt-ins:
-    // 1 + 1 + 3 = 5. A faked checkbox for the unknown event would push this to 6.
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(
-      5,
-    );
-    expect(container.textContent).toContain("call.transferred");
-    expect(container.textContent).toContain("cannot subscribe to yet");
+    // One recognised event plus the webhook form's three opt-ins: 1 + 3 = 4. A faked
+    // checkbox for the unknown event would make it 5.
+    const dialog = await choose("webhook");
+    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(4);
+    expect(dialog.textContent).toContain("call.transferred");
+    expect(dialog.textContent).toContain("cannot subscribe to yet");
   });
 });
 
@@ -203,12 +215,12 @@ describe("the Sheets capability", () => {
     // The screen now knows BEFORE anyone fills anything in, so the form is not offered —
     // and the card is where the form was, so the client is told rather than left to
     // wonder where Sheets went.
-    const { container, calls } = await render({
+    const { calls } = await render({
       [EVENTS_PATH]: options({ sheets_delivery_available: false }),
     });
 
-    await screen.findByText("Send events to a Google Sheet");
-    expect(container.textContent).toContain(
+    await choose("sheet");
+    expect(document.body.textContent).toContain(
       "Google Sheets delivery is not switched on for your account.",
     );
     // GONE, not disabled. A dead control costs a support ticket to learn what the
@@ -226,27 +238,25 @@ describe("the Sheets capability", () => {
   });
 
   it("names the remediation the API's own refusal names", async () => {
-    // The words are ours here — the server sent a boolean, not a sentence — so they have
-    // to point where the server's refusal points, or a client who meets both hears two
-    // different stories about one fact.
-    const { container } = await render({
+    // The words are ours (the server sent a boolean), so they point where the server's
+    // refusal points. "above" went with the stacked layout: the webhook form is now the
+    // drawer's other choice.
+    await render({
       [EVENTS_PATH]: options({ sheets_delivery_available: false }),
     });
 
-    await screen.findByText("Send events to a Google Sheet");
-    expect(container.textContent).toContain(
-      "Set up a delivery to your own system above instead",
+    await choose("sheet");
+    expect(document.body.textContent).toContain(
+      "Set up a delivery to your own system instead",
     );
-    // The webhook form is the remediation, so it must still be there and still usable.
-    // (Its submit is disabled until a URL is typed — that is the form's own rule, not a
-    // permission — so the INPUT is what "usable" means here.)
+    // The webhook form is the remediation, so it must still be there and usable.
+    await choose("webhook");
     expect(screen.getByRole("button", { name: "Add endpoint" })).toBeTruthy();
     expect(screen.getByLabelText("Where should we send them?")).toHaveProperty(
       "disabled",
       false,
     );
   });
-
   it("offers the form where the deployment can deliver", async () => {
     // The other direction, and the reason a hardcoded "hide it" would have been wrong:
     // the day Sheets is enabled the form has to appear on its own.
@@ -254,6 +264,7 @@ describe("the Sheets capability", () => {
       [EVENTS_PATH]: options({ sheets_delivery_available: true }),
     });
 
+    await choose("sheet");
     expect(await screen.findByLabelText("Which sheet?")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add sheet" })).toBeTruthy();
     expect(
@@ -266,7 +277,7 @@ describe("the Sheets capability", () => {
 
 describe("registering a Google Sheet", () => {
   it("sends the document reference, the tab and the events, and reports what came back", async () => {
-    const { container, calls } = await render({
+    const { calls } = await render({
       [SHEETS_PATH]: {
         id: "0192f0aa-3333-7000-8000-000000000001",
         kind: "google_sheets",
@@ -278,6 +289,7 @@ describe("registering a Google Sheet", () => {
       },
     });
 
+    await choose("sheet");
     const sheet = await screen.findByLabelText("Which sheet?");
     fireEvent.change(sheet, {
       target: {
@@ -305,7 +317,7 @@ describe("registering a Google Sheet", () => {
     // create — a client cannot supply the Google credential — and the screen says so
     // rather than implying the sheet is live.
     await waitFor(() =>
-      expect(container.textContent).toContain(
+      expect(document.body.textContent).toContain(
         "We haven't connected to Google yet",
       ),
     );
@@ -317,7 +329,7 @@ describe("registering a Google Sheet", () => {
     // hour, so an operator switching Sheets off mid-session leaves this screen optimistic
     // and wrong. The server refuses anyway — that is the authority — and the screen
     // renders the server's own words rather than its own guess about what happened.
-    const { container } = await render({
+    await render({
       [SHEETS_PATH]: problem(422, {
         type: "urn:calevate:business_rule/sheets_delivery_unavailable",
         title: "Google Sheets delivery is not available",
@@ -328,6 +340,7 @@ describe("registering a Google Sheet", () => {
       }),
     });
 
+    await choose("sheet");
     const sheet = await screen.findByLabelText("Which sheet?");
     fireEvent.change(sheet, {
       target: { value: "1AbCdEfGhIjKlMnOpQrStUvWxYz" },
@@ -337,10 +350,10 @@ describe("registering a Google Sheet", () => {
     await screen.findByText(
       "This account cannot deliver leads to Google Sheets yet.",
     );
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Register a webhook endpoint instead, or contact support to have Google Sheets enabled",
     );
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Nothing was created, so there is nothing to undo.",
     );
     // Not an error panel: `role="alert"` is the rose ProblemNotice, and "try again" is not
@@ -350,13 +363,14 @@ describe("registering a Google Sheet", () => {
     // disabled beside it.
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
     // The webhook form is untouched — it is the remediation the server just named.
+    await choose("webhook");
     expect(screen.getByRole("button", { name: "Add endpoint" })).toBeTruthy();
   });
 
   it("keeps the form on a refusal the client can act on", async () => {
     // An unparseable document reference is fixable in the field they are looking at, so
     // this one renders through ProblemNotice with the form still there.
-    const { container } = await render({
+    await render({
       [SHEETS_PATH]: problem(422, {
         type: "urn:calevate:validation/invalid_spreadsheet_ref",
         title: "Not a Google Sheets document",
@@ -367,25 +381,27 @@ describe("registering a Google Sheet", () => {
       }),
     });
 
+    await choose("sheet");
     const sheet = await screen.findByLabelText("Which sheet?");
     fireEvent.change(sheet, { target: { value: "my spreadsheet" } });
     fireEvent.click(screen.getByRole("button", { name: "Add sheet" }));
 
     await screen.findByText("That is not a Google Sheets link or document id.");
     expect(screen.getByRole("button", { name: "Add sheet" })).toBeTruthy();
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Paste the URL from your browser's address bar",
     );
   });
 
   it("labels every field persistently, not with a placeholder", async () => {
-    // axe accepts a placeholder as an accessible name, which is why this defect survived
-    // the sweep once already — and the text disappears the moment somebody types.
+    // axe accepts a placeholder as an accessible name, and the text vanishes on typing.
     await render();
 
+    await choose("webhook");
+    expect(screen.getByLabelText("Where should we send them?")).toBeTruthy();
+    await choose("sheet");
     expect(await screen.findByLabelText("Which sheet?")).toBeTruthy();
     expect(screen.getByLabelText("Which tab? (optional)")).toBeTruthy();
-    expect(screen.getByLabelText("Where should we send them?")).toBeTruthy();
   });
 });
 
@@ -403,11 +419,11 @@ describe("D-587 on the create paths", () => {
      * The disabled-form shape is NOT lost with it: the tests above hold it for `staff`,
      * who hold neither permission, which is the viewer it was really about.
      */
-    const { container } = await render({
+    await render({
       "/v1/me": { ...OWNER, impersonating: true, withheld_acts: [] },
     });
 
-    await screen.findByRole("button", { name: "Add sheet" });
+    const dialog = await choose("webhook");
     // THE INPUTS ARE THE PROBE, NOT THE SUBMIT BUTTON — and that is a correctness point
     // rather than a convenience. Both submits carry ordinary validation alongside the
     // permission (`!spreadsheet || events.length === 0` in `SheetsForm`, the same shape in
@@ -424,15 +440,12 @@ describe("D-587 on the create paths", () => {
     // correctly disabled for a reason this clause is not about. Asserting it enabled
     // would demand that a view-as session be handed raw transcripts by default, which is
     // the opposite of what anybody wants.
-    const gated = container.querySelectorAll("form input:disabled");
+    const gated = dialog.querySelectorAll("form input:disabled");
     expect(gated.length, "more than the raw-transcript box is gated").toBe(1);
-    for (const input of container.querySelectorAll(
-      "form input:not(:disabled)",
-    )) {
-      expect(input).toHaveProperty("disabled", false);
-    }
-    expect(container.textContent).not.toContain("read-only");
-    expect(container.textContent).not.toContain("stays with the client");
+    await choose("sheet");
+    expect(dialog.querySelectorAll("form input:disabled")).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("read-only");
+    expect(document.body.textContent).not.toContain("stays with the client");
   });
 
   it("tells a member of staff who may do it instead", async () => {
@@ -443,7 +456,8 @@ describe("D-587 on the create paths", () => {
     await screen.findByText(
       /Only an account owner can change where events are sent/,
     );
-    expect(screen.getByRole("button", { name: "Add sheet" })).toHaveProperty(
+    // Both forms are reached through one button since the round-2 redesign; it is the gate.
+    expect(screen.getByRole("button", { name: "Add destination" })).toHaveProperty(
       "disabled",
       true,
     );

@@ -11,16 +11,17 @@ cannot hold that open, so the client's screen polls `ingest_status` instead.
 
 ═══ THE SEQUENCE, AND WHY EACH STEP IS WHERE IT IS ═══
 
-    read the row → extract text (unless PDF or link) → chunk it → approve, if the
-    submitter could → publish, if it is approved → record what happened
+    read the row → extract text (unless PDF or link) → chunk it → approve, if an
+    account member submitted it → publish, if it is approved → record what happened
 
 * **Extraction is skipped for a PDF and a link.** A PDF's bytes ARE the document the
   engine is handed and a link is scraped by the engine itself, so there is nothing to read
   out; what a reviewer approves is the artefact.
 * **Approval comes after extraction, never before.** Nobody can approve text that does not
-  exist yet, and for a photograph that is the whole product decision:
-  `ExtractedText.needs_confirmation` is True for anything a model read, so OCR text is
-  ALWAYS reviewed — by the owner, on the confirmation screen — whoever uploaded it.
+  exist yet. For an account member's upload the approval is automatic (D-658) — including
+  text a model read off a photograph, which used to wait for the owner to confirm it
+  (`ExtractedText.needs_confirmation` still says a model read it; it no longer holds the
+  text back). Anything else waits for a person.
 * **Publishing is last and is idempotent.** `publish_source` holds the agent's publish
   lock, refuses a source that is not approved, and skips the vendor upload entirely when
   the digest and the handle both match. So a retry of this job costs a lock and a read.
@@ -78,6 +79,7 @@ from apps.api.kb.models import (
     UPLOAD_RETRYABLE,
     text_is_read,
 )
+from apps.api.kb.uploads import enqueue_ingest
 from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
 from apps.workers.document_text import extract_document
 from apps.workers.storage import read_kb_object
@@ -148,7 +150,7 @@ def page_digest(body: bytes) -> str:
 
 _ROW_SQL = """
 SELECT u.id, u.source_kind, u.original_key, u.content_type, u.ingest_status,
-       u.original_sha256, s.status, u.text_provenance
+       u.original_sha256, s.status, u.text_provenance, s.submitted_by
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 WHERE u.source_id = :sid
 """
@@ -405,12 +407,11 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                     "discarded": len(extracted.discarded),
                 },
             )
-            # OCR IS NEVER AUTO-APPROVED, whoever uploaded it. A model told us what it
-            # thought a photograph said; a person has to agree before an agent recites it
-            # on a phone call. `needs_confirmation` is the conversion lane's own field and
-            # it is READ here rather than re-derived from the provenance.
-            if may_self_approve and not extracted.needs_confirmation:
-                await kb_service.approve_source(session, source_id=source_id, approved_by=None)
+            # D-658: an account member's upload is approved here whatever read it, OCR
+            # included. The approver is the submitter, the shape every auto-approval
+            # records, so "who cleared this" never answers NULL.
+            if may_self_approve:
+                await kb_service.approve_source(session, source_id=source_id, approved_by=row[8])
                 review_state = "approved"
 
         if review_state not in ("approved", "archived"):
@@ -428,7 +429,7 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     # away a model call we have already paid for because the vendor was slow.
     async with tenant_session(tenant_id) as session:
         try:
-            version = await kb_service.publish_source(
+            version = await kb_service.publish_unless_superseded(
                 session, tenant_id=tenant_id, source_id=source_id
             )
         except ProblemError as failure:
@@ -458,7 +459,52 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
 
     async with tenant_session(tenant_id) as session:
         await _mark(session, upload_id, UPLOAD_PROCESSED)
+    if version is None:
+        # A later approved version of this name got there first (a re-read of a changed
+        # page racing the client's own edit); this one is archived, not published over it.
+        log.info("kb_ingest_superseded", extra={"source_id": str(source_id)})
+        return "superseded"
     log.info("kb_ingest_published", extra={"source_id": str(source_id), "version": version})
+    return f"published:v{version}"
+
+
+async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Publish ONE auto-approved typed submission (D-658). Returns a short outcome string.
+
+    Enqueued through the outbox by `kb/service.submit_source` in the submission's own
+    transaction, and re-driven by `sweep_kb_uploads` for one that has not gone live. An
+    upload never comes here: `ingest_kb_source` publishes those, after reading them.
+
+    A publish refusal is NOT raised for arq to retry, because none of them heals on a
+    retry seconds later: `agent_not_published` heals when the agent is published and the
+    sweep picks the source up then, and the others need a person, who sees the source
+    "approved, not live" on both the client's screen and the operator's publish queue.
+    Anything that is not a `ProblemError` is raised, so arq's retries and DLQ apply.
+    """
+    tenant_id = UUID(str(payload["tenant_id"]))
+    source_id = UUID(str(payload["source_id"]))
+    try:
+        async with tenant_session(tenant_id) as session:
+            version = await kb_service.publish_unless_superseded(
+                session, tenant_id=tenant_id, source_id=source_id
+            )
+    except ProblemError as refusal:
+        # Moves the row to the back of the sweep's queue, so a source that keeps being
+        # refused cannot take every slot of every tick.
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE kb_sources SET updated_at = now() WHERE id = :sid"),
+                {"sid": source_id},
+            )
+        log.warning(
+            "kb_auto_publish_refused",
+            extra={"source_id": str(source_id), "code": refusal.code},
+        )
+        return f"failed:{refusal.code}"
+    if version is None:
+        log.info("kb_auto_publish_superseded", extra={"source_id": str(source_id)})
+        return "superseded"
+    log.info("kb_auto_published", extra={"source_id": str(source_id), "version": version})
     return f"published:v{version}"
 
 
@@ -527,8 +573,59 @@ LIMIT :limit
 """
 
 
+#: Typed sources an account member added that never went live (D-658): approved by
+#: the person who submitted it, that person a member of this account, never published,
+#: no upload behind it (`_STALLED_SQL` covers those), and no LATER version that has been
+#: approved. The membership test is what keeps an admin's approve-then-publish flow out of
+#: this arm: an operator's id is never in `memberships`.
+_UNPUBLISHED_TYPED_SQL = """
+SELECT s.id
+FROM kb_sources s
+WHERE s.status = 'approved' AND s.published_at IS NULL AND NOT s.is_active
+  AND s.approved_by IS NOT NULL AND s.approved_by = s.submitted_by
+  AND s.updated_at < :stale
+  AND EXISTS (
+    SELECT 1 FROM memberships m WHERE m.tenant_id = s.tenant_id AND m.user_id = s.submitted_by
+  )
+  AND NOT EXISTS (SELECT 1 FROM kb_uploads u WHERE u.source_id = s.id)
+  AND NOT EXISTS (
+    SELECT 1 FROM kb_sources n
+    WHERE n.agent_id = s.agent_id AND n.name = s.name AND n.version > s.version
+      AND n.approved_at IS NOT NULL
+  )
+ORDER BY s.updated_at
+LIMIT :limit
+"""
+
+
+async def _unpublished_typed_sources(now: datetime) -> list[tuple[UUID, UUID]]:
+    """`(tenant_id, source_id)` for every typed source `_UNPUBLISHED_TYPED_SQL` names.
+
+    Per tenant, because `kb_sources` is FORCE-RLS'd and answers an untenanted session with
+    nothing; the tenant list is `kb_gloss.tenants_holding_knowledge`, the index every
+    knowledge sweep already walks.
+    """
+    from apps.workers.kb_gloss import tenants_holding_knowledge
+
+    found: list[tuple[UUID, UUID]] = []
+    for tenant_id in await tenants_holding_knowledge():
+        remaining = MAX_RETRIES_PER_TICK - len(found)
+        if remaining <= 0:
+            break
+        async with tenant_session(tenant_id) as session:
+            rows = (
+                await session.execute(
+                    text(_UNPUBLISHED_TYPED_SQL),
+                    {"stale": now - RETRY_STALLED_AFTER, "limit": remaining},
+                )
+            ).scalars()
+            found.extend((tenant_id, UUID(str(source_id))) for source_id in rows)
+    return found
+
+
 async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
-    """Re-drive ingests that stalled, and re-read links whose page may have moved.
+    """Re-drive ingests that stalled, publish typed knowledge that never went live, and
+    re-read links whose page may have moved.
 
     **ONE SWEEP FOR TWO JOBS, and they are the same job seen twice**: both walk
     `kb_uploads` on a timer asking "does this row still reflect reality". A second cron
@@ -542,14 +639,15 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
     upload landed and is live now, and a row written by a path nobody has invented yet all
     converge on the next tick with no reconciliation code.
 
-    ═══ WHAT A CHANGED LINK DOES, AND WHAT IT DELIBERATELY DOES NOT DO ═══
+    ═══ WHAT A CHANGED LINK DOES ═══
 
-    It submits a NEW VERSION of the same named source, `pending_approval`, and stops. It
-    does not touch the live version, does not detach anything and does not publish. So the
-    agent keeps answering from the page a human approved until a human approves the new
-    one — and when they do, `publish_source` attaches the new vendor object BEFORE
-    withdrawing the old one, which is why the rollover has no gap and why the old
-    knowledge base is deleted at the vendor rather than orphaned.
+    It submits a NEW VERSION of the same named source. If a member of the account linked
+    the page, that version is approved in the linker's name and queued for
+    `ingest_kb_source`, which publishes it (D-658: "the client linked the page, so its
+    updates are theirs"). If an operator linked it, the version is `pending_approval` and
+    the agent keeps answering from the live one until somebody approves it. Either way the
+    publish attaches the new copy BEFORE withdrawing the old one, so the rollover has no
+    gap and the old copy is deleted at the vendor rather than orphaned.
 
     It is also reversible in the ordinary way: the superseded version is archived, not
     deleted, so FLOWS §7's rollback is a publish of the older row.
@@ -589,6 +687,14 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         )
         redriven += 1
 
+    # A typed source approved on submission whose publish was refused — usually because
+    # the agent was not published yet. Through the JOB, for the reason the re-drive above
+    # goes through `ingest_kb_source`.
+    published = 0
+    for tenant_id, source_id in await _unpublished_typed_sources(now):
+        await publish_kb_source(ctx, {"tenant_id": str(tenant_id), "source_id": str(source_id)})
+        published += 1
+
     names = await _due_link_sources(due)
 
     changed = 0
@@ -614,9 +720,14 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
 
     log.info(
         "kb_upload_sweep",
-        extra={"redriven": redriven, "links": checked, "changed": changed},
+        extra={
+            "redriven": redriven,
+            "typed": published,
+            "links": checked,
+            "changed": changed,
+        },
     )
-    return f"redriven={redriven} links={checked} changed={changed}"
+    return f"redriven={redriven} typed={published} links={checked} changed={changed}"
 
 
 async def _due_link_sources(due: Sequence[Any]) -> dict[tuple[UUID, UUID], str]:
@@ -664,6 +775,23 @@ LIMIT 1
 """
 
 
+#: Who linked the page this upload row reads: the most recent version of the same named
+#: source that a PERSON submitted (a re-read version records nobody), and whether that
+#: person is a member of this account. An operator's id is never in `memberships`.
+_LINKED_BY_SQL = """
+SELECT s.submitted_by,
+       EXISTS (
+         SELECT 1 FROM memberships m WHERE m.tenant_id = s.tenant_id AND m.user_id = s.submitted_by
+       )
+FROM kb_uploads cu
+JOIN kb_sources cs ON cs.id = cu.source_id
+JOIN kb_sources s ON s.agent_id = cs.agent_id AND s.name = cs.name AND s.submitted_by IS NOT NULL
+WHERE cu.id = :checked
+ORDER BY s.version DESC
+LIMIT 1
+"""
+
+
 async def _recheck_link(
     *,
     upload_id: UUID,
@@ -673,7 +801,8 @@ async def _recheck_link(
     known_digest: str | None,
     name: str,
 ) -> bool:
-    """Read one page, and submit a new version for review if it has materially changed.
+    """Read one page, and submit a new version if it has materially changed — approved and
+    queued for publishing when a member linked the page, for review otherwise.
 
     **THE SSRF GATE RUNS HERE, NOT ONLY AT SUBMISSION, AND THAT IS THE POINT OF RUNNING IT
     TWICE.** The name belongs to whoever typed it, so a host that answered publicly when
@@ -716,18 +845,22 @@ async def _recheck_link(
         if already is not None:
             return False
 
-        source_id, version, _ = await kb_service.insert_source_version(
+        # WHO LINKED THIS PAGE decides whether its change goes live (D-658, the founder:
+        # "the client linked the page, so its updates are theirs"). A member's link is
+        # approved in that member's name; an operator's link still waits for a review.
+        linker = (await session.execute(text(_LINKED_BY_SQL), {"checked": upload_id})).first()
+        member_linked = linker is not None and bool(linker[1])
+        source_id, version, status = await kb_service.insert_source_version(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
             name=name,
             kind="url",
             uri=url[:2048],
-            # NOBODY submitted this, so nobody is recorded as having submitted it, and it
-            # is never auto-approved: a page that changed under a client is precisely the
-            # thing a human must read before their agent starts saying it.
+            # NOBODY submitted this version, so nobody is recorded as having submitted it.
             submitted_by=None,
-            auto_approve=False,
+            auto_approve=member_linked,
+            approver=linker[0] if member_linked and linker is not None else None,
         )
         await session.execute(
             text(
@@ -745,8 +878,13 @@ async def _recheck_link(
                 "digest": digest,
             },
         )
-        # The flag the client's screen shows against the LIVE row: "this page has changed,
-        # there is a new version waiting for you".
+        if status == "approved":
+            # Same outbox, same job as an upload: the job publishes under the agent's publish
+            # lock and never over a later approved version (`publish_unless_superseded`).
+            await enqueue_ingest(
+                session, tenant_id=tenant_id, source_id=source_id, may_self_approve=False
+            )
+        # The flag the client's screen shows against the LIVE row: "this page has changed".
         await session.execute(
             text("UPDATE kb_uploads SET change_detected_at = now() WHERE id = :id"),
             {"id": upload_id},
@@ -866,5 +1004,6 @@ __all__ = [
     "ingest_kb_source",
     "link_http_client",
     "page_digest",
+    "publish_kb_source",
     "sweep_kb_uploads",
 ]

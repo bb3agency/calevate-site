@@ -1,13 +1,10 @@
 "use client";
 
+import { type ReactNode } from "react";
 import { Search } from "lucide-react";
 
-import {
-  Card,
-  FIELD_INLINE_ICON,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-} from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
+import { FIELD_INLINE_ICON, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 
 import { Verdict } from "./Verdict";
@@ -18,18 +15,30 @@ import { type ConsentForm } from "./consentForm";
  * every session on this account may do (`leads:read`, so it survives a D-22 read-only
  * support session).
  */
-export function ConsentLookup({ form }: { form: ConsentForm }) {
+export function ConsentLookup({
+  form,
+  recordAction,
+}: {
+  form: ConsentForm;
+  /** Offered under a verdict that is not a yes: the next thing someone does is record one. */
+  recordAction?: ReactNode;
+}) {
   /* Two forms on this screen, two `useFormValidation` instances: one refusal must never
      mark the other's field, and the ids the hook mints are per instance. */
   const valid = useFormValidation();
   const { lookup } = form;
 
   return (
-    <Card title="Can we message this number?">
-      <p className="text-sm text-ink-muted">
-        Asks the same question the system asks itself before it sends a follow-up, so
-        the answer cannot disagree with what actually happens.
-      </p>
+    <section aria-labelledby="consent-lookup-heading">
+      <div className="flex items-center gap-1.5">
+        <h2 id="consent-lookup-heading" className="text-[15px] font-semibold text-ink">
+          Can we message this number?
+        </h2>
+        <InfoTip label="About this check">
+          Asks the same question the system asks itself before it sends a follow-up, so the
+          answer cannot disagree with what actually happens.
+        </InfoTip>
+      </div>
       <form
         className="mt-3 flex flex-wrap items-center gap-2"
         noValidate
@@ -69,7 +78,7 @@ export function ConsentLookup({ form }: { form: ConsentForm }) {
           /* The length rule is not repeated here — a button that is dead at seven
              digits explains nothing, and pressing it now says what is wrong. */
           disabled={lookup.isPending}
-          className={PRIMARY_BUTTON_SM}
+          className={PRIMARY_BUTTON}
         >
           {lookup.isPending ? "Checking…" : "Check"}
         </button>
@@ -84,10 +93,11 @@ export function ConsentLookup({ form }: { form: ConsentForm }) {
         </div>
       )}
       {lookup.data && (
-        <div className="mt-3">
+        <div className="settings-enter mt-3 space-y-2">
           <Verdict state={lookup.data} />
+          {!lookup.data.messageable && recordAction}
         </div>
       )}
-    </Card>
+    </section>
   );
 }

@@ -87,7 +87,7 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
       bodyClassName="p-2 sm:p-3"
     >
       <p className="px-2 pb-3 pt-1 text-[12px] text-ink-muted">
-        Approving a document is not the same as your agent knowing it. This is what each
+        Adding a document is not the same as your agent knowing it yet. This is what each
         agent is actually answering callers out of, right now.
       </p>
       {items.length === 0 ? (

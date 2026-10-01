@@ -3,7 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { Card, EmptyState, ProblemNotice, Skeleton, formatCount } from "@/components/ui";
+import { Card, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { DataTable } from "@/components/console/dataTable";
 import { LoadMore } from "@/components/interior/load-more";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -182,11 +183,17 @@ export function CallsScreen({ slug }: { slug: string }) {
           />
         ) : (
           <EmptyState
-            title={status ? "No calls match this filter" : "No calls yet"}
-            hint={
+            message={
               status
-                ? "Choose All to see everything."
-                : "A call appears here within a couple of minutes of the caller hanging up."
+                ? "No calls match this filter"
+                : "No calls yet — a call appears here a couple of minutes after the caller hangs up."
+            }
+            action={
+              status && (
+                <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setStatus(undefined)}>
+                  Show all calls
+                </button>
+              )
             }
           />
         )}

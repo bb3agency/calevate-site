@@ -58,18 +58,22 @@ THE EXTRA CLAUSE IS THREE CONJUNCTS AND EACH IS LOAD-BEARING:
 ═══ WHAT A READER CAN SEE FROM ONE GREP ═══
 
 `grep -rn requires_kb_curation apps/` names every surface this column can unlock, and the
-answer is three routes: submitting knowledge for review, dismissing a knowledge gap and
-teaching one. The column reaches nothing else — not the copilot (staff cannot open it at
-all; `POST /v1/copilot/ask` declares `org:manage`), not approval, not publish, not billing,
-not members. That is the "a reader must be able to see exactly which capability it
+answer is the knowledge doors: adding text, a document or a link, confirming or removing an
+upload, and dismissing or teaching a knowledge gap. Since D-658 what a staff member adds
+through them goes live without review, so switching the column on is letting staff change
+what the agent says. It reaches nothing else — not the admin approval routes, not
+billing, not members. That is the "a reader must be able to see exactly which capability it
 unlocks" property, and it is a property of the code shape rather than of this docstring:
 a fourth surface can only join by importing this name.
 
-AND THE GATE IS UNCHANGED ON EVERY PATH. This dependency decides WHO may submit; it does
-not decide what happens next. A staff-submitted source lands `pending_approval` through
-`kb.service.submit_source` — the same one door `kb/proposals.py` documents — and still
-waits for the admin-realm approval and publish routes. Nothing here shortens the
-preview-and-approve gate, and nothing here can: it returns a `Principal` or raises.
+WHO MAY ADD AND WHETHER A PERSON MUST APPROVE ARE TWO QUESTIONS, ANSWERED SEPARATELY.
+`requires_kb_curation()` answers the first. `goes_live_without_review` answers the second
+(D-658, the founder: "if any knowledge is added from the owner's company/staff then no need
+to verify anything"): whatever the account's own people add — owner, or staff the owner let
+in — is approved on submission and published by `publish_kb_source` with no human step.
+What still waits for an admin is everything else: a view-as operator's submission, an
+operator's intake seed and a changed page an operator linked. A changed page a member
+linked is theirs and goes live the same way.
 """
 
 from __future__ import annotations
@@ -144,6 +148,22 @@ async def may_curate_knowledge(
     if (role or "") not in _ELIGIBLE_ROLES:
         return False
     return bool((await session.execute(text(_SWITCH_SQL))).scalar())
+
+
+def goes_live_without_review(*, realm: str, impersonating: bool) -> bool:
+    """Whether knowledge this caller adds is approved on submission (D-658).
+
+    The ACCOUNT'S OWN PEOPLE: a client-realm principal that is not a view-as session. It is
+    asked only of callers a curation gate has already admitted, so for a staff member it
+    means "staff in an account whose owner switched curation on" — who may add is decided
+    there, and this function does not re-decide it.
+
+    A view-as operator is excluded although D-587 lets them ADD knowledge: what they add
+    goes to the admin queue and is approved by an admin as themselves, so the record never
+    shows a client approving words an operator wrote. Loose fields rather than a
+    `Principal` for `may_curate_knowledge`'s reason — the copilot holds a `ToolActor`.
+    """
+    return realm == "client" and not impersonating
 
 
 async def read_switch(session: AsyncSession) -> bool:
@@ -238,6 +258,7 @@ def requires_kb_curation() -> PermissionDependency:
 
 __all__ = [
     "CURATE_PERMISSION",
+    "goes_live_without_review",
     "may_curate_knowledge",
     "read_switch",
     "requires_kb_curation",

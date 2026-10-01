@@ -1,19 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { use } from "react";
-import { ArrowLeft } from "lucide-react";
 
 import { useClientRealm } from "@/lib/api/session";
 
 import { ScriptBuilder } from "./ScriptBuilder";
 
 /**
- * The script builder screen for one agent (client realm).
- *
- * A dedicated route rather than a section on the agent detail page: the builder is a full
- * authoring surface (steps, FAQ, AI assist, compiled-prompt preview) and deserves its own
- * space, the way the KB and campaigns do. The agent detail page links here.
+ * The script builder, on its own route because it has its own unsaved state and its own
+ * Save/Apply ladder (doctrine §3). The route module stays thin (D-196).
  */
 export default function AgentScriptPage({
   params,
@@ -22,18 +17,9 @@ export default function AgentScriptPage({
 }) {
   const { slug, agentId } = use(params);
   const { href } = useClientRealm();
-
   return (
-    <div className="space-y-5 pb-12">
-      <Link
-        href={href(`/c/${slug}/agents/${agentId}`)}
-        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11"
-      >
-        <ArrowLeft aria-hidden className="h-4 w-4" />
-        Back to the agent
-      </Link>
-      <h1 className="text-xl font-semibold text-ink">Script builder</h1>
-      <ScriptBuilder agentId={agentId} />
+    <div className="pb-16">
+      <ScriptBuilder agentId={agentId} backHref={href(`/c/${slug}/agents/${agentId}?section=script`)} />
     </div>
   );
 }

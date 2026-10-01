@@ -1,6 +1,6 @@
 "use client";
 
-import { Panel } from "@/components/console/panel";
+import { Card } from "@/components/ui";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 
@@ -39,7 +39,7 @@ export function KeyMomentsCard({
   onSeek: (ms: number) => void;
 }) {
   return (
-    <Panel title="Key points in this call">
+    <Card density="compact" title="Key points in this call">
       <ol className="space-y-1">
         {moments.map((moment, i) => {
           const next = moments[i + 1]?.at_ms;
@@ -91,6 +91,6 @@ export function KeyMomentsCard({
           Open the recording above to jump to any of these.
         </p>
       )}
-    </Panel>
+    </Card>
   );
 }

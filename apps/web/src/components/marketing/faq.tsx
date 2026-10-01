@@ -92,8 +92,8 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "Where does the agent get its answers from?",
     /*
-     * THE ANSWER IS "approved facts compiled into the agent's prompt", never "the material
-     * you upload": the second sends a buyer looking for a control, and built-in facts also
+     * THE ANSWER IS "facts the business added, compiled into the agent's prompt", never "the
+     * material you upload": the second sends a buyer looking for a control, and built-in facts also
      * answer FASTER than a lookup, which is the sentence a buyer should get.
      *
      * Grounds, as the code stands: `POST /v1/kb/sources` is text-only and refuses `url` and
@@ -109,10 +109,10 @@ const QUESTIONS: { q: string; a: string }[] = [
      * rather than silently resolved by a copy sweep.
      */
     a:
-      "From facts somebody has approved — your timings, your prices, the questions you " +
-      "get asked every day. They are written into the agent before it takes a call, so " +
-      "the answer comes back straight away. It is not answering from the open " +
-      "internet, and a change you have not approved does not reach a caller.",
+      "From facts your business has added — your timings, your prices, the questions you " +
+      "get asked every day. What you or your staff add goes to the agent once it has been " +
+      "read, with no approval step, and is written into the agent before it takes a call, " +
+      "so the answer comes back straight away. It is not answering from the open internet.",
   },
   {
     q: "Who can see our callers' phone numbers?",

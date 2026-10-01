@@ -11,13 +11,14 @@
  */
 
 import { useState } from "react";
-import { BookOpen, Clock, Send } from "lucide-react";
+import { BookOpen, Clock, Plus, Send } from "lucide-react";
 
 import {
   FIELD,
   FIELD_LABEL,
   PRIMARY_BUTTON,
   ProblemNotice,
+  SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
@@ -27,6 +28,7 @@ import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import type { Agent } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /** What a knowledge submission's state means, in the client's words. Mirrors the wording
@@ -60,14 +62,16 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
   const write = useWriteAccess(session, "kb:write", "teach this agent");
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
+  const [teaching, setTeaching] = useState(false);
   const valid = useFormValidation();
+  useUnsavedGuard(teaching && (name.trim() !== "" || body.trim() !== ""));
 
   return (
     <section>
       <p className="text-sm text-ink-muted">
         Facts this agent can answer from — opening hours, prices, what you do and do not
-        offer. Everything you add is reviewed by your account manager before callers hear
-        it, because the agent speaks under your registration.
+        offer. What you add goes to your agent without review, so write it the way you
+        want callers to hear it.
       </p>
 
       {sources.error && (
@@ -97,9 +101,20 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
         <p className="mt-5 border-t border-line pt-5 text-sm text-ink-muted">
           This agent is deleted, so there is nothing to teach it. Bring it back first.
         </p>
+      ) : !teaching ? (
+        <button
+          type="button"
+          onClick={() => setTeaching(true)}
+          disabled={!write.allowed}
+          title={write.reason ?? undefined}
+          className={`${SECONDARY_BUTTON} mt-4`}
+        >
+          <Plus aria-hidden className="h-4 w-4" />
+          Teach it a fact
+        </button>
       ) : (
         <form
-          className="mt-5 space-y-3 border-t border-line pt-5"
+          className="settings-enter mt-5 space-y-3 border-t border-line pt-5"
           noValidate
           onSubmit={valid.onSubmit(() => {
             submit.mutate(
@@ -108,6 +123,7 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
                 onSuccess: () => {
                   setName("");
                   setBody("");
+                  setTeaching(false);
                 },
               },
             );
@@ -161,7 +177,15 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
               className={PRIMARY_BUTTON}
             >
               <Send aria-hidden className="h-3.5 w-3.5" />
-              {submit.isPending ? "Submitting…" : "Submit for review"}
+              {submit.isPending ? "Adding…" : "Add to agent"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTeaching(false)}
+              disabled={submit.isPending}
+              className={SECONDARY_BUTTON}
+            >
+              Cancel
             </button>
             {write.reason && <span className="text-xs text-ink-muted">{write.reason}</span>}
           </div>

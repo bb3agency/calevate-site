@@ -150,7 +150,7 @@ async function renderKnowledge(
 /** The one control on the screen, found the way a client finds it. */
 function submitButton(): HTMLButtonElement {
   return screen.getByRole("button", {
-    name: /submit for review/i,
+    name: /add to agent/i,
   }) as HTMLButtonElement;
 }
 
@@ -445,9 +445,10 @@ describe("what the screen says the agent does with the text", () => {
     expect(text).toContain(
       "part of what the agent already knows when it picks up",
     );
-    // And the approval gate stays attached to it — the two facts are one sentence,
-    // because "it knows this" without "a person approved it" is the wrong half.
-    expect(text).toContain("reviewed by your account manager");
+    // And how it gets there, in the same sentence: D-658 — nobody approves what the
+    // account's own people add, and saying otherwise has a client waiting on nobody.
+    expect(text).toContain("without anyone approving it");
+    expect(text).not.toMatch(/reviewed by your account manager/i);
   });
 
   it("never tells a client the agent retrieves or looks anything up mid-call", async () => {

@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import MessagingConsentPage from "@/app/c/[slug]/messaging-consent/page";
@@ -163,6 +163,7 @@ describe("the lookup answers, or says it could not", () => {
     await screen.findByText("Not messageable — nobody has asked them yet.");
     expect(container.textContent).not.toContain("read-only");
     expect(container.textContent).not.toContain("stays with the client");
+    fireEvent.click(screen.getByRole("button", { name: "Record an answer" }));
     expect(screen.getByLabelText("Their number")).toBeTruthy();
   });
 });
@@ -226,6 +227,12 @@ describe("recording an answer", () => {
       ...routes,
     });
     await screen.findByText("Can we message this number?");
+    // Recording opens in a drawer; a session that may not write is offered no way in.
+    await waitFor(() =>
+      expect(screen.queryByText(/Only an account owner|Record an answer/)).toBeTruthy(),
+    );
+    const open = screen.queryByRole("button", { name: "Record an answer" });
+    if (open) fireEvent.click(open);
     return rendered;
   }
 
@@ -357,6 +364,7 @@ describe("recording an answer", () => {
     expect(container.textContent).toContain(
       "Only an account owner can record what a customer said about being messaged.",
     );
+    expect(screen.queryByRole("button", { name: "Record an answer" })).toBeNull();
     expect(screen.queryByLabelText("Their number")).toBeNull();
     // The read half of the screen is untouched by the write permission.
     expect(screen.getByLabelText("Phone number to check")).toBeTruthy();
@@ -379,16 +387,16 @@ describe("recording an answer", () => {
  */
 describe("messaging consent — the position printed on the screen", () => {
   it("says an opt-in cannot be asserted on the customer's behalf", async () => {
-    const { container } = await renderClientPage(<MessagingConsentPage />, {
-      "/v1/me": ME,
-    });
+    await renderClientPage(<MessagingConsentPage />, { "/v1/me": ME });
+    fireEvent.click(await screen.findByRole("button", { name: "Record an answer" }));
     await screen.findByText("Record what a customer said");
 
-    expect(container.textContent).toContain(
+    // The record form is a drawer, portalled to the body: read the document, not the page.
+    expect(document.body.textContent).toContain(
       "an opt-in has to come from the customer",
     );
     // The validity period is stated where the answer is given, not only in the rules.
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "it stops being current after a year",
     );
   });

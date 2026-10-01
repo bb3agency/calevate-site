@@ -29,6 +29,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb import service, uploads
+from apps.api.kb.curation import goes_live_without_review
 from apps.workers import kb_ingest
 from apps.workers.storage import KB_UPLOAD_PREFIX
 from sqlalchemy import text
@@ -213,16 +214,16 @@ async def test_a_file_over_the_vendors_ceiling_is_refused_before_a_byte_is_store
 # --- 3. Who is reviewed --------------------------------------------------------------
 
 
-def test_only_the_owner_self_approves_and_never_an_impersonating_operator() -> None:
-    """The founder's rule, and the two clauses that keep it from widening.
+def test_the_accounts_own_people_go_live_and_an_impersonating_operator_does_not() -> None:
+    """D-658: owner and staff alike, and the one clause that keeps it from widening.
 
-    A STAFF member is reviewed even in an account whose owner switched staff curation on —
-    that switch grants SUBMISSION and explicitly not approval — and an operator inside a
-    view-as session cannot approve anything under a client's name (D-22).
+    A view-as operator may ADD knowledge (D-587), and what they add still waits for an
+    admin — the record must never show a client approving words an operator wrote.
     """
     tenant_id = uuid.uuid4()
-    assert uploads.may_self_approve(_principal(tenant_id, "owner")) is True
-    assert uploads.may_self_approve(_principal(tenant_id, "staff")) is False
+    for role in ("owner", "staff"):
+        member = _principal(tenant_id, role)
+        assert goes_live_without_review(realm=member.realm, impersonating=member.impersonating)
 
     impersonating = Principal(
         realm="admin",
@@ -231,15 +232,17 @@ def test_only_the_owner_self_approves_and_never_an_impersonating_operator() -> N
         role="operator",
         impersonating=True,
     )
-    assert uploads.may_self_approve(impersonating) is False
+    assert not goes_live_without_review(
+        realm=impersonating.realm, impersonating=impersonating.impersonating
+    )
 
 
-async def test_an_owners_pdf_is_approved_on_arrival_and_a_staff_members_waits(
+async def test_a_members_pdf_is_approved_on_arrival_and_a_view_as_upload_waits(
     s3: FakeS3,
 ) -> None:
     tenant_id, agent_id = await _tenant_with_published_agent()
     owners = await _upload_pdf(tenant_id, agent_id, name="Owner list", auto_approve=True)
-    staffs = await _upload_pdf(tenant_id, agent_id, name="Staff list", auto_approve=False)
+    staffs = await _upload_pdf(tenant_id, agent_id, name="View-as list", auto_approve=False)
 
     assert owners["review_state"] == "approved"
     assert staffs["review_state"] == "pending_approval"
@@ -375,7 +378,8 @@ def test_the_page_digest_ignores_what_changes_on_every_request() -> None:
 async def test_a_changed_page_becomes_a_new_version_for_review_and_the_live_one_serves(
     s3: FakeS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The founder's decision, and the answer to "what happens to the old knowledge base".
+    """The answer to "what happens to the old knowledge base" for a page NOBODY in the
+    account linked (`submitted_by=None`; a member's link is `kb_auto_publish_test`'s).
 
     Nothing happens to it here: a changed page submits a NEW version, `pending_approval`,
     and the live one keeps answering until a human approves the new one. Only then does

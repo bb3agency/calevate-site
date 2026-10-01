@@ -53,7 +53,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
-from apps.api.billing.gst import supplier_identity
+from apps.api.billing.gst import GST_STATUS_SENTENCE, supplier_identity
 from apps.api.billing.lots import read_open_lots
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import (
@@ -335,10 +335,10 @@ class TopUpAttemptOut(Strict):
 class ReceiptOut(Strict):
     """A RECEIPT for one payment. It is NOT a tax invoice and never says it is.
 
-    The business is not registered for GST and is not required to be at present turnover
-    (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §4), so `gst.supplier_identity().is_registered` is
-    false on every deployment: there is no GSTIN to print, no tax is charged, and CGST
-    s.32 forbids an unregistered person collecting any. `document_type` is therefore
+    The business is not registered for GST, being below the registration threshold
+    (D-659), so `gst.supplier_identity().is_registered` is false on every deployment:
+    there is no GSTIN to print, no tax is charged, and CGST s.32 forbids an unregistered
+    person collecting any. `document_type` is therefore
     `receipt` — an acknowledgement that money was received — and the console renders its
     heading from THIS field, never from a literal, exactly as the monthly statement does.
     Nothing here carries a tax head, a rate, or an estimate of one.
@@ -360,13 +360,10 @@ class ReceiptOut(Strict):
     note: str
 
 
-#: What the receipt says about itself. It states the two facts a reader needs — money was
-#: received, and no tax was charged — and it names neither a rate nor a registration that
-#: does not exist.
-RECEIPT_NOTE = (
-    "This is a receipt for calling credit added to your account. No tax has been "
-    "charged on it. It is not a tax invoice."
-)
+#: What the receipt says about itself: money was received, and the one GST sentence every
+#: client surface uses (`gst.GST_STATUS_SENTENCE`, D-659) — so no rate, no registration
+#: that does not exist, and no second wording of the tax position.
+RECEIPT_NOTE = f"This is a receipt for calling credit added to your account. {GST_STATUS_SENTENCE}"
 
 
 def _runway_out(runway: Runway) -> RunwayOut:
@@ -738,10 +735,9 @@ async def read_topup_attempts(principal: WalletRead) -> list[TopUpAttemptOut]:
     openapi_extra=permission_meta("wallet:read"),
     summary="A receipt for one payment — NOT a tax invoice",
     description=(
-        "An acknowledgement that money was received against this reference. The "
-        "business is not registered for GST, so no tax is charged and no tax invoice "
-        "can be issued; `document_type` says what this document is and the console "
-        "renders its heading from that field."
+        "An acknowledgement that money was received against this reference. "
+        f"{GST_STATUS_SENTENCE} `document_type` says what this document is and the "
+        "console renders its heading from that field."
     ),
 )
 async def read_payment_receipt(payment_ref: str, principal: WalletRead) -> ReceiptOut:

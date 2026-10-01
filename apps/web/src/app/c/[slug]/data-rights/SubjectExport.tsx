@@ -4,10 +4,9 @@ import { useState } from "react";
 import { CheckCircle2, Download, FileDown } from "lucide-react";
 
 import {
-  Card,
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -47,7 +46,7 @@ export function SubjectExport({ session }: { session: Session }) {
   const valid = useFormValidation();
 
   return (
-    <Card title="What we hold about a person">
+    <div>
       <p className="text-sm text-ink-muted">
         Builds one file containing everything this account holds against a phone number:
         their calls, the redacted transcripts, their record in your CRM and their consent
@@ -101,7 +100,7 @@ export function SubjectExport({ session }: { session: Session }) {
           /* `ready` (eight digits) is not repeated here: the field answers it in a
              sentence, and a dead button said nothing. */
           disabled={!access.allowed || exportDocument.isPending}
-          className={PRIMARY_BUTTON_SM}
+          className={PRIMARY_BUTTON}
         >
           <FileDown aria-hidden className="h-4 w-4" />
           {exportDocument.isPending ? "Building…" : "Build the export"}
@@ -183,6 +182,6 @@ export function SubjectExport({ session }: { session: Session }) {
           </NoticeBox>
         </div>
       )}
-    </Card>
+    </div>
   );
 }

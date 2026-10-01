@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Clock, PhoneCall, PhoneIncoming, UserCheck } from "lucide-react";
 
+import { Metric } from "@/components/console/metric";
+import { PageHeader } from "@/components/console/pageHeader";
+import { Panel } from "@/components/console/panel";
+import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
-  Card,
-  FilterChip,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  StatTile,
   formatCount,
   formatDuration,
 } from "@/components/ui";
@@ -20,8 +20,11 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import {
+  FUNNEL_NOTE,
   Funnel,
+  HOURS_NOTE,
   HourHistogram,
+  OUTCOMES_NOTE,
   Outcomes,
   Updating,
   ratePct,
@@ -30,10 +33,9 @@ import {
 /**
  * How the phone agent is doing (SURFACES §2), in the console's design language.
  *
- * Restyled onto the `globals.css` tokens and the shared primitives — no `slate-*`, no
- * `bg-white`, no second segmented control where `FilterChip` already exists — WITHOUT
- * changing what it fetches or what any number means. What did change is what the screen
- * claims:
+ * Laid out on the console foundation (PageHeader, a Metric strip, Panels) with the period
+ * as a `SegmentedControl` — D-655: 7 / 30 / 90 days are peer views of one report. Nothing
+ * it fetches or any number means has changed. What the screen claims:
  *
  * - **It rendered its own `<h1>Performance</h1>`** while the shell prints the page title
  *   from the nav list (layout.tsx). Two headings saying the same word is the visible half
@@ -184,98 +186,90 @@ export function PerformanceScreen() {
   const data = perf.data;
 
   return (
-    <div className="space-y-5 pb-12">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-muted">
-          {/* `data.days` — the period the SERVER measured, never the one the chip asked
-              for. They differ for as long as a switch is in flight, and that is exactly
-              when a reader would be misled. */}
-          {data
+    <div className="space-y-6 pb-12">
+      <PageHeader
+        description={
+          /* `data.days` — the period the SERVER measured, never the one the control asked
+             for. They differ while a switch is in flight, which is when a reader would be
+             misled. */
+          data
             ? `How your phone agent did over the last ${data.days} days.`
-            : "How your phone agent did."}
-        </p>
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Time period">
-          {DAY_OPTIONS.map((option) => (
-            <FilterChip
-              key={option}
-              label={`${option} days`}
-              active={days === option}
-              onClick={() => setDays(option)}
+            : "How your phone agent did."
+        }
+        actions={
+          <div className="flex items-center gap-3">
+            <Updating busy={perf.isFetching && data !== undefined} />
+            <SegmentedControl
+              label="Time period"
+              value={String(days)}
+              onValueChange={(next) => setDays(Number(next))}
+              options={DAY_OPTIONS.map((option) => ({
+                value: String(option),
+                label: `${option} days`,
+              }))}
             />
-          ))}
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {perf.error && <ProblemNotice error={perf.error} onRetry={() => void perf.refetch()} />}
 
       {!data ? (
         /* Nothing to draw. A skeleton is not a number, and a failed first load has
-           already said so in the notice above — neither branch is allowed to invent a
-           figure to fill the space. */
+           already said so in the notice above. */
         perf.error ? null : (
           <div className="space-y-5">
-            <Skeleton rows={4} />
+            <Skeleton rows={2} label="Loading the report" />
             <Skeleton rows={6} />
           </div>
         )
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {/* null vs 0% is a distinction the server makes ON PURPOSE (PerformanceOut):
-                0% means calls happened and none turned into conversations — bad news
-                worth showing — while null means there were no calls at all and there is
-                nothing to grade. Collapsing both into "0%" tells a new client their
-                agent is failing before it has rung once. */}
-            <StatTile
+          {/* null vs 0% is a distinction the server makes ON PURPOSE (PerformanceOut):
+              0% means calls happened and none became conversations — bad news worth
+              showing — while null means there was nothing to grade. */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-line pb-6 lg:grid-cols-4">
+            <Metric
               label="Calls answered"
               value={ratePct(data.connect_rate_pct) ?? "—"}
-              icon={<PhoneCall className="h-5 w-5" />}
               hint={
                 data.connect_rate_pct === null || data.connect_rate_pct === undefined
                   ? "No calls yet — nothing to measure"
                   : `${formatCount(data.funnel.connected)} of ${formatCount(data.funnel.calls)} reached a real conversation`
               }
             />
-            <StatTile
+            <Metric
               label="Turned into leads"
               value={ratePct(data.qualify_rate_pct) ?? "—"}
-              icon={<UserCheck className="h-5 w-5" />}
-              tone="strong"
               hint={
                 data.qualify_rate_pct === null || data.qualify_rate_pct === undefined
                   ? "No answered calls yet — nothing to measure"
                   : "of answered calls became interested customers"
               }
             />
-            <StatTile
+            <Metric
               label="Average call length"
               value={formatDuration(data.avg_duration_s)}
-              icon={<Clock className="h-5 w-5" />}
               hint="Completed calls only"
             />
-            <StatTile
+            <Metric
               label="Incoming / outgoing"
               value={`${formatCount(data.inbound)} / ${formatCount(data.outbound)}`}
-              icon={<PhoneIncoming className="h-5 w-5" />}
             />
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-12">
-            <div className="lg:col-span-7">
-              <Card title="From calls to customers" action={<Updating busy={perf.isFetching} />}>
-                <Funnel funnel={data.funnel} />
-              </Card>
-            </div>
-            <div className="lg:col-span-5">
-              <Card title="How calls ended" action={<Updating busy={perf.isFetching} />}>
-                <Outcomes outcomes={data.outcomes} />
-              </Card>
-            </div>
+          <div className="grid items-start gap-5 lg:grid-cols-12">
+            <Panel title="From calls to customers" info={FUNNEL_NOTE} className="lg:col-span-7">
+              <Funnel funnel={data.funnel} />
+            </Panel>
+            <Panel title="How calls ended" info={OUTCOMES_NOTE} className="lg:col-span-5">
+              <Outcomes outcomes={data.outcomes} />
+            </Panel>
           </div>
 
-          <Card title="Busiest hours (IST)" action={<Updating busy={perf.isFetching} />}>
+          <Panel title="Busiest hours (IST)" info={HOURS_NOTE}>
             <HourHistogram hours={data.busiest_hours_ist} calls={data.funnel.calls} />
-          </Card>
+          </Panel>
         </>
       )}
     </div>

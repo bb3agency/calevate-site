@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { ProblemNotice, RestrictionNote } from "@/components/ui";
+import { PageHeader } from "@/components/console/pageHeader";
+import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useAddContacts,
@@ -25,7 +26,7 @@ import { useAgents } from "@/lib/api/agents";
 
 import { CampaignDetail } from "./CampaignDetail";
 import { CampaignList } from "./CampaignList";
-import { NewCampaignForm } from "./NewCampaignForm";
+import { NewCampaignFlow } from "./NewCampaignFlow";
 import { useCampaignForm, useScheduleForm } from "./campaignForm";
 import { useCampaignsCopilotSurface } from "./campaignsCopilotSurface";
 
@@ -59,7 +60,7 @@ import { useCampaignsCopilotSurface } from "./campaignsCopilotSurface";
  *   they earn.
  *
  * The subjects that left, each to its own file: `blockerCopy.tsx`, `choices.tsx`,
- * `scheduleCopy.tsx`, `ConsentProvenance.tsx`, `CampaignList.tsx`, `NewCampaignForm.tsx`,
+ * `scheduleCopy.tsx`, `ConsentProvenance.tsx`, `CampaignList.tsx`, `NewCampaignFlow.tsx`,
  * `CampaignDetail.tsx`, `LaunchGate.tsx`.
  *
  * The screen renders no `<h1>`: the shell prints the page title from the nav list
@@ -73,31 +74,25 @@ export function CampaignsScreen() {
   const templates = useDltTemplates(session);
   const campaigns = useCampaigns(session);
 
+  /** Which view: the list, the new-campaign flow, or one campaign. */
   const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  /** The parsed list waiting for its campaign to exist — see the effect below. */
+  const [pendingContacts, setPendingContacts] = useState<
+    { phone: string; name?: string }[] | null
+  >(null);
+  const [rowError, setRowError] = useState<unknown>(null);
   const form = useCampaignForm();
   const scheduleForm = useScheduleForm();
   const { name, numberId, csv } = form;
 
   /**
-   * The permission, applied to the controls rather than discovered on click. All four
-   * mutating steps on this screen — create, add contacts, launch, pause/resume — are
-   * `leads:dispatch` (campaigns/routes.py), which `staff` does not hold.
-   *
-   * ⚠ IT ALSO SAID "an impersonating operator is refused it however senior they are"
-   * (D-22) AND THAT IS REVERSED: `leads:dispatch` is `None` in `rbac.VIEW_AS_MUTATIONS`,
-   * so a view-as operator MAY launch — the founder's own case, since dispatching a
-   * client's campaign is listed among an `operator`'s support duties — and every dial is
-   * recorded against them. The note is rendered once at the top rather than four times,
-   * because the
-   * reason is the same one every time; the launch control is the single exception and
-   * says why at its own call site. The server still refuses; every ProblemNotice below
-   * stays.
+   * Every mutating step here is `leads:dispatch` (campaigns/routes.py), which `staff` does
+   * not hold and a view-as operator does (D-587: dispatching a client's campaign is one of
+   * an operator's support duties). The note is rendered once at the top; the server still
+   * refuses, and every ProblemNotice below stays.
    */
-  const write = useWriteAccess(
-    session,
-    "leads:dispatch",
-    "start or run campaigns",
-  );
+  const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   /** The refusal as a control attribute, so a dead button explains itself on hover. */
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
 
@@ -113,32 +108,18 @@ export function CampaignsScreen() {
 
   /**
    * Which agent dials decides the script, the voice and the disclosure line, so the
-   * choice is ALWAYS on screen — not only when there is more than one. A campaign that
-   * silently bound `agents[0]` was a campaign whose caller nobody chose, and with the
-   * agents console able to mint a second agent in a minute, "there is only one" stopped
-   * being a safe assumption the moment the form rendered.
-   *
-   * ARCHIVED AGENTS ARE NOT OFFERED, and that is the server's rule rather than taste:
-   * `lifecycle.ASSIGNABLE_STATUSES` refuses one outright, because no amount of waiting
-   * makes a campaign bound to a retired agent launchable. Every other state IS offered —
-   * a draft agent is a legitimate choice while its script is being written, and
-   * `launch_blockers` refuses the LAUNCH with `agent_not_live` until it is published,
-   * which is a wait a client can act on rather than a dead end.
+   * choice is always asked, even with one agent. Archived agents are not offered: the
+   * server refuses binding one (`lifecycle.ASSIGNABLE_STATUSES`), and no wait makes such a
+   * campaign launchable. A draft agent IS offered; the launch check refuses it by name
+   * until it is published, which is a wait the client can plan for.
    */
   const agentOptions = (agents.data ?? []).filter(isAssignable);
   const selectedAgentId = form.agentId || agentOptions[0]?.id || "";
   const selectedAgent = agentOptions.find((option) => option.id === selectedAgentId);
   /**
-   * This account has no agent — as a FACT FROM THE SERVER, not as "the list is empty
-   * right now". `agentOptions` is also empty while `/v1/agents` is in flight and after
-   * it has FAILED, and the sentence below it used to gate ("your account manager builds
-   * one before campaigns can run") is a claim about this business's setup, on the screen
-   * where an owner decides whether their campaigns can run at all. Rendered over a 503
-   * it sends them to their account manager for an agent they already have.
-   *
-   * `!agents.isLoading` was not enough: a settled-and-failed query is not loading.
-   * Same spelling as `hasNoAgents` two screens away in `/c/<slug>/knowledge` — the
-   * repo already solved this and a fourth spelling is where the drift starts.
+   * "No agent" as a FACT FROM THE SERVER: `agentOptions` is also empty while the read is
+   * in flight and after it failed, and the sentence this gates sends an owner to their
+   * account manager for an agent they may already have.
    */
   const hasNoAgents = Boolean(agents.data) && agentOptions.length === 0;
 
@@ -151,16 +132,10 @@ export function CampaignsScreen() {
     templates,
   });
 
-
   /*
-   * WHAT WOULD BE LOST IF THIS TAB RELOADED — see `lib/useUnsavedGuard.ts`.
-   *
-   * The contact list is the answer at every stage: it lives only in this textarea until
-   * "Add contacts" succeeds, which is the one moment `csv` is cleared. Before the campaign
-   * itself exists there is more — the name, the agent and the number are typed and unsent
-   * — so both are asked. The schedule and repeat fields are deliberately NOT counted: they
-   * carry defaults nobody typed, and a form that asked on the way out of an untouched
-   * screen is the ask people learn to click through.
+   * What a reload would lose: the pasted list until it is uploaded, and before the
+   * campaign exists, the typed name, agent and number. Schedule fields carry defaults
+   * nobody typed, so they are not counted.
    */
   useUnsavedGuard(
     csv.trim() !== "" ||
@@ -168,94 +143,114 @@ export function CampaignsScreen() {
         (name.trim() !== "" || form.agentId !== "" || numberId !== "")),
   );
 
-  const startAnother = () => {
+  /**
+   * THE SECOND HALF OF "CREATE CAMPAIGN". The contacts endpoint is per campaign, so the
+   * list can only be sent once the create has answered with an id, and `useAddContacts`
+   * is bound to the id this screen holds. Setting the id re-renders with the hook bound to
+   * the new campaign; this effect then sends the list through it. On failure the screen
+   * is already on the new draft, the error renders on its contacts panel, and the list
+   * is still in the textarea (it is cleared only on success), so "Add contacts" retries.
+   */
+  useEffect(() => {
+    if (!campaignId || !pendingContacts) return;
+    setPendingContacts(null);
+    addContacts.mutate(pendingContacts, { onSuccess: () => form.setCsv("") });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once per create
+  }, [campaignId, pendingContacts]);
+
+  const submitNew = () => {
+    if (!selectedAgentId) return;
+    const contacts = form.parsed;
+    create.mutate(
+      {
+        agent_id: selectedAgentId,
+        name,
+        classification: form.classification,
+        concurrency: form.concurrency,
+        number_id: numberId || null,
+        dlt_template_id: form.templateId || null,
+        calling_hours: form.restrictHours
+          ? { start: form.windowStart, end: form.windowEnd }
+          : null,
+        consent_provenance:
+          form.consentSource && form.consentIso
+            ? { source: form.consentSource, collected_at: form.consentIso }
+            : null,
+      },
+      {
+        onSuccess: (data) => {
+          setCreating(false);
+          setPendingContacts(contacts);
+          setCampaignId(data.id);
+        },
+      },
+    );
+  };
+
+  /**
+   * Back to the list, with the AUDITED answers cleared: a second campaign's form must not
+   * open with the last list's consent declaration pre-selected (`campaignForm.reset`).
+   */
+  const backToList = () => {
     setCampaignId(null);
+    setCreating(false);
+    create.reset();
+    addContacts.reset();
     form.reset();
+  };
+
+  const startNew = () => {
+    form.reset();
+    create.reset();
+    setCreating(true);
   };
 
   return (
     <div className="space-y-5 pb-12">
-      <p className="max-w-2xl text-sm text-ink-muted">
-        Call a list of people. Calls go out between 9am and 9pm, numbers on the
-        do-not-call list are never dialled, and anyone who doesn&apos;t answer
-        is tried again later.
-      </p>
+      {!campaignId && !creating && (
+        <PageHeader
+          description="Call a list of people with one of your agents."
+          actions={
+            <button
+              type="button"
+              onClick={startNew}
+              disabled={!write.allowed}
+              title={refusal}
+              className={PRIMARY_BUTTON}
+            >
+              New campaign
+            </button>
+          }
+        />
+      )}
 
       <RestrictionNote reason={write.reason} />
 
       {campaigns.error && (
-        <ProblemNotice
-          error={campaigns.error}
-          onRetry={() => campaigns.refetch()}
-        />
+        <ProblemNotice error={campaigns.error} onRetry={() => campaigns.refetch()} />
       )}
-      {/* THE THREE READS THAT FAILED IN SILENCE.
-          `campaigns`, `progress`, `check`, `create` all surfaced their refusals; the
-          three lists the create form is BUILT FROM did not, so each failure degraded
-          into something the screen stated as fact. Agents: the empty-state sentence
-          above (see `hasNoAgents`). Numbers and templates: two `<select>`s holding
-          nothing but "Choose a number…" / "Choose a template…", a client concluding
-          their account has neither, and no refusal anywhere on the page to contradict
-          it. A picker that cannot be filled is a dead form, and a dead form needs the
-          reason next to it — the same argument `/c/<slug>/knowledge` makes for its own
-          agents notice. Retryable, because all three are plain GETs. */}
-      {agents.error && (
-        <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />
-      )}
-      {numbers.error && (
-        <ProblemNotice
-          error={numbers.error}
-          onRetry={() => numbers.refetch()}
-        />
-      )}
+      {/* The three lists the create flow is BUILT from: a failure of any of them is a dead
+          picker, and a dead picker needs its reason on the page, not "you have none". */}
+      {agents.error && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
+      {numbers.error && <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />}
       {templates.error && (
-        <ProblemNotice
-          error={templates.error}
-          onRetry={() => templates.refetch()}
-        />
+        <ProblemNotice error={templates.error} onRetry={() => templates.refetch()} />
       )}
-      {progress.error && (
-        <ProblemNotice
-          error={progress.error}
-          onRetry={() => progress.refetch()}
-        />
-      )}
-      {addContacts.error && <ProblemNotice error={addContacts.error} />}
+      {progress.error && <ProblemNotice error={progress.error} onRetry={() => progress.refetch()} />}
       {launch.error && <ProblemNotice error={launch.error} />}
       {setStatus.error && <ProblemNotice error={setStatus.error} />}
-      {/* A refused schedule is a refusal, never a silently unchanged form: the server
-          names the reason (a start in the past, one beyond the horizon, a campaign that
-          has already launched) and the client can only act on it if it is on screen. */}
+      {rowError != null && !campaignId && <ProblemNotice error={rowError} />}
+      {/* A refused schedule or repeat names its reason (a start in the past, a time outside
+          calling hours, no day chosen); none of them is guessable from a form that simply
+          does nothing. */}
       {schedule.error && <ProblemNotice error={schedule.error} />}
       {unschedule.error && <ProblemNotice error={unschedule.error} />}
-      {/* A refused repeat is a refusal with something to do about it: a time outside
-          calling hours, no day chosen, an end date before the first run. All three are
-          named by the server and none of them is guessable from a form that simply does
-          nothing. */}
       {repeat.error && <ProblemNotice error={repeat.error} />}
 
-      {!campaignId && (
-        <CampaignList campaigns={campaigns} onOpen={setCampaignId} />
-      )}
-
-      {!campaignId ? (
-        <NewCampaignForm
-          form={form}
-          agents={agents}
-          agentOptions={agentOptions}
-          selectedAgentId={selectedAgentId}
-          selectedAgent={selectedAgent}
-          hasNoAgents={hasNoAgents}
-          numbers={numbers}
-          templates={templates}
-          create={create}
-          canWrite={write.allowed}
-          refusal={refusal}
-          onCreated={setCampaignId}
-        />
-      ) : (
+      {campaignId ? (
         <CampaignDetail
           campaignId={campaignId}
+          campaign={campaigns.data?.find((row) => row.id === campaignId)}
           form={form}
           scheduleForm={scheduleForm}
           progress={progress}
@@ -269,7 +264,33 @@ export function CampaignsScreen() {
           canWrite={write.allowed}
           writeReason={write.reason}
           refusal={refusal}
-          onStartAnother={startAnother}
+          onBack={backToList}
+        />
+      ) : creating ? (
+        <NewCampaignFlow
+          form={form}
+          agents={agents}
+          agentOptions={agentOptions}
+          selectedAgentId={selectedAgentId}
+          selectedAgent={selectedAgent}
+          hasNoAgents={hasNoAgents}
+          numbers={numbers}
+          templates={templates}
+          create={create}
+          canWrite={write.allowed}
+          onSubmit={submitNew}
+          onCancel={backToList}
+        />
+      ) : (
+        <CampaignList
+          campaigns={campaigns}
+          onOpen={(id) => {
+            setRowError(null);
+            setCampaignId(id);
+          }}
+          canWrite={write.allowed}
+          refusal={refusal}
+          onRowError={setRowError}
         />
       )}
     </div>

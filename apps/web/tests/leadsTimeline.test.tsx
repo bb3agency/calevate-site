@@ -310,7 +310,8 @@ describe("an empty history and a failed one are different sentences", () => {
     await screen.findByRole("alert");
     // The lead itself read fine, so the header is real data and stays.
     expect(container.textContent).toContain("Ramesh Kumar");
-    expect(container.textContent).toContain(PHONE);
+    // Printed grouped for reading (`formatPhone`).
+    expect(container.textContent).toContain("+91 98765 43210");
   });
 
   it("keeps the history when only the lead failed", async () => {

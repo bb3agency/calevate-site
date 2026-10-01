@@ -125,6 +125,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # is nothing for an operator to do. A wall of these on the console is a signal
     # (someone is hammering us); one of them is not.
     "rate_limited": "record",
+    # Redis refused a live speaking-state write (D-656). The next state replaces it within
+    # a second and the call itself is untouched; a Redis outage pages through its own checks.
+    "live_state_unavailable": "record",
     "too_many_attempts": "record",
     "service_load_shed": "record",
     "signup_load_shed": "record",

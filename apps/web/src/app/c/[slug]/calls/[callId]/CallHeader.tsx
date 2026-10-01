@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { formatDuration, formatIST } from "@/components/ui";
+import { formatDuration, formatIST, formatPhone } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
 import { LiveDot } from "@/components/console/liveCalls";
 import type { CallDetail } from "@/lib/api/client";
@@ -35,7 +35,7 @@ export function CallHeader({ detail, leadHref }: { detail: CallDetail; leadHref:
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {isLive(detail) && <LiveDot />}
         <span className="text-xl font-semibold tabular-nums tracking-tight text-ink">
-          {detail.caller_e164 ?? "Unknown number"}
+          {detail.caller_e164 ? formatPhone(detail.caller_e164) : "Unknown number"}
         </span>
         {detail.caller_e164 && <CopyButton value={detail.caller_e164} label="Copy phone number" />}
         <CallState call={detail} />

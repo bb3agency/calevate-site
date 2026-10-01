@@ -4,7 +4,6 @@ import { useState } from "react";
 import { CheckCircle2, Clock, Download, ShieldAlert } from "lucide-react";
 
 import {
-  Card,
   MonoValue,
   NoticeBox,
   ProblemNotice,
@@ -62,33 +61,30 @@ export function Register({ session }: { session: Session }) {
     );
 
   return (
-    <Card title="Erasure requests">
-      <p className="text-sm text-ink-muted">
+    <section aria-labelledby="erasure-register-heading" className="space-y-2">
+      <h2 id="erasure-register-heading" className="text-[15px] font-semibold text-ink">
+        Erasure requests
+      </h2>
+      <p className="text-[13px] text-ink-muted">
         Every erasure this account has been asked for, newest first. Numbers are never
         listed here — each request is identified by a one-way hash of the number it
         covers.
       </p>
 
-      {requests.isPending && (
-        <div className="mt-4">
-          <Skeleton rows={3} />
-        </div>
-      )}
+      {requests.isPending && <Skeleton rows={3} />}
 
       {requests.isError && (
-        <div className="mt-4">
-          <ProblemNotice error={requests.error} onRetry={() => void requests.refetch()} />
-        </div>
+        <ProblemNotice error={requests.error} onRetry={() => void requests.refetch()} />
       )}
 
       {requests.isSuccess &&
         (requests.data.length === 0 ? (
-          <p className="mt-4 text-sm text-ink-muted">
+          <p className="rounded-card border border-line bg-surface px-4 py-8 text-center text-[14px] text-ink-muted">
             No erasure requests have been filed for this account.
           </p>
         ) : (
           <>
-            <ul className="mt-4 space-y-3">
+            <ul className="divide-y divide-line rounded-card border border-line bg-surface">
               {requests.data.map((request) => (
                 <li key={request.request_id}>
                   <RegisterRow
@@ -101,28 +97,19 @@ export function Register({ session }: { session: Session }) {
               ))}
             </ul>
             {requests.data.length === DELETION_REQUEST_LIST_LIMIT && (
-              // A count that is a statement about our query, presented as a statement
-              // about the client's obligations, is the defect the leads table already
-              // fixed once. Say which this is.
-              <p className="mt-3 text-xs text-ink-faint">
+              // A count about our query, presented as one about the client's obligations,
+              // is the defect the leads table already fixed once. Say which this is.
+              <p className="text-xs text-ink-faint">
                 Showing the {formatCount(DELETION_REQUEST_LIST_LIMIT)} most recent
                 requests. There may be older ones.
               </p>
             )}
           </>
         ))}
-    </Card>
+    </section>
   );
 }
 
-/**
- * One row of the register, and the certificate underneath it once someone asks for it.
- *
- * The heading distinguishes three states, not two: pending, complete with a certificate,
- * and complete WITHOUT one. The third is the state a client must never report to a data
- * principal as finished, and `has_certificate` is on the list precisely so the register
- * can say it without every proof being fetched.
- */
 function RegisterRow({
   session,
   request,
@@ -139,16 +126,16 @@ function RegisterRow({
   const panelId = `erasure-${request.request_id}`;
 
   return (
-    <div className="rounded-card border border-line bg-surface p-4">
+    <div className="px-4 py-3.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-semibold text-ink">
             {missingProof ? (
-              <ShieldAlert aria-hidden className="h-4 w-4 text-amber-600" />
+              <ShieldAlert aria-hidden className="h-4 w-4 text-warn" />
             ) : done ? (
-              <CheckCircle2 aria-hidden className="h-4 w-4 text-emerald-600" />
+              <CheckCircle2 aria-hidden className="h-4 w-4 text-brand-strong" />
             ) : (
-              <Clock aria-hidden className="h-4 w-4 text-amber-600" />
+              <Clock aria-hidden className="h-4 w-4 text-warn" />
             )}
             {missingProof
               ? "Complete — no certificate recorded"

@@ -169,11 +169,9 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
 class MemberOut(BaseModel):
     """One colleague, as a control that has to NAME them needs them.
 
-    **No email, and that is a rule rather than a preference.** `email` is in
-    `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model
-    declaring it fails the guardrail unless the route is allowlisted as role-checked and
-    audited — which an assignee picker is not, and should not have to be. Nothing on
-    this surface needs it either: the control writes an id and prints a name.
+    **No email here**: this list is `org:read`, which staff hold, and an assignee picker
+    writes an id and prints a name. The addresses are on `GET /v1/team/members`, which
+    takes `org:manage` — the permission of the people who manage the team (D-660).
 
     `name` is nullable because `users.name` is: an invitation carries an address and,
     optionally, a name, so a colleague who typed neither has NULL
@@ -242,6 +240,65 @@ async def list_members(
         )
     ).all()
     return [MemberOut(id=row[0], name=row[1], role=row[2]) for row in rows]
+
+
+class MemberContactOut(BaseModel):
+    """One colleague, as the person who MANAGES the team needs them: with their address.
+
+    `email` is a contact identifier (`check_redaction_exposure.CONTACT_PII_FIELDS`), which
+    D-436 allows in full on an operation that declares and enforces a permission; this one
+    takes `org:manage`. There is NO last-active field, deliberately: the only record of
+    activity is `auth_sessions.last_seen_at`, which belongs to a PERSON across every
+    account they are a member of (so it would report activity in another tenant), is slid
+    only every `IDLE_WRITE_FLOOR`, and is behind the deny-by-default `app.auth` policy that
+    a tenant session cannot read.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str | None = None
+    email: str
+    role: str
+    #: When they joined THIS account (the membership row), not when the person signed up.
+    joined_at: datetime
+
+
+@router.get(
+    "/team/members",
+    response_model=list[MemberContactOut],
+    # `org:manage`, the permission every write on the team surface takes: the people who
+    # can invite, re-role and remove a colleague are the people who need the address.
+    # Readable in a view-as session (D-587 permits `org:manage`); the membership ACTS stay
+    # withheld there by `MEMBERSHIP_WRITE`, and reading is not one of them.
+    openapi_extra=permission_meta("org:manage"),
+    summary="The team with email addresses, for the people who manage it",
+)
+async def list_team_members(
+    session: Session,
+    # Bounded for `list_members`'s reason, at the same house ceiling.
+    limit: int = Query(200, ge=1, le=200),
+    _: Principal = Depends(requires("org:manage")),
+) -> list[MemberContactOut]:
+    """Driven from `memberships` (FORCE-RLS on `tenant_id`) for `list_members`'s reason:
+    `users` is global, so the join through the tenant's own memberships is the tenancy
+    control. Deactivated accounts are excluded, as there. No log line carries an address
+    (hard rule 6)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT m.user_id, u.name, u.email, m.role, m.created_at FROM memberships m "
+                "JOIN users u ON u.id = m.user_id "
+                "WHERE u.deactivated_at IS NULL "
+                "ORDER BY u.name NULLS LAST, m.created_at LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+    ).all()
+    return [
+        MemberContactOut(id=row[0], name=row[1], email=row[2], role=row[3], joined_at=row[4])
+        for row in rows
+    ]
 
 
 # --- Team management (ROADMAP M3, "client staff roles") -----------------------------

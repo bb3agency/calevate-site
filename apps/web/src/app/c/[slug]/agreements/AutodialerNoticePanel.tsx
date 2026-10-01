@@ -27,7 +27,7 @@ import { useState } from "react";
 
 import {
   NoticeBox,
-  PRIMARY_BUTTON_SM,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -131,11 +131,11 @@ export function AutodialerNoticePanel() {
     declared.length > 0;
 
   return (
-    <section className="rounded-card border border-line p-5">
-      <h2 className="text-sm font-semibold text-ink">
+    <section id="autodialer-notice" aria-labelledby="autodialer-notice-heading" className="scroll-mt-4">
+      <h2 id="autodialer-notice-heading" className="text-[15px] font-semibold text-ink">
         Your notice to your telecom access provider
       </h2>
-      <p className="mt-1 text-sm text-ink-muted">
+      <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-ink-muted">
         Every outgoing call we place for you is dialled automatically. The rules
         put one duty on the business whose calls they are: tell your own telecom
         operator, in writing and before the calls start, that you use an
@@ -254,7 +254,7 @@ export function AutodialerNoticePanel() {
           {current.undeclared_clis.length > 0 && (
             <button
               type="button"
-              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-sm text-accent underline"
+              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-sm text-brand-strong underline"
               onClick={() => setNumbers(withEveryCallingNumber(declared, current).join("\n"))}
             >
               {"Add my agents' numbers"}
@@ -266,7 +266,7 @@ export function AutodialerNoticePanel() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
-              className={PRIMARY_BUTTON_SM}
+              className={PRIMARY_BUTTON}
               disabled={!canSubmit || record.isPending}
             >
               {record.isPending ? "Recording…" : "Record this notice"}

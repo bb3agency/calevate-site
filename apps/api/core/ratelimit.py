@@ -310,6 +310,8 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/leads/export.csv", "bulk_read"),
     Rule("/v1/compliance/subject-export", "bulk_read", _m("POST")),
     Rule("/v1/billing/invoice", "bulk_read", _m("GET")),
+    # Each row builds a whole statement (`billing/history.statement_page`), up to twelve.
+    Rule("/v1/billing/statements", "bulk_read", _m("GET")),
     Rule("/v1/admin/tenants/*/invoice", "bulk_read", _m("GET")),
     # --- cost-weighted: bulk data in ----------------------------------------------
     Rule("/v1/leads/bulk", "bulk_write", _m("POST")),

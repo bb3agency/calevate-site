@@ -436,6 +436,11 @@ kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, 
   -- publish ARCHIVED, and gating on the current status refused the only rows the
   -- recovery path exists for. Rejection never stamps approved_at, so a rejected source
   -- still cannot reach an agent.
+  -- D-658: what the account's own people add is inserted `approved` with
+  -- `approved_by = submitted_by` (a re-read of a page a member linked: submitted_by NULL,
+  -- approved_by the linker) and published by a worker; `pending_approval` is left for
+  -- what nobody in the account added (view-as, intake seed, a changed page an operator
+  -- linked). A version an automatic publish finds superseded is set `archived`.
 kb_documents(id, tenant_id, source_id, idx INT, title, content TEXT, meta JSONB,
   UNIQUE(source_id, idx))          -- idx = chunk order; the chunks ARE the document
   -- meta held the provider-side ids until D-519 and NO LONGER DOES: `engine_kb_ref` and
@@ -471,16 +476,18 @@ kb_uploads(id, tenant_id, agent_id, source_id, source_kind ENUM[pdf,url,docx,txt
   -- lives here is only what is true of an uploaded ORIGINAL; the review state, the
   -- submitter and the live flag stay on kb_sources and are NOT duplicated.
   -- WHAT EACH KIND BECOMES: a `pdf` is handed to the engine as the client's own bytes
-  -- (document_key = original_key) and what a reviewer approves is the file itself; a `url`
+  -- (document_key = original_key), so what is published is the file itself; a `url`
   -- is scraped BY the engine (no document_key, nothing of ours to upload); every other
   -- kind has its TEXT extracted by the conversion lane
   -- (`calevate_shared.document_ingest`), chunked into kb_documents, and published through
-  -- the one renderer — so a client's own bytes never route around the approval gate.
+  -- the one renderer — so a client's own bytes pass the same automated text gate as typed
+  -- knowledge (`kb/service._FORBIDDEN_CODEPOINTS`).
   -- NO `rag_id`-shaped second vendor identifier: the handle an agent references lives on
   -- engine_kb_routes and nowhere else (hard rule 2, `tests/kb_boundaries_test.py`).
   -- content_digest is OUR reading of a link's visible text, for change detection only —
-  -- a materially changed page submits a NEW version for review and leaves the live one
-  -- serving. FORCEd RLS `tenant_isolation` in the same migration: every row either is the
+  -- a materially changed page submits a NEW version: published in the linker's name when
+  -- a member linked it (D-658), for review when an operator did, the live one serving
+  -- until the new one is published. FORCEd RLS `tenant_isolation` in the same migration: every row either is the
   -- client's content or names an object-storage key that dereferences to it.
 kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
   embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,

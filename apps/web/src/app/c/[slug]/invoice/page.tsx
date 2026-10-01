@@ -14,5 +14,5 @@ export default async function Page({
   params: Promise<{ slug: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await redirectToBillingTab(params, searchParams, "transactions");
+  await redirectToBillingTab(params, searchParams, "statements");
 }

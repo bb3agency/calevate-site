@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { panelPlacement } from "./CopilotPanel";
 
 /**
  * WHAT THE ASSISTANT SAYS INSIDE A D-22 VIEW-AS SESSION: that it cannot answer here, and
@@ -42,7 +43,10 @@ import { X } from "lucide-react";
 export function ViewAsPanel({
   labelledBy,
   onClose,
+  placement = "floating",
 }: {
+  /** Where the launcher is (`CopilotDock`): the panel opens beside it. */
+  placement?: "floating" | "header";
   labelledBy: string;
   onClose: () => void;
 }) {
@@ -69,7 +73,7 @@ export function ViewAsPanel({
       role="dialog"
       aria-labelledby={labelledBy}
       data-testid="copilot-view-as-panel"
-      className="fixed bottom-20 right-4 z-[70] flex max-h-[min(34rem,calc(100dvh-7rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay"
+      className={`${panelPlacement(placement)} flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay`}
     >
       <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
         <h2 id={labelledBy} className="text-sm font-semibold text-ink">

@@ -1,15 +1,8 @@
 "use client";
 
-import { ShieldAlert, ShieldCheck } from "lucide-react";
-
-import { Card, MonoValue, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
-import {
-  peStatusCopy,
-  tmLinkCopy,
-  usePeRegistration,
-  type PeRegistration,
-} from "@/lib/api/dltRegistration";
-import type { Session } from "@/lib/api/client";
+import type { ChecklistItem } from "@/components/console/checklist";
+import { MonoValue, formatIST } from "@/components/ui";
+import { peStatusCopy, tmLinkCopy, type PeRegistration } from "@/lib/api/dltRegistration";
 import { Term } from "@/lib/glossary";
 
 /**
@@ -21,10 +14,10 @@ import { Term } from "@/lib/glossary";
  * client whose campaign button was disabled could read the blocker and could not read the
  * registration it was about.
  *
- * §52 in three branches, and the middle one is the point: a read that FAILED must not
- * render as "nothing filed yet". `recorded: false` and "we could not ask" are opposite
- * facts that would produce the same card, and the first sends a client to their account
- * manager over a registration that may be perfectly active.
+ * §52: these pieces take a registration that ARRIVED. The page renders a failed read as
+ * a refusal and never as "nothing filed yet": `recorded: false` and "we could not ask"
+ * are opposite facts, and the first sends a client to their account manager over a
+ * registration that may be perfectly active.
  *
  * Read-only with no control anywhere, and that is not an omission — see the module
  * docstring on `lib/api/dltRegistration.ts`. The write is operator-only because a client
@@ -32,103 +25,46 @@ import { Term } from "@/lib/glossary";
  * is nothing here for `useWriteAccess` to gate, and no `RestrictionNote`: `org:read` is
  * held by every client role and survives a D-22 read-only session.
  */
-export function DltRegistration({ session }: { session: Session }) {
-  const registration = usePeRegistration(session);
-
-  if (registration.isLoading) {
-    return (
-      <Card title="Campaign registration (DLT)">
-        <Skeleton rows={4} />
-      </Card>
-    );
-  }
-
-  if (registration.error || !registration.data) {
-    return (
-      <Card title="Campaign registration (DLT)">
-        <ProblemNotice
-          error={
-            registration.error ??
-            new Error("Your DLT registration did not load, so we cannot say where it stands.")
-          }
-          onRetry={() => void registration.refetch()}
-        />
-      </Card>
-    );
-  }
-
-  const pe = registration.data;
+export function DltDetails({ registration }: { registration: PeRegistration }) {
   return (
-    <Card title="Campaign registration (DLT)">
-      <DltVerdict registration={pe} />
-      <DltStatuses registration={pe} />
-      {pe.recorded && <DltOnFile registration={pe} />}
-      {/* `term="registrar"` prints the word already in this sentence and attaches the
-          glossary's own explanation to it — the gloss this module owes its reader
-          (UX-DOCTRINE §5) without adding a word of copy. */}
-      <p className="mt-3 text-xs text-ink-faint">
+    <section aria-labelledby="dlt-heading" className="space-y-2">
+      <h2 id="dlt-heading" className="text-[15px] font-semibold text-ink">
+        Campaign registration (<Term id="dlt" />)
+      </h2>
+      <DltStatuses registration={registration} />
+      {registration.recorded && <DltOnFile registration={registration} />}
+      {/* `term="registrar"` attaches the glossary's explanation to a word already in the
+          sentence, without adding copy. */}
+      <p className="text-xs text-ink-faint">
         We record this against the <Term id="dlt" term="registrar" /> on your behalf and
         cannot change what it says — there is no control here that sets your own status,
         for the same reason there is none above.
       </p>
-    </Card>
+    </section>
   );
 }
 
-/**
- * Cleared or not, in one box — off `is_active`, never off `status`.
- *
- * The same doctrine as the KYC `Verdict`: the server computes the predicate the launch
- * gate asks (`PeRegistration.is_active` = both statuses active), so a screen that
- * recombined the two statuses itself would eventually disagree with the gate that actually
- * refuses the campaign. The icon is keyed on the same boolean as the sentence.
- */
-function DltVerdict({ registration }: { registration: PeRegistration }) {
-  const Icon = registration.is_active ? ShieldCheck : ShieldAlert;
-  return (
-    <NoticeBox
-      tone={registration.is_active ? "ok" : registration.recorded ? "warn" : "neutral"}
-      icon={<Icon className="h-5 w-5" />}
-      title={
-        registration.is_active
-          ? "Your business is registered to run campaigns."
-          : registration.recorded
-            ? "Your DLT registration is not active yet."
-            : "We have not filed a DLT registration for your business."
-      }
-    >
-      <div className="min-w-0">
-        <p className="mt-1">
-          {registration.is_active
-            ? "Nothing on the DLT side is holding up a campaign launch."
-            : "Outbound campaigns cannot launch until both lines below are active."}
-        </p>
-        {!registration.is_active && (
-          <p className="mt-2 font-semibold">
-            Calls coming IN are unaffected — your agent keeps answering the phone.
-          </p>
-        )}
-      </div>
-    </NoticeBox>
-  );
+/** The DLT verdict as one checklist row. `is_active` is the server's predicate, never re-derived. */
+export function dltItem(registration: PeRegistration): ChecklistItem {
+  return {
+    id: "dlt",
+    label: registration.is_active
+      ? "Your business is registered to run campaigns."
+      : registration.recorded
+        ? "Your DLT registration is not active yet."
+        : "We have not filed a DLT registration for your business.",
+    state: registration.is_active ? "done" : registration.recorded ? "waiting" : "todo",
+    detail: registration.is_active
+      ? "Nothing on the DLT side is holding up a campaign launch."
+      : "Outbound campaigns cannot launch until both lines below are active.",
+  };
 }
 
-/**
- * The two statuses, side by side, because they fail separately and to different desks.
- *
- * The registrar approves the entity; YOU authorise Calevate as your telemarketer on the
- * registrar's portal. Collapsing them into one verdict would send half the clients who
- * read this to the wrong place — which is exactly why the API emits
- * `pe_registration_not_active` and `tm_link_not_active` as different blockers.
- *
- * A status this build cannot name prints the raw word from the wire with a sentence that
- * claims nothing about it. Vaguer than the table, and it cannot be wrong.
- */
 function DltStatuses({ registration }: { registration: PeRegistration }) {
   const entity = peStatusCopy(registration.status);
   const link = tmLinkCopy(registration.tm_link_status);
   return (
-    <dl className="mt-4 space-y-3 text-sm">
+    <dl className="space-y-3 text-sm">
       <div>
         <dt className="font-semibold text-ink">
           Your business as a{" "}

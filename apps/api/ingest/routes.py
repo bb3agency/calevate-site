@@ -669,6 +669,9 @@ class LeadSourceOut(BaseModel):
 
     id: UUID
     source: str
+    # Where the sender posts, built by `_ingest_path` like the create response's, so the
+    # screen can offer it again later without re-deriving the route in the browser.
+    ingest_path: str
     agent_id: UUID | None
     active: bool
     mapping: dict[str, str]
@@ -1278,6 +1281,7 @@ async def list_lead_sources(
             LeadSourceOut(
                 id=row.id,
                 source=row.source,
+                ingest_path=_ingest_path(row.id, row.source),
                 agent_id=row.agent_id,
                 active=row.active,
                 mapping=row.mapping,

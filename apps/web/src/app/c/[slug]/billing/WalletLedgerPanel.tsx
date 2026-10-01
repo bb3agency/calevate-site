@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Receipt } from "lucide-react";
 
+import { EmptyState } from "@/components/console/emptyState";
+import { Panel } from "@/components/console/panel";
 import {
-  Card,
-  EmptyState,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   ScrollRegion,
@@ -61,10 +61,13 @@ import { readLotSplits, type LotSplit, type TierLabels } from "./lots";
 export function WalletLedgerPanel({
   session,
   labels,
+  action,
 }: {
   session: Session;
   /** What a client calls each voice quality, from the pack card the hub already read. */
   labels: TierLabels | undefined;
+  /** A quiet control for the panel's header — the CSV download. */
+  action?: ReactNode;
 }) {
   const ledger = useWalletLedger(session);
   // Which payment's receipt is open, by its reference. `null` is closed — never a
@@ -72,7 +75,7 @@ export function WalletLedgerPanel({
   const [openReceipt, setOpenReceipt] = useState<string | null>(null);
 
   return (
-    <Card title="Your credit history">
+    <Panel title="Credit history" action={action}>
       {ledger.isLoading && <Skeleton rows={5} label="Loading your credit history" />}
       {ledger.error && (
         <ProblemNotice error={ledger.error} onRetry={() => void ledger.refetch()} />
@@ -83,8 +86,17 @@ export function WalletLedgerPanel({
              designed rather than defaulted: it says what will appear here and why the
              table is empty, instead of showing headers over nothing. */
           <EmptyState
-            title="Nothing has moved on your credit yet"
-            hint="Payments you make and calls your agents handle will both show up here, newest first."
+            message={
+              <>
+                <span className="block font-medium text-ink">
+                  Nothing has moved on your credit yet
+                </span>
+                <span className="mt-1 block">
+                  Payments you make and calls your agents handle will both show up here,
+                  newest first.
+                </span>
+              </>
+            }
           />
         ) : (
           <>
@@ -94,7 +106,7 @@ export function WalletLedgerPanel({
                   Your credit history, newest first — {ledger.data.entries.length} entries
                 </caption>
                 <thead>
-                  <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                  <tr className="border-b border-line text-left text-[12px] text-ink-muted">
                     <th scope="col" className="py-2 pr-3 font-semibold">
                       When
                     </th>
@@ -141,7 +153,7 @@ export function WalletLedgerPanel({
         paymentRef={openReceipt}
         onClose={() => setOpenReceipt(null)}
       />
-    </Card>
+    </Panel>
   );
 }
 

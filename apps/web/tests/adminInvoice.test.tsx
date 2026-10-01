@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import { formatINR } from "@/components/ui";
-import type { Invoice } from "@/lib/api/invoice";
+import type { AdminInvoice as Invoice } from "@/lib/api/invoice";
 
 import { problem } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -63,10 +63,6 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     generated_at: "2026-08-13T04:30:00Z",
     document_type: "tax_invoice",
     document_blockers: [],
-    // Registered tax invoice: the bill-of-supply "estimated" preview fields are null.
-    estimated_gst_inr: null,
-    estimated_gst_rate_pct: null,
-    estimated_total_inr: null,
     tax_note: null,
     supplier: {
       legal_name: "Calevate",

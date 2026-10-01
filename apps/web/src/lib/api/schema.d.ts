@@ -3477,7 +3477,7 @@ export interface paths {
         };
         /**
          * This account's own invoice statement for an IST billing month
-         * @description The same statement the Calevate team sees for this account, recomputed from the usage ledger on every request — there is no stored invoice row to go stale. Requires `billing:read`, which account owners hold and staff do not. The document states whether it is a tax invoice or a bill of supply. It is a bill of supply (CGST Rules r.49) while Calevate is not registered for GST, which it is not and is not required to be at present turnover: an unregistered supplier may not collect tax at all (CGST s.32).
+         * @description The same statement the Calevate team sees for this account, recomputed from the usage ledger on every request — there is no stored invoice row to go stale. Requires `billing:read`, which account owners hold and staff do not. `document_type` is `bill_of_supply` (CGST Rules r.49): Calevate is a sole proprietorship below the GST registration threshold, so it is not registered for GST, charges no GST and does not issue tax invoices.
          */
         get: operations["my_invoice_v1_billing_invoice_get"];
         put?: never;
@@ -3500,6 +3500,46 @@ export interface paths {
          * @description Every rupee on this account's calling charge, attributed to the agent and the call that produced it. `charge_basis` says what kind of number the per-call figure is: `wallet_debit` is the exact amount taken off a prepaid balance for that call, `allocated` is that call's share of a month priced as a whole. Requires `billing:read`, which account owners hold and staff do not. Calevate's own supplier cost never appears here.
          */
         get: operations["my_spend_v1_billing_spend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/spend/daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What left the wallet each day (IST), with explicit zero days
+         * @description Send `days` (7, 30 or 90, ending today IST) or both `from` and `to` (IST dates, inclusive, at most 92 days). Defaults to the last 30 days.
+         */
+        get: operations["daily_spend_v1_billing_spend_daily_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/statements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's monthly statements, newest first
+         * @description One row per IST month from the month the account opened to now, each summarising the statement `GET /v1/billing/invoice?month=` returns for it. Paged by `before` (a YYYY-MM month; rows strictly older are returned) and bounded by `limit`.
+         */
+        get: operations["list_statements_v1_billing_statements_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3657,7 +3697,7 @@ export interface paths {
         };
         /**
          * A receipt for one payment — NOT a tax invoice
-         * @description An acknowledgement that money was received against this reference. The business is not registered for GST, so no tax is charged and no tax invoice can be issued; `document_type` says what this document is and the console renders its heading from that field.
+         * @description An acknowledgement that money was received against this reference. Calevate is a sole proprietorship below the GST registration threshold, so it is not registered for GST, charges no GST and does not issue tax invoices. `document_type` says what this document is and the console renders its heading from that field.
          */
         get: operations["read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get"];
         put?: never;
@@ -5027,7 +5067,7 @@ export interface paths {
         put?: never;
         /**
          * Add a web page as knowledge
-         * @description The voice platform reads the page itself. We re-read it on a schedule and submit a new version for review when the page changes materially — the live version keeps answering until somebody approves the new one.
+         * @description An account member's link is published once it is registered, with no review. We re-read the page on a schedule; when it changes materially the new version is published the same way, because the account linked the page and its updates are the account's. A page an operator linked is re-submitted for review instead.
          */
         post: operations["add_link_v1_kb_links_post"];
         delete?: never;
@@ -5046,7 +5086,10 @@ export interface paths {
         /** List Sources */
         get: operations["list_sources_v1_kb_sources_get"];
         put?: never;
-        /** Submit knowledge for review — chunked, previewable, NOT yet live */
+        /**
+         * Add knowledge — an account member's goes to the agent without review
+         * @description An account member's submission (the owner, or staff the owner lets curate) is approved on submission and published to the agent by a background job: `status` is `approved`, and the source turns live once that job has run and the agent is published. A view-as session's submission is `pending_approval` and waits for an admin.
+         */
         post: operations["submit_v1_kb_sources_post"];
         delete?: never;
         options?: never;
@@ -5082,7 +5125,7 @@ export interface paths {
         get: operations["get_staff_curation_v1_kb_staff_curation_get"];
         /**
          * Let this account's staff curate knowledge, or stop letting them
-         * @description Off for every account until its owner turns it on. Switching it on lets members with the `staff` role submit knowledge for review and dismiss or teach a knowledge gap — and nothing else. It does not let them approve or publish anything: a staff-submitted source lands in the same review queue an owner's does, and still needs approval before an agent can say a word of it.
+         * @description Off for every account until its owner turns it on. Switching it on lets members with the `staff` role add knowledge (text, documents, links) and dismiss or teach a knowledge gap — and nothing else. What they add goes to the agent without review, exactly as the owner's does (D-658).
          */
         put: operations["set_staff_curation_v1_kb_staff_curation_put"];
         post?: never;
@@ -5104,7 +5147,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a document, spreadsheet or photograph as knowledge
-         * @description Accepts a PDF, a Word document, plain text, a CSV, a spreadsheet or a photograph of a printed page, up to 20 MB. A PDF is sent to the voice platform as it is; everything else has its text read out first and chunked for review. Poll `GET /v1/kb/uploads` for `ingest_status`.
+         * @description Accepts a PDF, a Word document, plain text, a CSV, a spreadsheet or a photograph of a printed page, up to 20 MB. A PDF is sent to the voice platform as it is; everything else has its text read out first and chunked. An account member's upload is published once it has been read, with no review. Poll `GET /v1/kb/uploads` for `ingest_status`.
          */
         post: operations["upload_document_v1_kb_uploads_post"];
         delete?: never;
@@ -5144,8 +5187,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve what was read out of this document, and publish it
-         * @description The account owner's own approval. Text read off a photograph is never approved automatically, whoever uploaded it — a model told us what it thought it said, and a person has to agree before an agent recites it on a phone call.
+         * Approve an upload that is waiting for review, and publish it
+         * @description The account's own approval of a version nobody in the account added: a view-as session's upload, or a changed page an operator linked. What an account member uploads or links is approved on its own and never needs this.
          */
         post: operations["confirm_upload_v1_kb_uploads__upload_id__confirm_post"];
         delete?: never;
@@ -5162,8 +5205,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A short-lived link to the uploaded file, for reviewing it
-         * @description The approval gate is a human reading what the agent will be handed. For a PDF that is the file itself; there are no chunks to preview and none are invented.
+         * A short-lived link to the uploaded file
+         * @description For a PDF the file itself is what the agent is handed; there are no chunks to preview and none are invented.
          */
         get: operations["download_original_v1_kb_uploads__upload_id__original_get"];
         put?: never;
@@ -6858,6 +6901,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/team/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The team with email addresses, for the people who manage it
+         * @description Driven from `memberships` (FORCE-RLS on `tenant_id`) for `list_members`'s reason:
+         *     `users` is global, so the join through the tenant's own memberships is the tenancy
+         *     control. Deactivated accounts are excluded, as there. No log line carries an address
+         *     (hard rule 6).
+         */
+        get: operations["list_team_members_v1_team_members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/usage": {
         parameters: {
             query?: never;
@@ -7164,6 +7230,45 @@ export interface components {
             tenant_id?: string | null;
         };
         /**
+         * AdminInvoiceOut
+         * @description The operator's copy: the client's document plus why it is not a tax invoice.
+         *
+         *     `document_blockers` names the `GST_SUPPLIER_*` settings a registration would need, as
+         *     an operator types them. It lives ONLY here (D-659): unset is the normal state while
+         *     Calevate is below the registration threshold, and a settings name on a client's
+         *     statement is an internal, not an explanation.
+         */
+        AdminInvoiceOut: {
+            /** Document Blockers */
+            document_blockers: string[];
+            /** Document Type */
+            document_type: string;
+            /** Generated At */
+            generated_at: string;
+            /** Gst Inr */
+            gst_inr: string;
+            /** Gst Rate Pct */
+            gst_rate_pct: string;
+            /** Invoice Number */
+            invoice_number: string;
+            /** Line Items */
+            line_items: components["schemas"]["InvoiceLineItemOut"][];
+            /** Month */
+            month: string;
+            organization: components["schemas"]["InvoiceOrganizationOut"];
+            place_of_supply: components["schemas"]["InvoicePlaceOfSupplyOut"];
+            /** Subtotal Inr */
+            subtotal_inr: string;
+            supplier: components["schemas"]["InvoiceSupplierOut"];
+            /** Tax Components */
+            tax_components: components["schemas"]["InvoiceTaxComponentOut"][];
+            /** Tax Note */
+            tax_note: string | null;
+            /** Total Inr */
+            total_inr: string;
+            usage: components["schemas"]["InvoiceUsageOut"];
+        };
+        /**
          * AdminMeOut
          * @description The admin realm's own identity document.
          *
@@ -7237,6 +7342,15 @@ export interface components {
             max_call_duration_s?: number | null;
             /** Name */
             name: string;
+        };
+        /** AgentDailySpendOut */
+        AgentDailySpendOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Calls Inr */
+            calls_inr: string;
         };
         /**
          * AgentDeliveryOut
@@ -11960,21 +12074,13 @@ export interface components {
          *     still reproduce `amount_inr` when a client checks it by hand, which is why the
          *     overage rate is published at its true precision rather than rounded like a rupee.
          *
-         *     ONE model for both realms. The client and the operator receive byte-identical
-         *     documents for the same tenant-month (`generated_at` aside), which is asserted in
-         *     `tests/invoice_gst_test.py` and is the property that makes this feature trustworthy.
+         *     ONE document for both realms. The client and the operator receive identical documents
+         *     for the same tenant-month (`generated_at` aside); the operator's `AdminInvoiceOut`
+         *     adds one operator-only field and nothing else, asserted in `tests/invoice_gst_test.py`.
          */
         InvoiceOut: {
-            /** Document Blockers */
-            document_blockers: string[];
             /** Document Type */
             document_type: string;
-            /** Estimated Gst Inr */
-            estimated_gst_inr: string | null;
-            /** Estimated Gst Rate Pct */
-            estimated_gst_rate_pct: string | null;
-            /** Estimated Total Inr */
-            estimated_total_inr: string | null;
             /** Generated At */
             generated_at: string;
             /** Gst Inr */
@@ -12022,10 +12128,9 @@ export interface components {
          * InvoiceSupplierOut
          * @description Who issued this document (Rule 46(a)-(b), CGST Rules 2017).
          *
-         *     EVERY FIELD IS NULLABLE and today every one of them is null: the legal entity has not
-         *     been chosen, so there is no GSTIN to print (ROADMAP M0). That is not a gap in this
-         *     schema, it is the state the schema exists to represent honestly — see
-         *     `document_type`.
+         *     EVERY FIELD IS NULLABLE and today every one of them is null: Calevate is not
+         *     GST-registered (D-659), so there is no GSTIN to print. That is the normal state, not a
+         *     gap — see `document_type`.
          */
         InvoiceSupplierOut: {
             /** Address */
@@ -12847,6 +12952,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Ingest Path */
+            ingest_path: string;
             /** Mapping */
             mapping: {
                 [key: string]: string;
@@ -13375,14 +13482,42 @@ export interface components {
             total: number;
         };
         /**
+         * MemberContactOut
+         * @description One colleague, as the person who MANAGES the team needs them: with their address.
+         *
+         *     `email` is a contact identifier (`check_redaction_exposure.CONTACT_PII_FIELDS`), which
+         *     D-436 allows in full on an operation that declares and enforces a permission; this one
+         *     takes `org:manage`. There is NO last-active field, deliberately: the only record of
+         *     activity is `auth_sessions.last_seen_at`, which belongs to a PERSON across every
+         *     account they are a member of (so it would report activity in another tenant), is slid
+         *     only every `IDLE_WRITE_FLOOR`, and is behind the deny-by-default `app.auth` policy that
+         *     a tenant session cannot read.
+         */
+        MemberContactOut: {
+            /** Email */
+            email: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /** Name */
+            name?: string | null;
+            /** Role */
+            role: string;
+        };
+        /**
          * MemberOut
          * @description One colleague, as a control that has to NAME them needs them.
          *
-         *     **No email, and that is a rule rather than a preference.** `email` is in
-         *     `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model
-         *     declaring it fails the guardrail unless the route is allowlisted as role-checked and
-         *     audited — which an assignee picker is not, and should not have to be. Nothing on
-         *     this surface needs it either: the control writes an id and prints a name.
+         *     **No email here**: this list is `org:read`, which staff hold, and an assignee picker
+         *     writes an id and prints a name. The addresses are on `GET /v1/team/members`, which
+         *     takes `org:manage` — the permission of the people who manage the team (D-660).
          *
          *     `name` is nullable because `users.name` is: an invitation carries an address and,
          *     optionally, a name, so a colleague who typed neither has NULL
@@ -14858,10 +14993,10 @@ export interface components {
          * ReceiptOut
          * @description A RECEIPT for one payment. It is NOT a tax invoice and never says it is.
          *
-         *     The business is not registered for GST and is not required to be at present turnover
-         *     (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §4), so `gst.supplier_identity().is_registered` is
-         *     false on every deployment: there is no GSTIN to print, no tax is charged, and CGST
-         *     s.32 forbids an unregistered person collecting any. `document_type` is therefore
+         *     The business is not registered for GST, being below the registration threshold
+         *     (D-659), so `gst.supplier_identity().is_registered` is false on every deployment:
+         *     there is no GSTIN to print, no tax is charged, and CGST s.32 forbids an unregistered
+         *     person collecting any. `document_type` is therefore
          *     `receipt` — an acknowledgement that money was received — and the console renders its
          *     heading from THIS field, never from a literal, exactly as the monthly statement does.
          *     Nothing here carries a tax head, a rate, or an estimate of one.
@@ -16048,6 +16183,19 @@ export interface components {
             /** Tenant Id */
             tenant_id: string;
         };
+        /** SpendDayOut */
+        SpendDayOut: {
+            /** Adjustments Inr */
+            adjustments_inr: string;
+            /** Ai Assist Inr */
+            ai_assist_inr: string;
+            /** Calls Inr */
+            calls_inr: string;
+            /** Date */
+            date: string;
+            /** Spent Inr */
+            spent_inr: string;
+        };
         /**
          * SpendOut
          * @description GET /v1/billing/spend — this month's bill, itemised by agent and by call.
@@ -16080,6 +16228,39 @@ export interface components {
             top_calls: components["schemas"]["CallChargeOut"][];
             /** Top Calls Truncated */
             top_calls_truncated: boolean;
+        };
+        /**
+         * SpendSeriesOut
+         * @description Daily wallet spend in IST. Each money column of `days` sums EXACTLY to the total of
+         *     the same name, and `by_agent[].calls_inr` sums exactly to `calls_inr`.
+         */
+        SpendSeriesOut: {
+            /** Adjustments Inr */
+            adjustments_inr: string;
+            /** Ai Assist Inr */
+            ai_assist_inr: string;
+            /**
+             * Basis
+             * @constant
+             */
+            basis: "wallet_debits";
+            /** By Agent */
+            by_agent: components["schemas"]["AgentDailySpendOut"][];
+            /** Calls Inr */
+            calls_inr: string;
+            /** Days */
+            days: components["schemas"]["SpendDayOut"][];
+            /** From Date */
+            from_date: string;
+            /** Spent Inr */
+            spent_inr: string;
+            /**
+             * Timezone
+             * @constant
+             */
+            timezone: "Asia/Kolkata";
+            /** To Date */
+            to_date: string;
         };
         /**
          * StaffCurationIn
@@ -16176,6 +16357,37 @@ export interface components {
             provider_ref: string;
             /** Redirect Url */
             redirect_url: string;
+        };
+        /** StatementListOut */
+        StatementListOut: {
+            /** Next Before */
+            next_before: string | null;
+            /** Statements */
+            statements: components["schemas"]["StatementSummaryOut"][];
+        };
+        /**
+         * StatementSummaryOut
+         * @description One month's statement, summarised. Money is a paise string (hard rule 7).
+         */
+        StatementSummaryOut: {
+            /** Calls */
+            calls: number;
+            /** Closed */
+            closed: boolean;
+            /** Credit Added Inr */
+            credit_added_inr: string;
+            /** Document Type */
+            document_type: string;
+            /** Invoice Number */
+            invoice_number: string;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Month */
+            month: string;
+            /** Total Inr */
+            total_inr: string;
+            /** Wallet Spent Inr */
+            wallet_spent_inr: string;
         };
         /**
          * SubjectExportCallOut
@@ -17761,8 +17973,9 @@ export interface components {
          *     THE TWO STATES ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE FACTS, and collapsing
          *     them into one "status" is the mistake this model exists to avoid. `ingest_status` is
          *     how far the machinery got (are the bytes read, has the voice platform indexed them);
-         *     `review_state` is whether a human has approved it. A document can be `processed` and
-         *     still `pending_approval` — indexed, ready, and deliberately not live.
+         *     `review_state` is whether it is approved — on submission for the account's own people
+         *     (D-658), by an admin for anything else. A document can be `processed` and still
+         *     `pending_approval` — read, ready, and deliberately not live.
          */
         UploadOut: {
             /**
@@ -21313,7 +21526,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["InvoiceOut"];
+                    "application/json": components["schemas"]["AdminInvoiceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -24321,6 +24534,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpendOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    daily_spend_v1_billing_spend_daily_get: {
+        parameters: {
+            query?: {
+                /** @description 7, 30 or 90 */
+                days?: number | null;
+                from?: string | null;
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpendSeriesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_statements_v1_billing_statements_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatementListOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -29996,6 +30275,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QaReport"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_team_members_v1_team_members_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberContactOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

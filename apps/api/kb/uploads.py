@@ -43,11 +43,13 @@ sweep, the vendor-object claim (`engine_kb_routes`, D-519) and the whole of
 
 ═══ WHO IS REVIEWED ═══
 
-The founder's decision, implemented in one place: an OWNER's submission is auto-approved,
-a STAFF member's is reviewed. The authority question is answered by `kb/curation.py`, which
-already owns it, and this module receives the answer — see `may_self_approve`. A link
-re-ingested by the sweep is ALWAYS reviewed: nobody asked for that change, so nobody has
-approved it.
+Nobody in the account (D-658): what the owner, or staff the owner lets curate, uploads is
+approved as soon as there is something to approve and published by the ingest job. The
+question is answered once, by `kb/curation.goes_live_without_review`, and this module
+receives the answer as `auto_approve`. What is still reviewed is what nobody in the account
+added: a view-as session's upload, and a NEW version the re-scrape sweep submits for a
+changed page an OPERATOR linked. A changed page a member linked is approved in the
+linker's name and published (`kb_ingest._recheck_link`).
 """
 
 from __future__ import annotations
@@ -67,6 +69,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
+from apps.api.kb.curation import goes_live_without_review
 from apps.api.kb.models import UPLOAD_RECEIVED, text_is_read
 from apps.api.kb.pdf_render import MAX_UPLOAD_BYTES
 from apps.api.kb.service import approve_source, insert_source_version, withdraw_source
@@ -180,27 +183,24 @@ _UNSAFE_NAME = re.compile(r"[\x00-\x1f\x7f/\\]+")
 _MAX_NAME = 120
 
 
-def may_self_approve(principal: Principal) -> bool:
-    """Whether THIS submitter's knowledge goes live without a second reader.
+async def enqueue_ingest(
+    session: AsyncSession, *, tenant_id: UUID, source_id: UUID, may_self_approve: bool
+) -> None:
+    """Queue `ingest_kb_source` for one version, in the caller's transaction (outbox).
 
-    The founder's rule: an owner's submission is auto-approved, a staff member's is
-    reviewed. `role_has(role, "kb:write")` is the role table's own answer to "is this
-    person the account's principal" and it is asked through `curation.may_curate_knowledge`
-    -- no, deliberately NOT through it: that function also answers True for a STAFF member
-    in an account whose owner switched staff curation on, which is a grant to SUBMIT and
-    explicitly not a grant to approve (`kb/curation.py`, "It does not let them approve or
-    publish anything"). Reading it here would silently convert one into the other.
-
-    So the test is the role table alone, plus the two clauses every authority read in this
-    repo carries: the client realm (an admin's authority comes from the admin realm's own
-    audited surfaces, never from a client-writable row) and D-22 (an impersonating operator
-    may not approve anything under a client's name).
+    `may_self_approve` is whether the SUBMITTER could have approved it, carried rather than
+    re-derived: the job runs later with no request and no principal, and re-reading the
+    role then would answer for whoever the user is at that moment.
     """
-    from apps.api.core.rbac import role_has
-
-    if principal.realm != "client" or principal.impersonating:
-        return False
-    return role_has(principal.role or "", "kb:write")
+    await enqueue_outbox(
+        session,
+        job=INGEST_KB_SOURCE_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "source_id": str(source_id),
+            "may_self_approve": may_self_approve,
+        },
+    )
 
 
 def file_extension(filename: str) -> str:
@@ -385,10 +385,9 @@ async def create_upload(
     served_type = stored_content_type(filename)
     await store_kb_object(key=key, data=data, content_type=served_type)
 
-    # A PDF is approvable NOW: the artefact a reviewer opens is the file itself. Every
-    # other kind has to be READ first — there is nothing for a person to approve until the
-    # conversion lane has produced text — so the intent travels to the ingest job and the
-    # promotion happens there, once there is something on the screen to say yes to.
+    # A PDF is approved NOW: the file itself is the document. Every other kind has to be
+    # READ first — there are no words to approve until the conversion lane has produced
+    # text — so the intent travels to the ingest job and the promotion happens there.
     native = kind == "pdf"
     source_id, version, status = await insert_source_version(
         session,
@@ -433,20 +432,8 @@ async def create_upload(
             "status": UPLOAD_RECEIVED,
         },
     )
-    await enqueue_outbox(
-        session,
-        job=INGEST_KB_SOURCE_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "source_id": str(source_id),
-            # WHETHER THE SUBMITTER COULD HAVE APPROVED IT, carried rather than re-derived:
-            # the job runs minutes later with no request, no session cookie and no
-            # principal, and re-reading the role table then would answer for whoever the
-            # user IS at that moment rather than for the person who uploaded the file. It
-            # is a column-free fact about one submission, and the outbox row is durable —
-            # so it travels with the job that acts on it.
-            "may_self_approve": bool(auto_approve),
-        },
+    await enqueue_ingest(
+        session, tenant_id=tenant_id, source_id=source_id, may_self_approve=bool(auto_approve)
     )
     # Ids, a kind and a byte count. Never the filename (a client's own business data) and
     # never the key (hard rule 6).
@@ -543,14 +530,8 @@ async def create_link(
             "status": UPLOAD_RECEIVED,
         },
     )
-    await enqueue_outbox(
-        session,
-        job=INGEST_KB_SOURCE_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "source_id": str(source_id),
-            "may_self_approve": bool(auto_approve),
-        },
+    await enqueue_ingest(
+        session, tenant_id=tenant_id, source_id=source_id, may_self_approve=bool(auto_approve)
     )
     log.info(
         "kb_link_received",
@@ -703,38 +684,35 @@ async def confirm_upload(
     upload_id: UUID,
     principal: Principal,
 ) -> dict[str, Any]:
-    """The account owner reads what we made of their document and says yes.
+    """The account accepts an upload that is waiting for review.
 
-    ═══ WHY THIS ROUTE EXISTS AT ALL, WHEN ADMINS ALREADY APPROVE ═══
+    ═══ WHAT STILL REACHES IT ═══
 
-    Two things need it and neither is served by the admin queue. The founder's rule is that
-    an owner's own submission does not wait for us — and for a photograph it CANNOT be
-    approved at submission time, because at that moment nobody has seen the text: a model
-    read it, `document_ingest.ExtractedText.needs_confirmation` says so, and the whole
-    point of that flag is that a person looks at the chunks first. So the owner's approval
-    is a second act, after the extraction, on the screen that shows what was read.
+    Since D-658 an account member's own upload never waits, so what is left pending is
+    what nobody in the account added: a view-as session's upload, and a new version the
+    re-scrape sweep submitted for a changed page an operator linked. This route is how the account
+    accepts one of those without waiting for an admin.
 
-    ═══ WHAT IT DOES NOT WIDEN ═══
+    ═══ WHO MAY ═══
 
-    `may_self_approve` is the OWNER's test — the role table's `kb:write`, in the client
-    realm, not impersonating. A STAFF member reaching this route is refused even in an
-    account whose owner switched staff curation ON, because that switch grants submission
-    and explicitly not approval (`kb/curation.py`). The dependency above already refused
-    everyone else; this is the one further question.
+    Anyone the curation dependency admitted who is the account's own (the same
+    `goes_live_without_review` test that decides auto-approval). A view-as operator is
+    refused here: an operator's approval is recorded from the admin queue, as theirs.
 
     IT IS `service.approve_source`, NOT AN UPDATE WRITTEN HERE. That function is the CAS on
     `pending_approval` with the discriminator this repo settled (404 for invisible, 409 for
     rejected, success-without-a-second-write for an already-approved row), and a second
     approval statement would be the place that forgets one of the three.
     """
-    if not may_self_approve(principal):
+    if not goes_live_without_review(realm=principal.realm, impersonating=principal.impersonating):
         # AN OPERATOR IS REFUSED FOR A DIFFERENT REASON AND HEARS A DIFFERENT SENTENCE
         # (D-587). A view-as session may now submit knowledge — it holds `kb:write` — and
         # still may not publish it under the client's name; the operator console's own
         # approval queue for this client is where that act belongs, recorded as ours.
-        # "Only the account owner can" is true for a staff member and false for them.
         assert_view_as_may(principal, "kb.self_approve")
-        raise ProblemError.forbidden("Only the account owner can approve knowledge for the agent.")
+        raise ProblemError.forbidden(
+            "Only the account's own people can approve knowledge for the agent."
+        )
     row = await get_upload(session, upload_id)
     if not text_is_read(
         kind=row["source_kind"], status=row["ingest_status"], provenance=row["text_provenance"]
@@ -747,17 +725,10 @@ async def confirm_upload(
             remediation="Give it a moment and refresh — you will see the text we read.",
         )
     await approve_source(session, source_id=row["source_id"], approved_by=principal.user_id)
-    await enqueue_outbox(
-        session,
-        job=INGEST_KB_SOURCE_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "source_id": str(row["source_id"]),
-            # Already approved by the statement above; the job's only remaining work is to
-            # publish. Passing False here rather than True is not a subtlety: it means the
-            # job never approves anything on its own behalf on this path.
-            "may_self_approve": False,
-        },
+    # Already approved by the statement above, so the job only publishes: False means it
+    # never approves anything on its own behalf on this path.
+    await enqueue_ingest(
+        session, tenant_id=tenant_id, source_id=row["source_id"], may_self_approve=False
     )
     return await get_upload(session, upload_id)
 
@@ -822,10 +793,10 @@ __all__ = [
     "confirm_upload",
     "create_link",
     "create_upload",
+    "enqueue_ingest",
     "file_extension",
     "get_upload",
     "list_uploads",
-    "may_self_approve",
     "original_download",
     "remove_upload",
     "safe_name",

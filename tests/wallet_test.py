@@ -30,6 +30,7 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
+from apps.api.billing.gst import GST_STATUS_SENTENCE
 from apps.api.billing.payment_routes import webhook_router
 from apps.api.billing.rates import voice_tier_label
 from apps.api.billing.service import (
@@ -851,8 +852,10 @@ async def test_a_receipt_is_a_receipt_and_never_calls_itself_a_tax_invoice() -> 
     receipt = await read_payment_receipt(payment_id, _principal(tenant_id))
     assert receipt.document_type == "receipt"
     assert receipt.amount_inr == Decimal("2500.00")
-    assert "not a tax invoice" in receipt.note
-    assert "tax invoice" not in receipt.note.replace("not a tax invoice", "")
+    # The one GST sentence every client surface uses (D-659), and nothing that names a
+    # rate or a setting.
+    assert GST_STATUS_SENTENCE in receipt.note
+    assert "GST_" not in receipt.note and "%" not in receipt.note
 
 
 async def test_a_receipt_for_another_organizations_payment_is_a_404() -> None:

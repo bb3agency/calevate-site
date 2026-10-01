@@ -72,7 +72,8 @@ describe("the call log", () => {
 
     // WAS `not.toContain("9876543210")`. D-436 reversed it: a call log nobody can ring
     // back from is a list of things that already happened and cannot be acted on.
-    expect(await screen.findByText("+919876543210")).toBeTruthy();
+    // Printed grouped for reading (`formatPhone`); the E.164 form stays the value.
+    expect(await screen.findByText("+91 98765 43210")).toBeTruthy();
     // The half that did NOT change: an id is fine in a URL, a phone number is not,
     // because URLs reach logs, referrers and the browser's history.
     for (const link of Array.from(container.querySelectorAll("a"))) {
@@ -100,7 +101,7 @@ describe("the call log", () => {
     );
     // The instruction line that used to head the log ("Open a call to see …") is gone:
     // the rows are links and say so themselves. Wait on a row instead.
-    await screen.findAllByText("+919876543210");
+    await screen.findAllByText("+91 98765 43210");
     expect(container.textContent).toContain("2");
     expect(container.textContent).toContain("calls");
   });
@@ -193,7 +194,7 @@ describe("the call log", () => {
       routes([call({ status: "abandoned" })]),
     );
 
-    await screen.findByText("+919876543210");
+    await screen.findByText("+91 98765 43210");
     // Fails visible: the row is there and the unfamiliar word is printed, because a
     // status this build does not know is the one a reader most needs to see.
     expect(container.textContent).toContain("abandoned");

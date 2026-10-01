@@ -38,7 +38,9 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
    switched ON at birth and switchable by the client afterwards (D-163 — the truthful
    answer when a caller ASKS is not switchable by anyone); extraction schema
    pre-filled from vertical template, edited per client; voice/language/model picks.
-5. **Knowledge**: paste text → chunk preview → admin approves → publish, which recompiles
+5. **Knowledge**: paste text → chunk → approved on submission when the account's own people
+   add it (D-658; an operator's seed or a view-as submission still waits for an admin) →
+   publish by the `publish_kb_source` worker job, which recompiles
    T0 and, on an engine with a built-in knowledge base, ATTACHES the new version and only
    then detaches the superseded one. **That ordering is the product of D-488 and it
    reversed D-41's**: a real attach is an upload plus an indexing wait no vendor bounds, so
@@ -395,9 +397,19 @@ finishes the job on the first attempt, so `max_tries` counts nothing for it.
 
 ## 7. Knowledge Update Flow (client-initiated)
 
-Client (owner) pastes text → chunk → side-by-side preview → client submits → admin
-approve (or auto-approve toggle per client later) → version bump → T0 recompilation →
-engine KB sync → live. Rollback = republish an earlier version (the archived row;
+Client (owner, or staff the owner lets curate) pastes text → chunk → approved on
+submission, with no human step (D-658) → `publish_kb_source` worker job (outbox, same
+transaction as the submission) → version bump → engine KB sync → T0 recompilation → live.
+A document or link takes the same path through `ingest_kb_source`, read first; text a
+model read off a photograph is no longer held for the owner's confirmation. A submission
+nobody in the account made — a view-as operator's, an intake seed, a NEW version the
+re-scrape sweep submits for a changed page an OPERATOR linked — lands `pending_approval`
+and waits for an admin (or, for an upload, the account's own confirm). A changed page a
+MEMBER linked is approved in the linker's name and published the same way ("the client
+linked the page, so its updates are theirs"). An automatic publish
+never overwrites a later approved version of the same name
+(`kb/service.publish_unless_superseded`); one refused because the agent is not yet
+published is re-driven by `sweep_kb_uploads`. Rollback = republish an earlier version (the archived row;
 eligibility is `approved_at IS NOT NULL`, never the current `status`, or the recovery
 path refuses the only rows it exists for).
 
@@ -461,7 +473,8 @@ first handle could never name again.
 
 Nightly rollup usage_events → month-to-date panel (client sees minutes used/remaining +
 overage estimate; admin sees cost + margin). Month close: invoice draft (retainer +
-overage + one-time lines) → GST → send (manual v1, Razorpay link) → paid/overdue states →
+overage + one-time lines) → bill of supply, no GST while unregistered (D-659) → send
+(manual v1, Razorpay link) → paid/overdue states →
 overdue ⇒ dunning emails; 15 days ⇒ soft-suspend outbound (inbound stays up); caps always
 independent of billing status.
 

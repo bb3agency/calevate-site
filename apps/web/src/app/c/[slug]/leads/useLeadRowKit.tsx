@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { MonoValue, formatCount, formatIST } from "@/components/ui";
+import { formatCount, formatIST, formatPhone } from "@/components/ui";
 import { type CallLeadResult } from "@/lib/api/client";
 import { useCallLead, useWriteAccess } from "@/lib/api/hooks";
 import {
@@ -166,7 +166,7 @@ export function useLeadRowKit({
         // tabular for the same reason the detail screen and the DNC console are: a
         // number a person compares against their own records is read character by
         // character.
-        return <MonoValue className="tabular-nums">{lead.phone_e164}</MonoValue>;
+        return <span className="tabular-nums">{formatPhone(lead.phone_e164)}</span>;
       case "status":
         return (
           <StatusSelect
@@ -247,6 +247,7 @@ export function useLeadRowKit({
       />
     ),
     hrefFor: (lead) => href(`/c/${session.orgSlug}/leads/${lead.id}`),
+    callHref: (callId) => href(`/c/${session.orgSlug}/calls/${callId}`),
     stageCount,
     filtered,
     askTerm,

@@ -102,17 +102,20 @@ describe("the invite link", () => {
     const { container } = await renderClientPage(<TeamPage />, {
       "/v1/me": ME,
       "/v1/members": [{ id: ME.user_id, name: "Anita", role: "owner" }],
+      "/v1/team/members": [],
       "/v1/invitations": created,
     });
 
     await screen.findByText("Anita");
+    // The invite form opens in a drawer from the header's Invite button (round-2 redesign).
+    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
     fireEvent.change(
-      screen.getByRole("textbox", { name: "Email address to invite" }),
+      await screen.findByRole("textbox", { name: "Email address to invite" }),
       {
         target: { value: "priya@clinic.example" },
       },
     );
-    fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Send invite/ }));
 
     // The confirmation appears…
     await screen.findByText(/Invitation sent to/);

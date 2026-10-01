@@ -17,7 +17,7 @@ GET that repeats it fails here on the day it is written.
 
 from __future__ import annotations
 
-from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
+from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes, withheld_from_view_as
 from apps.api.main import app
 
 # GETs that legitimately require a mutating permission, each with the reason it is not
@@ -228,10 +228,19 @@ def _get_routes() -> list[tuple[str, str]]:
 
 
 def test_no_read_is_gated_on_a_permission_impersonation_refuses() -> None:
+    """Asked through `rbac.withheld_from_view_as`, the one predicate `requires()` spends.
+
+    It used to ask `permission in MUTATING_PERMISSIONS`, which was the same question until
+    D-587 made `org:manage`, `agents:write`, `leads:write`, `leads:dispatch` and `kb:write`
+    exercisable in a view-as session. A GET on one of those is now readable by support, so
+    it is not an instance of the bug; a GET on a still-WITHHELD permission is.
+    """
     offenders = [
         (path, permission)
         for path, permission in _get_routes()
-        if permission in MUTATING_PERMISSIONS and path not in ADMIN_CONSOLE_GETS
+        if permission in MUTATING_PERMISSIONS
+        and withheld_from_view_as(permission) is not None  # type: ignore[arg-type]
+        and path not in ADMIN_CONSOLE_GETS
     ]
     assert not offenders, (
         "These GETs require a MUTATING permission, so D-22 hides them from read-only "

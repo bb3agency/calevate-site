@@ -77,7 +77,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
               {lots.lots.length === 1 ? "purchase" : "purchases"}
             </caption>
             <thead>
-              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+              <tr className="border-b border-line text-left text-[12px] text-ink-muted">
                 <th scope="col" className="py-2 pr-3 font-semibold">
                   Credit left
                 </th>

@@ -182,10 +182,11 @@ export function SidebarLabel({
  *
  * `overflow-hidden` is load-bearing rather than defensive: see the gap note in the header.
  * `touch:min-h-11` keeps these at the 44px finger target — they are the console's
- * most-tapped controls and `py-2` alone left them 36px tall.
+ * most-tapped controls. With a mouse they are 32px (`py-1.5`), so the whole list of
+ * destinations fits a laptop screen without scrolling.
  */
 export const SIDEBAR_ROW_CLASS =
-  "mb-1 flex items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand";
+  "mb-px flex items-center gap-3 overflow-hidden rounded-lg px-4 py-1.5 text-[14px] font-medium touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand";
 
 /**
  * The footer that holds the identity block and the way out.
@@ -336,9 +337,10 @@ export function SidebarGroupHeading({
   children: ReactNode;
 }) {
   return (
-    <div className="relative mb-3 h-4">
+    <div className="relative mb-1 h-5">
+      {/* Sentence case, quiet weight: a group label orients, it does not shout. */}
       <h3
-        className={`absolute inset-0 truncate px-4 text-[11px] font-semibold uppercase leading-4 tracking-wider text-ink-faint ${sidebarFadeClass(
+        className={`absolute inset-0 truncate px-4 text-[12px] font-medium leading-5 text-ink-faint ${sidebarFadeClass(
           isCollapsed,
         )}`}
       >

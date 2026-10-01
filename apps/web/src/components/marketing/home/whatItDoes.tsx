@@ -36,8 +36,8 @@ import { MockStage } from "./mockups/stage";
  *  5. delivery — the signed outbound webhook (`X-Calevate-Signature` over
  *     `{timestamp}.{body}`, `apps/api/integrations/service.py:176`), the Sheets leg
  *     (`apps/workers/sheets_sync.py`) and the CSV export (`apps/api/crm/routes.py:1017`);
- *  6. knowledge — the facts a person approves are compiled into the agent's own prompt at
- *     publish time (`apps/api/agents/t0.py`, `apps/api/kb/service.py::approve_source`), and
+ *  6. knowledge — the facts the business adds (approved on submission, D-658) are compiled
+ *     into the agent's own prompt at publish time (`apps/api/agents/t0.py`), and
  *     THAT IS NO LONGER THE WHOLE OF IT. Re-read 15 Sep 2026: `POST /v1/kb/sources` is
  *     still text-only (`kb/service.py:77`), but `POST /v1/kb/uploads` takes a document or
  *     a link (D-534), and `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an
@@ -109,11 +109,11 @@ const CAPABILITIES: readonly {
   },
   {
     title: "Your answers",
-    benefit: "It answers from what you approved, and nothing else",
+    benefit: "It answers from what you added, and nothing else",
     body:
       "Your prices, timings and the questions you get asked every day are built into the " +
-      "agent before it takes a call, so the answer comes back straight away. Nothing " +
-      "reaches a caller until a person approves it.",
+      "agent before it takes a call, so the answer comes back straight away. What you or " +
+      "your staff add goes to the agent once it has been read — there is no approval step.",
     figure: <AnswersVignette />,
     span: "lg:col-span-6",
   },

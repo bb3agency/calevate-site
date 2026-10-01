@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Sparkles } from "lucide-react";
 
 import {
+  Card,
   FIELD,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
@@ -20,7 +21,6 @@ import {
   type KnowledgeGap,
 } from "@/lib/api/knowledgeGaps";
 import { useFormValidation } from "@/components/formValidation";
-import { Panel } from "@/components/console/panel";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
@@ -58,27 +58,27 @@ export function KnowledgeGaps({
 
   if (gaps.isLoading) {
     return (
-      <Panel title={title} className={className}>
+      <Card density="compact" title={title} className={className}>
         <Skeleton rows={4} />
-      </Panel>
+      </Card>
     );
   }
 
   if (gaps.error || !gaps.data) {
     return (
-      <Panel title={title} className={className}>
+      <Card density="compact" title={title} className={className}>
         <ProblemNotice
           error={gaps.error ?? new Error("Your knowledge gaps did not load.")}
           onRetry={() => void gaps.refetch()}
         />
-      </Panel>
+      </Card>
     );
   }
 
   const { items, open_count } = gaps.data;
 
   return (
-    <Panel
+    <Card density="compact"
       title={title}
       className={className}
       info={
@@ -123,7 +123,7 @@ export function KnowledgeGaps({
           ))}
         </ul>
       )}
-    </Panel>
+    </Card>
   );
 }
 
@@ -248,8 +248,8 @@ function GapRow({
           />
           {valid.error("answer")}
           <p className="text-[11px] text-ink-faint">
-            This is saved as a draft for your agent&apos;s knowledge and reviewed before it
-            goes live.
+            This is added to your agent&apos;s knowledge and goes to your agent without
+            review.
           </p>
           <div className="flex gap-2">
             <button type="submit" className={PRIMARY_BUTTON_SM} disabled={busy}>

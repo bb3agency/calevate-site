@@ -1,313 +1,194 @@
 "use client";
 
 /**
- * WHAT CALLERS HEAR RIGHT NOW — the staged-versus-live surface, and the cost guard.
+ * WHAT CALLERS HEAR RIGHT NOW — the staged-versus-live state, the voice in force, and the
+ * cost guard, as three pieces the workspace's sections place where each is read.
  *
- * Split out of the 1,185-line `agents/panels.tsx`, which had grown into four unrelated
- * subjects behind one filename (UX-DOCTRINE §6: a module is bounded by ONE subject, and a
- * route module past ~400 lines is a smell whose remedy is extract / route-split /
- * disclose). This file is the first subject: publishing state.
- *
- * EVERY number and label here is the server's or is absent: the call cap, its bounds, the
- * worst-case cost, the version numbers and the voice all come from
- * `GET /v1/agents/{id}/pending`. Loading is a `Skeleton`, failure is a `ProblemNotice`,
- * and neither is ever a zero.
+ * Every number and label here is the server's or is absent: the call cap, the worst-case
+ * cost, the version numbers and the voice all come from `GET /v1/agents/{id}/pending`, which
+ * the caller reads once and hands down. Loading and failure are the caller's branches.
  */
 
-import { Hourglass, IndianRupee, Timer, Volume2 } from "lucide-react";
+import { Hourglass } from "lucide-react";
 
-import {
-  Fact,
-  NOTICE_TONES,
-  ProblemNotice,
-  Skeleton,
-  formatCallCap,
-  formatINR,
-  formatIST,
-  formatRupeeRate,
-} from "@/components/ui";
-import type { Agent } from "@/lib/api/agents";
-import {
-  usePendingChanges,
-  type PendingChange,
-  type PendingState,
-} from "@/lib/api/publishing";
-import { useClientSession } from "@/lib/api/session";
-import { voiceTierRate, type VoiceTierRates } from "@/lib/api/voices";
+import { formatCallCap, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { SettingRow } from "@/components/console/settingRow";
+import type { PendingChange, PendingState } from "@/lib/api/publishing";
+import { voiceTierRate } from "@/lib/api/voices";
+
+/** The field name the server gives a staged script in `PendingOut.pending`. */
+export const SCRIPT_FIELD = "script";
+
+/** The staged script, if one is waiting — the only staged change the owner applies. */
+export function stagedScript(state: PendingState): PendingChange | undefined {
+  return state.pending.find((change) => change.field === SCRIPT_FIELD);
+}
 
 /**
- * The unsaved-changes banner (§2b) and the cost-runaway guard, from the client's side of
- * the fence.
+ * The unsaved-changes banner (§2b). `headline` and `why` are rendered as sent: the server
+ * composes them from version NUMBERS (a prompt body carries the client's prices and staff
+ * names — hard rule 6), and restating them here would be a second source for one sentence.
  *
- * `headline` and `why` are rendered as sent. The server composes them from version NUMBERS
- * (a prompt body carries the client's prices and staff names — hard rule 6), and restating
- * them here would be a second source for one sentence.
- *
- * Takes the whole `agent` rather than an id: `PendingOut` carries `published` and
- * `agent_status` too, and reading THOSE here would give one screen two sources for one
- * fact — the badge above says "Being set up" from the roster read while this paragraph
- * could say the opposite from a response that landed a second later. The agent row is the
- * screen's single source; the pending read supplies only what it does not have.
+ * Renders nothing when nothing is waiting; the "Live" line in the header says the rest.
  */
-export function PublishingPanel({ agent }: { agent: Agent }) {
-  const session = useClientSession();
-  const pending = usePendingChanges(session, agent.id);
-
-  if (pending.isLoading) return <Skeleton rows={2} />;
-  if (pending.error) {
-    return <ProblemNotice error={pending.error} onRetry={() => void pending.refetch()} />;
-  }
-  if (!pending.data) return null;
-
-  const state = pending.data;
-
+export function PendingBanner({ state }: { state: PendingState }) {
+  if (!state.has_pending) return null;
   return (
-    <div className="space-y-3">
-      {state.has_pending ? (
-        <div role="status" className={`rounded-card border p-4 text-sm ${NOTICE_TONES.warn}`}>
-          <p className="flex items-center gap-2 font-semibold">
-            <Hourglass aria-hidden className="h-4 w-4 shrink-0" />
-            Changes waiting to go live
-          </p>
-          <ul className="mt-3 space-y-3">
-            {state.pending.map((change) => (
-              <PendingRow key={change.field} change={change} />
-            ))}
-          </ul>
-          <p className="mt-3 text-xs">
-            {/* NOT "the version above": the line above is the WAITING one. Which pointer is
-                which is rendered as data in `PendingRow`; this sentence only says who
-                moves it. */}
-            Callers keep hearing the live version until your account manager applies the
-            change — nothing goes live silently. Ask them to apply it, or to discard it if
-            it was not meant to happen.
-          </p>
-        </div>
-      ) : (
-        /* The reassuring case is worth a line: an owner who has been told an edit was made
-           needs to be able to see that it HAS landed, not just infer it from the absence
-           of a warning. It says something different for an agent no caller can reach yet —
-           "what callers hear right now" is not a true sentence about an agent that is not
-           on the calling system. */
-        <p className="text-sm text-ink-muted">
-          {agent.published
-            ? "Nothing is waiting to go live — what is described on this page is what callers hear right now."
-            : "Nothing is waiting to go live. This agent is not on the calling system yet, so no caller hears it at all."}
-        </p>
-      )}
-
-      {/* The cost-runaway guard, as the question it actually answers: what is the worst one
-          call can do to my bill — plus the voice, which is a cost question too. */}
-      <dl className="grid gap-5 rounded-card border border-line bg-app p-4 sm:grid-cols-2">
-        <VoiceFacts
-          state={state.voice}
-          published={agent.published}
-          rates={state.voice_tier_rates}
-        />
-        <Fact
-          label="Longest one call may run"
-          icon={<Timer className="h-3.5 w-3.5" />}
-          hint={
-            state.call_cap_is_platform_default
-              ? "The standard limit we put on every agent."
-              : "Set specifically for this agent."
-          }
-        >
-          {formatCallCap(state.effective_call_cap_s)}
-        </Fact>
-        <Fact
-          label="Most one call can cost you"
-          icon={<IndianRupee className="h-3.5 w-3.5" />}
-          hint={
-            /* NEITHER SENTENCE NAMES "YOUR PLAN" ANY MORE, and that is a correction rather
-               than a rewording. The server strikes this figure from the dearest minute the
-               account can be charged — the plan's overage rate for a bundled account, the
-               rate on its own credit for a prepaid one, which has no plan row at all
-               (`agents/publishing.py::worst_case_rate`). A prepaid owner was being told
-               their plan quotes nothing one cell away from the rate this same response
-               already carried; and naming the plan on the figure we CAN give would be the
-               same mistake in the other direction. */
-            state.worst_case_call_cost_inr === null
-              ? "Nothing on your account prices a minute yet, so we cannot put a number on it. The credit pack you buy sets that rate."
-              : "A call that runs the full limit, at the dearest per-minute rate your account can be charged. Almost every call ends long before this."
-          }
-        >
-          {/* Null is "we cannot say", NOT zero — quoting ₹0.00 for a ten-minute call is the
-              one answer that is actively wrong (`publishing.py::_overage_rate`). The figure
-              is an exact NUMERIC and stays a STRING all the way here: `formatINR` formats
-              the digits and never parses them, because `Number("10159.00")` is how
-              ₹10,159.00 becomes ₹10,158.999999999998 (hard rule 7). */}
-          {state.worst_case_call_cost_inr === null
-            ? "We cannot say yet"
-            : formatINR(state.worst_case_call_cost_inr)}
-        </Fact>
-      </dl>
+    <div role="status" className="rounded-card border border-warn-line bg-warn-soft p-4 text-sm text-ink">
+      <p className="flex items-center gap-2 font-semibold">
+        <Hourglass aria-hidden className="h-4 w-4 shrink-0 text-warn" />
+        Changes waiting to go live
+      </p>
+      <ul className="mt-3 space-y-3">
+        {state.pending.map((change) => (
+          <PendingRow key={change.field} change={change} />
+        ))}
+      </ul>
+      <p className="mt-3 text-xs text-ink-muted">
+        Callers keep hearing the live version until the change is applied — nothing goes
+        live silently.
+        {stagedScript(state) ? " Apply it from the top of this page, or undo it in the script builder." : ""}
+      </p>
     </div>
   );
 }
 
 /**
- * The voice the caller hears — and, only when they differ, the one waiting for us.
- *
- * **Why a client sees this at all.** There are TWO voice qualities now (D-547) at two
- * different per-minute rates, so the voice IS a price lever again — and an owner is
- * entitled to know both which persona their agent speaks in and what a minute of it costs
- * them. ⚠ **CHANGING IT USED TO BE OURS (D-21) AND THIS PARAGRAPH SAID SO** — "which is why
- * there is no control here, only the facts and who moves them". D-586 gave it to the
- * account, and the control lives in `panels/delivery.tsx` directly below this card. This
- * panel stays a READ: its subject is the state, not the decision.
- *
- * **The quality is named, the vendor never is.** "Clear" and "Studio" are the API's words
- * (`billing/rates.py::VOICE_TIER_LABELS`); which company synthesises each is our business
- * and must be able to change without a client-visible rename. So this component prints the
- * label the server sent and prints NOTHING when it sent none — it has no table of its own.
- *
- * **The rate is this account's, not the product's, and it can move.** Under D-547 a minute
- * costs the rate frozen on the credit lot it draws from, oldest lot first, so what is shown
- * is the price of the NEXT minute. Absent (an API build that does not send it, an account
- * with no open credit), the price line is simply not rendered: quoting a rate a client is
- * not on is the money defect hard rule 7 exists for, and a blank is honest.
- *
- * **One box when there is one answer, two when there are two.** A configured voice the
- * calling system is already holding is a single fact. A voice chosen and not yet published
- * is TWO facts, and collapsing them would say the caller hears something they do not — the
- * same inversion `PendingRow` exists to prevent for the script. The server decides which
- * case this is (`voice.republish_required`); this component does not compare the two ids
- * itself, because an unpublished agent has two different values and no problem at all.
+ * One staged change, with BOTH pointers named as labelled data. Showing the staged script
+ * as the one callers hear is the one catastrophic misreading of the two-speed model, and a
+ * sentence can be read the wrong way round where a "Callers hear now" / "Waiting to be
+ * applied" pair cannot.
  */
-function VoiceFacts({
-  state,
-  published,
-  rates,
-}: {
-  state: PendingState["voice"] | undefined;
-  published: boolean;
-  rates?: VoiceTierRates;
-}) {
-  // The field is absent on an older API build; a missing fact is honest, an invented one
-  // is not. Nothing else on this card depends on it.
-  if (!state) return null;
-  const heard = state.live
-    ? clientVoiceName(state.live)
+function PendingRow({ change }: { change: PendingChange }) {
+  return (
+    <li className="border-l-2 border-warn-line pl-3">
+      <p className="font-medium">{change.headline}</p>
+      <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
+        <div>
+          <dt className="text-xs text-ink-muted">Callers hear now</dt>
+          <dd className="text-sm font-semibold tabular-nums">
+            {change.live_version === null ? "Nothing live yet" : `v${change.live_version}`}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-ink-muted">Waiting to be applied</dt>
+          <dd className="text-sm font-semibold tabular-nums">v{change.staged_version}</dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-xs">{change.why}</p>
+      <p className="mt-1 text-xs text-ink-muted">Waiting since {formatIST(change.staged_at)}</p>
+    </li>
+  );
+}
+
+/**
+ * The voice callers hear, its quality and this account's rate for it, and — only when the
+ * server says they differ — the voice chosen and not yet on the calling system.
+ *
+ * The quality is named and the vendor never is: "Clear" and "Studio" are the API's words.
+ * The rate is the account's next minute (oldest open credit lot, D-547) and is simply not
+ * printed when absent — quoting a rate a client is not on is the money defect hard rule 7
+ * exists for. The tier priced is the LIVE voice's, because that is the one being billed.
+ */
+export function VoiceNow({ state, published }: { state: PendingState; published: boolean }) {
+  const voice = state.voice;
+  // Absent on an older API build; a missing fact is honest, an invented one is not.
+  if (!voice) return null;
+  const heard = voice.live
+    ? clientVoiceName(voice.live)
     : published
       ? "We cannot say from here"
       : "Nothing yet";
-  // The tier of the voice CALLERS HEAR — the one they are being billed for. Not the
-  // configured one: an agent with a chosen-but-unpublished voice is still charged at the
-  // rate of the voice on the calling system, and pricing the wrong one is the same
-  // inversion the two Facts below exist to prevent.
-  const tier = voiceTierRate(rates, state.live?.voice_tier);
+  const tier = voiceTierRate(state.voice_tier_rates, voice.live?.voice_tier);
   return (
     <>
-      <Fact
+      <SettingRow
         label="Voice callers hear"
-        icon={<Volume2 className="h-3.5 w-3.5" />}
         hint={
-          state.live
-            ? /* "Below" is the `DeliverySettings` card, the next one on this screen
-                 (`AgentWorkspace.tsx:221`, "How it sounds, and how long a call may run"),
-                 which mounts the client-realm `VoicePicker` under D-586. A direction
-                 rather than a link, because a link to a sibling card reads as navigation
-                 away from the page the reader is already on. */
-              "The voice the calling system is speaking in right now. Change it below."
+          voice.live
+            ? "The voice the calling system is speaking in right now."
             : published
               ? "The calling system has a voice for this agent; we have no record of which one. Choosing one below will settle it."
               : "Nothing is on the calling system yet, so no caller hears a voice at all."
         }
-      >
-        {heard}
-      </Fact>
+        value={heard}
+      />
+      {voice.unnamed_note && (
+        /* The server's sentence for a voice shown as a stored code rather than a name (D-617). */
+        <p className="py-2 text-xs text-ink-muted">{voice.unnamed_note}</p>
+      )}
       {tier && (
-        <Fact
+        <SettingRow
           label={tier.inr_per_min === null ? "Voice quality" : "Voice quality and rate"}
-          icon={<IndianRupee className="h-3.5 w-3.5" />}
           hint={
-            /* Three different sentences for three different states, because they are three
-               different facts to an owner deciding whether to top up. A rate with nothing
-               behind it is simply their rate; a rate with later purchases behind it is the
-               price of the NEXT minute and will change; no rate at all is not a cheap
-               minute and must not read like one. */
-            /* THE NULL ARM SENDS THE OWNER TO THEMSELVES, NOT TO US, and it used to send
-               them to their account manager — who cannot fix it. `inr_per_min` is null for
-               exactly one reason: no open credit lot (`billing/lots.py::TierRate`), i.e. an
-               empty or overdrawn wallet. There is no rate because there is no credit, and
-               the rate is the one frozen on the pack they buy — so the action is theirs and
-               naming anyone else's is a support ticket nobody can close. */
+            /* No rate means no open credit lot — an empty or overdrawn wallet — so the
+               action is the owner's own, never a person's. */
             tier.inr_per_min === null
               ? "You have no credit left, so nothing sets a per-minute price for this voice yet. The credit pack you buy fixes the rate you pay on it."
               : tier.further_open_lots === 0
                 ? "What a minute on this voice costs against your current credit."
                 : `What a minute on this voice costs against your oldest unspent credit. You have ${tier.further_open_lots} later purchase${tier.further_open_lots === 1 ? "" : "s"} behind it, each at the rates it was bought at.`
           }
-        >
-          {/* The server's digits, prefixed — never parsed (hard rule 7). */}
-          {tier.label}
-          {tier.inr_per_min === null ? "" : ` — ${formatRupeeRate(tier.inr_per_min)} / min`}
-        </Fact>
+          value={
+            <>
+              {tier.label}
+              {tier.inr_per_min === null ? "" : ` — ${formatRupeeRate(tier.inr_per_min)} / min`}
+            </>
+          }
+        />
       )}
-      {state.unnamed_note && (
-        /* WHY THE VOICE ABOVE IS A CODE AND NOT A NAME (D-617). `clientVoiceName` falls
-           back to the stored id so an owner can quote it, and until now nothing said what
-           the code was — a live client read `sonic-3.5:b6dafaa0-…` as "the voice callers
-           hear" with no explanation and no such voice in the picker below. The sentence is
-           the server's and is printed verbatim; it names no vendor and no setting, and it
-           spans the whole card rather than sitting inside one `Fact`, because it explains
-           both of them. */
-        <div className="text-xs text-ink-muted sm:col-span-2">{state.unnamed_note}</div>
-      )}
-      {state.republish_required && state.configured && (
-        <Fact
+      {voice.republish_required && voice.configured && (
+        <SettingRow
           label="New voice waiting"
-          icon={<Hourglass className="h-3.5 w-3.5" />}
-          hint="Chosen for this agent and not switched on yet. Your account manager publishes the agent to make callers hear it."
-        >
-          {clientVoiceName(state.configured)}
-        </Fact>
+          hint="Chosen for this agent and not on the calling system yet."
+          value={clientVoiceName(voice.configured)}
+        />
       )}
     </>
   );
 }
 
-/** A voice in words a client recognises. Unknown to the catalogue is still named by its
- *  id — an owner can quote an id to their account manager, and "unknown" reads as a fault
- *  rather than as a voice we simply no longer list. */
-function clientVoiceName(voice: NonNullable<PendingState["voice"]["configured"]>): string {
-  return voice.catalog?.label ?? voice.voice_id;
+/** The cost-runaway guard, as the question it answers: what is the worst one call can do. */
+export function WorstCaseCost({ state }: { state: PendingState }) {
+  return (
+    <SettingRow
+      label="Most one call can cost you"
+      hint={
+        /* Struck from the dearest minute the account can be charged — the plan's overage
+           rate, or the rate on a prepaid account's own credit (`publishing.py::worst_case_rate`),
+           so neither sentence names "your plan". */
+        state.worst_case_call_cost_inr === null
+          ? "Nothing on your account prices a minute yet, so we cannot put a number on it. The credit pack you buy sets that rate."
+          : "A call that runs the full limit, at the dearest per-minute rate your account can be charged. Almost every call ends long before this."
+      }
+      /* Null is "we cannot say", NOT zero. The figure stays a string: `formatINR` formats
+         the digits and never parses them (hard rule 7). */
+      value={
+        state.worst_case_call_cost_inr === null
+          ? "We cannot say yet"
+          : formatINR(state.worst_case_call_cost_inr)
+      }
+    />
+  );
 }
 
-/**
- * One staged change, with BOTH pointers named.
- *
- * The two-speed model has exactly one way to be catastrophically misread — showing the
- * staged script as the one callers hear — and `agents/publishing.py` opens by recording
- * that the backend shipped that inversion once already. So the pointers are rendered as
- * labelled DATA (`live_version`, `staged_version`) rather than left to the prose: a
- * sentence can be read the wrong way round, a two-item list under "Callers hear now" and
- * "Waiting to be applied" cannot. It also covers what the server's headline leaves out —
- * `live_version` is null for an agent whose script has never been applied.
- */
-function PendingRow({ change }: { change: PendingChange }) {
+/** The limit in force, for the read-only view of a deleted agent. */
+export function CallCapFact({ state }: { state: PendingState }) {
   return (
-    <li className="border-l-2 border-amber-400 pl-3">
-      <p className="font-medium">{change.headline}</p>
-      <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
-        <div>
-          <dt className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-            Callers hear now
-          </dt>
-          <dd className="text-sm font-semibold tabular-nums">
-            {change.live_version === null ? "Nothing live yet" : `v${change.live_version}`}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-            Waiting to be applied
-          </dt>
-          <dd className="text-sm font-semibold tabular-nums">v{change.staged_version}</dd>
-        </div>
-      </dl>
-      <p className="mt-2 text-xs">{change.why}</p>
-      <p className="mt-1 text-xs opacity-80">Waiting since {formatIST(change.staged_at)}</p>
-    </li>
+    <SettingRow
+      label="Longest one call may run"
+      hint={
+        state.call_cap_is_platform_default
+          ? "The standard limit we put on every agent."
+          : "Set specifically for this agent."
+      }
+      value={formatCallCap(state.effective_call_cap_s)}
+    />
   );
+}
+
+/** A voice in words a client recognises; an id the catalogue no longer lists is shown as
+ *  itself, because an owner can quote an id and "unknown" reads as a fault. */
+export function clientVoiceName(voice: NonNullable<PendingState["voice"]["configured"]>): string {
+  return voice.catalog?.label ?? voice.voice_id;
 }

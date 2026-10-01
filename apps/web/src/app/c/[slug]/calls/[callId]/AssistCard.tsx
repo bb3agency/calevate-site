@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import {
+  Card,
   NoticeBox,
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
@@ -11,7 +12,6 @@ import {
   RestrictionNote,
   Skeleton,
 } from "@/components/ui";
-import { Panel } from "@/components/console/panel";
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
@@ -77,7 +77,7 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
   const [asking, setAsking] = useState(false);
 
   return (
-    <Panel
+    <Card density="compact"
       title="Ask the assistant"
       info={
         <p>
@@ -131,7 +131,7 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
 
         {assist.data && <AssistAnswer answer={assist.data} />}
       </div>
-    </Panel>
+    </Card>
   );
 }
 

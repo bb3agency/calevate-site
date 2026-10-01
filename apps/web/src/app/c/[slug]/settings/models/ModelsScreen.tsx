@@ -1,10 +1,8 @@
 "use client";
 
-import {
-  Card,
-  ProblemNotice,
-  Skeleton,
-} from "@/components/ui";
+import { ProblemNotice, Skeleton } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
+import { PageHeader } from "@/components/console/pageHeader";
 import { useOrganizationLlmDefaults } from "@/lib/api/llmModels";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -123,13 +121,18 @@ export function ModelsScreen({ slug }: { slug: string }) {
 
   return (
     <div className="max-w-2xl space-y-5 pb-12">
-      <p className="text-sm text-ink-muted">
-        The model you pick here is the one all your agents use, unless a particular agent
-        has been given its own. Your plan may add a per-minute charge for choosing one —
-        each option below says exactly what it adds to your bill, and &ldquo;no extra
-        charge&rdquo; means it adds nothing.
-      </p>
-
+      <PageHeader
+        description="The model all your agents use, unless one has been given its own."
+        actions={
+          <InfoTip label="AI model" align="end">
+            <p>
+              Your plan may add a per-minute charge for choosing one — each option below says
+              exactly what it adds to your bill, and &ldquo;no extra charge&rdquo; means it adds
+              nothing.
+            </p>
+          </InfoTip>
+        }
+      />
       {state.error != null && (
         <ProblemNotice error={state.error} onRetry={() => void state.refetch()} />
       )}
@@ -138,9 +141,7 @@ export function ModelsScreen({ slug }: { slug: string }) {
           Naming a model over a read that failed is the one wrong answer here: it tells an
           owner what they are paying for a call, and it would be a guess. */}
       {state.isLoading ? (
-        <Card>
-          <Skeleton rows={5} label="Loading your AI model settings" />
-        </Card>
+        <Skeleton rows={5} label="Loading your AI model settings" />
       ) : !state.data ? null : (
         <OrganizationDefault defaults={state.data} slug={slug} />
       )}

@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { Globe2, Lock, PhoneOff, Trash2 } from "lucide-react";
+import { Lock, Trash2 } from "lucide-react";
 
+import { ConfirmDialog } from "@/components/confirmDialog";
+import { DataTable, type DataColumn } from "@/components/console/dataTable";
+import { EmptyState } from "@/components/console/emptyState";
 import {
-  Card,
-  EmptyState,
   MonoValue,
   ProblemNotice,
   Skeleton,
   formatCount,
   formatIST,
+  formatPhone,
 } from "@/components/ui";
-import { ConfirmDialog } from "@/components/confirmDialog";
+import { type Session } from "@/lib/api/client";
 import {
   DNC_LIST_LIMIT,
   useDncList,
@@ -20,7 +22,6 @@ import {
   type DncEntry,
 } from "@/lib/api/dnc";
 import { lookup } from "@/lib/lookup";
-import { type Session } from "@/lib/api/client";
 
 import { SOURCE_COPY } from "./sources";
 
@@ -86,65 +87,111 @@ export function SuppressedList({
      limit), so the header says which of the two it is showing. */
   const truncated = rows !== undefined && rows.length >= DNC_LIST_LIMIT;
 
+  const columns: DataColumn<DncEntry>[] = [
+    {
+      id: "number",
+      header: "Number",
+      sort: { value: (entry) => entry.phone_e164 },
+      cell: (entry) => (
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {/* IN FULL (D-436): a list a client cannot read back is one they cannot check
+              against the caller complaining that we rang them again. */}
+          <MonoValue className="tabular-nums text-ink">{formatPhone(entry.phone_e164)}</MonoValue>
+          {entry.scope === "global" && (
+            // Shown, never removable: it is not this account's entry, and hiding it would
+            // leave a client wondering why a number they can't find is never dialled.
+            <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+              platform-wide
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: "reason",
+      header: "Reason",
+      // Fails VISIBLE: a source this build cannot name still shows its raw value.
+      sort: { value: (entry) => lookup(SOURCE_COPY, entry.source)?.label ?? entry.source ?? "" },
+      cell: (entry) => (
+        <span className="text-ink-muted">
+          {lookup(SOURCE_COPY, entry.source)?.label ?? entry.source ?? "unknown reason"}
+        </span>
+      ),
+    },
+    {
+      id: "added",
+      header: "Added",
+      hideBelow: "sm",
+      sort: { value: (entry) => entry.added_at, kind: "time", first: "desc" },
+      cell: (entry) => <span className="whitespace-nowrap text-ink-faint">{formatIST(entry.added_at)}</span>,
+    },
+    {
+      id: "action",
+      header: "Action",
+      align: "right",
+      cell: (entry) => (
+        <RowAction
+          entry={entry}
+          canSuppress={canSuppress}
+          removing={remove.isPending && remove.variables === entry.id}
+          onRemove={() => setUnsuppressing(entry)}
+        />
+      ),
+    },
+  ];
+
   return (
     <>
-      <Card
-        title="Suppressed numbers"
-        action={
-          /* No count until the server has sent one. "0 entries" while the first request
-             is in flight is a statement about the client's compliance posture, and it is
-             the wrong one. */
-          rows ? (
-            <span className="text-xs text-ink-faint">
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="dnc-list-heading" className="text-[15px] font-semibold text-ink">
+            Suppressed numbers
+          </h2>
+          {/* No count until the server has sent one: "0 entries" while the first request is
+              in flight is a statement about the client's compliance posture. */}
+          {rows && (
+            <span className="text-[12px] text-ink-faint">
               {truncated
                 ? `Showing the ${formatCount(DNC_LIST_LIMIT)} most recently added`
                 : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}
             </span>
-          ) : undefined
-        }
-        bodyClassName="p-2"
-      >
+          )}
+        </div>
         {/* While the dialog is open the refusal belongs INSIDE it, where the decision is
-            being made — rendering it here as well would say the same failure twice. */}
-        {remove.error != null && unsuppressing == null && (
-          <div className="mb-3 px-4 pt-2">
-            <ProblemNotice error={remove.error} />
-          </div>
-        )}
-        {entries.error != null && (
-          <div className="mb-3 px-4 pt-2">
-            <ProblemNotice error={entries.error} onRetry={() => entries.refetch()} />
-          </div>
-        )}
+            being made. */}
+        {remove.error != null && unsuppressing == null && <ProblemNotice error={remove.error} />}
+        {entries.error != null && <ProblemNotice error={entries.error} onRetry={() => entries.refetch()} />}
 
-        {/* Loading is a skeleton, failure is the notice above and NOTHING ELSE, and the
-            empty state is reached only through a `rows` the server actually sent. "Nobody
-            is suppressed yet" under a failed request is the worst sentence on this
-            screen: it reads as "nobody is suppressed", which is a compliance claim we
-            would be making on no evidence. */}
+        {/* Loading is a skeleton, failure is the notice above and NOTHING ELSE, and the empty
+            state is reached only through rows the server actually sent: "Nobody is
+            suppressed yet" under a failed request would be a compliance claim made on no
+            evidence. */}
         {entries.isLoading ? (
-          <div className="p-4">
-            <Skeleton rows={5} />
-          </div>
+          <Skeleton rows={5} />
         ) : !rows ? null : rows.length ? (
-          <ul className="divide-y divide-line">
-            {rows.map((entry) => (
-              <EntryRow
-                key={entry.id}
-                entry={entry}
-                canSuppress={canSuppress}
-                removing={remove.isPending && remove.variables === entry.id}
-                onRemove={() => setUnsuppressing(entry)}
-              />
-            ))}
-          </ul>
+          <div className="rounded-card border border-line bg-surface">
+            <DataTable
+              rows={rows}
+              columns={columns}
+              getRowId={(entry) => entry.id}
+              label="Suppressed numbers"
+              partialNote={truncated ? "Sorted within the 500 most recently added." : undefined}
+            />
+          </div>
         ) : (
-          <EmptyState
-            title="Nobody is suppressed yet"
-            hint="Anyone who tells an agent to stop calling is added here automatically. You can also add numbers yourself."
-          />
+          <div className="rounded-card border border-line bg-surface">
+            <EmptyState
+              message="Nobody is suppressed yet"
+              action={
+                <p className="max-w-md text-[13px] text-ink-faint">
+                  Anyone who tells an agent to stop calling is added here automatically. You
+                  can also add numbers yourself.
+                </p>
+              }
+            />
+          </div>
         )}
-      </Card>
+      </div>
 
       {/* The consequence, not a restatement of the command (NN/g, *Preventing User
           Errors*, read 25 Aug 2026). Closes only on success: a failed removal leaves the
@@ -167,7 +214,7 @@ export function SuppressedList({
         >
           <p>
             <MonoValue className="tabular-nums text-ink">
-              {unsuppressing.phone_e164}
+              {formatPhone(unsuppressing.phone_e164)}
             </MonoValue>{" "}
             comes off your do-not-call list.
           </p>
@@ -185,7 +232,7 @@ export function SuppressedList({
   );
 }
 
-function EntryRow({
+function RowAction({
   entry,
   canSuppress,
   removing,
@@ -196,65 +243,29 @@ function EntryRow({
   removing: boolean;
   onRemove: () => void;
 }) {
-  // `DncEntryOut.source` is `string | null`; `lookup` absorbs the null too.
-  const source = lookup(SOURCE_COPY, entry.source);
-  const global = entry.scope === "global";
-
+  // `removable` is the server's own `is_removable()` verdict, RENDERED rather than
+  // re-derived from `scope`/`source`: the direction a second rule drifts in is a Remove
+  // button on a consumer opt-out.
+  if (!entry.removable) {
+    return (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] text-ink-faint">
+        <Lock className="h-3.5 w-3.5" aria-hidden />
+        {entry.scope === "global" ? "removed by operations only" : "opt-out — cannot be undone"}
+      </span>
+    );
+  }
+  if (!canSuppress) return null;
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
-      <span
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-          global ? "bg-black/5 text-ink-muted dark:bg-white/10" : "bg-brand-soft text-brand-strong"
-        }`}
-        aria-hidden
-      >
-        {global ? <Globe2 className="h-4 w-4" /> : <PhoneOff className="h-4 w-4" />}
-      </span>
-      {/* IN FULL (D-436) — a suppression list a client cannot read back is one they
-          cannot check against the caller complaining that we rang them again. */}
-      <MonoValue className="tabular-nums text-ink">{entry.phone_e164}</MonoValue>
-      {global && (
-        // Shown, never removable: it is not this account's entry, and hiding it would
-        // leave a client wondering why a number they can't find is never dialled.
-        <span className="rounded-full border border-line bg-app px-2 py-0.5 text-xs font-medium text-ink-muted">
-          platform-wide
-        </span>
-      )}
-      {/* Fails VISIBLE: a source this build cannot name still gets its row and its raw
-          value, because a suppression the client cannot see is one they will ask us to
-          explain. */}
-      <span className="text-xs text-ink-muted">
-        {source?.label ?? entry.source ?? "unknown reason"}
-      </span>
-      <span className="ml-auto whitespace-nowrap text-xs text-ink-faint">
-        {formatIST(entry.added_at)}
-      </span>
-      {/* `removable` is the server's own `is_removable()` verdict, RENDERED rather than
-          re-derived from `scope`/`source` here. Two rules that agree today drift apart
-          the day one of them changes, and the direction this one drifts in is a Remove
-          button on a consumer opt-out. */}
-      {entry.removable ? (
-        canSuppress ? (
-          <button
-            type="button"
-            disabled={removing}
-            onClick={onRemove}
-            // Named for the row: forty buttons called "Remove" are forty identical
-            // announcements to a screen reader, and "remove which one?" is exactly the
-            // question a mis-click answers wrongly.
-            aria-label={`Remove ${entry.phone_e164} from the do-not-call list`}
-            className="press flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {removing ? "Removing…" : "Remove"}
-          </button>
-        ) : null
-      ) : (
-        <span className="flex items-center gap-1.5 text-xs text-ink-faint">
-          <Lock className="h-3.5 w-3.5" aria-hidden />
-          {global ? "removed by operations only" : "opt-out — cannot be undone"}
-        </span>
-      )}
-    </li>
+    <button
+      type="button"
+      disabled={removing}
+      onClick={onRemove}
+      // Named for the row: forty buttons called "Remove" are forty identical announcements.
+      aria-label={`Remove ${formatPhone(entry.phone_e164)} from the do-not-call list`}
+      className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] font-medium text-ink-muted enabled:hover:bg-ink/[0.05] enabled:hover:text-danger disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+    >
+      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+      {removing ? "Removing…" : "Remove"}
+    </button>
   );
 }

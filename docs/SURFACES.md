@@ -116,8 +116,20 @@ the first-campaign hold, which really are about a stranger signing up, still app
 - **Sign-up + org create**: email/password or Google (FLOWS §2), slug validated against
   `reserved_slugs`.
 - **Credit wallet**: balance, **runway in minutes** ("₹X · ≈ N min, M min on premium" —
-  their money-UX is genuinely good), top-up packs, auto-receipt with GST.
+  their money-UX is genuinely good), top-up packs, a receipt per payment. **No GST**:
+  Calevate is a sole proprietorship below the GST registration threshold, so it is not
+  registered, charges no GST and issues no tax invoices (D-659); every client surface uses
+  the one sentence in `billing/gst.GST_STATUS_SENTENCE` / `web lib/gstStatus.ts`.
 - **Plan/usage**: agents live vs draft, minutes used, spend against cap.
+  - **Statement history and spend over time (D-660)** — `GET /v1/billing/statements`
+    lists one row per IST month since the account opened (paged by `before`, at most 12),
+    each carrying that month's statement total from `build_invoice`, credit added and
+    wallet spend; `GET /v1/billing/spend/daily` is the wallet drawdown per IST day
+    (`days=7|30|90` or `from`/`to`, at most 92 days), explicit zero days, split by agent,
+    summing exactly to the drawdown for the same window. Both `billing:read`.
+  - **Team with addresses (D-660)** — `GET /v1/team/members` (`org:manage`) adds each
+    colleague's email and join date to what `GET /v1/members` (`org:read`, a picker)
+    returns. No last-active: the only activity record is per person across tenants.
   - **Spend cap, client-editable** — `GET /v1/billing/caps` (`billing:read`) and
     `PUT /v1/billing/caps` (`org:manage`, `realm="client"` — so a view-as session is
     refused it before any permission is read, which is where this refusal survived D-587:

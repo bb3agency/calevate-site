@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 
-import { ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
+import { Card, ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
-import { Panel } from "@/components/console/panel";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
@@ -251,9 +250,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
 
       <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-5">
         <div className="space-y-4 lg:col-span-8 lg:space-y-5">
-          <Panel title="Calls each day">
+          <Card density="compact" title="Calls each day">
             <DailyCalls days={data.daily_7d} />
-          </Panel>
+          </Card>
           <LatestCalls
             recent={recent}
             allHref={href(`/c/${slug}/calls`)}

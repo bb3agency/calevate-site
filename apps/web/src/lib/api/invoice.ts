@@ -40,8 +40,8 @@ type Schemas = components["schemas"];
  * `"tax_invoice"` or `"bill_of_supply"`, and the heading is rendered from it and never from a
  * literal — CGST s.32 forbids an unregistered person collecting tax, so a document
  * without the Rule 46 identity particulars must not present itself as a tax invoice.
- * `document_blockers` names the exact environment variables standing between this
- * document and being one, so the refusal tells an operator what to do about it.
+ * Unregistered is the normal state (D-659) and `tax_note` carries the GST sentence. The
+ * settings a registration would need are named ONLY on the operator's `AdminInvoice`.
  *
  * `tax_components` splits the tax into CGST/SGST/UTGST/IGST from the place of supply.
  * Those are three separate credit ledgers, so tax charged without naming the head cannot
@@ -55,6 +55,8 @@ type Schemas = components["schemas"];
  * back, so the page renders a usage-only statement.
  */
 export type Invoice = Schemas["InvoiceOut"];
+/** The operator's copy: `Invoice` plus `document_blockers`. Admin realm only. */
+export type AdminInvoice = Schemas["AdminInvoiceOut"];
 export type InvoiceLineItem = Schemas["InvoiceLineItemOut"];
 
 
@@ -64,11 +66,11 @@ function monthQuery(month?: string): string {
 }
 
 /** Ops reading one tenant's statement. Admin realm, tenant in the path. */
-export function useInvoice(tenantId: string, month?: string): UseQueryResult<Invoice> {
+export function useInvoice(tenantId: string, month?: string): UseQueryResult<AdminInvoice> {
   return useQuery({
     queryKey: ["admin", "invoice", tenantId, month ?? "current"],
     queryFn: () =>
-      apiRequest<Invoice>(
+      apiRequest<AdminInvoice>(
         adminSession(),
         `/v1/admin/tenants/${tenantId}/invoice${monthQuery(month)}`,
       ),

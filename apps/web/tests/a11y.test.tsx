@@ -1,5 +1,5 @@
 import { act } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
 import type { Margin } from "@/lib/api/admin";
@@ -102,6 +102,7 @@ import {
   staleExemptions,
 } from "./a11y";
 import { renderAdminRoute } from "./adminRoute";
+import { hubUsageIdle } from "./billingHub";
 import { problem, renderClientPage, type Routes } from "./harness";
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import {
@@ -299,10 +300,31 @@ const ADMIN_ME = {
   impersonating: false,
 };
 
+/*
+ * A settings-layout screen mounts ONE section, chosen by `?section=` (D-657), so a screen
+ * entry may name the search it is rendered under; the mock below hands it to
+ * `useSearchParams`. Every other entry renders with no search, exactly as before.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+
 /** One screen under test: what to render, and the wire it renders from. */
 interface Screen {
   /** The route path, as `routePagesOnDisk` reports it — the coverage guard's key. */
   file: string;
+  /** The search it renders under, for a screen whose sections live in the URL. */
+  search?: string;
   realm: "client" | "admin";
   element: () => React.ReactElement;
   routes: Routes;
@@ -1911,6 +1933,22 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents/lanes": LANES,
       "/v1/me": ME,
       "/v1/agents/agent-1": AGENT,
+      // Overview's setup checklist and the Script section read the script's version.
+      "/v1/agents/agent-1/script": {
+        script: {
+          opening_line: "Namaskaram, this is Sri Clinic.",
+          steps: [{ instruction: "Ask what the caller needs." }],
+          faqs: [],
+          faq_fallback: "Our team will call you back with the details.",
+          end_call_extra_rules: [],
+          variables: [],
+          raw_override: null,
+        },
+        version: 3,
+        is_freeform: false,
+        has_pending: true,
+        standard_variables: [],
+      },
       "/v1/kb/sources": [
         {
           id: "src-1",
@@ -2657,6 +2695,11 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/members": MEMBERS,
+      // The owner-only roster behind the email column (round-2 redesign).
+      "/v1/team/members": [
+        { id: "u1", name: "Priya Nair", email: "priya@example.com", role: "owner", joined_at: "2026-07-01T09:00:00Z" },
+        { id: "u2", name: "Kiran Babu", email: "kiran.b@example.com", role: "staff", joined_at: "2026-07-02T09:00:00Z" },
+      ],
       "/v1/invitations": [
         {
           id: "inv-1",
@@ -2681,6 +2724,9 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <BillingPage params={slug} />,
     routes: {
+      // The default Usage view's owner reads, unanswered: this sweep is about the wallet
+      // header in its most dangerous state (`billingHub.tsx` explains the defaults).
+      ...hubUsageIdle(),
       // The lot queue of a wallet that has run dry: no open lot, no minutes on either quality.
       "/v1/billing/wallet/lots": {
         lots: [],
@@ -4088,16 +4134,35 @@ const AUTHN_SCREENS: Screen[] = [
   },
 ];
 
+/**
+ * The agent workspace's other sections (D-657). Overview is swept by the screen's own
+ * entry; each other section is a separate mount and is swept under its own search, so
+ * moving a panel into a section cannot take it out of the sweep.
+ */
+const AGENT_WORKSPACE = CLIENT_SCREENS.find(
+  (entry) => entry.file === "c/[slug]/agents/[agentId]/page.tsx",
+) as Screen;
+const AGENT_SECTION_SCREENS: Screen[] = [
+  "script",
+  "voice",
+  "calls",
+  "captured",
+  "knowledge",
+  "advanced",
+].map((id) => ({ ...AGENT_WORKSPACE, search: `section=${id}` }));
+
 export const SCREENS: Screen[] = [
   ...CLIENT_SCREENS,
+  ...AGENT_SECTION_SCREENS,
   ...ADMIN_SCREENS,
   ...AUTHN_SCREENS,
 ];
 
 describe("every screen is scanned by axe", () => {
-  it.each(SCREENS.map((s) => [s.file, s] as const))(
+  it.each(SCREENS.map((s) => [s.search ? `${s.file}?${s.search}` : s.file, s] as const))(
     "%s",
     async (_file, screen) => {
+      nav.params = new URLSearchParams(screen.search ?? "");
       const { container } =
         screen.realm === "client"
           ? await renderClientPage(screen.element(), screen.routes)

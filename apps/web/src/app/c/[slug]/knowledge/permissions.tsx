@@ -41,8 +41,8 @@ export function StaffCurationSwitch({ write }: { write: WriteAccess }) {
           <span className="font-medium">Let staff add knowledge</span>
           <span className="block text-ink-muted">
             {on
-              ? "Team members with the staff role can add knowledge for review. They still cannot approve it."
-              : "Only owners can add knowledge on this account. Everything added is reviewed before it goes live either way."}
+              ? "Team members with the staff role can add knowledge. What they add goes to your agent without review, the same as yours."
+              : "Only owners can add knowledge on this account."}
           </span>
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -65,16 +65,10 @@ export function StaffCurationSwitch({ write }: { write: WriteAccess }) {
  * WHAT HAPPENS TO WHAT *YOU* ADD — the difference between an owner and a colleague, said
  * before they spend twenty minutes writing something.
  *
- * The rule is the founder's and it is `uploads.may_self_approve`: an OWNER's own
- * submission does not wait for us, and a staff member's goes for review however the
- * curation switch is set (the switch grants submission, explicitly not approval —
- * `apps/api/kb/curation.py`). Neither half is guessable from the screen, and both are
- * surprising in the direction that wastes somebody's afternoon: a staff member watching
- * for their change to go live, or an owner waiting for a review that will never happen.
- *
- * ONE EXCEPTION IS STATED HERE RATHER THAN DISCOVERED: a photograph is never approved
- * automatically, whoever sent it, because a model read it and a person has to agree
- * (`apps/workers/document_ocr.py`).
+ * The rule is the founder's (D-658, `kb/curation.goes_live_without_review`): whatever the
+ * account's own people add — owner, or staff the owner let in — goes to the agent once it
+ * has been read, with nobody approving it, photographs included. Said before somebody
+ * spends twenty minutes writing, so nobody waits for a review that will never happen.
  *
  * A SENTENCE AND NEVER A CONTROL, so an unanswered `/v1/me` renders nothing at all rather
  * than a claim about this account's permissions.
@@ -83,13 +77,11 @@ export function SubmissionConsequence() {
   const session = useClientSession();
   const me = useMe(session);
   if (!me.data?.role) return null;
-  const owner = me.data.role === "owner";
   return (
     <p className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-muted">
       <span>
-        {owner
-          ? "What you add goes to your agent as soon as we have finished reading it — you do not wait for us. Anything a colleague adds is reviewed first, and so is anything read off a photo, including yours."
-          : "What you add is reviewed before your agent starts using it, so it will not go live the moment you send it. Your account owner and your account manager can see it in the meantime."}
+        What you add goes to your agent as soon as we have finished reading it — nobody
+        approves it first, and you do not wait for us.
       </span>
     </p>
   );

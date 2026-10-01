@@ -1,10 +1,12 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { formatINR } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
+import { formatBillingMonth } from "@/lib/billingMonth";
+import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 
-import { renderBillingHub } from "./billingHub";
+import { HUB_STATEMENTS_ROUTE, renderBillingHub } from "./billingHub";
 import { problem } from "./harness";
 import { EMPTY_WALLET_LOTS } from "./fixtures/sharedReads";
 
@@ -57,12 +59,6 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     month: MONTH,
     generated_at: "2026-08-13T04:30:00Z",
     document_type: "tax_invoice",
-    document_blockers: [],
-    // A registered tax invoice charges real GST, so the bill-of-supply "estimated" preview
-    // fields (populated only when there is no GSTIN) are null here.
-    estimated_gst_inr: null,
-    estimated_gst_rate_pct: null,
-    estimated_total_inr: null,
     tax_note: null,
     supplier: {
       legal_name: "Calevate",
@@ -155,19 +151,53 @@ const HUB_ROUTES = {
   "/v1/billing/wallet/lots": EMPTY_WALLET_LOTS,
 };
 
+/** The month's row in the statement list, which is what opens the document. */
+const STATEMENTS = {
+  statements: [
+    {
+      month: MONTH,
+      closed: false,
+      document_type: "bill_of_supply",
+      invoice_number: "CAL-202608-0192f0aa",
+      total_inr: "10145.06",
+      credit_added_inr: "0.00",
+      wallet_spent_inr: "0.00",
+      calls: 41,
+      minutes_used: "120.50",
+    },
+  ],
+  next_before: null,
+};
+
+/**
+ * The statement is a row of the Statements view since the round-2 redesign: the list is
+ * `/v1/billing/statements`, and Open shows that month's document in a drawer — portalled
+ * to <body>, so `container` is the body here. A session that may not read billing gets
+ * the refusal in place of the list, and there is no row to open.
+ */
 async function render(answer: unknown, me: unknown = ME) {
-  return await renderBillingHub(
-    { "/v1/me": me, [ROUTE]: answer, ...HUB_ROUTES },
-    "Transactions",
+  const rendered = await renderBillingHub(
+    { "/v1/me": me, [ROUTE]: answer, [HUB_STATEMENTS_ROUTE]: STATEMENTS, ...HUB_ROUTES },
+    "Statements",
   );
+  const mayRead = (me as { permissions?: string[] }).permissions?.includes("billing:read");
+  if (mayRead) {
+    fireEvent.click(
+      await screen.findByRole("button", { name: `Open the statement for ${formatBillingMonth(MONTH)}` }),
+    );
+  }
+  return { ...rendered, container: document.body };
 }
 
 describe("the client's own invoice", () => {
-  it("refuses the TAX INVOICE heading when the GST identity is not configured", async () => {
+  it("is a bill of supply that says the one GST sentence and names no setting (D-659)", async () => {
     const { container } = await render(
       invoice({
         document_type: "bill_of_supply",
-        document_blockers: ["GST_SUPPLIER_GSTIN", "GST_SUPPLY_SAC"],
+        tax_note: `Bill of supply. ${GST_STATUS_SENTENCE} No input tax credit can be claimed against this document.`,
+        gst_rate_pct: "0",
+        gst_inr: "0.00",
+        total_inr: "10145.06",
         supplier: {
           legal_name: "Calevate",
           address: "Plot 42, Madhapur, Hyderabad 500081",
@@ -181,9 +211,7 @@ describe("the client's own invoice", () => {
           supply_type: "undetermined",
           basis: "No GST registration is configured for Calevate.",
         },
-        tax_components: [
-          { label: "GST", rate_pct: "18", amount_inr: "1826.11" },
-        ],
+        tax_components: [],
       }),
     );
 
@@ -193,19 +221,20 @@ describe("the client's own invoice", () => {
     // not is worse than one that admits what it is.
     expect(container.textContent).not.toContain("TAX INVOICE");
     expect(container.textContent).toContain("This is not a tax invoice.");
-    expect(container.textContent).toContain(
-      "no input tax credit can be claimed against it",
+    expect(container.textContent).toContain(GST_STATUS_SENTENCE);
+    expect(container.textContent).toContain("No input tax credit can be claimed");
+    // Unregistered is the normal state, not a fault: no settings name, no "missing".
+    expect(container.textContent).not.toMatch(/GST_SUPPL|Missing configuration/i);
+    expect(container.textContent).toContain(formatINR("10145.06"));
+  });
+
+  it("falls back to the shared sentence when the server sends no note", async () => {
+    const { container } = await render(
+      invoice({ document_type: "bill_of_supply", tax_note: null, tax_components: [] }),
     );
-    // The document names the REASON, and the reason is that we are not registered and are
-    // not required to be — not that a registration is pending somewhere.
-    expect(container.textContent).toContain(
-      "not required to be at its present turnover",
-    );
-    // Named configuration, so the person who can fix it knows what to set.
-    expect(container.textContent).toContain("GST_SUPPLIER_GSTIN");
-    // And the figures are still the real ones: a missing environment variable changes
-    // what the document CLAIMS, never what the client owes.
-    expect(container.textContent).toContain(formatINR("11971.17"));
+    await screen.findByText("BILL OF SUPPLY");
+    expect(container.textContent).toContain(GST_STATUS_SENTENCE);
+    expect(container.textContent).not.toMatch(/GST_SUPPL/);
   });
 
   it("prints every Rule 46 particular once the identity is configured", async () => {
@@ -301,9 +330,12 @@ describe("the client's own invoice", () => {
 
     await screen.findByRole("alert");
 
+    // Scoped to the statement drawer: the list behind it legitimately shows the month's
+    // ₹0.00 credit-added column, which is a different claim from a zero invoice.
+    const sheet = screen.getByRole("dialog");
     expect(container.textContent).not.toContain("TAX INVOICE");
     expect(container.textContent).not.toContain("BILL OF SUPPLY");
-    expect(container.textContent).not.toContain("₹0.00");
+    expect(sheet.textContent).not.toContain("₹0.00");
     // The server's own sentence, not a flattened "something went wrong".
     expect(container.textContent).toContain("The usage ledger is unavailable.");
     // And nothing printable: a sheet that looks like an invoice and carries no figures

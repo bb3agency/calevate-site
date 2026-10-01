@@ -3,12 +3,7 @@
 import { type ReactNode } from "react";
 import { BadgeCheck, ShieldAlert } from "lucide-react";
 
-import {
-  Card,
-  FIELD_INLINE,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-} from "@/components/ui";
+import { FIELD_INLINE, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { CONSENT_SOURCES, type ConsentSource, type ConsentStatus } from "@/lib/api/messagingConsent";
 
@@ -42,7 +37,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
   const { record, spec } = form;
 
   return (
-    <Card title="Record what a customer said">
+    <div>
       <p className="text-sm text-ink-muted">
         Every record is kept — nothing here is edited or deleted. If someone changes
         their mind, record the new answer and it replaces the old one from that
@@ -65,7 +60,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
             inputMode="tel"
             autoComplete="off"
             placeholder="9876543210 or +919876543210"
-            className={`${FIELD_INLINE} w-64 font-mono`}
+            className={`${FIELD_INLINE} w-full max-w-md font-mono`}
           />
           {valid.error("phone")}
         </Field>
@@ -178,7 +173,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
                an answer this form can point at. The length rule is answered at the
                field now. */
             disabled={record.isPending || form.blocked !== null}
-            className={PRIMARY_BUTTON_SM}
+            className={PRIMARY_BUTTON}
           >
             <BadgeCheck className="h-4 w-4" />
             {record.isPending
@@ -189,7 +184,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
           </button>
           {/* The refusal, given before the click rather than as a 422 after it. */}
           {form.blocked && (
-            <span className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <span className="flex items-start gap-1.5 text-xs text-warn">
               <ShieldAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
               {form.blocked}
             </span>
@@ -212,7 +207,7 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
           <Verdict state={record.data} />
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -264,8 +259,8 @@ function Choice({
     <label
       className={
         checked
-          ? `cursor-pointer rounded-md border border-brand-strong bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white ${FOCUS_RING}`
-          : `cursor-pointer rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 ${FOCUS_RING}`
+          ? `inline-flex cursor-pointer items-center rounded-md border touch:min-h-11 border-brand-strong bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white ${FOCUS_RING}`
+          : `inline-flex cursor-pointer items-center rounded-md touch:min-h-11 border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 ${FOCUS_RING}`
       }
     >
       <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />

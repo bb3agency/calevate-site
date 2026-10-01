@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 
-import { StatusBadge, formatDuration, formatIST } from "@/components/ui";
+import { StatusBadge, formatDuration, formatIST, formatPhone } from "@/components/ui";
 import type { DataColumn } from "@/components/console/dataTable";
 import { LIVE_STATUS, LiveDot } from "@/components/console/liveCalls";
 import type { CallSummary } from "@/lib/api/client";
@@ -87,7 +87,7 @@ export function callColumns({
             href={callHref(call.id)}
             className="whitespace-nowrap rounded-sm font-medium tabular-nums text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
           >
-            {call.caller_e164 ?? "Unknown number"}
+            {call.caller_e164 ? formatPhone(call.caller_e164) : "Unknown number"}
           </Link>
           <span className="md:hidden">
             <CallState call={call} />

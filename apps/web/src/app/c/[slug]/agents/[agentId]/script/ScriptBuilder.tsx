@@ -18,21 +18,13 @@
  * ride underneath their own script and see that no field here removes them.
  */
 
+import { useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Eye, Undo2, X } from "lucide-react";
 
-import {
-  Card,
-  NoticeBox,
-  PRIMARY_BUTTON,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-  RestrictionNote,
-  SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
-  Skeleton,
-  formatCount,
-} from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { ConfirmDialog } from "@/components/confirmDialog";
+import { Drawer } from "@/components/console/drawer";
+import { InfoTip } from "@/components/console/infoTip";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { applyByPaths } from "@/lib/copilot/paths";
@@ -61,43 +53,22 @@ import {
   type Focusable,
 } from "./ScriptSections";
 import { AssistPanel } from "./AssistPanel";
+import { CompiledPrompt, ModeToggle, ScriptToolbar } from "./ScriptToolbar";
 import { scriptCopilotFields } from "./scriptSurface";
 
-// Soft budget from PROMPT-GUIDE §1: ~2,500 tokens total. We count characters (the client
-// has no tokenizer) and warn past a conservative character equivalent — this is guidance,
-// not a hard stop, exactly as the guide frames it.
-const CHAR_BUDGET = 9000;
 
-export function ScriptBuilder({ agentId }: { agentId: string }) {
+export function ScriptBuilder({ agentId, backHref }: { agentId: string; backHref: string }) {
   const session = useClientSession();
+  const startAssist = useSearchParams().get("assist") === "1";
   const loaded = useScript(session, agentId);
-  /*
-   * WHOSE SCRIPT THIS IS, read for one question only: has the agent been deleted?
-   *
-   * The agent detail screen no longer links here for a deleted agent, but a URL is not a
-   * control — this route is bookmarkable, it is in a browser's history, and it is one back
-   * button away from the moment somebody pressed Delete. Every Save from here is now
-   * refused by the server (`agent_archived`), so rendering the editor would be an authoring
-   * surface whose only outcome is a 409 after the typing. `useAgent` is the same cached
-   * query the detail screen already made, so on the ordinary path this costs no request.
-   */
+  // Read for one question: is the agent deleted? This route is bookmarkable, and every
+  // save on a deleted agent is refused (`agent_archived`), so the editor is not offered.
   const agent = useAgent(session, agentId);
   const deleted = agent.data !== undefined && isDeleted(agent.data);
 
-  /*
-   * THE LOADING AND FAILED SCREENS, DECLARED — and `null` the moment `Editor` mounts.
-   *
-   * `Editor` declares the real surface, with every field of the script on it. This one
-   * exists so the launcher does not disappear on the two screens either side of it: a
-   * person whose script did not load is one of the likeliest people in this console to
-   * have a question, and an assistant that is present, says which screen it is on and
-   * answers from its read tools beats a button that is not there.
-   *
-   * `null` while `Editor` is up rather than a second declaration, because the registry is
-   * a STACK whose innermost registration wins and a parent's effect commits AFTER its
-   * child's — so a surface declared here unconditionally would silently shadow the
-   * script's own fields for the whole of the time they matter.
-   */
+  // The loading/failed/deleted screens, declared so the assistant stays present; `null`
+  // while `Editor` is up, because the innermost registration wins and `Editor` declares
+  // the script's own fields.
   useCopilotSurface(
     loaded.data && !deleted
       ? null
@@ -123,15 +94,15 @@ export function ScriptBuilder({ agentId }: { agentId: string }) {
   );
 
   if (deleted) {
-    /* A sentence, not a disabled editor. "A form whose every input is dead is worse than a
-       sentence saying why there is none" is the rule `AgentIdentity` already states, and a
-       500-line builder is the strongest case for it on this screen. */
     return (
-      <NoticeBox tone="warn" title="This agent is deleted">
-        Its script is kept exactly as it was, and it cannot be edited while the agent is
-        deleted. Bring the agent back from its own screen — it returns switched off — and
-        the builder opens again.
-      </NoticeBox>
+      <div className="rounded-card border border-warn-line bg-warn-soft p-4 text-sm text-ink">
+        <p className="font-semibold">This agent is deleted</p>
+        <p className="mt-1">
+          Its script is kept exactly as it was, and it cannot be edited while the agent is
+          deleted. Bring the agent back from its own screen — it returns switched off — and
+          the builder opens again.
+        </p>
+      </div>
     );
   }
 
@@ -139,9 +110,7 @@ export function ScriptBuilder({ agentId }: { agentId: string }) {
     <div className="space-y-5 pb-16">
       {loaded.error && <ProblemNotice error={loaded.error} onRetry={() => void loaded.refetch()} />}
       {loaded.isLoading ? (
-        <Card bodyClassName="p-4">
-          <Skeleton rows={10} />
-        </Card>
+        <Skeleton rows={10} />
       ) : loaded.data ? (
         <Editor
           agentId={agentId}
@@ -150,6 +119,9 @@ export function ScriptBuilder({ agentId }: { agentId: string }) {
           isFreeform={loaded.data.is_freeform}
           hasPending={loaded.data.has_pending}
           standardVariables={loaded.data.standard_variables}
+          backHref={backHref}
+          agentName={agent.data?.name ?? "This agent"}
+          startAssist={startAssist}
         />
       ) : null}
     </div>
@@ -163,7 +135,13 @@ function Editor({
   isFreeform,
   hasPending,
   standardVariables,
+  backHref,
+  agentName,
+  startAssist,
 }: {
+  backHref: string;
+  agentName: string;
+  startAssist: boolean;
   agentId: string;
   initial: CallScript;
   version: number | null;
@@ -175,11 +153,11 @@ function Editor({
   const [script, setScript] = useState<CallScript>(initial);
   const [raw, setRaw] = useState<boolean>(initial.raw_override !== null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [assisting, setAssisting] = useState(startAssist);
+  const [switching, setSwitching] = useState<"raw" | "structured" | null>(null);
 
-  // WHAT A RELOAD WOULD COST HERE: the whole call script, which is the longest thing a
-  // client writes in this console and is held only in `script` until Save. Compared by
-  // VALUE rather than by reference — every keystroke replaces the object, so a reference
-  // check would keep asking after an edit that was typed and undone.
+  // Compared by VALUE: every keystroke replaces the object, so a reference check would keep
+  // asking after an edit that was typed and undone.
   const unsaved = useMemo(
     () => JSON.stringify(script) !== JSON.stringify(initial),
     [script, initial],
@@ -225,33 +203,16 @@ function Editor({
     setScript((s) => ({ ...s, [key]: value }));
   }, []);
 
-  /*
-   * THE CALL SCRIPT, DECLARED TO THE SCREEN ASSISTANT.
-   *
-   * One typed `CallScript`, so the fill is one immutable update through `setScript`
-   * addressed by PATH (`lib/copilot/paths.ts`). Not the DOM — and this file is the one
-   * that would be most tempting to drive that way, because the native-value-setter
-   * technique in `insertVariable` above is right here. It is the wrong tool for this
-   * job: `insertVariable` writes into whichever control the AUTHOR last focused, at their
-   * caret, which is a DOM fact with no state equivalent. A fill names a field, which is a
-   * state fact, and going through the DOM for it would depend on ids these sub-components
-   * do not have.
-   *
-   * The list rows are addressed by index (`steps.2.instruction`) and `paths.ts` refuses
-   * an index this script does not have rather than growing the array — a step 4 appearing
-   * on a script with three is a step nobody wrote.
-   *
-   * RAW MODE DECLARES ONE FIELD, the body itself: the structured fields are ignored by the
-   * server while `raw_override` is a string, so offering them would be offering to fill in
-   * text that will not be used.
-   */
+  /* The script, declared to the assistant as one typed `CallScript` filled by PATH
+     (`lib/copilot/paths.ts`), never through the DOM: `insertVariable` above writes at the
+     author's caret, which is a DOM fact, while a fill names a field, which is a state fact.
+     `paths.ts` refuses an index the script does not have rather than growing a list. Raw
+     mode declares one field, because the server ignores the structured ones then. */
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}/script",
     title: raw ? "Call script (raw)" : "Call script",
     realm: "client",
-    // The `<field>` list, with the system-prompt drafting steer on its `help` (why the steer
-    // and why `help` is its channel: `scriptSurface.ts`). Pure and split out so the model's
-    // whole view of this screen is testable without the editor's query hooks.
+    // Pure and split out (`scriptSurface.ts`) so the model's view is testable alone.
     fields: scriptCopilotFields(script, raw),
     facts: script.variables.map((variable) => ({
       key: variable.key,
@@ -261,9 +222,7 @@ function Editor({
     apply: (items) =>
       setScript((current) =>
         applyByPaths(current, items, (id) =>
-          // `script-steps-2-instruction` -> `steps.2.instruction`. The id is the path
-          // with dots swapped for dashes, the same derivation `intakeFieldId` makes for
-          // the intake sheet, so there is one idea in the codebase and not two.
+          // `script-steps-2-instruction` -> `steps.2.instruction`, as `intakeFieldId` does.
           id.startsWith("script-") ? id.slice("script-".length).replace(/-/g, ".") : null,
         ),
       ),
@@ -281,6 +240,13 @@ function Editor({
     // because the server refuses both modes at once.
     setScript({ ...EMPTY_SCRIPT, raw_override: "" });
   };
+  // Each switch empties the editor of the other mode's text, so it asks first whenever
+  // there is text to lose. An empty editor switches straight away.
+  const hasStructured =
+    script.opening_line.trim() !== "" || script.steps.length > 0 || script.faqs.length > 0;
+  const hasRaw = (script.raw_override ?? "").trim() !== "";
+  const askRaw = () => (hasStructured ? setSwitching("raw") : toRaw());
+  const askStructured = () => (hasRaw ? setSwitching("structured") : toStructured());
 
   const onSave = () => {
     save.mutate({ script });
@@ -292,48 +258,63 @@ function Editor({
 
   return (
     <div className="space-y-5">
-      {isFreeform && (
-        <NoticeBox tone="neutral" title="This script was written as free text">
-          It is shown in the raw editor below so nothing is lost. Switch to the structured
-          builder when you are ready to rebuild it as steps and FAQs.
-        </NoticeBox>
-      )}
+      <ScriptToolbar
+        backHref={backHref}
+        agentName={agentName}
+        version={version}
+        hasPending={hasPending}
+        unsaved={unsaved}
+        canWrite={write.allowed}
+        writeReason={write.reason}
+        saving={save.isPending}
+        applying={apply.isPending}
+        onSave={onSave}
+        onApply={() => apply.mutate({ expected_version: version })}
+        onUndo={() => undo.mutate()}
+        onPreview={onPreview}
+        onAssist={() => setAssisting(true)}
+      />
 
+      <RestrictionNote reason={write.reason} />
+      {save.error && <ProblemNotice error={save.error} />}
+      {apply.error && <ProblemNotice error={apply.error} />}
+      {undo.error && <ProblemNotice error={undo.error} />}
+      {previewMut.error && <ProblemNotice error={previewMut.error} />}
+
+      {/* Both pointers as data, because "the version on screen is the one callers hear" is
+          the one misreading the two-speed model must never allow. */}
       {hasPending && (
-        <NoticeBox tone="warn" title="You have changes waiting to go live">
-          <div className="space-y-3">
+        <p className="text-sm text-ink">
+          A newer version of this script is saved but not yet applied to live calls. Apply it
+          when you are ready, or undo to go back to what callers hear now.
+        </p>
+      )}
+      {save.data && (
+        <p role="status" className="settings-enter text-sm text-ink-muted">
+          {save.data.staged
+            ? `Saved as v${save.data.version} — waiting to apply to live calls.`
+            : `Saved as v${save.data.version}.`}
+        </p>
+      )}
+      {isFreeform && (
+        <p className="flex items-center gap-1 text-sm text-ink-muted">
+          This script was written as free text.
+          <InfoTip label="Free-text script">
             <p>
-              A newer version of this script is saved but not yet applied to live calls.
-              Apply it when you are ready, or undo to go back to what callers hear now.
+              It is shown in the raw editor below so nothing is lost. Switch to the structured
+              builder when you are ready to rebuild it as steps and FAQs.
             </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={PRIMARY_BUTTON_SM}
-                disabled={!write.allowed || apply.isPending}
-                onClick={() => apply.mutate({ expected_version: version })}
-              >
-                Apply to live calls
-              </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={!write.allowed || undo.isPending}
-                onClick={() => undo.mutate()}
-              >
-                <Undo2 aria-hidden className="h-3.5 w-3.5" />
-                Undo changes
-              </button>
-            </div>
-            {apply.error && <ProblemNotice error={apply.error} />}
-            {undo.error && <ProblemNotice error={undo.error} />}
-          </div>
-        </NoticeBox>
+          </InfoTip>
+        </p>
       )}
 
-      <AssistPanel agentId={agentId} onDraft={(s) => setScript(s)} disabled={raw} />
-
-      <Card title="Its script" action={<ModeToggle raw={raw} onStructured={toStructured} onRaw={toRaw} />}>
+      <section aria-labelledby="script-editor-heading" className="mx-auto max-w-3xl space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 id="script-editor-heading" className="text-[15px] font-semibold text-ink">
+            Its script
+          </h3>
+          <ModeToggle raw={raw} onStructured={askStructured} onRaw={askRaw} />
+        </div>
         {raw ? (
           <RawEditor
             value={script.raw_override ?? ""}
@@ -371,114 +352,48 @@ function Editor({
             />
           </div>
         )}
-      </Card>
+      </section>
 
-      <RestrictionNote reason={write.reason} />
+      <Drawer
+        open={assisting}
+        onClose={() => setAssisting(false)}
+        title="Draft with AI"
+        description="Describe your business; review the draft before you save."
+        width="md"
+      >
+        <AssistPanel agentId={agentId} onDraft={(s) => setScript(s)} disabled={raw} />
+      </Drawer>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON}
-          disabled={!write.allowed || save.isPending}
-          onClick={onSave}
+      {preview !== null && (
+        <CompiledPrompt
+          text={preview}
+          chars={compiledChars}
+          onClose={() => setPreview(null)}
+        />
+      )}
+
+      {switching && (
+        <ConfirmDialog
+          title={switching === "raw" ? "Start a blank text script?" : "Go back to the structured builder?"}
+          confirmLabel={switching === "raw" ? "Start blank text" : "Switch to structured"}
+          pendingLabel="Switching…"
+          cancelLabel="Keep editing"
+          pending={false}
+          error={null}
+          onCancel={() => setSwitching(null)}
+          onConfirm={() => {
+            if (switching === "raw") toRaw();
+            else toStructured();
+            setSwitching(null);
+          }}
         >
-          Save script
-        </button>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={previewMut.isPending}
-          onClick={onPreview}
-        >
-          <Eye aria-hidden className="h-4 w-4" />
-          View compiled prompt
-        </button>
-        {save.data && (
-          <span className="text-sm text-ink-muted">
-            {save.data.staged
-              ? `Saved as v${save.data.version} — waiting to apply to live calls.`
-              : `Saved as v${save.data.version}.`}
-          </span>
-        )}
-        {compiledChars !== null && (
-          <span
-            className={`text-xs ${compiledChars > CHAR_BUDGET ? "text-rose-600" : "text-ink-faint"}`}
-          >
-            Compiled length {formatCount(compiledChars)} characters
-            {compiledChars > CHAR_BUDGET ? " — over the recommended budget" : ""}
-          </span>
-        )}
-      </div>
-
-      {save.error && <ProblemNotice error={save.error} />}
-      {previewMut.error && <ProblemNotice error={previewMut.error} />}
-
-      {preview !== null && <CompiledPrompt text={preview} onClose={() => setPreview(null)} />}
+          <p>
+            {switching === "raw"
+              ? "The text editor starts empty. The steps and answers on screen are cleared from this draft; the saved version is not touched until you save."
+              : "The structured builder does not read free text, so the text on screen is cleared from this draft; the saved version is not touched until you save."}
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
-  );
-}
-
-function ModeToggle({
-  raw,
-  onStructured,
-  onRaw,
-}: {
-  raw: boolean;
-  onStructured: () => void;
-  onRaw: () => void;
-}) {
-  return (
-    <div className="inline-flex rounded-md border border-line text-xs" role="group" aria-label="Editing mode">
-      <button
-        type="button"
-        aria-pressed={!raw}
-        onClick={onStructured}
-        className={`rounded-l-md px-3 py-1.5 font-medium transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset touch:min-h-11 ${!raw ? "bg-brand-strong text-white focus-visible:ring-white" : "text-ink-muted hover:bg-black/5 focus-visible:ring-brand"}`}
-      >
-        Structured
-      </button>
-      <button
-        type="button"
-        aria-pressed={raw}
-        onClick={onRaw}
-        className={`rounded-r-md px-3 py-1.5 font-medium transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset touch:min-h-11 ${raw ? "bg-brand-strong text-white focus-visible:ring-white" : "text-ink-muted hover:bg-black/5 focus-visible:ring-brand"}`}
-      >
-        Raw text
-      </button>
-    </div>
-  );
-}
-
-function CompiledPrompt({ text, onClose }: { text: string; onClose: () => void }) {
-  return (
-    <Card
-      title="Compiled prompt"
-      action={
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onClose}>
-          <X aria-hidden className="h-3.5 w-3.5" />
-          Close
-        </button>
-      }
-    >
-      <p className="mb-3 text-sm text-ink-muted">
-        This is exactly what the calling system runs — your opening, your script, and the
-        platform rules the agent must always follow, which you cannot remove.
-      </p>
-      {/* Focusable for the same reason every `ScrollRegion` is, on the other axis:
-          `max-h-[28rem]` makes this a VERTICALLY scrolling container, and no key scrolls a
-          non-focusable element, so a keyboard reader could see the first 28rem of the
-          compiled prompt and no more. Not `ScrollRegion` itself — that component is the
-          sideways case and hardcodes `overflow-x-auto` (its waiver's argument is written
-          there); this matches the integrations screen's delivered-payload `<pre>`. */}
-      <pre
-        role="region"
-        aria-label="Compiled prompt"
-        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
-        tabIndex={0}
-        className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border border-line bg-black/[0.03] p-3 text-xs text-ink dark:bg-white/[0.03]"
-      >
-        {text}
-      </pre>
-    </Card>
   );
 }

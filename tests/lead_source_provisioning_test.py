@@ -424,6 +424,28 @@ async def test_a_meta_source_needs_the_clients_app_secret_and_others_refuse_one(
     assert unwanted.json()["type"].endswith("/app_secret_not_accepted")
 
 
+async def test_the_list_offers_each_source_the_same_address_its_create_returned() -> None:
+    """The screen copies a source's address from the list long after the create response
+    is gone, so the list must carry the server-built path — per kind, because a Meta
+    source posts to a different receiver than a shared-secret one."""
+    _, slug, token = await _make_tenant()
+    async with _client() as http:
+        form = await _create_source(http, slug, token, mapping={"phone": "phone_number"})
+        meta = await _create_source(
+            http, slug, token, source="meta_lead_ads", app_secret="the-meta-app-secret"
+        )
+        assert form.status_code == 201, form.text
+        assert meta.status_code == 201, meta.text
+        listed = await http.get("/v1/lead-sources", headers=_headers(slug, token))
+    assert listed.status_code == 200, listed.text
+    paths = {item["id"]: item["ingest_path"] for item in listed.json()["items"]}
+    assert paths == {
+        form.json()["id"]: form.json()["ingest_path"],
+        meta.json()["id"]: meta.json()["ingest_path"],
+    }
+    assert paths[meta.json()["id"]].startswith("/hooks/v1/ingest/meta/")
+
+
 async def test_a_rotated_meta_app_secret_keeps_verifying_deliveries_in_flight() -> None:
     """The grace window covers the OTHER receiver too.
 
