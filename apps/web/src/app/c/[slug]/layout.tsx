@@ -22,6 +22,7 @@ import {
   useSidebarCollapse,
 } from "@/components/sidebarCollapse";
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
+import { LiveCallsPill } from "@/components/console/liveCalls";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
 import {
@@ -295,7 +296,10 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
           <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">{title}</h1>
         </div>
 
-        <div className="flex items-center gap-2 lg:gap-4">
+        <div className="flex items-center gap-2 lg:gap-3">
+          {/* Calls in progress now, from the existing 20-second call poll. Renders
+              nothing unless at least one call is live. */}
+          <LiveCallsPill slug={slug} />
           <Link
             href={href(`/c/${slug}/attention`)}
             aria-label={

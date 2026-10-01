@@ -2,6 +2,7 @@ import { lookup } from "@/lib/lookup";
 import { type Lead, type LeadColumn, type LeadLens } from "@/lib/api/leads";
 
 import { narrowedBeyondStatus } from "./leadFilters";
+import { STATUSES } from "./StatusSelect";
 
 /**
  * THE TABLE'S ARITHMETIC AND ITS METRICS — the React-free half of the leads screen.
@@ -13,11 +14,6 @@ import { narrowedBeyondStatus } from "./leadFilters";
 /** Two ways to look at the same leads: the table for scanning detail columns, the
  *  board for working the pipeline stage by stage (parity with what competitors ship). */
 export type ViewMode = "list" | "board";
-
-/** Table cell metrics, once — a table whose columns disagree about padding reads as two
- *  tables. `p-2` on the card body plus `px-3` here is the design's 20px edge inset. */
-export const HEAD_CELL = "px-3 py-2.5 font-semibold";
-export const BODY_CELL = "px-3 py-2.5";
 
 /**
  * The two controls a client touches most — move a lead's stage, reassign its owner — at
@@ -115,20 +111,55 @@ export function cellValue(lead: Lead, key: string): string {
   return String(value);
 }
 
-/** Per-column table styling. A column's LOOK follows its kind, so a client who moves
+/** Per-column cell styling. A column's LOOK follows its kind, so a client who moves
  *  Phone to the end still gets tabular numerals and no wrapping there. */
 export function cellClass(column: LeadColumn): string {
   switch (column.key) {
     case "name":
-      return `${BODY_CELL} font-semibold text-ink`;
+      return "whitespace-nowrap font-semibold text-ink";
     case "phone":
-      return `${BODY_CELL} whitespace-nowrap tabular-nums text-ink-muted`;
+      return "whitespace-nowrap tabular-nums text-ink-muted";
     case "calls":
-      return `${BODY_CELL} tabular-nums text-ink-muted`;
+      return "tabular-nums text-ink-muted";
     case "created_at":
     case "updated_at":
-      return `${BODY_CELL} whitespace-nowrap text-xs text-ink-faint`;
+      return "whitespace-nowrap text-xs text-ink-faint";
     default:
-      return `${BODY_CELL} text-ink-muted`;
+      return "text-ink-muted";
+  }
+}
+
+/**
+ * What a column sorts by, and how. Stages sort in pipeline order rather than
+ * alphabetically; counts as numbers; instants as instants; anything else as text.
+ */
+export function sortFor(
+  column: LeadColumn,
+): { value: (lead: Lead) => string | number | null | undefined; kind: "text" | "number" | "time"; first?: "asc" | "desc" } {
+  switch (column.kind === "fixed" ? column.key : "") {
+    case "name":
+      return { value: (lead) => lead.name, kind: "text" };
+    case "phone":
+      return { value: (lead) => lead.phone_e164, kind: "text" };
+    case "status":
+      return { value: (lead) => STATUSES.indexOf(lead.status), kind: "number" };
+    case "owner":
+      return { value: (lead) => lead.assigned_to_name, kind: "text" };
+    case "source":
+      return { value: (lead) => lead.source, kind: "text" };
+    case "calls":
+      return { value: (lead) => lead.call_count, kind: "number", first: "desc" };
+    case "created_at":
+      return { value: (lead) => lead.created_at, kind: "time", first: "desc" };
+    case "updated_at":
+      return { value: (lead) => lead.updated_at, kind: "time", first: "desc" };
+    default:
+      return {
+        value: (lead) => {
+          const shown = cellValue(lead, column.key);
+          return shown === "—" ? null : shown;
+        },
+        kind: "text",
+      };
   }
 }

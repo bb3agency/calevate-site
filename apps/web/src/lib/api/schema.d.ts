@@ -3835,6 +3835,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}/speaking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who is speaking on a live call — streamed as text/event-stream (D-656)
+         * @description Each frame is `{speaker, live, since}`: one at once, one per change, and a last one
+         *     with `live: false` when the call ends. See `crm/live_speaking.py` for the transport
+         *     choice and the store behind it.
+         */
+        get: operations["stream_call_speaking_v1_calls__call_id__speaking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}/transcript/raw": {
         parameters: {
             query?: never;
@@ -24857,6 +24879,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordingLinkOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stream_call_speaking_v1_calls__call_id__speaking_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -158,6 +158,22 @@ describe("the light palette", () => {
   });
 });
 
+/**
+ * The status tones (warn, danger) carry text and icons, so they are held to the text
+ * threshold on the surfaces they are painted on, including their own tinted ground.
+ */
+describe("the status tones", () => {
+  for (const tone of ["warn", "danger"]) {
+    for (const ground of ["surface", "app", `${tone}-soft`]) {
+      it(`renders --${tone} on --${ground} at AA`, () => {
+        expect(contrast(token(":root {", tone), token(":root {", ground))).toBeGreaterThanOrEqual(
+          AA_NORMAL_TEXT,
+        );
+      });
+    }
+  }
+});
+
 describe("the dark palette", () => {
   // Nothing toggles `.dark` yet (globals.css records why), so these are the tests that
   // stop the toggle landing on top of a contrast failure nobody could see beforehand.

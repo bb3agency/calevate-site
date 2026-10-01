@@ -45,15 +45,14 @@ CLIENT_TS = _WEB_SRC / "lib" / "api" / "client.ts"
 #: EVERY browser sender, not just the main one — and the list is a fact about the repo,
 #: pinned by `apps/web/tests/transportGuard.test.ts`, which is what bans a fourth.
 #:
-#: THE SCAN USED TO READ `client.ts` ALONE, and that was a hole with two live tenants in
-#: it: `lib/authn/transport.ts` (the `/v1/auth/**` fetch every console screen sits behind)
-#: and `lib/copilot/stream.ts` (the SSE fetch) each set request headers of their own. A
-#: header added in one of those would be sent by the browser, refused by the preflight and
-#: invisible to curl — the exact failure this file was written for, one file to the left.
+#: THE SCAN USED TO READ `client.ts` ALONE, and that missed `lib/authn/transport.ts` (the
+#: `/v1/auth/**` fetch every console screen sits behind), which sets request headers of its
+#: own. A header added there would be sent by the browser, refused by the preflight and
+#: invisible to curl — the exact failure this file was written for. The SSE streams go
+#: through `client.ts::openEventStream` (D-656), so they are covered by its entry.
 BROWSER_SENDERS = (
     CLIENT_TS,
     _WEB_SRC / "lib" / "authn" / "transport.ts",
-    _WEB_SRC / "lib" / "copilot" / "stream.ts",
 )
 
 #: Headers a browser may always send without listing them in `Access-Control-Allow-Headers`

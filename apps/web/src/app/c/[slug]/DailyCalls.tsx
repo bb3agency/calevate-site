@@ -48,7 +48,10 @@ export function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
           got it, keyboard and screen-reader users got nothing (ux-audit D1). The
           rendered chart is aria-hidden and this table is its text alternative; the
           numbers are the same `daily_7d` rows, not a second computation. */}
-      <table className="sr-only">
+      {/* The wrapper carries `sr-only`, not the table: a table ignores the 1px box and
+          overflow clip, so an `sr-only` table still widened the page on a phone. */}
+      <div className="sr-only">
+      <table>
         <caption>Calls each day for the last 7 days, by outcome</caption>
         <thead>
           <tr>
@@ -73,9 +76,10 @@ export function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
           ))}
         </tbody>
       </table>
+      </div>
 
       <div aria-hidden="true">
-        <div className="mb-6 flex flex-wrap items-center gap-4 text-xs font-medium text-ink-muted">
+        <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-ink-muted">
           {DAY_CLASSES.map((cls) => (
             <span key={cls.key} className="flex items-center gap-1.5">
               <span className={`h-2 w-2 rounded-full ${cls.fill}`} />
@@ -84,19 +88,16 @@ export function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
           ))}
         </div>
 
-        <div className="flex h-[240px] items-end justify-between gap-2">
+        {/* Bars share one baseline: the plot area is a fixed-height row and each bar is a
+            percentage of it, with the day labels in their own row underneath. */}
+        <div className="flex h-[180px] items-stretch justify-between gap-2 border-b border-line">
           {days.map((day) => (
-            <div
-              key={day.ist_date}
-              className="flex h-full min-w-0 flex-1 flex-col items-center gap-2"
-            >
-              <span className="text-[11px] font-semibold tabular-nums text-ink">
-                {day.total}
-              </span>
+            <div key={day.ist_date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1.5">
+              <span className="text-[11px] font-semibold tabular-nums text-ink">{day.total}</span>
               <div
-                className="flex w-full max-w-[44px] flex-col-reverse overflow-hidden rounded-t-md bg-black/[0.03] dark:bg-white/5"
+                className="flex w-full max-w-[40px] flex-col-reverse overflow-hidden rounded-t-md bg-ink/[0.06]"
                 style={{
-                  height: `${busiest > 0 ? Math.max(2, Math.round((day.total / busiest) * 100)) : 2}%`,
+                  height: `${busiest > 0 ? Math.max(2, Math.round((day.total / busiest) * 85)) : 2}%`,
                 }}
                 title={`${day.ist_date}: ${day.total} calls`}
               >
@@ -108,10 +109,14 @@ export function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
                   />
                 ))}
               </div>
-              <span className="w-full truncate text-center text-[11px] font-medium text-ink-muted">
-                {formatDayLabel(day.ist_date)}
-              </span>
             </div>
+          ))}
+        </div>
+        <div className="mt-2 flex justify-between gap-2">
+          {days.map((day) => (
+            <span key={day.ist_date} className="min-w-0 flex-1 truncate text-center text-[11px] font-medium text-ink-muted">
+              {formatDayLabel(day.ist_date)}
+            </span>
           ))}
         </div>
       </div>

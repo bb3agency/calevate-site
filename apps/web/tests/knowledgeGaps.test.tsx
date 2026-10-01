@@ -80,7 +80,8 @@ describe("the knowledge-gaps card", () => {
     await renderClientPage(page, routes());
 
     expect(await screen.findByText("Pricing")).toBeTruthy();
-    expect(screen.getByText("DIDN'T KNOW THIS")).toBeTruthy();
+    // Sentence case: the console no longer sets labels in tracked capitals.
+    expect(screen.getByText("Didn't know this")).toBeTruthy();
     expect(
       screen.getByText("I don't know the price, I'll WhatsApp you."),
     ).toBeTruthy();
@@ -96,7 +97,7 @@ describe("the knowledge-gaps card", () => {
       routes({ [GAPS_ROUTE]: list({ items: [], open_count: 0, total: 0 }) }),
     );
     expect(await screen.findByText("Nothing unanswered")).toBeTruthy();
-    expect(container.textContent).not.toContain("DIDN'T KNOW THIS");
+    expect(container.textContent).not.toContain("Didn't know this");
   });
 
   it("does not report calm when the request failed", async () => {

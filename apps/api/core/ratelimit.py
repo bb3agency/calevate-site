@@ -174,6 +174,14 @@ PROFILES: dict[str, LimitProfile] = {
     # at seven requests each. Going past it is a decision-log entry, not a number typed here
     # (`tests/rate_limit_census_test.py` enforces exactly that).
     "worker_api": LimitProfile("worker_api", per_client=600, per_tenant=None),
+    # The worker's live speaking state (D-656), in a bucket of its own so that the busiest
+    # minute of conversation on the platform can never 429 a settlement — the settlement is
+    # the only producer of a call's post-call row, and the speaking state is decoration the
+    # worker drops on any refusal. The worker sends a state only when it has held for its
+    # debounce, plus a heartbeat while someone is mid-sentence, so a call costs a few dozen a
+    # minute: this ceiling is roughly twenty concurrent calls at full fidelity, after which
+    # the indicator lags and nothing else does. Raising it is a decision-log entry.
+    "worker_live": LimitProfile("worker_live", per_client=600, per_tenant=None),
     # Anything the table does not name: 404 probes, a path that has not been routed yet.
     # NOT reachable from a mounted API route — the census test fails the build first —
     # so this exists purely so that scanning for unrouted paths is not free.
@@ -284,6 +292,9 @@ RULES: tuple[Rule, ...] = (
     # `client_api`'s — which was sized for one signed-in person, not for a site.
     Rule("/v1/public/**", "public_read"),
     Rule("/v1/worker/**", "worker_api"),
+    # A FAMILY rule (no method set), not a cost weight: its purpose is a separate bucket,
+    # not a tighter one. See the `worker_live` profile.
+    Rule("/v1/worker/calls/*/speaking", "worker_live"),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),

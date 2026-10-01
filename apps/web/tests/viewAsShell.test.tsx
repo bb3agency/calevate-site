@@ -45,6 +45,7 @@ import { dismissStepUpPrompt, requireStepUp } from "@/lib/authn/stepUpPrompt";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { LIVE_CALLS_PATH } from "./fixtures/sharedReads";
 import { stillLoading, stubApi } from "./harness";
 
 /** The reads the shell itself makes on mount, all parked in flight. */
@@ -53,6 +54,7 @@ const SHELL_IN_FLIGHT = {
   "GET /v1/attention": stillLoading(),
   "GET /v1/maintenance": stillLoading(),
   "GET /v1/legal/readiness": stillLoading(),
+  [`GET ${LIVE_CALLS_PATH}`]: stillLoading(),
 };
 
 /** The same shell with the server confirming the impersonation, as it does in practice. */
@@ -65,6 +67,7 @@ const SHELL_IMPERSONATING = {
   "GET /v1/attention": stillLoading(),
   "GET /v1/maintenance": stillLoading(),
   "GET /v1/legal/readiness": stillLoading(),
+  [`GET ${LIVE_CALLS_PATH}`]: stillLoading(),
 };
 
 /**

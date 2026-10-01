@@ -186,6 +186,14 @@ all of the content in order" (`src/components/tabs/index.md`, `src/components/ac
 read 25 Aug 2026). A workspace where an owner scans down to see the state of one agent is
 the read-in-order case. Use `<Disclosure>` on a section, or split the route.
 
+**D-655 carves out one case: switching between PEER VIEWS OF THE SAME DATA.** A filter
+over one list (all / inbound / outbound calls), a period over one chart (7 / 30 / 90 days),
+or one record's sibling panels that nobody reads in sequence (a call's Summary /
+Transcript / Captured details) may use the `SegmentedControl` or `Tabs` primitive. The
+test is that every view is complete on its own and the reader picks ONE. It never applies
+to a compliance control or its qualifying sentence, a screen's primary job, an error or
+refusal, or content a reader goes through in order; those keep §3's rules above.
+
 ---
 
 ## §4 Action hierarchy

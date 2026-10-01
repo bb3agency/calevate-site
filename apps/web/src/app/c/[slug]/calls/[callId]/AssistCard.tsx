@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import {
-  Card,
   NoticeBox,
   PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
 } from "@/components/ui";
+import { Panel } from "@/components/console/panel";
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
@@ -76,19 +77,23 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
   const [asking, setAsking] = useState(false);
 
   return (
-    <Card title="Ask the assistant">
-      <div className="space-y-3">
-        <p className="text-sm text-ink-muted">
+    <Panel
+      title="Ask the assistant"
+      info={
+        <p>
           Read this call again with the AI assistant and write a fresh summary. It reads
           the redacted transcript only, and it does not change anything already saved
           against this call.
         </p>
+      }
+    >
+      <div className="space-y-3">
 
         <RestrictionNote reason={write.reason} />
 
         <button
           type="button"
-          className={PRIMARY_BUTTON}
+          className={`${SECONDARY_BUTTON} w-full justify-center`}
           disabled={!write.allowed || assist.isPending}
           onClick={() => assist.mutate()}
         >
@@ -126,7 +131,7 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
 
         {assist.data && <AssistAnswer answer={assist.data} />}
       </div>
-    </Card>
+    </Panel>
   );
 }
 
@@ -138,7 +143,7 @@ function AssistAnswer({
 }) {
   return (
     <div className="space-y-2 rounded-card border border-line bg-canvas p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+      <p className="text-[12px] font-medium text-ink-faint">
         The assistant&apos;s summary
       </p>
       {answer.summary.trim() ? (

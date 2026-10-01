@@ -43,10 +43,11 @@
  *    `/brand/*` asset (`components/brand.tsx`). There is no analytics, no CDN, no map
  *    tile, no avatar host, no service worker, no web worker and no manifest.
  * 3. **`connect-src`.** The only cross-origin fetches this app makes are to the API:
- *    `lib/api/client.ts:645` and the copilot's streaming reader `lib/copilot/stream.ts:204`
- *    both build `${API_BASE}${path}`, and `API_BASE` is `NEXT_PUBLIC_API_BASE_URL` — the
- *    same value `apiConnectOrigin()` reads here. `lib/copilot/sse.ts` parses the stream
- *    from that same `fetch`; it does not open a second connection.
+ *    `lib/api/client.ts` builds `${API_BASE}${path}` for every request, including the
+ *    event streams (`openEventStream`: the copilot's answers and a live call's speaker),
+ *    and `API_BASE` is `NEXT_PUBLIC_API_BASE_URL` — the same value `apiConnectOrigin()`
+ *    reads here. `lib/copilot/sse.ts` only parses a stream that `fetch` returned; it does
+ *    not open a connection of its own.
  * 4. **`media-src` WAS MISSING AND WOULD HAVE BROKEN CALL RECORDING PLAYBACK.** See the
  *    directive's own note below. This is the one thing the audit of the policy found, and
  *    it is fixed here rather than discovered in production.

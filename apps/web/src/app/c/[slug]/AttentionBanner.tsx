@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowRight, CircleAlert } from "lucide-react";
 
 import { formatCount } from "@/components/ui";
 import type { useAttention } from "@/lib/api/attention";
@@ -40,18 +41,20 @@ export function AttentionBanner({
     attention.data.total > 0 && (
       <Link
         href={href}
-        className="flex items-center justify-between gap-3 rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 transition-colors duration-(--duration-fast) ease-out hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+        className="flex items-center justify-between gap-3 rounded-card border border-warn-line bg-warn-soft px-4 py-3 text-sm text-warn transition-colors duration-(--duration-fast) ease-out hover:bg-[color-mix(in_srgb,var(--warn-soft),var(--warn-line)_40%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
       >
-        <span>
-          <span className="font-semibold tabular-nums">
-            {formatCount(attention.data.total)}
-          </span>{" "}
-          {attention.data.total === 1 ? "thing needs" : "things need"} your
-          attention — things we stopped on purpose, each with the reason and
-          the fix.
+        <span className="flex items-center gap-2">
+          <CircleAlert aria-hidden className="h-4 w-4 shrink-0" />
+          <span>
+            <span className="font-semibold tabular-nums">
+              {formatCount(attention.data.total)}
+            </span>{" "}
+            {attention.data.total === 1 ? "thing needs" : "things need"} your attention
+          </span>
         </span>
-        <span className="shrink-0 font-medium underline">
-          Open the list
+        <span className="flex shrink-0 items-center gap-1 font-medium">
+          Review
+          <ArrowRight aria-hidden className="h-3.5 w-3.5" />
         </span>
       </Link>
     )

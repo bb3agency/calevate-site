@@ -13,6 +13,7 @@
  */
 
 import { AUTH_MODE_ENV, IS_PRODUCTION_BUILD } from "@/lib/authn/mode";
+import { createSseParser, type SseEvent } from "@/lib/copilot/sse";
 
 import type { components } from "./schema";
 
@@ -677,6 +678,119 @@ export async function apiRequest<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   return sendRequest<T>(session, path, options);
+}
+
+/** How `openEventStream` is asked for one stream. */
+export interface EventStreamOptions {
+  /** `GET` unless the stream answers a request with a body (`POST /v1/copilot/ask`). */
+  method?: "GET" | "POST";
+  /** Sent as JSON. */
+  body?: unknown;
+  signal?: AbortSignal;
+  /**
+   * A deadline on the RESPONSE HEADERS only, answered as `TimeoutProblem`. The body takes
+   * as long as the stream lasts, so no deadline is ever put on it.
+   */
+  headersTimeoutMs?: number;
+  /** Each complete event, in order. A throw from here propagates unchanged. */
+  onEvent: (event: SseEvent) => void;
+}
+
+/**
+ * A request answered as `text/event-stream`, delivered one event at a time — THE one SSE
+ * transport in this console (D-656). The copilot's `POST /v1/copilot/ask` and the call
+ * screen's `GET /v1/calls/{id}/speaking` both come through here.
+ *
+ * It goes through THIS module for the reason every other request does: the same identity
+ * headers, the same `credentials: "include"`, the same `problemFrom` on a refusal and the
+ * same `TransportProblem` on a browser failure. `apiRequest` cannot carry it — `readBody`
+ * waits for the whole body — and `EventSource` cannot either: it is GET-only and sends no
+ * headers (`X-Org-Slug`, the dev token). Framing is `lib/copilot/sse.ts`'s parser.
+ *
+ * Resolves when the server ends the stream, including a 2xx with no body (zero events).
+ * Rejects with an `ApiProblem` for a non-2xx, a transport failure or a header deadline, and
+ * with the abort reason when `signal` is aborted. There is no reconnect: whether a closed
+ * stream is reopened is the caller's decision — a metered copilot answer must never be
+ * replayed by a transport.
+ *
+ * The reader is released on EVERY exit, including a throw from `onEvent`: an undrained,
+ * locked body holds the connection until garbage collection, once per failed stream, on a
+ * console people leave open all day.
+ */
+export async function openEventStream(
+  session: Session,
+  path: string,
+  { method = "GET", body, signal, headersTimeoutMs, onEvent }: EventStreamOptions,
+): Promise<void> {
+  const identity = identityHeaders(session);
+  const headers = identity instanceof Promise ? await identity : identity;
+  headers["Accept"] = "text/event-stream";
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // As `sendRequest`: a write carries its id so a failure with no reply is joinable to the
+  // API's own `request` log line.
+  const correlationId = newCorrelationId();
+  if (method !== "GET") headers["X-Correlation-Id"] = correlationId;
+
+  // One controller for the fetch, fed by the caller's signal AND the header deadline, so
+  // the two causes stay distinguishable: `headersTimedOut` says which one fired.
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) forwardAbort();
+  else signal?.addEventListener("abort", forwardAbort);
+  let headersTimedOut = false;
+  const headersTimer =
+    headersTimeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          headersTimedOut = true;
+          controller.abort();
+        }, headersTimeoutMs);
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        credentials: "include",
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      if (headersTimedOut && headersTimeoutMs !== undefined) throw new TimeoutProblem(headersTimeoutMs);
+      if (signal?.aborted) throw signal.reason;
+      throw new TransportProblem(cause, { method, path, correlationId });
+    } finally {
+      clearTimeout(headersTimer);
+    }
+    if (!response.ok) throw await problemFrom(response);
+    if (response.body === null) return;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const parser = createSseParser();
+    try {
+      for (;;) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch (cause) {
+          if (signal?.aborted) throw signal.reason;
+          throw new TransportProblem(cause, { method, path, correlationId });
+        }
+        if (chunk.done) return;
+        // `stream: true` so a multi-byte character split across two chunks is held rather
+        // than decoded into a replacement character — Telugu is three bytes per glyph.
+        for (const event of parser.push(decoder.decode(chunk.value, { stream: true }))) {
+          onEvent(event);
+        }
+      }
+    } finally {
+      void reader.cancel().catch(() => {});
+    }
+  } finally {
+    signal?.removeEventListener("abort", forwardAbort);
+  }
 }
 
 /**

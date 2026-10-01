@@ -1,6 +1,6 @@
 "use client";
 
-import { Card } from "@/components/ui";
+import { Panel } from "@/components/console/panel";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 
@@ -39,7 +39,7 @@ export function KeyMomentsCard({
   onSeek: (ms: number) => void;
 }) {
   return (
-    <Card title="Key points in this call">
+    <Panel title="Key points in this call">
       <ol className="space-y-1">
         {moments.map((moment, i) => {
           const next = moments[i + 1]?.at_ms;
@@ -56,7 +56,7 @@ export function KeyMomentsCard({
               <span className="min-w-0 flex-1 text-sm text-ink">{moment.label}</span>
               {suggested && (
                 <span
-                  className="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-faint dark:bg-white/10"
+                  className="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium text-ink-faint dark:bg-white/10"
                   title="Suggested by the assistant from the transcript — the time may be approximate."
                 >
                   AI
@@ -91,6 +91,6 @@ export function KeyMomentsCard({
           Open the recording above to jump to any of these.
         </p>
       )}
-    </Card>
+    </Panel>
   );
 }

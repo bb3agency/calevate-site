@@ -1,6 +1,9 @@
 "use client";
 
-import { Download, LayoutGrid, List, Search, Sparkles } from "lucide-react";
+import { Download, Search, Sparkles } from "lucide-react";
+
+import { InfoTip } from "@/components/console/infoTip";
+import { SegmentedControl } from "@/components/interior/segmented-control";
 
 import { type LeadLens, type LeadList, type useExportLeads } from "@/lib/api/leads";
 
@@ -32,6 +35,7 @@ export function LeadsToolbar({
   exportLeads,
   mayExport,
   exportRefusal,
+  exportNote,
   onExported,
 }: {
   search: string;
@@ -56,11 +60,13 @@ export function LeadsToolbar({
    * (UX-DOCTRINE §4).
    */
   exportRefusal: string | null;
+  /** What the file holds, in a sentence — behind the ⓘ beside the button. */
+  exportNote: string;
   onExported: () => void;
 }) {
   return (
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+        <div className="relative min-w-0 flex-1 sm:flex-none">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
           <input
             value={search}
@@ -69,7 +75,7 @@ export function LeadsToolbar({
             maxLength={60}
             aria-label="Search leads"
             placeholder="Name or last digits"
-            className="w-56 rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint"
+            className="w-full rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint touch:min-h-11 sm:w-56"
           />
         </div>
 
@@ -79,7 +85,7 @@ export function LeadsToolbar({
             clear affordance, and clearing it returns the table to the ordinary filtered
             list because `askTerm` is what the lens reads. */}
         <form
-          className="relative"
+          className="relative w-full sm:w-auto sm:min-w-[18rem] sm:flex-1 lg:max-w-md"
           /* See `SavedViewBar`: the browser never refuses a form on a client screen,
              including the ones with no rule for it to refuse on. */
           noValidate
@@ -98,37 +104,22 @@ export function LeadsToolbar({
             maxLength={2000}
             aria-label="Find leads by what they asked for"
             placeholder="What did they ask for? e.g. 3BHK in Gachibowli"
-            className="w-72 rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint"
+            className="w-full rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint touch:min-h-11"
           />
         </form>
 
-        {/* View toggle: the list keeps every capture-list column; the board trades
-            detail for a stage-by-stage picture of the pipeline. */}
-        <div
-          role="group"
-          aria-label="View"
-          className="flex overflow-hidden rounded-md border border-line text-sm"
-        >
-          {(["list", "board"] as const).map((mode) => {
-            const Icon = mode === "list" ? List : LayoutGrid;
-            return (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => onView(mode)}
-                aria-pressed={view === mode}
-                className={
-                  view === mode
-                    ? "flex items-center gap-1.5 bg-brand-strong px-3 py-1.5 font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white touch:min-h-11"
-                    : "flex items-center gap-1.5 bg-surface px-3 py-1.5 font-medium text-ink-muted transition-colors duration-(--duration-fast) ease-out hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 dark:hover:bg-white/5"
-                }
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {mode === "list" ? "List" : "Board"}
-              </button>
-            );
-          })}
-        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+        {/* Two views of the same leads (D-655): the list for detail columns, the board for
+            the pipeline stage by stage. */}
+        <SegmentedControl
+          label="View"
+          value={view}
+          onValueChange={(next) => onView(next === "board" ? "board" : "list")}
+          options={[
+            { value: "list", label: "List" },
+            { value: "board", label: "Board" },
+          ]}
+        />
 
         {/* The COLUMN CHOOSER. It sits beside Export rather than above the table on
             purpose: it decides what the table shows AND what the file contains, and a
@@ -190,6 +181,10 @@ export function LeadsToolbar({
           <Download className="h-3.5 w-3.5" />
           {exportLeads.isPending ? "Preparing…" : "Export this view as CSV"}
         </button>
+        <InfoTip label="the CSV export" align="end">
+          <p>{exportNote}</p>
+        </InfoTip>
+        </div>
       </div>
   );
 }

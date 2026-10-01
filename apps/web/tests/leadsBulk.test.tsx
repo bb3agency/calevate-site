@@ -278,7 +278,7 @@ describe("selection scope is never ambiguous", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "hot" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /^Hot/ }));
     fireEvent.click(
       await screen.findByLabelText("Select all leads on this page"),
     );
@@ -326,7 +326,7 @@ describe("selection scope is never ambiguous", () => {
     await tick("Ramesh Kumar");
     await screen.findByText(/1 lead on this page is selected/);
 
-    fireEvent.click(screen.getByRole("button", { name: "won" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Won/ }));
     expect(
       await vi.waitFor(() => screen.queryByText(/is selected/)),
     ).toBeNull();

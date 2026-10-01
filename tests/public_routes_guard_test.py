@@ -244,8 +244,13 @@ class TestWiring:
         LOWERED 50 -> 48 by D-639, which removed two routes with the rented engine that was
         the last caller of each: the caller-data fetch above, and the in-call action invoke
         route (`POST /v1/actions/invoke/{engine}/{tool_id}`), whose source-IP gate no
-        remaining engine can pass."""
-        assert len(exempt) <= 48, sorted(exempt)
+        remaining engine can pass.
+
+        RAISED 48 -> 49 by `POST /v1/worker/calls/{engine_call_id}/speaking` (D-656), the
+        console's live speaking indicator. Same token, same engine gate, tenant parsed from
+        the ref; it takes no tenant id and no number, and writes one expiring Redis key — no
+        row, nothing a leaked token could use to reach a caller's record."""
+        assert len(exempt) <= 49, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

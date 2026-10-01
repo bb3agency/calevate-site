@@ -63,12 +63,15 @@ from calevate_shared.worker_api import (
     OptOutToolOut,
     SettlementOut,
     SettlementRequest,
+    SpeakingStateIn,
+    SpeakingStateOut,
     WorkerSessionOut,
 )
 from fastapi import APIRouter, Header, Path
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.crm.live_speaking import record_speaking
 from apps.api.worker.service import (
     authorized,
     engine_enabled,
@@ -78,6 +81,7 @@ from apps.api.worker.service import (
     record_prompt_attestation,
     refuse_wrong_engine,
     settle_call,
+    tenant_of_call,
 )
 from apps.api.worker.tools import (
     book_callback,
@@ -223,6 +227,23 @@ async def worker_attestation(
     """
     _admit(authorization)
     return await record_prompt_attestation(engine_agent_ref, request)
+
+
+@router.post("/calls/{engine_call_id}/speaking", include_in_schema=False)
+async def worker_speaking(
+    engine_call_id: Annotated[str, Path(max_length=_REF_MAX)],
+    state: SpeakingStateIn,
+    authorization: Annotated[str | None, Header()] = None,
+) -> SpeakingStateOut:
+    """Who is speaking on this call now, for the console's live indicator (D-656).
+
+    Writes one expiring Redis key and no row: see `crm/live_speaking.py` for why this state
+    is ephemeral. Gated as a write (the default) for the reason the tools are: a deployment
+    not running this engine has no worker to serve. The worker never waits on this answer.
+    """
+    _admit(authorization)
+    accepted = await record_speaking(tenant_of_call(engine_call_id), engine_call_id, state)
+    return SpeakingStateOut(accepted=accepted)
 
 
 # --- the four in-call tools -------------------------------------------------------------

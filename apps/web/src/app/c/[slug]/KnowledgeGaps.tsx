@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Quote, Sparkles } from "lucide-react";
+import { CheckCircle2, Sparkles } from "lucide-react";
 
 import {
-  Card,
-  EmptyState,
   FIELD,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
@@ -22,6 +20,7 @@ import {
   type KnowledgeGap,
 } from "@/lib/api/knowledgeGaps";
 import { useFormValidation } from "@/components/formValidation";
+import { Panel } from "@/components/console/panel";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
@@ -59,55 +58,60 @@ export function KnowledgeGaps({
 
   if (gaps.isLoading) {
     return (
-      <Card title={title} className={className}>
+      <Panel title={title} className={className}>
         <Skeleton rows={4} />
-      </Card>
+      </Panel>
     );
   }
 
   if (gaps.error || !gaps.data) {
     return (
-      <Card title={title} className={className}>
+      <Panel title={title} className={className}>
         <ProblemNotice
           error={gaps.error ?? new Error("Your knowledge gaps did not load.")}
           onRetry={() => void gaps.refetch()}
         />
-      </Card>
+      </Panel>
     );
   }
 
   const { items, open_count } = gaps.data;
 
   return (
-    <Card
+    <Panel
       title={title}
       className={className}
+      info={
+        <p>
+          Found automatically from real conversations — not guessed. Each one will keep
+          happening until you teach the answer.
+        </p>
+      }
       action={
         open_count > 0 ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-strong">
-            <AlertTriangle aria-hidden className="h-3.5 w-3.5" />
+          <span className="inline-flex items-center rounded-full bg-warn-soft px-2.5 py-0.5 text-[12px] font-medium tabular-nums text-warn">
             {open_count} need{open_count === 1 ? "s" : ""} attention
           </span>
         ) : undefined
       }
-      bodyClassName="p-2 sm:p-3"
+      bodyClassName="px-2 pb-2 sm:px-3 sm:pb-3"
     >
-      <p className="px-2 pb-3 pt-1 text-[12px] text-ink-muted">
-        Found automatically from real conversations — not guessed. Each one will keep
-        happening until you teach the answer.
-      </p>
       {write.reason && (
         <div className="px-2 pb-3">
           <RestrictionNote reason={write.reason} />
         </div>
       )}
       {items.length === 0 ? (
-        <EmptyState
-          title="Nothing unanswered"
-          hint="When an agent tells a caller it doesn't know something, it shows up here so you can teach it."
-        />
+        /* The calm state is one line, not a block: nothing here needs the owner. */
+        <p className="flex items-center gap-2 px-2 pb-1 text-[13px] text-ink-muted">
+          <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
+          <span>
+            <span className="font-medium text-ink">Nothing unanswered</span> — when an agent
+            tells a caller it doesn&apos;t know something, it shows up here so you can teach it.
+          </span>
+        </p>
       ) : (
-        <ul className="space-y-2" aria-label="Knowledge gaps needing attention">
+        <ul className="divide-y divide-line" aria-label="Knowledge gaps needing attention">
           {items.map((gap) => (
             <GapRow
               eg={eg}
@@ -119,14 +123,14 @@ export function KnowledgeGaps({
           ))}
         </ul>
       )}
-    </Card>
+    </Panel>
   );
 }
 
 const SIGNAL_BADGE: Record<GapSignal, string> = {
-  dont_know: "DIDN'T KNOW THIS",
-  deferred_channel: "PUNTED TO WHATSAPP / CALLBACK",
-  unanswered_question: "LEFT UNANSWERED",
+  dont_know: "Didn't know this",
+  deferred_channel: "Punted to WhatsApp / callback",
+  unanswered_question: "Left unanswered",
 };
 
 function GapRow({
@@ -172,13 +176,11 @@ function GapRow({
   const error = dismiss.error ?? teach.error ?? failed?.error ?? null;
 
   return (
-    <li className="rounded-xl border border-line bg-surface p-3 sm:p-4">
+    <li className="px-2 py-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <span className="inline-flex items-center rounded-md bg-brand-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-strong">
-            {SIGNAL_BADGE[gap.signal]}
-          </span>
-          {/* `h3`, not `h4`. This row sits inside a `Card`, whose title is the `h2`, so
+          <span className="text-[12px] font-medium text-warn">{SIGNAL_BADGE[gap.signal]}</span>
+          {/* `h3`, not `h4`. This row sits inside a panel, whose title is the `h2`, so
               `h4` skips a level — WCAG 2.2 1.3.1 Info and Relationships (Level A), and
               axe's `heading-order` reports it as soon as a screen renders this card after
               any other heading. UX-DOCTRINE §2: heading level is a property of where the
@@ -186,7 +188,7 @@ function GapRow({
               a card. */}
           <h3
             title={gap.topic_label}
-            className="mt-1.5 truncate text-sm font-semibold text-ink"
+            className="mt-0.5 truncate text-sm font-semibold text-ink"
           >
             {gap.topic_label}
           </h3>
@@ -194,15 +196,14 @@ function GapRow({
             <p className="text-[12px] text-ink-muted">{gap.agent_name}</p>
           ) : null}
         </div>
-        <span className="shrink-0 rounded-full bg-black/[0.04] px-2.5 py-1 text-[11px] font-medium tabular-nums text-ink-muted dark:bg-white/5">
+        <span className="shrink-0 text-[12px] tabular-nums text-ink-faint">
           {gap.occurrence_count}× on {gap.call_count} call{gap.call_count === 1 ? "" : "s"}
         </span>
       </div>
 
       <figure className="mt-2 border-l-2 border-line pl-3">
-        <blockquote className="flex gap-1.5 text-[13px] italic text-ink-muted">
-          <Quote aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />
-          <span className="min-w-0">{gap.example_answer}</span>
+        <blockquote className="text-[13px] text-ink-muted">
+          &ldquo;<span>{gap.example_answer}</span>&rdquo;
         </blockquote>
       </figure>
 

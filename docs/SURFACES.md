@@ -752,6 +752,13 @@ that a truncated copy says so.
   server→client, it's plain HTTP (no proxy/infra changes), and it's materially
   cheaper per connection than WebSockets. WebSockets are explicitly NOT planned — we
   have no client→server streaming need; revisit only via a decision-log entry.
+- **Live speaking indicator (D-656): the first live stream, and it carries STATE, not a
+  hint.** `GET /v1/calls/{call_id}/speaking` (`calls:read`, `text/event-stream`) sends
+  `{speaker, live, since}` once, on every change, and with `live: false` when the call
+  ends; `lib/api/callSpeaking.ts::useCallSpeaking` reads it. The worker posts the state to
+  `POST /v1/worker/calls/{ref}/speaking` and the API keeps it in Redis with a 30 s TTL —
+  no table. A hint would have cost a second, identically-authorised read inside a
+  one-second budget. Everything else above is unchanged: lists still poll.
 
 ### 3.3 Engine API usage rules (adapter-internal)
 

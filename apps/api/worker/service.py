@@ -393,7 +393,7 @@ def _refuse_unknown_call() -> ProblemError:
     )
 
 
-def _tenant_of_call(engine_call_id: str) -> UUID:
+def tenant_of_call(engine_call_id: str) -> UUID:
     """The tenant a `pipecat:<tenant>:<call>` ref names, or a refusal.
 
     **A PARSE AND NOT A QUERY, WHICH IS WHY THE WORKER NEVER SENDS A `calls.id`.**
@@ -647,7 +647,7 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
     An empty batch is a legal no-op the client may send rather than a condition it must
     check for.
     """
-    tenant_id = _tenant_of_call(engine_call_id)
+    tenant_id = tenant_of_call(engine_call_id)
     _check_batch_identity(tenant_id, batch, engine_call_id)
     status = _forward_status(batch)
     written = already = 0
@@ -940,7 +940,7 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
     write. A worker whose POST timed out after we committed retries and is told
     `already_settled`.
     """
-    tenant_id = _tenant_of_call(engine_call_id)
+    tenant_id = tenant_of_call(engine_call_id)
     _check_settlement(request)
     occurred_at = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:

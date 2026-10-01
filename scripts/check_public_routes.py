@@ -481,6 +481,16 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="authorized",
     ),
+    "POST /v1/worker/calls/{engine_call_id}/speaking": PublicRoute(
+        why=(
+            "The same worker reporting who is audible on one call right now (D-656): a "
+            "side, a sequence number and a timestamp, and nothing else. It writes one "
+            "expiring Redis key and no row. Same credential, and the tenant in that key is "
+            "PARSED out of the call ref exactly as on the observation route, so a token "
+            "holder cannot reach a tenant the ref does not say."
+        ),
+        credential="authorized",
+    ),
     "POST /v1/worker/calls/{engine_call_id}/tools/opt-out": PublicRoute(
         why=(
             "The same worker's in-call opt-out tool: the ONLY path by which a caller "

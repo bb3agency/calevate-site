@@ -1,140 +1,114 @@
 "use client";
 
-import { Card, EmptyState, SECONDARY_BUTTON_SM, ScrollRegion } from "@/components/ui";
+import { useMemo } from "react";
 
-import { BODY_CELL, HEAD_CELL, cellClass } from "./leadsTable";
+import { Card, EmptyState, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { DataTable, type DataColumn } from "@/components/console/dataTable";
+import type { Lead } from "@/lib/api/leads";
+
+import { cellClass, sortFor } from "./leadsTable";
 import type { LeadRowKit } from "./leadRowKit";
 
 /**
  * THE LEADS TABLE — every lead an agent captured, one row each.
  *
- * Extracted from `page.tsx` (UX-DOCTRINE §6). Loading and failure are NOT here: they are
- * the same answer in both views and are given once by the screen, so this component is
- * only ever handed rows the server actually sent.
+ * The data columns are the SERVER's resolved list in the server's order — the same list
+ * `export.csv` writes its header from — so the screen and the file cannot hold different
+ * columns. Headers sort the rows on this page; `partialNote` says so when the filter
+ * matches more than one page. Loading and failure are given once by the screen, so this
+ * only ever receives rows the server sent.
  */
-export function LeadTable({ kit }: { kit: LeadRowKit }) {
+export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?: string }) {
   const {
     items, columns, canCall, maySelect, ticked, allOfPageTicked,
     toggleRow, toggleAllOnPage, renderCell, rowFailure, callCell,
     filtered, askTerm, onClearFilters,
   } = kit;
-  return (
-        <Card bodyClassName="p-2">
-          {items.length ? (
-            <ScrollRegion label="Leads">
-              <table className="w-full text-sm">
-                <thead>
-                  {/* THE HEADER IS THE SERVER'S COLUMN LIST, in the server's order — the
-                      same list `export.csv` writes its header from for this query
-                      string. It used to be four hard-coded `<th>`s, the schema fields,
-                      and two more hard-coded ones, which is precisely how the screen and
-                      the file came to hold different columns. */}
-                  <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
-                    {/* THE HEADER CHECKBOX IS PAGE-SCOPED, and its label says so. This
-                        is the researched division (PatternFly, Helios): the header
-                        selects what is in front of you, and extending to the whole
-                        filtered query is a separate, named act offered by the bar. */}
-                    {maySelect && (
-                      <th className={`${HEAD_CELL} w-8`} scope="col">
-                        {/* A column header whose only content is a checkbox has no
-                            accessible name of its own, so a screen reader announces the
-                            column as blank while reading every row's cell. The label is
-                            visually hidden rather than dropped. */}
-                        <span className="sr-only">Select</span>
-                        <input
-                          type="checkbox"
-                          aria-label="Select all leads on this page"
-                          checked={allOfPageTicked}
-                          onChange={toggleAllOnPage}
-                        />
-                      </th>
-                    )}
-                    {columns.map((column) => (
-                      <th key={column.key} className={HEAD_CELL}>
-                        {column.label}
-                      </th>
-                    ))}
-                    {canCall && <th className={HEAD_CELL}>Call</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {items.map((lead) => (
-                    <tr
-                      key={lead.id}
-                      // A ticked row stays tinted so the selection is legible when the eye
-                      // leaves the checkbox column; no transition, because ticking is a
-                      // rapid, repeated action and a fade would lag the click.
-                      className={
-                        ticked.has(lead.id)
-                          ? "bg-brand-soft/50 dark:bg-brand-strong/10"
-                          : "hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
-                      }
-                    >
-                      {maySelect && (
-                        <td className={BODY_CELL}>
-                          <input
-                            type="checkbox"
-                            // Names the LEAD: a screen reader meeting a hundred boxes
-                            // called "select" cannot tell which row it is on.
-                            aria-label={`Select ${lead.name ?? lead.phone_e164}`}
-                            checked={ticked.has(lead.id)}
-                            onChange={() => toggleRow(lead.id)}
-                          />
-                        </td>
-                      )}
-                      {columns.map((column, index) => (
-                        <td key={column.key} className={cellClass(column)}>
-                          {renderCell(column, lead)}
-                          {/* Once per row, in its first cell — see `rowFailure`. */}
-                          {index === 0 && rowFailure(lead)}
-                        </td>
-                      ))}
-                      {canCall && <td className={BODY_CELL}>{callCell(lead)}</td>}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ScrollRegion>
-          ) : (
-            /* "No leads yet" only where the server said so — never on a failed fetch,
-               which is why that case never reaches this Card at all. With a filter on,
-               the emptiness belongs to the filter and not to the business.
 
-               `filtered` is ONE boolean over the whole lens (`leadFilters.ts`), never a
-               chain of the filters this component happens to know about. The chain is
-               what failed: it named two of five, so an owner who ticked "Assigned to me"
-               or picked a facet value was told their account had no leads at all, with
-               no way offered to clear the thing that had emptied it. */
-            <EmptyState
-              title={
-                askTerm
-                  ? "No lead's captured answers match that question"
-                  : filtered
-                    ? "No leads match these filters"
-                    : "No leads yet"
-              }
-              hint={
-                filtered
-                  ? "Clear the filters to see everything."
-                  : "Every answered call becomes a lead within two minutes."
-              }
-              /* The sentence used to NAME the action without offering it — the dead-end
-                 shape ux-audit F-18 flags. Only the filtered case gets a button: an
-                 account with genuinely no leads has nothing to clear. A question is a
-                 filter like any other, so the ranked-and-empty case gets it too. */
-              action={
-                filtered && (
-                  <button
-                    type="button"
-                    onClick={onClearFilters}
-                    className={SECONDARY_BUTTON_SM}
-                  >
-                    Clear the filters
-                  </button>
-                )
-              }
-            />
-          )}
-        </Card>
+  const tableColumns = useMemo(() => {
+    const out: DataColumn<Lead>[] = [];
+    // THE HEADER CHECKBOX IS PAGE-SCOPED and says so; extending to the whole filtered
+    // query is a separate, named act on the bulk bar (PatternFly, Helios).
+    if (maySelect) {
+      out.push({
+        id: "select",
+        header: "Select",
+        className: "w-8",
+        renderHeader: () => (
+          <input
+            type="checkbox"
+            aria-label="Select all leads on this page"
+            checked={allOfPageTicked}
+            onChange={toggleAllOnPage}
+          />
+        ),
+        cell: (lead) => (
+          <input
+            type="checkbox"
+            // Names the LEAD: a hundred boxes called "select" cannot be told apart.
+            aria-label={`Select ${lead.name ?? lead.phone_e164}`}
+            checked={ticked.has(lead.id)}
+            onChange={() => toggleRow(lead.id)}
+          />
+        ),
+      });
+    }
+    columns.forEach((column, index) =>
+      out.push({
+        id: column.key,
+        header: column.label,
+        className: cellClass(column),
+        sort: sortFor(column),
+        cell: (lead) => (
+          <>
+            {renderCell(column, lead)}
+            {/* Once per row, in its first data cell — see `rowFailure`. */}
+            {index === 0 && rowFailure(lead)}
+          </>
+        ),
+      }),
+    );
+    if (canCall) out.push({ id: "call", header: "Call", cell: (lead) => callCell(lead) });
+    return out;
+  }, [maySelect, columns, canCall, allOfPageTicked, toggleAllOnPage, ticked, toggleRow, renderCell, rowFailure, callCell]);
+
+  return (
+    <Card bodyClassName="p-1 sm:p-2">
+      {items.length ? (
+        <DataTable
+          rows={items}
+          columns={tableColumns}
+          getRowId={(lead) => lead.id}
+          label="Leads"
+          partialNote={partialNote}
+          // A ticked row stays tinted so the selection is legible away from the checkbox.
+          rowClassName={(lead) => (ticked.has(lead.id) ? "bg-brand-soft/50" : "")}
+        />
+      ) : (
+        /* "No leads yet" only where the server said so; with a filter on, the emptiness
+           belongs to the filter (`filtered` is one answer over the whole lens). */
+        <EmptyState
+          title={
+            askTerm
+              ? "No lead's captured answers match that question"
+              : filtered
+                ? "No leads match these filters"
+                : "No leads yet"
+          }
+          hint={
+            filtered
+              ? "Clear the filters to see everything."
+              : "Every answered call becomes a lead within two minutes."
+          }
+          action={
+            filtered && (
+              <button type="button" onClick={onClearFilters} className={SECONDARY_BUTTON_SM}>
+                Clear the filters
+              </button>
+            )
+          }
+        />
+      )}
+    </Card>
   );
 }

@@ -44,6 +44,8 @@ from calevate_shared.worker_api import (
     ObservationsOut,
     SettlementOut,
     SettlementRequest,
+    SpeakingStateIn,
+    SpeakingStateOut,
     WorkerSessionOut,
 )
 from loguru import logger
@@ -77,6 +79,11 @@ SESSION_FETCH_BUDGET_S: Final[float] = 3.0
 #: stopped talking: `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` defaults to 20 s and a write that
 #: outlasted it would be killed mid-flight anyway.
 WRITE_BUDGET_S: Final[float] = 5.0
+
+#: How long one speaking-state post may take (D-656). Short, because a state that arrives a
+#: second late is already wrong on the console, and never retried for the same reason: the
+#: next state replaces it. `speaking.SpeakingTracker` sends it off the audio path.
+SPEAKING_BUDGET_S: Final[float] = 1.0
 
 #: How many times an IDEMPOTENT write (a batch of observations, the settlement) is attempted,
 #: and the base of the pause before each retry (doubled per retry, with jitter).
@@ -246,6 +253,18 @@ class WorkerApiClient:
             json=request.model_dump(mode="json"),
         )
         return self._parse(SettlementOut, body, what="settlement")
+
+    async def post_speaking(self, engine_call_id: str, state: SpeakingStateIn) -> SpeakingStateOut:
+        """Who is speaking now, for the console's live indicator (D-656). One attempt;
+        raises like the other writes and `speaking.SpeakingTracker` is what drops it."""
+        body = await self._request(
+            "POST",
+            f"{CALLS_PATH}/{engine_call_id}/speaking",
+            budget_s=SPEAKING_BUDGET_S,
+            what="speaking",
+            json=state.model_dump(mode="json"),
+        )
+        return self._parse(SpeakingStateOut, body, what="speaking")
 
     async def post_attestation(
         self, engine_agent_ref: str, attestation: AttestationIn
@@ -421,6 +440,7 @@ __all__ = [
     "PROBE_REF",
     "SESSION_FETCH_BUDGET_S",
     "SESSION_PATH",
+    "SPEAKING_BUDGET_S",
     "WRITE_ATTEMPTS",
     "WRITE_BUDGET_S",
     "WRITE_RETRY_BACKOFF_S",

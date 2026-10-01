@@ -2,7 +2,8 @@
 
 import { Eye, ShieldCheck, User } from "lucide-react";
 
-import { EmptyState, NoticeBox, ProblemNotice, RestrictionNote, Card } from "@/components/ui";
+import { EmptyState, NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { Panel } from "@/components/console/panel";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
@@ -30,7 +31,9 @@ export function TranscriptCard({
   audioLoaded,
   playhead,
   onSeek,
+  className = "",
 }: {
+  className?: string;
   turns: NonNullable<CallDetail["transcript"]>;
   showingRaw: boolean;
   showRaw: boolean;
@@ -44,8 +47,8 @@ export function TranscriptCard({
   onSeek: (ms: number) => void;
 }) {
   return (
-    <Card
-      className="lg:col-span-2"
+    <Panel
+      className={className}
       title="Transcript"
       action={
         <RawTranscriptControl
@@ -73,10 +76,13 @@ export function TranscriptCard({
             in your account&apos;s audit log against your name.
           </NoticeBox>
         ) : (
-          <NoticeBox tone="neutral" icon={<ShieldCheck className="h-5 w-5" />}>
-            Personal details — phone numbers, account numbers, dates of birth — are hidden in
-            this view.
-          </NoticeBox>
+          <p className="flex items-start gap-2 rounded-md bg-ink/[0.03] px-3 py-2 text-[13px] text-ink-muted">
+            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
+            <span>
+              Personal details — phone numbers, account numbers, dates of birth — are hidden in
+              this view.
+            </span>
+          </p>
         )}
 
         {/* The raw request failing must not take the redacted transcript with it. The
@@ -86,7 +92,7 @@ export function TranscriptCard({
         )}
 
         {turns.length ? (
-          <ol className="space-y-3">
+          <ol className="space-y-2.5">
             {turns.map((turn, i) => {
               const speaker = lookup(SPEAKERS, turn.speaker);
               const Icon = speaker?.icon ?? User;
@@ -109,45 +115,44 @@ export function TranscriptCard({
                 at !== undefined &&
                 playhead * 1000 >= at &&
                 (nextAt === null || nextAt === undefined || playhead * 1000 < nextAt);
+              const agent = turn.speaker === "agent";
+              const name = speaker?.label ?? turn.speaker;
+              // Caller on the left, agent on the right: the convention a chat reader
+              // already has, and the same sides the live speaking indicator uses.
               const body = (
-                <>
+                <span className={`flex w-full ${agent ? "justify-end" : "justify-start"}`}>
                   <span
-                    className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                      speaker?.medallion ?? "bg-black/5 text-ink-muted dark:bg-white/10"
-                    }`}
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-left ${
+                      agent ? "rounded-br-md bg-brand-soft" : "rounded-bl-md bg-ink/[0.045]"
+                    } ${active ? "ring-2 ring-brand/60" : ""}`}
                   >
-                    <Icon className="h-3.5 w-3.5" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                      {speaker?.label ?? turn.speaker}
+                    <span className="flex items-baseline gap-2 text-[12px] font-medium text-ink-muted">
+                      <Icon aria-hidden className="h-3 w-3 self-center" />
+                      {name}
                       {at !== null && at !== undefined && (
-                        <span className="font-normal normal-case tabular-nums">
+                        <span className="font-normal tabular-nums text-ink-faint">
                           {formatClock(at / 1000)}
                         </span>
                       )}
-                    </p>
-                    <p className="text-sm text-ink">{turn.text}</p>
-                  </div>
-                </>
+                    </span>
+                    <span className="mt-0.5 block text-[14px] leading-relaxed text-ink">{turn.text}</span>
+                  </span>
+                </span>
               );
-              const highlight = active
-                ? "bg-brand-strong/10 dark:bg-brand-bright/10"
-                : "bg-transparent";
               return (
                 <li key={turn.idx}>
                   {seekable ? (
                     <button
                       type="button"
                       onClick={() => onSeek(at)}
-                      aria-label={`Play from ${formatClock(at / 1000)}, ${speaker?.label ?? turn.speaker}`}
+                      aria-label={`Play from ${formatClock(at / 1000)}, ${name}`}
                       aria-current={active ? "true" : undefined}
-                      className={`flex w-full gap-3 rounded-md p-1.5 text-left transition-colors duration-(--duration-fast) ease-out hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand dark:hover:bg-white/5 ${highlight}`}
+                      className="flex w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&:hover>span>span]:brightness-[0.97]"
                     >
                       {body}
                     </button>
                   ) : (
-                    <div className={`flex gap-3 rounded-md p-1.5 ${highlight}`}>{body}</div>
+                    body
                   )}
                 </li>
               );
@@ -160,6 +165,6 @@ export function TranscriptCard({
           />
         )}
       </div>
-    </Card>
+    </Panel>
   );
 }

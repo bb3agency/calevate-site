@@ -1,24 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import {
-  Clock,
-  Flame,
-  Moon,
-  PhoneCall,
-  Sparkles,
-  Users,
-} from "lucide-react";
 
-import {
-  Card,
-  ProblemNotice,
-  Skeleton,
-  StatTile,
-  formatCount,
-  formatDuration,
-  formatINR,
-} from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
+import { Metric } from "@/components/console/metric";
+import { Panel } from "@/components/console/panel";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
@@ -32,6 +18,7 @@ import { DailyCalls } from "./DailyCalls";
 import { KnowledgeGaps } from "./KnowledgeGaps";
 import { LatestCalls } from "./LatestCalls";
 import { SentimentSplit } from "./SentimentSplit";
+import { SpendThisMonth } from "./SpendThisMonth";
 
 /**
  * The client's home screen.
@@ -196,19 +183,10 @@ export function DashboardScreen({ slug }: { slug: string }) {
     );
   }
 
-  /**
+  /*
    * A refusal we received, or an answer that never arrived — one branch, because to the
-   * owner they are the same sentence and it is not "nothing happened today".
-   *
-   * `|| !dashboard.data` is the half this screen was missing. `isLoading` is
-   * `isPending && isFetching` (query-core `queryObserver.js`), so it is FALSE for a query
-   * TanStack has PAUSED rather than started — which is what it does the moment the
-   * browser is offline (`fetchStatus: canFetch(networkMode) ? "fetching" : "paused"`).
-   * A paused query has `isLoading === false`, `error === null` and `data === undefined`,
-   * so both guards above fell through and every tile below rendered its absence marker
-   * while "No call history yet" and "No calls yet" were printed as facts about this
-   * business. Same spelling as `/c/<slug>/verification` and `/c/<slug>/campaign-review`,
-   * which met this first.
+   * owner they are the same sentence and it is not "nothing happened today". `!data`
+   * covers a query TanStack has PAUSED (offline): not loading, no error, no data.
    */
   if (dashboard.error || !dashboard.data) {
     return (
@@ -219,155 +197,100 @@ export function DashboardScreen({ slug }: { slug: string }) {
     );
   }
 
-  // Narrowed by the guard above, so nothing below has to invent a day, a mood or a
-  // count: every `?? []` this screen used to carry was standing in for an answer.
   const data = dashboard.data;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-4 pb-12 lg:space-y-5">
       <AttentionBanner attention={attention} href={href(`/c/${slug}/attention`)} />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile
+      {/* THE DAY AT A GLANCE — four figures in one strip, each marking itself when a poll
+          changes it. */}
+      <section
+        aria-label="Today at a glance"
+        className="grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line shadow-card md:grid-cols-4"
+      >
+        <Metric
+          className="bg-surface p-4 sm:p-5"
           label="Calls today"
           value={formatCount(data.calls_today)}
-          icon={<PhoneCall className="h-5 w-5" />}
+          flashValue={String(data.calls_today)}
           hint={`${formatCount(data.calls_7d)} in the last 7 days`}
         />
-        {/* THE WINDOW IS PART OF THE NUMBER. This hint read "Completed calls only" over
-            an average of every call the account had EVER made — a different statistic
-            from the seven-day ones on either side of it, rendered identically to them.
-            The API bounded it to seven days and renamed the field to say so (D-215); the
-            hint is the half a client actually reads. */}
-        <StatTile
+        {/* The window is part of the number: a seven-day average of COMPLETED calls
+            (D-215), said in the hint so it is not read as an all-time figure. */}
+        <Metric
+          className="bg-surface p-4 sm:p-5"
           label="Average call length"
           value={formatDuration(data.avg_duration_s_7d)}
-          icon={<Clock className="h-5 w-5" />}
+          flashValue={data.avg_duration_s_7d == null ? null : String(data.avg_duration_s_7d)}
           hint="Completed calls, last 7 days"
         />
-        <StatTile
+        <Metric
+          className="bg-surface p-4 sm:p-5"
           label="New leads (7 days)"
           value={formatCount(data.leads_new_7d)}
-          icon={<Users className="h-5 w-5" />}
+          flashValue={String(data.leads_new_7d)}
           hint={
-            <Link
-              href={href(`/c/${slug}/leads`)}
-              className="underline hover:text-ink"
-            >
+            <Link href={href(`/c/${slug}/leads`)} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
               Open leads
             </Link>
           }
         />
-        <StatTile
+        <Metric
+          className="bg-surface p-4 sm:p-5"
           label="Hot leads waiting"
           value={formatCount(data.hot_leads_open)}
-          icon={<Flame className="h-5 w-5" />}
-          tone="strong"
+          flashValue={String(data.hot_leads_open)}
           hint="Interested and not yet won or lost"
         />
-      </div>
+      </section>
 
-      {/* URGENT insights, above the fold: an unanswered question recurs on every future
-          call, so it sits at the top across ALL the org's agents rather than only on a
-          per-agent page. The card renders its own empty state, so it is always mounted —
-          nothing here decides whether there is anything to show. */}
+      {/* An unanswered question recurs on every future call until it is taught, so it
+          sits high, across ALL the org's agents. It renders its own empty state. */}
       <KnowledgeGaps />
 
-      <div className="grid gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-8">
-          <Card title="Calls each day">
+      <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-5">
+        <div className="space-y-4 lg:col-span-8 lg:space-y-5">
+          <Panel title="Calls each day">
             <DailyCalls days={data.daily_7d} />
-          </Card>
+          </Panel>
+          <LatestCalls
+            recent={recent}
+            allHref={href(`/c/${slug}/calls`)}
+            callHref={(id) => href(`/c/${slug}/calls/${id}`)}
+          />
         </div>
 
-        <div className="flex flex-col gap-4 lg:col-span-4">
-          <StatTile
-            label="Captured after hours"
-            value={formatCount(data.after_hours_captured_7d)}
-            icon={<Moon className="h-5 w-5" />}
-            hint={
-              /* WHICH definition produced the number, straight from the field the API
-                 added for exactly this reason. A tile that renders "14 captured after
-                 hours" identically from a fact and from a 09:00–21:00 guess invites an
-                 owner to trust a number we did not earn. */
-              data.after_hours_basis === "business_hours"
-                ? "Using your recorded opening hours"
-                : "Using 9am–9pm IST — add your opening hours for a real figure"
-            }
-          />
-          {/* The one tile on this screen fed by a SECOND query, and the one that had no
-              ladder of its own. `formatINR(undefined)` is "—", which is honest for a
-              moment and a lie forever: a failed `/v1/usage` left the money tile showing
-              "—" with no skeleton, no notice and no way to retry, so an owner watching
-              their spend saw a dash and had no idea whether it meant "nothing yet" or
-              "we could not read it". Same three states as the dashboard query beside it,
-              same spelling. */}
-          {usage.isLoading ? (
-            <Card title="Spend this month" bodyClassName="p-4 sm:p-5">
-              <Skeleton rows={2} />
-            </Card>
-          ) : usage.error || !usage.data ? (
-            /* `|| !usage.data` for the paused case: with no error to render, this tile
-               used to fall through to `formatINR(undefined)` — a "—" that an owner
-               cannot tell from "you have spent nothing this month". */
-            <Card title="Spend this month" bodyClassName="p-4 sm:p-5">
-              <ProblemNotice
-                error={usage.error ?? new Error("Your spend did not load.")}
-                onRetry={() => void usage.refetch()}
-              />
-            </Card>
-          ) : (
-            <StatTile
-              label="Spend this month"
-              /* THE WHOLE OF WHAT THIS MONTH HAS COST THEM, not one part of it. This tile
-                 printed `overage_cost_inr` — the EXTRA minutes only — under a label that
-                 says "spend", so it omitted the retainer, and after D-455 it also omitted
-                 the model upgrade a client pays for on every minute their own choice runs.
-                 An account inside its allowance on the dearer model therefore read ₹0.00
-                 here and was invoiced an "AI model upgrade" line for the same month.
-
-                 `month_charges_inr` is the same field `/usage` prints as "Total so far"
-                 and the same expression the margin panel books as revenue, so the home
-                 screen, the usage screen and the invoice cannot disagree about one month.
-                 It is the SERVER's sum: nothing here adds rupees. */
-              value={formatINR(usage.data.month_charges_inr)}
-              icon={<Sparkles className="h-5 w-5" />}
+        <div className="space-y-4 lg:col-span-4 lg:space-y-5">
+          {/* MONEY — what is left to spend, then what this month has cost. Each read has
+              its own loading and failure arm (§52); a failed read is never a dash. */}
+          <section
+            aria-label="Credit and spend"
+            className="divide-y divide-line rounded-card border border-line bg-surface shadow-card"
+          >
+            <CallingCreditTile wallet={wallet} href={href(`/c/${slug}/billing?tab=credits`)} />
+            <SpendThisMonth usage={usage} href={href(`/c/${slug}/billing?tab=usage`)} />
+          </section>
+          {/* WHICH definition produced the after-hours number, from the field the API
+              added for exactly this reason: a guess and a fact must not read the same. */}
+          <div className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5">
+            <Metric
+              label="Captured after hours"
+              value={formatCount(data.after_hours_captured_7d)}
+              flashValue={String(data.after_hours_captured_7d)}
               hint={
-                <Link
-                  href={href(`/c/${slug}/billing?tab=usage`)}
-                  className="underline hover:text-ink"
-                >
-                  {usage.data.minutes_used} min used of{" "}
-                  {formatCount(usage.data.included_minutes)} included
-                </Link>
+                data.after_hours_basis === "business_hours"
+                  ? "Using your recorded opening hours"
+                  : "Using 9am–9pm IST — add your opening hours for a real figure"
               }
             />
-          )}
-          {/* CALLING CREDIT — the same three states as the tile above it, spelled the
-              same way (§52), plus a fourth this one has and that one does not: an
-              invoiced account, which renders nothing rather than a balance it has no
-              wallet to hold. */}
-          <CallingCreditTile
-            wallet={wallet}
-            href={href(`/c/${slug}/billing?tab=credits`)}
-          />
-
-          {/* `?? {}` here is a PAYLOAD null, not an envelope one, and the difference is
-              the whole of §52: `data` is narrowed, so the only `undefined` left is the
-              one `DashboardOut.sentiment_split` carries because it has a server-side
-              default and Pydantic therefore generates an OPTIONAL property (the
-              optional-on-the-wire trap, `tenant_erasure_routes.TenantErasureScopeOut`).
-              An absent split from a response that ARRIVED means no scored calls, which is
-              exactly what `SentimentSplit` renders for an empty map. */}
+          </div>
+          {/* `?? {}` is a PAYLOAD default, not an envelope one: `data` is narrowed above,
+              and `sentiment_split` is optional on the wire because it has a server-side
+              default. An absent split from a response that arrived means none scored. */}
           <SentimentSplit split={data.sentiment_split ?? {}} />
         </div>
       </div>
-
-      <LatestCalls
-        recent={recent}
-        allHref={href(`/c/${slug}/calls`)}
-        callHref={(id) => href(`/c/${slug}/calls/${id}`)}
-      />
     </div>
   );
 }

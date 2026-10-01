@@ -287,8 +287,8 @@ export function CopilotPanel({
           long form; without it, a wheel or a touch drag that reaches the end of the
           transcript keeps going into the PAGE BEHIND, so reading to the bottom of an answer
           silently scrolls the form the answer is about out of view. Same spelling as the
-          three other scrollers in this tree (`interior/wizard-steps.tsx:334`,
-          `show-more.tsx:187`, `skeleton-swap.tsx:111`) rather than a `useEffect` on
+          three other scrollers in this tree (`interior/wizard-steps.tsx`,
+          `show-more.tsx`, `skeleton-swap.tsx`) rather than a `useEffect` on
           `wheel`: one class, no listener, and it covers touch and trackpad alike. */}
       <div
         ref={transcript}

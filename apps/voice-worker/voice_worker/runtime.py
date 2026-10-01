@@ -82,6 +82,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
+from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallDirection
 from calevate_shared.worker_api import AttestationIn
 from loguru import logger
@@ -106,6 +107,7 @@ from voice_worker.sink import (
     HttpEventSink,
     Settlement,
 )
+from voice_worker.speaking import SpeakingObserver, SpeakingTracker
 from voice_worker.storage import ObjectStorePackFetcher
 
 
@@ -278,6 +280,9 @@ class WorkerRuntime:
         timings = CallLatencyRecorder()
         latency_observer = UserBotLatencyObserver()
         timings.attach(latency_observer)
+        # WHO IS SPEAKING, for the console's live indicator (D-656). Fire-and-forget on its
+        # own task: nothing below awaits it, and a failure costs the indicator, never the call.
+        speaking = SpeakingTracker(self._api, engine_call_id=pipecat_call_ref(tenant_id, call_id))
 
         config = await load_session_config(
             self._api,
@@ -295,7 +300,7 @@ class WorkerRuntime:
             fetcher=self._fetcher,
             cache=self._cache,
             embedder=self._embedder,
-            observers=[observer, latency_observer],
+            observers=[observer, latency_observer, SpeakingObserver(speaking)],
             # The two that make the in-call ACTS reachable. `assemble_call` advertises the
             # opt-out, call-back, cancel and handoff tools only when it has an API to reach
             # them through, and refuses to let an agent claim a suppression unless the
@@ -375,6 +380,7 @@ class WorkerRuntime:
         # which the buffered turns would otherwise be dropped by a process that is about to
         # exit. `aclose` stops the timer and writes what is left, and it is idempotent, so
         # the ordinary path pays only a second no-op flush.
+        speaking.start()
         try:
             try:
                 await runner.add_workers(call.worker)
@@ -405,6 +411,7 @@ class WorkerRuntime:
                 attestation.cancel()
                 with suppress(asyncio.CancelledError):
                     await attestation
+            await speaking.aclose()
             await sink.aclose()
         logger.info(
             "call finished",

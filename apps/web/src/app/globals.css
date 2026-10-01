@@ -60,6 +60,20 @@
   --text-faint: #64748b;
 
   /*
+   * STATUS TONES. A warning (something will stop, or needs a look) and a danger
+   * (something failed or is refused). `warn` and `danger` carry TEXT and icons, so they
+   * are held to 4.5:1 on `--surface` and on their own `-soft` ground
+   * (`tests/contrastTokens.test.ts`); `-soft` is the tinted ground and `-line` its border.
+   * They replace raw amber-/rose- ramps screen by screen, starting with the pilot screens.
+   */
+  --warn: #92400e;
+  --warn-soft: #fffbeb;
+  --warn-line: #fde68a;
+  --danger: #be123c;
+  --danger-soft: #fff1f2;
+  --danger-line: #fecdd3;
+
+  /*
    * MOTION. One set of curves and durations for every transition in the app.
    *
    * The CSS keywords (`ease`, `ease-out`) are too weak to read as intentional; these are
@@ -163,6 +177,13 @@
   --color-ink-muted: var(--text-muted);
   --color-ink-faint: var(--text-faint);
 
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-line: var(--warn-line);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+
   --font-sans: var(--font-pp-mori);
   /* JetBrains Mono first (bundled, glyph-disambiguated — see app/layout.tsx), then the
    * platform stack so a key still renders fixed-width if the webfont has not loaded. */
@@ -225,6 +246,26 @@
     @starting-style {
       transform: none;
     }
+  }
+}
+
+/*
+ * A POLLED VALUE THAT CHANGED. A brief brand tint that fades out, applied by
+ * `components/console/valueFlash.tsx` only when the value is different from the last
+ * poll. Colour only, no movement; reduced motion paints the final (untinted) frame.
+ */
+@keyframes value-flash {
+  from {
+    background-color: color-mix(in srgb, var(--brand-bright) 22%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@utility value-flash {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: value-flash 1200ms var(--ease-out-strong);
   }
 }
 

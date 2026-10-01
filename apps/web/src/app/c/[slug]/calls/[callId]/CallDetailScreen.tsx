@@ -7,15 +7,10 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
-import {
-  Card,
-  NoticeBox,
-  ProblemNotice,
-  Skeleton,
-  StatusBadge,
-  formatDuration,
-  formatIST,
-} from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { LiveCallPanel } from "@/components/console/liveCallPanel";
+import { LIVE_STATUS } from "@/components/console/liveCalls";
+import { useCallSpeaking } from "@/lib/api/callSpeaking";
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { useClientRealm } from "@/lib/api/session";
 import {
@@ -27,7 +22,10 @@ import {
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
+import { isLive } from "../callColumns";
+
 import { AssistCard } from "./AssistCard";
+import { CallHeader } from "./CallHeader";
 import { DisclosureNotice } from "./DisclosureNotice";
 import { KeyMomentsCard } from "./KeyMomentsCard";
 import { FollowUpCard } from "./FollowUpCard";
@@ -88,6 +86,15 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
   const [showRaw, setShowRaw] = useState(false);
   const raw = useRawTranscript(session, callId);
   const recording = useRecordingLink(session, callId);
+  /*
+   * WHO IS SPEAKING, while the call is live (D-656): an SSE stream opened only for an
+   * in-progress call. `session` is the realm's memoised object — a fresh one per render
+   * would reopen the stream. `live` turns false when the call ends, and the screen falls
+   * back to the post-call view that the 60-second poll fills in.
+   */
+  const speaking = useCallSpeaking(session, callId, {
+    enabled: call.data?.status === LIVE_STATUS,
+  });
   /**
    * One press, one request, one audit row — in BOTH directions.
    *
@@ -226,149 +233,61 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
 
   return (
     <div className="space-y-4 pb-12">
-      {/* No <h1>: the app shell renders the page title from the nav list
-          (c/[slug]/layout.tsx), and a second heading is how a renamed screen ends up
-          arguing with its own header. */}
+      {/* No <h1>: the app shell renders the page title from the nav list. */}
       <Link
         href={href(`/c/${slug}/calls`)}
-        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink touch:min-h-11"
+        className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
       >
         <ArrowLeft className="h-4 w-4" />
         Call logs
       </Link>
 
-      <Card bodyClassName="p-4 sm:p-5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          {/* IN FULL (D-436). Text, never an `href` — see rule 1 above. */}
-          <span className="text-lg font-semibold tabular-nums text-ink">
-            {detail.caller_e164 ?? "Unknown number"}
-          </span>
-          <StatusBadge value={detail.status} kind="call" />
-          {detail.outcome_tag && (
-            <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-semibold capitalize text-brand-strong">
-              {detail.outcome_tag.replace(/_/g, " ")}
-            </span>
-          )}
-        </div>
-        <p className="mt-1.5 text-[13px] text-ink-muted">
-          {formatIST(detail.started_at)} · {formatDuration(detail.duration_s)} ·{" "}
-          {detail.agent_name ?? "Agent"} · {detail.direction}
-          {detail.sentiment ? ` · ${detail.sentiment}` : ""}
-        </p>
-      </Card>
+      <CallHeader
+        detail={detail}
+        leadHref={detail.lead_id ? href(`/c/${slug}/leads/${detail.lead_id}`) : null}
+      />
+
+      {isLive(detail) && (
+        <LiveCallPanel
+          startedAt={detail.started_at}
+          agentName={detail.agent_name ?? null}
+          speaker={speaking.live ? speaking.speaker : null}
+        />
+      )}
 
       <DisclosureNotice played={detail.disclosure_played} />
 
       {callback.error && <ProblemNotice error={callback.error} />}
 
-      {/* A BENTO GRID, not a column of full-width strips.
-
-          Every panel below is a SHORT fact — a follow-up verdict, a two-sentence
-          summary, a handful of captured fields, a recording control — and each was
-          rendered as its own full-bleed row. On a desktop that is a metre of
-          whitespace to the right of every one of them, and the reader scrolls past
-          six screens to reach the transcript. Two columns put the short things side
-          by side and cost nothing on a phone, where the grid is one column and the
-          order is exactly the DOM order it already had.
-
-          `auto-rows-min` so a card is as tall as its content rather than stretching
-          to its neighbour, and `grid-flow-row-dense` because most of these panels are
-          CONDITIONAL: with a full-width tile in the middle of the flow, a missing
-          card would otherwise leave a hole rather than closing up. Dense flow is safe
-          here precisely because these are independent panels — it can reorder them
-          visually, and none of them reads as a sequence.
-
-          The two that stay full width earn it: the transcript is long-form reading
-          and the assistant is an input people type sentences into, and both are
-          worse in a half-width column than a stat card is in a full-width one. */}
-      <div className="grid auto-rows-min grid-flow-row-dense gap-4 lg:grid-cols-2">
-        <FollowUpCard eligibility={eligibility} callback={callback} write={write} />
-
-        {detail.summary && (
-          <Card title="Summary">
-            {/* The summary as the API redacted it: it is transcript-DERIVED prose and goes
-                through the same `redact()` pass as `text_redacted` (crm/schemas.py). */}
-            <p className="text-sm text-ink">{detail.summary}</p>
-            {detail.lead_id && (
-              <Link
-                href={href(`/c/${slug}/leads/${detail.lead_id}`)}
-                className="mt-3 inline-block text-sm font-medium text-brand-strong hover:underline"
-              >
-                View the lead this call created
-              </Link>
-            )}
-          </Card>
-        )}
-
-        {/* D-127. Rendered UNCONDITIONALLY, above the transcript and below the summary it
-            offers a second reading of — not hidden behind "the extraction failed", because
-            the reasons a person wants another reading are not knowable from this row: a
-            summary that is thin, a call they are about to ring back, a lead they are
-            writing up. The card carries its own refusals; nothing about it depends on a
-            read this page has not made. */}
-        {/* Full width: this is a prompt box, and a half-column one invites two-word
-            questions. `AssistCard` owns its own `Card`, so the span goes on a wrapper. */}
-        <div className="lg:col-span-2">
+      {/* Two columns from `lg`: the transcript is long-form reading and takes the width;
+          the short, actionable panels sit beside it. In the DOM the actions come first,
+          so on a phone they are above the transcript rather than after it. */}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <aside aria-label="Act on this call" className="space-y-4 lg:col-start-2 lg:row-start-1">
+          <FollowUpCard eligibility={eligibility} callback={callback} write={write} />
+          {detail.has_recording && (
+            <RecordingCard
+              recording={recording}
+              playerRef={playerRef}
+              onTimeUpdate={setPlayhead}
+              durationS={detail.duration_s ?? null}
+            />
+          )}
+          {detail.moments.length > 0 && (
+            <KeyMomentsCard
+              moments={detail.moments}
+              audioLoaded={audioLoaded}
+              playhead={playhead}
+              onSeek={seekToMs}
+            />
+          )}
+          {/* D-127: always offered, whatever the stored summary looks like; it carries
+              its own refusals and changes nothing already saved. */}
           <AssistCard session={session} callId={callId} />
-        </div>
-
-        {Object.keys(detail.extraction ?? {}).length > 0 && (
-          <Card title="Captured details">
-            {/* These keys are the agent's extraction schema (TRD §7) — the same
-                definition that becomes the Leads table columns and the CSV export. */}
-            <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-              {Object.entries(detail.extraction as Record<string, unknown>).map(([key, value]) => {
-                // A captured field the extractor flagged for a human to confirm before
-                // acting on it (today: a phone that is not a standard Indian mobile). The
-                // value still shows — it is usable — with an amber note carrying the reason.
-                const review = detail.extraction_needs_review?.[key];
-                // dt and dd are DIRECT children of the single wrapper div — a <dl> accepts
-                // a <div> that groups a dt/dd, but NOT a div nesting another div around them
-                // (axe definition-list / dlitem). The review note is a full-width sibling
-                // that wraps beneath via flex-wrap.
-                return (
-                  <div
-                    key={key}
-                    className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-line py-1.5 text-sm"
-                  >
-                    <dt className="capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
-                    <dd className="text-right font-medium text-ink">{formatValue(value)}</dd>
-                    {review && (
-                      <p className="mt-1 w-full text-xs text-amber-700 dark:text-amber-400">
-                        {review}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </dl>
-            {!detail.extraction_valid && (
-              <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-                We could not capture some details cleanly from this call.
-              </p>
-            )}
-          </Card>
-        )}
-
-        {detail.has_recording && (
-          <RecordingCard
-            recording={recording}
-            playerRef={playerRef}
-            onTimeUpdate={setPlayhead}
-            durationS={detail.duration_s ?? null}
-          />
-        )}
-
-        {detail.moments.length > 0 && (
-          <KeyMomentsCard
-            moments={detail.moments}
-            audioLoaded={audioLoaded}
-            playhead={playhead}
-            onSeek={seekToMs}
-          />
-        )}
+        </aside>
 
         <TranscriptCard
+          className="lg:col-start-1 lg:row-start-1"
           turns={turns}
           showingRaw={showingRaw}
           showRaw={showRaw}
@@ -384,10 +303,4 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
       </div>
     </div>
   );
-}
-
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
 }

@@ -7,7 +7,8 @@
  * ## Why this lives here and `stream.ts` does not
  *
  * The ask route is a stream, so it cannot go through `apiRequest` (which reads a whole
- * body and resolves once) and `lib/copilot/stream.ts` says so at its top. Confirm is an
+ * body and resolves once); `lib/copilot/stream.ts` opens it through `openEventStream`
+ * in `lib/api/client.ts` instead. Confirm is an
  * ordinary POST with an ordinary JSON answer, so it takes the ordinary door: `apiRequest`,
  * the generated types, one refusal shape the console already renders. A second hand-rolled
  * `fetch` beside the first would have been the drift the convention exists to stop.

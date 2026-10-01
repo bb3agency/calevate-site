@@ -84,7 +84,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
-from apps.api.worker.service import _refuse_unknown_call, _tenant_of_call
+from apps.api.worker.service import _refuse_unknown_call, tenant_of_call
 from apps.workers.callbacks import CANCELLED_BY_CALLER_REASON
 from apps.workers.optout import tool_signal
 
@@ -202,7 +202,7 @@ async def record_opt_out(engine_call_id: str, request: OptOutToolIn) -> OptOutTo
     `record_call_optout`, whose dedupe makes a second write a no-op. It needs a number too,
     so it cannot rescue the unattributable case either.
     """
-    tenant_id = _tenant_of_call(engine_call_id)
+    tenant_id = tenant_of_call(engine_call_id)
     async with tenant_session(tenant_id) as session:
         call = await _load_call(session, engine_call_id)
         phone, ground = _subject(call, request.caller)
@@ -290,7 +290,7 @@ async def book_callback(engine_call_id: str, request: CallbackBookIn) -> Callbac
     morning — and every hour before 09:00 is outside the window anyway, which closes the
     dangerous half of the am/pm ambiguity structurally rather than by care.
     """
-    tenant_id = _tenant_of_call(engine_call_id)
+    tenant_id = tenant_of_call(engine_call_id)
     slot = resolve_slot(request.callback_date, request.callback_time, now=datetime.now(UTC))
     if isinstance(slot, SlotRefusal):
         return CallbackToolOut(
@@ -415,7 +415,7 @@ async def cancel_callback(engine_call_id: str, request: CallbackCancelIn) -> Cal
     what makes triggering reliable, and a cancellation must not be able to fail because a
     date could not be parsed — so there is no time in this path at all.
     """
-    tenant_id = _tenant_of_call(engine_call_id)
+    tenant_id = tenant_of_call(engine_call_id)
     async with tenant_session(tenant_id) as session:
         call = await _load_call(session, engine_call_id)
         phone, ground = _subject(call, request.caller)
@@ -546,7 +546,7 @@ async def request_handoff(engine_call_id: str, request: HandoffToolIn) -> Handof
     whisper and onto the attempt row, which is where the person taking the call and the
     client reading it later both need them.
     """
-    tenant_id = _tenant_of_call(engine_call_id)
+    tenant_id = tenant_of_call(engine_call_id)
     async with tenant_session(tenant_id) as session:
         call = await _load_call(session, engine_call_id)
         # The OTHER party, chosen by direction exactly as `_subject` chooses it: on an

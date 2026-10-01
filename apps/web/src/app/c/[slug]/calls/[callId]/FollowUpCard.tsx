@@ -2,7 +2,8 @@
 
 import { PhoneForwarded, ShieldAlert } from "lucide-react";
 
-import { Card, NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { Panel } from "@/components/console/panel";
 import type { useCallBack, useCallbackEligibility, useWriteAccess } from "@/lib/api/hooks";
 
 /**
@@ -35,12 +36,12 @@ export function FollowUpCard({
           card — no button, no reason, nothing to reload. §52: failure is a refusal, and
           nothing is not a refusal. */}
       {eligibility.isLoading && (
-        <Card title="Follow up">
+        <Panel title="Follow up">
           <Skeleton rows={2} />
-        </Card>
+        </Panel>
       )}
       {eligibility.error != null && (
-        <Card title="Follow up">
+        <Panel title="Follow up">
           <ProblemNotice
             error={eligibility.error}
             onRetry={() => void eligibility.refetch()}
@@ -49,10 +50,10 @@ export function FollowUpCard({
             We could not check whether this call can be followed up, so the button stays
             closed.
           </p>
-        </Card>
+        </Panel>
       )}
       {eligibility.data && (
-        <Card title="Follow up">
+        <Panel title="Follow up">
           {callback.data?.status === "queued" ? (
             <NoticeBox tone="ok" icon={<PhoneForwarded className="h-5 w-5" />}>
               Calling back now — follow-up #{callback.data.follow_up_number}. It will appear in
@@ -70,14 +71,14 @@ export function FollowUpCard({
             </NoticeBox>
           ) : eligibility.data.eligible && write.allowed ? (
             <div className="space-y-3">
-              <p className="text-sm text-ink-muted">
-                Our agent will call back and pick up where this conversation stopped.
+              <p className="text-[13px] text-ink-muted">
+                The agent calls back and picks up where this conversation stopped.
               </p>
               <button
                 type="button"
                 disabled={callback.isPending}
                 onClick={() => callback.mutate()}
-                className="press inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
+                className="press inline-flex w-full items-center justify-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
               >
                 <PhoneForwarded className="h-4 w-4" />
                 {callback.isPending ? "Calling…" : "Call back with AI"}
@@ -90,7 +91,7 @@ export function FollowUpCard({
                   read-only both end in the same dead button, and both belong NEXT to
                   it — the eligibility query exists so this button never answers with a
                   403, and the read-only sweep would have reintroduced exactly that. */}
-              <p className="text-sm text-ink-muted">
+              <p className="text-[13px] text-ink-muted">
                 {eligibility.data.eligible
                   ? (write.reason ?? "Checking what you can do in this account…")
                   : eligibility.data.reason}
@@ -98,14 +99,14 @@ export function FollowUpCard({
               <button
                 type="button"
                 disabled
-                className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink-faint"
+                className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink-faint touch:min-h-11"
               >
                 <PhoneForwarded className="h-4 w-4" />
                 Call back with AI
               </button>
             </div>
           )}
-        </Card>
+        </Panel>
       )}
     </>
   );

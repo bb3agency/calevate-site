@@ -6,6 +6,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { CallLeadResult, Me } from "@/lib/api/client";
 import type { Lead, LeadList, Member } from "@/lib/api/leads";
 
+import { readInfoTip } from "./infoTip";
 import {
   csv,
   expectTextCount,
@@ -309,7 +310,7 @@ describe("what the screen says when it could not read the leads", () => {
     );
 
     await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("button", { name: /Board/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Board/ }));
 
     expectTextCount(container, "No leads", 0);
     expect(container.textContent).not.toContain("not on this page");
@@ -556,7 +557,9 @@ describe("the counts come from the server or are not shown", () => {
         "/v1/leads/facets?status=hot": { facets: [], omitted_field_count: 0 },
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "hot" }));
+    // The stage filter is a segmented control (D-655), so each stage is a radio whose
+    // name carries the server's count after the label.
+    fireEvent.click(screen.getByRole("radio", { name: /^Hot/ }));
     return rendered;
   }
 
@@ -579,48 +582,40 @@ describe("the counts come from the server or are not shown", () => {
     // Under a loaded full-suite run this file's realm restore lands between the two, and
     // a single read then asserts about the unfiltered render — a flake that only appears
     // in CI, which is the worst place to diagnose one.
+    // The stage counts now sit IN the stage filter, one per option. Awaited: the counts
+    // re-render when the filtered page lands.
+    const stage = (label: RegExp) => screen.getByRole("radio", { name: label }).textContent;
     await vi.waitFor(() => {
-      expect(screen.getByText(/by stage/).parentElement?.textContent).toContain(
-        "new12",
-      );
+      expect(stage(/^New/)).toContain("12");
     });
-    const tally = screen.getByText(/by stage/).parentElement;
 
     // Pre-fix, every stage but `hot` was counted over a page the server had already
-    // narrowed to `hot`, so this row read "new 0 · contacted 0 · interested 0 · won 0".
-    expect(tally?.textContent).toContain("contacted3");
-    expect(tally?.textContent).toContain("interested4");
-    expect(tally?.textContent).not.toContain("new0");
-    expect(tally?.textContent).not.toContain("contacted0");
+    // narrowed to `hot`, so these read 0.
+    expect(stage(/^Contacted/)).toContain("3");
+    expect(stage(/^Interested/)).toContain("4");
+    expect(stage(/^New/)).not.toMatch(/New0$/);
+    expect(stage(/^Contacted/)).not.toMatch(/Contacted0$/);
     // …while the denominator stays the filtered one, and says which filter it obeyed.
-    expect(tally?.textContent).toContain("Showing 2 of 2 hot leads");
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("Showing 2 of 2 hot leads");
+    });
   });
 
   it("names the number of leads the CSV will actually hold", async () => {
     const { container } = await filterToHot();
 
-    // WAIT FOR THE NUMBER, not for the section heading. `findByText(/by stage/)` resolves
-    // while the table is still loading — the tally row renders with every stage at 0 — so
-    // the assertion below raced the fetch and failed only on a slow box. It failed in CI
-    // and passed locally, which is the shape the sibling test above already warns about.
-    await vi.waitFor(() => {
-      expect(container.textContent).toContain(
+    // The sentence about the file is behind the ⓘ beside the Export button now, so it is
+    // read by opening that tip. Awaited for the number: the tip re-renders when the
+    // filtered page lands.
+    await vi.waitFor(async () => {
+      expect(await readInfoTip("the CSV export")).toContain(
         "The CSV export contains these 2 leads",
       );
     });
-    // **This assertion is the inverse of the one it replaces.** The export used to
-    // ignore the status chip, so the sentence had to name the WHOLE account (22) and
-    // warn that the file was wider than the table. `/v1/leads/export.csv` now takes the
-    // same lens as the list, so the file holds the 2 hot leads on screen and the copy
-    // says so. A sentence claiming otherwise would teach a client to distrust a control
-    // that works — the more dangerous of the two wrong sentences.
-    expect(container.textContent).toContain(
-      "The CSV export contains these 2 leads",
-    );
     expect(container.textContent).not.toContain(
       "the export ignores this filter",
     );
-    expect(container.textContent).not.toContain("every lead in the account");
+    expect(await readInfoTip("the CSV export")).not.toContain("every lead in the account");
   });
 
   it("sends the SAME filters to the export that it sent to the list", async () => {
@@ -628,7 +623,7 @@ describe("the counts come from the server or are not shown", () => {
     // screen that narrowed the table and downloaded the account is the defect this
     // whole slice exists to close, and it is invisible in any assertion about copy.
     const { calls } = await filterToHot();
-    await screen.findByText(/by stage/);
+    await screen.findByText(/Showing/);
 
     fireEvent.click(
       screen.getByRole("button", { name: /Export this view as CSV/ }),
@@ -666,7 +661,7 @@ describe("the counts come from the server or are not shown", () => {
       routes({ "POST /v1/leads/search": leadList([lead()]) }),
     );
 
-    await screen.findByText(/by stage/);
+    await screen.findByText(/Showing/);
     fireEvent.change(screen.getByLabelText("Search leads"), {
       target: { value: NUMBER },
     });
@@ -755,13 +750,13 @@ describe("the counts come from the server or are not shown", () => {
 
     // Awaited rather than read off `container` synchronously: the searched page is a
     // second request, and the sentence is about ITS total.
-    await screen.findByText(/The CSV export contains this 1 lead/);
+    await vi.waitFor(async () => {
+      expect(await readInfoTip("the CSV export")).toMatch(/The CSV export contains this 1 lead/);
+    });
     expect(container.textContent).not.toContain("every lead in the account");
     // The searched population is still stated — as the search's own count, where it is
-    // true — so dropping the account figure does not leave the client with nothing.
-    expect(container.textContent).toContain(
-      "Matching these filters, by stage:",
-    );
+    // true — and the stage counts say they are over these filters.
+    expect(await readInfoTip("these counts")).toContain("Matching these filters, by stage:");
   });
 
   it("does not count the assignee filter off the page either", async () => {
@@ -806,7 +801,7 @@ describe("the counts come from the server or are not shown", () => {
     // is a visible duplicate, and the copy that drifts when the nav entry is renamed.
     const { container } = await renderClientPage(<LeadsPage />, routes());
 
-    await screen.findByText(/by stage/);
+    await screen.findByText(/Showing/);
     expect(container.querySelectorAll("h1")).toHaveLength(0);
   });
 });

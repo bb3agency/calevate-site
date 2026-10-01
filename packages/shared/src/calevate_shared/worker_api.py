@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import math
+from datetime import datetime
 from decimal import Decimal
 from typing import Final, Literal, get_args
 from uuid import UUID
@@ -326,6 +327,40 @@ class ObservationsOut(BaseModel):
     turns_written: int
     turns_already_present: int
     status: str | None = None
+
+
+#: Who is audible on a live call (D-656). `None` on the wire is silence.
+SpeakingSide = Literal["caller", "agent"]
+
+#: The largest sequence number a container can send. A call is capped at `CALL_CAP_MAX_S`
+#: (one hour) and the worker sends at most a few states a second, so this is far above any
+#: real call and exists so the value always fits the server's integer comparison.
+MAX_SPEAKING_SEQ: Final = 1_000_000
+
+
+class SpeakingStateIn(BaseModel):
+    """Who is speaking on this call right now, as the container last saw it (D-656).
+
+    Ids ride the path (the call ref) and nothing else rides here: no audio, no text, no
+    number. `seq` increases with every state the container sends for the call, and the
+    server keeps only the highest it has seen — so a request that timed out on the client and
+    landed late cannot overwrite a newer state.
+    """
+
+    model_config = _STRICT
+
+    speaker: SpeakingSide | None
+    seq: int = Field(ge=0, le=MAX_SPEAKING_SEQ)
+    #: When this state began, on the container's clock (UTC).
+    at: datetime
+
+
+class SpeakingStateOut(BaseModel):
+    """`accepted` is False when the server already held a newer state for the call."""
+
+    model_config = _STRICT
+
+    accepted: bool
 
 
 #: The widest quantity any leg of one call can honestly report, and the narrowest bound that
@@ -909,6 +944,7 @@ __all__ = [
     "MAX_RECALLED_FACT_CHARS",
     "MAX_REFUSALS",
     "MAX_REFUSAL_TEXT",
+    "MAX_SPEAKING_SEQ",
     "MAX_TOOL_TEXT",
     "MAX_TURNS_PER_BATCH",
     "METERED_LEGS",
@@ -940,6 +976,9 @@ __all__ = [
     "SettlementRefusal",
     "SettlementRequest",
     "SettlementStatus",
+    "SpeakingSide",
+    "SpeakingStateIn",
+    "SpeakingStateOut",
     "WorkerSessionOut",
     "caller_claim_mac",
     "usable_caller_claim_key",

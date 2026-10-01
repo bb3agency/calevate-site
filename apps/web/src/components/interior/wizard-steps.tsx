@@ -1,5 +1,8 @@
 "use client";
 
+// Adapted from interior.dev (github.com/ddoemonn/interior @3148000), MIT License,
+// Copyright (c) 2026 ozzy. Full notice: ./LICENSE.
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";

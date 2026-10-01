@@ -110,6 +110,7 @@ import {
   LANES,
   NO_MAINTENANCE,
   voiceCatalogue,
+  LIVE_CALLS_PATH,
 } from "./fixtures/sharedReads";
 
 /**
@@ -1671,6 +1672,8 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/legal/readiness": LEGAL_READINESS,
       "/v1/me": ME,
       "/v1/attention": { total: 1, counts: { lead_blocked: 1 }, items: [] },
+      // One call in progress, so the sweep covers the header's live-calls pill.
+      [LIVE_CALLS_PATH]: [{ ...CALL, id: "live-1", status: "in_progress" }],
     },
   },
   {

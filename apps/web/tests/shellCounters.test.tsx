@@ -15,7 +15,7 @@ import {
   stubApi,
   type Routes,
 } from "./harness";
-import { CLIENT_SHELL_ROUTES } from "./fixtures/sharedReads";
+import { CLIENT_SHELL_ROUTES, LIVE_CALLS_PATH } from "./fixtures/sharedReads";
 
 /**
  * The two counters in the shell chrome — the operator's hold queue and the client's
@@ -206,5 +206,55 @@ describe("the client shell's identity block", () => {
 
     expect(await screen.findByText("Acme")).toBeTruthy();
     expect(screen.queryByText("Account not read")).toBeNull();
+  });
+});
+
+/**
+ * THE LIVE-CALLS PILL — how many calls are in progress, from the same 20-second call poll
+ * as every other call list. It only ever asserts that calls ARE live: nothing while the
+ * read is out, nothing on zero, nothing on a failure.
+ */
+describe("the client shell's live-calls pill", () => {
+  const LIVE = {
+    id: "c-live",
+    agent_id: "a1",
+    agent_name: "Reception",
+    direction: "inbound",
+    status: "in_progress",
+    caller_e164: "+919876543210",
+    started_at: "2026-10-01T04:30:00Z",
+    duration_s: null,
+    outcome_tag: null,
+    sentiment: null,
+    summary: null,
+    lead_id: null,
+  };
+
+  it("names how many calls are live and opens the log filtered to them", async () => {
+    await renderClientShell({
+      "/v1/attention": { total: 0, items: [] },
+      [LIVE_CALLS_PATH]: [LIVE, { ...LIVE, id: "c-live-2" }],
+    });
+    const pill = await screen.findByRole("link", { name: "2 calls in progress now" });
+    expect(pill.getAttribute("href")).toBe("/c/acme/calls?status=in_progress");
+    // The number is the count, never a caller's digits.
+    expect(pill.getAttribute("href")).not.toMatch(/\d{10}/);
+  });
+
+  it("renders nothing when no call is live", async () => {
+    await renderClientShell({ "/v1/attention": { total: 0, items: [] } });
+    await screen.findByText("Acme");
+    expect(screen.queryByRole("link", { name: /in progress now/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Live calls/ })).toBeNull();
+  });
+
+  it("says it could not check, rather than going quiet, when the read failed", async () => {
+    await renderClientShell({
+      "/v1/attention": { total: 0, items: [] },
+      [LIVE_CALLS_PATH]: problem(503, { title: "Service unavailable" }),
+    });
+    expect(
+      await screen.findByRole("link", { name: "Live calls: we could not check just now" }),
+    ).toBeTruthy();
   });
 });

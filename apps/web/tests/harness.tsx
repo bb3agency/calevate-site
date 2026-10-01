@@ -301,6 +301,10 @@ export function stubApi(routes: Routes): ApiCall[] {
       // relying on call ORDER, which is what a queue of responses would have meant.
       const route = routes[key];
       const answer = typeof route === "function" ? (route as RouteAnswer)(calls[calls.length - 1]) : route;
+      // A route that builds its own `Response` — a streamed body (the live speaking
+      // stream is server-sent events) has no JSON form. A function route should build a
+      // fresh one per request, because a body can be read only once.
+      if (answer instanceof Response) return answer;
       if (answer instanceof NeverAnswers) return neverAnswers(init?.signal);
       if (answer instanceof NoReply) throw new TypeError("Failed to fetch");
       if (answer instanceof NoContent) return new Response(null, { status: 204 });

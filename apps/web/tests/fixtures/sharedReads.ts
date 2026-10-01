@@ -69,10 +69,18 @@ export const LEGAL_READY = {
   blockers: [],
 } satisfies LegalReadiness;
 
-/** The two reads the client shell makes on every screen, in their ordinary state. */
+/**
+ * The path the header's live-calls pill reads — `useCalls` with the in-progress filter.
+ * One spelling, so a test that answers it and the shell that asks cannot drift apart.
+ */
+export const LIVE_CALLS_PATH = "/v1/calls?status=in_progress&limit=20";
+
+/** The reads the client shell makes on every screen, in their ordinary state. */
 export const CLIENT_SHELL_ROUTES = {
   "/v1/maintenance": NO_MAINTENANCE,
   "/v1/legal/readiness": LEGAL_READY,
+  // No call in progress: the pill renders nothing.
+  [LIVE_CALLS_PATH]: [],
 };
 
 /** Every agent's knowledge delivered — `GET /v1/kb/delivery` with nothing outstanding. */

@@ -190,6 +190,14 @@ imports SQLAlchemy.
 sentence is what keeps hard rule 2 true after D-592 moved its boundary, and it is the first
 thing to check in any review of this code.
 
+**It also emits who is speaking, live (D-656).** `voice_worker/speaking.py` reads
+`VADUserStarted/StoppedSpeakingFrame` and `BotStarted/StoppedSpeakingFrame` through an
+observer, debounces them, and posts `calevate_shared.worker_api.SpeakingStateIn` — a side,
+a sequence number, a timestamp — to `POST /v1/worker/calls/{ref}/speaking` on the same
+Bearer token, fire-and-forget on its own task. The API holds it in Redis for 30 s for the
+console's speaking indicator; a failure drops the state and never touches the call. It has
+its own rate-limit bucket (`worker_live`) so it cannot starve a settlement.
+
 **The adapter imports no Pipecat.** It speaks to the worker through the database — the rows
 the worker's own server half writes — and, where a call must be started or ended now,
 through the carrier's API. `apps.api.engine.pipecat` joins `forbidden_modules` in

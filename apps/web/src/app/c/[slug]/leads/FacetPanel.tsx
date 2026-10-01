@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, ProblemNotice, Skeleton, formatCount } from "@/components/ui";
+import { Card, Disclosure, ProblemNotice, Skeleton, formatCount } from "@/components/ui";
 import type { LeadFacets } from "@/lib/api/leads";
 
 /**
@@ -68,27 +68,35 @@ export function FacetPanel({
   };
 
   const anySelected = Object.values(selected).some((v) => v.length);
+  const selectedCount = Object.values(selected).reduce((n, v) => n + v.length, 0);
 
   return (
-    <Card bodyClassName="space-y-3 p-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-xs font-semibold text-ink">Filter by what your agent captured</p>
-        {anySelected && (
-          <button
-            type="button"
-            onClick={() => onChange({})}
-            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-xs font-medium text-brand-strong hover:underline touch:min-h-11 dark:text-brand-bright"
-          >
-            Clear these filters
-          </button>
-        )}
-      </div>
+    /* DISCLOSED (UX-DOCTRINE §3): a filter used now and then, low consequence. Open by
+       itself whenever a value is chosen, so a filter in force is never out of sight, and
+       the closed state says how many fields it offers and how many are in use. */
+    <Disclosure
+      title="Filter by what your agent captured"
+      subtitle={`${facets.facets.map((facet) => facet.label).join(", ")}${
+        anySelected ? ` · ${selectedCount} chosen` : ""
+      }`}
+      defaultOpen={anySelected}
+    >
+      <div className="space-y-3">
+      {anySelected && (
+        <button
+          type="button"
+          onClick={() => onChange({})}
+          className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
+        >
+          Clear these filters
+        </button>
+      )}
 
       {facets.facets.map((facet) => (
         <fieldset key={facet.key} className="space-y-1.5">
           {/* A PERSISTENT VISIBLE LABEL for the group. `<legend>` rather than an
               aria-label, so it is readable by everyone and not only by axe. */}
-          <legend className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+          <legend className="text-[12px] font-medium text-ink-muted">
             {facet.label}
           </legend>
           <div className="flex flex-wrap gap-1.5">
@@ -132,6 +140,7 @@ export function FacetPanel({
           here — ask us to reorder your capture list if you need one of them.
         </p>
       )}
-    </Card>
+      </div>
+    </Disclosure>
   );
 }

@@ -1,5 +1,8 @@
 "use client";
 
+// Adapted from interior.dev (github.com/ddoemonn/interior @3148000), MIT License,
+// Copyright (c) 2026 ozzy. Full notice: ./LICENSE.
+
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
@@ -101,7 +104,10 @@ export function useTabs({
       role: "tab" as const,
       type: "button" as const,
       "aria-selected": item.value === value,
-      "aria-controls": `${base}-panel-${item.value}`,
+      // Only the selected tab names its panel: both consumers render the selected panel
+      // alone, and an `aria-controls` pointing at an element that does not exist is a
+      // dangling idref.
+      "aria-controls": item.value === value ? `${base}-panel-${item.value}` : undefined,
       "aria-disabled": item.disabled ? (true as const) : undefined,
       tabIndex: item.value === value ? 0 : -1,
       ref: (node: HTMLButtonElement | null) => {
@@ -210,7 +216,7 @@ export function Tabs({
 
     read();
     const row = rowRef.current;
-    if (!row) return;
+    if (!row || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(read);
     observer.observe(row);
     return () => observer.disconnect();
@@ -261,11 +267,17 @@ export function Tabs({
 
         {items.map((item, index) => {
           const selected = item.value === tabs.value;
+          const tabProps = tabs.getTabProps(item, index);
           return (
             <button
               key={item.value}
-              {...tabs.getTabProps(item, index)}
+              {...tabProps}
+              // BOTH refs. `getTabProps` registers the node for roving focus (`focusAt`);
+              // this component also measures it for the plateau. Passing only the second
+              // overrode the first, so arrow keys moved the selection while focus stayed
+              // on a button that now had `tabIndex=-1`.
               ref={(node) => {
+                tabProps.ref(node);
                 tabRefs.current[index] = node;
               }}
               className={`relative flex h-8 shrink-0 items-center justify-center rounded-t-[8px] px-3.5 text-[12.5px] outline-none transition-colors duration-150 after:pointer-events-none after:absolute after:inset-0 after:rounded-t-[8px] after:content-[''] focus-visible:after:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:after:shadow-[inset_0_0_0_1px_#22c55e] ${

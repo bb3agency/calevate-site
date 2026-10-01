@@ -1,22 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, PhoneCall } from "lucide-react";
+import { useMemo } from "react";
 
-import {
-  Card,
-  EmptyState,
-  ProblemNotice,
-  Skeleton,
-  StatusBadge,
-  formatDuration,
-  formatIST,
-} from "@/components/ui";
+import { EmptyState, ProblemNotice, Skeleton } from "@/components/ui";
+import { DataTable } from "@/components/console/dataTable";
+import { Panel } from "@/components/console/panel";
 import type { useCalls } from "@/lib/api/hooks";
+
+import { callColumns } from "./calls/callColumns";
 
 /**
  * The six most recent calls — the fastest route from "somebody rang" to ringing them
- * back, which is why the number is rendered in full (D-436) and never truncated.
+ * back, which is why the number is printed in full (D-436). Same row as the call log,
+ * so a call reads the same on both screens; a call that comes in on a poll is marked.
  */
 export function LatestCalls({
   recent,
@@ -27,79 +24,46 @@ export function LatestCalls({
   allHref: string;
   callHref: (id: string) => string;
 }) {
+  const columns = useMemo(() => callColumns({ callHref, compact: true }), [callHref]);
   return (
-  <Card
-    title="Latest calls"
-    action={
-      <Link
-        href={allHref}
-        className="press inline-flex items-center rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:hover:bg-white/5"
-      >
-        View all
-      </Link>
-    }
-    bodyClassName="p-2"
-  >
-    {recent.isLoading ? (
-      <Skeleton rows={5} />
-    ) : recent.error || !recent.data ? (
-      /* `!recent.data?.length` used to decide this, and `?.` collapses the two
-         answers §52 keeps apart: an empty list the server sent and no answer at all
-         are both falsy, so a paused query printed "No calls yet" to a client whose
-         phone had simply lost signal. The refusal arm now owns both non-answers. */
-      <ProblemNotice
-        error={recent.error ?? new Error("The latest calls did not load.")}
-        onRetry={() => void recent.refetch()}
-      />
-    ) : !recent.data.length ? (
-      <EmptyState
-        title="No calls yet"
-        hint="They appear here within a couple of minutes of the call ending."
-      />
-    ) : (
-      <ul className="divide-y divide-line">
-        {recent.data.map((call) => (
-          <li key={call.id}>
-            <Link
-              href={callHref(call.id)}
-              className="flex items-center gap-4 rounded-lg px-4 py-3 transition-colors duration-(--duration-fast) ease-out hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand dark:hover:bg-white/[0.04]"
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
-                {call.status === "completed" ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : (
-                  <PhoneCall className="h-4 w-4" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1">
-                {/* IN FULL (D-436) — the recent-calls rail is the fastest route
-                    from "somebody rang" to ringing them back. */}
-                {/* NOT `truncate`, for the reason the comment above gives: E.164 is
-                    bounded at 16 characters, so the number the rail exists to let you
-                    ring back can be shown whole. */}
-                <span className="block text-[13px] font-semibold text-ink">
-                  {call.caller_e164 ?? "Unknown number"}
-                </span>
-                <span className="block truncate text-[12px] text-ink-muted">
-                  {call.agent_name ?? "—"} · {call.direction}
-                </span>
-              </span>
-              <span className="hidden sm:block">
-                <StatusBadge value={call.status} kind="call" />
-              </span>
-              <span className="w-20 shrink-0 text-right">
-                <span className="block text-[11px] font-medium text-ink-muted">
-                  {formatDuration(call.duration_s)}
-                </span>
-                <span className="block text-[11px] text-ink-faint">
-                  {formatIST(call.started_at)}
-                </span>
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    )}
-  </Card>
+    <Panel
+      title="Latest calls"
+      action={
+        <Link
+          href={allHref}
+          className="rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:inline-flex touch:items-center"
+        >
+          View all
+        </Link>
+      }
+      bodyClassName="px-1 pb-1 sm:px-2 sm:pb-2"
+    >
+      {recent.isLoading ? (
+        <div className="p-3">
+          <Skeleton rows={5} />
+        </div>
+      ) : recent.error || !recent.data ? (
+        /* Both non-answers — a refusal and a paused (offline) query — are this arm, so
+           "No calls yet" is only ever printed over a list the server sent (§52). */
+        <div className="p-3">
+          <ProblemNotice
+            error={recent.error ?? new Error("The latest calls did not load.")}
+            onRetry={() => void recent.refetch()}
+          />
+        </div>
+      ) : !recent.data.length ? (
+        <EmptyState
+          title="No calls yet"
+          hint="They appear here within a couple of minutes of the call ending."
+        />
+      ) : (
+        <DataTable
+          rows={recent.data}
+          columns={columns}
+          getRowId={(call) => call.id}
+          label="Latest calls"
+        />
+      )}
+    </Panel>
   );
 }

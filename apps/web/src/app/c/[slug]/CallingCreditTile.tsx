@@ -1,15 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Wallet } from "lucide-react";
 
-import {
-  Card,
-  ProblemNotice,
-  Skeleton,
-  StatTile,
-  formatINR,
-} from "@/components/ui";
+import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
+import { Metric } from "@/components/console/metric";
+import { Panel } from "@/components/console/panel";
 import { useWallet, walletState } from "@/lib/api/wallet";
 
 /**
@@ -17,8 +12,8 @@ import { useWallet, walletState } from "@/lib/api/wallet";
  *
  * **THE STATE IS NEVER CARRIED BY THE FIGURE ALONE.** ₹0.00 means nothing to somebody
  * skimming a dashboard on a phone; "outgoing calls have stopped" does. So each state has
- * a SENTENCE under the number, the empty one has an icon that is not the healthy one's,
- * and none of the three is distinguished by colour (WCAG 1.4.1) — which matters most on
+ * a SENTENCE under the number, and colour only ever repeats what that sentence says
+ * (WCAG 1.4.1) — which matters most on
  * the one tile where a misread is a business day of missed calls.
  *
  * **THE EMPTY STATE'S SENTENCE CARRIES THE REASSURANCE**, in the same order the wallet's
@@ -40,9 +35,9 @@ export function CallingCreditTile({
 }) {
   if (wallet.isLoading) {
     return (
-      <Card title="Calling credit" bodyClassName="p-4 sm:p-5">
+      <Panel title="Calling credit" className="rounded-none border-0 shadow-none">
         <Skeleton rows={2} label="Loading your calling credit" />
-      </Card>
+      </Panel>
     );
   }
   // `|| !wallet.data` for the PAUSED query (offline): `isLoading` is false, `error` is
@@ -50,12 +45,12 @@ export function CallingCreditTile({
   // "—" to a client whose wallet may be empty (§52).
   if (wallet.error || !wallet.data) {
     return (
-      <Card title="Calling credit" bodyClassName="p-4 sm:p-5">
+      <Panel title="Calling credit" className="rounded-none border-0 shadow-none">
         <ProblemNotice
           error={wallet.error ?? new Error("Your calling credit did not load.")}
           onRetry={() => void wallet.refetch()}
         />
-      </Card>
+      </Panel>
     );
   }
 
@@ -63,13 +58,14 @@ export function CallingCreditTile({
   if (state === "not-prepaid") return null;
 
   return (
-    <StatTile
+    <Metric
+      className="p-4 sm:p-5"
       label="Calling credit left"
       value={formatINR(wallet.data.balance_inr)}
-      icon={<Wallet className="h-5 w-5" />}
-      tone={state === "stopped" ? "strong" : "soft"}
+      flashValue={wallet.data.balance_inr}
+      tone={state === "stopped" ? "danger" : state === "low" ? "warn" : "default"}
       hint={
-        <Link href={href} className="underline hover:text-ink">
+        <Link href={href} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
           {state === "stopped"
             ? "Calls have stopped, outgoing and incoming. Add credit to start both again"
             : state === "low"

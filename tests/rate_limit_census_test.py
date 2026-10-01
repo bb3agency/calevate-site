@@ -134,6 +134,10 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         # The public rate card must NOT fall into `client_api`: its one caller is the
         # marketing site's server, so a per-person ceiling would be a per-site one.
         ("/v1/public/rate-card", "GET", "public_read"),
+        # The live speaking state has its own bucket, so it can never 429 the settlement
+        # beside it (D-656).
+        ("/v1/worker/calls/{engine_call_id}/speaking", "POST", "worker_live"),
+        ("/v1/worker/calls/{engine_call_id}/settlement", "POST", "worker_api"),
     ],
 )
 def test_named_routes_land_in_the_profile_they_were_weighted_for(

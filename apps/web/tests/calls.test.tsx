@@ -98,9 +98,9 @@ describe("the call log", () => {
       page,
       routes([call(), call({ id: "c2" })]),
     );
-    await screen.findByText(
-      "Open a call to see the transcript, recording and the details we captured.",
-    );
+    // The instruction line that used to head the log ("Open a call to see …") is gone:
+    // the rows are links and say so themselves. Wait on a row instead.
+    await screen.findAllByText("+919876543210");
     expect(container.textContent).toContain("2");
     expect(container.textContent).toContain("calls");
   });
@@ -145,7 +145,7 @@ describe("the call log", () => {
     // The four the old chip row omitted. A client who cannot ASK for their voicemails
     // has no way to find them: the list is capped at 100 rows.
     for (const label of ["Busy", "Voicemail", "In progress", "No answer"]) {
-      expect(screen.queryByRole("button", { name: label })).toBeNull();
+      expect(screen.queryByRole("radio", { name: label })).toBeNull();
     }
 
     await renderClientPage(page, routes([call()]));
@@ -159,9 +159,11 @@ describe("the call log", () => {
       "Failed",
       "In progress",
     ]) {
+      // A segmented control now (D-655: one filter over one list), so each option is a
+      // radio rather than a toggle button.
       expect(
-        screen.getByRole("button", { name: label }),
-        `missing chip: ${label}`,
+        screen.getByRole("radio", { name: label }),
+        `missing filter option: ${label}`,
       ).toBeTruthy();
     }
   });
@@ -172,7 +174,7 @@ describe("the call log", () => {
       routes([call()], { "/v1/calls?status=voicemail&limit=100": [] }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Voicemail" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Voicemail" }));
     await screen.findByText("No calls match this filter");
 
     // Server-side, not a client-side slice of a capped list — the difference decides

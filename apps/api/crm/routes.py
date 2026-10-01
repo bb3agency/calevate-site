@@ -11,11 +11,13 @@ raw transcript, recording link, and "call this lead".
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -26,12 +28,12 @@ from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import record_compliance_block
-from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires, tenant_of
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.crm import assist, lead_search, saved_views, service
+from apps.api.crm import assist, lead_search, live_speaking, saved_views, service
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.performance import performance
@@ -161,6 +163,37 @@ async def get_call(
     call_id: UUID, session: Session, _: Principal = Depends(requires("calls:read"))
 ) -> CallDetailOut:
     return await service.get_call(session, call_id, raw=False)
+
+
+async def _live_call(
+    call_id: UUID,
+    tenant_id: UUID = Depends(tenant_of),
+) -> live_speaking.LiveCall:
+    """The call, resolved under RLS BEFORE the stream opens.
+
+    A dependency rather than the generator's first line because an SSE response commits its
+    status with its headers: a 404 raised inside the generator could only ever be an error
+    frame on a 200. Its own short `tenant_session`, never `Depends(db)`, so the stream holds
+    no pooled connection while it is open.
+    """
+    return await live_speaking.resolve_live_call(tenant_id, call_id)
+
+
+@router.get(
+    "/calls/{call_id}/speaking",
+    response_class=EventSourceResponse,
+    openapi_extra=permission_meta("calls:read"),
+    summary="Who is speaking on a live call — streamed as text/event-stream (D-656)",
+)
+async def stream_call_speaking(
+    _: Principal = Depends(requires("calls:read")),
+    call: live_speaking.LiveCall = Depends(_live_call),
+) -> AsyncIterator[live_speaking.CallSpeakingOut]:
+    """Each frame is `{speaker, live, since}`: one at once, one per change, and a last one
+    with `live: false` when the call ends. See `crm/live_speaking.py` for the transport
+    choice and the store behind it."""
+    async for frame in live_speaking.speaking_frames(call):
+        yield frame
 
 
 @router.get(

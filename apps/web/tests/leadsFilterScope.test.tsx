@@ -12,6 +12,7 @@ import { exportRefusal, scopeLabel } from "@/app/c/[slug]/leads/leadsTable";
 import type { Me } from "@/lib/api/client";
 import type { Lead, LeadLens, LeadList, Member } from "@/lib/api/leads";
 
+import { readInfoTip } from "./infoTip";
 import { lensOf, problem, renderClientPage, type ApiCall } from "./harness";
 
 /**
@@ -201,7 +202,7 @@ describe("'Clear the filters' clears the filters — all of them", () => {
     // Three filters at once, on three different axes: the chip, the question and the
     // owner. The old clear knew about one of them.
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "hot" }));
+      fireEvent.click(screen.getByRole("radio", { name: /^Hot/ }));
     });
     await askQuestion("3BHK in Gachibowli");
     await filterByOwner();
@@ -251,8 +252,9 @@ describe("the two counts say what they are counts OF", () => {
     );
     await screen.findByRole("button", { name: "Assigned to me" });
 
-    // Unfiltered, both sentences are about the account, and they may say so.
-    expect(container.textContent).toContain("In this account, by stage:");
+    // Unfiltered, both sentences are about the account, and they may say so. The scope
+    // of the stage counts is behind the ⓘ beside the count now.
+    expect(await readInfoTip("these counts")).toContain("In this account, by stage:");
 
     await filterByOwner();
 
@@ -261,10 +263,10 @@ describe("the two counts say what they are counts OF", () => {
     expect(container.textContent).toContain("leads matching your filters");
     // And the six badges beside it are the server's counts over that same narrowed
     // scope (crm/service.py), so they are not "this account" either.
-    expect(container.textContent).toContain(
-      "Matching these filters, by stage:",
-    );
-    expect(container.textContent).not.toContain("In this account, by stage:");
+    await waitFor(async () => {
+      expect(await readInfoTip("these counts")).toContain("Matching these filters, by stage:");
+    });
+    expect(await readInfoTip("these counts")).not.toContain("In this account, by stage:");
   });
 });
 

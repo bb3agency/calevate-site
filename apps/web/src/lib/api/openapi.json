@@ -35925,6 +35925,62 @@
         "x-calevate-permission": "calls:read_raw"
       }
     },
+    "/v1/calls/{call_id}/speaking": {
+      "get": {
+        "description": "Each frame is `{speaker, live, since}`: one at once, one per change, and a last one\nwith `live: false` when the call ends. See `crm/live_speaking.py` for the transport\nchoice and the store behind it.",
+        "operationId": "stream_call_speaking_v1_calls__call_id__speaking_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who is speaking on a live call \u2014 streamed as text/event-stream (D-656)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
     "/v1/calls/{call_id}/transcript/raw": {
       "get": {
         "operationId": "get_raw_transcript_v1_calls__call_id__transcript_raw_get",
