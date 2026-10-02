@@ -3180,6 +3180,12 @@ const ADMIN_SCREENS: Screen[] = [
       // markup this sweep has nowhere else to see (D-547).
       "/v1/ops/rate-card": OPS_RATE_CARD,
       "/v1/ops/fx-rate": OPS_FX_RATE,
+      "/v1/admin/number-pricing": {
+        attested: true,
+        inr_per_month: "499.00",
+        source: "carrier order form, 1 Oct 2026",
+        attested_at: "2026-10-01T06:30:00Z",
+      },
       "/v1/ops/model-prices": OPS_MODEL_PRICES,
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,

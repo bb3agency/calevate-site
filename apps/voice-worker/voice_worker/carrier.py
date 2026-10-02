@@ -63,12 +63,11 @@ the shipped client of that protocol, read in this session at
 2. **Whether Plivo signs the HTTP request that fetches the answer document.** That leg
    is not here — see the next section — and nothing in the installed Pipecat tree
    verifies a Plivo request signature.
-3. **Every carrier REST call except the hangup** — placing a call, listing a CDR, binding a
-   number. `apps/api/engine/pipecat.py` refuses each by name for this reason and this
-   module adds no second guess; see `OUTBOUND_DIAL_UNKNOWN` and `CDR_LISTING_UNKNOWN`
-   below. The CDR is the costly one: it is the authority for the billable minute (§1.2),
-   so while it cannot be read every call settles a carrier refusal and bills the client no
-   minutes at all (`meter.CarrierFactsMissingError`).
+3. **No carrier REST call is made from this container** beyond Plivo's own hangup. The
+   control plane dials, binds numbers and reads the carrier's CDR through
+   `apps/api/engine/carrier.py` (D-662), so this module holds no dial and no CDR reader:
+   the worker settles the carrier leg as `meter.CarrierFactsMissingError`, and the
+   carrier's charge reaches the ledger later from `apps/workers/carrier_events.py`.
 
 WHERE THE ANSWER DOCUMENT WENT (D-610)
 ======================================
@@ -136,7 +135,6 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
-from voice_worker.meter import CarrierCdr
 from voice_worker.pipeline import (
     TELEPHONY_SAMPLE_RATE_HZ,
     AssembledCall,
@@ -164,35 +162,6 @@ def wire_family_of(carrier: str) -> str:
     Pipecat names Twilio, Telnyx and Exotel; `build_transport` still refuses to serve it.
     """
     return WIRE_FAMILY[cast(CarrierName, carrier)] if is_carrier(carrier) else carrier
-
-
-#: Why no outbound dial exists in this module, in the words an operator gets.
-#:
-#: Pipecat's whole tree contains ONE Plivo REST endpoint — the hangup DELETE at
-#: `serializers/plivo.py:184` — and nothing that places a call. The dial is an HTTP request
-#: to a surface nobody here has read, so it is REFUSED rather than guessed: the transport,
-#: the serializer and everything in this module are direction-agnostic.
-#:
-#: Why no CDR can be read here, in the words an operator gets.
-#:
-#: The carrier's record is the authority for the billable minute (PIPECAT-MIGRATION.md
-#: §1.2) and for the client's billed minutes with it; the request that retrieves one has
-#: not been read. See `fetch_call_detail_record` for the five facts it needs.
-CDR_LISTING_UNKNOWN: Final = (
-    "Reading a call detail record from this carrier is not built: the only Plivo REST "
-    "endpoint in the installed Pipecat tree is the hangup (serializers/plivo.py:184), the "
-    "vendor's API host is egress-blocked from the build environment, and the request that "
-    "retrieves a CDR has not been read. Until it is, every call settles "
-    "meter_carrier_cdr_missing and bills the client no minutes. See "
-    "docs/evidence/pre-build-blockers-2026-09-13.md §10 and ROADMAP D-623."
-)
-
-OUTBOUND_DIAL_UNKNOWN: Final = (
-    "Placing a call on this carrier is not built: the only Plivo REST endpoint in the "
-    "installed Pipecat tree is the hangup (serializers/plivo.py:184), the vendor's API "
-    "host is egress-blocked from the build environment, and the request that places a "
-    "call has not been read. See docs/evidence/pre-build-blockers-2026-09-13.md §10."
-)
 
 
 class UnroutableCallError(RuntimeError):
@@ -1053,90 +1022,23 @@ def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: st
     transport.add_event_handler(CLIENT_DISCONNECTED_EVENT, _hang_up)
 
 
-class CarrierNotWrittenError(RuntimeError):
-    """A carrier operation whose request nobody has read. Refused by name, never guessed.
-
-    The same shape `apps/api/engine/pipecat.py::_carrier_not_written` gives the control
-    plane, for the same reason and with the same sentence: an unbuilt half must refuse
-    where it is called rather than be discovered as an `AttributeError` by whoever wires
-    the second entrypoint.
-    """
-
-
-def fetch_call_detail_record(*_args: Any, **_kwargs: Any) -> CarrierCdr:
-    """REFUSES. Nothing in this repository can read a carrier CDR, and this is where it would.
-
-    **THIS IS THE LEG'S MISSING PRODUCER, AND IT IS DECLARED RATHER THAN LEFT ABSENT** — the
-    shape `apps/api/agents/transfer_providers/plivo.py` and `place_outbound_call` below both
-    take. `meter.CarrierCdr` is constructed nowhere but the meter's own tests, so every call
-    settles `meter_carrier_cdr_missing`: no `telephony_s` row, and therefore no billed
-    minutes for the client (see `CarrierFactsMissingError`). An absence with no name reads as
-    an oversight and gets re-derived by whoever looks next; a refusal at the call site is
-    where the wiring lands when the account arrives.
-
-    **WHAT IS KNOWN, FROM THE ONE PRIMARY SOURCE READABLE HERE.** The pinned
-    `pipecat-ai==1.10.0` tree contains exactly ONE Plivo REST endpoint — the hangup DELETE
-    at `serializers/plivo.py:184`, Basic-authed over `(auth_id, auth_token)` at `:187`. It
-    establishes the host, the account path and the auth scheme, and nothing about CDRs.
-
-    **WHAT IS UNKNOWN — `api.plivo.com` and `www.plivo.com` are egress-blocked from this
-    container** (`curl: (56) CONNECT tunnel failed, response 403`; the same measurement
-    `docs/evidence/pre-build-blockers-2026-09-13.md` §10 records). The five facts that would
-    let this be written, each to be answered ONLY from the vendor's own pages, quoting page
-    and date beside it, with "not stated on these pages" rather than an inference:
-
-      1. The exact request that retrieves ONE call's detail record by the carrier's own call
-         id: method, full path, required headers, and every query parameter.
-      2. The field carrying BILLED duration and its unit, and whether it differs from
-         connected duration (answer-to-hangup) — they are the same field on some carriers
-         and not on others, and the wrong one is a systematically wrong invoice.
-      3. The field carrying the CHARGE, its currency, and whether it is final at hangup or
-         settles later. A figure that moves after we have written it lands in an
-         append-only ledger that has no UPDATE to correct it (hard rule 4).
-      4. How long after hangup the record is available and complete, which is what decides
-         whether this is a settlement-time fetch or a reconciliation sweep.
-      5. The rounding rule: the minimum billable unit and the increment past it. Without it
-         a per-second quantity cannot be reconciled against the carrier's own invoice.
-
-    ⚠ **FACT 3 IS NOT ENOUGH ON ITS OWN, AND THE REST IS NOT THIS FILE'S TO DECIDE.** Whose
-    cost that charge IS remains open: under D-474 Model B the CLIENT is the subscriber of
-    record and the carrier bills them directly, so the charge would be theirs and never
-    `unit_cost_paid`, while `PLIVO_AUTH_ID`/`PLIVO_AUTH_TOKEN` in this deployment are OURS.
-    `docs/evidence/per-minute-cost-model-2026-09-21.md` §4.1 states the tension and leaves
-    it to the founder. The QUANTITY is wanted either way; the charge is not.
-    """
-    raise CarrierNotWrittenError(CDR_LISTING_UNKNOWN)
-
-
-def place_outbound_call(*_args: Any, **_kwargs: Any) -> AssembledCall:
-    """REFUSES. The dial is the one carrier operation this module cannot perform.
-
-    The worker never dials: the control plane does, and the answered call reaches this
-    container through the same answer route as an inbound one, carrying its direction and
-    our call id in the stream URL's signed call claim (`call_claim_from_stream_url`).
-    """
-    raise CarrierNotWrittenError(OUTBOUND_DIAL_UNKNOWN)
 
 
 __all__ = [
     "CALLER_IDENTITY_PARSE",
-    "CDR_LISTING_UNKNOWN",
     "CLAIM_CALLER_STATE_PARAM",
     "CLAIM_CARRIER_PARAM",
     "CLIENT_CONNECTED_EVENT",
     "CLIENT_DISCONNECTED_EVENT",
-    "OUTBOUND_DIAL_UNKNOWN",
     "UNAUTHENTICATED_CLAIM_GROUND",
     "CallRoute",
     "CallerIdentity",
     "CallerIdentityState",
-    "CarrierCdr",
     "CarrierClaimMismatchError",
     "CarrierCredentialsMissingError",
     "CarrierHandshake",
     "CarrierIdentityParse",
     "CarrierLeg",
-    "CarrierNotWrittenError",
     "CarrierWiringError",
     "ClaimedCall",
     "ControlPlaneClaim",
@@ -1147,10 +1049,8 @@ __all__ = [
     "call_claim_from_stream_url",
     "caller_identity_of",
     "claim_from_stream_url",
-    "fetch_call_detail_record",
     "fold_caller_identity",
     "open_carrier_leg",
-    "place_outbound_call",
     "read_handshake",
     "route_of",
     "wire_family_of",

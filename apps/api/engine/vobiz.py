@@ -49,10 +49,10 @@ ENGINE_LABEL: Final = "vobiz"
 BALANCE_TOO_LOW: Final = 402
 DIAL_REFUSED_STATUSES: Final = frozenset({BALANCE_TOO_LOW})
 
-#: `app_name` admits letters, digits, `-` and `_` only (`applications/create-application.md:28`).
+#: `app_name` admits letters, digits, `-` and `_` only (`applications/create-application.md:29`).
 _APP_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 APP_NAME_PREFIX: Final = "calevate-"
-#: `limit` is at most 100 (`applications/list-all-applications.md:24`). The page bound
+#: `limit` is at most 100 (`applications/list-all-applications.md:27`). The page bound
 #: keeps a runaway listing from holding a publish open; an account with more applications
 #: than this is refused by name rather than given a duplicate.
 _APPLICATION_PAGE: Final = 100
@@ -140,28 +140,33 @@ class VobizCarrier:
             return None
         return engine_not_configured("no_carrier_credentials:vobiz")
 
-    def _http(self) -> httpx.AsyncClient:
-        """The authenticated client, or the deployment-side refusal when there is none."""
-        refusal = self.unavailable("reach its carrier")
-        if refusal is not None:
-            raise refusal
-        if self._client is None:
-            # Both headers on every request (`api-reference/authentication.md:9-16`).
-            self._client = httpx.AsyncClient(
-                base_url=self._base_url,
-                headers={
-                    "X-Auth-ID": self._auth_id or "",
-                    "X-Auth-Token": self._auth_token or "",
-                },
-                timeout=REQUEST_TIMEOUT_S,
-            )
-        return self._client
+    def _new_client(self) -> httpx.AsyncClient:
+        """An authenticated client. Both headers on every request
+        (`api-reference/authentication.md:12-16`)."""
+        return httpx.AsyncClient(
+            base_url=self._base_url,
+            headers={"X-Auth-ID": self._auth_id or "", "X-Auth-Token": self._auth_token or ""},
+            timeout=REQUEST_TIMEOUT_S,
+        )
 
     def _account(self, suffix: str) -> str:
         return f"/Account/{quote(self._auth_id or '', safe='')}/{suffix}"
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        return await vendor_request(self._http(), method, path, engine=ENGINE_LABEL, **kwargs)
+        """One request, refused before it is built when the credentials are absent.
+
+        On the injected client, or on one opened and closed for this request rather than
+        held: `engine/carrier.get_carrier` builds a carrier per operation from the live
+        settings, so a held client would be an unclosed connection pool per dial, CDR read
+        and binding.
+        """
+        refusal = self.unavailable("reach its carrier")
+        if refusal is not None:
+            raise refusal
+        if self._client is not None:
+            return await vendor_request(self._client, method, path, engine=ENGINE_LABEL, **kwargs)
+        async with self._new_client() as client:
+            return await vendor_request(client, method, path, engine=ENGINE_LABEL, **kwargs)
 
     # --- calls ----------------------------------------------------------------------
 
@@ -514,9 +519,9 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
     if event == "Ring":
         return build("ringing", "ringing")
     if event == "StartApp":
-        # Delivered to the answer URL when the called party answers (`:74-75`).
+        # Delivered to the answer URL when the called party answers (`:76`).
         return build("answered", "in_progress")
-    # The authoritative end of the call (`:76`). An Application's hangup callback carries no
+    # The authoritative end of the call (`:77`). An Application's hangup callback carries no
     # `Event` at all (`applications.md:60-65`), so a callback with no event that reports how
     # or when the call ended is the same hangup.
     if event == "Hangup" or (not event and (cause or (fields.get("EndTime") or "").strip())):

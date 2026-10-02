@@ -533,9 +533,11 @@ class Settings(BaseSettings):
     #: (`call/make-call.md:134`). The dial gate keeps `inbound_reserve_ratio` of it free for
     #: inbound callers (`engine/carrier_pacing.outbound_line_pool`), OPERATIONS §2 gate V-5.
     carrier_concurrency: int = Field(default=3, ge=1, le=1000)
-    #: Whether a live caller may be transferred to a human through the carrier. Off by
-    #: default: Vobiz itself calls the accept-by-keypress step "currently unverified"
-    #: (`xml/dial.md:55-57`). Off means the in-call handoff answers `not_available`.
+    #: Whether the Vobiz transfer contract counts as verified. Off by default: Vobiz itself
+    #: calls the accept-by-keypress step "currently unverified" (`xml/dial.md:56`). On is
+    #: necessary and not sufficient: the `<Dial>` ending arrives on a later callback, so the
+    #: transfer registry still offers no handover (`outcome_arrives_late`) until a hand-off
+    #: mode exists that tells the caller first.
     carrier_transfer_enabled: bool = False
     # USD→INR for every cost a vendor quotes in dollars (number rentals, the console's
     # margin figures), stamped with its source wherever it reaches a ledger row (hard

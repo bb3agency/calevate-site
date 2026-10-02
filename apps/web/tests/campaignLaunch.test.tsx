@@ -592,7 +592,8 @@ describe("the confirmation in front of a launch", () => {
     expect(container.textContent).toContain("between 9am and 9pm IST");
     expect(container.textContent).toContain("10:00");
     expect(container.textContent).toContain("18:00");
-    expect(container.textContent).toContain("+911140001234");
+    // Written for a reader through `formatPhone`, like every number on a screen.
+    expect(container.textContent).toContain("+91 11400 01234");
   });
 
   it("says in words that a campaign with no number of its own has none", async () => {

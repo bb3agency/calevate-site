@@ -10,6 +10,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   formatCount,
+  formatPhone,
 } from "@/components/ui";
 
 /**
@@ -172,7 +173,7 @@ export function LaunchConfirm({
           <li>
             {numberE164 ? (
               <>
-                They will show <strong>{numberE164}</strong> on the handset.
+                They will show <strong>{formatPhone(numberE164)}</strong> on the handset.
               </>
             ) : (
               "This campaign has no number of its own, so calls go out on whichever of your numbers is available."

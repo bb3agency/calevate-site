@@ -58,6 +58,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatINR,
+  formatPhone,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useKycRecord } from "@/lib/api/kyc";
@@ -277,7 +278,7 @@ function OfferRow({
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line p-3">
       <div>
-        <MonoValue className="text-ink">{offer.e164}</MonoValue>
+        <MonoValue className="text-ink">{formatPhone(offer.e164)}</MonoValue>
         {where !== "" && <p className="mt-1 text-xs text-ink-muted">{where}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-3">
@@ -382,7 +383,7 @@ export function BuyNumber() {
           </NoticeBox>
 
           {bought && (
-            <NoticeBox tone={bought.activated ? "ok" : "warn"} title={`${bought.e164} is yours`}>
+            <NoticeBox tone={bought.activated ? "ok" : "warn"} title={`${formatPhone(bought.e164)} is yours`}>
               {bought.activated ? (
                 <p>
                   {formatINR(bought.inr_per_month)} a month from today. Choose the agent
@@ -449,7 +450,7 @@ export function BuyNumber() {
 
       {chosen && (
         <ConfirmDialog
-          title={`Buy ${chosen.e164}`}
+          title={`Buy ${formatPhone(chosen.e164)}`}
           confirmLabel="Buy this number"
           pendingLabel="Buying…"
           pending={purchase.isPending}

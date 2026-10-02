@@ -81,7 +81,7 @@ export function LanguageAndTrade() {
                 <li
                   key={lang}
                   className={`flex flex-col gap-1.5 rounded-xl border px-5 py-4 ${
-                    index === 0 ? "border-brand/30 bg-brand-soft/50" : "border-line bg-app/60"
+                    index === 0 ? "border-brand/30 bg-brand-soft/50 dark:bg-brand-strong/20" : "border-line bg-app/60"
                   }`}
                 >
                   <span className="text-xs font-semibold tracking-wide text-ink-muted uppercase">

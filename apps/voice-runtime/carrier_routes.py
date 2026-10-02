@@ -181,6 +181,12 @@ class CarrierAnswerContract:
     dial_transfer: bool = False
     dial_evidence: str = ""
 
+    #: Whether status/hangup callbacks are accepted on the events route. Off for a carrier
+    #: whose callback grammar is unread: its worker job could only refuse, so accepting
+    #: would turn an unauthenticated POST into an inbox row, a queued job and an alarm.
+    status_callbacks: bool = False
+    status_callbacks_evidence: str = ""
+
     @property
     def signature_header(self) -> str | None:
         return self.signature_scheme.header if self.signature_scheme is not None else None
@@ -254,6 +260,8 @@ CARRIER_ANSWER_CONTRACT: Final[Mapping[str, CarrierAnswerContract]] = {
         ),
         dial_transfer=True,
         dial_evidence=f"{_MIRROR}xml/dial.md:40-60",
+        status_callbacks=True,
+        status_callbacks_evidence=f"{_MIRROR}concepts/callbacks.md:70-105",
     ),
 }
 
@@ -584,8 +592,8 @@ async def read_params(request: Request, *, carrier: str) -> tuple[dict[str, str]
         raise ProblemError(
             kind="validation",
             code="payload_too_large",
-            title="Payload too large",
-            detail="The request body exceeds the accepted size.",
+            title="Too much data was sent",
+            detail="This call event carried more data than this address accepts.",
             status=413,
         )
     return carrier_params(request.query_params, request.headers.get("content-type", ""), raw)

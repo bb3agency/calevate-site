@@ -1394,11 +1394,10 @@ def test_an_unpriceable_leg_says_its_quantity_is_not_kept_anywhere() -> None:
     """The dead end, named where the next person will be standing.
 
     A `telephony_s` quantity is refused here AND its code is not in `REMETERABLE_CODES`, so
-    `_record_remeter_demands` parks no measurement for it either — the connected seconds a
-    future CDR reader fetches would arrive and be discarded into an append-only ledger that
-    can never take them later. That is deliberate (nothing will ever price the leg from a
-    rate card), but it makes the CDR reader and the price door ONE change rather than two,
-    and the refusal is the only place that says so.
+    `_record_remeter_demands` parks no measurement for it either. That is deliberate:
+    nothing prices the carrier leg from a rate card, and the carrier's charge reaches the
+    ledger from its CDR on the server (`workers/carrier_events.read_carrier_cdr`), never from
+    a worker settlement. The refusal says where to look instead.
 
     Pure: no database, no route. `_price_one` is the whole decision.
     """
@@ -1420,4 +1419,4 @@ def test_an_unpriceable_leg_says_its_quantity_is_not_kept_anywhere() -> None:
     assert refusal.code not in REMETERABLE_CODES
     assert "recorded nowhere" in refusal.detail
     assert refusal.remediation is not None
-    assert "fetch_call_detail_record" in refusal.remediation
+    assert "read_carrier_cdr" in refusal.remediation

@@ -300,7 +300,7 @@ class ObservationBatch(BaseModel):
     #: still bound what can arrive: Pipecat's Plivo branch writes only `streamId`/`callId`
     #: (`runner/utils.py:257-262`) so `from_number` stays `None` with nothing consulted
     #: (`runner/types.py:94`) — that is `unparsed_by_client`, an UNKNOWN rather than a
-    #: finding — and the outbound dial is still `OUTBOUND_DIAL_UNKNOWN`. Telnyx (`:253`) and
+    #: finding. The outbound dial is the control plane's (D-662). Telnyx (`:253`) and
     #: Exotel (`:270`) both write `"from"`, so the next carrier may simply hand it over.
     #: Absent, these leave the column NULL, which every reader above already tolerates.
     #:

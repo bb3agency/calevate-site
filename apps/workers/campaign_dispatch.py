@@ -578,7 +578,8 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     # The carrier REFUSES a dial over the account's concurrency (`429`,
     # `vobiz-findings/mirror/pages/call/make-call.md:134`) and an inbound caller over it is
     # turned away, so this budget is what keeps campaigns from eating the receptionist's
-    # line; the per-dial check is what makes it hold for dials this tick does not make.    in_use = await carrier_lines_in_use() if dials_through_our_carrier() else 0
+    # line; the per-dial check is what makes it hold for dials this tick does not make.
+    in_use = await carrier_lines_in_use() if dials_through_our_carrier() else 0
     global_budget = max(0, pool - max(total_active, in_use))
 
     # CALL-BACKS FIRST, OUT OF THE SAME POOL (D-514). Two decisions in one placement:

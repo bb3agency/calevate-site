@@ -350,7 +350,7 @@ describe("buying", () => {
 
     fireEvent.click(confirmButton());
 
-    expect(await screen.findByText("+918041234500 is yours")).toBeTruthy();
+    expect(await screen.findByText("+91 80412 34500 is yours")).toBeTruthy();
     expect(
       screen.getByText(/cannot be put on an agent, until your business is verified/i),
     ).toBeTruthy();

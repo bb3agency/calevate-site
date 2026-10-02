@@ -43,7 +43,7 @@ const HISTORY: readonly { title: string; when: string; by: string }[] = [
 
 function Row({ lead, highlight }: { lead: PropertyLead; highlight?: boolean }) {
   return (
-    <span className={`flex items-center gap-3 px-4 py-2.5 text-[12px] ${highlight ? "bg-amber-50" : ""}`}>
+    <span className={`flex items-center gap-3 px-4 py-2.5 text-[12px] ${highlight ? "bg-amber-50 dark:bg-amber-950/40" : ""}`}>
       <span className="flex min-w-0 flex-1 items-center gap-2 sm:w-36 sm:flex-none sm:shrink-0">
         <Avatar name={lead.name} className="h-6 w-6" />
         <span className="truncate font-semibold text-ink">{lead.name}</span>

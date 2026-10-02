@@ -1107,19 +1107,23 @@ class PipecatEngine:
         # adapter per process, so a carrier captured here would outlive every change of
         # `Settings.carrier` until a restart. `get_carrier` is memoised and re-reads the
         # switch, so resolving it at each operation costs a dict lookup.
-        self._carrier: CarrierClient | None = carrier
+        self._pinned_carrier: CarrierClient | None = carrier
         self._pinned_capabilities: EngineCapabilities | None = None
 
-    def _carrier_now(self) -> CarrierClient:
+    @property
+    def _carrier(self) -> CarrierClient:
         """The carrier a NEW operation uses: the injected one, else the switch's."""
-        return self._carrier if self._carrier is not None else get_carrier()
+        return self._pinned_carrier if self._pinned_carrier is not None else get_carrier()
+
+    def _carrier_now(self) -> CarrierClient:
+        return self._carrier
 
     def _carrier_of_call(self, recorded: CarrierCallRecord | None) -> CarrierClient:
         """The carrier an EXISTING call is on: the injected one, else the one stamped on
         the call (`calls.carrier`), so moving the switch never sends a hang-up to an
         account that does not hold the call."""
-        if self._carrier is not None:
-            return self._carrier
+        if self._pinned_carrier is not None:
+            return self._pinned_carrier
         return get_carrier(carrier_of_record(recorded.carrier if recorded else None))
 
     @property
@@ -1716,8 +1720,8 @@ class PipecatEngine:
             require_capability("caller_id", engine=self)
         self._carrier_ready(carrier, "place outbound calls")
         if not ctx.from_e164:
-            # Vobiz dials only from a number the account rents: "Outbound caller ID must be
-            # a Vobiz-rented Indian number" (`compliance/india/calling-regulations.md:35`).
+            # Vobiz dials only from a number the account rents: "Caller ID | Must use
+            # Vobiz-rented Indian phone number" (`compliance/india/calling-regulations.md:35`).
             raise ProblemError(
                 kind="dependency",
                 code="engine_caller_id_not_configured",
@@ -1774,9 +1778,9 @@ class PipecatEngine:
         call this engine holds no carrier id for is refused: a hang-up that reported success
         for a call it never reached is this method's one dangerous answer.
         """
-        if self._carrier is not None:
+        if self._pinned_carrier is not None:
             # An injected carrier answers for every call, so its own refusal comes first.
-            self._carrier_ready(self._carrier, "stop a call in progress")
+            self._carrier_ready(self._pinned_carrier, "stop a call in progress")
         recorded = await self._store.carrier_call_of(call_id)
         carrier = self._carrier_of_call(recorded)
         self._carrier_ready(carrier, "stop a call in progress")

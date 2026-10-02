@@ -1466,13 +1466,12 @@ def _price_one(quantity: MeteredQuantity, basis: _PricingBasis) -> _Priced:
                 "parked as a demand either."
             ),
             remediation=(
-                "The carrier's connected minute comes from their CDR (PIPECAT-MIGRATION.md "
-                "§1.2) and the platform's active minute is an unanswered vendor question "
-                "(§7 P-1). Neither reconciliation exists yet: the CDR reader refuses by "
-                "name (voice_worker/carrier.fetch_call_detail_record). Whoever builds one "
-                "must land the price door in the same change, or the quantity it fetches "
-                "arrives here and is discarded. Never price either leg from the worker's "
-                "own clock."
+                "The worker never reports a carrier quantity: the carrier's charge is "
+                "read from its call record after the hangup "
+                "(apps/workers/carrier_events.read_carrier_cdr), and the platform's "
+                "active minute is an unanswered vendor question (§7 P-1). A worker that "
+                "reports either leg is out of step with this server. Never price either "
+                "leg from the worker's own clock."
             ),
         )
     )
