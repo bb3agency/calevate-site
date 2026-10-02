@@ -62,11 +62,13 @@ def seen(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     return install_recorder(monkeypatch)
 
 
-def _cdr(ccid: str, *, cost: str | None = "0.4560", currency: str | None = "INR") -> CarrierCdr:
+def _cdr(
+    ccid: str, *, cost: str | None = "0.4560", currency: str | None = "INR", billed: int = 93
+) -> CarrierCdr:
     return CarrierCdr(
         carrier="vobiz",
         carrier_call_id=ccid,
-        billed_seconds=93,
+        billed_seconds=billed,
         duration_seconds=101,
         total_cost_inr=Decimal(cost) if cost is not None and currency == "INR" else None,
         currency=currency,

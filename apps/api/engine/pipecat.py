@@ -1080,35 +1080,21 @@ class PipecatEngine:
     """Implements `VoiceEngine` against our own control plane and our own runtime."""
 
     name = "pipecat"
-    #: The class-level answer is the Plivo profile; each instance replaces it with its own
-    #: carrier's (`capabilities_for_carrier`).
-    capabilities: EngineCapabilities = PIPECAT_CAPABILITIES
 
-    #: EMPTY, and the annotation is load-bearing on every adapter: without
-    #: `tuple[str, ...]` mypy infers a one-element tuple type, a Protocol's mutable
-    #: attributes are invariant, and the class stops satisfying `VoiceEngine` the day a
-    #: second key is added.
+    #: The carrier credentials this process reads (`VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN`).
+    #: The class attribute is every key the adapter can read on this host, which is what
+    #: `engine.all_credential_env_keys` strips from a test run; `holds_credentials` narrows
+    #: the instance's value to the selected carrier's keys before readiness reads it.
     #:
-    #: Empty because this adapter IS its own vendor for everything it currently does: the
-    #: control plane is our database, which every deployable already has, so there is no
-    #: key an operator could set that would change whether it works.
+    #: The annotation is load-bearing on every adapter: without `tuple[str, ...]` mypy infers
+    #: a fixed-length tuple type, a Protocol's mutable attributes are invariant, and the
+    #: class stops satisfying `VoiceEngine`.
     #:
-    #: ⚠ **AND THAT IS A REAL LOSS OF RESOLUTION, NOT A CLEAN ANSWER** — §9.3 names it. A
-    #: running pipeline needs Sarvam, Cartesia, an LLM leg and the carrier, and
-    #: `holds_credentials() -> bool` cannot say "it can transcribe and cannot synthesise".
-    #: Those keys are the WORKER's (step 4) and they are not read here, so listing them
-    #: would make readiness report on a process this one does not run. Readiness is honest
-    #: today for a different reason: nothing on this engine can place a call at all, and it
-    #: refuses by name rather than by a red light.
-    #:
-    #: **D-614 ADDED THE CARRIER PAIR TO `Settings` AND DELIBERATELY DID NOT ADD IT HERE.**
-    #: `plivo_auth_id` / `plivo_auth_token` are now real fields, so this tuple COULD name
-    #: them — and naming them would turn `/healthz/ready` red on every host, permanently,
-    #: for a credential no VPS process reads and that belongs in a container's secret set
-    #: (`core/settings.ENV_ONLY_FOREIGN_ENV`). `missing_engine_credential_keys` asks "can
-    #: THIS process reach its vendor", and the answer for those two is "this process never
-    #: tries". The loss of resolution above is unchanged by that decision, not cured by it.
-    credential_env_keys: tuple[str, ...] = ()
+    #: The control plane is our database and needs no key. The speech and LLM keys are the
+    #: WORKER's, read from its own container's secret set, so naming them here would report
+    #: on a process this one does not run; `holds_credentials() -> bool` therefore says
+    #: nothing about whether the worker can transcribe or speak (§9.3).
+    credential_env_keys: tuple[str, ...] = _credential_env_keys("vobiz")
 
     def __init__(
         self,
@@ -1117,21 +1103,55 @@ class PipecatEngine:
         carrier: CarrierClient | None = None,
     ) -> None:
         self._store: PipecatControlPlane = store if store is not None else SqlControlPlane()
-        # Resolved once, like every adapter's vendor client: `get_engine` caches one adapter
-        # per process, and the descriptor must describe the carrier this instance calls.
-        self._carrier: CarrierClient = carrier if carrier is not None else get_carrier()
-        self.capabilities = capabilities_for_carrier(self._carrier.name)
+        # INJECTED IS PINNED; OTHERWISE RESOLVED PER OPERATION. `get_engine` caches one
+        # adapter per process, so a carrier captured here would outlive every change of
+        # `Settings.carrier` until a restart. `get_carrier` is memoised and re-reads the
+        # switch, so resolving it at each operation costs a dict lookup.
+        self._carrier: CarrierClient | None = carrier
+        self._pinned_capabilities: EngineCapabilities | None = None
+
+    def _carrier_now(self) -> CarrierClient:
+        """The carrier a NEW operation uses: the injected one, else the switch's."""
+        return self._carrier if self._carrier is not None else get_carrier()
+
+    def _carrier_of_call(self, recorded: CarrierCallRecord | None) -> CarrierClient:
+        """The carrier an EXISTING call is on: the injected one, else the one stamped on
+        the call (`calls.carrier`), so moving the switch never sends a hang-up to an
+        account that does not hold the call."""
+        if self._carrier is not None:
+            return self._carrier
+        return get_carrier(carrier_of_record(recorded.carrier if recorded else None))
+
+    @property
+    def capabilities(self) -> EngineCapabilities:
+        """The descriptor for the carrier a new operation would use right now.
+
+        A property rather than an attribute set in `__init__`, for the reason the carrier is
+        resolved per operation: a screen asking what this engine can do must get the answer
+        the next dial gets, after the switch moves as well as before.
+        """
+        if self._pinned_capabilities is not None:
+            return self._pinned_capabilities
+        return capabilities_for_carrier(self._carrier_now().name)
+
+    @capabilities.setter
+    def capabilities(self, value: EngineCapabilities) -> None:
+        # `VoiceEngine.capabilities` is a settable Protocol member, and a read-only property
+        # does not satisfy one under mypy. Assigning pins the descriptor for this instance.
+        self._pinned_capabilities = value
 
     def holds_credentials(self) -> bool:
-        """True: the control plane is our own store, so there is nothing to configure.
+        """Whether the selected carrier holds the credentials it needs on this host.
 
-        Not a stub and not optimism. The question this method answers is *"can this
-        adapter actually talk to its vendor?"* and this adapter's vendor is us — the same
-        answer `FakeEngine` gives, for the same structural reason rather than because it is
-        a fixture. The half that genuinely could be unconfigured is the carrier, and that
-        refuses by name from the capability descriptor, which is where a screen asks.
+        The control plane is our own store and needs none, so the carrier is the only half
+        of this adapter that can be unconfigured here. Also narrows `credential_env_keys`
+        to that carrier's keys, which `engine.missing_engine_credential_keys` reads straight
+        after: Vobiz names its pair, and Plivo names `CARRIER`, since no credential set on
+        this host makes its unbuilt adapter work.
         """
-        return True
+        carrier = self._carrier_now()
+        self.credential_env_keys = _credential_env_keys(carrier.name)
+        return carrier.configured()
 
     # --- ids -----------------------------------------------------------------
 
@@ -1660,8 +1680,9 @@ class PipecatEngine:
     # group refuses on every carrier: we do not buy numbers through an API (D-596), which
     # is a product decision rather than unread evidence.
 
-    def _carrier_ready(self, operation: str) -> None:
-        refusal = self._carrier.unavailable(operation)
+    @staticmethod
+    def _carrier_ready(carrier: CarrierClient, operation: str) -> None:
+        refusal = carrier.unavailable(operation)
         if refusal is not None:
             raise refusal
 
@@ -1684,11 +1705,16 @@ class PipecatEngine:
 
         Returns `pipecat_call_ref(tenant, call_id)`, the handle the worker settles the call
         under, so `dispatch_call` stamps the same id the worker will write.
+
+        THE CLAIM KEY IS A DIAL PRECONDITION. Without a usable `CARRIER_CLAIM_SECRET` the
+        answer leg signs no call claim onto the stream URL, the worker reads the call as
+        inbound, and the intent row this dial stamps is never settled.
         """
+        carrier = self._carrier_now()
         require_call_compliance_floor(engine=self, prompt_on_the_wire=ctx.system_prompt)
         if ctx.from_e164:
             require_capability("caller_id", engine=self)
-        self._carrier_ready("place outbound calls")
+        self._carrier_ready(carrier, "place outbound calls")
         if not ctx.from_e164:
             # Vobiz dials only from a number the account rents: "Outbound caller ID must be
             # a Vobiz-rented Indian number" (`compliance/india/calling-regulations.md:35`).
@@ -1702,40 +1728,40 @@ class PipecatEngine:
                 ),
             )
         tenant_id = _tenant_of(ref)
-        base_url = (get_settings().webhook_base_url or "").rstrip("/")
-        if not ctx.call_id or tenant_id is None or not base_url:
+        if not ctx.call_id or tenant_id is None:
             raise _dial_precondition_failed(
-                missing="call id"
-                if not ctx.call_id
-                else "agent reference"
-                if tenant_id is None
-                else "public callback address"
+                missing="call id" if not ctx.call_id else "agent reference"
             )
+        base_url = _public_callback_base()
+        if usable_caller_claim_key(get_settings().carrier_claim_secret) is None:
+            raise _dial_precondition_failed(missing="call claim key")
         agent = await self._store.runtime_agent(ref)
         if agent is None:
             raise _dial_precondition_failed(missing="published agent")
 
-        carrier = self._carrier.name
-        placed = await self._carrier.place_call(
+        name = carrier.name
+        placed = await carrier.place_call(
             from_e164=ctx.from_e164,
             to_e164=to,
-            answer_url=base_url + answer_path(carrier, ref, call_id=ctx.call_id),
-            hangup_url=base_url + events_path(carrier, ref, call_id=ctx.call_id),
-            ring_url=base_url + events_path(carrier, ref, call_id=ctx.call_id),
+            answer_url=base_url + answer_path(name, ref, call_id=ctx.call_id),
+            hangup_url=base_url + events_path(name, ref, call_id=ctx.call_id),
+            ring_url=base_url + events_path(name, ref, call_id=ctx.call_id),
             time_limit_s=min(
                 agent.config.max_call_duration_s + CARRIER_TIME_LIMIT_MARGIN_S,
                 CARRIER_TIME_LIMIT_CEILING_S,
             ),
+            ring_timeout_s=RING_TIMEOUT_S,
         )
         await self._store.record_dial(
             ref,
             call_id=ctx.call_id,
             carrier_call_id=placed.carrier_call_id,
             from_e164=ctx.from_e164,
+            carrier=name,
         )
         log.info(
             "carrier_dial_accepted",
-            extra={"call_id": ctx.call_id, "tenant_id": str(tenant_id), "carrier": carrier},
+            extra={"call_id": ctx.call_id, "tenant_id": str(tenant_id), "carrier": name},
         )
         return pipecat_call_ref(tenant_id, ctx.call_id)
 
@@ -1748,9 +1774,13 @@ class PipecatEngine:
         call this engine holds no carrier id for is refused: a hang-up that reported success
         for a call it never reached is this method's one dangerous answer.
         """
-        self._carrier_ready("stop a call in progress")
-        carrier_call_id = await self._store.carrier_call_of(call_id)
-        if carrier_call_id is None:
+        if self._carrier is not None:
+            # An injected carrier answers for every call, so its own refusal comes first.
+            self._carrier_ready(self._carrier, "stop a call in progress")
+        recorded = await self._store.carrier_call_of(call_id)
+        carrier = self._carrier_of_call(recorded)
+        self._carrier_ready(carrier, "stop a call in progress")
+        if recorded is None:
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",
@@ -1758,11 +1788,8 @@ class PipecatEngine:
                 detail="The voice platform holds no carrier record of that call.",
                 failure_stage="CORE_LOGIC",
             )
-        ended_now = await self._carrier.hang_up(carrier_call_id)
-        log.info(
-            "carrier_hang_up",
-            extra={"carrier": self._carrier.name, "ended_now": ended_now},
-        )
+        ended_now = await carrier.hang_up(recorded.carrier_call_id)
+        log.info("carrier_hang_up", extra={"carrier": carrier.name, "ended_now": ended_now})
         return RecallOutcome.UNKNOWN
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
@@ -1794,22 +1821,16 @@ class PipecatEngine:
         raise AssertionError("unreachable while `number_series` is empty")  # pragma: no cover
 
     async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
-        """Refuses: the numbers ARE ours, and listing them is a carrier read not written here.
+        """Every number the carrier account holds, read from the carrier.
 
-        **NOT D-596.** We hold numbers; what is missing is the reader. An empty list would
-        be a claim that we checked — the answer `workers/number_rental.
-        reconcile_engine_numbers` turns into "our database has forgotten nothing".
+        **NOT D-596.** We do not buy numbers through an API, but we do hold them, and this
+        is the carrier's own list. A carrier that cannot list refuses by name rather than
+        answering `[]`, which `workers/number_rental.reconcile_engine_numbers` would read as
+        "our database has forgotten nothing".
         """
-        self._carrier_ready("list the numbers it holds")
-        raise capability_unverified(
-            title="The voice platform cannot do that yet",
-            detail="This voice platform cannot list the numbers it holds yet.",
-            remediation=(
-                "The carrier documents a number listing "
-                "(vobiz-findings/mirror/pages/account-phone-number.md:42-44) and its reader "
-                "is not written. Compare the carrier console's number list by hand meanwhile."
-            ),
-        )
+        carrier = self._carrier_now()
+        self._carrier_ready(carrier, "list the numbers it holds")
+        return await carrier.list_numbers()
 
     async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
         """Point the number at this agent's answer route at the carrier.
@@ -1819,19 +1840,17 @@ class PipecatEngine:
         "the carrier has never heard of this number" is a person's job to fix. Routing
         stays in the URL path we mint (D-603), never in a lookup by dialled number.
         """
+        carrier = self._carrier_now()
         require_capability("inbound_binding", engine=self)
         if not number.engine_number_ref:
             raise _number_not_linked()
-        self._carrier_ready("point a number at an agent")
-        base_url = (get_settings().webhook_base_url or "").rstrip("/")
+        self._carrier_ready(carrier, "point a number at an agent")
+        base_url = _public_callback_base()
         held = await self._held(ref)
-        if not base_url:
-            raise _dial_precondition_failed(missing="public callback address")
-        carrier = self._carrier.name
-        binding_id = await self._carrier.bind_number(
+        binding_id = await carrier.bind_number(
             number.e164,
-            answer_url=base_url + answer_path(carrier, ref),
-            hangup_url=base_url + events_path(carrier, ref),
+            answer_url=base_url + answer_path(carrier.name, ref),
+            hangup_url=base_url + events_path(carrier.name, ref),
             label=str(held.agent_id),
             known_binding_id=await self._store.number_binding(ref, e164=number.e164),
         )
@@ -1842,12 +1861,40 @@ class PipecatEngine:
 
         A number the carrier has no record of from us (`engine_number_ref` unset) is
         already answered by nothing of ours, so there is nothing to undo and this succeeds.
+
+        `phone_numbers.carrier_binding_id` is NOT cleared here: a `ProvisionedNumber` names
+        no tenant, and this store reaches a tenant's rows only under a tenant it is handed
+        (`db/session.joined_tenant_session`). The caller that holds the number's row clears
+        it.
         """
+        carrier = self._carrier_now()
         require_capability("inbound_binding", engine=self)
         if not number.engine_number_ref:
             return
-        self._carrier_ready("release a number's routing")
-        await self._carrier.unbind_number(number.e164)
+        self._carrier_ready(carrier, "release a number's routing")
+        await carrier.unbind_number(number.e164)
+
+    async def retire_agent_bindings(self, ref: EngineAgentRef) -> bool:
+        """Delete the routing object the carrier holds for a retired agent.
+
+        On Vobiz that is the agent's Application (`calevate-<agent id>`), which outlives
+        every number detached from it; the account refuses new bindings once it holds more
+        than the search in `VobizCarrier._find_application` can page through. The numbers
+        must already be detached: Vobiz answers 409 for an Application still in use
+        (`applications/delete-application.md:23-25`). A carrier with no inbound binding,
+        and an agent never published here, hold nothing to delete.
+        """
+        carrier = self._carrier_now()
+        if not capabilities_for_carrier(carrier.name).inbound_binding:
+            return False
+        held = await self._store.runtime_agent(ref)
+        if held is None:
+            return False
+        self._carrier_ready(carrier, "remove an agent's number routing")
+        binding_id = await carrier.find_binding(str(held.agent_id))
+        if binding_id is None:
+            return False
+        return await carrier.delete_binding(binding_id)
 
 
 def _dial_precondition_failed(*, missing: str) -> ProblemError:
