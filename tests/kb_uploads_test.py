@@ -330,9 +330,15 @@ async def test_publishing_a_link_sends_the_address_and_no_document(
         await service.publish_source(
             session, tenant_id=tenant_id, source_id=uuid.UUID(str(row["source_id"]))
         )
+        ref = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar()
 
-    attached = get_engine()._kb  # type: ignore[attr-defined]
-    sent = [source for sources in attached.values() for source in sources]
+    # This agent's attachments only: the fake engine is shared by every test in the process,
+    # so the whole map holds other tests' links too, in whatever order they ran.
+    sent = get_engine()._kb.get(ref, [])  # type: ignore[attr-defined]
     link = [source for source in sent if source.source_url]
     assert link, "the link never reached the engine"
     assert link[0].source_url == "https://example.com/hours"
@@ -583,11 +589,14 @@ async def test_the_sweep_redrives_exactly_the_statuses_the_model_calls_retryable
         by_status[status] = source_id
         async with tenant_session(tenant_id) as session:
             # Backdated past `RETRY_STALLED_AFTER`, which is what makes a row a candidate
-            # at all — a fresh row is one the ingest job may still be working on.
+            # at all — a fresh row is one the ingest job may still be working on. Dated
+            # before anything else in the table, because the sweep's read is capped and
+            # oldest-first: rows two hours old lost to every stalled row earlier runs on a
+            # reused database had left, and the test then saw none of its own.
             await session.execute(
                 text(
                     "UPDATE kb_uploads SET ingest_status = :s, "
-                    "updated_at = now() - interval '2 hours' WHERE source_id = :sid"
+                    "updated_at = timestamptz '2000-01-01 00:00:00+00' WHERE source_id = :sid"
                 ),
                 {"s": status, "sid": source_id},
             )
@@ -599,7 +608,18 @@ async def test_the_sweep_redrives_exactly_the_statuses_the_model_calls_retryable
         return "recorded"
 
     monkeypatch.setattr(kb_ingest, "ingest_kb_source", _record)
-    await kb_ingest.sweep_kb_uploads({})
+    try:
+        await kb_ingest.sweep_kb_uploads({})
+    finally:
+        # Out of the retryable set, so these rows never crowd a later sweep's capped read.
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE kb_uploads SET ingest_status = 'error' "
+                    "WHERE source_id = ANY(:sids) AND ingest_status = ANY(:retryable)"
+                ),
+                {"sids": list(by_status.values()), "retryable": list(UPLOAD_RETRYABLE)},
+            )
 
     mine = {status for status, sid in by_status.items() if sid in redriven}
     assert mine == set(UPLOAD_RETRYABLE), (

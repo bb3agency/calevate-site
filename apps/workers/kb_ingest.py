@@ -672,19 +672,25 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             )
         ).all()
 
+    failures: list[str] = []
     for tenant_id, source_id in stalled:
         # Through the JOB, not by calling the body: one path into ingestion, so a retry
         # cannot take a shortcut the first attempt did not.
-        await ingest_kb_source(
-            ctx,
-            {
-                "tenant_id": str(tenant_id),
-                "source_id": str(source_id),
-                # A re-drive NEVER approves anything. The approval decision belonged to the
-                # request that made the upload; a sweep has no submitter and no authority.
-                "may_self_approve": False,
-            },
-        )
+        try:
+            await ingest_kb_source(
+                ctx,
+                {
+                    "tenant_id": str(tenant_id),
+                    "source_id": str(source_id),
+                    # A re-drive NEVER approves anything. The approval decision belonged to
+                    # the request that made the upload; a sweep has no submitter and no
+                    # authority.
+                    "may_self_approve": False,
+                },
+            )
+        except Exception as exc:
+            _sweep_item_failed(failures, "redrive", source_id, exc)
+            continue
         redriven += 1
 
     # A typed source approved on submission whose publish was refused — usually because
@@ -692,7 +698,11 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
     # goes through `ingest_kb_source`.
     published = 0
     for tenant_id, source_id in await _unpublished_typed_sources(now):
-        await publish_kb_source(ctx, {"tenant_id": str(tenant_id), "source_id": str(source_id)})
+        try:
+            await publish_kb_source(ctx, {"tenant_id": str(tenant_id), "source_id": str(source_id)})
+        except Exception as exc:
+            _sweep_item_failed(failures, "typed", source_id, exc)
+            continue
         published += 1
 
     names = await _due_link_sources(due)
@@ -708,15 +718,18 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         if name is None:
             continue
         checked += 1
-        if await _recheck_link(
-            upload_id=UUID(str(row[0])),
-            tenant_id=UUID(str(row[1])),
-            agent_id=UUID(str(row[3])),
-            url=str(row[4]),
-            known_digest=row[5],
-            name=name,
-        ):
-            changed += 1
+        try:
+            if await _recheck_link(
+                upload_id=UUID(str(row[0])),
+                tenant_id=UUID(str(row[1])),
+                agent_id=UUID(str(row[3])),
+                url=str(row[4]),
+                known_digest=row[5],
+                name=name,
+            ):
+                changed += 1
+        except Exception as exc:
+            _sweep_item_failed(failures, "link", UUID(str(row[2])), exc)
 
     log.info(
         "kb_upload_sweep",
@@ -727,7 +740,38 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             "changed": changed,
         },
     )
+    if failures:
+        # Every other item has run; failing the tick now keeps the job's own retry, DLQ and
+        # alarm on what did not heal, instead of a green return over it.
+        raise KbSweepIncompleteError(
+            f"{len(failures)} item(s) raised: {', '.join(failures[:_SWEEP_FAILURES_NAMED])}"
+        )
     return f"redriven={redriven} typed={published} links={checked} changed={changed}"
+
+
+#: How many failed items the tick's error names before it stops listing them.
+_SWEEP_FAILURES_NAMED = 5
+
+
+class KbSweepIncompleteError(RuntimeError):
+    """A sweep tick in which at least one item raised; every other item was processed."""
+
+
+def _sweep_item_failed(failures: list[str], arm: str, source_id: UUID, exc: Exception) -> None:
+    """Record one item's failure so the tick can move on to the next.
+
+    One item must not stop the tick. Raised straight out of the loop, a single upload whose
+    object cannot be read (a storage outage, a lost key) ended the sweep before every later
+    re-drive, the typed-knowledge arm (D-658) and the link re-reads — and its `converting`
+    mark rolled back with it, so the same row led the queue on every tick. Ids and the
+    exception class only: a driver or vendor error can quote the row or page it failed on
+    (hard rule 6).
+    """
+    failures.append(f"{arm}:{source_id}:{type(exc).__name__}")
+    log.error(
+        "kb_upload_sweep_item_failed",
+        extra={"arm": arm, "source_id": str(source_id), "error": type(exc).__name__},
+    )
 
 
 async def _due_link_sources(due: Sequence[Any]) -> dict[tuple[UUID, UUID], str]:
