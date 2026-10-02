@@ -441,9 +441,9 @@ async def test_an_inbound_hangup_no_worker_recorded_gets_its_row_on_the_last_att
     outcome = await ingest_carrier_event({"job_try": 3}, body)
 
     assert outcome == "hangup:created:cdr_enqueued"
-    [(call_id, row_agent, engine_call_id, direction, status, ended_at, row_carrier)] = (
-        await calls_with_carrier_id(tenant_id, ccid)
-    )
+    [
+        (call_id, row_agent, engine_call_id, direction, status, ended_at, row_carrier)
+    ] = await calls_with_carrier_id(tenant_id, ccid)
     assert row_agent == agent_id and direction == "inbound"
     assert engine_call_id == f"pipecat:{tenant_id}:{call_id}"
     # Never `completed`: no worker served it, so no client minute may be billed for it.

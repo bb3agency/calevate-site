@@ -658,6 +658,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "carrier_cdr_sweep_incomplete": "attention",
     "carrier_dial_precondition_failed": "attention",
     "carrier_application_listing_too_long": "attention",
+    "carrier_number_listing_too_long": "attention",
+    # Both refuse a dial before it leaves, so nothing is lost and the contact keeps its
+    # place; sustained `carrier_lines_busy` means the account's line count is too small.
+    "carrier_lines_busy": "attention",
+    "carrier_pacing": "record",
     # A mis-set CARRIER_CLAIM_SECRET breaks EVERY call we dial, not one: refused at the
     # answer when voice-runtime has no usable key, settled on the wrong row when the worker's
     # differs. Both page; one setting fixes both.
@@ -670,6 +675,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "inbound_call_never_reached_worker": "attention",
     "worker_settlement_missing": "attention",
     "call_finalise_abandoned": "page",
+    "carrier_binding_not_retired": "attention",
     # No credentials for the carrier the calls are on: every carrier cost is missing until
     # an operator installs them, and the sweep re-reads the owed records once they are.
     "carrier_cdr_reader_unconfigured": "attention",

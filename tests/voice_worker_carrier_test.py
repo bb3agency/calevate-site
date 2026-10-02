@@ -32,11 +32,14 @@ import asyncio
 import base64
 import json
 import uuid
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
+import bot
 import pytest
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, owned_runtime_agent_ref
@@ -47,10 +50,10 @@ from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from sqlalchemy import text
 from tests.conftest import FakeS3
-from tests.voice_worker_pipeline_test import CREDENTIALS, FakeTransport, RecordingSink
+from tests.voice_worker_pipeline_test import CREDENTIALS, FakeTransport
 from tests.voice_worker_session_test import CountingFetcher, _publish_a_fact, _runtime_agent
-from tests.worker_api_harness import worker_client
-from voice_worker import carrier
+from tests.worker_api_harness import declare_pipecat_engine, worker_client
+from voice_worker import carrier, runtime
 from voice_worker.config import AgentNotRunnableError, refuse_unless_disclosed
 from voice_worker.knowledge import PackCache
 
@@ -324,11 +327,65 @@ class RefusingApi:
         raise AssertionError("the platform API was called for an unroutable call")
 
 
-#: ⚠ **`tenant_connection` WAS HERE AND IS GONE (D-621).** `start_carrier_call` took a
-#: `TenantConnection` because the worker read its configuration out of our Postgres; it
-#: cannot reach that database from Pipecat Cloud (`docs/DEPLOYMENT.md` §12.5 gate 6), so it
-#: takes the platform API client instead and the server resolves the tenant from the agent
-#: ref. `tests/worker_api_harness.worker_client` is that client, against the real app over ASGI.
+@pytest.fixture
+def pipecat_deployment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """`/v1/worker` writes are refused on any other engine (D-627), and `run_call` settles."""
+    yield from declare_pipecat_engine(monkeypatch)
+
+
+class _ScriptedRunner:
+    """Stands in for `WorkerRunner` inside `run_call`: `run()` plays the carrier's part.
+
+    Everything before and after the runner is the shipped path — the session read, the
+    assembly, the greeting armed on the transport, the settlement and the attestation —
+    so what this replaces is only the vendor's event loop, which needs a live socket.
+    """
+
+    script: ClassVar[Callable[[], Awaitable[None]] | None] = None
+
+    def __init__(self, **_kwargs: Any) -> None:
+        self.workers: list[Any] = []
+
+    async def add_workers(self, *workers: Any) -> None:
+        self.workers.extend(workers)
+
+    async def run(self) -> None:
+        if _ScriptedRunner.script is not None:
+            await _ScriptedRunner.script()
+
+
+async def _run_inbound_call(
+    monkeypatch: pytest.MonkeyPatch,
+    api: Any,
+    *,
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    call_id: str,
+    transport: Any,
+    while_connected: Callable[[Any], Awaitable[None]] | None = None,
+) -> list[Any]:
+    """One inbound call through `WorkerRuntime.run_call`, the one assembly path `bot.bot`
+    calls after `carrier.open_carrier_leg`. Returns the assembled call (one or none)."""
+    assembled: list[Any] = []
+
+    async def _script() -> None:
+        if while_connected is not None:
+            await while_connected(assembled[0])
+
+    monkeypatch.setattr(runtime, "WorkerRunner", _ScriptedRunner)
+    monkeypatch.setattr(_ScriptedRunner, "script", _script)
+    await runtime.WorkerRuntime(api, fetcher=CountingFetcher(), cache=PackCache()).run_call(
+        call_id=call_id,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        direction="inbound",
+        engine_agent_ref=owned_runtime_agent_ref(str(tenant_id), str(agent_id)),
+        credentials_for=lambda _provider: CREDENTIALS,
+        transport=transport,
+        caller=carrier.CallerIdentity.not_read(),
+        on_assembled=assembled.append,
+    )
+    return assembled
 
 
 async def _number_for(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
@@ -369,6 +426,8 @@ FACT = "Trouser alteration is eighty rupees."
 async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first(
     s3: FakeS3,
     worker_token: None,
+    pipecat_deployment: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The whole inbound path: token in, a running agent out.
 
@@ -381,43 +440,43 @@ async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first
     tenant_id, agent_id = await _runtime_agent()
     await _publish_a_fact(tenant_id, agent_id, FACT)
     await _number_for(tenant_id, agent_id)
-    fetcher = CountingFetcher()
     transport = ConnectableFakeTransport()
-    ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
+    observed: dict[str, Any] = {}
 
-    call = await carrier.start_carrier_call(
+    async def _carrier_connects(call: Any) -> None:
+        # The agent has not spoken yet: `start_conversation` belongs to the connect event,
+        # and a greeting queued at assembly would be queued before the caller was there.
+        observed["before"] = call.context.messages[-1]["role"]
+        await transport.connect()
+        await _settle()
+        observed["greeting"] = call.context.messages[-1]
+
+    (call,) = await _run_inbound_call(
+        monkeypatch,
         worker_client(),
-        token=ref,
-        call_id="call-carrier-1",
-        direction="inbound",
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        call_id=str(uuid.uuid4()),
         transport=transport,
-        credentials=CREDENTIALS,
-        sink=RecordingSink(),
-        fetcher=fetcher,
-        cache=PackCache(),
+        while_connected=_carrier_connects,
     )
 
     # The config version really loaded, and the worker's own recomputation agrees with it
     # (§1.1) — so this call is running the prompt the control plane published.
     assert call.prompt_matches_config_version
     assert call.greet_first
-    # The agent has not spoken yet: `start_conversation` belongs to the connect event, and
-    # a greeting queued at assembly would be a greeting queued before the caller was there.
-    assert call.context.messages[-1]["role"] == "system"
-
-    await transport.connect()
-    await _settle()
-
+    assert observed["before"] == "system"
     # The wording depends on whether the agent volunteered a spoken notice first
     # (`pipeline.py`); what this path must guarantee is that the first turn was queued.
-    greeting = call.context.messages[-1]
-    assert greeting["role"] == "developer"
-    assert "as your instructions direct" in greeting["content"]
+    assert observed["greeting"]["role"] == "developer"
+    assert "as your instructions direct" in observed["greeting"]["content"]
 
 
 async def test_a_transport_that_cannot_say_when_the_caller_connected_is_refused(
     s3: FakeS3,
     worker_token: None,
+    pipecat_deployment: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The failure with no symptom: `add_event_handler` only WARNS on an unknown event.
 
@@ -426,19 +485,15 @@ async def test_a_transport_that_cannot_say_when_the_caller_connected_is_refused(
     accepted here.
     """
     tenant_id, agent_id = await _runtime_agent()
-    ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
 
     with pytest.raises(carrier.CarrierWiringError):
-        await carrier.start_carrier_call(
+        await _run_inbound_call(
+            monkeypatch,
             worker_client(),
-            token=ref,
-            call_id="call-carrier-2",
-            direction="inbound",
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=str(uuid.uuid4()),
             transport=FakeTransport(),
-            credentials=CREDENTIALS,
-            sink=RecordingSink(),
-            fetcher=CountingFetcher(),
-            cache=PackCache(),
         )
 
 
@@ -485,29 +540,43 @@ def test_a_transport_that_cannot_say_when_the_caller_left_is_refused() -> None:
         carrier.arm_first_turn(_ConnectsOnly(), cast(Any, _ArmableCall()), call_id="c")
 
 
-async def test_a_call_for_an_unknown_agent_is_refused_without_asking_the_platform() -> None:
-    """A token nobody minted: refused at the parse, before any request exists."""
+async def test_a_call_for_an_unknown_agent_is_refused_without_asking_the_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A token nobody minted: refused by the shipped entrypoint at the parse, before a slot
+    is reserved and before any request exists."""
     connections = RefusingApi()
+    reserved: list[str] = []
+
+    class _Registry:
+        def reserve(self, call_id: str) -> None:
+            reserved.append(call_id)
+
+    class _Socket:
+        url = SimpleNamespace(path=f"/ws/{quote('pipecat:nobody:nothing', safe='')}")
+
+    async def _container() -> tuple[Any, Any]:
+        worker_runtime = runtime.WorkerRuntime(
+            cast(Any, connections), fetcher=CountingFetcher(), cache=PackCache()
+        )
+        return SimpleNamespace(
+            config=SimpleNamespace(caller_claim_key=None), calls=worker_runtime
+        ), _Registry()
+
+    monkeypatch.setattr(bot, "container", _container)
 
     with pytest.raises(carrier.UnroutableCallError):
-        await carrier.start_carrier_call(
-            connections,  # type: ignore[arg-type]
-            token="pipecat:nobody:nothing",
-            call_id="call-carrier-3",
-            direction="inbound",
-            transport=ConnectableFakeTransport(),
-            credentials=CREDENTIALS,
-            sink=RecordingSink(),
-            fetcher=CountingFetcher(),
-            cache=PackCache(),
-        )
+        await bot.bot(cast(Any, SimpleNamespace(websocket=_Socket())))
 
     assert connections.asked == []
+    assert reserved == []
 
 
 async def test_a_call_for_an_agent_that_was_never_published_is_refused_cleanly(
     s3: FakeS3,
     worker_token: None,
+    pipecat_deployment: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A well-formed token naming an agent with no runtime row.
 
@@ -517,16 +586,13 @@ async def test_a_call_for_an_agent_that_was_never_published_is_refused_cleanly(
     tenant_id, agent_id = uuid.uuid4(), uuid.uuid4()
 
     with pytest.raises(AgentNotRunnableError):
-        await carrier.start_carrier_call(
+        await _run_inbound_call(
+            monkeypatch,
             worker_client(),
-            token=owned_runtime_agent_ref(str(tenant_id), str(agent_id)),
-            call_id="call-carrier-4",
-            direction="inbound",
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=str(uuid.uuid4()),
             transport=ConnectableFakeTransport(),
-            credentials=CREDENTIALS,
-            sink=RecordingSink(),
-            fetcher=CountingFetcher(),
-            cache=PackCache(),
         )
 
 
@@ -599,6 +665,8 @@ def _floor() -> str:
 async def test_the_carrier_path_logs_no_phone_number_and_no_transcript_text(
     s3: FakeS3,
     worker_token: None,
+    pipecat_deployment: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two new log lines stand on this path and a phone number is in the database for the
     whole of it.
@@ -618,21 +686,23 @@ async def test_the_carrier_path_logs_no_phone_number_and_no_transcript_text(
     def sink_log(message: Any) -> None:
         captured.append(str(message) + repr(message.record["extra"]))
 
-    handler = logger.add(sink_log, level="DEBUG")
-    try:
-        await carrier.start_carrier_call(
-            worker_client(),
-            token=owned_runtime_agent_ref(str(tenant_id), str(agent_id)),
-            call_id="call-carrier-5",
-            direction="inbound",
-            transport=transport,
-            credentials=CREDENTIALS,
-            sink=RecordingSink(),
-            fetcher=CountingFetcher(),
-            cache=PackCache(),
-        )
+    call_id = str(uuid.uuid4())
+
+    async def _carrier_connects(_call: Any) -> None:
         await transport.connect()
         await _settle()
+
+    handler = logger.add(sink_log, level="DEBUG")
+    try:
+        await _run_inbound_call(
+            monkeypatch,
+            worker_client(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=call_id,
+            transport=transport,
+            while_connected=_carrier_connects,
+        )
     finally:
         logger.remove(handler)
 
@@ -641,7 +711,7 @@ async def test_the_carrier_path_logs_no_phone_number_and_no_transcript_text(
     assert e164 not in blob
     assert FACT not in blob
     # The ids an operator needs ARE there, or the log lines are not worth their own risk.
-    assert "call-carrier-5" in blob and str(agent_id) in blob
+    assert call_id in blob and str(agent_id) in blob
 
 
 async def test_the_transport_is_built_from_the_handshake_and_the_carrier_secrets() -> None:

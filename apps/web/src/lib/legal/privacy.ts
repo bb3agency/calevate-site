@@ -14,8 +14,9 @@ import type { LegalDocument } from "./types";
  *    states the enforced number and the disagreement is a finding, not a rounding.
  * 2. **There is NO India residency claim left in this notice, and none may be added.**
  *    "Everything stays in India" was never available: object storage is Cloudflare R2 with
- *    no India-only jurisdiction, and the voice platform's own documentation puts the whole
- *    call on US infrastructure. The language leg runs in Azure OpenAI East US 2 (D-449)
+ *    no India-only jurisdiction, and the call runs on Pipecat Cloud in a region whose country
+ *    is not established, over a carrier (Vobiz) that states no processing location. The
+ *    language leg runs in Azure OpenAI East US 2 (D-449)
  *    across three offered providers (D-456). The speech leg is with an INDIAN COMPANY,
  *    which is a different claim from Indian data: that vendor's privacy policy says
  *    personal data "may be transferred to and processed in countries outside India",
@@ -122,7 +123,7 @@ export const PUBLISHED_RETENTION: readonly {
   {
     category: "engine_payload",
     days: 90,
-    label: "The raw document the voice platform returns for each call",
+    label: "The raw document a voice platform returns for a call, where one does",
     period: "90 days",
     what:
       "The archived object is deleted from storage and the link to it is " +
@@ -519,8 +520,9 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "If the client has connected their own CRM or a Google Sheet, we " +
                     "keep the exact body we sent them, so that a dispute about what was " +
                     "delivered can be answered with evidence rather than a " +
-                    "reconstruction. We also archive the raw document the voice platform " +
-                    "returns for each call; it carries your number and the transcript.",
+                    "reconstruction. Where a voice platform returns a raw document for a " +
+                    "call, we archive that too; it carries your number and the transcript. " +
+                    "The program of ours that runs calls today returns none.",
                 },
                 {
                   term: "Anything else you volunteer",
@@ -580,8 +582,8 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "This notice used to say that a caller who declines recording has the " +
                 "recording stopped, the call continued, and the refusal written to our " +
                 "consent ledger. That is the intended behaviour and it is not built: no " +
-                "agent has a way to stop a recording mid-call, and the voice platform " +
-                "does not report a per-call recording decision to us. The claim is " +
+                "agent has a way to stop a recording mid-call, and nothing in the call " +
+                "records a per-call recording decision. The claim is " +
                 "withdrawn rather than softened. What a caller can do instead is ask the " +
                 "business they were speaking to for the recording to be erased — section " +
                 "12.3 — which clears the link at once and fixes a destruction date for " +
@@ -590,7 +592,7 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "para",
               text:
-                "The audio is stored in our own object storage, not the voice platform's, " +
+                "The audio is stored in our own object storage, not a vendor's, " +
                 "and that copy is the system of record. The storage bucket blocks public " +
                 "access at the account level and objects are encrypted at rest, so the " +
                 "only way to reach a recording is a signed link that expires on its own. " +
@@ -908,8 +910,9 @@ export const PRIVACY_POLICY: LegalDocument = {
             "by a regulator, and the definition reads as though it was written for " +
             "authentication rather than for a call recording. If the answer is yes, the " +
             "stricter test applies to every leg described below, including the live " +
-            "conversation as it happens — the platform carrying the audio is outside " +
-            "India, the speech provider that turns that audio into text may itself " +
+            "conversation as it happens — neither the carrier nor the platform the " +
+            "call runs on has been established to process it in India, the speech " +
+            "provider that turns that audio into text may itself " +
             "process it outside India under its own published policy, and the " +
             "transcript reaches a language model outside India turn by " +
             "turn while you are still speaking. We will not put our own answer to an " +
@@ -1083,17 +1086,16 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "for it either.",
             },
             {
-              term: "The voice platform",
+              term: "The call itself",
               detail:
-                "The company that runs the call itself documents that its services run on " +
-                "United States infrastructure by default, and that processing calls inside " +
-                "India is an enterprise option a customer buys and configures. We have not " +
-                "bought it. So the live audio, the transcript that platform produces and " +
-                "its own copy of the recording should be treated as processed and stored " +
-                "outside India — not only the recording, which is all an earlier version " +
-                "of this notice said. Our own copies are the system of record and are held " +
-                "as described above. The sub-processor page carries the detail, including " +
-                "why buying that option would not by itself move our calls to India.",
+                "The conversation runs as a program of ours on a hosting platform, " +
+                "Pipecat Cloud, in a region that vendor calls “ap-south”; nobody " +
+                "here has established which country that is. The sound of the call reaches " +
+                "that program through our telephone carrier, Vobiz, which does not state " +
+                "where it processes or stores call data. So the live audio and the " +
+                "transcript produced from it should not be assumed to stay in India while " +
+                "the call is happening. Our own copies are the system of record and are " +
+                "held as described above. The sub-processor page carries the detail.",
             },
             {
               term: "Transactional email and error monitoring",
@@ -1240,9 +1242,10 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "duration, never less than five minutes and never more than two hours " +
                   "and five minutes — so that it outlives the audio it opens. Section " +
                   "4.1 says why.",
-                "Incoming voice-platform webhooks are authenticated by a strict source-IP " +
-                  "allowlist plus execution-id de-duplication, and are treated as hints: " +
-                  "the authenticated poll back to the platform is the record of truth. " +
+                "Incoming telephone-carrier callbacks are accepted only from the carrier's " +
+                  "published source addresses, and are treated as hints: the call record " +
+                  "read back from the carrier over its authenticated interface is the " +
+                  "record of truth. " +
                   "Outgoing webhooks to a client's own systems are signed.",
                 "Per-client spend and rate ceilings, and a global switch that halts all " +
                   "outbound dialling at once.",
@@ -1447,9 +1450,10 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "destruction date is fixed at the moment the request runs, and the audio " +
                   "is destroyed automatically on that date without a second request. The " +
                   "certificate states the date.",
-                "Copies held by the voice platform are reported as unconfirmed. Their " +
-                  "deletion interface is undocumented, and we will not certify a deletion " +
-                  "we cannot show.",
+                "Copies held by the telephone carrier, or by a voice platform a call ran " +
+                  "on, are reported as unconfirmed. The carrier publishes no way to " +
+                  "delete one person's call records, so removing them is a written " +
+                  "request, and we will not certify a deletion we cannot show.",
                 "Knowledge content a client uploaded is SEARCHED for the number, and the " +
                   "number of matching documents is reported on the erasure certificate — " +
                   "but nothing in it is edited or deleted. This list said the content was " +

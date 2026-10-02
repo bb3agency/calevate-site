@@ -579,9 +579,7 @@ def _channel_blockers(
                     LaunchBlocker(NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON)
                 )
             elif facts.number_direction not in ("outbound", "both"):
-                blockers.append(
-                    LaunchBlocker(NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON)
-                )
+                blockers.append(LaunchBlocker(NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON))
 
     return blockers
 

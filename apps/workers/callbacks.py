@@ -33,10 +33,6 @@ from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
 
-# The ingest job's retry ladder, its transience verdict and its tenant resolution, used
-# rather than restated — `optout.py` imports the identical three for the identical reason
-# and says so: this module asks the same questions of the same engine.
-
 log = get_logger(__name__)
 
 
@@ -153,7 +149,6 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     },
                 )
                 continue
-
 
             try:
                 # THE ONE OUTBOUND ENTRY POINT. Not a parallel dial path: everything a dial

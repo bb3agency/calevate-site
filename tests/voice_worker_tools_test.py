@@ -33,10 +33,13 @@ from calevate_shared.worker_api import (
     OptOutToolIn,
     OptOutToolOut,
 )
+from pipecat.frames.frames import EndWorkerFrame
 from voice_worker.api_client import WorkerApiError
 from voice_worker.call_tools import (
     BOOK_CALLBACK_TOOL_NAME,
     CANCEL_CALLBACK_TOOL_NAME,
+    END_CALL_REASON,
+    END_CALL_TOOL_NAME,
     HANDOFF_GUIDANCE,
     HANDOFF_TOOL_NAME,
     OPT_OUT_TOOL_NAME,
@@ -118,16 +121,53 @@ async def call_tool(api: Any, name: str, arguments: dict[str, Any], **kwargs: An
     return params.result
 
 
-def test_all_four_tools_are_advertised() -> None:
+def test_all_four_tools_and_the_hang_up_are_advertised() -> None:
     """THE DEFECT, STATED AS A COUNT. `assemble_call` advertised ONE tool while the rented
     engine served four, so an `owned_runtime` agent could not honour an opt-out, book or
-    cancel a call-back, or ask for a person."""
+    cancel a call-back, or ask for a person — nor end a call at all."""
     assert set(tools(FakeToolApi())) == {
         OPT_OUT_TOOL_NAME,
         BOOK_CALLBACK_TOOL_NAME,
         CANCEL_CALLBACK_TOOL_NAME,
         HANDOFF_TOOL_NAME,
+        END_CALL_TOOL_NAME,
     }
+
+
+@dataclass
+class _HangUpParams:
+    """What the hang-up handler touches: the result callback, with its properties, and the
+    LLM processor it pushes the end frame through."""
+
+    result: Any = None
+    properties: Any = None
+    pushed: list[Any] = field(default_factory=list)
+
+    @property
+    def llm(self) -> Any:
+        return self
+
+    async def result_callback(self, payload: Any, *, properties: Any = None) -> None:
+        self.result, self.properties = payload, properties
+
+    async def push_frame(self, frame: Any, *_direction: Any) -> None:
+        self.pushed.append(frame)
+
+
+@pytest.mark.asyncio
+async def test_the_hang_up_answers_the_model_then_ends_the_worker_gracefully() -> None:
+    """Answered first and with no further completion, so the goodbye already queued is the
+    last thing spoken; then `EndWorkerFrame` downstream, which flushes queued audio before
+    the pipeline ends and the Vobiz serializer sends `stop` (`AGENTS.md:186-193`)."""
+    params = _HangUpParams()
+
+    await tools(FakeToolApi())[END_CALL_TOOL_NAME].handler(params)
+
+    assert params.result["status"] == "ending"
+    assert params.properties is not None and params.properties.run_llm is False
+    assert [type(frame) for frame in params.pushed] == [EndWorkerFrame]
+    assert params.pushed[0].reason == END_CALL_REASON
+    assert tools(FakeToolApi())[END_CALL_TOOL_NAME].required == []
 
 
 def test_no_tool_is_advertised_without_an_api_to_perform_it() -> None:

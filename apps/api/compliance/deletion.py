@@ -357,25 +357,20 @@ PROCESSOR_OUTCOME: Final = "not_reached_no_api"
 #: needs to tell "we hold this deliberately" from "this expires shortly".
 BACKUP_OUTCOME: Final = "expires_with_backup"
 
-#: THE TELEPHONE CARRIER, absent from this register until 18 September 2026 while the
-#: published sub-processor page told clients it receives more than any other vendor on the
-#: list: *"Caller and called numbers, call detail records, and the live audio of the call
-#: in both directions"* (`apps/web/src/lib/legal/subprocessors.ts`, the Exotel · Vobiz ·
-#: Plivo row). Since the conversation moved into a program of ours (D-592) the carrier is
-#: where the audio physically terminates — `voice_worker/carrier.py` reads 8 kHz mu-law
-#: media frames off the carrier socket in both directions [PIPECAT SOURCE,
-#: `.venv/.../pipecat/serializers/plivo.py:139-163`] — so a certificate enumerating three
-#: vendor copies and omitting this one was silent about the vendor holding both the number
-#: and the sound of the call.
+#: THE TELEPHONE CARRIER: Vobiz (D-662), on Calevate's own account. The carrier is where
+#: the call's audio terminates — `voice_worker/carrier.py` reads 8 kHz mu-law media frames
+#: off the carrier socket in both directions — so it holds the caller's number, the number
+#: dialled, its own call detail record and the sound of the call.
 #:
-#: Its own word rather than `PROCESSOR_OUTCOME`, because the two are not the same state
-#: and a reader must be able to tell them apart. `not_reached_no_api` says we looked and
-#: there is no route. Here nobody has looked: no carrier is selected, no account is open
-#: with any of the three candidates, and none of their documentation has been read from
-#: this environment — so what a carrier retains and whether it can delete one subscriber's
-#: records are both UNKNOWN (hard rule 11), and the honest outcome word says "unestablished"
-#: rather than borrowing a finding we do not have.
-TELEPHONY_OUTCOME: Final = "not_reached_vendor_unestablished"
+#: Its own word rather than `PROCESSOR_OUTCOME`, which is the speech and language vendors'
+#: single entry; the carrier is a separate vendor with its own documented surface. Its API
+#: reference documents reading, searching and exporting call records and no route that
+#: deletes one (VERIFIED-VENDOR-DOCS: `vobiz-findings/mirror/pages/cdr/*.md`), and its
+#: recording reference lists retrieve, list, download and export but no delete operation
+#: (`vobiz-findings/mirror/pages/recording.md:65-73`). Its console shows recordings "for
+#: the last 30 days" (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). How
+#: long it keeps call records is not stated anywhere read, so removal is a written request.
+TELEPHONY_OUTCOME: Final = "not_reached_no_carrier_api"
 
 
 @dataclass(frozen=True, slots=True)
@@ -789,28 +784,25 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "wire: the call's audio terminates there and is streamed to and from the "
             "program that holds the conversation, so the carrier handles the caller's "
             "number, the number dialled, its own record of the call, and the sound of "
-            "the call in both directions for its whole length. This request does not "
-            "reach any of that. Unlike the processors above, the reason is not that we "
-            "looked and found no route: no carrier has been chosen, no account is open "
-            "with any of the candidates, and none of their published positions has been "
-            "read — so what a carrier keeps, for how long, and whether it can remove one "
-            "person's records are all unestablished. Removing them will be a written "
-            "request to whichever carrier is chosen. Until one is chosen and its own "
-            "position has been read, the honest statement is that this copy exists and "
-            "nothing has been asked of it."
+            "the call in both directions for its whole length. Calevate's carrier is "
+            "Vobiz, and this request does not reach what Vobiz holds. Its published "
+            "interface lets us read and export its call records and offers no way to "
+            "delete one, and nothing it publishes that we have read says how long it "
+            "keeps them; its console shows call recordings for the last 30 days. "
+            "Removing this person's records there takes a written request to Vobiz, "
+            "and this certificate does not record one as made: until Vobiz confirms a "
+            "deletion in writing, the honest statement is that this copy exists."
         ),
-        # `docs/evidence/subprocessor-erasure-reach.md` §3 carries the row and its UNKNOWN
-        # cells; `voice_worker/carrier.py` is where the media leg is read off the socket;
-        # the sub-processor register's Exotel · Vobiz · Plivo row is the client-facing
-        # copy this entry had to stop contradicting. None of those is a document this
-        # reader has, so the sentence below states the position without citing them.
+        # The register's Vobiz row (`apps/web/src/lib/legal/subprocessors.ts`) is the
+        # client-facing copy this entry must agree with; the vendor citations are in the
+        # comment above `TELEPHONY_OUTCOME`.
         authority=(
-            "DPDP §8(7) storage limitation and §12(3) erasure, read against what has "
-            "actually been established about the carriers: nothing has, because no "
-            "carrier account exists yet and no carrier's published retention or deletion "
-            "position has been read. This entry states that gap rather than closing it; "
-            "closing it means choosing a carrier, reading what it publishes, and getting "
-            "a deletion term into the contract with it."
+            "DPDP §8(7) storage limitation and §12(3) erasure, read against Vobiz's "
+            "published API documentation: its call-record interface only lists, reads "
+            "and exports, and its recording interface only lists, reads, downloads and "
+            "exports, so no route there deletes one person's records. The durable fix "
+            "is a deletion term in our contract with Vobiz, which is a signed commercial "
+            "term rather than something this system can supply."
         ),
     ),
     ErasureLimitation(

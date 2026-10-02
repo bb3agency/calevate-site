@@ -346,3 +346,62 @@ async def test_a_tenant_the_sweep_cannot_read_is_reported(
 
     assert outcome.startswith("enqueued=0 unreached=1")
     assert [a[1] for a in seen.alerts] == ["carrier_cdr_sweep_incomplete"]
+
+
+# ------------------------------------------------------------------ calls that never completed
+
+
+async def _unanswered_call(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, status: str = "no_answer", ended_ago_min: int = 0
+) -> tuple[uuid.UUID, str]:
+    """An outbound dial that ended without a conversation: no worker, no `telephony_s` row."""
+    ccid = f"cuuid-{uuid.uuid4().hex}"
+    call_id = await make_call(tenant_id, agent_id, status=status, carrier_call_id=ccid)
+    ended = datetime.now(UTC) - timedelta(minutes=ended_ago_min)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET ended_at = :e WHERE id = :i"), {"e": ended, "i": call_id}
+        )
+    return call_id, ccid
+
+
+async def test_a_charged_dial_nobody_answered_records_its_cost_without_a_meter(
+    carrier: FakeCarrier, seen: Recorder
+) -> None:
+    tenant_id, agent_id, _ref = await make_tenant()
+    call_id, ccid = await _unanswered_call(tenant_id, agent_id, status="busy")
+    carrier.cdr = _cdr(ccid, cost="0.1500", billed=0)
+
+    verdict = await read_carrier_cdr({"job_try": 1}, _job(tenant_id, call_id, ccid))
+
+    assert verdict == "recorded"
+    [(qty, cost, meta, _at)] = await _cost_rows(tenant_id, call_id)
+    assert (qty, cost) == (1, Decimal("0.1500"))
+    assert meta["metered_seconds"] is None and meta["billed_seconds_delta"] is None
+    async with tenant_session(tenant_id) as session:
+        duration = (
+            await session.execute(
+                text("SELECT duration_s FROM calls WHERE id = :i"), {"i": call_id}
+            )
+        ).scalar()
+    assert duration == 0, "the carrier's billsec is what tells the sweep the record was read"
+
+
+async def test_an_uncharged_dial_nobody_answered_owes_nothing_and_is_not_read_again(
+    monkeypatch: pytest.MonkeyPatch, carrier: FakeCarrier, seen: Recorder
+) -> None:
+    tenant_id, agent_id, _ref = await make_tenant()
+    call_id, ccid = await _unanswered_call(tenant_id, agent_id, ended_ago_min=20)
+    carrier.cdr = _cdr(ccid, cost="0", billed=0)
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(carrier_events, "callable_tenants", _only_this_tenant)
+    assert (await reconcile_carrier_cdrs({})).startswith("enqueued=1 ")
+
+    assert await read_carrier_cdr({"job_try": 1}, _job(tenant_id, call_id, ccid)) == "nothing_owed"
+    assert await _cost_rows(tenant_id, call_id) == []
+
+    seen.enqueued.clear()
+    assert (await reconcile_carrier_cdrs({})).startswith("enqueued=0 ")

@@ -1022,8 +1022,6 @@ def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: st
     transport.add_event_handler(CLIENT_DISCONNECTED_EVENT, _hang_up)
 
 
-
-
 __all__ = [
     "CALLER_IDENTITY_PARSE",
     "CLAIM_CALLER_STATE_PARAM",

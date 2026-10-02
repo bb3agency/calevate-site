@@ -1011,7 +1011,7 @@ class SqlControlPlane:
         may do is INVENT the minutes — a call whose content we never received cannot be
         metered from nothing, and a fabricated quantity on an append-only ledger is worse
         than a call we failed to bill. Detect and alert are ours; the connected minute is the
-        carrier's and always was.        """
+        carrier's and always was."""
         return ()
 
 
@@ -1101,14 +1101,24 @@ class PipecatEngine:
         *,
         store: PipecatControlPlane | None = None,
         carrier: CarrierClient | None = None,
+        caller_claim_secret: str | None = None,
     ) -> None:
         self._store: PipecatControlPlane = store if store is not None else SqlControlPlane()
         # INJECTED IS PINNED; OTHERWISE RESOLVED PER OPERATION. `get_engine` caches one
         # adapter per process, so a carrier captured here would outlive every change of
         # `Settings.carrier` until a restart. `get_carrier` is memoised and re-reads the
-        # switch, so resolving it at each operation costs a dict lookup.
+        # switch, so resolving it at each operation costs a dict lookup. The claim key
+        # follows the same rule, so a stubbed carrier can be dialled without a process-wide
+        # secret in the environment.
         self._pinned_carrier: CarrierClient | None = carrier
+        self._pinned_claim_secret: str | None = caller_claim_secret
         self._pinned_capabilities: EngineCapabilities | None = None
+
+    def _caller_claim_key_usable(self) -> bool:
+        secret = self._pinned_claim_secret
+        if secret is None:
+            secret = get_settings().carrier_claim_secret
+        return usable_caller_claim_key(secret) is not None
 
     @property
     def _carrier(self) -> CarrierClient:
@@ -1737,7 +1747,7 @@ class PipecatEngine:
                 missing="call id" if not ctx.call_id else "agent reference"
             )
         base_url = _public_callback_base()
-        if usable_caller_claim_key(get_settings().carrier_claim_secret) is None:
+        if not self._caller_claim_key_usable():
             raise _dial_precondition_failed(missing="call claim key")
         agent = await self._store.runtime_agent(ref)
         if agent is None:
@@ -1901,6 +1911,23 @@ class PipecatEngine:
         return await carrier.delete_binding(binding_id)
 
 
+def _public_callback_base() -> str:
+    """`webhook_base_url` without its trailing slash, refused unless a carrier can reach it.
+
+    Its default is `http://localhost:8100`, so an unset value is indistinguishable from a set
+    one until the first call: every answer, hangup and ring URL would name the dialling host
+    and the carrier would reach nothing. Outside `APP_ENV=local` it must be https on a
+    non-loopback host (`core.settings.is_public_callback_base`, the predicate readiness and
+    the deploy preflight also use); `local` keeps loopback for a carrier double on this
+    machine.
+    """
+    settings = get_settings()
+    base = (settings.webhook_base_url or "").strip().rstrip("/")
+    if not base or (settings.app_env != "local" and not is_public_callback_base(base)):
+        raise _dial_precondition_failed(missing="public callback address")
+    return base
+
+
 def _dial_precondition_failed(*, missing: str) -> ProblemError:
     """A dial refused before any request left this process, naming what was missing."""
     log.warning("carrier_dial_precondition_failed", extra={"missing": missing})
@@ -1968,6 +1995,7 @@ __all__ = [
     "CARRIER_UNVERIFIED_CODE",
     "PIPECAT_CAPABILITIES",
     "PIPECAT_VOBIZ_CAPABILITIES",
+    "CarrierCallRecord",
     "PipecatControlPlane",
     "PipecatEngine",
     "RuntimeAgent",

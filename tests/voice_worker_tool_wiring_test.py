@@ -35,6 +35,7 @@ from tests.voice_worker_pipeline_test import (
     make_config,
 )
 from voice_worker import boot, session
+from voice_worker.call_tools import END_CALL_TOOL_NAME
 
 #: The boot gate's full environment. Spelled here rather than imported so that a container
 #: variable added to the gate fails THIS test loudly instead of changing what it asserts.
@@ -49,6 +50,7 @@ _CONTAINER_ENV: dict[str, str] = {
     "PLIVO_AUTH_ID": "plivo-id",
     "PLIVO_AUTH_TOKEN": "plivo-token",
     "AZURE_OPENAI_API_KEY": "azure",
+    "CARRIER_CLAIM_SECRET": "s" * 32,
 }
 
 #: What `build_knowledge_tool` is called, so the two kinds of tool can be told apart
@@ -102,11 +104,12 @@ async def test_a_session_handed_a_tool_api_advertises_the_acts() -> None:
     names = await _tool_names(tool_api=_StubToolApi())
 
     assert _SEARCH_TOOL in names, "the knowledge tool is unconditional and must not regress"
-    acts = names - {_SEARCH_TOOL}
+    acts = names - {_SEARCH_TOOL, END_CALL_TOOL_NAME}
     assert len(acts) == 4, (
         f"expected the four in-call ACTS beside the search tool, saw {sorted(names)} — "
         "a caller on this engine cannot opt out, book, cancel or reach a person"
     )
+    assert END_CALL_TOOL_NAME in names, "the agent has no way to end a call"
 
 
 async def test_a_session_handed_no_tool_api_advertises_only_the_search() -> None:

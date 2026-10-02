@@ -44,7 +44,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
-from apps.api.engine.carrier import RING_TIMEOUT_S
+from apps.api.engine.carrier import CARRIER_DEFAULT_RING_TIMEOUT_S, RING_TIMEOUT_S
 from apps.api.engine.vendor_http import LINES_BUSY_CODE, lines_busy_error
 
 log = get_logger(__name__)
@@ -75,10 +75,12 @@ SPACING_MARGIN_PERCENT: Final = 110
 #: it, a row whose end was never reported stops holding a line.
 LIVE_LINE_HORIZON: Final = timedelta(seconds=CALL_CAP_MAX_S) + timedelta(minutes=10)
 
-#: How long a `queued` row counts as a line in use: the carrier hangs an unanswered dial up
-#: `RING_TIMEOUT_S` after it starts ringing (`hangup_on_ring`), plus a margin for the time
-#: between our intent row and the carrier starting to ring.
-RING_LINE_HORIZON: Final = timedelta(seconds=RING_TIMEOUT_S) + timedelta(minutes=2)
+#: How long a `queued` row counts as a line in use: the longest an unanswered dial rings
+#: (the timeout we ask for, or the carrier's default if it is not honoured), plus a margin
+#: for the time between our intent row and the carrier starting to ring.
+RING_LINE_HORIZON: Final = timedelta(
+    seconds=max(RING_TIMEOUT_S, CARRIER_DEFAULT_RING_TIMEOUT_S)
+) + timedelta(minutes=2)
 
 #: The transaction-scoped advisory lock every dial's line check takes, so two dials cannot
 #: both count `pool - 1` lines and both go out. Any constant works as long as nothing else in
@@ -146,7 +148,8 @@ async def await_dial_slot(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> float:
-    """Wait until this process may start one dial. Returns the seconds waited.
+    """Wait until this process may start one dial. Returns the seconds spent asleep for a
+    slot, which is 0.0 whenever the first ask got one or pacing failed open.
 
     Read per call, not cached: `carrier_cps` and `carrier` are live settings, so an operator
     raising the account's CPS takes effect on the next dial.
@@ -158,13 +161,13 @@ async def await_dial_slot(
     settings = get_settings()
     interval_ms = slot_interval_ms(settings.carrier_cps)
     key = f"{PACING_KEY_PREFIX}:{settings.carrier}"
-    started = clock()
-    deadline = started + MAX_PACING_WAIT_S
+    deadline = clock() + MAX_PACING_WAIT_S
+    waited = 0.0
     while True:
         try:
             redis = get_redis()
             if await redis.set(key, "1", nx=True, px=interval_ms):
-                return clock() - started
+                return waited
             remaining_ms = int(await redis.pttl(key))
             if remaining_ms == -1:
                 # A key with no TTL would hold the slot for ever; give it the interval.
@@ -172,12 +175,13 @@ async def await_dial_slot(
                 remaining_ms = interval_ms
         except Exception:
             log.warning("carrier_pacing_unavailable", extra={"carrier": settings.carrier})
-            return clock() - started
+            return waited
         # -2: the key expired between SET and PTTL, so the slot is open now.
         wait_s = max(0, remaining_ms) / 1000
         if clock() + wait_s > deadline:
             raise DialPacingTimeoutError
         await sleep(wait_s)
+        waited += wait_s
 
 
 __all__ = [

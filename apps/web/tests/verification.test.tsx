@@ -185,10 +185,10 @@ describe("the verification gate under failure", () => {
   });
 
   it("tells a verified client where their number comes from, and never offers to get one", async () => {
-    // Verified, and still no control — because there is nothing we could sell them. The
-    // card has to survive two ways: it must not promise that Calevate obtains a number
-    // (Model B, published Terms clause 3), and it must name the operators and what to
-    // send back, or the client comes back with a support ticket.
+    // The founder's decision of 2 Oct 2026: the number is ours, on our Vobiz account. The
+    // card must say so and name the client's part (verification, accurate details), still
+    // offer no control on this page, and never send the client to open an operator
+    // account or hand us credentials — the model this card used to describe.
     const { container } = await renderClientPage(<VerificationPage />, {
       [KYC_PATH]: record({
         status: "verified",
@@ -200,16 +200,20 @@ describe("the verification gate under failure", () => {
 
     await screen.findByText(SCREEN);
     const text = container.textContent ?? "";
-    expect(text).toContain(
-      "Calevate does not sell, rent or supply telephone numbers",
-    );
-    expect(text).toContain("Exotel");
-    expect(text).toContain("Plivo");
+    expect(text).toContain("Calevate provides your calling number.");
+    expect(text).toContain("our own carrier account");
     expect(text).toContain("Vobiz");
-    expect(text).toContain("subscriber of");
+    // Vobiz is the one carrier in use; Plivo is a code fallback, not something a client
+    // chooses, and Exotel has no adapter at all.
+    expect(text).not.toContain("Exotel");
+    expect(text).not.toContain("Plivo");
+    // The superseded model: the client as subscriber of record on their own account.
+    expect(text).not.toContain("subscriber of record");
+    expect(text).not.toContain("Calevate does not sell, rent or supply");
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(text).not.toContain("Buy a number");
-    // The Model A promises this screen used to make, named so they cannot come back.
+    // No price and no timeline is promised on this page.
+    expect(text).not.toContain("₹");
     expect(text).not.toContain("we will arrange");
     expect(text).not.toContain("We buy and register numbers");
   });
@@ -283,17 +287,17 @@ describe("verification — the refusals stated on the screen", () => {
     expect(action).toBeLessThan(consequences);
   });
 
-  it("says we do not supply numbers, and what the client does instead", async () => {
+  it("says we provide the number, and what the client's part is", async () => {
+    // The client's whole part under the founder's decision: pass verification and keep
+    // the details accurate. Nothing tells them to open an account or send credentials.
     const { container } = await unverified();
-    expect(container.textContent).toContain(
-      "Calevate does not sell, rent or supply telephone numbers.",
-    );
-    expect(container.textContent).toContain(
-      "You stay the subscriber of record",
-    );
-    expect(container.textContent).toContain(
-      "you can withdraw them at any time",
-    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Calevate provides your calling number.");
+    expect(text).toContain("Your part is passing our business verification");
+    expect(text).toContain("Then keep your caller details accurate.");
+    expect(text).toContain("Your verification is still outstanding.");
+    expect(text).not.toContain("API credentials");
+    expect(text).not.toContain("you can withdraw them at any time");
   });
 
   it("says the record shown is the whole record", async () => {

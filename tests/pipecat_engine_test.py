@@ -684,6 +684,63 @@ async def test_a_kb_publish_completes_while_the_caller_holds_the_agent_row_locke
         reset_engine_cache()
 
 
+async def test_an_experiment_arm_is_its_own_record_under_the_real_agent() -> None:
+    """Needs migration `d9a6e2c85b41`. An arm's config carries the VARIANT's id in
+    `agent_id` (`agents.service._variant_config`); `pipecat_agents.agent_id` is a foreign
+    key to `agents`, so the arm's row must be written under the real agent and name its arm
+    in `variant_id`, one row per arm beside the agent's own."""
+    tenant_id, agent_id = await _org()
+    cfg = _config(tenant_id, agent_id)
+    engine = PipecatEngine()
+    ref = await engine.create_agent(cfg)
+    await _make_the_agent_live(tenant_id, agent_id, ref)
+    variant_id, experiment_id = uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        prompt_id = (
+            await session.execute(
+                text("SELECT id FROM prompt_versions WHERE agent_id = :a"), {"a": agent_id}
+            )
+        ).scalar()
+        await session.execute(
+            text(
+                "INSERT INTO prompt_experiments (id, tenant_id, agent_id, name, status, "
+                "conversion_metric, started_at, created_at, updated_at) VALUES (:i, :t, :a, "
+                "'arm test', 'running', 'lead_won', now(), now(), now())"
+            ),
+            {"i": experiment_id, "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO prompt_experiment_variants (id, tenant_id, experiment_id, label, "
+                "prompt_version_id, disclosure_line, weight_bp, created_at, updated_at) "
+                "VALUES (:i, :t, :e, 'B', :p, 'Idi AI assistant.', 5000, now(), now())"
+            ),
+            {"i": variant_id, "t": tenant_id, "e": experiment_id, "p": prompt_id},
+        )
+
+    arm_cfg = cfg.model_copy(
+        update={"agent_id": str(variant_id), "system_prompt": "You are arm B of the clinic."}
+    )
+    arm_ref = await engine.create_agent(arm_cfg)
+    await engine.update_agent(arm_ref, arm_cfg)
+
+    assert arm_ref != ref
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT engine_agent_ref, variant_id FROM pipecat_agents "
+                    "WHERE agent_id = :aid ORDER BY variant_id NULLS FIRST"
+                ),
+                {"aid": agent_id},
+            )
+        ).all()
+    assert [(r[0], r[1]) for r in rows] == [(ref, None), (arm_ref, variant_id)]
+    held = await engine._store.runtime_agent(arm_ref)
+    assert held is not None and held.agent_id == agent_id
+    assert held.config.agent_id == str(variant_id), "a later override must still be the arm's"
+
+
 # --- the carrier record the control plane keeps (D-662) -------------------------
 
 
@@ -691,7 +748,7 @@ async def test_a_dial_stamps_the_carriers_call_id_and_our_caller_id_on_the_inten
     """`record_dial` writes onto the row `dispatch_call` committed before dialling, in its
     own transaction, and `carrier_call_of` finds it again by the engine handle."""
     from apps.api.db.base import uuid7
-    from apps.api.engine.pipecat import SqlControlPlane
+    from apps.api.engine.pipecat import CarrierCallRecord, SqlControlPlane
     from calevate_shared.engine import pipecat_call_ref
 
     tenant_id, agent_id = await _org()
@@ -710,23 +767,33 @@ async def test_a_dial_stamps_the_carriers_call_id_and_our_caller_id_on_the_inten
 
     store = SqlControlPlane()
     await store.record_dial(
-        ref, call_id=str(call_id), carrier_call_id="vz-uuid-1", from_e164="+911140000000"
+        ref,
+        call_id=str(call_id),
+        carrier_call_id="vz-uuid-1",
+        from_e164="+911140000000",
+        carrier="vobiz",
     )
-    assert await store.carrier_call_of(handle) == "vz-uuid-1"
+    assert await store.carrier_call_of(handle) == CarrierCallRecord("vz-uuid-1", "vobiz")
     assert await store.carrier_call_of("not-a-pipecat-ref") is None
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
-                text("SELECT carrier_call_id, from_e164 FROM calls WHERE id = :id"),
+                text("SELECT carrier_call_id, from_e164, carrier FROM calls WHERE id = :id"),
                 {"id": call_id},
             )
         ).one()
-    assert tuple(row) == ("vz-uuid-1", "+911140000000")
+    assert tuple(row) == ("vz-uuid-1", "+911140000000", "vobiz")
 
     # A ref this engine did not mint, and a row that is not there, write nothing.
-    await store.record_dial("x", call_id=str(call_id), carrier_call_id="other", from_e164="+91")
-    await store.record_dial(ref, call_id=str(uuid7()), carrier_call_id="other", from_e164="+91")
-    assert await store.carrier_call_of(handle) == "vz-uuid-1"
+    for other_ref, other_call in (("x", str(call_id)), (ref, str(uuid7()))):
+        await store.record_dial(
+            other_ref,
+            call_id=other_call,
+            carrier_call_id="other",
+            from_e164="+91",
+            carrier="vobiz",
+        )
+    assert await store.carrier_call_of(handle) == CarrierCallRecord("vz-uuid-1", "vobiz")
 
 
 async def test_a_bind_records_the_carrier_binding_on_the_number() -> None:

@@ -225,50 +225,42 @@ function Affected({
 }
 
 /**
- * Where the calling number comes from — which is not us.
+ * Where the calling number comes from: us, on our own carrier account with Vobiz.
  *
- * `number_purchase_available` is the server's own selector — the SAME one
- * `POST /v1/numbers/purchase` asks — so this card can never promise something that
- * route would refuse. It is false for every account in every deployment and by
- * DECISION rather than by omission (Model B), so the card is a sentence and not a
- * control, and the sentence is the next step rather than a refusal: the carriers to
- * open an account with, and the two things to send back afterwards.
+ * The founder's decision of 2 Oct 2026 (D-662's carrier, "ours, on Vobiz"): Calevate
+ * provides the number and the carrier connection; the client's part is our business
+ * verification and keeping the details we hold accurate. The card is a sentence and not a
+ * control: getting a number is the phone-number screen's job, not this page's.
  *
- * No prices, no timelines and no signup URL — none of those is a fact this repository
- * has read, and each operator publishes its own. The KYC sentence is here because it
- * is true on both sides at once: their operator asks for the documents we ask for.
+ * No prices and no timelines: neither is a fact this screen can stand behind, and the
+ * number screen is where a price is shown once it is frozen on a purchase.
  */
 export function PhoneNumbers({ record }: { record: KycRecord }) {
   return (
     <div>
       <p className="text-sm text-ink-muted">
-        Calevate does not sell, rent or supply telephone numbers. Your calling number is
-        a connection you take in your own name, on your own account with an Indian
-        operator — <span className="font-medium text-ink">Exotel</span>,{" "}
-        <span className="font-medium text-ink">Plivo</span> or{" "}
-        <span className="font-medium text-ink">Vobiz</span>. You stay the subscriber of
-        record for it, which is what keeps it yours.
+        Calevate provides your calling number. It is connected on our own carrier account
+        with <span className="font-medium text-ink">Vobiz</span>, and we look after the
+        connection, so there is no operator account for you to open.
       </p>
       <ul className={`mt-3 ${LIST}`}>
         <li>
           <span className={LEAD_IN}>
-            Open the account and pass their <Term id="kyc" />.
-          </span> They ask
-          for the same business details we ask for, and the address proof normally
-          has to match the city the number is issued in. Operators keep outgoing calls
-          disabled until their own check clears.
+            Your part is passing our business verification (<Term id="kyc" />).
+          </span>{" "}
+          Indian telecom rules require the business behind every calling number to be
+          identified, and the check above is that check.
         </li>
         <li>
-          <span className={LEAD_IN}>Then send us two things.</span> The number, and API
-          credentials for that account. We connect it to your agents with those
-          credentials — and you can withdraw them at any time, from your own account.
+          <span className={LEAD_IN}>Then keep your caller details accurate.</span> If your
+          business name, address or the person who signs for it changes, tell your account
+          manager, so the details held against your number stay true.
         </li>
       </ul>
       {!record.is_verified && (
         <p className="mt-3 text-sm text-ink-muted">
-          Our verification of your business, above, is a separate thing and is still
-          outstanding. Numbers you already have keep working, and calls coming in are
-          never affected.
+          Your verification is still outstanding. Numbers you already have keep working,
+          and calls coming in are never affected.
         </p>
       )}
     </div>

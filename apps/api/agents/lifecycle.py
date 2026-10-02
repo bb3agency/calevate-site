@@ -70,7 +70,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
-from apps.api.agents.service import publish_agent, route_inbound_numbers
+from apps.api.agents.service import (
+    publish_agent,
+    retire_agent_carrier_bindings,
+    route_inbound_numbers,
+)
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
@@ -672,6 +676,14 @@ async def archive_agent(
         visible_where=_VISIBLE,
     )
     released = await _release_inbound_numbers(session, agent_id=agent_id) if moved else 0
+    if moved:
+        # After the release: the carrier refuses to delete a binding a number still uses.
+        ref = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
+            )
+        ).scalar()
+        await retire_agent_carrier_bindings(agent_id=agent_id, ref=ref)
     return LifecycleResult(
         agent_id=agent_id, status="archived", changed=moved, numbers_released=released
     )

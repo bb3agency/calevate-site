@@ -1,8 +1,8 @@
 """The live-transfer `<Dial>` document: off by default, Vobiz only, from a sealed token.
 
 `/carrier/v1/{carrier}/transfer/{token}` is where the API redirects a live call for a
-human handoff. The destination rides inside an AES-GCM token (`apps.api.core.
-carrier_token`, now in `calevate_shared`) because this route may not read the database and a number in a URL lands
+human handoff. The destination rides inside an AES-GCM token (`calevate_shared.
+carrier_token`) because this route may not read the database and a number in a URL lands
 in access logs. What is driven: off means no `<Dial>` is ever served; on serves the
 vendor's grammar (VERIFIED-VENDOR-DOCS `vobiz-findings/mirror/pages/xml/dial.md:40-60`); a
 forged, expired or wrong-purpose token, a carrier with no `<Dial>` grammar, and an order

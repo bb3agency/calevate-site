@@ -284,6 +284,19 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "disclosure rather than a clarification. The section 29 reasoning is "
                 "unchanged and the twelve-digit refusal now covers three more fields.",
             ),
+            Revision(
+                "10",
+                False,
+                "The voice-platform wording from the Bolna era is replaced by the owned "
+                "runtime it describes (D-639 deleted Bolna): the call runs as a program of "
+                "ours on Pipecat Cloud in a region whose country is not established, over "
+                "the telephone carrier Vobiz, which states no processing location; carrier "
+                "callbacks are accepted from the carrier's published addresses, with its "
+                "call record as the record of truth; and the carrier's copies are named "
+                "among those an erasure reports as unconfirmed. NON-MATERIAL, the "
+                "founder's call (2 Oct 2026): a factual correction of vendor wording, and "
+                "no right or obligation changes. No residency claim is added.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -360,6 +373,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "owner or by Calevate (D-658). Non-material — the terms never promised a "
                 "review, staff curation is still off until the owner turns it on, and "
                 "nothing anybody agreed to changes meaning.",
+            ),
+            Revision(
+                "9",
+                False,
+                "The definition of Engine, the dependency sentence and the erasure "
+                "sentence stop describing a third-party voice platform (Bolna, deleted by "
+                "D-639): the engine is our own call program on a third-party hosting "
+                "platform, and the copies an erasure certificate names include the "
+                "telephone carrier's. NON-MATERIAL, the founder's call (2 Oct 2026): "
+                "factual vendor wording only, and no right or obligation changes.",
             ),
         ),
         effective_date="2026-09-02",
@@ -476,6 +499,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "data-processing agreement, still name no country, and its training and "
                 "retention position is still not stated.",
             ),
+            Revision(
+                "9",
+                False,
+                "Bolna-era voice-platform wording replaced (D-639 deleted Bolna): clause "
+                "9 says the call runs as a program of ours on a hosting platform in a "
+                "region whose country is not established, with its audio through a "
+                "telephone carrier that states no processing location; the erasure "
+                "paragraph names the carrier's copies; Annex B.4 describes the carrier's "
+                "callbacks rather than a voice platform's webhooks. NON-MATERIAL, the "
+                "founder's call (2 Oct 2026): factual vendor wording, and no right or "
+                "obligation changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -575,6 +610,19 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "be sold is restated: a list price is not an invoice. NON-MATERIAL — no "
                 "row is added or removed, nothing about who receives what changes, and "
                 "no assurance is withdrawn.",
+            ),
+            Revision(
+                "9",
+                False,
+                "The carrier row names Vobiz as the carrier in use, on Calevate's own "
+                "account, with Plivo as a switchable fallback; Exotel, a candidate with "
+                "no adapter, is dropped, as are the sentences saying no carrier was "
+                "chosen. Vobiz's processing location is stated as not stated by the "
+                "vendor, and its console's 30-day recording window is recorded. The Bolna "
+                "row is removed (D-639 deleted it from the product; no client data is in "
+                "production) and section 3.1 now describes the owned runtime. "
+                "NON-MATERIAL, the founder's call (2 Oct 2026): no new sub-processor is "
+                "added and no assurance is withdrawn.",
             ),
         ),
         effective_date="2026-09-02",

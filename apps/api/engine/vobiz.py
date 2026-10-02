@@ -185,8 +185,9 @@ class VobizCarrier:
 
         200 means accepted and queued, not answered (`:122-124`). Numbers are sent in the
         E.164 form the parameter table names (`:31-32`); whether the API also accepts them
-        without the `+` its examples print is UNKNOWN and not relied on. `hangup_on_ring` is
-        "Max duration (in seconds) from start of ringing to hangup" (`:72`).
+        without the `+` its examples print is UNKNOWN and not relied on. `ring_timeout` is the
+        field the example sends (`:83`); see `engine/carrier.RING_TIMEOUT_S` for why it, and
+        not `hangup_on_ring`, bounds an unanswered dial.
         """
         payload = await self._request(
             "POST",
@@ -201,7 +202,7 @@ class VobizCarrier:
                 "ring_url": ring_url,
                 "ring_method": "POST",
                 "time_limit": time_limit_s,
-                "hangup_on_ring": ring_timeout_s,
+                "ring_timeout": ring_timeout_s,
             },
             extra_refused_statuses=DIAL_REFUSED_STATUSES,
         )

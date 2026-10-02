@@ -124,24 +124,6 @@ interface RegisterRow {
  */
 export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
   {
-    names: ["Bolna"],
-    vendor: "Bolna",
-    does:
-      "Voice platform: runs the live call, connects the speech and language models, " +
-      "and returns the transcript and call record.",
-    receives:
-      "Caller phone number, live call audio, full transcript, call metadata, and the " +
-      "agent configuration we send it.",
-    location:
-      "United States. Their documentation states that all of their services run on " +
-      "US infrastructure unless an enterprise data-residency option is purchased, " +
-      "which we have not purchased. Read the note below before relying on this " +
-      "row either way — it is the most important caution on this page.",
-    status:
-      "Core (primary engine). The verification pilot has not yet been run, and the " +
-      "shipped default engine is a local stub.",
-  },
-  {
     names: ["Sarvam"],
     vendor: "Sarvam AI",
     does:
@@ -280,27 +262,25 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "provider's Gemini models; no client data reaches it otherwise.",
   },
   {
-    names: ["Exotel", "Vobiz", "Plivo"],
-    vendor: "Exotel · Vobiz · Plivo",
+    names: ["Vobiz", "Plivo"],
+    vendor: "Vobiz (Plivo as a fallback)",
     does:
-      "Telephone numbers and the carrier connection the calls run over — and, " +
-      "since the call itself moved to the platform in the row below, the carrier also " +
-      "CARRIES THE AUDIO: the call's media connection terminates at the carrier and it " +
-      "streams the sound of the call, in both directions, to and from the program that " +
-      "holds the conversation. This cell said “numbers and the connection” " +
-      "until 15 September 2026, which was true of the older design, where the voice " +
-      "platform in the first row took the audio and we never touched it.",
+      "The telephone carrier: the calling numbers and the carrier connection the calls " +
+      "run over. The carrier also CARRIES THE AUDIO: the call's media connection " +
+      "terminates at the carrier, and it streams the sound of the call, in both " +
+      "directions, to and from the program of ours that holds the conversation. Vobiz " +
+      "is the carrier in use, on our own account with it. Plivo is a fallback our " +
+      "software can be switched to; we hold no account with it, and nothing reaches " +
+      "it unless we make that switch.",
     receives:
       "Caller and called numbers, call detail records, and the live audio of the call " +
-      "in both directions.",
+      "in both directions. Vobiz's console makes call recordings available for the " +
+      "last 30 days.",
     location:
-      "India for the carriers themselves. Which of the three we use is not settled and " +
-      "no account is open with any of them, so for the new media leg in particular " +
-      "nobody here has established which of a carrier's regions would serve it — " +
-      "we would rather say that than let an old cell cover a new path.",
+      "Not stated by the vendor. Nothing Vobiz publishes that we have read says where " +
+      "it processes or stores call data, so we name no country for it.",
     status:
-      "Core once numbers are procured. None is procured yet, because that depends " +
-      "on the DLT registrations.",
+      "Core. Vobiz carries every call; Plivo is the fallback described above.",
   },
   {
     names: ["Pipecat Cloud"],
@@ -308,8 +288,10 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     does:
       "RUNS THE CALL. Where a deployment is set to use it, the conversation is a " +
       "program of ours — our script, our choice of models, our knowledge lookup " +
-      "— running in a container on this vendor's platform, in place of the voice " +
-      "platform in the first row of this table. It is the same kind of relationship as " +
+      "— running in a container on this vendor's platform. Until 2 October 2026 this " +
+      "register also listed Bolna, a third-party voice platform that was to run the call " +
+      "instead; it is no longer used and has been removed from the product. This row is " +
+      "the same kind of relationship as " +
       "the hosting provider two rows down, and it matters far more, because this one " +
       "is on the call.",
     receives:
@@ -588,7 +570,8 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "product and a different standing: a whole alternative voice platform, built so " +
       "that switching platforms is a configuration change rather than a rewrite.",
     receives:
-      "The same categories as the primary voice platform, if it were ever selected.",
+      "The same categories as the platform that runs the call (the Pipecat Cloud row " +
+      "above), if it were ever selected.",
     location:
       "Not verified in this role either, for the reason the other row for this " +
       "vendor gives.",
@@ -772,37 +755,22 @@ export const SUBPROCESSORS: LegalDocument = {
       heading: "3. Seven things a careful reader should know",
       subsections: [
         {
-          id: "bolna-residency",
-          heading: "3.1 Where the voice platform runs the call, and why that is not India",
+          id: "call-residency",
+          heading: "3.1 Where the call is handled, and why that is not India",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
-              title: "Assume the call itself is handled outside India",
+              title: "Assume the call itself may be handled outside India",
               text:
-                "The company that runs our voice platform documents that its services run " +
-                "on United States infrastructure by default, and that processing calls " +
-                "inside India is an enterprise option a customer buys and configures. We " +
-                "have not bought it, and no contract pins it. So a client should assume " +
-                "that the live audio of their calls, the transcript the platform produces, " +
-                "and the platform's own copy of the recording are handled outside India " +
-                "for as long as the platform keeps them.",
-            },
-            {
-              kind: "para",
-              text:
-                "There is a second reason, and it is a design consequence rather than a " +
-                "purchasing one, so we state it plainly. The platform's published " +
-                "conditions for running a call on Indian servers require that the speech " +
-                "and language models be the platform's own integrations — and this product " +
-                "is built the other way round, on our own accounts with each model " +
-                "provider, which is what lets us tell you exactly which model hears your " +
-                "caller. Their documentation says that connecting your own provider keys " +
-                "sends the call through their US servers whatever else is configured. " +
-                "Buying the residency option would therefore not by itself move our calls " +
-                "to India: it is a choice between two things we have said elsewhere on " +
-                "this page that we value, and we would rather you saw the trade-off than " +
-                "read a sentence that hides it.",
+                "The conversation runs as a program of ours in a container on Pipecat " +
+                "Cloud, in the region that vendor calls “ap-south”; nobody here " +
+                "has established which country that region is in, and section 3.7 lists " +
+                "what else we have not established about it. The sound of the call reaches " +
+                "that program through our telephone carrier, Vobiz, which does not state " +
+                "where it processes or stores call data. So a client should not assume " +
+                "that the live audio of their calls, or the transcript produced from it, " +
+                "stays in India while the call is happening.",
             },
             {
               kind: "para",
@@ -815,27 +783,21 @@ export const SUBPROCESSORS: LegalDocument = {
                 "including on United States cloud infrastructure and with European Union " +
                 "model and security vendors; section 3.4 sets that out with what its " +
                 "terms allow it to do with the data. What none of it sits alongside any " +
-                "more is a language model in " +
-                "India. Until 22 August 2026 this paragraph said the model inference " +
-                "itself did not leave the country; since that date the language model " +
-                "runs in the United States, so both the platform that orchestrates the " +
-                "call and the model that answers on it are outside India. Section 3.2 " +
-                "says what moved and what we still promise about it. Our own copy of the " +
-                "recording and transcript — the system of record, the one the product " +
-                "reads and the one our retention periods govern — is in the storage " +
+                "more is a language model in India. Until 22 August 2026 this paragraph " +
+                "said the model inference itself did not leave the country; since that " +
+                "date the language model runs in the United States. Section 3.2 says what " +
+                "moved and what we still promise about it. Our own copy of the recording " +
+                "and transcript — the system of record, the one the product reads " +
+                "and the one our retention periods govern — is in the storage " +
                 "described in the register above.",
             },
             {
               kind: "para",
               text:
-                "An earlier version of this page said the platform was in India and " +
-                "described only its recording storage as being in the United States. That " +
-                "was based on recording links we had seen, which pointed at Amazon S3 in " +
-                "the us-east-1 region; the platform has since moved those links behind its " +
-                "own address, so the storage region can no longer be read off them. The " +
-                "correction above comes from the platform's own published documentation " +
-                "rather than from an observation, and it is broader than what the old " +
-                "sentence said.",
+                "Until 2 October 2026 this section was about a third-party voice platform, " +
+                "Bolna, which documented that it ran calls on United States infrastructure " +
+                "by default. That platform is no longer used and has left this register; " +
+                "the call is now handled by the program and the carrier described above.",
             },
           ],
         },
@@ -934,9 +896,8 @@ export const SUBPROCESSORS: LegalDocument = {
               kind: "para",
               text:
                 "The speech and language models run under our own accounts with each " +
-                "provider, against endpoints our code pins — the voice platform holds " +
-                "those credentials to place the calls, which is what section 3.1 says " +
-                "forecloses that platform's own India routing.",
+                "provider, against endpoints our code pins, and the program of ours that " +
+                "runs the call holds those credentials.",
             },
             {
               kind: "para",
@@ -1190,8 +1151,8 @@ export const SUBPROCESSORS: LegalDocument = {
                 "and this is the seventh. The design of the call changed. It used to be " +
                 "that a voice platform took the call, ran the conversation with models " +
                 "it chose on our behalf, and handed us a transcript afterwards \u2014 " +
-                "that is the first row of the register, and section 3.1 is about where " +
-                "it does that. The call is moving to a program of OURS, running in a " +
+                "a platform this register no longer lists, because it is no longer used. " +
+                "The call is moving to a program of OURS, running in a " +
                 "container on a platform called Pipecat Cloud: we choose the models, we " +
                 "hold the script, and the sound of the call passes through somebody " +
                 "else's compute while it happens. That is better for you in the ways " +

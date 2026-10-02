@@ -39,6 +39,7 @@ COMPLETE_ENV: dict[str, str] = {
     "AWS_SECRET_ACCESS_KEY": "secret",
     "SARVAM_API_KEY": "sarvam",
     "AZURE_OPENAI_API_KEY": "azure",
+    "CARRIER_CLAIM_SECRET": "s" * 32,
 }
 
 #: The same container on the Plivo leg, which is the only carrier that needs a credential.
@@ -501,12 +502,22 @@ def test_the_container_registry_carries_no_variable_the_worker_stopped_reading()
     assert not stale, f"{stale} are registered as voice-worker config and nothing reads them"
 
 
-def test_the_caller_claim_secret_is_optional_and_a_short_one_is_refused() -> None:
-    """Absent: no claimed number is believed. Too short to resist a search: refused at boot,
+def test_the_claim_secret_is_required_on_vobiz_and_a_short_one_is_refused_anywhere() -> None:
+    """On Vobiz, without it every dialled call runs here as inbound on a row of its own and
+    no inbound caller is identified, so the container refuses to boot. On Plivo, whose dial
+    is not built, it is optional. Too short to resist a search: refused on either carrier,
     because it would look configured while protecting nothing."""
-    assert boot.load_worker_config(COMPLETE_ENV).caller_claim_key is None
-    good = "s" * 32
-    config = boot.load_worker_config({**COMPLETE_ENV, "CARRIER_CLAIM_SECRET": good})
+    without = {k: v for k, v in COMPLETE_ENV.items() if k != boot.CLAIM_KEY_ENV}
+    with pytest.raises(boot.WorkerConfigError, match="CARRIER_CLAIM_SECRET is not set"):
+        boot.load_worker_config(without)
+
+    plivo_without = {k: v for k, v in PLIVO_ENV.items() if k != boot.CLAIM_KEY_ENV}
+    assert boot.load_worker_config(plivo_without).caller_claim_key is None
+
+    good = "g" * 32
+    config = boot.load_worker_config({**COMPLETE_ENV, boot.CLAIM_KEY_ENV: good})
     assert config.caller_claim_key == good.encode()
-    with pytest.raises(boot.WorkerConfigError, match="CARRIER_CLAIM_SECRET"):
-        boot.load_worker_config({**COMPLETE_ENV, "CARRIER_CLAIM_SECRET": "short"})
+    assert config.carrier_claim_secret == good
+    for env in (COMPLETE_ENV, PLIVO_ENV):
+        with pytest.raises(boot.WorkerConfigError, match="shorter than 32 bytes"):
+            boot.load_worker_config({**env, boot.CLAIM_KEY_ENV: "short"})

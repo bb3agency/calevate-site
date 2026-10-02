@@ -42,12 +42,21 @@ def capability_unverified(*, title: str, detail: str, remediation: str) -> Probl
     )
 
 
-#: How long an outbound dial may ring before the carrier hangs it up, in seconds. Sent as
-#: Vobiz's `hangup_on_ring` ("Max duration (in seconds) from start of ringing to hangup",
-#: `vobiz-findings/mirror/pages/call/make-call.md:72`). It bounds how long an unanswered
-#: dial holds one of the account's lines, which is what lets the dial gate's line count
-#: (`agents.service.dispatch_call`) age a `queued` row out after a known horizon.
+#: How long an outbound dial may ring before the carrier gives up, in seconds. Sent as
+#: Vobiz's `ring_timeout`, which their call-create example carries
+#: (`vobiz-findings/mirror/pages/call/make-call.md:83`) and their hangup-cause table names as
+#: the API knob for code 6010 (`concepts/hangup-causes.md:119`), but which the parameter table
+#: omits, so whether it is honoured is UNKNOWN (`docs/evidence/vobiz-api-contract.md` §2).
+#:
+#: NOT `hangup_on_ring`, which the table does list: "Max duration (in seconds) from start of
+#: ringing to hangup" (`make-call.md:72`) reads as a cap on the whole call measured from the
+#: first ring, answered or not, and a short value there would cut every conversation.
 RING_TIMEOUT_S: Final = 60
+
+#: The ring timeout the carrier applies when none is honoured: "Default is 120 seconds"
+#: (`concepts/hangup-causes.md:119`). The line count's ring horizon is built on the longer of
+#: the two, so it holds whether or not `ring_timeout` is read.
+CARRIER_DEFAULT_RING_TIMEOUT_S: Final = 120
 
 #: What a carrier callback said happened, in our words.
 CarrierEventKind = Literal["ringing", "answered", "hangup", "machine", "stream", "other"]
@@ -277,14 +286,9 @@ def get_carrier(name: CarrierName | None = None) -> CarrierClient:
     return client
 
 
-def reset_carrier_cache() -> None:
-    """Forget every memoised client. Tests switch settings between cases; production never
-    calls this."""
-    _clients.clear()
-
-
 __all__ = [
     "CARRIER_ADAPTER_MODULES",
+    "CARRIER_DEFAULT_RING_TIMEOUT_S",
     "CARRIER_UNVERIFIED_CODE",
     "RING_TIMEOUT_S",
     "CarrierCallEvent",
@@ -296,5 +300,4 @@ __all__ = [
     "build_carrier",
     "carrier_of_record",
     "get_carrier",
-    "reset_carrier_cache",
 ]

@@ -4,7 +4,7 @@ The concurrency doctrine, in the order FLOWS §5 states it, because one client's
 campaign must never starve another's inbound receptionist:
 
 1. `Settings.carrier_concurrency`, the lines the carrier account carries
-2. minus the inbound reserve (`max(1, ceil(lines × inbound_reserve_ratio))`) → the
+2. minus the inbound reserve (`max(1, ceil(lines * inbound_reserve_ratio))`) → the
    OUTBOUND pool (`engine/carrier_pacing.outbound_line_pool`)
 3. per-tenant `concurrency_ceiling` (plans row), CLAMPED to that outbound pool —
    a ceiling above the pool is not a ceiling (`_tenant_ceiling`)
@@ -993,7 +993,7 @@ async def _dispatch_for_campaign(
             # the general staleness bound `loadshed` reasons about. `dial_recall` — the job
             # that pulls dials back out of the vendor's queue — is enqueued on the halt's
             # `false -> true` edge and scans ONCE. A dial this loop places after that scan
-            # is never recalled by anything: it sits in a queue we cannot see and rings.
+            # is never recalled by anything, and rings until it is answered or times out.
             # So the halt is the one rule here where a stale read costs an unrecallable
             # phone call rather than a late refusal.
             #
@@ -1022,7 +1022,6 @@ async def _dispatch_for_campaign(
                 await _refuse_contact(session, contact_id, rule=decision.rule or "unknown")
                 blocked += 1
                 continue
-
 
             try:
                 # THE LINK IS WRITTEN BEFORE THE PHONE CAN RING, in `dispatch_call`'s

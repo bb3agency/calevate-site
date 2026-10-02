@@ -44,6 +44,7 @@ from calevate_shared.worker_api import (
     ObservationBatch,
     SettlementRefusal,
     SettlementRequest,
+    UnverifiedCallClaim,
 )
 from pydantic import ValidationError
 from sqlalchemy import text
@@ -601,6 +602,36 @@ async def test_a_status_never_moves_backwards_off_a_terminal_row(worker_token: N
             await db.execute(text("SELECT status FROM calls WHERE engine_call_id = :c"), {"c": ref})
         ).scalar_one()
     assert status == "completed"
+
+
+async def test_a_row_the_hangup_made_terminal_still_takes_the_settlements_other_columns(
+    worker_token: None,
+) -> None:
+    """FORWARD-ONLY PER COLUMN, NOT PER ROW. The carrier's hangup often lands before the
+    worker settles; a row-level guard on the status skipped the whole update and lost the
+    settlement's `carrier_call_id` (and `ended_at`, `duration_s`, `knowledge_state`)."""
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+    async with worker_client() as api:
+        await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
+        async with tenant_session(tenant_id) as db:
+            await db.execute(
+                text("UPDATE calls SET status = 'no_answer' WHERE engine_call_id = :c"),
+                {"c": ref},
+            )
+        settlement = refusal_settlement(agent_id).model_copy(
+            update={"final_status": "failed", "carrier_call_id": "CA-hangup-first"}
+        )
+        await api.post_settlement(ref, settlement)
+    async with tenant_session(tenant_id) as db:
+        status, carrier_call_id = (
+            await db.execute(
+                text("SELECT status, carrier_call_id FROM calls WHERE engine_call_id = :c"),
+                {"c": ref},
+            )
+        ).one()
+    assert status == "no_answer", "a terminal status moved sideways"
+    assert carrier_call_id == "CA-hangup-first", "the settlement's columns were dropped"
 
 
 async def test_a_settlement_that_both_prices_and_refuses_one_leg_is_refused(
@@ -1266,6 +1297,65 @@ async def test_parties_learned_from_an_earlier_batch_are_not_reported_as_absent(
         await api.post_settlement(ref, refusal_settlement(agent_id))
 
     assert [code for _stage, code, _ids in fired] == []
+
+
+# ---------------------------------------------------------------------------------------
+# A call claim the worker could not verify (PB1).
+# ---------------------------------------------------------------------------------------
+
+
+async def test_a_dialled_call_settled_as_inbound_pages_naming_both_rows(
+    worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker's `CARRIER_CLAIM_SECRET` differs from voice-runtime's, so the call we
+    dialled ran as inbound under the worker's own id. The dialled row will never settle;
+    only the server can tell this from a forgery, because only it can see the row."""
+    tenant_id, agent_id, _ = await published_agent()
+    dialled = await _dialled_row(tenant_id, agent_id, stamped=f"vendor-{uuid.uuid4().hex}")
+    _, ref = call_ref(tenant_id)
+    fired = _capture_alerts(monkeypatch)
+    settlement = refusal_settlement(agent_id).model_copy(
+        update={"call_claim_unverified": UnverifiedCallClaim(claimed_call_id=dialled)}
+    )
+
+    async with worker_client() as api:
+        await api.post_settlement(ref, settlement)
+
+    mismatches = [ids for _stage, code, ids in fired if code == "carrier_call_claim_mismatch"]
+    assert len(mismatches) == 1
+    assert mismatches[0]["call_id"] == str(dialled)
+    assert mismatches[0]["settled_call_id"] != str(dialled)
+
+
+@pytest.mark.parametrize("claimed", ["none", "unknown", "inbound"])
+async def test_an_unverified_claim_naming_no_dialled_row_of_ours_does_not_page(
+    claimed: str, worker_token: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale or forged claim is a log line, not a page: it names no row, a row we never
+    dialled, or (under RLS) another tenant's."""
+    tenant_id, agent_id, _ = await published_agent()
+    _, ref = call_ref(tenant_id)
+    claimed_id = {"none": None, "unknown": uuid.uuid4(), "inbound": None}[claimed]
+    if claimed == "inbound":
+        other_call, other_ref = call_ref(tenant_id)
+        async with worker_client() as api:
+            await api.post_observations(other_ref, batch(other_call, tenant_id, agent_id))
+        async with tenant_session(tenant_id) as db:
+            claimed_id = (
+                await db.execute(
+                    text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": other_ref}
+                )
+            ).scalar_one()
+    fired = _capture_alerts(monkeypatch)
+    settlement = refusal_settlement(agent_id).model_copy(
+        update={"call_claim_unverified": UnverifiedCallClaim(claimed_call_id=claimed_id)}
+    )
+
+    async with worker_client() as api:
+        answer = await api.post_settlement(ref, settlement)
+
+    assert answer.post_call_enqueued
+    assert "carrier_call_claim_mismatch" not in [code for _stage, code, _ids in fired]
 
 
 # ---------------------------------------------------------------------------------------

@@ -801,9 +801,7 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"series IN {NUMBER_SERIES!r}", name="series_enum"),
         CheckConstraint(f"dlt_status IN {DLT_STATUSES!r}", name="dlt_status_enum"),
         CheckConstraint(f"direction IN {NUMBER_DIRECTIONS!r}", name="direction_enum"),
-        CheckConstraint(
-            f"provider IS NULL OR provider IN {CARRIERS!r}", name="provider_carrier"
-        ),
+        CheckConstraint(f"provider IS NULL OR provider IN {CARRIERS!r}", name="provider_carrier"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(

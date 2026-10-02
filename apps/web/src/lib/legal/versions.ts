@@ -187,6 +187,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:7a16c3496d10e82c2eba428605eac34a21db1f27e4f1d53afe6d914028c9689b",
       },
+      // D-639 deleted Bolna, and the notice still described its voice platform: where the
+      // call runs, the raw document it returned, its webhooks and its copies. Each now
+      // describes the owned runtime — our program on Pipecat Cloud, the carrier Vobiz —
+      // and states no residency it cannot support. NOT material, the founder's call
+      // (2 Oct 2026): factual vendor wording only; no right or obligation moves.
+      {
+        revision: "10",
+        material: false,
+        contentHash:
+          "sha256:ee8c4deb6e3f627c35de1c8484c6cd18c5cd72976f7bce5cace63c5074760999",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -233,6 +244,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:7706c8531b181e6e579cf419ac34c91f957e550aaa8c1598a59c547ae947454f",
+      },
+      // D-639. "Engine", the dependency sentence and the erasure sentence stop describing
+      // a third-party voice platform. NOT material, the founder's call (2 Oct 2026).
+      {
+        revision: "9",
+        material: false,
+        contentHash:
+          "sha256:3d7ff2d729c78c4d2a8bd8d0b6b8654db609541f44aa1558ab6bee5b2d86d8ce",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -321,6 +340,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:08efa002d942839ef344446454f00fcf426cfbea94bee96583138e63a00a5e75",
+      },
+      // D-639. Clause 9, the erasure paragraph and Annex B.4 stop describing the deleted
+      // voice platform and describe the owned runtime and the carrier. NOT material, the
+      // founder's call (2 Oct 2026): factual vendor wording only.
+      {
+        revision: "9",
+        material: false,
+        contentHash:
+          "sha256:c0995c617c7a9e860c24e207304d0bf00a87c794d4d247488ac0052d314457ed",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -418,6 +446,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:6faa2c4930308a89495a2269fe9f2d12e760fb1ae12f9e47c887d08bc8eae82d",
+      },
+      // The carrier row names Vobiz as the carrier in use with Plivo as a fallback, and
+      // drops Exotel (no adapter) and the "not settled" sentences; the Bolna row leaves on
+      // the Clerk pattern (D-639) and section 3.1 describes the owned runtime. NOT
+      // material, the founder's call (2 Oct 2026): no new sub-processor is added.
+      {
+        revision: "9",
+        material: false,
+        contentHash:
+          "sha256:a747f2aa468b503c5c0ac0803abf4f2849c289394a86ab9c895e44cbd36aa45a",
       },
     ],
     effectiveDate: "2026-09-02",

@@ -92,22 +92,14 @@ __all__ = [
 #: engine port, D-36 a speech tier, D-410 a model leg); the obligation attaches to the
 #: role, and a row written today must still be readable after a vendor swap.
 #:
-#: ⚠ **`telephony` IS NEW (18 Sep 2026) AND IT WAS THE MOST CONSPICUOUS ABSENCE IN THE
-#: LIST.** The published register tells a client the carrier receives *"Caller and called
-#: numbers, call detail records, and the live audio of the call in both directions"*
-#: (`apps/web/src/lib/legal/subprocessors.ts`, the Exotel · Vobiz · Plivo row), and the
-#: carrier leg is where the audio physically terminates: `voice_worker/carrier.py` reads
-#: 8 kHz mu-law media frames off the carrier socket in both directions [PIPECAT SOURCE,
-#: `.venv/.../pipecat/serializers/plivo.py:139-163`]. So a §12 certificate that enumerated
-#: three vendor copies and stayed silent about the one holding both the number and the
-#: sound of the call was misleading by the exact omission this vocabulary exists to
-#: prevent. The obligation attaches to the ROLE now, before any carrier account exists,
-#: because the alternative is discovering it on the day one does.
-#:
-#: The database accepts it (`processor_is_known`, migration `e3a7c05b91d4`), and nothing
-#: opens a `telephony` task yet: no carrier account exists to send a request to. Until one
-#: does, `deletion.ERASURE_EXCEPTIONS`' "telephone carrier" entry carries the truth — the
-#: copy exists and no request has been made.
+#: `telephony` is the carrier (Vobiz, D-662), where the call's audio terminates:
+#: `voice_worker/carrier.py` reads 8 kHz mu-law media frames off the carrier socket in both
+#: directions, so the carrier holds the numbers, its call records and the sound of the
+#: call. The database accepts it (`processor_is_known`, migration `e3a7c05b91d4`), but no
+#: erasure path opens a `telephony` task yet (`apps/workers/retention.py` passes
+#: `voice_engine` and, for a tenant, `speech`/`llm`). Until one does, the "telephone
+#: carrier" entry in `deletion.ERASURE_EXCEPTIONS` carries the truth: Vobiz's API documents
+#: no deletion route, removal is a written request, and none is recorded as made.
 PROCESSORS: Final = ("voice_engine", "speech", "llm", "telephony")
 
 #: `open` — the erasure ran, this processor holds a copy, nobody has asked yet.

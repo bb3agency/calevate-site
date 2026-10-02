@@ -16,8 +16,8 @@ carrier and none is invented for it; readers fall back to the switch for those, 
 what every reader did before this column existed.
 
 `ix_calls_carrier_live` serves `carrier_lines_in_use()` (next revision): a per-tenant count
-of calls in a live status on one carrier. Partial over the three live statuses and non-NULL
-carrier, so it holds only the handful of calls in flight and is built in place.
+of calls in a live status on one carrier (and inbound rows not yet stamped with one). Partial
+over the three live statuses, so it holds only the handful of calls in flight.
 
 RLS is unchanged: `calls` already carries its FORCEd tenant policy and no policy reads the
 column.
@@ -49,7 +49,7 @@ def upgrade() -> None:
     op.execute(f"ALTER TABLE calls VALIDATE CONSTRAINT {_CHECK}")
     op.execute(
         f"CREATE INDEX {_INDEX} ON calls (tenant_id, carrier, created_at) "
-        "WHERE carrier IS NOT NULL AND status IN ('queued', 'ringing', 'in_progress')"
+        "WHERE status IN ('queued', 'ringing', 'in_progress')"
     )
 
 

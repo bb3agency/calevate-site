@@ -26,8 +26,11 @@ same set those two walk: a call belongs to an agent, and an agent that was ever 
 a route. The entry `app.tenant_id` is restored before returning, so the dial gate can call it
 inside its own tenant session and go on writing under that tenant.
 
-Rows with a NULL carrier are not counted. Every row written by the dial gate or a carrier
-callback from this release on carries one; a NULL row predates the column.
+An INBOUND row with a NULL carrier is counted against every carrier. The worker writes an
+inbound row during the call without knowing the carrier, and the carrier's hangup callback
+stamps it afterwards, so a caller on the line right now is exactly such a row; over-counting
+idles one outbound line, under-counting turns a caller away. An outbound row with a NULL
+carrier predates the column (the dial gate stamps every new one) and is not counted.
 """
 
 from collections.abc import Sequence
@@ -63,7 +66,7 @@ BEGIN
         SELECT count(*) INTO here
           FROM calls c
          WHERE c.tenant_id = t
-           AND c.carrier = p_carrier
+           AND (c.carrier = p_carrier OR (c.carrier IS NULL AND c.direction = 'inbound'))
            AND (
                 (c.status IN ('ringing', 'in_progress')
                  AND c.created_at > now() - live_horizon)

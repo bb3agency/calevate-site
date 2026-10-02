@@ -139,6 +139,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import session_tenant, tenant_session, untenanted_session
 from apps.api.engine import engine_capabilities, get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
+from apps.api.engine.carrier import RetiresAgentBindings
 from apps.api.engine.carrier_pacing import (
     CARRIER_LINES_LOCK_KEY,
     LINES_BUSY_RULE,
@@ -1240,11 +1241,12 @@ async def route_inbound_numbers(
     if not rows:
         return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
     return await _apply_inbound_bindings(
-        engine, agent_id=agent_id, ref=ref, answers=answers, rows=rows
+        session, engine, agent_id=agent_id, ref=ref, answers=answers, rows=rows
     )
 
 
 async def _apply_inbound_bindings(
+    session: AsyncSession,
     engine: VoiceEngine,
     *,
     agent_id: UUID | None,
@@ -1302,6 +1304,15 @@ async def _apply_inbound_bindings(
                 bound += 1
             else:
                 await engine.unbind_inbound_number(spec)
+                # The carrier no longer routes this number anywhere, so the binding the
+                # last bind recorded names nothing; the "ready to answer" screen reads it.
+                await session.execute(
+                    text(
+                        "UPDATE phone_numbers SET carrier_binding_id = NULL, updated_at = now() "
+                        "WHERE id = :nid AND carrier_binding_id IS NOT NULL"
+                    ),
+                    {"nid": number_id},
+                )
                 released += 1
         except ProblemError as exc:
             failed += 1
@@ -1328,6 +1339,37 @@ async def _apply_inbound_bindings(
         },
     )
     return InboundRouting(bound=bound, released=released, failed=failed, unsupported=0)
+
+
+async def retire_agent_carrier_bindings(*, agent_id: UUID, ref: str | None) -> bool:
+    """Remove the routing object the carrier keeps for an archived agent. True when removed.
+
+    On Vobiz that is the agent's Application, which outlives every number detached from it,
+    and an account holding more than the binding search can page through refuses new binds
+    (`engine/vobiz._find_application`). Called after the agent's numbers are released, since
+    Vobiz refuses to delete an Application a number still points at.
+
+    A failure alarms and does not undo the archive, `route_inbound_numbers`' contract: the
+    agent answers nothing either way, and what is left is a carrier object to tidy by hand.
+    """
+    engine = get_engine()
+    if not ref or not isinstance(engine, RetiresAgentBindings):
+        return False
+    try:
+        removed = await engine.retire_agent_bindings(ref)
+    except ProblemError as exc:
+        alert(
+            "CORE_LOGIC",
+            "carrier_binding_not_retired",
+            detail=(
+                "an archived agent's routing object is still on the carrier account; delete "
+                f"it in the carrier console. Refusal: {exc.code}."
+            ),
+            agent_id=str(agent_id),
+        )
+        return False
+    log.info("carrier_binding_retired", extra={"agent_id": str(agent_id), "removed": removed})
+    return removed
 
 
 # --- the credit cutover: what a caller hears when the wallet is empty (8 Sep 2026) ------
@@ -3169,25 +3211,26 @@ _CARRIER_LINES_IN_USE_SQL = text(
 )
 
 
-async def carrier_lines_in_use(
-    session: AsyncSession | None = None, *, carrier: str | None = None
-) -> int:
+async def _count_carrier_lines(session: AsyncSession, *, carrier: str | None = None) -> int:
     """Calls holding a line on `carrier` (default: the switch) right now, both directions.
 
     `carrier_lines_in_use()` (migration a6d3b9f52e18) walks every tenant under its own
     `app.tenant_id`, so it answers on any session and leaves the caller's tenant as it
-    found it. Without a session it opens an untenanted one, which is what the dispatch
-    tick has.
+    found it. Takes the caller's session and never opens one: the dial path already holds
+    a connection, and a second one there is a pool deadlock under load.
     """
     params = {
         "carrier": carrier or get_settings().carrier,
         "live": LIVE_LINE_HORIZON.total_seconds(),
         "ring": RING_LINE_HORIZON.total_seconds(),
     }
-    if session is not None:
-        return int((await session.execute(_CARRIER_LINES_IN_USE_SQL, params)).scalar_one())
+    return int((await session.execute(_CARRIER_LINES_IN_USE_SQL, params)).scalar_one())
+
+
+async def carrier_lines_in_use(*, carrier: str | None = None) -> int:
+    """`_count_carrier_lines` on an untenanted session of its own, for the dispatch tick."""
     async with untenanted_session() as fresh:
-        return int((await fresh.execute(_CARRIER_LINES_IN_USE_SQL, params)).scalar_one())
+        return await _count_carrier_lines(fresh, carrier=carrier)
 
 
 async def _hold_carrier_line(session: AsyncSession, *, carrier: str) -> None:
@@ -3204,7 +3247,7 @@ async def _hold_carrier_line(session: AsyncSession, *, carrier: str) -> None:
     await session.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": CARRIER_LINES_LOCK_KEY}
     )
-    in_use = await carrier_lines_in_use(session, carrier=carrier)
+    in_use = await _count_carrier_lines(session, carrier=carrier)
     pool = outbound_line_pool()
     if in_use >= pool:
         log.info(
@@ -3739,6 +3782,7 @@ async def attach_number_to_agent(
         # last-write-wins by contract, so a re-point needs no unbind first (an unbind
         # between the two would leave the number answering nothing in the meantime).
         routing = await _apply_inbound_bindings(
+            session,
             get_engine(),
             # The agent an operator would need to look at: the one being bound, or — on a
             # release — the one the number is being taken away from.
@@ -3796,6 +3840,7 @@ __all__ = [
     "reconcile_inbound_truthful_answer",
     "republish_running_variants",
     "resolve_caller_id",
+    "retire_agent_carrier_bindings",
     "route_inbound_numbers",
     "set_number_dlt_status",
     "set_number_engine_ref",

@@ -1097,7 +1097,6 @@
             "type": "string"
           },
           "truthful_answer_rule": {
-            "default": "Whatever these settings say, the agent always answers honestly when a caller asks. \"Am I speaking to a person?\" is answered \"I am an AI assistant\", and \"is this call being recorded?\" is answered yes. This cannot be switched off and no script can override it.",
             "title": "Truthful Answer Rule",
             "type": "string"
           }
@@ -1117,6 +1116,7 @@
           "caller_memory_notice_line",
           "caller_memory_enabled",
           "opening_line",
+          "truthful_answer_rule",
           "engine",
           "published",
           "inbound_number_count",
@@ -4114,6 +4114,46 @@
           "changed"
         ],
         "title": "CarrierDecisionOut",
+        "type": "object"
+      },
+      "CarrierProbeOut": {
+        "additionalProperties": false,
+        "description": "The configured carrier pair's verdict, in the same vocabulary as `SecretTestOut`.",
+        "properties": {
+          "carrier": {
+            "enum": [
+              "vobiz",
+              "plivo"
+            ],
+            "title": "Carrier",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "unreachable",
+              "no_probe"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "carrier",
+          "outcome",
+          "detail",
+          "verified"
+        ],
+        "title": "CarrierProbeOut",
         "type": "object"
       },
       "CartesiaLadderPointOut": {
@@ -7742,7 +7782,6 @@
             "type": "boolean"
           },
           "truthful_answer_rule": {
-            "default": "Whatever these settings say, the agent always answers honestly when a caller asks. \"Am I speaking to a person?\" is answered \"I am an AI assistant\", and \"is this call being recorded?\" is answered yes. This cannot be switched off and no script can override it.",
             "title": "Truthful Answer Rule",
             "type": "string"
           }
@@ -7752,7 +7791,8 @@
           "ai_disclosure_enabled",
           "recording_notice_enabled",
           "opening_line",
-          "engine_synced"
+          "engine_synced",
+          "truthful_answer_rule"
         ],
         "title": "DisclosureOut",
         "type": "object"
@@ -32809,7 +32849,7 @@
     },
     "/v1/agents/lanes": {
       "get": {
-        "description": "Static data: no DB, no engine, no tenant scoping \u2014 the split is the same for\nevery client, which is the point of publishing it rather than describing it.",
+        "description": "No DB, no engine call, no tenant scoping \u2014 the split is the same for every client,\nwhich is the point of publishing it rather than describing it. It reads one engine\nCAPABILITY (`records_audio`), because the recording notice's explanation must match\nwhat this deployment's phone line actually does.",
         "operationId": "list_lanes_v1_agents_lanes_get",
         "responses": {
           "200": {
@@ -33589,7 +33629,7 @@
     },
     "/v1/agents/{agent_id}/disclosure": {
       "patch": {
-        "description": "Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it says yes. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish \u2014 no script can withdraw it.\n\nSwitching the recording notice off does not stop the call being recorded, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.",
+        "description": "Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish \u2014 no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.\n\nThe recording notice is spoken only where audio is recorded; the switch is kept so it applies wherever it is. Switching it off does not stop a recording being made, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.",
         "operationId": "set_disclosure_v1_agents__agent_id__disclosure_patch",
         "parameters": [
           {
@@ -41439,6 +41479,35 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/carrier/probe": {
+      "post": {
+        "description": "Sends ONE read-only authenticated request to the selected carrier with the pair this process was started with, and reports whether it authenticated. Takes no candidate: the pair is env-only, so there is nothing to paste. Changes nothing.",
+        "operationId": "probe_carrier_v1_ops_carrier_probe_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierProbeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask the carrier whether the credential pair this deployment holds works",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:secrets"
       }
     },
     "/v1/ops/config": {

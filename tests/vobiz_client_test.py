@@ -267,6 +267,17 @@ def test_malformed_cdr_numbers_read_as_nothing() -> None:
         ({"Event": "Hangup", "HangupCause": "ORIGINATOR_CANCEL"}, "hangup", "no_answer"),
         ({"Event": "Hangup", "HangupCause": "CALL_REJECTED"}, "hangup", "failed"),
         ({"Event": "Hangup"}, "hangup", "failed"),
+        # The numeric code when the cause name is not one we map (`hangup-causes.md`).
+        ({"Event": "Hangup", "HangupCauseCode": "4010"}, "hangup", "completed"),
+        ({"Event": "Hangup", "HangupCauseCode": "4000"}, "hangup", "completed"),
+        ({"Event": "Hangup", "HangupCauseCode": "3010"}, "hangup", "busy"),
+        ({"Event": "Hangup", "HangupCauseCode": "6010"}, "hangup", "no_answer"),
+        ({"Event": "Hangup", "HangupCauseCode": "5030"}, "hangup", "failed"),
+        ({"Event": "Hangup", "HangupCauseCode": "not-a-number"}, "hangup", "failed"),
+        # An Application's hangup callback carries no `Event` (`applications.md:60-65`).
+        ({"HangupCause": "NORMAL_CLEARING"}, "hangup", "completed"),
+        ({"EndTime": "2026-10-02 10:00:00"}, "hangup", "failed"),
+        ({}, "other", None),
         ({"Event": "MachineDetection"}, "machine", "voicemail"),
         ({"Event": "StartStream"}, "stream", None),
         ({"Event": "StopStream"}, "stream", None),

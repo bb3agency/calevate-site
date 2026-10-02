@@ -75,18 +75,23 @@ REQUEST_TIMEOUT_S = 10.0
 # --- Throttle handling (SURFACES §3.3) ---------------------------------------
 # A 429 refuses the request rather than performing it. The carrier (Vobiz) answers one when
 # the account is over its calls-per-second OR its concurrent-call limit
-# (`vobiz-findings/mirror/pages/call/make-call.md:134`), and its error envelope says which:
-# `error.details.limitType` is `cps` or `concurrency`, with `error.details.retryAfter` in
-# seconds (`errors.md:205-223`). The two need different answers:
+# (`vobiz-findings/mirror/pages/call/make-call.md:134`), and its error envelope names the
+# limit in `error.details.limitType`, with `error.details.retryAfter` in seconds
+# (`errors.md:205-223`). The two need different answers:
 #
 # * `cps` clears within a second, so the ladder below backs off and retries, taking
 #   `retryAfter` as the floor when no `Retry-After` header carries one.
-# * `concurrency` clears only when a call ENDS, which a two-second backoff will not see, so
+# * the line limit clears only when a call ENDS, which a two-second backoff will not see, so
 #   it is not retried at all: it is raised at once as `carrier_lines_busy` (transient, and a
 #   dial that provably seized no line). The dial gate in `agents.service.dispatch_call`
 #   counts lines before dialling (`engine/carrier_pacing.py`); this is the carrier's own
 #   word for the case that count missed.
-## Three deliberate limits on what we do about it:
+#
+# The docs print one `limitType` value, `cps`; how the concurrency limit is spelled is
+# UNKNOWN. So any OTHER named limit is read as the line limit (`is_line_limit`): a limit
+# that is not per-second does not clear inside this ladder either way.
+#
+# Three deliberate limits on what we do about it:
 #
 # 1. **429 ONLY.** A 429 means the request was refused, not performed — the one status
 #    where retrying `POST /call` cannot dial a person twice. A 502/503/504 on the same
@@ -116,7 +121,8 @@ REQUEST_TIMEOUT_S = 10.0
 #   (`engine/carrier_pacing.outbound_line_pool`, two lines on a three-line account). So
 #   the worst case is a handful of sequential ten-second calls, inside both
 #   `WorkerSettings.job_timeout` (300s) and `TICK_LEASE_TTL_S` (330s). A degraded vendor
-#   slows dialling; it cannot accumulate.# * **The polling path is bounded by the job, and its failure is already alarmed.**
+#   slows dialling; it cannot accumulate.
+# * **The polling path is bounded by the job, and its failure is already alarmed.**
 #   `pipeline.reconcile_outstanding_calls` probes up to `OUTSTANDING_PROBE_BUDGET` (200)
 #   executions serially, which at ten seconds each does NOT fit in `job_timeout` — so arq
 #   cancels the tick, and a cron cancelled three times running is the alert
@@ -148,9 +154,15 @@ THROTTLE_MAX_ATTEMPTS = 3
 THROTTLE_BASE_S = 0.5
 THROTTLE_MAX_SLEEP_S = 8.0
 
-#: The carrier's `error.details.limitType` for a 429 over the account's simultaneous-call
-#: limit (`vobiz-findings/mirror/pages/errors.md:205-223`).
-CONCURRENCY_LIMIT_TYPE = "concurrency"
+#: The one `error.details.limitType` value the carrier documents, for its per-second limit
+#: (`vobiz-findings/mirror/pages/errors.md:205-223`).
+CPS_LIMIT_TYPE = "cps"
+
+
+def is_line_limit(limit_type: str | None) -> bool:
+    """Is this 429 over a limit that frees only when a call ends? Any named limit but `cps`."""
+    return limit_type is not None and limit_type != CPS_LIMIT_TYPE
+
 
 #: The code a dial is refused under when every line the account allows is in use. Raised
 #: here for the carrier's own 429 and by the dial gate's line count
@@ -164,11 +176,11 @@ def lines_busy_error() -> ProblemError:
         kind="transient",
         code=LINES_BUSY_CODE,
         title="All lines are busy",
-        detail="Every line on the calling account is in use right now, so the call was "
-        "not placed.",
+        detail="Every line on the calling account is in use right now, so the call was not placed.",
         remediation="Try again in a minute.",
         failure_stage="CORE_LOGIC",
     )
+
 
 #: Statuses on which the vendor REFUSED the request rather than PERFORMED it — so the
 #: caller knows nothing was started, and on the dial path knows no line was seized.
@@ -518,7 +530,7 @@ async def vendor_request(
         if response.status_code != THROTTLE_STATUS:
             break
         limit_type, body_retry_after = _throttle_details(response)
-        if limit_type == CONCURRENCY_LIMIT_TYPE:
+        if is_line_limit(limit_type):
             # Lines free up when a call ends, not within this ladder's few seconds.
             break
         header_retry_after = _retry_after_seconds(response)
@@ -532,7 +544,7 @@ async def vendor_request(
         await asyncio.sleep(throttle_delay_s(attempt, retry_after))
 
     if response.status_code == THROTTLE_STATUS:
-        if _throttle_details(response)[0] == CONCURRENCY_LIMIT_TYPE:
+        if is_line_limit(_throttle_details(response)[0]):
             log.warning("carrier_lines_busy", extra={"engine": engine, "route": path})
             raise lines_busy_error()
         # Distinct from `engine_rejected` on purpose. A throttle says nothing about
@@ -680,7 +692,7 @@ async def vendor_request(
 
 
 __all__ = [
-    "CONCURRENCY_LIMIT_TYPE",
+    "CPS_LIMIT_TYPE",
     "LINES_BUSY_CODE",
     "REQUEST_REFUSED_STATUSES",
     "REQUEST_TIMEOUT_S",

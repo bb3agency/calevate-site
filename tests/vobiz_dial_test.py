@@ -21,9 +21,11 @@ from apps.api.agents.service import dial_was_not_placed
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine import vendor_http
+from apps.api.engine.carrier import RING_TIMEOUT_S
 from apps.api.engine.pipecat import (
     CARRIER_TIME_LIMIT_CEILING_S,
     CARRIER_TIME_LIMIT_MARGIN_S,
+    CarrierCallRecord,
     PipecatEngine,
     RuntimeAgent,
     engine_agent_ref_for,
@@ -45,6 +47,8 @@ HOOKS = "https://hooks.example.test"
 TENANT = "0199a0b0-0000-7000-8000-00000000aa01"
 AGENT = "0199a0b0-0000-7000-8000-00000000aa02"
 CALLER_ID = "+911140000000"
+#: A test caller-claim key, long enough for `usable_caller_claim_key`. Not a real secret.
+CLAIM_SECRET = "vobiz-dial-test-claim-key-not-a-real-secret-012345"
 
 
 @pytest.fixture(autouse=True)
@@ -96,10 +100,10 @@ class _Store:
     async def record_dial(self, ref: str, **fields: str) -> None:
         self.dials.append({"ref": ref, **fields})
 
-    async def carrier_call_of(self, call_ref: str) -> str | None:
+    async def carrier_call_of(self, call_ref: str) -> CarrierCallRecord | None:
         for dial in self.dials:
             if pipecat_call_ref(TENANT, dial["call_id"]) == call_ref:
-                return dial["carrier_call_id"]
+                return CarrierCallRecord(dial["carrier_call_id"], dial["carrier"])
         return None
 
     async def record_number_binding(self, ref: str, *, e164: str, binding_id: str) -> None:
@@ -119,7 +123,9 @@ class _Vobiz:
         return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
 
-def _engine(stub: _Vobiz, store: _Store | None = None) -> tuple[PipecatEngine, _Store]:
+def _engine(
+    stub: _Vobiz, store: _Store | None = None, *, claim_secret: str | None = CLAIM_SECRET
+) -> tuple[PipecatEngine, _Store]:
     held = store or _Store()
     carrier = VobizCarrier(
         auth_id="MA_X",
@@ -127,7 +133,12 @@ def _engine(stub: _Vobiz, store: _Store | None = None) -> tuple[PipecatEngine, _
         base_url=BASE,
         client=httpx.AsyncClient(base_url=BASE, transport=httpx.MockTransport(stub)),
     )
-    return PipecatEngine(store=held, carrier=carrier), held  # type: ignore[arg-type]
+    engine = PipecatEngine(
+        store=held,  # type: ignore[arg-type]
+        carrier=carrier,
+        caller_claim_secret=claim_secret,
+    )
+    return engine, held
 
 
 REF = engine_agent_ref_for(TENANT, AGENT)
@@ -155,8 +166,16 @@ async def test_a_dial_names_our_call_in_the_callback_path_and_stamps_the_carrier
     assert "?" not in body["answer_url"], "a query is not covered by Vobiz's signature"
     assert body["from"] == CALLER_ID
     assert body["time_limit"] == 600 + CARRIER_TIME_LIMIT_MARGIN_S
+    assert body["ring_timeout"] == RING_TIMEOUT_S
+    assert "hangup_on_ring" not in body, "it would cap the answered call, not the ring"
     assert store.dials == [
-        {"ref": REF, "call_id": ctx.call_id, "carrier_call_id": "vz-1", "from_e164": CALLER_ID}
+        {
+            "ref": REF,
+            "call_id": ctx.call_id,
+            "carrier_call_id": "vz-1",
+            "from_e164": CALLER_ID,
+            "carrier": "vobiz",
+        }
     ]
 
 
@@ -270,6 +289,81 @@ async def test_vobiz_declares_what_it_does() -> None:
     assert caps.inbound_binding is True
     assert caps.transfer is False
     assert caps.in_call_handoff is False
+    assert caps.number_series == frozenset()
+
+
+async def test_a_dial_without_a_usable_claim_key_is_refused_before_any_request() -> None:
+    """Without the key the answer leg signs no call claim, the worker reads the call as
+    inbound, and the intent row this dial stamps would never settle."""
+    stub = _Vobiz(httpx.Response(200, json={"request_uuid": "never"}))
+    for secret in (None, "too-short"):
+        engine, store = _engine(stub, claim_secret=secret)
+        with pytest.raises(ProblemError) as raised:
+            await engine.start_outbound_call(REF, "+919876543210", _ctx())
+        assert raised.value.code == "carrier_dial_precondition_failed"
+        assert dial_was_not_placed(raised.value) is True
+        assert store.dials == []
+    assert stub.requests == []
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "http://localhost:8100",
+        "https://127.0.0.1",
+        "http://hooks.example.test",
+        "https://localhost",
+    ],
+)
+async def test_outside_local_a_callback_base_a_carrier_cannot_reach_is_refused(
+    monkeypatch: pytest.MonkeyPatch, base: str
+) -> None:
+    from apps.api.engine import pipecat as pipecat_module
+
+    class _Deployed:
+        app_env = "production"
+        webhook_base_url = base
+
+    monkeypatch.setattr(pipecat_module, "get_settings", lambda: _Deployed())
+    stub = _Vobiz(httpx.Response(200, json={"request_uuid": "never"}))
+    engine, _ = _engine(stub)
     with pytest.raises(ProblemError) as raised:
-        await engine.list_engine_numbers()
-    assert raised.value.code == "engine_capability_unverified"
+        await engine.start_outbound_call(REF, "+919876543210", _ctx())
+    assert raised.value.code == "carrier_dial_precondition_failed"
+    assert "public callback address" in str(raised.value.detail)
+    assert stub.requests == []
+
+
+async def test_the_carriers_number_list_is_read_page_by_page() -> None:
+    first = {"items": [{"id": f"n-{i}", "e164": f"+9111400000{i:02d}"} for i in range(25)]}
+    second = {"items": [{"id": "n-25", "e164": CALLER_ID}], "total": 26}
+    stub = _Vobiz(httpx.Response(200, json=first), httpx.Response(200, json=second))
+    engine, _ = _engine(stub)
+
+    numbers = await engine.list_engine_numbers()
+
+    assert len(numbers) == 26
+    assert numbers[-1].e164 == CALLER_ID
+    assert numbers[-1].engine_number_ref == "n-25"
+    assert [r.url.params["page"] for r in stub.requests] == ["1", "2"]
+
+
+async def test_retiring_an_agent_deletes_its_application_at_the_carrier() -> None:
+    listing = {"objects": [{"app_name": f"calevate-{AGENT}", "app_id": "app-7"}]}
+    stub = _Vobiz(httpx.Response(200, json=listing), httpx.Response(204))
+    engine, _ = _engine(stub)
+
+    assert await engine.retire_agent_bindings(REF) is True
+
+    assert [r.method for r in stub.requests] == ["GET", "DELETE"]
+    assert stub.requests[-1].url.raw_path.decode().endswith("/Application/app-7/")
+
+
+async def test_an_agent_with_no_application_has_nothing_to_retire() -> None:
+    stub = _Vobiz(httpx.Response(200, json={"objects": []}))
+    engine, _ = _engine(stub)
+    assert await engine.retire_agent_bindings(REF) is False
+    assert [r.method for r in stub.requests] == ["GET"]
+
+    unpublished, _ = _engine(_Vobiz(httpx.Response(200)), _Store(held=False))
+    assert await unpublished.retire_agent_bindings(REF) is False

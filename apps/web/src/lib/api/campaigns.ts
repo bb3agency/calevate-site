@@ -325,20 +325,8 @@ export function useScheduleCampaign(session: Session, campaignId: string | null)
   });
 }
 
-/**
- * What one stop button actually stopped, and what the campaign is now.
- *
- * HAND-WRITTEN, and marked: `ScheduleCancelledOut` exists on the server now, so this
- * becomes `Schemas["ScheduleCancelledOut"]` at the next `pnpm gen:api` — the same swap
- * the activity types went through. Mirrored exactly in the meantime, because a mirror
- * that drifts is the defect this convention exists to prevent.
- */
-export interface CancelledSchedule {
-  /** Which promise was held: a one-time start, or a weekly repeat. */
-  cancelled: "one_time" | "recurring";
-  /** The campaign's status AFTER the cancellation — see the hook below. */
-  status: string;
-}
+/** What one stop button actually stopped, and what the campaign is now. */
+export type CancelledSchedule = Schemas["ScheduleCancelledOut"];
 
 /**
  * Cancel a pending start OR stop a repeat — one button, because it is one column.

@@ -153,8 +153,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             {
               term: "Engine",
               detail:
-                "The third-party voice platform that runs the live call. Named on the " +
-                "sub-processor list.",
+                "The program that runs the live call: our own, running on a third-party " +
+                "hosting platform named on the sub-processor list.",
             },
           ],
         },
@@ -531,7 +531,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
         {
           kind: "para",
           text:
-            "The service depends on a voice platform, speech and language model providers, " +
+            "The service depends on a platform that hosts our call program, speech and " +
+            "language model providers, " +
             "telecom operators, a payment gateway and infrastructure suppliers. They are " +
             "named on the sub-processor list. We choose them with care and we are " +
             "responsible to you for their acts in performing the service, but we do not " +
@@ -779,7 +780,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "certificate, and the certificate enumerates what it does not remove " +
                 "rather than leaving you to infer it: the append-only consent, billing and " +
                 "audit ledgers, do-not-call suppressions, your own user accounts, copies " +
-                "held by the voice platform, and knowledge content you uploaded. Those are " +
+                "held by the telephone carrier or by a voice platform a call ran on, and " +
+                "knowledge content you uploaded. Those are " +
                 "listed for the reasons the Privacy Policy gives, and are retained no " +
                 "longer than the law requires.",
             },

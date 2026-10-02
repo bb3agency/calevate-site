@@ -105,11 +105,16 @@ def test_the_vocabulary_names_the_carrier_and_the_register_says_something_true()
     """
     assert "telephony" in PROCESSORS
     entry = next(e for e in deletion.ERASURE_EXCEPTIONS if e.outcome == deletion.TELEPHONY_OUTCOME)
-    # It must not borrow the "we looked and there is no route" finding from the speech and
-    # language entry: nobody has read a carrier's position, and hard rule 11 makes the
-    # difference between "no API" and "not established" the whole point of a separate word.
+    # Its own word, distinct from the speech-and-language entry's, so the two copies stay
+    # separable on the certificate.
     assert entry.outcome != deletion.PROCESSOR_OUTCOME
-    assert "unestablished" in entry.outcome
+    # The carrier is chosen (Vobiz, D-662) and its API reference has been read: it names
+    # no route that deletes a call record. So the entry names the carrier and says the
+    # remedy is a written request, and no longer says no carrier has been chosen.
+    assert "Vobiz" in entry.why
+    assert "written request" in entry.why
+    assert "no carrier has been chosen" not in entry.why
+    assert "whichever carrier" not in entry.why
     prose = " ".join(deletion.ERASURE_LIMITATIONS).lower()
     assert "telephone carrier" in prose
     assert "in both directions" in prose

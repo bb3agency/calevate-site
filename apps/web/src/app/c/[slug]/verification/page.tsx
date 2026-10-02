@@ -20,14 +20,11 @@ import { KycSections, PhoneNumbers, WhatWeKeep, kycItem } from "./SubscriberVeri
  * `POST /v1/numbers/purchase` refuses every tier on the same fact; this is where they send
  * the client.
  *
- * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE, and it is a decision rather than
- * an unfinished feature: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`, and
- * flipping it would be adopting Model A — Calevate holding connections and allocating
- * them — which `docs/legal/LEGAL-OPS-PLAYBOOK.md` refuses at `:249` for a sole proprietor
- * with no corporate veil, and again in its stop-list at items 1 and 10. The client takes
- * the connection in their own name with their own carrier and stays subscriber of record;
- * the published Terms (clause 3) and Acceptable Use (§2.1) say the same thing, so this
- * page must not imply otherwise.
+ * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE: this page is about verification,
+ * and the number is ours to provide. Calevate provides the calling number on its own
+ * carrier account with Vobiz (the founder's decision, 2 Oct 2026), and a number is
+ * arranged from the phone-number screen. No self-serve provisioning adapter exists
+ * either: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`.
  *
  * That sentence is also load-bearing for a guard. `scripts/check_docs_drift.py` §5
  * compares prose that STATES a capability constant's value against the constant itself,
@@ -57,15 +54,10 @@ import { KycSections, PhoneNumbers, WhatWeKeep, kycItem } from "./SubscriberVeri
  *    `messageable` on the consent screen: the server computes the predicate every gate
  *    asks, and a screen that re-derived it would disagree with the gate on the day it
  *    matters.
- * 5. **We do not supply phone numbers, and the screen says so plainly.** Model B:
- *    the client takes the connection in their own name on their own Exotel / Plivo /
- *    Vobiz account, passes that operator's KYC, remains the subscriber of record, and
- *    issues us API credentials they can withdraw (`docs/legal/LEGAL-OPS-PLAYBOOK.md`
- *    §9; published Terms clause 3; Acceptable Use §2.1). `number_purchase_available` is
- *    false for every account in every deployment and always will be — it is false by
- *    DECISION, not because an adapter is missing — so there is no purchase form and no
- *    "we will arrange it" promise. What the card gives instead is the actual next step,
- *    because a client who is told only "not here" comes back with a support ticket.
+ * 5. **Where the number comes from is said plainly: from us, on Vobiz.** The client
+ *    opens no operator account and issues us no credentials; their part is passing our
+ *    business verification and keeping the details we hold accurate. No price and no
+ *    timeline is promised here, because neither is a fact this page can stand behind.
  *
  * Read-only throughout, deliberately: `org:read` is not a mutating permission and BOTH
  * client roles hold it (core/rbac.py), so every reader of this page may read all of it
@@ -132,7 +124,7 @@ export default function VerificationPage() {
 
       <div className="space-y-3">
         {kycRecord && (
-          <Disclosure title="Where your calling number comes from" subtitle="Exotel, Plivo or Vobiz, in your own name.">
+          <Disclosure title="Where your calling number comes from" subtitle="From us, on our carrier account with Vobiz.">
             <PhoneNumbers record={kycRecord} />
           </Disclosure>
         )}
