@@ -187,7 +187,7 @@ async def test_the_agent_opens_with_exactly_the_notices_its_toggles_switched_on(
         recording_notice_line=DEFAULT_POSTURE.recording_notice_line,
         recording_notice_enabled=recording_on,
     )
-    expected_opening = compose_opening_line(posture)
+    expected_opening = compose_opening_line(posture, call_is_recorded=True)
     run = await run_scenario(
         [],
         config=make_session_config(
@@ -232,7 +232,7 @@ async def test_the_disclosure_verdict_sees_the_verbatim_notice(ai_on: bool) -> N
         [],
         config=make_session_config(
             system_prompt=compose_agent_prompt(posture=posture),
-            opening_line=compose_opening_line(posture),
+            opening_line=compose_opening_line(posture, call_is_recorded=True),
         ),
     )
     judged_line = DEFAULT_POSTURE.ai_disclosure_line if ai_on else ""
@@ -248,7 +248,7 @@ async def test_the_opening_is_verbatim_even_from_a_model_that_ignores_its_instru
     """NEGATIVE CONTROL. The notice does not depend on the model: a model that follows
     nothing still cannot change or drop it, because the model never says it. What such a
     model CAN do is say it again — which this scenario shows the duplicate check catches."""
-    opening = compose_opening_line(DEFAULT_POSTURE)
+    opening = compose_opening_line(DEFAULT_POSTURE, call_is_recorded=True)
     run = await run_scenario(
         [],
         config=make_session_config(system_prompt=compose_agent_prompt(), opening_line=opening),
@@ -610,7 +610,7 @@ def test_the_scenario_prompt_is_the_real_composition_and_not_a_hand_written_one(
         name="Vaidya Clinic receptionist",
         direction="inbound",
         system_prompt=DEFAULT_CLIENT_SCRIPT,
-        opening_line=compose_opening_line(posture),
+        opening_line=compose_opening_line(posture, call_is_recorded=True),
     )
     assert compose_agent_prompt(posture=posture) == compose_engine_prompt(cfg)
 

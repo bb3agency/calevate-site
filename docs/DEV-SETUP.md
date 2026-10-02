@@ -136,7 +136,7 @@ stubbed in the smoke test.
 Run everything (four terminals or `make dev`):
 ```bash
 uv run uvicorn apps.api.main:app --reload --port 8000
-uv run uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime  # D-18
+uv run python -m uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime  # D-18
 uv run arq apps.workers.settings.WorkerSettings
 pnpm -C apps/web dev                  # :3000 — /admin and /c/<slug> route groups
 ```

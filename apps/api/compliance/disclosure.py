@@ -95,20 +95,42 @@ __all__ = [
     "bundled_disclosure_line",
     "disclosure_spoken",
     "recording_notice_for",
+    "truthful_answer_promise",
 ]
 
-#: `TRUTHFUL_ANSWER_DIRECTIVE` said to a business owner instead of to a model (D-163).
-#:
-#: Composed HERE and returned by the API rather than written into a screen, for the reason
-#: `publishing.PRECEDENCE_RULE` is: this sentence is the boundary of what the two toggles
-#: below do, and a client-facing surface that paraphrased it could promise the opposite of
-#: what the platform enforces. One wording, served, everywhere it is shown.
-TRUTHFUL_ANSWER_PROMISE = (
-    "Whatever these settings say, the agent always answers honestly when a caller asks. "
-    '"Am I speaking to a person?" is answered "I am an AI assistant", and "is this call '
-    'being recorded?" is answered yes. This cannot be switched off and no script can '
-    "override it."
+_NOT_RECORDED_ANSWER = (
+    "is answered that the audio is not recorded and that a written transcript of the "
+    "conversation is kept, which the business can read"
 )
+
+
+def truthful_answer_promise(*, call_is_recorded: bool) -> str:
+    """`truthful_answer_directive` said to a business owner instead of to a model (D-163).
+
+    Composed HERE and returned by the API rather than written into a screen, for the reason
+    `publishing.PRECEDENCE_RULE` is: this sentence is the boundary of what the two toggles
+    do, and a client-facing surface that paraphrased it could promise the opposite of what
+    the platform enforces. One wording, served, everywhere it is shown.
+
+    `call_is_recorded` is the engine's fact (`EngineCapabilities.records_audio`) and must be
+    the same one the agent's floor was composed from, so the business is told exactly the
+    answer its callers get. The not-recorded wording says both halves for the floor's
+    reason: no audio recording, but a written transcript the business can read — "no"
+    alone would tell the owner nothing is kept, which is false.
+    """
+    recording_answer = "is answered yes" if call_is_recorded else _NOT_RECORDED_ANSWER
+    return (
+        "Whatever these settings say, the agent always answers honestly when a caller asks. "
+        '"Am I speaking to a person?" is answered "I am an AI assistant", and "is this call '
+        f'being recorded?" {recording_answer}. This cannot be switched off and no script can '
+        "override it."
+    )
+
+
+#: The recorded variant, kept as a name for the readers that compare against "the promise"
+#: on an engine that records audio — exactly as `TRUTHFUL_ANSWER_DIRECTIVE` is kept beside
+#: its function. A surface that SERVES the promise composes it from the engine's fact.
+TRUTHFUL_ANSWER_PROMISE = truthful_answer_promise(call_is_recorded=True)
 
 #: The language every template table falls back to. Telugu is the product default (D-36)
 #: but English is the FALLBACK, because a template rendered in a language the business
@@ -146,9 +168,9 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: Sentence three: **"the agent remembers you between calls"** (D-507).
 #:
 #: A THIRD OBLIGATION, and not a third TOGGLE. The two above are switchable because they
-#: are true of every call whatever this product is configured to do — the call IS AI, the
-#: call IS recorded — so a client who gives the notice in writing instead may switch off
-#: the spoken form. This one is different in kind: cross-call memory exists ONLY because
+#: follow from facts no agent setting creates — the call IS AI, and whether it is recorded
+#: is the engine's fact — so a client who gives the notice in writing instead may switch
+#: off the spoken form. This one is different in kind: cross-call memory exists ONLY because
 #: `agents.caller_memory_enabled` is on, which is a choice this system records, so the
 #: sentence is bound to that switch instead of getting one of its own. There is no state
 #: in which an agent remembers a caller and does not say so.

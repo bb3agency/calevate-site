@@ -47,7 +47,11 @@ from apps.workers.maintenance import (
     _restore_mode,
     probe_in_flight,
 )
-from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, DisclosurePosture
+from calevate_shared.engine import (
+    TRUTHFUL_ANSWER_DIRECTIVE,
+    DisclosurePosture,
+    truthful_answer_directive,
+)
 from calevate_shared.events import TERMINAL_STATUSES
 from sqlalchemy import text
 
@@ -622,11 +626,25 @@ async def test_the_maintenance_prompt_keeps_hard_rule_5s_floor() -> None:
     try:
         async with untenanted_session() as session:
             window = await read_window(session, window_id)
-        prompt = _maintenance_prompt(window)
+        prompt = _maintenance_prompt(window, call_is_recorded=True)
         assert TRUTHFUL_ANSWER_DIRECTIVE in prompt
         # And it tells the agent to stop rather than to keep doing business over a
         # platform that is being worked on.
         assert "call back" in prompt.lower() or "call again" in prompt.lower()
+    finally:
+        await _clear_windows()
+
+
+async def test_on_an_engine_that_records_nothing_the_maintenance_floor_says_so() -> None:
+    """The floor is composed from the engine's fact, not frozen: where no audio is kept the
+    maintenance agent answers with the not-recorded clause, never the recorded one."""
+    window_id = await _schedule()
+    try:
+        async with untenanted_session() as session:
+            window = await read_window(session, window_id)
+        prompt = _maintenance_prompt(window, call_is_recorded=False)
+        assert truthful_answer_directive(call_is_recorded=False) in prompt
+        assert TRUTHFUL_ANSWER_DIRECTIVE not in prompt
     finally:
         await _clear_windows()
 
@@ -648,10 +666,16 @@ async def test_the_maintenance_greeting_keeps_the_clients_own_disclosures() -> N
             caller_memory_notice_line="",
             caller_memory_enabled=False,
         )
-        greeting = _maintenance_greeting(window, posture)
+        greeting = _maintenance_greeting(window, posture, call_is_recorded=True)
         assert greeting.startswith("Idi AI assistant.")
         assert "Ee call record avutundi." in greeting
         assert "maintenance" in greeting.lower()
+
+        # Where the engine keeps no audio the recording notice is not spoken, whatever the
+        # switch says; the AI disclosure still is.
+        unrecorded = _maintenance_greeting(window, posture, call_is_recorded=False)
+        assert unrecorded.startswith("Idi AI assistant.")
+        assert "Ee call record avutundi." not in unrecorded
 
         # An agent with both notices off composes an EMPTY opening line, which is a
         # legitimate configuration — the maintenance sentence must not arrive with a
@@ -659,7 +683,9 @@ async def test_the_maintenance_greeting_keeps_the_clients_own_disclosures() -> N
         silent = posture.model_copy(
             update={"ai_disclosure_enabled": False, "recording_notice_enabled": False}
         )
-        assert _maintenance_greeting(window, silent).startswith("We are briefly closed")
+        assert _maintenance_greeting(window, silent, call_is_recorded=True).startswith(
+            "We are briefly closed"
+        )
     finally:
         await _clear_windows()
 

@@ -100,7 +100,7 @@ from one (hard rule 6) — version NUMBERS only.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Final, Literal
@@ -248,6 +248,36 @@ def lane_of(field_name: str) -> LaneEntry:
     """The lane a configurable field is on, or a KeyError — an unknown field is a
     programming mistake, not a client input."""
     return _LANE_BY_FIELD[field_name]
+
+
+#: The recording-notice `why` on an engine that captures no audio. `LANES` above carries
+#: the recorded wording; this one replaces it rather than qualifying it, because "it does
+#: not stop the call being recorded" is false where nothing is recorded, and the switch
+#: does nothing a caller can hear there (`compose_opening_line` drops the sentence).
+_RECORDING_NOTICE_WHY_NOT_RECORDED: Final = (
+    "Calls are not audio-recorded on this platform today, so the notice is not spoken "
+    "whatever this is set to; it is kept for the day recording is switched on. A caller "
+    "who asks is told the truth."
+)
+
+
+def lanes(*, records_audio: bool) -> tuple[LaneEntry, ...]:
+    """The lane table as served to a client, told the truth about THIS engine's recording.
+
+    Lanes and precedence never vary; only the recording notice's explanation does, and it
+    follows the same fact (`EngineCapabilities.records_audio`) the opening and the
+    truthful-answer floor are composed from, so the screen cannot describe a switch the
+    phone line is not honouring. `records_audio` is required: either default describes
+    some engine falsely.
+    """
+    if records_audio:
+        return LANES
+    return tuple(
+        replace(entry, why=_RECORDING_NOTICE_WHY_NOT_RECORDED)
+        if entry.field == "recording_notice_enabled"
+        else entry
+        for entry in LANES
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1348,7 +1378,9 @@ async def set_disclosure_posture(
         agent_id=agent_id,
         ai_disclosure_enabled=posture.ai_disclosure_enabled,
         recording_notice_enabled=posture.recording_notice_enabled,
-        opening_line=compose_opening_line(posture),
+        opening_line=compose_opening_line(
+            posture, call_is_recorded=engine_capabilities().records_audio
+        ),
         engine_synced=bool(changed) and is_live,
         changed=changed,
     )
@@ -1518,7 +1550,9 @@ async def set_caller_memory(
     return CallerMemoryResult(
         agent_id=agent_id,
         enabled=enabled,
-        opening_line=compose_opening_line(posture),
+        opening_line=compose_opening_line(
+            posture, call_is_recorded=engine_capabilities().records_audio
+        ),
         engine_synced=(current != enabled) and is_live,
         unchanged=current == enabled,
         attested_at=attested_at,
@@ -1854,6 +1888,7 @@ __all__ = [
     "audit_action_for",
     "engine_drift_for",
     "lane_of",
+    "lanes",
     "pending_state_for",
     "set_agent_voice",
     "set_call_cap",

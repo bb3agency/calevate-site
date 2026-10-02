@@ -54,7 +54,7 @@ from calevate_shared.carrier import CarrierName
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.api.engine.carrier import build_carrier
+from apps.api.engine.carrier import CarrierClient, build_carrier
 
 log = get_logger(__name__)
 
@@ -373,10 +373,52 @@ async def _probe_carrier(key: str, candidate: str, carrier: CarrierName) -> Prob
             verified=False,
             source=_CARRIER_PROBE_SOURCE,
         )
+    return await _ask_carrier(
+        client,
+        log_key=key,
+        refused=(
+            "The vendor refused this credential pair. One half is wrong or revoked — it "
+            "has NOT been stored."
+        ),
+    )
+
+
+async def probe_configured_carrier() -> tuple[CarrierName, ProbeResult]:
+    """The deployment's OWN carrier pair, exactly as this process holds it. No candidate.
+
+    The Vobiz pair is env-only (`ENV_ONLY_REASONS`), so the console can never install it
+    and `probe_credential`'s candidate shape has nothing to offer for it: an operator who
+    has just edited `.env` and redeployed needs to know whether what the running process
+    holds authenticates, not whether a pasted value would.
+    """
+    client = build_carrier(get_settings())
+    refusal = client.unavailable("check its carrier credential")
+    if refusal is not None:
+        return client.name, ProbeResult(
+            outcome="unreachable",
+            status=None,
+            # Our own refusal sentence — "no credentials" or "not built" — never a vendor's.
+            detail=f"Nothing was checked. {refusal.detail}",
+            verified=False,
+            source=_CARRIER_PROBE_SOURCE,
+        )
+    return client.name, await _ask_carrier(
+        client,
+        log_key="carrier",
+        refused=(
+            "The vendor refused the credential pair this deployment holds. One half is "
+            "wrong or revoked: correct it in the VPS environment and redeploy (DEPLOYMENT "
+            "§12.6)."
+        ),
+    )
+
+
+async def _ask_carrier(client: CarrierClient, *, log_key: str, refused: str) -> ProbeResult:
+    """One read-only authenticated call, and the verdict in our words."""
     try:
         accepted = await client.probe()
     except ProblemError as exc:
-        log.warning("secret_probe_unreachable", extra={"config_key": key, "reason": exc.code})
+        log.warning("secret_probe_unreachable", extra={"config_key": log_key, "reason": exc.code})
         return ProbeResult(
             outcome="unreachable",
             status=None,
@@ -388,7 +430,7 @@ async def _probe_carrier(key: str, candidate: str, carrier: CarrierName) -> Prob
             source=_CARRIER_PROBE_SOURCE,
         )
     outcome: ProbeOutcome = "accepted" if accepted else "rejected"
-    log.info("secret_probe", extra={"config_key": key, "outcome": outcome, "status": None})
+    log.info("secret_probe", extra={"config_key": log_key, "outcome": outcome, "status": None})
     return ProbeResult(
         outcome=outcome,
         status=None,
@@ -396,8 +438,7 @@ async def _probe_carrier(key: str, candidate: str, carrier: CarrierName) -> Prob
             "The vendor accepted this credential pair for one authenticated read. That does "
             "not prove it has every scope this platform uses, only that it authenticates."
             if accepted
-            else "The vendor refused this credential pair. One half is wrong or revoked — it "
-            "has NOT been stored."
+            else refused
         ),
         verified=False,
         source=_CARRIER_PROBE_SOURCE,
@@ -410,5 +451,6 @@ __all__ = [
     "Probe",
     "ProbeOutcome",
     "ProbeResult",
+    "probe_configured_carrier",
     "probe_credential",
 ]

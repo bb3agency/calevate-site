@@ -63,6 +63,16 @@ limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
 # (`docs/evidence/carrier-pricing-concurrency-2026-09-17.md:49`).
 limit_req_zone $binary_remote_addr zone=carrier:10m rate=600r/m;
 
+# The voice worker's own door (`/v1/worker/` on api.): spoken-turn batches, call status,
+# the settlement and the live speaking state, from containers on Pipecat Cloud. Under
+# `client_api` (120r/m per IP) it was the tightest limiter on the call path, and every
+# worker shares the platform's egress addresses, so one IP here is the whole fleet. The
+# app sizes this traffic as two 600/min buckets per caller (`apps/api/core/ratelimit.py`,
+# `worker_api` and `worker_live`); the edge rate is their sum so nginx is never the
+# tighter of the two. A refused settlement loses the call's post-call work, which is why
+# the edge must not be the one that refuses it.
+limit_req_zone $binary_remote_addr zone=worker:10m rate=1200r/m;
+
 # Health endpoints. Generous enough for an uptime monitor at any sane interval, bounded
 # so /healthz cannot be used as a free database-load generator.
 limit_req_zone $binary_remote_addr zone=health:5m rate=60r/m;

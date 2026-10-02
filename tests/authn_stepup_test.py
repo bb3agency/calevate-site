@@ -468,6 +468,10 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
     ("apps/api/ops/secret_routes.py", "test_secret"): (
         "probes a candidate credential against the vendor and stores nothing"
     ),
+    ("apps/api/ops/secret_routes.py", "probe_carrier"): (
+        "asks the carrier whether the env-only pair this process already holds "
+        "authenticates; it takes no input and stores nothing"
+    ),
     ("apps/api/ops/routes.py", "refresh_voice_catalogue_route"): (
         "re-reads the engine account's own voice list into a cache (D-585). It sends "
         "nothing, changes no agent row and cannot move an agent off the voice it is "

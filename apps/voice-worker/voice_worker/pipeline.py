@@ -1484,8 +1484,9 @@ def assemble_call(
 
     context = LLMContext(
         messages=[{"role": "system", "content": spoken_prompt}],
-        # THE KNOWLEDGE SEARCH, ALWAYS, PLUS THE FOUR IN-CALL ACTS WHEN THERE IS AN API TO
-        # PERFORM THEM. `LLMContext` normalises a plain list into a `ToolsSchema` itself
+        # THE KNOWLEDGE SEARCH, ALWAYS, PLUS THE FOUR IN-CALL ACTS AND THE HANG-UP WHEN THERE
+        # IS AN API TO PERFORM THEM (`call_tools.build_call_tools`). `LLMContext` normalises
+        # a plain list into a `ToolsSchema` itself
         # (`pipecat/processors/aggregators/llm_context.py:493-499`), and the LLM service
         # registers a schema's own handler when it sees the context
         # (`pipecat/services/llm_service.py:1256-1265`) — so nothing else has to be wired.

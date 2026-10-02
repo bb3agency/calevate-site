@@ -46,6 +46,7 @@ ENV_WITHOUT_GOOGLE: dict[str, str] = {
     "PLIVO_AUTH_ID": "plivo-id",
     "PLIVO_AUTH_TOKEN": "plivo-token",
     "AZURE_OPENAI_API_KEY": "azure",
+    "CARRIER_CLAIM_SECRET": "s" * 32,
 }
 
 ENV_WITH_GOOGLE: dict[str, str] = {**ENV_WITHOUT_GOOGLE, "GEMINI_API_KEY": "google"}

@@ -366,9 +366,10 @@ export const DPA: LegalDocument = {
             "countable. A recording younger than the 90-day retention floor is not " +
             "destroyed early: the link to it is cleared at once, a destruction date is " +
             "fixed when the request runs, and the audio is destroyed on that date without a " +
-            "second request. Copies held by the voice platform are reported as unconfirmed, " +
-            "because their deletion interface is undocumented and we will not certify a " +
-            "deletion we cannot show. Knowledge content you uploaded is SEARCHED for the " +
+            "second request. Copies held by the telephone carrier, or by a voice platform a " +
+            "call ran on, are reported as unconfirmed, because the carrier publishes no way " +
+            "to delete one person's call records and we will not certify a deletion we " +
+            "cannot show. Knowledge content you uploaded is SEARCHED for the " +
             "subject's number and the number of matching documents is reported on the " +
             "certificate, but none of it is edited or deleted — this callout said it was " +
             "not searched at all, which was wrong and is corrected rather than dropped; " +
@@ -582,11 +583,11 @@ export const DPA: LegalDocument = {
             "residency commitment, and that provider offers no India-only jurisdiction, " +
             "so that data is stored outside India; the application host is at " +
             "{{PRIMARY_HOSTING_LOCATION}}, decided but not yet provisioned, because no " +
-            "client data is in production; the voice platform runs the call itself, and " +
-            "holds its own copy of the recording and transcript, outside India — its " +
-            "documentation states that its services run on United States infrastructure " +
-            "unless an enterprise residency option is purchased, and we have not purchased " +
-            "one; and transactional email and error monitoring are operated from outside " +
+            "client data is in production; the call itself runs as a program of ours on a " +
+            "hosting platform in a region whose country we have not established, and its " +
+            "audio travels through our telephone carrier, which does not state where it " +
+            "processes or stores call data; and transactional email and error monitoring " +
+            "are operated from outside " +
             "India. Sign-in is ours and runs on the application host.",
         },
         {
@@ -905,11 +906,10 @@ export const DPA: LegalDocument = {
               kind: "list",
               items: [
                 "TLS everywhere, with HSTS.",
-                "Incoming voice-platform webhooks are authenticated per platform: a " +
-                  "signature and replay window where the platform signs, and a strict " +
-                  "source-IP allowlist plus execution-id de-duplication where it does not. " +
-                  "Payloads are treated as hints; the authenticated poll back to the " +
-                  "platform is the record of truth.",
+                "Incoming telephone-carrier callbacks are accepted only from the carrier's " +
+                  "published source addresses. Payloads are treated as hints; the call " +
+                  "record read back from the carrier over its authenticated interface is " +
+                  "the record of truth.",
                 "Outgoing webhooks to your systems are signed with a per-endpoint secret, " +
                   "retried on transport failures and specific server errors only, and " +
                   "logged.",

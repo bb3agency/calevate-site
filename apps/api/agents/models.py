@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any, Literal, get_args
 from uuid import UUID
 
+from calevate_shared.carrier import CARRIERS
 from calevate_shared.config import SELECTABLE_ENGINES
 from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import (
@@ -800,6 +801,7 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"series IN {NUMBER_SERIES!r}", name="series_enum"),
         CheckConstraint(f"dlt_status IN {DLT_STATUSES!r}", name="dlt_status_enum"),
         CheckConstraint(f"direction IN {NUMBER_DIRECTIONS!r}", name="direction_enum"),
+        CheckConstraint(f"provider IS NULL OR provider IN {CARRIERS!r}", name="provider_carrier"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -808,6 +810,9 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     e164: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     series: Mapped[str] = mapped_column(String, nullable=False, server_default="standard")
+    #: The carrier this number is held on (`calevate_shared.carrier.CarrierName`), or NULL
+    #: when it is on none this platform dials through (migration c8f5d1b74a30). The dial
+    #: gate presents a number only on the carrier it names.
     provider: Mapped[str | None] = mapped_column(Text)
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
     # The carrier's id for what this number is attached to — on Vobiz, the Application
@@ -1130,9 +1135,10 @@ class PipecatAgent(PKMixin, TimestampMixin, Base):
     __tablename__ = "pipecat_agents"
     __table_args__ = (
         UniqueConstraint("engine_agent_ref", name="uq_pipecat_agents_engine_agent_ref"),
-        # ONE ENGINE RECORD PER AGENT, which is the conformance suite's ref-stability
-        # clause stated as a constraint rather than trusted to the adapter's id function.
-        UniqueConstraint("agent_id", name="uq_pipecat_agents_agent_id"),
+        # ONE ENGINE RECORD PER AGENT AND PER EXPERIMENT ARM is the unique INDEX
+        # `ux_pipecat_agents_agent_variant` on `(agent_id, variant_id) NULLS NOT DISTINCT`
+        # (migration d9a6e2c85b41). Not declared here: the model-ahead direction is the one
+        # `orm_schema_fidelity_test` judges, and the database-only index is allowed.
     )
 
     # `RESTRICT` on all three, which is this repo's rule and not a preference:
@@ -1150,6 +1156,12 @@ class PipecatAgent(PKMixin, TimestampMixin, Base):
     )
     agent_id: Mapped[UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The experiment arm this record speaks, or NULL for the agent's own record. An arm
+    #: keeps its real `agent_id` so the call it takes settles against the agent.
+    variant_id: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("prompt_experiment_variants.id", ondelete="RESTRICT"),
     )
     #: `pipecat:<tenant>:<agent>`, minted by `engine/pipecat.engine_agent_ref_for`. The join
     #: key every read comes in on, and the value `agents.engine_agent_ref` stores.

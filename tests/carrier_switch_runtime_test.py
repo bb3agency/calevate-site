@@ -32,8 +32,9 @@ from calevate_shared.worker_api import (
     CALL_CLAIM_MAC_PARAM,
     CALL_DIRECTION_PARAM,
     CALL_ID_PARAM,
+    CALLER_SEAL_PARAM,
+    open_caller_claim,
     verify_call_claim,
-    verify_caller_claim,
 )
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
@@ -158,7 +159,7 @@ def test_the_carrier_label_is_bounded_to_the_carriers_this_build_knows() -> None
 # --- 2. Vobiz inbound: the calling party -------------------------------------------------
 
 
-async def test_vobiz_reads_the_calling_party_from_a_form_post_and_signs_it(env: Env) -> None:
+async def test_vobiz_reads_the_calling_party_from_a_form_post_and_seals_it(env: Env) -> None:
     env(CARRIER_CLAIM_SECRET=CLAIM_KEY)
     ref = _ref()
 
@@ -173,15 +174,9 @@ async def test_vobiz_reads_the_calling_party_from_a_form_post_and_signs_it(env: 
     assert response.headers["cache-control"] == "no-store"
     url, claim = _claim(response.text)
     assert claim["caller_state"] == "known"
-    assert claim["caller"] == CALLER
-    assert verify_caller_claim(
-        CLAIM_KEY.encode(),
-        ref=ref,
-        e164=CALLER,
-        expires_at=claim["caller_exp"],
-        mac=claim["caller_mac"],
-        now=float(claim["caller_exp"]) - 60,
-    )
+    # Hard rule 6: the number is on the URL only sealed, never in clear.
+    assert CALLER.lstrip("+") not in url
+    assert open_caller_claim(CLAIM_KEY, ref=ref, token=claim[CALLER_SEAL_PARAM]) == CALLER
     # Inbound carries no call claim: the worker mints its own call id.
     assert CALL_ID_PARAM not in claim
     assert url.startswith(STREAM_BASE)
@@ -195,7 +190,7 @@ async def test_vobiz_reads_the_calling_party_from_a_get_query(env: Env) -> None:
     _url, claim = _claim(response.text)
     assert claim["caller_state"] == "known"
     # No signing key: the state travels, the number does not.
-    assert "caller" not in claim
+    assert CALLER_SEAL_PARAM not in claim
 
 
 async def test_a_vobiz_request_with_an_empty_from_is_withheld_by_the_carrier(env: Env) -> None:
@@ -203,6 +198,21 @@ async def test_a_vobiz_request_with_an_empty_from_is_withheld_by_the_carrier(env
 
     _url, claim = _claim(response.text)
     assert claim["caller_state"] == "withheld_by_carrier"
+
+
+@pytest.mark.parametrize("value", ["anonymous", "private", "0000000", "12345", "+91 98765x"])
+async def test_a_vobiz_from_that_is_not_a_number_is_withheld_and_sealed_nowhere(
+    value: str, env: Env
+) -> None:
+    """A carrier's word for a hidden number is not a number. Read as `known`, it normalises
+    to an empty string the worker would key an opt-out and a recalled memory on."""
+    env(CARRIER_CLAIM_SECRET=CLAIM_KEY)
+
+    response = await _request(answer_path("vobiz", _ref()), headers=FORM, content=_form(From=value))
+
+    _url, claim = _claim(response.text)
+    assert claim["caller_state"] == "withheld_by_carrier"
+    assert CALLER_SEAL_PARAM not in claim
 
 
 async def test_a_vobiz_body_over_the_cap_is_refused_before_it_is_parsed(env: Env) -> None:
@@ -233,7 +243,7 @@ async def test_an_outbound_answer_names_the_person_we_rang_and_signs_our_call_id
     assert response.status_code == 200
     _url, claim = _claim(response.text)
     # `From` on a dial we placed is OUR number; keying an opt-out on it would suppress us.
-    assert claim["caller"] == CALLER
+    assert open_caller_claim(CLAIM_KEY, ref=ref, token=claim[CALLER_SEAL_PARAM]) == CALLER
     assert claim[CALL_ID_PARAM] == call_id
     assert claim[CALL_DIRECTION_PARAM] == "outbound"
     assert verify_call_claim(
@@ -247,14 +257,33 @@ async def test_an_outbound_answer_names_the_person_we_rang_and_signs_our_call_id
     )
 
 
-async def test_an_outbound_answer_without_a_signing_key_carries_no_call_claim(env: Env) -> None:
+@pytest.mark.parametrize("secret", [None, "k" * 31])
+async def test_an_outbound_answer_without_a_usable_key_is_refused_not_served_unsigned(
+    secret: str | None, env: Env
+) -> None:
+    """Served unsigned, the worker would run the dialled call as inbound on a row of its
+    own and the dialled row would never settle. Refusing ends the call before anyone speaks."""
+    env(CARRIER_CLAIM_SECRET=secret)
     call_id = str(uuid.uuid4())
 
     response = await _request(answer_path("vobiz", _ref(), call_id=call_id), method="GET")
 
+    assert response.status_code == 502
+    assert response.json()["type"].endswith("/carrier_call_claim_key_missing")
+    assert "wss://" not in response.text
+
+
+async def test_an_inbound_answer_without_a_key_is_still_served_with_no_number(env: Env) -> None:
+    """Inbound has no row of ours to orphan, so a missing key costs only the caller's
+    identity, and readiness names the missing key (`core/settings`)."""
+    response = await _request(
+        answer_path("vobiz", _ref()), headers=FORM, content=_form(From=CALLER)
+    )
+
     assert response.status_code == 200
     _url, claim = _claim(response.text)
-    assert CALL_ID_PARAM not in claim and CALL_CLAIM_MAC_PARAM not in claim
+    assert claim["caller_state"] == "known"
+    assert CALLER_SEAL_PARAM not in claim and CALL_ID_PARAM not in claim
 
 
 async def test_an_outbound_path_whose_call_id_is_not_ours_is_refused(env: Env) -> None:

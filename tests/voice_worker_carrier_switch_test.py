@@ -23,17 +23,18 @@ from calevate_shared.worker_api import (
     CALL_CLAIM_MAC_PARAM,
     CALL_DIRECTION_PARAM,
     CALL_ID_PARAM,
-    CLAIM_EXPIRES_PARAM,
-    CLAIM_MAC_PARAM,
+    CALLER_SEAL_PARAM,
+    UnverifiedCallClaim,
     call_claim_mac,
-    caller_claim_mac,
+    seal_caller_claim,
 )
 from loguru import logger
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from voice_worker import carrier
 from voice_worker.vobiz_serializer import VobizFrameSerializer, VobizMediaFormatError
 
-KEY = b"k" * 32
+SECRET = "k" * 32
+KEY = SECRET.encode()
 CALL_UUID = "5401fd2e-6344-40df-a22c-c8ffea7a92e7"
 STREAM_ID = "c4dfd815-a92a-4140-ab85-5ff28c004116"
 PLIVO_CREDENTIALS = carrier.PlivoCredentials(auth_id="MA-test", auth_token="token-test")
@@ -241,21 +242,17 @@ def test_the_wire_family_is_the_shared_contracts() -> None:
 # --------------------------------------------------------------------------------------
 
 
-async def test_on_vobiz_a_signed_caller_claim_is_the_verdict() -> None:
+async def test_on_vobiz_a_sealed_caller_claim_is_the_verdict() -> None:
     ref = _ref()
     number = "+919876500001"
-    expiry = int(time.time()) + 60
     url = _stream_url(
         ref,
         carrier="vobiz",
         caller_state="known",
-        caller=number,
-        **{
-            CLAIM_EXPIRES_PARAM: str(expiry),
-            CLAIM_MAC_PARAM: caller_claim_mac(KEY, ref=ref, e164=number, expires_at=expiry),
-        },
+        **{CALLER_SEAL_PARAM: seal_caller_claim(SECRET, ref=ref, e164=number)},
     )
-    claim = carrier.claim_from_stream_url(url, ref=ref, claim_key=KEY)
+    assert number.lstrip("+") not in url
+    claim = carrier.claim_from_stream_url(url, ref=ref, claim_secret=SECRET)
 
     leg = await carrier.open_carrier_leg(
         _Socket(_vobiz_start(), VOBIZ_MEDIA), claim=claim, default_carrier="vobiz"
@@ -291,11 +288,10 @@ async def test_a_valid_call_claim_gives_the_claimed_id_and_direction() -> None:
     call_id = str(uuid.uuid4())
     url = _stream_url(ref, carrier="vobiz", **_call_claim(ref, call_id=call_id))
 
-    got_id, _tenant, _agent, direction = await bot.resolve_call_identity(
-        cast(Any, _Args(_Socket(url=url))), claim_key=KEY
-    )
+    identity = await bot.resolve_call_identity(cast(Any, _Args(_Socket(url=url))), claim_key=KEY)
 
-    assert (got_id, direction) == (call_id, "outbound")
+    assert (identity.call_id, identity.direction) == (call_id, "outbound")
+    assert identity.unverified_claim is None
 
 
 @pytest.mark.parametrize(
@@ -319,13 +315,17 @@ async def test_an_unverifiable_call_claim_falls_back_to_a_fresh_inbound_call(
     }[tamper]()
     url = _stream_url(ref, **claim)
 
-    got_id, _tenant, _agent, direction = await bot.resolve_call_identity(
+    identity = await bot.resolve_call_identity(
         cast(Any, _Args(_Socket(url=url))), claim_key=None if tamper == "no_key" else KEY
     )
 
-    assert direction == "inbound"
-    assert got_id != call_id
-    assert uuid.UUID(got_id).version == 7
+    assert identity.direction == "inbound"
+    assert identity.call_id != call_id
+    assert uuid.UUID(identity.call_id).version == 7
+    # Reported on the settlement, so the server can tell a forgery from a dialled call this
+    # worker could not verify (`carrier_call_claim_mismatch`).
+    expected = None if tamper == "changed_id" else uuid.UUID(call_id)
+    assert identity.unverified_claim == UnverifiedCallClaim(claimed_call_id=expected)
 
 
 async def test_no_call_claim_is_an_inbound_call_and_logs_nothing() -> None:
@@ -333,13 +333,14 @@ async def test_no_call_claim_is_an_inbound_call_and_logs_nothing() -> None:
     lines: list[str] = []
     handler = logger.add(lambda m: lines.append(str(m)), level="WARNING")
     try:
-        _id, _t, _a, direction = await bot.resolve_call_identity(
+        identity = await bot.resolve_call_identity(
             cast(Any, _Args(_Socket(url=_stream_url(ref, carrier="vobiz")))), claim_key=KEY
         )
     finally:
         logger.remove(handler)
 
-    assert direction == "inbound"
+    assert identity.direction == "inbound"
+    assert identity.unverified_claim is None
     assert not [line for line in lines if "call claim" in line]
 
 
@@ -371,6 +372,7 @@ class _Config:
     carrier: str = "vobiz"
     plivo_credentials: carrier.PlivoCredentials | None = None
     caller_claim_key: bytes | None = KEY
+    carrier_claim_secret: str | None = SECRET
 
     def credentials_for(self, _provider: str | None) -> Any:  # pragma: no cover - not called
         raise AssertionError("credentials are resolved inside run_call")
@@ -426,7 +428,61 @@ async def test_the_entrypoint_runs_an_outbound_vobiz_call_on_the_claimed_row(
     assert seen["carrier_call_id"] == CALL_UUID
     assert isinstance(seen["transport"]._params.serializer, VobizFrameSerializer)
     assert seen["caller"].state == "unparsed_by_client"
+    assert seen["call_claim_unverified"] is None
     assert registry.reserved == registry.released == [call_id]
+
+
+async def test_the_entrypoint_runs_an_inbound_vobiz_call_with_its_sealed_caller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The inbound live path: the answer leg's sealed `From` opens in the worker and reaches
+    `run_call` as a known caller, under an id the worker minted."""
+    ref = _ref()
+    number = "+919876500001"
+    url = _stream_url(
+        ref,
+        carrier="vobiz",
+        caller_state="known",
+        **{CALLER_SEAL_PARAM: seal_caller_claim(SECRET, ref=ref, e164=number)},
+    )
+    runtime, registry = _Runtime(config=_Config()), _Registry()
+
+    async def _container() -> tuple[_Runtime, _Registry]:
+        return runtime, registry
+
+    monkeypatch.setattr(bot, "container", _container)
+
+    await bot.bot(cast(Any, _Args(_Socket(_vobiz_start(), VOBIZ_MEDIA, url=url))))
+
+    seen = runtime.calls.seen
+    assert seen["direction"] == "inbound"
+    assert uuid.UUID(seen["call_id"]).version == 7
+    assert seen["caller"].is_known and seen["caller"].e164 == number
+    assert seen["carrier_call_id"] == CALL_UUID
+    assert seen["call_claim_unverified"] is None
+    assert isinstance(seen["transport"]._params.serializer, VobizFrameSerializer)
+
+
+async def test_the_entrypoint_reports_a_call_claim_that_did_not_verify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dialled call whose secret differs between voice-runtime and this worker runs as
+    inbound; the claim it carried rides the settlement so the api can page."""
+    ref = _ref()
+    call_id = str(uuid.uuid4())
+    url = _stream_url(ref, carrier="vobiz", **_call_claim(ref, call_id=call_id, key=b"z" * 32))
+    runtime, registry = _Runtime(config=_Config()), _Registry()
+
+    async def _container() -> tuple[_Runtime, _Registry]:
+        return runtime, registry
+
+    monkeypatch.setattr(bot, "container", _container)
+
+    await bot.bot(cast(Any, _Args(_Socket(_vobiz_start(), VOBIZ_MEDIA, url=url))))
+
+    seen = runtime.calls.seen
+    assert seen["direction"] == "inbound" and seen["call_id"] != call_id
+    assert seen["call_claim_unverified"] == UnverifiedCallClaim(claimed_call_id=uuid.UUID(call_id))
 
 
 async def test_the_entrypoint_releases_the_slot_when_the_carrier_leg_is_refused(

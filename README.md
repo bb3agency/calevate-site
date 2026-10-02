@@ -40,7 +40,7 @@ Run the four services:
 
 ```bash
 uv run uvicorn apps.api.main:app --reload --port 8000
-uv run uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime
+uv run python -m uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime
 uv run arq apps.workers.settings.WorkerSettings
 pnpm --filter web dev
 ```

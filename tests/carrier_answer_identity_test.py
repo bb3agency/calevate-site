@@ -29,15 +29,15 @@ import inspect
 import uuid
 from collections.abc import Iterator
 from dataclasses import replace
-from typing import Any, ClassVar, cast, get_type_hints
-from urllib.parse import parse_qs, unquote, urlparse
+from typing import Any, ClassVar, get_type_hints
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from xml.etree.ElementTree import fromstring
 
 import carrier_routes
 import pytest
 from apps.api.core.settings import get_settings
 from calevate_shared.engine import owned_runtime_agent_ref
-from calevate_shared.worker_api import CallerIdentityState
+from calevate_shared.worker_api import CALLER_SEAL_PARAM, CallerIdentityState
 from httpx import ASGITransport, AsyncClient
 from loguru import logger
 from main import app as voice_app
@@ -164,7 +164,6 @@ def test_the_two_deployables_spell_the_claim_parameters_the_same_way() -> None:
     neither may import the other (hard rule 3). This is the only place they can be
     compared — the same discipline `TELEPHONY_SAMPLE_RATE_HZ` already gets."""
     assert carrier_routes.CLAIM_CARRIER_PARAM == carrier.CLAIM_CARRIER_PARAM
-    assert carrier_routes.CLAIM_CALLER_PARAM == carrier.CLAIM_CALLER_PARAM
     assert carrier_routes.CLAIM_CALLER_STATE_PARAM == carrier.CLAIM_CALLER_STATE_PARAM
 
 
@@ -185,7 +184,7 @@ async def test_todays_answer_forwards_a_named_unknown_rather_than_a_silent_null(
     claim = _claim_of(response.text)
     assert claim[carrier_routes.CLAIM_CARRIER_PARAM] == [PLIVO]
     assert claim[carrier_routes.CLAIM_CALLER_STATE_PARAM] == ["unparsed_by_client"]
-    assert carrier_routes.CLAIM_CALLER_PARAM not in claim
+    assert CALLER_SEAL_PARAM not in claim
     # Nothing digit-shaped may reach a URL when there is no number to put there.
     assert not any(ch.isdigit() for ch in urlparse(_stream_url_of(response.text)).query)
     assert response.headers["cache-control"] == "no-store"
@@ -230,7 +229,7 @@ async def test_a_declared_parameter_is_read_and_forwarded_on_either_http_method(
     assert response.status_code == 200
     claim = _claim_of(response.text)
     assert claim[carrier_routes.CLAIM_CALLER_STATE_PARAM] == ["known"]
-    assert carrier_routes.CLAIM_CALLER_PARAM not in claim
+    assert CALLER_SEAL_PARAM not in claim
 
 
 async def test_a_declared_parameter_that_arrives_empty_is_the_carriers_own_answer(
@@ -248,7 +247,7 @@ async def test_a_declared_parameter_that_arrives_empty_is_the_carriers_own_answe
 
     claim = _claim_of(response.text)
     assert claim[carrier_routes.CLAIM_CALLER_STATE_PARAM] == ["withheld_by_carrier"]
-    assert carrier_routes.CLAIM_CALLER_PARAM not in claim
+    assert CALLER_SEAL_PARAM not in claim
 
 
 async def test_the_second_declared_name_is_tried_when_the_first_is_absent(
@@ -530,6 +529,13 @@ def _absent(state: CallerIdentityState) -> carrier.CallerIdentity:
     return carrier.CallerIdentity(state=state, ground=f"test {state}")
 
 
+@pytest.mark.parametrize("e164", [None, ""])
+def test_known_with_no_number_in_hand_is_not_known(e164: str | None) -> None:
+    """`normalize_phone("anonymous")` is `""`: a blank number keying an opt-out or a
+    recalled memory is a suppression of nobody the agent would report as done."""
+    assert not carrier.CallerIdentity(state="known", ground="test", e164=e164).is_known
+
+
 def test_no_claim_leaves_the_detection_exactly_as_it_was() -> None:
     detected = _absent("unparsed_by_client")
 
@@ -685,73 +691,42 @@ async def test_with_no_claim_the_deployments_own_carrier_is_still_enforced() -> 
 # --------------------------------------------------------------------------------------
 
 
-async def test_the_verdict_is_carried_into_the_session_and_not_merely_logged(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """**WITHOUT THIS ARGUMENT THE OPT-OUT TOOL IS NOT ADVERTISED AT ALL.**
+async def test_the_verdict_rides_the_leg_the_entrypoint_hands_to_run_call() -> None:
+    """**WITHOUT THIS THE OPT-OUT TOOL IS NOT ADVERTISED AT ALL.**
 
-    `assemble_call` takes `caller=None` by default and does not offer opt-out, book /
-    cancel call-back or handoff to the model when it is absent — four tools that can only
-    fail waste a conversational turn. So a caller on an owned_runtime call could not opt
-    out, which is the compliance hole this round exists to close. Driven against a fake
-    `start_session` because what is under test is the HOP, not the assembly.
+    `assemble_call` offers opt-out, book / cancel call-back and handoff only when it has a
+    caller verdict, and `bot.bot` passes `leg.handshake.caller` to `run_call`
+    (`tests/voice_worker_entrypoint_caller_test.py` pins that hop). So the verdict has to be
+    on the leg `open_carrier_leg` returns, folded from the sealed claim.
     """
-    seen: dict[str, Any] = {}
-
-    async def _fake_start_session(_api: Any, **kwargs: Any) -> Any:
-        seen.update(kwargs)
-        return object()
-
-    def _no_arming(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(carrier, "start_session", _fake_start_session)
-    monkeypatch.setattr(carrier, "arm_first_turn", _no_arming)
     ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
-    identity = _known(CALLER)
-
-    await carrier.start_carrier_call(
-        cast(Any, object()),
-        token=ref,
-        call_id="call-1",
-        direction="inbound",
-        transport=cast(Any, object()),
-        credentials=cast(Any, object()),
-        caller=identity,
-        sink=cast(Any, object()),
-        fetcher=cast(Any, object()),
+    claim = carrier.claim_from_stream_url(
+        _signed_url(ref), ref=ref, claim_secret=CLAIM_SECRET, now=NOW + 1
     )
 
-    assert seen["caller"] is identity
-
-
-async def test_a_call_with_no_verdict_carries_the_honest_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`None` must not reach the session as `None`: `not_read` is the state that SAYS
-    nobody asked, and it is the only word allowed to mean that."""
-    seen: dict[str, Any] = {}
-
-    async def _fake_start_session(_api: Any, **kwargs: Any) -> Any:
-        seen.update(kwargs)
-        return object()
-
-    monkeypatch.setattr(carrier, "start_session", _fake_start_session)
-    monkeypatch.setattr(carrier, "arm_first_turn", lambda *a, **k: None)
-
-    await carrier.start_carrier_call(
-        cast(Any, object()),
-        token=owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4())),
-        call_id="call-2",
-        direction="inbound",
-        transport=cast(Any, object()),
-        credentials=cast(Any, object()),
-        sink=cast(Any, object()),
-        fetcher=cast(Any, object()),
+    leg = await carrier.open_carrier_leg(
+        _SocketSaying(PLIVO_START),
+        claim=claim,
+        default_carrier=PLIVO,
+        plivo_credentials=PLIVO_CREDENTIALS,
     )
 
-    assert seen["caller"].state == "not_read"
-    assert not seen["caller"].is_known
+    assert leg.handshake.caller.is_known and leg.handshake.caller.e164 == CALLER
+
+
+async def test_a_leg_with_no_claim_carries_a_stated_verdict_never_none() -> None:
+    """`None` must not reach the session as `None`: a stated absence is what lets an
+    operator tell "nobody asked" from "the carrier hid it"."""
+    leg = await carrier.open_carrier_leg(
+        _SocketSaying(PLIVO_START),
+        claim=None,
+        default_carrier=PLIVO,
+        plivo_credentials=PLIVO_CREDENTIALS,
+    )
+
+    assert leg.handshake.caller is not None
+    assert leg.handshake.caller.state == "unparsed_by_client"
+    assert not leg.handshake.caller.is_known
 
 
 def test_a_carrier_we_have_no_contract_for_says_so_rather_than_guessing() -> None:
@@ -772,89 +747,105 @@ def test_a_carrier_we_have_no_contract_for_says_so_rather_than_guessing() -> Non
 
 
 # --------------------------------------------------------------------------------------
-# 8. The signed claim: a number crosses the stream URL only under a MAC.
+# 8. The sealed claim: a number crosses the stream URL only encrypted, for one agent.
 # --------------------------------------------------------------------------------------
 
-CLAIM_KEY = b"k" * 32
+CLAIM_SECRET = "k" * 32
 NOW = 1_800_000_000.0
+PLIVO_CREDENTIALS = carrier.PlivoCredentials(auth_id="MA-test", auth_token="token-test")
 
 
-def _signed_url(ref: str, *, key: bytes = CLAIM_KEY, now: float = NOW) -> str:
+def _signed_url(ref: str, *, secret: str = CLAIM_SECRET, now: float = NOW) -> str:
     return carrier_routes.stream_url(
         STREAM_BASE,
         ref,
         carrier=PLIVO,
         caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),
-        claim_key=key,
+        claim_secret=secret,
         now=now,
     )
 
 
-def _read(url: str, ref: str, *, key: bytes | None = CLAIM_KEY, now: float = NOW) -> Any:
-    return carrier.claim_from_stream_url(url, ref=ref, claim_key=key, now=now).caller
+def _read(url: str, ref: str, *, secret: str | None = CLAIM_SECRET, now: float = NOW) -> Any:
+    return carrier.claim_from_stream_url(url, ref=ref, claim_secret=secret, now=now).caller
 
 
-def test_a_signed_claim_for_this_agent_is_believed() -> None:
-    ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
-    caller = _read(_signed_url(ref), ref)
-    assert caller.is_known and caller.e164 == CALLER
-
-
-def _tampered(url: str, name: str, value: str) -> str:
+def _with_query(url: str, **changes: str | None) -> str:
     parsed = urlparse(url)
     query = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-    query[name] = value
-    from urllib.parse import urlencode
-
+    for name, value in changes.items():
+        if value is None:
+            query.pop(name, None)
+        else:
+            query[name] = value
     return parsed._replace(query=urlencode(query)).geturl()
+
+
+def test_a_sealed_claim_for_this_agent_is_believed_and_the_number_is_not_in_clear() -> None:
+    ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
+    url = _signed_url(ref)
+
+    assert CALLER.lstrip("+") not in url
+    caller = _read(url, ref, now=NOW + 1)
+    assert caller.is_known and caller.e164 == CALLER
 
 
 @pytest.mark.parametrize(
     "case",
-    ["tampered_number", "other_agent", "expired", "missing_mac", "no_key", "far_future"],
+    [
+        "tampered_seal",
+        "other_agent",
+        "expired",
+        "missing_seal",
+        "no_key",
+        "other_key",
+        "far_future",
+    ],
 )
-def test_a_claim_that_does_not_verify_names_nobody(case: str) -> None:
+def test_a_claim_that_does_not_open_names_nobody(case: str) -> None:
     ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
-    url, read_ref, now, key = _signed_url(ref), ref, NOW, CLAIM_KEY
-    if case == "tampered_number":
-        url = _tampered(url, carrier_routes.CLAIM_CALLER_PARAM, "+919000000001")
+    url, read_ref, now, secret = _signed_url(ref), ref, NOW + 1, CLAIM_SECRET
+    seal = parse_qs(urlparse(url).query)[CALLER_SEAL_PARAM][0]
+    if case == "tampered_seal":
+        flipped = "A" if seal[10] != "A" else "B"
+        url = _with_query(url, **{CALLER_SEAL_PARAM: seal[:10] + flipped + seal[11:]})
     elif case == "other_agent":
         read_ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
     elif case == "expired":
         now = NOW + 10 * 60
-    elif case == "missing_mac":
-        parsed = urlparse(url)
-        query = {k: v[0] for k, v in parse_qs(parsed.query).items() if k != "caller_mac"}
-        from urllib.parse import urlencode
-
-        url = parsed._replace(query=urlencode(query)).geturl()
+    elif case == "missing_seal":
+        url = _with_query(url, **{CALLER_SEAL_PARAM: None})
     elif case == "no_key":
-        key = None  # type: ignore[assignment]
+        secret = None  # type: ignore[assignment]
+    elif case == "other_key":
+        secret = "z" * 32
     elif case == "far_future":
         url = _signed_url(ref, now=NOW + 24 * 3600)
 
-    caller = _read(url, read_ref, key=key, now=now)
+    caller = _read(url, read_ref, secret=secret, now=now)
 
     assert not caller.is_known and caller.e164 is None
     assert caller.ground == carrier.UNAUTHENTICATED_CLAIM_GROUND
 
 
-def test_without_a_signing_key_the_answer_leg_puts_no_number_on_the_url() -> None:
+def test_without_a_usable_secret_the_answer_leg_puts_no_number_on_the_url() -> None:
     ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
-    url = carrier_routes.stream_url(
-        STREAM_BASE,
-        ref,
-        caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),
-    )
-    assert CALLER.lstrip("+") not in url
-    assert "caller_mac" not in url
+    for secret in (None, "short"):
+        url = carrier_routes.stream_url(
+            STREAM_BASE,
+            ref,
+            caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),
+            claim_secret=secret,
+        )
+        assert CALLER.lstrip("+") not in url
+        assert CALLER_SEAL_PARAM not in url
 
 
-async def test_the_answer_route_signs_with_the_configured_key(
+async def test_the_answer_route_seals_with_the_configured_secret(
     stream_base: None, filled_contract: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """End to end: the key in this service's settings is the key the worker verifies with."""
-    monkeypatch.setenv("CARRIER_CLAIM_SECRET", CLAIM_KEY.decode())
+    """End to end: the secret in this service's settings is the one the worker opens with."""
+    monkeypatch.setenv("CARRIER_CLAIM_SECRET", CLAIM_SECRET)
     get_settings.cache_clear()
     ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
 
@@ -863,5 +854,6 @@ async def test_the_answer_route_signs_with_the_configured_key(
     )
 
     url = _stream_url_of(response.text)
-    caller = carrier.claim_from_stream_url(url, ref=ref, claim_key=CLAIM_KEY).caller
+    assert CALLER.lstrip("+") not in url
+    caller = carrier.claim_from_stream_url(url, ref=ref, claim_secret=CLAIM_SECRET).caller
     assert caller is not None and caller.is_known and caller.e164 == CALLER

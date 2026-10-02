@@ -46,7 +46,7 @@ down:
 ## hyphenated (not importable as a module path); see README note.
 dev:
 	uv run uvicorn apps.api.main:app --reload --port 8000 & \
-	uv run uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime & \
+	uv run python -m uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime & \
 	uv run arq apps.workers.settings.WorkerSettings & \
 	pnpm -C apps/web dev
 

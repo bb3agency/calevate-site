@@ -7,7 +7,7 @@ The mechanism is read from Vobiz's own documentation (`vobiz-findings/mirror/pag
 2. that URL is `calevate_shared.carrier.transfer_path("vobiz", token)`, served by
    voice-runtime, which answers a `<Dial callerId=… timeout=… timeLimit=…>` document
    (`xml/dial.md:12-14,44-60`). voice-runtime may not read the database (hard rule 3), so the
-   destination travels in the token, sealed by `apps/api/core/carrier_token.py`.
+   destination travels in the token, sealed by `calevate_shared/carrier_token.py`.
 
 WHY IT IS OFF BY DEFAULT (`Settings.carrier_transfer_enabled`). The founder's pattern is
 whisper, then ACCEPT, then bridge (`base.py`). Vobiz plays a private message to the called
@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import Final
 
 from calevate_shared.carrier import transfer_path
+from calevate_shared.carrier_token import seal, usable_secret
 
 from apps.api.agents.transfer_providers.base import (
     TransferContractUnverifiedError,
@@ -36,7 +37,6 @@ from apps.api.agents.transfer_providers.base import (
     TransferRequest,
     TransferStarted,
 )
-from apps.api.core.carrier_token import seal, usable_secret
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings

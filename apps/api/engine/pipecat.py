@@ -119,6 +119,7 @@ from calevate_shared.events import (
     Speaker,
     TranscriptTurn,
 )
+from calevate_shared.worker_api import usable_caller_claim_key
 from sqlalchemy import text
 
 from apps.api.agents.config_versions import Attestation, latest_attestation, mint_config_version
@@ -127,7 +128,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import CursorResult
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import env_var_for, get_settings, is_public_callback_base
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import joined_tenant_session, tenant_session, untenanted_session
@@ -138,8 +139,10 @@ from apps.api.engine.capabilities import (
 )
 from apps.api.engine.carrier import (
     CARRIER_UNVERIFIED_CODE,
+    RING_TIMEOUT_S,
     CarrierClient,
     capability_unverified,
+    carrier_of_record,
     get_carrier,
 )
 
@@ -236,6 +239,28 @@ def capabilities_for_carrier(carrier: CarrierName) -> EngineCapabilities:
     if carrier == "vobiz":
         return PIPECAT_VOBIZ_CAPABILITIES
     return PIPECAT_CAPABILITIES
+
+
+#: The `Settings` fields readiness names when a carrier is unconfigured on this host. Plivo's
+#: pair is the worker container's (`core/settings.ENV_ONLY_FOREIGN_ENV`) and its adapter is
+#: unbuilt, so no credential set here makes it work: the setting to correct is `carrier`.
+_CARRIER_CREDENTIAL_FIELDS: Final[dict[CarrierName, tuple[str, ...]]] = {
+    "vobiz": ("vobiz_auth_id", "vobiz_auth_token"),
+    "plivo": ("carrier",),
+}
+
+
+def _credential_env_keys(carrier: CarrierName) -> tuple[str, ...]:
+    return tuple(env_var_for(field) for field in _CARRIER_CREDENTIAL_FIELDS[carrier])
+
+
+@dataclass(frozen=True, slots=True)
+class CarrierCallRecord:
+    """What the control plane holds about one dialled call at the carrier."""
+
+    carrier_call_id: str
+    #: `calls.carrier`, or None for a row written before that column existed.
+    carrier: str | None
 
 
 #: A dial refused because a fact the request needs is missing (our call id, the public
@@ -335,14 +360,21 @@ class PipecatControlPlane(Protocol):
         ...
 
     async def record_dial(
-        self, ref: EngineAgentRef, *, call_id: str, carrier_call_id: str, from_e164: str
+        self,
+        ref: EngineAgentRef,
+        *,
+        call_id: str,
+        carrier_call_id: str,
+        from_e164: str,
+        carrier: CarrierName,
     ) -> None:
         """The carrier accepted a dial for our intent row `call_id`: keep its id for the
-        call and the caller id it was asked to present."""
+        call, the carrier that holds it, and the caller id it was asked to present."""
         ...
 
-    async def carrier_call_of(self, call_ref: str) -> str | None:
-        """The carrier's id for the call this engine handle names, or None."""
+    async def carrier_call_of(self, call_ref: str) -> CarrierCallRecord | None:
+        """The carrier's id for the call this engine handle names, and which carrier holds
+        it, or None."""
         ...
 
     async def record_number_binding(
@@ -354,6 +386,13 @@ class PipecatControlPlane(Protocol):
     async def number_binding(self, ref: EngineAgentRef, *, e164: str) -> str | None:
         """The binding this number was last attached to, or None."""
         ...
+
+
+#: The agent an experiment arm belongs to, or no row when the id is not an arm's.
+_ARM_AGENT_SQL: Final = (
+    "SELECT e.agent_id FROM prompt_experiment_variants AS v "
+    "JOIN prompt_experiments AS e ON e.id = v.experiment_id WHERE v.id = :vid"
+)
 
 
 class SqlControlPlane:
@@ -401,20 +440,40 @@ class SqlControlPlane:
     """
 
     async def publish(self, cfg: AgentConfig, *, ref: EngineAgentRef) -> UUID:
+        """Mint the version and point `ref`'s runtime row at it.
+
+        An EXPERIMENT ARM arrives with the variant's id in `cfg.agent_id`
+        (`agents.service._variant_config`: every adapter derives the arm's own ref from that
+        field). `agent_config_versions.agent_id` and `pipecat_agents.agent_id` are foreign
+        keys to `agents`, so an arm's version and row are written under the REAL agent and
+        the row names its arm in `variant_id`. `resolved_config` keeps the config as handed
+        in, so a later `override_call_script` on the arm's ref is recognised as the arm again.
+        """
         tenant_id = UUID(cfg.tenant_id)
-        agent_id = UUID(cfg.agent_id)
+        named = UUID(cfg.agent_id)
         async with joined_tenant_session(tenant_id) as session:
-            version = await mint_config_version(session, tenant_id, cfg)
+            arm_of = (
+                await session.execute(text(_ARM_AGENT_SQL), {"vid": named})
+            ).scalar_one_or_none()
+            agent_id = named
+            variant_id: UUID | None = None
+            minted_from = cfg
+            if arm_of is not None:
+                agent_id, variant_id = UUID(str(arm_of)), named
+                minted_from = cfg.model_copy(update={"agent_id": str(agent_id)})
+            version = await mint_config_version(session, tenant_id, minted_from)
             await session.execute(
                 text(
                     "INSERT INTO pipecat_agents "
-                    "(id, tenant_id, agent_id, engine_agent_ref, name, "
+                    "(id, tenant_id, agent_id, variant_id, engine_agent_ref, name, "
                     " agent_config_version_id, resolved_config) "
-                    "VALUES (:id, :tid, :aid, :ref, :name, :vid, CAST(:cfg AS jsonb)) "
+                    "VALUES (:id, :tid, :aid, :var, :ref, :name, :vid, CAST(:cfg AS jsonb)) "
                     # UPDATE, not DO NOTHING: this row is engine STATE and `update_agent`
                     # is a full replacement by contract. The append-only history is
-                    # `agent_config_versions`, which the line above wrote.
-                    "ON CONFLICT (agent_id) DO UPDATE SET "
+                    # `agent_config_versions`, which the line above wrote. The conflict
+                    # target is `ux_pipecat_agents_agent_variant` (NULLS NOT DISTINCT), so
+                    # the agent's own row and each arm's row are one row apiece.
+                    "ON CONFLICT (agent_id, variant_id) DO UPDATE SET "
                     "  engine_agent_ref = EXCLUDED.engine_agent_ref, "
                     "  name = EXCLUDED.name, "
                     "  agent_config_version_id = EXCLUDED.agent_config_version_id, "
@@ -425,6 +484,7 @@ class SqlControlPlane:
                     "id": uuid7(),
                     "tid": tenant_id,
                     "aid": agent_id,
+                    "var": variant_id,
                     "ref": ref,
                     "name": cfg.name,
                     "vid": version.id,
@@ -488,8 +548,32 @@ class SqlControlPlane:
             )
 
     async def attested(self, agent: RuntimeAgent) -> Attestation | None:
+        """The latest attestation that can be about THIS ref.
+
+        An agent and its experiment arms attest under one agent id, so an attestation of a
+        version a SIBLING ref currently serves is that sibling's worker, not a stale worker
+        of this ref, and is left out. A version both refs serve (identical config) is kept.
+        """
         async with joined_tenant_session(agent.tenant_id) as session:
-            return await latest_attestation(session, agent.agent_id)
+            siblings = (
+                await session.execute(
+                    text(
+                        "SELECT agent_config_version_id FROM pipecat_agents "
+                        "WHERE agent_id = :aid AND engine_agent_ref <> :ref "
+                        "AND agent_config_version_id <> :vid"
+                    ),
+                    {
+                        "aid": agent.agent_id,
+                        "ref": agent.engine_agent_ref,
+                        "vid": agent.agent_config_version_id,
+                    },
+                )
+            ).scalars()
+            return await latest_attestation(
+                session,
+                agent.agent_id,
+                excluding_versions=tuple(UUID(str(version)) for version in siblings),
+            )
 
     async def attach(self, agent: RuntimeAgent, *, handle: EngineKBRef, kb_id: str) -> None:
         async with joined_tenant_session(agent.tenant_id) as session:
@@ -778,14 +862,23 @@ class SqlControlPlane:
         )
 
     async def record_dial(
-        self, ref: EngineAgentRef, *, call_id: str, carrier_call_id: str, from_e164: str
+        self,
+        ref: EngineAgentRef,
+        *,
+        call_id: str,
+        carrier_call_id: str,
+        from_e164: str,
+        carrier: CarrierName,
     ) -> None:
-        """Stamp the carrier's id and our presented caller id onto the intent row.
+        """Stamp the carrier's id, the carrier that holds the call and our presented caller
+        id onto the intent row.
 
         Its OWN transaction, not the caller's: `dispatch_call` commits the intent row before
         the dial for the same reason — the carrier has accepted a call that may be ringing,
         and a caller's rollback must not take the only handle on it with it. The row is
         addressed by our id, never by a number, and `from_e164` keeps a value already there.
+        `carrier` overwrites whatever the intent row guessed: it is the carrier that accepted
+        the dial, and every later operation on the call goes to that account.
         """
         tenant_id = _tenant_of(ref)
         if tenant_id is None:
@@ -793,11 +886,17 @@ class SqlControlPlane:
         async with tenant_session(tenant_id) as session:
             result = await session.execute(
                 text(
-                    "UPDATE calls SET carrier_call_id = :cc, "
+                    "UPDATE calls SET carrier_call_id = :cc, carrier = :carrier, "
                     "from_e164 = COALESCE(from_e164, :from_e), updated_at = now() "
                     "WHERE id = :id AND tenant_id = :tid"
                 ),
-                {"cc": carrier_call_id, "from_e": from_e164, "id": call_id, "tid": tenant_id},
+                {
+                    "cc": carrier_call_id,
+                    "carrier": carrier,
+                    "from_e": from_e164,
+                    "id": call_id,
+                    "tid": tenant_id,
+                },
             )
         if rowcount_of(result) == 0:
             log.warning(
@@ -805,21 +904,25 @@ class SqlControlPlane:
                 extra={"call_id": call_id, "tenant_id": str(tenant_id)},
             )
 
-    async def carrier_call_of(self, call_ref: str) -> str | None:
+    async def carrier_call_of(self, call_ref: str) -> CarrierCallRecord | None:
         tenant_id = tenant_of_pipecat_ref(call_ref)
         if tenant_id is None:
             return None
         async with joined_tenant_session(tenant_id) as session:
-            value = (
+            row = (
                 await session.execute(
                     text(
-                        "SELECT carrier_call_id FROM calls "
+                        "SELECT carrier_call_id, carrier FROM calls "
                         "WHERE engine_call_id = :ref AND tenant_id = :tid"
                     ),
                     {"ref": call_ref, "tid": tenant_id},
                 )
-            ).scalar_one_or_none()
-        return str(value) if value else None
+            ).first()
+        if row is None or not row[0]:
+            return None
+        return CarrierCallRecord(
+            carrier_call_id=str(row[0]), carrier=None if row[1] is None else str(row[1])
+        )
 
     async def record_number_binding(
         self, ref: EngineAgentRef, *, e164: str, binding_id: str
@@ -908,11 +1011,7 @@ class SqlControlPlane:
         may do is INVENT the minutes — a call whose content we never received cannot be
         metered from nothing, and a fabricated quantity on an append-only ledger is worse
         than a call we failed to bill. Detect and alert are ours; the connected minute is the
-        carrier's and always was.
-
-        No dial can have happened yet in any case: `start_outbound_call` refuses every one
-        of them on this engine (BLOCKER-1).
-        """
+        carrier's and always was."""
         return ()
 
 
@@ -982,76 +1081,91 @@ class PipecatEngine:
 
     name = "pipecat"
 
-    #: EMPTY, and the annotation is load-bearing on every adapter: without
-    #: `tuple[str, ...]` mypy infers a one-element tuple type, a Protocol's mutable
-    #: attributes are invariant, and the class stops satisfying `VoiceEngine` the day a
-    #: second key is added.
+    #: The carrier credentials this process reads (`VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN`).
+    #: The class attribute is every key the adapter can read on this host, which is what
+    #: `engine.all_credential_env_keys` strips from a test run; `holds_credentials` narrows
+    #: the instance's value to the selected carrier's keys before readiness reads it.
     #:
-    #: Empty because this adapter IS its own vendor for everything it currently does: the
-    #: control plane is our database, which every deployable already has, so there is no
-    #: key an operator could set that would change whether it works.
+    #: The annotation is load-bearing on every adapter: without `tuple[str, ...]` mypy infers
+    #: a fixed-length tuple type, a Protocol's mutable attributes are invariant, and the
+    #: class stops satisfying `VoiceEngine`.
     #:
-    #: ⚠ **AND THAT IS A REAL LOSS OF RESOLUTION, NOT A CLEAN ANSWER** — §9.3 names it. A
-    #: running pipeline needs Sarvam, Cartesia, an LLM leg and the carrier, and
-    #: `holds_credentials() -> bool` cannot say "it can transcribe and cannot synthesise".
-    #: Those keys are the WORKER's (step 4) and they are not read here, so listing them
-    #: would make readiness report on a process this one does not run. Readiness is honest
-    #: today for a different reason: nothing on this engine can place a call at all, and it
-    #: refuses by name rather than by a red light.
-    #:
-    #: **D-614 ADDED THE CARRIER PAIR TO `Settings` AND DELIBERATELY DID NOT ADD IT HERE.**
-    #: `plivo_auth_id` / `plivo_auth_token` are now real fields, so this tuple COULD name
-    #: them — and naming them would turn `/healthz/ready` red on every host, permanently,
-    #: for a credential no VPS process reads and that belongs in a container's secret set
-    #: (`core/settings.ENV_ONLY_FOREIGN_ENV`). `missing_engine_credential_keys` asks "can
-    #: THIS process reach its vendor", and the answer for those two is "this process never
-    #: tries". The loss of resolution above is unchanged by that decision, not cured by it.
-    credential_env_keys: tuple[str, ...] = ()
+    #: The control plane is our database and needs no key. The speech and LLM keys are the
+    #: WORKER's, read from its own container's secret set, so naming them here would report
+    #: on a process this one does not run; `holds_credentials() -> bool` therefore says
+    #: nothing about whether the worker can transcribe or speak (§9.3).
+    credential_env_keys: tuple[str, ...] = _credential_env_keys("vobiz")
 
     def __init__(
         self,
         *,
         store: PipecatControlPlane | None = None,
         carrier: CarrierClient | None = None,
+        caller_claim_secret: str | None = None,
     ) -> None:
         self._store: PipecatControlPlane = store if store is not None else SqlControlPlane()
-        self._pinned_carrier = carrier
-        self._capabilities_override: EngineCapabilities | None = None
+        # INJECTED IS PINNED; OTHERWISE RESOLVED PER OPERATION. `get_engine` caches one
+        # adapter per process, so a carrier captured here would outlive every change of
+        # `Settings.carrier` until a restart. `get_carrier` is memoised and re-reads the
+        # switch, so resolving it at each operation costs a dict lookup. The claim key
+        # follows the same rule, so a stubbed carrier can be dialled without a process-wide
+        # secret in the environment.
+        self._pinned_carrier: CarrierClient | None = carrier
+        self._pinned_claim_secret: str | None = caller_claim_secret
+        self._pinned_capabilities: EngineCapabilities | None = None
+
+    def _caller_claim_key_usable(self) -> bool:
+        secret = self._pinned_claim_secret
+        if secret is None:
+            secret = get_settings().carrier_claim_secret
+        return usable_caller_claim_key(secret) is not None
 
     @property
     def _carrier(self) -> CarrierClient:
-        """The injected carrier, else the one the live `Settings.carrier` names.
-
-        Resolved per operation rather than at construction: `get_engine` caches one adapter
-        per process, so a carrier captured here would keep dialling on the old carrier after
-        an operator moved the switch, which `core/platform_config` promises takes effect on
-        the next dial. Each operation binds the result to a local once, so its name, its
-        refusal and its requests all belong to the same carrier.
-        """
+        """The carrier a NEW operation uses: the injected one, else the switch's."""
         return self._pinned_carrier if self._pinned_carrier is not None else get_carrier()
+
+    def _carrier_now(self) -> CarrierClient:
+        return self._carrier
+
+    def _carrier_of_call(self, recorded: CarrierCallRecord | None) -> CarrierClient:
+        """The carrier an EXISTING call is on: the injected one, else the one stamped on
+        the call (`calls.carrier`), so moving the switch never sends a hang-up to an
+        account that does not hold the call."""
+        if self._pinned_carrier is not None:
+            return self._pinned_carrier
+        return get_carrier(carrier_of_record(recorded.carrier if recorded else None))
 
     @property
     def capabilities(self) -> EngineCapabilities:
-        """The descriptor for the carrier in force now (`capabilities_for_carrier`)."""
-        if self._capabilities_override is not None:
-            return self._capabilities_override
-        return capabilities_for_carrier(self._carrier.name)
+        """The descriptor for the carrier a new operation would use right now.
+
+        A property rather than an attribute set in `__init__`, for the reason the carrier is
+        resolved per operation: a screen asking what this engine can do must get the answer
+        the next dial gets, after the switch moves as well as before.
+        """
+        if self._pinned_capabilities is not None:
+            return self._pinned_capabilities
+        return capabilities_for_carrier(self._carrier_now().name)
 
     @capabilities.setter
     def capabilities(self, value: EngineCapabilities) -> None:
-        # `VoiceEngine.capabilities` is a settable attribute; a set pins the descriptor.
-        self._capabilities_override = value
+        # `VoiceEngine.capabilities` is a settable Protocol member, and a read-only property
+        # does not satisfy one under mypy. Assigning pins the descriptor for this instance.
+        self._pinned_capabilities = value
 
     def holds_credentials(self) -> bool:
-        """True: the control plane is our own store, so there is nothing to configure.
+        """Whether the selected carrier holds the credentials it needs on this host.
 
-        Not a stub and not optimism. The question this method answers is *"can this
-        adapter actually talk to its vendor?"* and this adapter's vendor is us — the same
-        answer `FakeEngine` gives, for the same structural reason rather than because it is
-        a fixture. The half that genuinely could be unconfigured is the carrier, and that
-        refuses by name from the capability descriptor, which is where a screen asks.
+        The control plane is our own store and needs none, so the carrier is the only half
+        of this adapter that can be unconfigured here. Also narrows `credential_env_keys`
+        to that carrier's keys, which `engine.missing_engine_credential_keys` reads straight
+        after: Vobiz names its pair, and Plivo names `CARRIER`, since no credential set on
+        this host makes its unbuilt adapter work.
         """
-        return True
+        carrier = self._carrier_now()
+        self.credential_env_keys = _credential_env_keys(carrier.name)
+        return carrier.configured()
 
     # --- ids -----------------------------------------------------------------
 
@@ -1580,13 +1694,11 @@ class PipecatEngine:
     # group refuses on every carrier: we do not buy numbers through an API (D-596), which
     # is a product decision rather than unread evidence.
 
-    def _ready_carrier(self, operation: str) -> CarrierClient:
-        """The carrier for this operation, or its refusal to perform `operation`."""
-        carrier = self._carrier
+    @staticmethod
+    def _carrier_ready(carrier: CarrierClient, operation: str) -> None:
         refusal = carrier.unavailable(operation)
         if refusal is not None:
             raise refusal
-        return carrier
 
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
@@ -1607,11 +1719,16 @@ class PipecatEngine:
 
         Returns `pipecat_call_ref(tenant, call_id)`, the handle the worker settles the call
         under, so `dispatch_call` stamps the same id the worker will write.
+
+        THE CLAIM KEY IS A DIAL PRECONDITION. Without a usable `CARRIER_CLAIM_SECRET` the
+        answer leg signs no call claim onto the stream URL, the worker reads the call as
+        inbound, and the intent row this dial stamps is never settled.
         """
+        carrier = self._carrier_now()
         require_call_compliance_floor(engine=self, prompt_on_the_wire=ctx.system_prompt)
         if ctx.from_e164:
             require_capability("caller_id", engine=self)
-        dialler = self._ready_carrier("place outbound calls")
+        self._carrier_ready(carrier, "place outbound calls")
         if not ctx.from_e164:
             # Vobiz dials only from a number the account rents: "Caller ID | Must use
             # Vobiz-rented Indian phone number" (`compliance/india/calling-regulations.md:35`).
@@ -1625,40 +1742,40 @@ class PipecatEngine:
                 ),
             )
         tenant_id = _tenant_of(ref)
-        base_url = (get_settings().webhook_base_url or "").rstrip("/")
-        if not ctx.call_id or tenant_id is None or not base_url:
+        if not ctx.call_id or tenant_id is None:
             raise _dial_precondition_failed(
-                missing="call id"
-                if not ctx.call_id
-                else "agent reference"
-                if tenant_id is None
-                else "public callback address"
+                missing="call id" if not ctx.call_id else "agent reference"
             )
+        base_url = _public_callback_base()
+        if not self._caller_claim_key_usable():
+            raise _dial_precondition_failed(missing="call claim key")
         agent = await self._store.runtime_agent(ref)
         if agent is None:
             raise _dial_precondition_failed(missing="published agent")
 
-        carrier = dialler.name
-        placed = await dialler.place_call(
+        name = carrier.name
+        placed = await carrier.place_call(
             from_e164=ctx.from_e164,
             to_e164=to,
-            answer_url=base_url + answer_path(carrier, ref, call_id=ctx.call_id),
-            hangup_url=base_url + events_path(carrier, ref, call_id=ctx.call_id),
-            ring_url=base_url + events_path(carrier, ref, call_id=ctx.call_id),
+            answer_url=base_url + answer_path(name, ref, call_id=ctx.call_id),
+            hangup_url=base_url + events_path(name, ref, call_id=ctx.call_id),
+            ring_url=base_url + events_path(name, ref, call_id=ctx.call_id),
             time_limit_s=min(
                 agent.config.max_call_duration_s + CARRIER_TIME_LIMIT_MARGIN_S,
                 CARRIER_TIME_LIMIT_CEILING_S,
             ),
+            ring_timeout_s=RING_TIMEOUT_S,
         )
         await self._store.record_dial(
             ref,
             call_id=ctx.call_id,
             carrier_call_id=placed.carrier_call_id,
             from_e164=ctx.from_e164,
+            carrier=name,
         )
         log.info(
             "carrier_dial_accepted",
-            extra={"call_id": ctx.call_id, "tenant_id": str(tenant_id), "carrier": carrier},
+            extra={"call_id": ctx.call_id, "tenant_id": str(tenant_id), "carrier": name},
         )
         return pipecat_call_ref(tenant_id, ctx.call_id)
 
@@ -1671,9 +1788,13 @@ class PipecatEngine:
         call this engine holds no carrier id for is refused: a hang-up that reported success
         for a call it never reached is this method's one dangerous answer.
         """
-        carrier = self._ready_carrier("stop a call in progress")
-        carrier_call_id = await self._store.carrier_call_of(call_id)
-        if carrier_call_id is None:
+        if self._pinned_carrier is not None:
+            # An injected carrier answers for every call, so its own refusal comes first.
+            self._carrier_ready(self._pinned_carrier, "stop a call in progress")
+        recorded = await self._store.carrier_call_of(call_id)
+        carrier = self._carrier_of_call(recorded)
+        self._carrier_ready(carrier, "stop a call in progress")
+        if recorded is None:
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",
@@ -1681,11 +1802,8 @@ class PipecatEngine:
                 detail="The voice platform holds no carrier record of that call.",
                 failure_stage="CORE_LOGIC",
             )
-        ended_now = await carrier.hang_up(carrier_call_id)
-        log.info(
-            "carrier_hang_up",
-            extra={"carrier": carrier.name, "ended_now": ended_now},
-        )
+        ended_now = await carrier.hang_up(recorded.carrier_call_id)
+        log.info("carrier_hang_up", extra={"carrier": carrier.name, "ended_now": ended_now})
         return RecallOutcome.UNKNOWN
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
@@ -1717,22 +1835,16 @@ class PipecatEngine:
         raise AssertionError("unreachable while `number_series` is empty")  # pragma: no cover
 
     async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
-        """Refuses: the numbers ARE ours, and listing them is a carrier read not written here.
+        """Every number the carrier account holds, read from the carrier.
 
-        **NOT D-596.** We hold numbers; what is missing is the reader. An empty list would
-        be a claim that we checked — the answer `workers/number_rental.
-        reconcile_engine_numbers` turns into "our database has forgotten nothing".
+        **NOT D-596.** We do not buy numbers through an API, but we do hold them, and this
+        is the carrier's own list. A carrier that cannot list refuses by name rather than
+        answering `[]`, which `workers/number_rental.reconcile_engine_numbers` would read as
+        "our database has forgotten nothing".
         """
-        self._ready_carrier("list the numbers it holds")
-        raise capability_unverified(
-            title="The voice platform cannot do that yet",
-            detail="This voice platform cannot list the numbers it holds yet.",
-            remediation=(
-                "The carrier documents a number listing "
-                "(vobiz-findings/mirror/pages/account-phone-number.md:42-44) and its reader "
-                "is not written. Compare the carrier console's number list by hand meanwhile."
-            ),
-        )
+        carrier = self._carrier_now()
+        self._carrier_ready(carrier, "list the numbers it holds")
+        return await carrier.list_numbers()
 
     async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
         """Point the number at this agent's answer route at the carrier.
@@ -1742,19 +1854,17 @@ class PipecatEngine:
         "the carrier has never heard of this number" is a person's job to fix. Routing
         stays in the URL path we mint (D-603), never in a lookup by dialled number.
         """
+        carrier = self._carrier_now()
         require_capability("inbound_binding", engine=self)
         if not number.engine_number_ref:
             raise _number_not_linked()
-        binder = self._ready_carrier("point a number at an agent")
-        base_url = (get_settings().webhook_base_url or "").rstrip("/")
+        self._carrier_ready(carrier, "point a number at an agent")
+        base_url = _public_callback_base()
         held = await self._held(ref)
-        if not base_url:
-            raise _dial_precondition_failed(missing="public callback address")
-        carrier = binder.name
-        binding_id = await binder.bind_number(
+        binding_id = await carrier.bind_number(
             number.e164,
-            answer_url=base_url + answer_path(carrier, ref),
-            hangup_url=base_url + events_path(carrier, ref),
+            answer_url=base_url + answer_path(carrier.name, ref),
+            hangup_url=base_url + events_path(carrier.name, ref),
             label=str(held.agent_id),
             known_binding_id=await self._store.number_binding(ref, e164=number.e164),
         )
@@ -1765,11 +1875,57 @@ class PipecatEngine:
 
         A number the carrier has no record of from us (`engine_number_ref` unset) is
         already answered by nothing of ours, so there is nothing to undo and this succeeds.
+
+        `phone_numbers.carrier_binding_id` is NOT cleared here: a `ProvisionedNumber` names
+        no tenant, and this store reaches a tenant's rows only under a tenant it is handed
+        (`db/session.joined_tenant_session`). The caller that holds the number's row clears
+        it.
         """
+        carrier = self._carrier_now()
         require_capability("inbound_binding", engine=self)
         if not number.engine_number_ref:
             return
-        await self._ready_carrier("release a number's routing").unbind_number(number.e164)
+        self._carrier_ready(carrier, "release a number's routing")
+        await carrier.unbind_number(number.e164)
+
+    async def retire_agent_bindings(self, ref: EngineAgentRef) -> bool:
+        """Delete the routing object the carrier holds for a retired agent.
+
+        On Vobiz that is the agent's Application (`calevate-<agent id>`), which outlives
+        every number detached from it; the account refuses new bindings once it holds more
+        than the search in `VobizCarrier._find_application` can page through. The numbers
+        must already be detached: Vobiz answers 409 for an Application still in use
+        (`applications/delete-application.md:23-25`). A carrier with no inbound binding,
+        and an agent never published here, hold nothing to delete.
+        """
+        carrier = self._carrier_now()
+        if not capabilities_for_carrier(carrier.name).inbound_binding:
+            return False
+        held = await self._store.runtime_agent(ref)
+        if held is None:
+            return False
+        self._carrier_ready(carrier, "remove an agent's number routing")
+        binding_id = await carrier.find_binding(str(held.agent_id))
+        if binding_id is None:
+            return False
+        return await carrier.delete_binding(binding_id)
+
+
+def _public_callback_base() -> str:
+    """`webhook_base_url` without its trailing slash, refused unless a carrier can reach it.
+
+    Its default is `http://localhost:8100`, so an unset value is indistinguishable from a set
+    one until the first call: every answer, hangup and ring URL would name the dialling host
+    and the carrier would reach nothing. Outside `APP_ENV=local` it must be https on a
+    non-loopback host (`core.settings.is_public_callback_base`, the predicate readiness and
+    the deploy preflight also use); `local` keeps loopback for a carrier double on this
+    machine.
+    """
+    settings = get_settings()
+    base = (settings.webhook_base_url or "").strip().rstrip("/")
+    if not base or (settings.app_env != "local" and not is_public_callback_base(base)):
+        raise _dial_precondition_failed(missing="public callback address")
+    return base
 
 
 def _dial_precondition_failed(*, missing: str) -> ProblemError:
@@ -1839,6 +1995,7 @@ __all__ = [
     "CARRIER_UNVERIFIED_CODE",
     "PIPECAT_CAPABILITIES",
     "PIPECAT_VOBIZ_CAPABILITIES",
+    "CarrierCallRecord",
     "PipecatControlPlane",
     "PipecatEngine",
     "RuntimeAgent",

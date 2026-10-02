@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Final
 
 from calevate_shared.carrier import CarrierName
+from calevate_shared.engine import ProvisionedNumber
 
 from apps.api.core.errors import ProblemError
 from apps.api.engine.carrier import (
@@ -73,6 +74,7 @@ class PlivoCarrier:
         hangup_url: str,
         ring_url: str,
         time_limit_s: int,
+        ring_timeout_s: int,
     ) -> PlacedCall:
         raise self.unavailable("place outbound calls")
 
@@ -99,11 +101,23 @@ class PlivoCarrier:
     async def unbind_number(self, e164: str) -> None:
         raise self.unavailable("release a number's routing")
 
+    async def find_binding(self, label: str) -> str | None:
+        raise self.unavailable("find an agent's number routing")
+
+    async def delete_binding(self, binding_id: str) -> bool:
+        raise self.unavailable("remove an agent's number routing")
+
+    async def list_numbers(self) -> list[ProvisionedNumber]:
+        raise self.unavailable("list the numbers it holds")
+
     async def probe(self) -> bool:
         raise self.unavailable("check its carrier credential")
 
     def parse_event(self, fields: dict[str, str]) -> CarrierCallEvent | None:
         raise self.unavailable("read a carrier callback")
+
+    async def aclose(self) -> None:
+        """Nothing to release: this adapter opens no connection."""
 
 
 __all__ = ["CARRIER_REMEDIATION", "PlivoCarrier", "carrier_not_written"]

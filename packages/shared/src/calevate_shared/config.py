@@ -523,8 +523,16 @@ class Settings(BaseSettings):
     #: (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`). Unset uses the published list.
     vobiz_callback_ips: str | None = Field(default=None, max_length=1024)
     #: Outbound calls started per second, at most. The account's CPS limit is in its
-    #: account object (`account/account-object.md:41-46`); 1 is the floor any account has.
+    #: account object (`account/account-object.md:41-46`); the founder's account shows 1
+    #: (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). Enforced once per
+    #: dial in `agents.service.dispatch_call` (`engine/carrier_pacing.py`).
     carrier_cps: int = Field(default=1, ge=1, le=50)
+    #: Simultaneous calls the carrier account carries, inbound and outbound together. The
+    #: founder's account shows 3 concurrent calls (Vobiz console, founder-relayed, 2 Oct
+    #: 2026, VENDOR-PUBLISHED); Vobiz refuses a dial over it with `429`
+    #: (`call/make-call.md:134`). The dial gate keeps `inbound_reserve_ratio` of it free for
+    #: inbound callers (`engine/carrier_pacing.outbound_line_pool`), OPERATIONS §2 gate V-5.
+    carrier_concurrency: int = Field(default=3, ge=1, le=1000)
     #: Whether the Vobiz transfer contract counts as verified. Off by default: Vobiz itself
     #: calls the accept-by-keypress step "currently unverified" (`xml/dial.md:56`). On is
     #: necessary and not sufficient: the `<Dial>` ending arrives on a later callback, so the
@@ -1433,8 +1441,9 @@ class Settings(BaseSettings):
     # every call. Config so an incident can raise it to 1.0 with a restart, not a deploy.
     otel_traces_sample_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
 
-    # Effective outbound pool = MIN(platform lines, model concurrency, trunk
-    # channels) minus inbound_reserve. Values come from engine verification item 8.
+    # The share of `carrier_concurrency` kept free for inbound callers. The reserve is
+    # `max(1, ceil(carrier_concurrency * ratio))` lines, so at least one line always stays
+    # open for a caller (`engine/carrier_pacing.outbound_line_pool`).
     inbound_reserve_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
     #: How far ahead of a planned maintenance window clients are told about it, in HOURS

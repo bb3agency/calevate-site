@@ -27,7 +27,6 @@ from pydantic import BaseModel, ConfigDict
 from apps.api.agents.languages import Language
 from apps.api.agents.llm_models import LlmModelSource
 from apps.api.agents.models import AgentDirection, AgentStatus
-from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
 
 
 class AgentOut(BaseModel):
@@ -85,8 +84,10 @@ class AgentOut(BaseModel):
     opening_line: str
     #: The one sentence no toggle reaches, in words a client can read. Server-composed for
     #: the same reason the lane table's `why` strings are: a screen that paraphrases this
-    #: is a screen that can accidentally promise the opposite.
-    truthful_answer_rule: str = TRUTHFUL_ANSWER_PROMISE
+    #: is a screen that can accidentally promise the opposite. REQUIRED rather than
+    #: defaulted: its recording half depends on the engine (`truthful_answer_promise`), so
+    #: a default would be a wording composed without the fact that decides it.
+    truthful_answer_rule: str
     engine: str
     published: bool
     #: HOW MANY LINES THIS AGENT ANSWERS IN PARALLEL — the honest per-agent deployment

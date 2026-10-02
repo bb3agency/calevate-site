@@ -1,14 +1,24 @@
-"""Sealed tokens for carrier URLs that must carry data voice-runtime cannot look up.
+"""Sealed tokens for carrier URLs that must carry data the reader cannot look up.
 
-A live transfer redirects the caller to a URL whose response is the `<Dial>` document, and
-voice-runtime serves that document without touching the database (hard rule 3). So the
-destination travels inside the URL. It is a phone number, and a URL path lands in access
-logs, so the token is ENCRYPTED and authenticated (AES-256-GCM), not merely signed: a
-signed token would still print the number in every proxy log (hard rule 6).
+Two URLs need this, and both would otherwise print a phone number in an access log (hard
+rule 6):
 
-The key is derived from `CARRIER_CLAIM_SECRET`, which both the API (the minter) and
-voice-runtime (the reader) already hold in the VPS environment, with a domain label so the
-derived key never equals the caller-claim MAC key.
+* the live-transfer URL, whose `<Dial>` document voice-runtime serves without touching the
+  database (hard rule 3), so the destination travels inside the URL;
+* the stream URL the answer leg hands the carrier, which carries the caller's number to the
+  worker on Pipecat Cloud, a container that cannot reach our database at all.
+
+So the payload is ENCRYPTED and authenticated (AES-256-GCM), not merely signed: a signed
+token still prints the number in every proxy log between the carrier and the reader.
+
+The key is derived from `CARRIER_CLAIM_SECRET` with HKDF and a domain label, so it never
+equals the key the outbound call claim's HMAC uses. Holders: the API (mints transfer tokens),
+voice-runtime (opens transfer tokens, seals caller claims) and the worker (opens caller
+claims). The `purpose` string is the AEAD's associated data, so a token minted for one
+purpose cannot be opened as another.
+
+In `calevate_shared` rather than `apps/api/core` because the worker opens one and may not
+import the monolith.
 """
 
 from __future__ import annotations
@@ -28,7 +38,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 _INFO: Final = b"calevate-carrier-token-v1"
 _NONCE_BYTES: Final = 12
-#: The shortest secret accepted, matching `worker_api.MIN_CALLER_CLAIM_KEY_BYTES`.
+#: The shortest secret accepted: RFC 2104 §3's floor for an HMAC key, which the call claim
+#: derived from the same secret is.
 MIN_SECRET_BYTES: Final = 32
 #: Upper bound on an encoded token, so a stranger cannot make us decrypt a megabyte.
 MAX_TOKEN_CHARS: Final = 2048

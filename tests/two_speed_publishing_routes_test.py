@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+from apps.api.agents import publishing
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.core.errors import install_error_handlers
@@ -34,6 +36,8 @@ from apps.api.core.rbac import (
     iter_api_routes,
 )
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine.fake import OWNED_RUNTIME_CAPABILITIES
+from calevate_shared.engine import EngineCapabilities
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -217,6 +221,36 @@ async def test_the_lane_table_is_readable_and_does_not_collide_with_the_agent_ro
     assert lanes["script"] == "staged"
     assert lanes["voice"] == "live"
     assert response.json()["call_cap_default_s"] == 600
+
+
+async def test_the_lane_table_tells_the_truth_about_an_engine_that_records_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route serves the recording notice's explanation for THIS engine's recording
+    fact, read through `engine_capabilities` rather than frozen in the table."""
+    from apps.api.agents import publishing_routes
+
+    tenant_id, _agent_id, _ref, _engine = await _live_agent_with_a_staged_draft()
+    token, slug = await _member(tenant_id), await _slug(tenant_id)
+
+    def owned_runtime(engine: object = None) -> EngineCapabilities:
+        return OWNED_RUNTIME_CAPABILITIES
+
+    monkeypatch.setattr(publishing_routes, "engine_capabilities", owned_runtime)
+    async with _client(_app()) as client:
+        response = await client.get(
+            "/v1/agents/lanes",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        )
+
+    assert response.status_code == 200, response.text
+    why = {entry["field"]: entry["why"] for entry in response.json()["lanes"]}
+    assert why["recording_notice_enabled"] == next(
+        entry.why
+        for entry in publishing.lanes(records_audio=False)
+        if entry.field == "recording_notice_enabled"
+    )
+    assert "does not stop the call being recorded" not in why["recording_notice_enabled"]
 
 
 # --- the buttons --------------------------------------------------------------

@@ -64,6 +64,7 @@ from calevate_shared.worker_api import (
     SettlementRefusal,
     SettlementRequest,
     SettlementStatus,
+    UnverifiedCallClaim,
 )
 from loguru import logger
 
@@ -169,6 +170,7 @@ class HttpEventSink:
         agent_id: UUID,
         direction: CallDirection,
         carrier_call_id: str | None = None,
+        call_claim_unverified: UnverifiedCallClaim | None = None,
         turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
         turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
     ) -> None:
@@ -177,6 +179,9 @@ class HttpEventSink:
         `carrier_call_id` is the carrier's id for the call, sent on every batch and on the
         settlement so whichever request mints or first touches the `calls` row records it;
         the server keeps the first value it stores.
+
+        `call_claim_unverified` rides the settlement only: the server reads it once, beside
+        the outbox row, to decide whether a dialled call was run under the wrong id.
 
         **FOUR IDS RATHER THAN A `SessionConfig`, WHICH IS THE ONE SHAPE DECISION HERE.**
         Those are the only fields of that object this sink would read — and taking the whole
@@ -200,6 +205,7 @@ class HttpEventSink:
         self._agent_id = agent_id
         self._direction = direction
         self._carrier_call_id = carrier_call_id
+        self._call_claim_unverified = call_claim_unverified
         self._lock = asyncio.Lock()
         #: Turns waiting to be sent. RAW, because redaction is the server's now — which also
         #: means this buffer holds exactly what the wire will carry and nothing derived.
@@ -501,6 +507,7 @@ class HttpEventSink:
             refusals=[_refusal_of(refused) for refused in metered.refusals],
             quantities=[_quantity_of(row) for row in metered.rows],
             latency=latency,
+            call_claim_unverified=self._call_claim_unverified,
         )
         answer = await self._api.post_settlement(self._engine_call_id, request)
 

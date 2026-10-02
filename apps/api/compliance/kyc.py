@@ -32,13 +32,13 @@ WHAT THE RESEARCH SETTLED (read before changing the shape of this record)
    ₹50 lakh. This is exactly R-11's exposure — on a self-serve motion the applicant is
    a stranger — and it is why the refusals below are refusals rather than warnings.
    — The Telecommunications Act, 2023 (indiacode.nic.in), s.3.
-4. **Our reseller enforces it downstream anyway.** Exotel (D-05's telephony pick)
-   requires KYC plus a Customer Acquisition Form for VoIP accounts, requires the
-   address proof to match the city the number is bought in, and **blocks outgoing
-   calls until KYC is verified**. So a product that let a client "buy" a number
-   without a KYC record would be writing a cheque the TSP will bounce.
-   — Exotel support, "Where do I upload my KYC verification docs"; Exotel docs,
-     "Business Phone System — Onboarding".
+4. **Our carrier enforces it downstream anyway.** Vobiz (D-662) requires KYC before it
+   rents an Indian number, serves India-registered businesses only, and requires each
+   `customer_use` sub-account to complete KYC in its own name, created with
+   `kyc_calls_blocked: true` until it does. So a product that let a client "buy" a
+   number without a KYC record would be writing a cheque the carrier will bounce.
+   — VERIFIED-VENDOR-DOCS: `vobiz-findings/mirror/pages/compliance/india/
+     calling-regulations.md:30-35` and `compliance/india/kyc.md:65`.
 5. **DLT Principal Entity registration overlaps and does NOT subsume this.** PE
    registration asks for PAN, GST/CIN and the authorised signatory's government ID on
    company letterhead — the same *entity* documents — so re-collecting them would be
@@ -50,8 +50,8 @@ WHAT THE RESEARCH SETTLED (read before changing the shape of this record)
    — Documented DLT PE document lists (SMSCountry, Kapsystem, Infobip DLT docs).
 
 **Not settled, and therefore not built:** whether a non-licensee reseller must itself
-hold the CAF, or whether furnishing the entity's documents to the licensed operator
-(Exotel's UL-VNO entity) discharges us. The sources describe the LICENSEE's obligation
+hold the CAF, or whether furnishing the entity's documents to the licensed operator behind
+our carrier discharges us. The sources describe the LICENSEE's obligation
 and are silent on the reseller's. So this module records what we verified and where the
 evidence is filed — which is useful under either answer — and does not model a CAF
 document, a form workflow or a document store, none of which we can say is ours to hold.

@@ -8,8 +8,8 @@ present, and each one is written as the failure it prevents:
 1. the fleet-wide scan is SECURITY INVOKER and really scoped per tenant — the same hard
    rule 1 question `dispatch_scan` answers in `tests/dispatch_scan_rls_test.py`, asked of
    `queued_dial_scan` on DATA rather than on the SQL we think we wrote;
-2. it sees a vendor-issued queued dial and skips the three shapes that must never be
-   stopped — a `local:` pre-dial intent row, a dial that is already ringing, and one this
+2. it sees a vendor-issued queued or ringing dial and skips the three shapes that must
+   never be stopped — a `local:` pre-dial intent row, an answered call, and one this
    platform has already recalled;
 3. the job stops what it finds, stamps it, and a SECOND run stops nothing — the property
    `recall_requested_at` exists for, and the one whose absence would raise "could not stop
@@ -54,7 +54,7 @@ async def _quiet_platform() -> AsyncIterator[None]:
             await session.execute(
                 text(
                     "UPDATE calls SET status = 'completed', updated_at = now() "
-                    "WHERE status = 'queued'"
+                    "WHERE status IN ('queued', 'ringing')"
                 )
             )
     _TENANTS.clear()
@@ -226,11 +226,16 @@ async def test_the_scan_skips_every_dial_that_must_not_be_stopped() -> None:
     `_reap_stuck_dialing` already settles it. An `in_progress` dial cannot be stopped by
     the vendor's own route and stopping it is not what `queued` means. An already-recalled
     dial is the false-alarm case `recall_requested_at` exists for.
+
+    A `ringing` dial IS found (migration b7e4c0a63f29): the carrier's `Ring` callback moves
+    an unanswered dial there, and it is still a phone the halt or a DNC entry must stop.
     """
     live = f"ex-{uuid.uuid4().hex[:8]}"
+    ringing = f"ex-{uuid.uuid4().hex[:8]}"
     tenant_id, _ = await _tenant_with_dials(
         [
             {"engine_call_id": live},
+            {"engine_call_id": ringing, "status": "ringing"},
             {"engine_call_id": f"local:{uuid7()}"},
             {"engine_call_id": f"ex-{uuid.uuid4().hex[:8]}", "status": "in_progress"},
             {"engine_call_id": f"ex-{uuid.uuid4().hex[:8]}", "recalled": True},
@@ -238,7 +243,7 @@ async def test_the_scan_skips_every_dial_that_must_not_be_stopped() -> None:
     )
 
     found = await _dials_for(tenant_id)
-    assert [d.engine_call_id for d in found] == [live]
+    assert sorted(d.engine_call_id for d in found) == sorted([live, ringing])
 
 
 async def test_the_job_stops_what_it_finds_and_a_second_run_stops_nothing(
@@ -395,7 +400,7 @@ async def test_a_dial_the_vendor_says_is_already_ringing_is_not_reported_as_stop
     unstopped = [f for f in fired if f[1] == "dial_recall_unstopped"]
     assert unstopped, "a line the halt did not stop raised no alarm"
     detail = unstopped[0][2]
-    assert "were NOT stopped" in detail
+    assert "not proven stopped" in detail
     assert str(call_ids[0]) in detail, "the alarm must name the call an operator has to chase"
     assert str(call_ids[1]) not in detail, "a dial that WAS cancelled must not be chased"
 

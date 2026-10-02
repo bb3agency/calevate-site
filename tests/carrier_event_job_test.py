@@ -24,7 +24,14 @@ from apps.api.db.session import tenant_session
 from apps.api.engine.carrier import CarrierCallEvent, CarrierCdr
 from apps.workers import carrier_events
 from apps.workers import settings as worker_settings
-from apps.workers.carrier_events import CDR_JOB, ingest_carrier_event, statuses_behind
+from apps.workers.carrier_events import (
+    CDR_JOB,
+    FINALISE_GRACE_S,
+    FINALISE_JOB,
+    ingest_carrier_event,
+    orphan_status,
+    statuses_behind,
+)
 from arq import Retry
 from calevate_shared.carrier import CARRIER_EVENT_JOB
 from sqlalchemy import text
@@ -187,6 +194,29 @@ async def call_state(tenant_id: uuid.UUID, call_id: uuid.UUID) -> tuple[str, Any
     return str(row[0]), row[1], row[2]
 
 
+async def call_carrier(tenant_id: uuid.UUID, call_id: uuid.UUID) -> str | None:
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(text("SELECT carrier FROM calls WHERE id = :i"), {"i": call_id})
+        ).scalar_one()
+
+
+async def calls_with_carrier_id(tenant_id: uuid.UUID, ccid: str) -> list[tuple[Any, ...]]:
+    async with tenant_session(tenant_id) as session:
+        return [
+            tuple(r)
+            for r in (
+                await session.execute(
+                    text(
+                        "SELECT id, agent_id, engine_call_id, direction, status, ended_at, "
+                        "carrier FROM calls WHERE carrier_call_id = :c"
+                    ),
+                    {"c": ccid},
+                )
+            ).all()
+        ]
+
+
 def payload(
     ref: str,
     ccid: str,
@@ -216,7 +246,7 @@ def payload(
 def test_the_job_answers_to_the_name_voice_runtime_enqueues() -> None:
     assert ingest_carrier_event.__name__ == CARRIER_EVENT_JOB
     names = {getattr(fn, "__name__", "") for fn in worker_settings.FUNCTIONS}
-    assert {CARRIER_EVENT_JOB, CDR_JOB} <= names
+    assert {CARRIER_EVENT_JOB, CDR_JOB, FINALISE_JOB} <= names
     assert "cron:reconcile_carrier_cdrs" in worker_settings.WALK_SHAPES
 
 
@@ -273,7 +303,65 @@ async def test_each_kind_moves_the_outbound_call_it_names(
         assert kw["_defer_by"] == carrier_events.CDR_FIRST_READ_DELAY_S
     else:
         assert cdr_jobs == []
+    # Only an answered call owes a worker settlement; a busy dial never reached a worker.
+    finalise_jobs = [e for e in seen.enqueued if e[0] == FINALISE_JOB]
+    assert len(finalise_jobs) == (1 if (kind, status) == ("hangup", "completed") else 0)
+    # Every matched callback stamps the carrier it came from onto a row that had none.
+    assert await call_carrier(tenant_id, call_id) == "vobiz"
     assert seen.alerts == []
+
+
+async def test_an_answered_hangup_defers_the_settlement_backstop_once_per_call(
+    carrier: FakeCarrier, seen: Recorder
+) -> None:
+    tenant_id, agent_id, ref = await make_tenant()
+    ccid = f"cuuid-{uuid.uuid4().hex}"
+    call_id = await make_call(
+        tenant_id, agent_id, status="in_progress", direction="inbound", carrier_call_id=ccid
+    )
+
+    # A carrier that calls the end of a live call `failed` still owes the backstop: the
+    # row says a worker held it.
+    await ingest_carrier_event({"job_try": 1}, payload(ref, ccid, "hangup", "failed"))
+
+    [(_job, body, job_id, kw)] = [e for e in seen.enqueued if e[0] == FINALISE_JOB]
+    assert body == {"tenant_id": str(tenant_id), "call_id": str(call_id)}
+    assert job_id == f"{FINALISE_JOB}:{call_id}"
+    assert kw == {"_defer_by": FINALISE_GRACE_S}
+
+
+async def test_a_hangup_after_the_settlement_owes_no_backstop(
+    carrier: FakeCarrier, seen: Recorder
+) -> None:
+    tenant_id, agent_id, ref = await make_tenant()
+    ccid = f"cuuid-{uuid.uuid4().hex}"
+    await make_call(
+        tenant_id, agent_id, status="completed", direction="inbound", carrier_call_id=ccid
+    )
+
+    await ingest_carrier_event({"job_try": 1}, payload(ref, ccid, "hangup", "completed"))
+
+    assert [e for e in seen.enqueued if e[0] == FINALISE_JOB] == []
+    assert len([e for e in seen.enqueued if e[0] == CDR_JOB]) == 1
+
+
+async def test_a_stored_carrier_is_kept_and_read_from(carrier: FakeCarrier, seen: Recorder) -> None:
+    """The CDR read goes to the carrier on the row, not to the one the callback names."""
+    tenant_id, agent_id, ref = await make_tenant()
+    call_id = await make_call(tenant_id, agent_id, status="in_progress")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET carrier = 'plivo' WHERE id = :i"), {"i": call_id}
+        )
+    ccid = f"cuuid-{uuid.uuid4().hex}"
+
+    await ingest_carrier_event(
+        {"job_try": 1}, payload(ref, ccid, "hangup", "completed", call_id=call_id)
+    )
+
+    assert await call_carrier(tenant_id, call_id) == "plivo"
+    [(_job, body, job_id, _kw)] = [e for e in seen.enqueued if e[0] == CDR_JOB]
+    assert body["carrier"] == "plivo" and job_id == f"{CDR_JOB}:plivo:{ccid}"
 
 
 async def test_an_inbound_call_is_found_by_the_carrier_id_the_worker_stored(
@@ -338,21 +426,61 @@ async def test_the_same_callback_twice_has_one_effect(carrier: FakeCarrier, seen
 # ------------------------------------------------------------------ unresolved calls
 
 
-async def test_an_unknown_inbound_call_is_retried_then_parked_with_an_alarm(
+async def test_an_inbound_hangup_no_worker_recorded_gets_its_row_on_the_last_attempt(
     carrier: FakeCarrier, seen: Recorder
 ) -> None:
-    tenant_id, _agent_id, ref = await make_tenant()
-    body = payload(ref, f"cuuid-{uuid.uuid4().hex}", "hangup", "completed")
+    tenant_id, agent_id, ref = await make_tenant()
+    ccid = f"cuuid-{uuid.uuid4().hex}"
+    inbox = uuid.uuid4()
+    body = payload(ref, ccid, "hangup", "completed", inbox_row_id=inbox)
 
     for attempt in (1, 2):
         with pytest.raises(Retry):
             await ingest_carrier_event({"job_try": attempt}, body)
+    assert await calls_with_carrier_id(tenant_id, ccid) == []
     outcome = await ingest_carrier_event({"job_try": 3}, body)
 
-    assert outcome == "unresolved"
-    assert [a[1] for a in seen.alerts] == ["carrier_event_call_unresolved"]
+    assert outcome == "hangup:created:cdr_enqueued"
+    [
+        (call_id, row_agent, engine_call_id, direction, status, ended_at, row_carrier)
+    ] = await calls_with_carrier_id(tenant_id, ccid)
+    assert row_agent == agent_id and direction == "inbound"
+    assert engine_call_id == f"pipecat:{tenant_id}:{call_id}"
+    # Never `completed`: no worker served it, so no client minute may be billed for it.
+    assert status == "failed" and ended_at is not None and row_carrier == "vobiz"
+    [(_job, cdr_body, _job_id, _kw)] = [e for e in seen.enqueued if e[0] == CDR_JOB]
+    assert cdr_body["call_id"] == str(call_id) and cdr_body["carrier_call_id"] == ccid
+    assert [e for e in seen.enqueued if e[0] == FINALISE_JOB] == []
+    assert [a[1] for a in seen.alerts] == ["inbound_call_never_reached_worker"]
     assert seen.alerts[0][2]["tenant_id"] == str(tenant_id)
-    assert not [e for e in seen.enqueued if e[0] == CDR_JOB]
+    assert seen.inbox[-1] == ("processed", str(inbox))
+
+
+async def test_a_redelivered_orphan_hangup_writes_one_row(
+    carrier: FakeCarrier, seen: Recorder
+) -> None:
+    tenant_id, _agent_id, ref = await make_tenant()
+    ccid = f"cuuid-{uuid.uuid4().hex}"
+    body = payload(ref, ccid, "hangup", "no_answer")
+
+    first = await ingest_carrier_event({"job_try": 3}, body)
+    second = await ingest_carrier_event({"job_try": 3}, body)
+
+    assert first == "hangup:created:cdr_enqueued"
+    assert second.startswith("hangup:unchanged")
+    [row] = await calls_with_carrier_id(tenant_id, ccid)
+    assert row[4] == "no_answer"
+    assert [a[1] for a in seen.alerts] == ["inbound_call_never_reached_worker"]
+    # Both reads collapse into one queued job.
+    assert len({e[2] for e in seen.enqueued if e[0] == CDR_JOB}) == 1
+
+
+def test_an_orphan_row_never_records_a_completed_call() -> None:
+    assert orphan_status("completed") == "failed"
+    assert orphan_status(None) == "failed"
+    assert orphan_status("in_progress") == "failed"
+    assert orphan_status("busy") == "busy"
+    assert orphan_status("no_answer") == "no_answer"
 
 
 async def test_an_unknown_inbound_ring_is_parked_quietly(
@@ -434,7 +562,7 @@ async def test_the_inbox_row_is_closed_after_the_cdr_read_is_queued(
         payload(ref, "cuuid-ib", "hangup", "completed", call_id=call_id, inbox_row_id=inbox),
     )
 
-    assert seen.order == [f"enqueue:{CDR_JOB}", "inbox:processed"]
+    assert seen.order == [f"enqueue:{CDR_JOB}", f"enqueue:{FINALISE_JOB}", "inbox:processed"]
     assert seen.inbox == [("processed", str(inbox))]
 
 

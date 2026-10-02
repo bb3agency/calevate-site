@@ -48,6 +48,7 @@ from apps.api.compliance.disclosure import (
     TRUTHFUL_ANSWER_PROMISE,
     bundled_disclosure_line,
     disclosure_spoken,
+    truthful_answer_promise,
 )
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError, install_error_handlers
@@ -56,15 +57,17 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
-from apps.api.engine.fake import FakeEngine
+from apps.api.engine.fake import OWNED_RUNTIME_CAPABILITIES, FakeEngine
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_DIRECTIVE,
     TRUTHFUL_ANSWER_MARKER,
     AgentConfig,
     AgentSnapshot,
     DisclosurePosture,
+    EngineCapabilities,
     compose_engine_prompt,
     compose_opening_line,
+    truthful_answer_directive,
 )
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -392,7 +395,8 @@ def test_the_composer_answers_all_four_postures() -> None:
                 ai_disclosure_enabled=a,
                 recording_notice_line=rec,
                 recording_notice_enabled=r,
-            )
+            ),
+            call_is_recorded=True,
         )
 
     assert opening(True, True) == f"{ai} {rec}"
@@ -620,6 +624,7 @@ async def test_flipping_a_toggle_through_the_api_writes_one_audit_row_naming_it(
     assert body["ai_disclosure_enabled"] is False
     assert body["recording_notice_enabled"] is True
     assert body["opening_line"] == RECORDING_NOTICE_TEMPLATES["te-IN"]
+    # The suite's engine is the recording fake, so the served promise is the recorded one.
     assert body["truthful_answer_rule"] == TRUTHFUL_ANSWER_PROMISE
 
     async with untenanted_session() as session:
@@ -946,3 +951,128 @@ def test_every_adapter_answers_the_recording_question_and_pipecat_answers_no() -
         "callers their call is recorded when it is not"
     )
     assert CARTESIA_CAPABILITIES.records_audio is True
+
+
+# ---------------------------------------------------------------------------------------
+# THE OPENING FOLLOWS THE SAME FACT AS THE FLOOR
+#
+# The floor answered "not recorded" on the owned runtime while the opening, composed from
+# the recording toggle alone, still announced "This call is being recorded" on every call.
+# These clauses hold the two to one fact: an engine that captures no audio never has its
+# agents volunteer a recording, whatever the stored switch says.
+# ---------------------------------------------------------------------------------------
+
+_AI = "Idi AI assistant."
+_REC = "Ee call record avutundi."
+_MEM = "Nenu gurthu pettukuntaanu."
+
+
+def _everything_on() -> DisclosurePosture:
+    return DisclosurePosture(
+        ai_disclosure_line=_AI,
+        ai_disclosure_enabled=True,
+        recording_notice_line=_REC,
+        recording_notice_enabled=True,
+        caller_memory_notice_line=_MEM,
+        caller_memory_enabled=True,
+    )
+
+
+def test_an_engine_that_records_nothing_never_announces_a_recording() -> None:
+    """The recording switch is ON and the sentence is still dropped; the AI sentence and
+    the memory sentence are untouched, because neither depends on audio being kept."""
+    opening = compose_opening_line(_everything_on(), call_is_recorded=False)
+    assert _REC not in opening
+    assert opening == f"{_AI} {_MEM}"
+
+
+def test_an_engine_that_records_keeps_the_opening_exactly_as_configured() -> None:
+    assert compose_opening_line(_everything_on(), call_is_recorded=True) == f"{_AI} {_REC} {_MEM}"
+
+
+@pytest.mark.parametrize(("ai", "rec"), [(True, True), (True, False), (False, True)])
+def test_on_a_non_recording_engine_the_recording_switch_changes_nothing_spoken(
+    ai: bool, rec: bool
+) -> None:
+    """The stored switch is kept for the day recording exists; until then, flipping it must
+    not move a word of what callers hear."""
+    posture = _everything_on().model_copy(
+        update={"ai_disclosure_enabled": ai, "recording_notice_enabled": rec}
+    )
+    flipped = posture.model_copy(update={"recording_notice_enabled": not rec})
+    as_set = compose_opening_line(posture, call_is_recorded=False)
+    as_flipped = compose_opening_line(flipped, call_is_recorded=False)
+    assert as_set == as_flipped
+
+
+async def test_the_engine_config_on_a_non_recording_engine_neither_announces_nor_claims() -> None:
+    """`_to_config` is what the engine is handed. On an engine with `records_audio=False`
+    both halves must say the same thing: no recording sentence in the opening, and the
+    floor's not-recorded clause rather than the recorded one."""
+    tenant_id, agent_id = await _tenant()
+    await _with_script(tenant_id, agent_id)
+    engine = FakeEngine(capabilities=OWNED_RUNTIME_CAPABILITIES)
+    async with tenant_session(tenant_id) as session:
+        agent = await _load_agent(session, tenant_id, agent_id)
+        config = _to_config(tenant_id, agent, engine=engine)
+
+    assert agent["recording_notice_enabled"], "the switch is on; the engine decides"
+    assert str(agent["recording_notice_line"]) not in config.opening_line
+    assert str(agent["ai_disclosure_line"]) in config.opening_line
+    assert config.call_is_recorded is False
+    prompt = compose_engine_prompt(config)
+    assert truthful_answer_directive(call_is_recorded=False) in prompt
+    assert TRUTHFUL_ANSWER_DIRECTIVE not in prompt
+
+
+async def test_the_engine_config_on_a_recording_engine_still_announces_the_recording() -> None:
+    tenant_id, agent_id = await _tenant()
+    await _with_script(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        agent = await _load_agent(session, tenant_id, agent_id)
+        config = _to_config(tenant_id, agent, engine=FakeEngine())
+
+    assert str(agent["recording_notice_line"]) in config.opening_line
+    assert TRUTHFUL_ANSWER_DIRECTIVE in compose_engine_prompt(config)
+
+
+def test_the_promise_a_client_reads_matches_the_answer_callers_get() -> None:
+    """The client-facing sentence varies on the same fact as the floor, and says both
+    halves of the honest no — no audio, but a written transcript."""
+    recorded = truthful_answer_promise(call_is_recorded=True)
+    unrecorded = truthful_answer_promise(call_is_recorded=False)
+    assert recorded == TRUTHFUL_ANSWER_PROMISE
+    assert "is answered yes" in recorded
+    assert "is answered yes" not in unrecorded
+    assert "audio is not recorded" in unrecorded
+    assert "written transcript" in unrecorded
+    for promise in (recorded, unrecorded):
+        assert "I am an AI assistant" in promise
+        assert "cannot be switched off" in promise
+
+
+async def test_the_disclosure_route_serves_the_not_recorded_promise_on_such_an_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route and the composer it calls read the engine through `engine_capabilities`;
+    pointed at a non-recording engine, the response must not promise a recording and the
+    opening it reports must not contain one."""
+    from apps.api.agents import routes as agent_routes
+
+    def owned_runtime(engine: object = None) -> EngineCapabilities:
+        return OWNED_RUNTIME_CAPABILITIES
+
+    _, agent_id, token = await _member()
+    monkeypatch.setattr(agent_routes, "engine_capabilities", owned_runtime)
+    monkeypatch.setattr(publishing, "engine_capabilities", owned_runtime)
+    async with _client() as http:
+        response = await http.patch(
+            f"/v1/agents/{agent_id}/disclosure",
+            json={"ai_disclosure_enabled": False},
+            headers={"Authorization": f"Bearer {token}", "CF-Connecting-IP": "203.0.113.7"},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["recording_notice_enabled"] is True
+    assert body["opening_line"] == ""
+    assert body["truthful_answer_rule"] == truthful_answer_promise(call_is_recorded=False)

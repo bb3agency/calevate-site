@@ -1225,7 +1225,7 @@ const OPS_CONFIG = {
       env_var: "PLIVO_AUTH_ID",
       reason: "the voice worker reads it from its own container's environment.",
       configured: false,
-      held_by: "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
+      held_by: "the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`",
     },
   ],
 };

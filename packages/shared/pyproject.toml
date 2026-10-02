@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Shared Pydantic models, VoiceEngine protocol and normalized events"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    # AES-GCM for the sealed carrier tokens (`calevate_shared.carrier_token`), which the worker
+    # opens and so cannot take from `apps/api`. Same floor as `apps/workers`; already in the
+    # lock, so no new distribution enters it (hard rule 9).
+    "cryptography>=42",
     "pydantic>=2.12",
     "pydantic-settings>=2.12",
 ]

@@ -51,11 +51,12 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Final
+from typing import Final, NamedTuple
 from urllib.parse import unquote
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
+from calevate_shared.worker_api import UnverifiedCallClaim
 from loguru import logger
 from pipecat.runner.types import RunnerArguments
 from uuid_utils.compat import uuid7
@@ -66,6 +67,7 @@ from voice_worker.boot import (
     open_runtime,
 )
 from voice_worker.carrier import (
+    ClaimedCall,
     UnroutableCallError,
     call_claim_from_stream_url,
     claim_from_stream_url,
@@ -186,13 +188,25 @@ def _route_token(runner_args: RunnerArguments) -> str:
     return token
 
 
+class CallIdentity(NamedTuple):
+    """Which call this session is, and whether a call claim on its URL failed to verify."""
+
+    call_id: str
+    tenant_id: UUID
+    agent_id: UUID
+    direction: CallDirection
+    #: Set when the stream URL carried a call claim that did not verify; the settlement
+    #: reports it (`SettlementRequest.call_claim_unverified`).
+    unverified_claim: UnverifiedCallClaim | None = None
+
+
 async def resolve_call_identity(
     runner_args: RunnerArguments,
     *,
     claim_key: bytes | None = None,
     now: float | None = None,
-) -> tuple[str, UUID, UUID, CallDirection]:
-    """(our call_id, tenant, agent, direction) for the session on the wire.
+) -> CallIdentity:
+    """Our call_id, the tenant, the agent and the direction for the session on the wire.
 
     **OUR `call_id` IS NEVER THE CARRIER'S** (§1.2). The carrier's CDR is the authority on
     the FACTS of a call and our worker on its CONTENT, and the reconciliation only works if
@@ -206,9 +220,9 @@ async def resolve_call_identity(
     claimed = call_claim_from_stream_url(
         _stream_url(runner_args), ref=token, claim_key=claim_key, now=now
     )
-    if claimed is not None:
-        return claimed.call_id, route.tenant_id, route.agent_id, claimed.direction
-    return str(uuid7()), route.tenant_id, route.agent_id, INBOUND
+    if isinstance(claimed, ClaimedCall):
+        return CallIdentity(claimed.call_id, route.tenant_id, route.agent_id, claimed.direction)
+    return CallIdentity(str(uuid7()), route.tenant_id, route.agent_id, INBOUND, claimed)
 
 
 async def bot(runner_args: RunnerArguments) -> None:
@@ -240,9 +254,8 @@ async def bot(runner_args: RunnerArguments) -> None:
     runtime, registry = await container()
     config = runtime.config
     engine_agent_ref = _route_token(runner_args)
-    call_id, tenant_id, agent_id, direction = await resolve_call_identity(
-        runner_args, claim_key=config.caller_claim_key
-    )
+    identity = await resolve_call_identity(runner_args, claim_key=config.caller_claim_key)
+    call_id = identity.call_id
 
     # THE SLOT IS TAKEN BEFORE ANY IO, and that ordering is the fix rather than a tidy-up.
     # This used to admit only after the transport, the session read and the whole pipeline
@@ -254,11 +267,13 @@ async def bot(runner_args: RunnerArguments) -> None:
     try:
         # WHAT THE CONTROL PLANE SAID, READ OFF THE URL IT MINTED. The whole query is
         # attacker-controlled — anything can open a WebSocket — so a claimed `known`
-        # caller is believed only under a MAC for THIS agent ref (`claim_from_stream_url`),
-        # and the claimed carrier is checked against Pipecat's detection before it chooses
-        # a serializer (`carrier.read_handshake`).
+        # caller is believed only when its sealed claim opens for THIS agent ref
+        # (`claim_from_stream_url`), and the claimed carrier is checked against Pipecat's
+        # detection before it chooses a serializer (`carrier.read_handshake`).
         claim = claim_from_stream_url(
-            _stream_url(runner_args), ref=engine_agent_ref, claim_key=config.caller_claim_key
+            _stream_url(runner_args),
+            ref=engine_agent_ref,
+            claim_secret=config.carrier_claim_secret,
         )
         leg = await open_carrier_leg(
             # Present: `_route_token` above refuses a session with no socket.
@@ -269,10 +284,11 @@ async def bot(runner_args: RunnerArguments) -> None:
         )
         await runtime.calls.run_call(
             call_id=call_id,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            direction=direction,
+            tenant_id=identity.tenant_id,
+            agent_id=identity.agent_id,
+            direction=identity.direction,
             engine_agent_ref=engine_agent_ref,
+            call_claim_unverified=identity.unverified_claim,
             credentials_for=config.credentials_for,
             transport=leg.transport,
             # The claim folded with the handshake's own verdict (`fold_caller_identity`).

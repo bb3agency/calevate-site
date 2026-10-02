@@ -58,8 +58,8 @@ the shipped client of that protocol, read in this session at
    below are this side of that seam. THE NUMBER IS STILL ABSENT ON PLIVO — this conjures
    none, and two things are missing: one cell of that module's `CARRIER_ANSWER_CONTRACT`
    (§5(d) of `docs/evidence/carrier-caller-identity.md` is the reading that fills it). The
-   number then travels under a MAC keyed by `CARRIER_CLAIM_SECRET`, and this side
-   believes it only when that verifies (`claim_from_stream_url`).
+   number then travels SEALED under a key derived from `CARRIER_CLAIM_SECRET`, and this
+   side believes it only when it opens for this agent (`claim_from_stream_url`).
 2. **Whether Plivo signs the HTTP request that fetches the answer document.** That leg
    is not here — see the next section — and nothing in the installed Pipecat tree
    verifies a Plivo request signature.
@@ -79,7 +79,8 @@ process that really serves them and which cannot import this module (it drags
 `pipecat-ai`, ONNX turn detection and three vendor SDKs, and hard rule 3 forbids heavy
 imports there BY NAME). MOVED rather than copied: two renderers of one wire format is the
 "one way per problem" defect even while both agree. This module keeps the half that runs
-inside the call — the handshake, the transport, `route_of` and `start_carrier_call`.
+inside the call — the handshake, the transport and `route_of`. Assembling the call is
+`runtime.WorkerRuntime.run_call`'s, the one assembly path.
 
 HARD RULE 5 IS NOT ENFORCED HERE, AND THAT IS DELIBERATE
 ========================================================
@@ -92,11 +93,10 @@ cannot reach `assemble_call` except through that read.
 HARD RULE 6
 ===========
 A phone number is PII and never reaches a log line here. What is logged is the call id, the
-tenant and agent ids, the carrier's own stream id, and words. That now includes a number
-that arrived on the stream URL's query rather than the handshake: `claim_from_stream_url`
+tenant and agent ids, the carrier's own stream id, and words. That includes a number that
+arrived sealed on the stream URL's query rather than the handshake: `claim_from_stream_url`
 normalises it onto `CallerIdentity.e164` and no logging path in this module reads that
-field. The voice-runtime's answer route argues what putting it in a URL
-at all costs, and what would remove it.
+field.
 """
 
 from __future__ import annotations
@@ -118,11 +118,11 @@ from calevate_shared.worker_api import (
     CALL_CLAIM_MAC_PARAM,
     CALL_DIRECTION_PARAM,
     CALL_ID_PARAM,
-    CLAIM_EXPIRES_PARAM,
-    CLAIM_MAC_PARAM,
+    CALLER_SEAL_PARAM,
     CallerIdentityState,
+    UnverifiedCallClaim,
+    open_caller_claim,
     verify_call_claim,
-    verify_caller_claim,
 )
 from loguru import logger
 from pipecat.frames.frames import EndWorkerFrame
@@ -135,15 +135,10 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 
-from voice_worker.api_client import WorkerApiClient
-from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.pipeline import (
     TELEPHONY_SAMPLE_RATE_HZ,
     AssembledCall,
-    NormalizedEventSink,
-    VendorCredentials,
 )
-from voice_worker.session import start_session
 from voice_worker.vobiz_serializer import MediaFormat, VobizFrameSerializer
 
 #: The event a transport fires when the far end is really connected.
@@ -254,8 +249,13 @@ class CallerIdentity:
 
     @property
     def is_known(self) -> bool:
-        """True only when a number is really in hand. The one test callers should make."""
-        return self.state == "known" and self.e164 is not None
+        """True only when a number is really in hand. The one test callers should make.
+
+        Non-empty, not merely present: `normalize_phone` keeps only digits, so a carrier's
+        "anonymous" normalises to `""`, and a blank number keying an opt-out or a recalled
+        memory is a suppression of nobody that the agent would report as done.
+        """
+        return self.state == "known" and bool(self.e164)
 
     @classmethod
     def not_read(cls) -> CallerIdentity:
@@ -367,11 +367,18 @@ def caller_identity_of(transport_type: str, call_data: Any) -> CallerIdentity:
     """
     parse = CALLER_IDENTITY_PARSE.get(transport_type)
     raw = getattr(call_data, "from_number", None)
-    if isinstance(raw, str) and raw.strip():
+    number = normalize_phone(raw.strip()) if isinstance(raw, str) and raw.strip() else ""
+    if number:
         return CallerIdentity(
             state="known",
             ground=f"{transport_type} handshake carried a calling party",
-            e164=normalize_phone(raw.strip()),
+            e164=number,
+        )
+    if isinstance(raw, str) and raw.strip():
+        # A value with no digit in it is a carrier's word for a withheld number.
+        return CallerIdentity(
+            state="withheld_by_carrier",
+            ground=f"{transport_type} handshake carried a calling party with no number in it",
         )
     if parse is None:
         return CallerIdentity(
@@ -417,15 +424,15 @@ def caller_identity_of(transport_type: str, call_data: Any) -> CallerIdentity:
 #: DECLARED TWICE ACROSS TWO DEPLOYABLES, exactly like `TELEPHONY_SAMPLE_RATE_HZ`, because
 #: neither module may import the other (hard rule 3 forbids the heavy import there, and
 #: this container serves no HTTP). `tests/carrier_answer_identity_test.py` asserts the two
-#: spellings equal, which is the only place that agreement can be checked.
+#: spellings equal, which is the only place that agreement can be checked. The sealed
+#: number's parameter is `worker_api.CALLER_SEAL_PARAM`, which both deployables import.
 CLAIM_CARRIER_PARAM: Final = "carrier"
-CLAIM_CALLER_PARAM: Final = "caller"
 CLAIM_CALLER_STATE_PARAM: Final = "caller_state"
 
 #: Why a `known` caller claimed on the stream URL was not believed. See
 #: `claim_from_stream_url`. Written here and never built from wire data (hard rule 6).
 UNAUTHENTICATED_CLAIM_GROUND: Final = (
-    "the stream URL claimed a known caller without a valid signature for this agent and "
+    "the stream URL claimed a known caller without a claim sealed for this agent and "
     "time, so its number may not key a suppression, a recalled memory, a call-back or a lead"
 )
 
@@ -489,7 +496,7 @@ def claim_from_stream_url(
     url: str,
     *,
     ref: str | None = None,
-    claim_key: bytes | None = None,
+    claim_secret: str | None = None,
     now: float | None = None,
 ) -> ControlPlaneClaim:
     """Read the control plane's claim off the stream URL a carrier connected to.
@@ -507,16 +514,16 @@ def claim_from_stream_url(
     only on `known`, and a `known` with nothing behind it is exactly the sentence that must
     never be said.
 
-    **A `known` NUMBER IS BELIEVED ONLY UNDER A VALID MAC.** Nothing else authenticates
-    this query, so an unsigned number is whatever the connecting party typed. Believed, it
-    would key the in-call opt-out (a stranger's number suppressed), the caller-memory
-    recall (another person's facts read out to whoever connected), a booked call-back (our
-    platform dialling a number of the stranger's choosing) and `calls.from_e164`, from which
-    the lead and the DPDP erasure subject are derived. So `known` stands only when
-    `caller_mac` verifies over the number, `ref` (the agent this socket was routed to) and
-    an unexpired `caller_exp` under `claim_key` (`worker_api.verify_caller_claim`); on any
-    failure — no key, no MAC, another agent's MAC, a changed number, an expired or
-    far-future expiry — it becomes `unparsed_by_client` with no number.
+    **A `known` NUMBER IS BELIEVED ONLY WHEN ITS SEALED CLAIM OPENS.** Nothing else
+    authenticates this query, so an unsealed number is whatever the connecting party typed.
+    Believed, it would key the in-call opt-out (a stranger's number suppressed), the
+    caller-memory recall (another person's facts read out to whoever connected), a booked
+    call-back (our platform dialling a number of the stranger's choosing) and
+    `calls.from_e164`, from which the lead and the DPDP erasure subject are derived. So
+    `known` stands only when `caller_seal` opens under `claim_secret` for `ref` (the agent
+    this socket was routed to) inside its expiry (`worker_api.open_caller_claim`); on any
+    failure — no key, no seal, another agent's claim, a forged or expired one, a payload
+    with no number — it becomes `unparsed_by_client` with no number.
     """
     query = url.split("?", 1)[1] if "?" in url else url
     params = dict(parse_qsl(query, keep_blank_values=True))
@@ -528,19 +535,19 @@ def claim_from_stream_url(
     if raw_state in _STATE_INFORMATIVENESS:
         state = cast(CallerIdentityState, raw_state)
         if state == "known":
-            raw_number = (params.get(CLAIM_CALLER_PARAM) or "").strip()
-            if ref is not None and verify_caller_claim(
-                claim_key,
-                ref=ref,
-                e164=raw_number,
-                expires_at=params.get(CLAIM_EXPIRES_PARAM),
-                mac=params.get(CLAIM_MAC_PARAM),
-                now=time.time() if now is None else now,
-            ):
+            opened = (
+                open_caller_claim(
+                    claim_secret, ref=ref, token=params.get(CALLER_SEAL_PARAM), now=now
+                )
+                if ref is not None
+                else None
+            )
+            number = normalize_phone(opened) if opened is not None else ""
+            if number:
                 caller = CallerIdentity(
                     state="known",
-                    ground="the control plane's answer leg reported known, under a valid MAC",
-                    e164=normalize_phone(raw_number),
+                    ground="the control plane's answer leg reported known, in a sealed claim",
+                    e164=number,
                 )
             else:
                 caller = CallerIdentity(
@@ -579,15 +586,20 @@ def call_claim_from_stream_url(
     ref: str,
     claim_key: bytes | None,
     now: float | None = None,
-) -> ClaimedCall | None:
+) -> ClaimedCall | UnverifiedCallClaim | None:
     """The call claim on the stream URL, believed only under a valid MAC for `ref`.
 
     An outbound dial reaches the worker through the same answer route as an inbound call,
     so neither its direction nor the id of the `calls` row `dispatch_call` already wrote can
     be read off the socket. The answer leg puts both on the URL under
-    `worker_api.call_claim_mac`; anything that does not verify (no key, another agent's
-    MAC, an expired or far-future expiry, a direction outside `CallDirection`) is `None`,
-    and the caller treats the call as inbound with an id of its own, as before.
+    `worker_api.call_claim_mac`.
+
+    Three answers. `ClaimedCall` when it verifies; `None` when the URL carries no claim at
+    all (an inbound call); `UnverifiedCallClaim` when it carries one that does not verify
+    (no key, another agent's MAC, an expired or far-future expiry, a direction outside
+    `CallDirection`). The last runs as inbound with an id of its own, and the settlement
+    reports it so the server can tell a forgery from a dialled call this worker could not
+    verify because its secret differs from voice-runtime's.
     """
     query = url.split("?", 1)[1] if "?" in url else url
     params = dict(parse_qsl(query, keep_blank_values=True))
@@ -606,8 +618,16 @@ def call_claim_from_stream_url(
     ):
         # No value from the query is logged: it is attacker-controlled.
         logger.warning("stream URL call claim did not verify; treating the call as inbound")
-        return None
+        return UnverifiedCallClaim(claimed_call_id=_uuid_or_none(call_id))
     return ClaimedCall(call_id=cast(str, call_id), direction=cast(CallDirection, direction))
+
+
+def _uuid_or_none(value: str | None) -> UUID | None:
+    """`value` as a uuid, or `None`: an unverified claim's id is a stranger's string."""
+    try:
+        return UUID(value) if value else None
+    except ValueError:
+        return None
 
 
 def fold_caller_identity(
@@ -636,8 +656,9 @@ def fold_caller_identity(
        tool wire, outside this change's fence. Reported, not made. Until then the GROUND
        carries the distinction and `is_known` carries the safety.
     4. **Exactly one names a number** → that one wins, with both grounds. A claim names one
-       only when its MAC verified (`claim_from_stream_url`); on Plivo the detection is
-       structurally `unparsed_by_client`, so a signed claim is the only leg that can speak.
+       only when its sealed claim opened (`claim_from_stream_url`); on Plivo and Vobiz the
+       detection is structurally `unparsed_by_client`, so the claim is the only leg that can
+       speak.
     5. **Neither names a number** → the more informative absence wins
        (`_STATE_INFORMATIVENESS`), ground naming both. A carrier's own "withheld" outranks
        our "we could not ask", which outranks "nobody asked".
@@ -1001,102 +1022,8 @@ def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: st
     transport.add_event_handler(CLIENT_DISCONNECTED_EVENT, _hang_up)
 
 
-async def start_carrier_call(
-    api: WorkerApiClient,
-    *,
-    token: str,
-    call_id: str,
-    direction: CallDirection,
-    transport: BaseTransport,
-    credentials: VendorCredentials,
-    caller: CallerIdentity | None = None,
-    sink: NormalizedEventSink,
-    fetcher: PackFetcher,
-    cache: PackCache | None = None,
-    embedder: QueryEmbedder | None = None,
-) -> AssembledCall:
-    """A carrier connection in, a runnable call out. The whole inbound path, in order.
-
-    NOT THE SHIPPED PATH: `bot.py` opens the leg with `open_carrier_leg` and assembles the
-    call in `runtime.WorkerRuntime.run_call`, the one assembly path. This composes
-    `session.start_session` directly and is exercised only by tests.
-
-    1. **Route.** The token off the stream URL becomes a tenant and an agent, or the call is
-       refused (`route_of`). Nothing is read from the database before this: a connection
-       cannot be opened until a tenant is named.
-    2. **Scope.** The token IS the agent ref, so it is what `start_session` presents to the
-       platform API — and the server resolves the tenant from it and reads under that
-       tenant's RLS (D-621). Hard rule 1 is still in the signature, one indirection out: a
-       carrier call cannot reach a row without naming the ref it was routed by, and the ref
-       names the tenant.
-    3. **Load and assemble.** `session.start_session` is the existing seam and is called
-       unchanged in everything but its first argument: the agent's published config version,
-       its knowledge pack, then `assemble_call`. The hard rule 5 refusal lives inside its
-       first step.
-    4. **Arm the first turn**, so the agent volunteers its disclosure toggles (D-163) rather
-       than waiting for a caller who has just heard a click.
-
-    `direction` is an argument rather than the constant `"inbound"` because everything above
-    is direction-agnostic: a call the control plane dialled reaches this same function with
-    the same transport, its direction carried by the stream URL's signed call claim.
-
-    **THE ORDER IS A DECISION.** Arming the greeting comes last, after the pipeline exists:
-    armed first, a carrier that connected during the pack fetch would find a handler closing
-    over a call that has not been assembled.
-
-    **`caller` IS NOW CARRIED INTO THE SESSION, AND THAT IS THE HOP THE FOUR IN-CALL TOOLS
-    WERE WAITING ON.** `assemble_call` takes `caller=None` by default and does NOT advertise
-    opt-out, book / cancel call-back or handoff to the model when it is absent — four tools
-    that could only fail waste a conversational turn — so until this argument was forwarded,
-    a caller on an owned_runtime call could not opt out at all. `apps/api/worker/tools.py:150`
-    then refuses to write, and refuses to let the agent claim success, unless
-    `state == "known"`, answering `caller_number_unknown:<state>` with the state spelled
-    out. That is why `fold_caller_identity`'s disagreement rule is not academic: it decides,
-    synchronously, what an agent is allowed to SAY to a person who has just asked not to be
-    called again, and the safe direction is always the one where `is_known` is False.
-
-    The verdict's STATE is also logged at call start, which is the signal an operator has
-    been missing: `apps/api/worker/service.py::_alert_if_nobody_was_on_the_call` can only
-    notice the absence once the call has already ended. Passing `None` means the same as
-    passing `CallerIdentity.not_read()` and is the honest default for a caller that has not
-    read a handshake at all.
-    """
-    caller = caller or CallerIdentity.not_read()
-    route = route_of(token)
-    call = await start_session(
-        api,
-        call_id=call_id,
-        tenant_id=route.tenant_id,
-        agent_id=route.agent_id,
-        direction=direction,
-        engine_agent_ref=token,
-        credentials=credentials,
-        transport=transport,
-        sink=sink,
-        fetcher=fetcher,
-        cache=cache,
-        embedder=embedder,
-        caller=caller,
-    )
-    arm_first_turn(transport, call, call_id=call_id)
-    # Ids and words (hard rule 6). `caller.state` and `caller.ground` are written in this
-    # module and never built from wire data, so neither can carry a number; `caller.e164`
-    # is deliberately absent from this call and from every other log line here.
-    logger.info(
-        "carrier call assembled",
-        call_id=call_id,
-        tenant_id=str(route.tenant_id),
-        agent_id=str(route.agent_id),
-        direction=direction,
-        caller_identity=caller.state,
-        caller_identity_ground=caller.ground,
-    )
-    return call
-
-
 __all__ = [
     "CALLER_IDENTITY_PARSE",
-    "CLAIM_CALLER_PARAM",
     "CLAIM_CALLER_STATE_PARAM",
     "CLAIM_CARRIER_PARAM",
     "CLIENT_CONNECTED_EVENT",
@@ -1124,6 +1051,5 @@ __all__ = [
     "open_carrier_leg",
     "read_handshake",
     "route_of",
-    "start_carrier_call",
     "wire_family_of",
 ]

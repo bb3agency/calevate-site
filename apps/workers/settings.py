@@ -98,6 +98,7 @@ from apps.workers.action_audit import record_action_invocation
 from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
+from apps.workers.call_finalise import finalise_unsettled_call
 from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.caller_memory_distil import (
     DISTIL_MINUTE as CALLER_MEMORY_DISTIL_MINUTE,
@@ -206,6 +207,10 @@ FUNCTIONS: list[Any] = [
         # `calevate_shared.carrier.CARRIER_EVENT_JOB`) and the CDR read a hangup queues.
         ingest_carrier_event,
         read_carrier_cdr,
+        # The settlement backstop a hangup defers for an answered call. Unregistered, a
+        # worker killed mid-call would leave its call with no lead and no billed minute
+        # while the deferred job sat in Redis under a name nothing runs.
+        finalise_unsettled_call,
         notify_hot_lead,
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.

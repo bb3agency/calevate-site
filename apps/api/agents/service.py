@@ -85,7 +85,6 @@ from calevate_shared.calling_window import IST
 from calevate_shared.engine import (
     LLM_MODELS,
     SARVAM_STT_PROVIDER,
-    TRUTHFUL_ANSWER_DIRECTIVE,
     AgentConfig,
     CallContext,
     DisclosurePosture,
@@ -102,6 +101,7 @@ from calevate_shared.engine import (
     compose_opening_line,
     leg_for_model,
     openai_base_url,
+    truthful_answer_directive,
 )
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -136,9 +136,23 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
-from apps.api.db.session import session_tenant, tenant_session
+from apps.api.db.session import session_tenant, tenant_session, untenanted_session
 from apps.api.engine import engine_capabilities, get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
+from apps.api.engine.carrier import RetiresAgentBindings
+from apps.api.engine.carrier_pacing import (
+    CARRIER_LINES_LOCK_KEY,
+    LINES_BUSY_RULE,
+    LIVE_LINE_HORIZON,
+    PACING_RULE,
+    RING_LINE_HORIZON,
+    DialPacingTimeoutError,
+    await_dial_slot,
+    dials_through_our_carrier,
+    lines_busy,
+    outbound_line_pool,
+    pacing_timed_out,
+)
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.legal.service import assert_agreements_accepted
 from apps.api.ops.maintenance import read_open_window
@@ -220,6 +234,11 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # id, the public callback address, the published agent). Raised before the request
         # is built (`engine/pipecat._dial_precondition_failed`).
         "carrier_dial_precondition_failed",
+        # The carrier account's limits (`engine/carrier_pacing.py`): no dial slot opened in
+        # time, or every outbound line is in use — raised by `dispatch_call` before the
+        # intent row is written, or by the carrier's own `429` naming its concurrency limit.
+        PACING_RULE,
+        LINES_BUSY_RULE,
     }
 )
 
@@ -966,9 +985,12 @@ def _to_config(
         # one composer (D-163). Empty is a legitimate answer — both notices switched off
         # — and is NOT the old "missing disclosure" state: the AI sentence is still
         # NOT NULL on the row, the compliance gate still refuses an agent without one,
-        # and the answer to a caller who ASKS is `TRUTHFUL_ANSWER_DIRECTIVE`, which no
-        # column on this row can reach.
-        opening_line=compose_opening_line(posture_of(agent)),
+        # and the answer to a caller who ASKS is `truthful_answer_directive`, which no
+        # column on this row can reach. The recording sentence is spoken only where the
+        # engine records audio — the same fact the floor's clause 2 is composed from below.
+        opening_line=compose_opening_line(
+            posture_of(agent), call_is_recorded=engine.capabilities.records_audio
+        ),
         # FROM THE ENGINE THAT WILL RUN THIS AGENT, not from any column — no column decides
         # whether audio is captured. It composes clause 2 of the truthful-answer floor, so
         # an agent on a leg that records nothing stops telling callers otherwise
@@ -1219,11 +1241,12 @@ async def route_inbound_numbers(
     if not rows:
         return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
     return await _apply_inbound_bindings(
-        engine, agent_id=agent_id, ref=ref, answers=answers, rows=rows
+        session, engine, agent_id=agent_id, ref=ref, answers=answers, rows=rows
     )
 
 
 async def _apply_inbound_bindings(
+    session: AsyncSession,
     engine: VoiceEngine,
     *,
     agent_id: UUID | None,
@@ -1281,6 +1304,15 @@ async def _apply_inbound_bindings(
                 bound += 1
             else:
                 await engine.unbind_inbound_number(spec)
+                # The carrier no longer routes this number anywhere, so the binding the
+                # last bind recorded names nothing; the "ready to answer" screen reads it.
+                await session.execute(
+                    text(
+                        "UPDATE phone_numbers SET carrier_binding_id = NULL, updated_at = now() "
+                        "WHERE id = :nid AND carrier_binding_id IS NOT NULL"
+                    ),
+                    {"nid": number_id},
+                )
                 released += 1
         except ProblemError as exc:
             failed += 1
@@ -1307,6 +1339,37 @@ async def _apply_inbound_bindings(
         },
     )
     return InboundRouting(bound=bound, released=released, failed=failed, unsupported=0)
+
+
+async def retire_agent_carrier_bindings(*, agent_id: UUID, ref: str | None) -> bool:
+    """Remove the routing object the carrier keeps for an archived agent. True when removed.
+
+    On Vobiz that is the agent's Application, which outlives every number detached from it,
+    and an account holding more than the binding search can page through refuses new binds
+    (`engine/vobiz._find_application`). Called after the agent's numbers are released, since
+    Vobiz refuses to delete an Application a number still points at.
+
+    A failure alarms and does not undo the archive, `route_inbound_numbers`' contract: the
+    agent answers nothing either way, and what is left is a carrier object to tidy by hand.
+    """
+    engine = get_engine()
+    if not ref or not isinstance(engine, RetiresAgentBindings):
+        return False
+    try:
+        removed = await engine.retire_agent_bindings(ref)
+    except ProblemError as exc:
+        alert(
+            "CORE_LOGIC",
+            "carrier_binding_not_retired",
+            detail=(
+                "an archived agent's routing object is still on the carrier account; delete "
+                f"it in the carrier console. Refusal: {exc.code}."
+            ),
+            agent_id=str(agent_id),
+        )
+        return False
+    log.info("carrier_binding_retired", extra={"agent_id": str(agent_id), "removed": removed})
+    return removed
 
 
 # --- the credit cutover: what a caller hears when the wallet is empty (8 Sep 2026) ------
@@ -1373,7 +1436,7 @@ async def _apply_inbound_bindings(
 CREDIT_STOP_MESSAGE: Final = "Sorry, we cannot take your call right now. Please try again later."
 
 
-def credit_stop_greeting(posture: DisclosurePosture) -> str:
+def credit_stop_greeting(posture: DisclosurePosture, *, call_is_recorded: bool) -> str:
     """The agent's own opening line, then the neutral message.
 
     PREPENDED, NOT REPLACED — `workers/maintenance._maintenance_greeting` argues this and
@@ -1382,31 +1445,32 @@ def credit_stop_greeting(posture: DisclosurePosture) -> str:
     own client-set switch (D-163). Replacing it would switch both off, silently, for every
     client whose credit ran out.
 
-    **AND HERE IT IS LOAD-BEARING RATHER THAN MERELY TIDY, BECAUSE THE CALL IS STILL
-    RECORDED.** `override_call_script` writes exactly two attributes — the welcome message
-    and the task prompt (`patch_update.md:19-31`) — and recording is neither of them, so a
-    silenced agent records this call exactly as it records any other and the post-call
-    pipeline still runs over it. A DPDP notice-and-consent obligation attaches to a
-    recording that is actually made; dropping the notice because "there is no real
-    conversation" would be reasoning our way out of an obligation we are still incurring.
+    **ON AN ENGINE THAT RECORDS AUDIO THIS IS LOAD-BEARING RATHER THAN MERELY TIDY.**
+    Overriding the script changes the welcome message and the task prompt and nothing
+    else, so a silenced agent there records this call exactly as it records any other. A
+    DPDP notice-and-consent obligation attaches to a recording that is actually made;
+    dropping the notice because "there is no real conversation" would be reasoning our way
+    out of an obligation we are still incurring. `call_is_recorded` is that engine fact
+    (`EngineCapabilities.records_audio`); where it is False, `compose_opening_line` drops
+    the recording sentence because no recording is made.
     """
-    opening = compose_opening_line(posture).strip()
+    opening = compose_opening_line(posture, call_is_recorded=call_is_recorded).strip()
     return f"{opening} {CREDIT_STOP_MESSAGE}".strip()
 
 
-def credit_stop_prompt() -> str:
+def credit_stop_prompt(*, call_is_recorded: bool) -> str:
     """What the agent is told to do while its client's wallet is empty: say the line, say
     nothing else, end the call.
 
     ═══ HARD RULE 5 IS UNTOUCHED, IN BOTH ITS HALVES ═══
 
-    `TRUTHFUL_ANSWER_DIRECTIVE` is appended verbatim, so a caller who asks whether they are
-    talking to an AI, or whether the call is recorded, gets the truth here exactly as they
-    do on an ordinary call. It would have been easy to argue the floor away — "no
-    conversation happens, so nothing attaches" — and it would have been wrong twice over:
-    the call IS answered, and it IS recorded (see `credit_stop_greeting`), so both
-    obligations have a real event to attach to. The floor is preserved rather than
-    reasoned around, and `scripts/check_compliance_invariants.py` reads the composer.
+    The truthful-answer floor is appended, composed for THIS engine's recording fact, so a
+    caller who asks whether they are talking to an AI, or whether the call is recorded,
+    gets the same true answer here as on an ordinary call. It would have been easy to argue
+    the floor away — "no conversation happens, so nothing attaches" — and it would have
+    been wrong: the call IS answered, and on an engine that records audio it IS recorded
+    (see `credit_stop_greeting`). The floor is preserved rather than reasoned around, and
+    `scripts/check_compliance_invariants.py` reads the composer.
 
     ═══ WHAT IS FORBIDDEN, AND WHY IT IS SPELLED OUT TO THE MODEL ═══
 
@@ -1431,7 +1495,7 @@ def credit_stop_prompt() -> str:
             "or any of the caller's details, and do NOT promise that anyone will ring "
             "them back.",
             "Then end the call politely. Keep the whole call under twenty seconds.",
-            TRUTHFUL_ANSWER_DIRECTIVE,
+            truthful_answer_directive(call_is_recorded=call_is_recorded),
         )
     )
 
@@ -1636,10 +1700,13 @@ async def reconcile_inbound_answering(
             continue
         try:
             if exhausted:
+                recorded = engine.capabilities.records_audio
                 await engine.override_call_script(
                     ref,
-                    opening_line=credit_stop_greeting(_posture_of_row(row)),
-                    system_prompt=credit_stop_prompt(),
+                    opening_line=credit_stop_greeting(
+                        _posture_of_row(row), call_is_recorded=recorded
+                    ),
+                    system_prompt=credit_stop_prompt(call_is_recorded=recorded),
                 )
                 await _stamp_inbound_silence(
                     session, agent_id=agent_id, reason=INBOUND_SILENCE_CREDITS
@@ -1957,11 +2024,12 @@ async def _settle_inbound_silence(
         return
     if not engine.capabilities.has("script_override"):
         return
+    recorded = engine.capabilities.records_audio
     try:
         await engine.override_call_script(
             ref,
-            opening_line=credit_stop_greeting(_posture_of_row(row)),
-            system_prompt=credit_stop_prompt(),
+            opening_line=credit_stop_greeting(_posture_of_row(row), call_is_recorded=recorded),
+            system_prompt=credit_stop_prompt(call_is_recorded=recorded),
         )
     except Exception as exc:
         alert(
@@ -2394,7 +2462,8 @@ def _variant_config(
             # its experiment arms, so an arm would greet callers without saying the agent
             # remembers them while the agent said it.
             "opening_line": compose_opening_line(
-                posture_of(agent).model_copy(update={"ai_disclosure_line": disclosure})
+                posture_of(agent).model_copy(update={"ai_disclosure_line": disclosure}),
+                call_is_recorded=engine.capabilities.records_audio,
             ),
         }
     )
@@ -2617,10 +2686,54 @@ async def republish_running_variants(
 #:
 #: ORDERED so that the AMBIGUOUS case below is deterministic across connections — a
 #: refusal that depended on the planner's row order would be a refusal that came and went.
+#:
+#: AND, WHEN THE CALL GOES OUT ON OUR CARRIER, ONLY A NUMBER THAT CARRIER HOLDS FOR
+#: OUTGOING CALLS (`:carrier` set). A caller id the dialling account does not hold is one
+#: it cannot present, and a number bought for inbound only is not one to place calls from.
+#: `:carrier` is NULL on an engine that dials on an account of its own, where neither fact
+#: is ours to check (`outbound_carrier`).
 _AGENT_CALLER_ID_SQL = (
     "SELECT e164 FROM phone_numbers "
-    "WHERE agent_id = :aid AND dlt_status = 'registered' ORDER BY created_at, id"
+    "WHERE agent_id = :aid AND dlt_status = 'registered' "
+    "AND (CAST(:carrier AS text) IS NULL "
+    "     OR (provider = :carrier AND direction IN ('outbound', 'both'))) "
+    "ORDER BY created_at, id"
 )
+
+#: The rules the dial gate refuses a header under when the call goes out on our carrier.
+NUMBER_NOT_ON_CARRIER_RULE: Final = "number_not_on_carrier"
+NUMBER_INBOUND_ONLY_RULE: Final = "number_inbound_only"
+
+#: How an operator may have typed a carrier's name into `phone_numbers.provider`, mapped to
+#: the name (`calevate_shared.carrier.CarrierName`). Migration c8f5d1b74a30 froze the same
+#: map for the rows already on file.
+CARRIER_SPELLINGS: Final[dict[str, str]] = {
+    "vobiz": "vobiz",
+    "vobiz.ai": "vobiz",
+    "vobiz ai": "vobiz",
+    "www.vobiz.ai": "vobiz",
+    "plivo": "plivo",
+    "plivo.com": "plivo",
+    "plivo inc": "plivo",
+    "www.plivo.com": "plivo",
+}
+
+
+def carrier_of_provider(provider: str | None) -> str | None:
+    """The carrier a recorded provider names, or None when it names none we dial on.
+
+    None is what the column holds for a number on any other operator, and the dial gate
+    reads it as "not on the active carrier" (`NUMBER_NOT_ON_CARRIER_RULE`).
+    """
+    if provider is None:
+        return None
+    return CARRIER_SPELLINGS.get(provider.strip().lower())
+
+
+def outbound_carrier() -> str | None:
+    """The carrier an outbound header must be held on, or None when the engine dials on
+    an account of its own and the question is not ours."""
+    return get_settings().carrier if dials_through_our_carrier() else None
 
 
 # The client-facing wording of the two ways a non-campaign outbound dial (an instant
@@ -2636,6 +2749,15 @@ CALLBACK_NO_REGISTERED_NUMBER_REASON = (
 CALLBACK_NUMBER_NOT_REGISTERED_REASON = (
     "This agent's calling number is not DLT-registered yet, so it cannot place outbound "
     "calls. Only a registered number may dial out."
+)
+NUMBER_NOT_ON_CARRIER_REASON = (
+    "This agent's calling number is not on the phone line Calevate places calls through, so "
+    "it cannot be shown to the person being called. Ask Calevate to record which carrier "
+    "holds the number, or assign a number on the active carrier to this agent."
+)
+NUMBER_INBOUND_ONLY_REASON = (
+    "This agent's calling number is set up for incoming calls only, so it cannot place "
+    "outbound calls. Assign a number set up for outgoing calls to this agent."
 )
 
 
@@ -2657,22 +2779,34 @@ async def agent_outbound_number_blocker(
     campaign's agent). This is the single-lead twin of that check, not a second copy of
     the campaign rule — the campaign has a `number_id`; a callback has only the agent.
 
-    Reuses the existing blocker codes. `number_not_bound_to_agent` when the agent carries
-    no number at all; `number_not_registered` when it has one that is not `registered`.
-    Ambiguity (more than one registered number) is deliberately NOT judged here — it is a
-    real refusal, but `resolve_caller_id` raises it at dial time with the remediation, and
-    the gate only needs to know whether a lawful header EXISTS.
+    `number_not_bound_to_agent` when the agent carries no number at all;
+    `number_not_registered` when it has one that is not `registered`. When the call goes
+    out on our carrier, two more: `number_not_on_carrier` when no registered number is held
+    on that carrier (a NULL provider included), and `number_inbound_only` when the ones it
+    holds were bought for incoming calls only. Ambiguity (more than one presentable number)
+    is deliberately NOT judged here — it is a real refusal, but `resolve_caller_id` raises
+    it at dial time with the remediation, and the gate only needs to know whether a lawful
+    header EXISTS.
     """
     rows = (
         await session.execute(
-            text("SELECT dlt_status FROM phone_numbers WHERE agent_id = :aid"),
+            text("SELECT dlt_status, provider, direction FROM phone_numbers WHERE agent_id = :aid"),
             {"aid": agent_id},
         )
     ).all()
     if not rows:
         return ("number_not_bound_to_agent", CALLBACK_NO_REGISTERED_NUMBER_REASON)
-    if not any(str(row[0]) == "registered" for row in rows):
+    registered = [row for row in rows if str(row[0]) == "registered"]
+    if not registered:
         return ("number_not_registered", CALLBACK_NUMBER_NOT_REGISTERED_REASON)
+    carrier = outbound_carrier()
+    if carrier is None:
+        return None
+    on_carrier = [row for row in registered if row[1] == carrier]
+    if not on_carrier:
+        return (NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON)
+    if not any(str(row[2]) in ("outbound", "both") for row in on_carrier):
+        return (NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON)
     return None
 
 
@@ -2683,7 +2817,11 @@ async def agent_registered_numbers(session: AsyncSession, *, agent_id: UUID) -> 
     the dial gate's declaration check needs them all, since whichever is used must have
     been declared.
     """
-    rows = (await session.execute(text(_AGENT_CALLER_ID_SQL), {"aid": agent_id})).all()
+    rows = (
+        await session.execute(
+            text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": outbound_carrier()}
+        )
+    ).all()
     return [str(row[0]) for row in rows]
 
 
@@ -2957,14 +3095,27 @@ async def dispatch_call(
     # outage caused by an experiment. It is not recorded as assigned — see below.
     dial_ref = arm.arm.engine_agent_ref if arm and arm.arm.engine_agent_ref else ref
 
+    # THE CARRIER ACCOUNT'S TWO LIMITS, for every caller of this function (D-663). Pacing
+    # first, outside any transaction, because a wait inside the line check would hold the
+    # platform-wide lock for up to `MAX_PACING_WAIT_S`. Both refusals are raised before the
+    # intent row exists, so nothing is left `queued` for a dial that was never placed.
+    carrier = outbound_carrier()
+    if carrier is not None:
+        try:
+            await await_dial_slot()
+        except DialPacingTimeoutError as exc:
+            raise pacing_timed_out() from exc
+
     call_id = uuid7()
     intent_engine_call_id = unconfirmed_engine_call_id(call_id)
     async with tenant_session(tenant_id) as intent:
+        if carrier is not None:
+            await _hold_carrier_line(intent, carrier=carrier)
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-                "'outbound', :to_e, 'queued', now(), now())"
+                "carrier, status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
+                "'outbound', :to_e, :carrier, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
@@ -2972,6 +3123,7 @@ async def dispatch_call(
                 "aid": agent_id,
                 "ecid": intent_engine_call_id,
                 "to_e": phone_e164,
+                "carrier": carrier,
             },
         )
         # The arm rides the row it describes, in the row's own transaction. There is no
@@ -3053,6 +3205,58 @@ async def dispatch_call(
     return handle
 
 
+_CARRIER_LINES_IN_USE_SQL = text(
+    "SELECT carrier_lines_in_use(:carrier, make_interval(secs => :live), "
+    "make_interval(secs => :ring))"
+)
+
+
+async def _count_carrier_lines(session: AsyncSession, *, carrier: str | None = None) -> int:
+    """Calls holding a line on `carrier` (default: the switch) right now, both directions.
+
+    `carrier_lines_in_use()` (migration a6d3b9f52e18) walks every tenant under its own
+    `app.tenant_id`, so it answers on any session and leaves the caller's tenant as it
+    found it. Takes the caller's session and never opens one: the dial path already holds
+    a connection, and a second one there is a pool deadlock under load.
+    """
+    params = {
+        "carrier": carrier or get_settings().carrier,
+        "live": LIVE_LINE_HORIZON.total_seconds(),
+        "ring": RING_LINE_HORIZON.total_seconds(),
+    }
+    return int((await session.execute(_CARRIER_LINES_IN_USE_SQL, params)).scalar_one())
+
+
+async def carrier_lines_in_use(*, carrier: str | None = None) -> int:
+    """`_count_carrier_lines` on an untenanted session of its own, for the dispatch tick."""
+    async with untenanted_session() as fresh:
+        return await _count_carrier_lines(fresh, carrier=carrier)
+
+
+async def _hold_carrier_line(session: AsyncSession, *, carrier: str) -> None:
+    """Refuse the dial unless an outbound line is free on `carrier`; else let it take one.
+
+    Runs in the intent transaction, before the INSERT. The advisory lock serialises every
+    dial's count-then-insert, so two dials cannot both see one free line and both go out;
+    it is released at commit, by which time this dial's own `queued` row is counted by the
+    next. The row's status IS the hold: nothing releases a line explicitly, a call that
+    ends releases it, and a row whose end was never reported ages out at the horizons.
+    Inbound calls count against the same account, which is why the threshold is the
+    outbound pool and not the whole line count.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": CARRIER_LINES_LOCK_KEY}
+    )
+    in_use = await _count_carrier_lines(session, carrier=carrier)
+    pool = outbound_line_pool()
+    if in_use >= pool:
+        log.info(
+            "dial_refused_lines_busy",
+            extra={"carrier": carrier, "lines_in_use": in_use, "outbound_pool": pool},
+        )
+        raise lines_busy()
+
+
 async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
     """Stamp the vendor's handle onto the intent row, in its own transaction.
 
@@ -3119,6 +3323,7 @@ async def provision_number(
     purpose: str | None,
     engine_number_ref: str | None = None,
     engine_owned: bool = False,
+    direction: str = "inbound",
     purchase_price_usd: Decimal | None = None,
     monthly_rental_usd: Decimal | None = None,
 ) -> UUID:
@@ -3241,9 +3446,10 @@ async def provision_number(
         await session.execute(
             text(
                 "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, provider, "
-                "dlt_status, purpose, engine_number_ref, engine_owned, purchase_price_usd, "
-                "monthly_rental_usd, created_at, updated_at) VALUES (:id, :tid, :aid, :e, :s, "
-                ":prov, 'pending', :purpose, :ref, :owned, :buy_usd, :rent_usd, now(), now())"
+                "direction, dlt_status, purpose, engine_number_ref, engine_owned, "
+                "purchase_price_usd, monthly_rental_usd, created_at, updated_at) VALUES (:id, "
+                ":tid, :aid, :e, :s, :prov, :direction, 'pending', :purpose, :ref, :owned, "
+                ":buy_usd, :rent_usd, now(), now())"
             ),
             {
                 "id": number_id,
@@ -3251,7 +3457,10 @@ async def provision_number(
                 "aid": agent_id,
                 "e": e164,
                 "s": series,
-                "prov": provider,
+                # The column holds a carrier name or NULL (migration c8f5d1b74a30); any other
+                # operator's name is NULL, which the dial gate reads as "not on our carrier".
+                "prov": carrier_of_provider(provider),
+                "direction": direction,
                 "purpose": purpose,
                 "ref": engine_number_ref,
                 "owned": engine_owned,
@@ -3573,6 +3782,7 @@ async def attach_number_to_agent(
         # last-write-wins by contract, so a re-point needs no unbind first (an unbind
         # between the two would leave the number answering nothing in the meantime).
         routing = await _apply_inbound_bindings(
+            session,
             get_engine(),
             # The agent an operator would need to look at: the one being bound, or — on a
             # release — the one the number is being taken away from.
@@ -3596,12 +3806,17 @@ async def attach_number_to_agent(
 
 
 __all__ = [
+    "CARRIER_SPELLINGS",
     "CREDIT_STOP_MESSAGE",
     "DIAL_NOT_PLACED_CODES",
     "INBOUND_SILENCE_CREDITS",
     "INBOUND_SILENCE_PRECEDENCE",
     "INBOUND_SILENCE_REASONS",
     "INBOUND_SILENCE_TRUTHFUL_ANSWER",
+    "NUMBER_INBOUND_ONLY_REASON",
+    "NUMBER_INBOUND_ONLY_RULE",
+    "NUMBER_NOT_ON_CARRIER_REASON",
+    "NUMBER_NOT_ON_CARRIER_RULE",
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
     "ArmToPublish",
     "DialUnconfirmedError",
@@ -3609,11 +3824,14 @@ __all__ = [
     "InboundRouting",
     "agent_outbound_number_blocker",
     "attach_number_to_agent",
+    "carrier_lines_in_use",
+    "carrier_of_provider",
     "credit_stop_greeting",
     "credit_stop_prompt",
     "dial_was_not_placed",
     "dispatch_call",
     "effective_call_cap",
+    "outbound_carrier",
     "provision_number",
     "publish_agent",
     "publish_variant",
@@ -3622,6 +3840,7 @@ __all__ = [
     "reconcile_inbound_truthful_answer",
     "republish_running_variants",
     "resolve_caller_id",
+    "retire_agent_carrier_bindings",
     "route_inbound_numbers",
     "set_number_dlt_status",
     "set_number_engine_ref",

@@ -208,9 +208,11 @@ def test_the_opening_line_gains_the_memory_sentence_only_from_the_memory_flag() 
         caller_memory_notice_line="We keep a short note of what you ask about.",
         caller_memory_enabled=False,
     )
-    assert "short note" not in compose_opening_line(posture)
+    assert "short note" not in compose_opening_line(posture, call_is_recorded=True)
     remembering = posture.model_copy(update={"caller_memory_enabled": True})
-    assert compose_opening_line(remembering).endswith("We keep a short note of what you ask about.")
+    assert compose_opening_line(remembering, call_is_recorded=True).endswith(
+        "We keep a short note of what you ask about."
+    )
 
 
 # --- what the agent is told ------------------------------------------------------------

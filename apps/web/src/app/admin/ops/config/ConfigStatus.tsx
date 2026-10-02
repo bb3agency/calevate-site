@@ -1,10 +1,17 @@
-import { CheckCircle2, CircleHelp, Lock, TriangleAlert } from "lucide-react";
+"use client";
 
-import { MonoValue } from "@/app/admin/ops/opsLanguage";
-import { NoticeBox, formatIST } from "@/components/ui";
+import { CheckCircle2, CircleHelp, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+
+import { MonoValue, TestOutcome } from "@/app/admin/ops/opsLanguage";
+import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
 import type { ConfigList } from "@/lib/api/opsConfig";
+import { useProbeCarrier } from "@/lib/api/opsSecrets";
 
 import { settingLabel } from "./configField";
+
+/** The env-only row the carrier check sits beside: the second half of the Vobiz pair, so
+ *  the button appears once, under both halves, rather than once per half. */
+const CARRIER_PROBE_ROW = "vobiz_auth_token";
 
 /**
  * The facts that qualify EVERY section of the configuration screen, so they sit above the
@@ -128,9 +135,43 @@ export function EnvOnlyKeys({ keys }: { keys: ConfigList["bootstrap"] }) {
               )}
             </div>
             <p className="mt-1 text-xs text-ink-muted">Cannot be set here because {entry.reason}</p>
+            {entry.key === CARRIER_PROBE_ROW && <CarrierProbe />}
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * Asks the carrier whether the pair this deployment's processes hold authenticates.
+ * `POST /v1/ops/carrier/probe` takes no value — the pair is env-only, so there is nothing
+ * to paste — and stores nothing, so it needs no typed confirmation. The server's own
+ * sentence is shown beside the verdict because "not checked" has two causes (no pair set,
+ * or the carrier unreachable) and only the detail says which.
+ */
+function CarrierProbe() {
+  const probe = useProbeCarrier();
+  return (
+    <div className="mt-2 space-y-2">
+      {probe.error && <ProblemNotice error={probe.error} />}
+      {probe.data && (
+        <div className="space-y-1">
+          <TestOutcome outcome={probe.data.outcome} verified={probe.data.verified} />
+          <p className="text-xs text-ink-muted">
+            Asked <MonoValue>{probe.data.carrier}</MonoValue>: {probe.data.detail}
+          </p>
+        </div>
+      )}
+      <button
+        type="button"
+        disabled={probe.isPending}
+        onClick={() => probe.mutate()}
+        className={SECONDARY_BUTTON_SM}
+      >
+        <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
+        {probe.isPending ? "Testing…" : "Test the carrier credentials"}
+      </button>
+    </div>
   );
 }

@@ -27,14 +27,11 @@ from apps.api.compliance.service import (
     check_dispatch,
 )
 from apps.api.core.alerting import record_compliance_block
+from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
-from apps.workers.carrier_pacing import PACING_RULE, DialPacingTimeoutError, await_dial_slot
-
-# The ingest job's retry ladder, its transience verdict and its tenant resolution, used
-# rather than restated — `optout.py` imports the identical three for the identical reason
-# and says so: this module asks the same questions of the same engine.
+from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
 
 log = get_logger(__name__)
 
@@ -60,6 +57,13 @@ DIAL_FAILED_REASON = "The phone system would not place this call."
 
 #: ...and when the carrier's calls-per-second limit left no slot for it this tick.
 PACING_DEFERRED_REASON = "The phone line was busy starting other calls; we will try again shortly."
+
+#: ...and when every line the calling account allows was in use.
+LINES_BUSY_REASON = "All our phone lines were busy; we will try again shortly."
+
+#: The refusals that say the LINE was not free rather than that the phone system refused,
+#: each with the sentence the client reads on the deferred call-back.
+_LINE_REFUSALS = {PACING_RULE: PACING_DEFERRED_REASON, LINES_BUSY_RULE: LINES_BUSY_REASON}
 
 #: What the caller hears about, in the ledger sense, when they call their own callback off.
 CANCELLED_BY_CALLER_REASON = "The caller asked us not to ring them back."
@@ -146,16 +150,6 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 )
                 continue
 
-            # After the gate, so a refused call-back never spends one of the account's slots.
-            try:
-                await await_dial_slot()
-            except DialPacingTimeoutError:
-                await callbacks.defer(
-                    session, callback.id, rule=PACING_RULE, reason=PACING_DEFERRED_REASON
-                )
-                blocked += 1
-                continue
-
             try:
                 # THE ONE OUTBOUND ENTRY POINT. Not a parallel dial path: everything a dial
                 # is supposed to inherit — the A/B arm, the resolved DLT header, the intent
@@ -187,14 +181,22 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 )
                 continue
             except Exception as exc:
-                # The engine refused BEFORE dialling. Back on the ladder rather than
-                # settled — a vendor 502 is the most transient fact there is — and the
-                # grace window is what stops that being for ever.
-                await callbacks.defer(
-                    session, callback.id, rule="dial_failed", reason=DIAL_FAILED_REASON
-                )
+                # Refused before any line was seized: the account's pacing or line limit
+                # (`dispatch_call` enforces both), or the phone system declining the
+                # request. Back on the ladder rather than settled, and the grace window is
+                # what stops that being for ever. A failure that may have rung somebody is
+                # `DialUnconfirmedError`, handled above, and is never retried.
+                code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+                if code in _LINE_REFUSALS:
+                    await callbacks.defer(
+                        session, callback.id, rule=code, reason=_LINE_REFUSALS[code]
+                    )
+                else:
+                    await callbacks.defer(
+                        session, callback.id, rule="dial_failed", reason=DIAL_FAILED_REASON
+                    )
                 blocked += 1
-                log.warning("callback_dial_failed", extra={"code": type(exc).__name__})
+                log.warning("callback_dial_failed", extra={"code": code})
                 continue
             dialled += 1
     return {"dialled": dialled, "blocked": blocked, "settled": settled}

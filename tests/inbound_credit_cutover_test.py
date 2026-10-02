@@ -43,7 +43,7 @@ from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
 from apps.workers import pipeline
 from apps.workers.inbound_cutover import apply_inbound_credit_state
-from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE
+from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, truthful_answer_directive
 from sqlalchemy import text
 from tests.conftest import accept_agreements
 from tests.spend_caps_test import _snapshot
@@ -162,7 +162,7 @@ def test_the_message_gives_no_reason_and_says_nothing_about_the_account() -> Non
     clinic that may be full of people and "technical problem" is simply untrue.
     """
     message = agents_service.CREDIT_STOP_MESSAGE
-    prompt = agents_service.credit_stop_prompt()
+    prompt = agents_service.credit_stop_prompt(call_is_recorded=True)
     for forbidden in ("credit", "balance", "bill", "pay", "account", "subscription"):
         assert forbidden not in message.lower(), (
             f"the caller is told about the client's finances: {message!r}"
@@ -178,28 +178,42 @@ def test_the_message_gives_no_reason_and_says_nothing_about_the_account() -> Non
     )
 
 
+_CREDIT_STOP_POSTURE = agents_service.DisclosurePosture(
+    ai_disclosure_line="Idi AI assistant.",
+    ai_disclosure_enabled=True,
+    recording_notice_line="This call is being recorded.",
+    recording_notice_enabled=True,
+    caller_memory_notice_line="I keep a short note.",
+    caller_memory_enabled=False,
+)
+
+
 def test_the_silenced_agent_still_carries_the_hard_rule_5_floor() -> None:
-    """The call is ANSWERED and it is RECORDED — `override_call_script` writes two
-    attributes and recording is neither — so both obligations have a real event to attach
-    to and neither may be reasoned away.
+    """On an engine that records audio the call is ANSWERED and it is RECORDED — the
+    script override writes the greeting and the prompt and recording is neither — so both
+    obligations have a real event to attach to and neither may be reasoned away.
 
     The composed opening line (the AI disclosure and the recording notice, each on its own
     client-set toggle) is PREPENDED rather than replaced, and the truthful-answer directive
     is in the prompt verbatim.
     """
-    posture = agents_service.DisclosurePosture(
-        ai_disclosure_line="Idi AI assistant.",
-        ai_disclosure_enabled=True,
-        recording_notice_line="This call is being recorded.",
-        recording_notice_enabled=True,
-        caller_memory_notice_line="I keep a short note.",
-        caller_memory_enabled=False,
-    )
-    greeting = agents_service.credit_stop_greeting(posture)
+    greeting = agents_service.credit_stop_greeting(_CREDIT_STOP_POSTURE, call_is_recorded=True)
     assert greeting.startswith("Idi AI assistant."), "the AI disclosure was dropped"
     assert "This call is being recorded." in greeting, "the recording notice was dropped"
     assert greeting.endswith(agents_service.CREDIT_STOP_MESSAGE)
-    assert TRUTHFUL_ANSWER_DIRECTIVE in agents_service.credit_stop_prompt()
+    assert TRUTHFUL_ANSWER_DIRECTIVE in agents_service.credit_stop_prompt(call_is_recorded=True)
+
+
+def test_a_silenced_agent_without_a_recorder_neither_announces_nor_claims_one() -> None:
+    """Where no audio is kept, the silenced agent must not open with a recording notice and
+    must answer the recording question with the not-recorded clause — the same fact, both
+    halves, exactly as on an ordinary call."""
+    greeting = agents_service.credit_stop_greeting(_CREDIT_STOP_POSTURE, call_is_recorded=False)
+    prompt = agents_service.credit_stop_prompt(call_is_recorded=False)
+    assert "This call is being recorded." not in greeting
+    assert greeting == f"Idi AI assistant. {agents_service.CREDIT_STOP_MESSAGE}"
+    assert truthful_answer_directive(call_is_recorded=False) in prompt
+    assert TRUTHFUL_ANSWER_DIRECTIVE not in prompt
 
 
 # ============================================================================

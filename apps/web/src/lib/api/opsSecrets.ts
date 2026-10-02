@@ -47,6 +47,11 @@ export type KekState = Schemas["KekOut"];
 
 export type RewrapResult = Schemas["RewrapOut"];
 
+/** What the carrier said about the env-only credential pair this deployment holds. */
+export type CarrierProbe = Schemas["CarrierProbeOut"];
+
+export const OPS_CARRIER_PROBE_PATH = "/v1/ops/carrier/probe";
+
 /** Copied VERBATIM from `apps/api/ops/secret_routes.py`, like every other confirmation
  *  in this console: it is a property of the request being sent, and a mismatch is
  *  refused by the server rather than assumed. */
@@ -112,6 +117,15 @@ export function useTestSecret() {
     gcTime: CREDENTIAL_MUTATION_GC_MS,
     // NOTHING is invalidated: the test stores nothing, so nothing the console holds has
     // changed. Refetching here would suggest otherwise.
+  });
+}
+
+/** Asks the carrier about the pair the running process holds. It sends no value, so the
+ *  `gcTime` argument above does not apply, and it stores nothing, so nothing is invalidated. */
+export function useProbeCarrier() {
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<CarrierProbe>(adminSession(), OPS_CARRIER_PROBE_PATH, { method: "POST" }),
   });
 }
 

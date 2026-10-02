@@ -33,11 +33,13 @@ from apps.api.engine.fake import (
     FakeEngine,
 )
 from apps.api.engine.pipecat import (
+    CarrierCallRecord,
     PipecatEngine,
     RuntimeAgent,
 )
 from apps.api.engine.plivo_carrier import PlivoCarrier
 from apps.api.engine.vobiz import VobizCarrier
+from calevate_shared.carrier import CarrierName
 from calevate_shared.engine import (
     AccountKBObject,
     AgentConfig,
@@ -452,8 +454,8 @@ class _InMemoryControlPlane:
         #: does not, as in `SqlControlPlane`: the listing is the poller's DISCOVERY question
         #: and is answered from no table of ours.
         self._dialled: dict[str, ExecutionSnapshot] = {}
-        #: engine handle -> the carrier's call id, as `record_dial` received it.
-        self._carrier_calls: dict[str, str] = {}
+        #: engine handle -> the carrier's call id and carrier, as `record_dial` received them.
+        self._carrier_calls: dict[str, CarrierCallRecord] = {}
         #: e164 -> the carrier binding id the last bind recorded.
         self.bindings: dict[str, str] = {}
 
@@ -559,14 +561,22 @@ class _InMemoryControlPlane:
         )
 
     async def record_dial(
-        self, ref: EngineAgentRef, *, call_id: str, carrier_call_id: str, from_e164: str
+        self,
+        ref: EngineAgentRef,
+        *,
+        call_id: str,
+        carrier_call_id: str,
+        from_e164: str,
+        carrier: CarrierName,
     ) -> None:
         """The dial reached the carrier, and the WORKER picked the call up: a session in
         progress, with the caller id the dial presented and the agent's first turn."""
         tenant_id = tenant_of_pipecat_ref(ref)
         assert tenant_id is not None, "the adapter dialled on a ref it did not mint"
         handle = pipecat_call_ref(tenant_id, call_id)
-        self._carrier_calls[handle] = carrier_call_id
+        self._carrier_calls[handle] = CarrierCallRecord(
+            carrier_call_id=carrier_call_id, carrier=carrier
+        )
         self._dialled[handle] = ExecutionSnapshot(
             engine_call_id=handle,
             engine_agent_ref=ref,
@@ -581,7 +591,7 @@ class _InMemoryControlPlane:
             engine="pipecat",
         )
 
-    async def carrier_call_of(self, call_ref: str) -> str | None:
+    async def carrier_call_of(self, call_ref: str) -> CarrierCallRecord | None:
         return self._carrier_calls.get(call_ref)
 
     async def record_number_binding(
@@ -626,6 +636,10 @@ class _InMemoryControlPlane:
 #: The account the Vobiz stub answers for. Not a real auth id.
 CONFORMANCE_VOBIZ_AUTH_ID = "MA_CONFORMANCE"
 CONFORMANCE_VOBIZ_BASE_URL = "https://api.vobiz.ai/api/v1"
+#: The caller-claim key the `pipecat` subjects dial with. A dial without a usable key is
+#: refused before the carrier is reached (`PipecatEngine.start_outbound_call`), and the
+#: suite must not depend on the process environment carrying one. Not a real key.
+CONFORMANCE_CLAIM_SECRET = "conformance-claim-key-not-a-real-secret-0123456789"
 
 
 class _VobizStub:
@@ -745,9 +759,17 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
         # The REAL adapter over a double of its database and its worker — see
         # `_InMemoryControlPlane` for why that is a vendor stub and not a second adapter —
         # and the REAL Vobiz client over a stub of its documented API.
-        return PipecatEngine(store=_InMemoryControlPlane(), carrier=conformance_vobiz())
+        return PipecatEngine(
+            store=_InMemoryControlPlane(),
+            carrier=conformance_vobiz(),
+            caller_claim_secret=CONFORMANCE_CLAIM_SECRET,
+        )
     if engine_id == "pipecat-plivo":
-        return PipecatEngine(store=_InMemoryControlPlane(), carrier=PlivoCarrier())
+        return PipecatEngine(
+            store=_InMemoryControlPlane(),
+            carrier=PlivoCarrier(),
+            caller_claim_secret=CONFORMANCE_CLAIM_SECRET,
+        )
     if engine_id == "cartesia":
         return CartesiaEngine(
             api_key="test-key",
@@ -820,7 +842,9 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
         carrier: CarrierClient = (
             conformance_vobiz() if engine.capabilities.caller_id else PlivoCarrier()
         )
-        return PipecatEngine(store=saturated_store, carrier=carrier)
+        return PipecatEngine(
+            store=saturated_store, carrier=carrier, caller_claim_secret=CONFORMANCE_CLAIM_SECRET
+        )
     assert isinstance(engine, CartesiaEngine), f"no saturation recipe for {type(engine).__name__}"
     return make_engine("cartesia", listing_rows=CARTESIA_FULL_PAGE)
 

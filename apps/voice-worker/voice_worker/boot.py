@@ -125,10 +125,17 @@ CARTESIA_KEY_ENV: Final[str] = "CARTESIA_API_KEY"
 #: env-only in the ops console and points an operator at this secret set.
 GNANI_KEY_ENV: Final[str] = "GNANI_API_KEY"
 
-#: The key the caller number on the stream URL is signed with (`worker_api.caller_claim_mac`).
-#: OPTIONAL: without it no claimed number is believed and a call runs with the caller
-#: unidentified, which is today's state. Set but shorter than the floor is REFUSED at boot,
-#: because a key an attacker can search is worse than none and would look configured.
+#: The secret the stream URL's two claims are opened and verified with: the sealed caller
+#: number (`worker_api.open_caller_claim`) and the outbound call claim
+#: (`worker_api.verify_call_claim`). It must equal the VPS's value.
+#:
+#: REQUIRED WHEN `CARRIER=vobiz`, because without it every call we DIAL runs here as an
+#: inbound call under an id of its own, the dialled row never gets its transcript or
+#: settlement, and no inbound caller is identified, so no opt-out can be keyed. That is a
+#: deployment that answers the phone and loses what happened on it, which is what this gate
+#: exists to refuse. Optional on Plivo, whose dial is not built. Set but shorter than the
+#: floor is REFUSED on either carrier: a key an attacker can search is worse than none and
+#: would look configured.
 CLAIM_KEY_ENV: Final[str] = "CARRIER_CLAIM_SECRET"
 
 #: Spelled once because two things key off it: which LLM leg a call may spend, and whether
@@ -248,7 +255,8 @@ class WorkerConfig:
     #: The Clear tier's future TTS leg (D-618). `None` until the founder puts a key in this
     #: container's secret set; `pipeline._build_tts` refuses a Gnani call by name.
     gnani_api_key: str | None
-    #: The caller-claim signing key (see `CLAIM_KEY_ENV`), or `None`.
+    #: The stream-URL claim secret (see `CLAIM_KEY_ENV`). Always set on a Vobiz worker;
+    #: `None` only on a Plivo worker that was given none.
     carrier_claim_secret: str | None
     #: The carrier an unclaimed socket is taken to be (see `CARRIER_ENV`).
     carrier: CarrierName
@@ -262,7 +270,7 @@ class WorkerConfig:
 
     @property
     def caller_claim_key(self) -> bytes | None:
-        """The key a stream URL's caller claim is verified with, or `None` to believe none."""
+        """The key a stream URL's call claim is verified with, or `None` to believe none."""
         return usable_caller_claim_key(self.carrier_claim_secret)
 
     def credentials_for(self, provider: str | None) -> VendorCredentials:
@@ -460,6 +468,8 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
     if carrier == "plivo":
         required[PLIVO_AUTH_ID_ENV] = _present(source, PLIVO_AUTH_ID_ENV)
         required[PLIVO_AUTH_TOKEN_ENV] = _present(source, PLIVO_AUTH_TOKEN_ENV)
+    if carrier == "vobiz":
+        required[CLAIM_KEY_ENV] = _present(source, CLAIM_KEY_ENV)
     failures.extend(
         f"{name} is not set" for name, value in sorted(required.items()) if value is None
     )

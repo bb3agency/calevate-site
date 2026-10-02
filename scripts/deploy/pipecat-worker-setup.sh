@@ -232,7 +232,9 @@ prefill_key() {
 #
 # `CARRIER` (row class `carrier`) is vobiz or plivo, default vobiz. The `PLIVO_*` rows
 # (class `plivo`) are required when it is plivo and are not asked for otherwise: the Vobiz
-# leg hangs up in-band and needs no carrier credential in the worker.
+# leg hangs up in-band and needs no carrier credential in the worker. `CARRIER_CLAIM_SECRET`
+# (class `vobiz`) is required when it is vobiz and optional otherwise, which is
+# `boot.load_worker_config`'s rule; both are asked AFTER `CARRIER`, so the row order matters.
 #
 # ⚠ NO `VOBIZ_*` VARIABLE EVER GOES IN THIS SECRET SET. The Vobiz auth id and token are the
 # ACCOUNT credential: they place calls, buy numbers and read every CDR, and only the VPS
@@ -283,7 +285,7 @@ readonly ENV_CONTRACT=(
   "AWS_ACCESS_KEY_ID|yes|the KNOWLEDGE-PACK-ONLY R2 access key id (ops console name: KB_PACK_READONLY_ACCESS_KEY_ID). NOT this host's R2 key: that one reads and writes recordings/, kb-uploads/ and engine-payloads/ for every tenant, and this container only ever does get_object on knowledge-packs/. botocore resolves it from this spelling, which is why the NAME here is the vendor's and the CREDENTIAL is a new one"
   "AWS_SECRET_ACCESS_KEY|yes|its secret half (ops console name: KB_PACK_READONLY_SECRET_ACCESS_KEY). Same Cloudflare token as the id above — read-only, scoped as narrowly as R2 allows (DEPLOYMENT §12.5 gate 10)"
   "SARVAM_API_KEY|yes|STT on every call"
-  "CARRIER|carrier|vobiz or plivo (default vobiz): which carrier a stream is taken to be when its URL carries no carrier= claim, and whether the PLIVO_* pair is required. The SAME value as this host's CARRIER"
+  "CARRIER|carrier|vobiz or plivo (default vobiz): which carrier a stream is taken to be when its URL carries no carrier= claim, and whether the PLIVO_* pair is required. The SAME value as CARRIER in the ops console (Platform configuration), which is where the VPS reads it; keep it out of the VPS .env"
   "PLIVO_AUTH_ID|plivo|the auth id of a carrier credential ISSUED FOR THIS WORKER (ops console name: PLIVO_WORKER_AUTH_ID), used to hang a leg up — a leg nobody hung up goes on billing. NOT the account-level credential the VPS uses: that one can also originate calls, buy numbers and read every CDR (DEPLOYMENT §12.5 gate 11)"
   "PLIVO_AUTH_TOKEN|plivo|its token half (ops console name: PLIVO_WORKER_AUTH_TOKEN). Same credential as the id above"
   "AZURE_OPENAI_API_KEY|llm|in-call LLM, Azure leg"
@@ -291,7 +293,7 @@ readonly ENV_CONTRACT=(
   "GEMINI_API_KEY|llm|in-call LLM, Google leg"
   "CARTESIA_API_KEY|no|the Studio voice tier only"
   "GNANI_API_KEY|no|the Gnani TTS leg (D-618); no Gnani voice is offerable until a minute is ATTESTED"
-  "CARRIER_CLAIM_SECRET|no|signs the caller number voice-runtime puts on the stream URL; the SAME value as this host's CARRIER_CLAIM_SECRET (at least 32 bytes). Unset on either side means no caller number is believed"
+  "CARRIER_CLAIM_SECRET|vobiz|seals the caller number and signs the outbound call id voice-runtime puts on the stream URL; the SAME value as this host's CARRIER_CLAIM_SECRET (at least 32 bytes). Required on Vobiz: without it every call we dial runs as an inbound call on the wrong row and no caller is identified"
 )
 
 # --- doctor -------------------------------------------------------------------------------
@@ -606,6 +608,9 @@ secrets_cmd() {
       fi
       required=yes
     fi
+    if [[ "$required" == vobiz ]]; then
+      if [[ "$carrier" == vobiz ]]; then required=yes; else required=no; fi
+    fi
     local label="  $name"
     case "$required" in
       yes) label="$label [required]" ;;
@@ -644,6 +649,12 @@ secrets_cmd() {
      It is not in $ENV_FILE either — run '$0 sources' to see where each value comes from."
       fi
       continue
+    fi
+    # boot.py refuses a claim secret under 32 BYTES; refused here so the deploy, not the
+    # container's first boot, is where an operator finds out.
+    if [[ "$name" == CARRIER_CLAIM_SECRET ]] && (( $(printf '%s' "$value" | LC_ALL=C wc -c) < 32 )); then
+      die "$name must be at least 32 bytes (voice_worker/boot.py refuses a shorter one), and
+     it must be the SAME value as this host's $name."
     fi
     # THE ONE REFUSAL IN THIS LOOP, AND IT IS THE WHOLE POINT OF `prefill_key`. A narrowed
     # credential that is narrowed only in the prose is the platform-wide one with a new
@@ -737,8 +748,13 @@ sources_cmd() {
      founder must check there. The Vobiz leg needs no credential here, and VOBIZ_* must
      never be put in this secret set." ;;
         CARRIER)
-          warn "$name  — not a secret: vobiz or plivo, default vobiz. Normally the same
-     value as this host's CARRIER." ;;
+          warn "$name  — not a secret: vobiz or plivo, default vobiz. The same value as
+     CARRIER in the ops console, which is where the VPS reads it." ;;
+        CARRIER_CLAIM_SECRET)
+          warn "$name  — REQUIRED when CARRIER=vobiz. The SAME value as this host's
+     $name (at least 32 bytes); voice-runtime seals and signs with it and the worker opens
+     and verifies with it. If the two differ, every call we dial runs on the wrong row and
+     the API raises carrier_call_claim_mismatch. DEPLOYMENT §12.2." ;;
         GNANI_API_KEY)
           warn "$name  — NOT on this host. Gnani account; this secret set is its only home." ;;
         SARVAM_API_KEY|CARTESIA_API_KEY|AZURE_OPENAI_API_KEY|OPENAI_API_KEY|GEMINI_API_KEY)

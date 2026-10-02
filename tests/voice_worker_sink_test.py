@@ -42,7 +42,12 @@ from apps.api.db.session import tenant_session
 from apps.api.main import app as api_app
 from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
-from calevate_shared.worker_api import OptOutToolIn
+from calevate_shared.worker_api import (
+    ObservationsOut,
+    OptOutToolIn,
+    SettlementOut,
+    UnverifiedCallClaim,
+)
 from loguru import logger
 from pipecat.observers.service_metrics_observer import ServiceUsageKind, ServiceUsageRecord
 from sqlalchemy import text
@@ -874,7 +879,7 @@ async def test_a_backlog_longer_than_one_wire_batch_is_sent_in_bounded_batches()
     `MAX_TURNS_PER_BATCH`. One request for all of it would fail the wire model's own
     validation on every later flush — no retry clears that, and `settle` flushes first, so
     the call would never settle."""
-    from calevate_shared.worker_api import MAX_TURNS_PER_BATCH, ObservationsOut
+    from calevate_shared.worker_api import MAX_TURNS_PER_BATCH
 
     class _Recorder:
         def __init__(self) -> None:
@@ -904,3 +909,44 @@ async def test_a_backlog_longer_than_one_wire_batch_is_sent_in_bounded_batches()
     assert await sink.flush() == backlog
     assert sum(api.batch_sizes) == backlog
     assert max(api.batch_sizes) <= MAX_TURNS_PER_BATCH
+
+
+async def test_an_unverified_call_claim_rides_the_settlement_and_nothing_else() -> None:
+    """The server, not the worker, decides whether a claim that failed was a forgery or a
+    dialled call run under the wrong secret (`carrier_call_claim_mismatch`), so the claim
+    must reach it — once, on the settlement."""
+    claim = UnverifiedCallClaim(claimed_call_id=uuid.uuid4())
+
+    class _Recorder:
+        def __init__(self) -> None:
+            self.settlements: list[Any] = []
+
+        async def post_observations(self, _ref: str, batch: Any) -> ObservationsOut:
+            return ObservationsOut(
+                turns_written=len(batch.turns), turns_already_present=0, status="in_progress"
+            )
+
+        async def post_settlement(self, _ref: str, request: Any) -> SettlementOut:
+            self.settlements.append(request)
+            return SettlementOut(
+                already_settled=False,
+                rows_written=0,
+                refusals_recorded=1,
+                post_call_enqueued=True,
+            )
+
+    api = _Recorder()
+    sink = HttpEventSink(
+        api,  # type: ignore[arg-type]
+        call_id=f"call-{uuid.uuid4().hex[:10]}",
+        tenant_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        direction="inbound",
+        call_claim_unverified=claim,
+        turn_flush_seconds=0,
+    )
+
+    await sink.settle(_RefusesTheCarrier(), carrier=None, runtime=None)  # type: ignore[arg-type]
+
+    (request,) = api.settlements
+    assert request.call_claim_unverified == claim

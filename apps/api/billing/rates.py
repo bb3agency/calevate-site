@@ -1451,6 +1451,69 @@ def telephony_number_rental_inr_per_min(call_minutes_per_month: Decimal) -> Deci
     )
 
 
+# --- VOBIZ'S INDIA CARD: THE CARRIER WE RUN (D-662), AS A CATALOGUE REFERENCE -------------
+#
+# The Plivo card above is the card of a carrier we hold no account with; Vobiz is the one
+# `Settings.carrier` dials through. Its card is kept beside Plivo's, in its own shape,
+# rather than written into `TELEPHONY_INR_PER_MIN`: Vobiz prices by HOW the call is
+# controlled (SIP trunk or Voice API with WebSocket streaming), not by PSTN-vs-browser leg,
+# and it publishes no pulse, so `telephony_cost_inr`'s 30-second rounding would be
+# Plivo's pulse imputed to Vobiz.
+#
+# Same standing as everything in this section: in neither cost floor, and no path to
+# `unit_cost_paid`. A Vobiz call's cost is the CDR's own `total_cost` per call
+# (`workers/carrier_events.py::carrier_cost_inr`), and this card is what that figure is
+# compared against, never a substitute for it.
+#
+# EVIDENCE CLASS: VENDOR-PUBLISHED, FOUNDER-RELAYED — Vobiz's "India Pricing" rate card,
+# supplied by the founder as an image on 2 Oct 2026 (`docs/evidence/vobiz-api-contract.md`
+# §16). "All charges in Indian Rupees and exclusive of applicable taxes and statutory
+# levies": every figure is BEFORE tax, and no tax rate is applied here because none has
+# been read from a primary source. The billing pulse and any minimum duration are not on
+# the card and are UNKNOWN (gate V-7).
+
+#: The card's per-minute usage rows, by what the row prices.
+VobizUsage = Literal[
+    "sip_trunk", "voice_api_streaming", "recording", "transcription", "pii_redaction"
+]
+
+#: ₹ per minute, before tax. Our calls are `voice_api_streaming` ("Calls placed or
+#: controlled via Voice APIs and WebSocket media streaming"): we dial over the REST API and
+#: the audio rides a `<Stream>` WebSocket. We buy none of the three add-on rows — recording
+#: and transcription are ours, and the card makes PII redaction depend on both.
+VOBIZ_INR_PER_MIN: Final[Mapping[VobizUsage, Decimal]] = MappingProxyType(
+    {
+        "sip_trunk": Decimal("0.3800"),
+        "voice_api_streaming": Decimal("0.4400"),
+        "recording": Decimal("0.1000"),
+        "transcription": Decimal("0.3000"),
+        "pii_redaction": Decimal("0.3000"),
+    }
+)
+
+#: The usage row every call this product places or answers is billed on.
+VOBIZ_OUR_CALL_USAGE: Final[VobizUsage] = "voice_api_streaming"
+
+#: Whether the card's figures include tax. False is the card's own footnote, held as a value
+#: so a caller adding tax has to do so on purpose.
+VOBIZ_CARD_INCLUDES_TAX: Final[bool] = False
+
+
+def vobiz_rate_inr_per_min(usage: VobizUsage) -> Decimal:
+    """Vobiz's published per-minute rate for one usage row, before tax. A REFERENCE only.
+
+    Refuses an unknown row rather than falling back to ours: a SIP-trunk minute priced as a
+    streaming one is wrong by 16%, and quietly.
+    """
+    try:
+        return VOBIZ_INR_PER_MIN[usage]
+    except KeyError:
+        raise ValueError(
+            f"{usage!r} is not a usage row on Vobiz's India card; it lists "
+            f"{sorted(VOBIZ_INR_PER_MIN)}"
+        ) from None
+
+
 # --- THE TWO COST FLOORS, one per voice tier (D-547) ------------------------------------
 #
 # Each floor is the WORST-CASE cost of one call-minute on that voice, SUMMED FROM THE
@@ -3058,6 +3121,9 @@ __all__ = [
     "TTS_INR_PER_10K_CHARS",
     "TTS_RATE_REFUSAL",
     "VALUE_VOICE_TIER",
+    "VOBIZ_CARD_INCLUDES_TAX",
+    "VOBIZ_INR_PER_MIN",
+    "VOBIZ_OUR_CALL_USAGE",
     "VOICE_TIERS",
     "VOICE_TIER_LABELS",
     "CartesiaPlan",
@@ -3070,6 +3136,7 @@ __all__ = [
     "TelephonyDirection",
     "TelephonyLeg",
     "UnattestedTtsRateError",
+    "VobizUsage",
     "VoiceTier",
     "assert_rate_is_meterable",
     "assumed_speaking_rate",
@@ -3119,5 +3186,6 @@ __all__ = [
     "tts_rate_inr_per_char",
     "usd_mtok_to_inr_ktok_exact",
     "value_rung_tts_inr_per_char",
+    "vobiz_rate_inr_per_min",
     "voice_tier_label",
 ]

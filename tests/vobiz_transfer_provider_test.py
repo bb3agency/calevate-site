@@ -22,11 +22,11 @@ from apps.api.agents.transfer_providers.vobiz import (
     TRANSFER_TOKEN_PURPOSE,
     VobizTransfers,
 )
-from apps.api.core.carrier_token import open_sealed
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.pipecat import PipecatEngine
 from apps.api.engine.plivo_carrier import PlivoCarrier
+from calevate_shared.carrier_token import open_sealed
 
 pytestmark = pytest.mark.anyio
 

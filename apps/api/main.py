@@ -195,6 +195,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.model_price_routes import tts_router as ops_tts_prices_router
     from apps.api.ops.routes import router as ops_router
+    from apps.api.ops.secret_routes import carrier_router as ops_carrier_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.ops.voice_curation_routes import router as ops_voice_curation_router
     from apps.api.quality.routes import router as quality_router
@@ -476,6 +477,7 @@ def _mount_routers(application: FastAPI) -> None:
     # Credentials — its OWN permission (`platform:secrets`), held by fewer people than
     # anything else on this list. No route on it returns plaintext (§7).
     application.include_router(ops_secrets_router)
+    application.include_router(ops_carrier_router)
     # Operator-attested model prices — `platform:config` like the config panel (a price is
     # configuration, not a credential), effective-dated and append-only. What lets a model
     # whose catalogue price is unverified become offerable.

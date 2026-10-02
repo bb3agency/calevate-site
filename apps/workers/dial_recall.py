@@ -1,51 +1,36 @@
-"""The big red switch reaches the dials the vendor is already holding.
+"""The big red switch reaches the dials the carrier is already holding.
 
-WHY THIS JOB EXISTS (D-432, closing the halt half of D-428). `outbound_halted` stopped
-this platform PLACING dials and recalled none the vendor had already accepted. That gap
-is not theoretical: `POST /call` answers `status: queued` for every dial
-(`bolna-findings/mirror/pages/api-reference/calls/make.md:25` — the OAS pins that enum to
-one value), and a dial over the account's concurrency ceiling is QUEUED rather than
-rejected (`bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md:41`), in a
-queue we cannot see, cancel or DNC-scrub. On a trial account the ceiling is 2
-(`.../outbound-calling-concurrency.md:15`) against an outbound pool of 6, so two thirds
-of every batch sits in it. An operator throwing the switch at 20:55 IST has, until now,
-been told dialling stopped while the vendor went on ringing phones past 21:00.
+WHY THIS JOB EXISTS (D-432, closing the halt half of D-428). `outbound_halted` stops this
+platform PLACING dials; it does nothing about a dial the carrier has already accepted. On
+Vobiz an accepted dial is "accepted and queued, not answered"
+(`vobiz-findings/mirror/pages/call/make-call.md:122-124`) and then rings for up to
+the ring timeout (`engine/carrier.RING_TIMEOUT_S`). An operator throwing the switch
+at 20:55 IST must not leave those phones ringing past 21:00, so this job asks the engine to
+end every outbound dial that is still `queued` or `ringing` (migration b7e4c0a63f29 widened
+the scan to `ringing`, which is where the carrier's `Ring` callback moves the row).
 
-WHAT IT CAN AND CANNOT DO, in the vendor's own words. `POST /call/{execution_id}/stop`
-*"cannot stop a call already in progress"* — so this job pulls back dials that have not
-started and nothing else. There is no route in their spec that hangs up on a live caller,
-so a call already connected runs to its end whatever the switch says. That is a limit of
-the engine, and the alarm below says so rather than letting a count of "stopped: 4" imply
-the line is quiet. What the count cannot yet SEPARATE is OPERATIONS §2 gate 35: their
-docs state the limit but never say what the route returns when you hit it, so "already
-ringing" and "unknown execution id" arrive here as the same refusal. Both are counted
-unreachable, which over-reports the phones that will ring rather than under-reporting
-them, and that is the direction to be wrong in.
+WHAT IT DOES NOT DO. A call somebody has answered (`in_progress`) is a conversation, and the
+halt does not hang up on a person who is talking: it stops new dials and recalls unanswered
+ones. A dial answered between the scan and the stop runs to its end.
 
-**THAT LAST SENTENCE WAS TRUE OF THE REFUSAL PATH AND FALSE OF THE SUCCESS PATH, WHICH IS
-WHY THIS JOB NOW READS THE VERDICT** (D-509). `end_call` returns a `RecallOutcome`, and
-`ALREADY_RUNNING` — the vendor saying the dial had already left the queue, so it rang or
-is ringing — arrives as a normal return, not an exception. Every non-raising call was
-counted as `stopped`, so the one job whose whole purpose is to tell an operator mid-
-incident how many phones are still live UNDER-reported them, in exactly the direction the
-paragraph above says not to be wrong in. D-428 made the halt best-effort and that is
-unchanged: nothing here retries, nothing fails the halt because a stop failed. Best-effort
-is a decision about BEHAVIOUR; it was never a reason to discard a verdict the adapter had
-already adjudicated and we had already paid a round trip for. `dnc_recall` reads the same
-verdict and its docstring says outright that this job ignores it — two ways of doing one
-thing, which CLAUDE.md calls a defect even when both work, resolved toward the one that
-tells the truth.
+IT READS THE ENGINE'S VERDICT (D-509). `end_call` returns a `RecallOutcome`, and only
+`PREVENTED` is counted as stopped. The owned runtime answers `UNKNOWN` for every hang-up,
+because Vobiz's hang-up answers 204 whether the call was queued or ringing
+(`call/hangup-call.md:60`), so it can never prove the phone did not ring. Those dials are
+reported as "ended, not proven unrung", which is the direction to be wrong in mid-incident.
+Nothing here retries and nothing fails the halt because a stop failed: the halt is
+best-effort by decision (D-428). `dnc_recall` reads the same verdict.
 
 WHY IT IS FIRED BY THE HALT RATHER THAN CRONNED. The condition is a transition, not a
-state: dials are only ever illegitimately queued *because* somebody just halted, and a
+state: dials are only ever illegitimately in flight *because* somebody just halted, and a
 cron would be a fleet-wide scan every N minutes for a thing that is almost never true.
 `ops/routes.set_platform` enqueues it on the `false -> true` edge; the job re-reads the
 halt before it stops anything, because an operator who halted and released inside the
 job's queue latency must not have their campaign torn down behind them.
 
-WHAT IT DOES NOT WRITE. Not the call's `status`. The reconciliation poller is the
-guarantee of record (D-31, TRD §5) and a worker writing `failed` over a dial the vendor
-may still be deciding about would be a second answer to a question the poller owns. The
+WHAT IT DOES NOT WRITE. Not the call's `status`. The carrier's hangup callback
+(`workers/carrier_events`) moves the row terminal with the carrier's own cause, and a
+`failed` written here first would be a second answer to a question the carrier owns. The
 one thing this job stamps is `calls.recall_requested_at` — see migration d5c81f30ab47 for
 why that column is what keeps a second halt from re-stopping every dial it already
 stopped and then alarming about it.
@@ -81,10 +66,10 @@ log = get_logger(__name__)
 #: 500 sequential stops at a conservative 200ms each is 100s, comfortably inside
 #: `WorkerSettings.job_timeout` (300s) with room for the scan and the alert.
 #:
-#: It is also far above any real backlog: the queue is fed by the outbound pool
-#: (`PLATFORM_LINES_TOTAL`) draining at the account's concurrency ceiling, so a fleet that
-#: reaches this cap is one whose numbers nobody here has seen. Hitting it is therefore
-#: reported as a FLOOR and alarmed, never silently truncated.
+#: It is also far above any real backlog: unanswered dials are bounded by the outbound line
+#: pool (`engine/carrier_pacing.outbound_line_pool`), so a fleet that reaches this cap is one
+#: whose numbers nobody here has seen. Hitting it is therefore reported as a FLOOR and
+#: alarmed, never silently truncated.
 RECALL_SCAN_LIMIT = 500
 
 #: How many call ids an alert body names before it stops listing them: an alert naming
@@ -101,7 +86,7 @@ class QueuedDial(NamedTuple):
 
 
 async def _queued_dials(limit: int) -> list[QueuedDial]:
-    """Every outbound dial still `queued` at the vendor, across the fleet.
+    """Every outbound dial still `queued` or `ringing` at the carrier, across the fleet.
 
     `queued_dial_scan()` is SECURITY INVOKER and loops the tenants with the GUC set to
     each in turn — `dispatch_scan`'s construction (a8d4f21c9b06), taken rather than
@@ -246,12 +231,11 @@ async def _recall() -> str:
             "WORKER_STALL",
             "dial_recall_unstopped",
             detail=(
-                f"{len(not_stopped)} of {len(dials)} queued dial(s) were NOT stopped by "
-                f"the outbound halt ({len(still_live)} the vendor answered for without "
-                f"confirming a cancel, {len(unreachable)} it did not answer for at all). "
-                "The engine cannot stop a call already in progress, so a dial that started "
-                "ringing between the scan and the stop will run to its end. Call ids: "
-                f"{named}"
+                f"{len(not_stopped)} of {len(dials)} unanswered dial(s) are not proven "
+                f"stopped by the outbound halt ({len(still_live)} the voice platform ended "
+                f"without confirming the phone had not rung, {len(unreachable)} it did not "
+                "end at all). A dial answered between the scan and the stop runs to its "
+                f"end. Call ids: {named}"
             ),
         )
 

@@ -84,7 +84,7 @@ from uuid import UUID
 
 from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallDirection
-from calevate_shared.worker_api import AttestationIn
+from calevate_shared.worker_api import AttestationIn, UnverifiedCallClaim
 from loguru import logger
 from pipecat.observers.service_metrics_observer import ServiceMetricsObserver
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
@@ -219,6 +219,7 @@ class WorkerRuntime:
         transport: BaseTransport,
         caller: CallerIdentityLike | None = None,
         carrier_call_id: str | None = None,
+        call_claim_unverified: UnverifiedCallClaim | None = None,
         carrier: CarrierCdr | None = None,
         runtime_usage: RuntimeUsage | None = None,
         greeting: Literal["required", "skip"] = "required",
@@ -250,6 +251,10 @@ class WorkerRuntime:
         `start.callId`), persisted on the `calls` row as the join key for the carrier's
         hangup webhook, its CDR and a transfer. `None` where no carrier leg exists.
 
+        `call_claim_unverified` is the call claim on the stream URL that did not verify, if
+        there was one. It rides the settlement so the server can tell a forgery from a call
+        it dialled that this worker ran as inbound (`carrier_call_claim_mismatch`).
+
         `carrier` and `runtime_usage` are arguments and not something this method goes and
         fetches. §1.2 gives the connected minute and its charge to the CARRIER, whose CDR is
         not retrievable from this container, and §7 P-1 leaves what a Pipecat "active
@@ -274,6 +279,7 @@ class WorkerRuntime:
             agent_id=agent_id,
             direction=direction,
             carrier_call_id=carrier_call_id,
+            call_claim_unverified=call_claim_unverified,
             turn_batch_size=self._turn_batch_size,
             turn_flush_seconds=self._turn_flush_seconds,
         )

@@ -1,7 +1,7 @@
 """The live-transfer `<Dial>` document: off by default, Vobiz only, from a sealed token.
 
 `/carrier/v1/{carrier}/transfer/{token}` is where the API redirects a live call for a
-human handoff. The destination rides inside an AES-GCM token (`apps.api.core.
+human handoff. The destination rides inside an AES-GCM token (`calevate_shared.
 carrier_token`) because this route may not read the database and a number in a URL lands
 in access logs. What is driven: off means no `<Dial>` is ever served; on serves the
 vendor's grammar (VERIFIED-VENDOR-DOCS `vobiz-findings/mirror/pages/xml/dial.md:40-60`); a
@@ -17,9 +17,9 @@ from xml.etree.ElementTree import fromstring
 
 import carrier_routes
 import pytest
-from apps.api.core.carrier_token import seal
 from apps.api.core.settings import get_settings
 from calevate_shared.carrier import VOBIZ_CALLBACK_IPS, transfer_path
+from calevate_shared.carrier_token import seal
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 

@@ -613,6 +613,17 @@ server {
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
 
+    # The Pipecat voice worker (`/v1/worker/**`, Bearer-authenticated by the app). Its own
+    # zone because every worker container arrives from Pipecat Cloud's shared egress, so
+    # `client_api`'s per-person 120r/m would be a fleet-wide ceiling of about seventeen
+    # live calls. The burst covers the end-of-call settlements of calls that hang up
+    # together.
+    location ^~ /v1/worker/ {
+        limit_req zone=worker burst=200 nodelay;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location / {
         limit_req zone=client_api burst=30 nodelay;
         proxy_pass http://calevate_api;

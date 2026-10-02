@@ -73,21 +73,23 @@ log = get_logger(__name__)
 REQUEST_TIMEOUT_S = 10.0
 
 # --- Throttle handling (SURFACES §3.3) ---------------------------------------
-# Bolna's rate limits ARE published now and this comment used to say they were not
-# (VERIFIED-DOCS, `bolna-findings/mirror/pages/api-reference/rate-limiting.md:17-25`,
-# announced `changelog/february-2026.md:51-67`): 500 requests/minute each on
-# `/v2/agent/{agent_id}/executions`, `/v2/agent/{agent_id}` and `/call`, 1000/minute
-# everywhere else, counted **per organisation** — "the rate limit is shared across all
-# users within that organisation" — which for us means per Bolna account, not per tenant.
-# Their guidance is the ladder below: *"Implement exponential backoff"*, and `limits.md`
-# prints `2 ** i`.
+# A 429 refuses the request rather than performing it. The carrier (Vobiz) answers one when
+# the account is over its calls-per-second OR its concurrent-call limit
+# (`vobiz-findings/mirror/pages/call/make-call.md:134`), and its error envelope names the
+# limit in `error.details.limitType`, with `error.details.retryAfter` in seconds
+# (`errors.md:205-223`). The two need different answers:
 #
-# NOTHING CHANGES HERE AS A RESULT, and that is the finding rather than an omission. Our
-# two callers are orders of magnitude inside it — the reconciliation poller fans out one
-# request per agent per page on a ten-minute tick, and the
-# dispatcher cannot exceed `campaign_dispatch.PLATFORM_LINES_TOTAL` dials in flight — so
-# 429 remains a response we meet without warning rather than one we can predict, which is
-# what the ladder is for. Cartesia's are still unpublished (no account at all).
+# * `cps` clears within a second, so the ladder below backs off and retries, taking
+#   `retryAfter` as the floor when no `Retry-After` header carries one.
+# * the line limit clears only when a call ENDS, which a two-second backoff will not see, so
+#   it is not retried at all: it is raised at once as `carrier_lines_busy` (transient, and a
+#   dial that provably seized no line). The dial gate in `agents.service.dispatch_call`
+#   counts lines before dialling (`engine/carrier_pacing.py`); this is the carrier's own
+#   word for the case that count missed.
+#
+# The docs print one `limitType` value, `cps`; how the concurrency limit is spelled is
+# UNKNOWN. So any OTHER named limit is read as the line limit (`is_line_limit`): a limit
+# that is not per-second does not clear inside this ladder either way.
 #
 # Three deliberate limits on what we do about it:
 #
@@ -115,11 +117,11 @@ REQUEST_TIMEOUT_S = 10.0
 #   platform-wide single-flight lease, so a slow tick cannot be joined by the next one
 #   thirty seconds later — the second tick takes no lease, dials nothing and exits. And
 #   within a tick the dials are SERIAL (`_dispatch_for_campaign` awaits one contact at a
-#   time) and the tick's whole spend is capped by `_outbound_pool()` — six lines at the
-#   shipped `PLATFORM_LINES_TOTAL = 10` and a reserve of `max(MIN_INBOUND_RESERVE = 4,
-#   10 x inbound_reserve_ratio = 3)`. So the worst case is six sequential ten-second
-#   calls — sixty seconds, inside both `WorkerSettings.job_timeout` (300s) and
-#   `TICK_LEASE_TTL_S` (330s). A degraded vendor slows dialling; it cannot accumulate.
+#   time) and the tick's whole spend is capped by the outbound line pool
+#   (`engine/carrier_pacing.outbound_line_pool`, two lines on a three-line account). So
+#   the worst case is a handful of sequential ten-second calls, inside both
+#   `WorkerSettings.job_timeout` (300s) and `TICK_LEASE_TTL_S` (330s). A degraded vendor
+#   slows dialling; it cannot accumulate.
 # * **The polling path is bounded by the job, and its failure is already alarmed.**
 #   `pipeline.reconcile_outstanding_calls` probes up to `OUTSTANDING_PROBE_BUDGET` (200)
 #   executions serially, which at ten seconds each does NOT fit in `job_timeout` — so arq
@@ -151,6 +153,34 @@ THROTTLE_STATUS = 429
 THROTTLE_MAX_ATTEMPTS = 3
 THROTTLE_BASE_S = 0.5
 THROTTLE_MAX_SLEEP_S = 8.0
+
+#: The one `error.details.limitType` value the carrier documents, for its per-second limit
+#: (`vobiz-findings/mirror/pages/errors.md:205-223`).
+CPS_LIMIT_TYPE = "cps"
+
+
+def is_line_limit(limit_type: str | None) -> bool:
+    """Is this 429 over a limit that frees only when a call ends? Any named limit but `cps`."""
+    return limit_type is not None and limit_type != CPS_LIMIT_TYPE
+
+
+#: The code a dial is refused under when every line the account allows is in use. Raised
+#: here for the carrier's own 429 and by the dial gate's line count
+#: (`engine/carrier_pacing.py`); both mean no line was seized.
+LINES_BUSY_CODE = "carrier_lines_busy"
+
+
+def lines_busy_error() -> ProblemError:
+    """`carrier_lines_busy`: every line is in use, so the call was not placed."""
+    return ProblemError(
+        kind="transient",
+        code=LINES_BUSY_CODE,
+        title="All lines are busy",
+        detail="Every line on the calling account is in use right now, so the call was not placed.",
+        remediation="Try again in a minute.",
+        failure_stage="CORE_LOGIC",
+    )
+
 
 #: Statuses on which the vendor REFUSED the request rather than PERFORMED it — so the
 #: caller knows nothing was started, and on the dial path knows no line was seized.
@@ -398,6 +428,30 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
     return seconds if seconds >= 0 else None
 
 
+def _throttle_details(response: httpx.Response) -> tuple[str | None, float | None]:
+    """`(limitType, retryAfter)` from a 429's error envelope, either one None when absent.
+
+    The envelope is `{"error": {"details": {"limitType": "cps", "retryAfter": 1}}}`
+    (`vobiz-findings/mirror/pages/errors.md:205-223`). Anything not in that shape is no
+    information, and the ladder falls back to the header and its own backoff.
+    """
+    envelope = _error_envelope(response)
+    error = envelope.get("error") if envelope is not None else None
+    details = error.get("details") if isinstance(error, dict) else None
+    if not isinstance(details, dict):
+        return None, None
+    limit_type = details.get("limitType")
+    retry_after = details.get("retryAfter")
+    seconds = (
+        float(retry_after)
+        if isinstance(retry_after, int | float)
+        and not isinstance(retry_after, bool)
+        and retry_after >= 0
+        else None
+    )
+    return (limit_type if isinstance(limit_type, str) else None), seconds
+
+
 def throttle_delay_s(
     attempt: int,
     retry_after: float | None,
@@ -475,7 +529,12 @@ async def vendor_request(
             ) from exc
         if response.status_code != THROTTLE_STATUS:
             break
-        retry_after = _retry_after_seconds(response)
+        limit_type, body_retry_after = _throttle_details(response)
+        if is_line_limit(limit_type):
+            # Lines free up when a call ends, not within this ladder's few seconds.
+            break
+        header_retry_after = _retry_after_seconds(response)
+        retry_after = header_retry_after if header_retry_after is not None else body_retry_after
         last_attempt = attempt == THROTTLE_MAX_ATTEMPTS - 1
         if last_attempt or (retry_after is not None and retry_after > THROTTLE_MAX_SLEEP_S):
             break
@@ -485,18 +544,23 @@ async def vendor_request(
         await asyncio.sleep(throttle_delay_s(attempt, retry_after))
 
     if response.status_code == THROTTLE_STATUS:
+        if is_line_limit(_throttle_details(response)[0]):
+            log.warning("carrier_lines_busy", extra={"engine": engine, "route": path})
+            raise lines_busy_error()
         # Distinct from `engine_rejected` on purpose. A throttle says nothing about
         # the request — so on the campaign path it must not burn a contact's retry
         # budget for a reason that has nothing to do with the contact. `transient`
         # is the ladder rung that means "identical retry can work" (503, retryable),
         # and `apps.workers.pipeline.TRANSIENT_ENGINE_CODES` reads exactly this code.
+        # The remediation is what a person pressing a button can do: nothing retries a
+        # button press for them.
         log.warning("engine_throttle_exhausted", extra={"engine": engine, "route": path})
         raise ProblemError(
             kind="transient",
             code="engine_rate_limited",
             title="Voice engine is rate limiting us",
             detail="The voice platform is temporarily refusing new requests.",
-            remediation="This will be retried automatically.",
+            remediation="The lines are busy. Try again in a minute.",
             failure_stage="CORE_LOGIC",
         )
     if 300 <= response.status_code < 400:
@@ -628,6 +692,8 @@ async def vendor_request(
 
 
 __all__ = [
+    "CPS_LIMIT_TYPE",
+    "LINES_BUSY_CODE",
     "REQUEST_REFUSED_STATUSES",
     "REQUEST_TIMEOUT_S",
     "THROTTLE_BASE_S",
@@ -635,6 +701,7 @@ __all__ = [
     "THROTTLE_MAX_SLEEP_S",
     "THROTTLE_STATUS",
     "EngineRejectedError",
+    "lines_busy_error",
     "throttle_delay_s",
     "vendor_request",
 ]

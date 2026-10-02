@@ -63,9 +63,9 @@ from uuid import UUID
 from arq import Retry
 from calevate_shared.calling_window import IST
 from calevate_shared.engine import (
-    TRUTHFUL_ANSWER_DIRECTIVE,
     DisclosurePosture,
     compose_opening_line,
+    truthful_answer_directive,
 )
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -223,7 +223,7 @@ async def probe_in_flight(budget: WalkBudget | None = None) -> InFlight:
     return InFlight(calls=calls, jobs=queued, tenants_unreached=unreached, complete=unreached == 0)
 
 
-def _maintenance_prompt(window: MaintenanceWindow) -> str:
+def _maintenance_prompt(window: MaintenanceWindow, *, call_is_recorded: bool) -> str:
     """What a live agent is told to do while the platform is down.
 
     ═══ WHAT THE AGENT IS FOR, DURING A WINDOW ═══
@@ -238,10 +238,12 @@ def _maintenance_prompt(window: MaintenanceWindow) -> str:
 
     ═══ HARD RULE 5 IS UNTOUCHED, IN BOTH ITS HALVES ═══
 
-    `TRUTHFUL_ANSWER_DIRECTIVE` is appended verbatim, so a caller who asks whether they are
-    talking to an AI, or whether the call is recorded, gets the truth during a maintenance
-    window exactly as they do outside one. The other half — what the agent VOLUNTEERS — is
-    preserved by `_maintenance_greeting`, which PREPENDS the agent's own composed opening
+    The truthful-answer floor is appended, composed from the engine's recording fact
+    (`call_is_recorded`, i.e. `EngineCapabilities.records_audio`), so a caller who asks
+    whether they are talking to an AI, or whether the call is recorded, gets the same true
+    answer during a maintenance window as outside one. The other half — what the agent
+    VOLUNTEERS — is preserved by `_maintenance_greeting`, which PREPENDS the agent's own
+    composed opening
     line rather than replacing it: the two disclosure toggles keep doing what the client
     set them to do, and the maintenance sentence is added after them.
 
@@ -262,12 +264,14 @@ def _maintenance_prompt(window: MaintenanceWindow) -> str:
             "you cannot record anything right now and ask them to call back after the "
             "time above.",
             "Then end the call politely. Keep the whole call under thirty seconds.",
-            TRUTHFUL_ANSWER_DIRECTIVE,
+            truthful_answer_directive(call_is_recorded=call_is_recorded),
         )
     )
 
 
-def _maintenance_greeting(window: MaintenanceWindow, posture: DisclosurePosture) -> str:
+def _maintenance_greeting(
+    window: MaintenanceWindow, posture: DisclosurePosture, *, call_is_recorded: bool
+) -> str:
     """The agent's own opening line, then the maintenance sentence.
 
     PREPENDED, NOT REPLACED, and this is the compliance-load-bearing line in this module.
@@ -279,8 +283,10 @@ def _maintenance_greeting(window: MaintenanceWindow, posture: DisclosurePosture)
 
     An agent with BOTH notices off composes to an empty opening line, which is a legitimate
     configuration; the join drops the empty part rather than emitting a leading space.
+    `call_is_recorded` is the engine's fact, so the recording notice is spoken only where a
+    recording is made (`compose_opening_line`).
     """
-    opening = compose_opening_line(posture).strip()
+    opening = compose_opening_line(posture, call_is_recorded=call_is_recorded).strip()
     notice = (
         "We are briefly closed for planned maintenance and cannot take details right "
         f"now — please call again after {_ist(window.ends_at)}."
@@ -346,7 +352,8 @@ async def _speak_maintenance(window: MaintenanceWindow, budget: WalkBudget) -> E
     if not engine.capabilities.has("script_override"):
         return EngineScriptOutcome(applied=0, failed=0, unsupported=True)
 
-    prompt = _maintenance_prompt(window)
+    recorded = engine.capabilities.records_audio
+    prompt = _maintenance_prompt(window, call_is_recorded=recorded)
     applied = 0
     failed = 0
     async with untenanted_session() as session:
@@ -357,7 +364,9 @@ async def _speak_maintenance(window: MaintenanceWindow, budget: WalkBudget) -> E
         async with tenant_session(tenant_id) as session:
             rows = (await session.execute(_ANSWERING_AGENTS_SQL)).all()
         for row in rows:
-            greeting = _maintenance_greeting(window, _posture_of_row(row))
+            greeting = _maintenance_greeting(
+                window, _posture_of_row(row), call_is_recorded=recorded
+            )
             try:
                 await engine.override_call_script(
                     str(row[1]), opening_line=greeting, system_prompt=prompt

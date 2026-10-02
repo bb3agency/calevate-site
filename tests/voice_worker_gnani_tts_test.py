@@ -471,6 +471,7 @@ def test_the_container_reads_the_key_from_its_own_secret_set() -> None:
         "PLIVO_AUTH_ID": "p",
         "PLIVO_AUTH_TOKEN": "t",
         "AZURE_OPENAI_API_KEY": "k",
+        "CARRIER_CLAIM_SECRET": "s" * 32,
     }
     assert GNANI_KEY_ENV == "GNANI_API_KEY"
     assert load_worker_config(env).gnani_api_key is None

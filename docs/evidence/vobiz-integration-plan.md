@@ -31,15 +31,20 @@ arrives, the keyed tables are where it lands.
    credential. Live testing on the founder's own Vobiz account is Calevate as
    subscriber, i.e. Model A for the test numbers. Vobiz's `customer_use` sub-accounts
    (KYC'd in the client's own name, contract §12) are a third shape that may satisfy
-   both: the client is the KYC'd subscriber, and we drive the API from the parent. This
+   both: the client is the KYC'd subscriber, and we drive the API from the parent. The
+   console offers it: the Subaccounts create form has a KYC Mode of "Personal use
+   (inherits your KYC)" or "Customer use (independent KYC)" (§16a item 11). It is
+   recorded here as an option for per-client isolation and is not designed. This
    needs a founder decision and a decision-log row before **number provisioning** and
    **billing the carrier cost** are built. The media leg, the answer route, the dial and
    the CDR reader do not depend on it: they take one credential pair either way.
-2. **Resale.** A previous pass recorded Vobiz's Terms as prohibiting resale without prior
-   written consent (`docs/evidence/carrier-plivo-vs-exotel-2026-09-16.md:167`, REPORTED,
-   not re-read). The docs now describe a non-self-serve **Partner Programme** (contract
-   §12). Whether partner onboarding is that written consent is a commercial question for
-   Vobiz, not a docs question. It blocks taking a client live, not testing.
+2. **Resale.** Vobiz's Terms of Service ("Last Updated: 13 Sep 2025", `www.vobiz.ai/legal`)
+   say users agree not to "Resell or sublicense services without prior written consent"
+   (§16a item 12). The console shows no Partner menu and no resale acceptance. The docs
+   describe a non-self-serve **Partner Programme** (contract §12). Whether partner
+   onboarding is that written consent is a commercial question for Vobiz, not a docs
+   question. It blocks client traffic on the founder's account, not the founder's own
+   testing (OPERATIONS §2 gate V-10).
 
 ---
 
@@ -357,11 +362,15 @@ for the transfer change, not the first live call.
 - **We do not ask Vobiz to record.** No `<Record>` in the answer document, no record API
   call (contract §9). `PIPECAT_CAPABILITIES.records_audio=False` is unchanged.
 - **Gate:** confirm in the console that no account-level or number-level auto-recording is
-  on (contract §9 says no default is documented). If one exists, turn it off and record
-  the reading.
+  on (contract §9 says no default is documented). The 2 Oct 2026 reading found no
+  auto-record setting at account, number or application level and no recordings
+  (§16a item 7). Not shown is not absent, so the check after the first call stays
+  (OPERATIONS §2 gate V-2).
 - If recording is ever wanted, take it from our own pipeline into our storage
-  (`apps/workers/storage.py`), because Vobiz recordings live in its storage (a blog says a
-  30-day window, REPORTED) and would need a separate erasure path.
+  (`apps/workers/storage.py`), because Vobiz recordings live in its storage and would need
+  a separate erasure path. The console's Recordings page states "Recordings are available
+  for the last 30 days" (§16a item 7). That is what the console shows, not a statement
+  that older recordings are deleted.
 - Erasure register: `compliance/deletion.py::TELEPHONY_OUTCOME` and
   `processor_erasure.PROCESSORS["telephony"]` change their cited source from the Plivo
   serializer to Vobiz. Vobiz holds CDRs (numbers, times, costs) with **UNKNOWN retention**
@@ -389,14 +398,31 @@ for the transfer change, not the first live call.
     change.
 - **Whose cost** is the Model A/B question in §0. On the founder's own test account it is
   Calevate's cost.
-- **The Plivo rate card is deleted with its test**, not converted. Vobiz's published
-  figures disagree with each other (₹0.45 vs ₹0.65/min, contract §16), so none of them is
-  fit for a constant. If a floor needs a planning figure, add an operator-attested
-  telephony price, following the pattern `ops/model_pricing.py` uses for LLMs. Per-call
-  truth is the CDR.
+- **Superseded on the Plivo card:** the switch (Phase B item 1) kept Plivo, and its card
+  stayed with it.
+- **The India rate card (VENDOR-PUBLISHED, founder-relayed, 2 Oct 2026; contract §16).**
+  It settles the disagreement between the marketing figures (₹0.45 vs ₹0.65/min). Our
+  calls are "Voice API / streaming calls" at **₹0.44/min plus tax**: "All charges in
+  Indian Rupees and exclusive of applicable taxes and statutory levies". The other
+  per-minute rows are SIP trunk ₹0.38, recording ₹0.10, transcription ₹0.30 and PII
+  redaction ₹0.30; we buy none of them. Numbers are ₹500 (standard local DID), ₹600 (79),
+  ₹1,000 (92), ₹599 (140 and 160) a month, each plus ₹100 setup. No GST percentage is
+  applied anywhere, because none has been read from a primary source.
+- **Where it went in code:** `billing/rates.py::VOBIZ_INR_PER_MIN`, with
+  `VOBIZ_OUR_CALL_USAGE = "voice_api_streaming"` and `VOBIZ_CARD_INCLUDES_TAX = False`,
+  pinned by `tests/telephony_cost_test.py`. It is a catalogue reference like the Plivo card
+  beside it: in neither cost floor, and with no path to `unit_cost_paid`. No per-call
+  function was added, because the card states no pulse and Plivo's 30 seconds would be
+  borrowed.
+- **Still UNKNOWN:** the billing pulse or increment and any minimum duration (gate V-7),
+  and whether the held trial number's ₹159.00/month (console) is a different price from
+  the card's ₹500. The CDR's `total_cost` stays the only cost source for a call.
 - **Number rental:** `number_price_attestations` (operator-attested) already covers it.
   The contract shows `setup_fee`/`monthly_fee` on the number object, which is a
-  vendor-reported reference for the attestation, not a substitute for it.
+  vendor-reported reference for the attestation, not a substitute for it. The console's
+  figures are number costs only and price no minute (§16a items 4 and 8): the held trial
+  number ₹159.00/month; the marketplace's "+₹100 setup" and "₹700 release (if released)";
+  Karnataka 91-80 ₹500/month, Gujarat 91-79 ₹600/month, 92 series ₹1,000/month.
 
 ## 11. Number provisioning: `NUMBER_PROVIDER` and `phone_numbers`
 
@@ -443,7 +469,12 @@ for the transfer change, not the first live call.
   `REGISTER_ONLY`, and give Plivo a `REGISTER_ONLY` entry or remove it from the register
   (legal decision, §15).
 - Lock the Vobiz API to our egress IPs (`ip_auth_enabled`/`ip_whitelist_rules`, contract
-  §1) once the console shows how. That is a console gate.
+  §1) once the console shows how. That is a console gate (V-9). The Security page read on
+  2 Oct 2026 showed no API IP allowlist (§16a item 10).
+- **Rotating `VOBIZ_AUTH_TOKEN`.** The console's Auth Token Rotation panel says "The
+  current token stays valid for the grace window" (§16a item 10); the docs say the old
+  token stops working at once (`api-reference/authentication.md:54`). The grace window's
+  length is UNKNOWN. The procedure is `runbooks/vobiz-first-live-call.md` §10.
 
 ## 13. nginx routes and rate zones
 
@@ -466,32 +497,71 @@ catch-all `location /` with `zone=webhooks` at 600 r/m
 ## 14. What the documentation does not answer
 
 These need someone logged in to the Vobiz console or holding the account. Section 16 is
-the browser-agent prompt that collects them.
+the browser-agent prompt that collects them, and §16a is what the 2 Oct 2026 reading
+found. "Not shown" below means the pages read did not show it; it says nothing about
+whether Vobiz has it.
 
 1. **Signature enablement:** what "auth credentials configured on the callback URL"
    means, where it is set, and whether the **answer URL** request is then signed
    (contract §6). This decides whether §1 and §5 can verify anything.
+   **Still UNKNOWN.** No field on the Applications form; nothing on Security, Profile,
+   Voice Overview or Subaccounts. Endpoints, Push Notifications, Campaign Agents, the SIP
+   Trunk create flow and Auto-Recharge were not read. A sweep of the whole mirror found no
+   mechanism either, and no support for credentials carried in the URL (contract §6).
+   Closes on a console reading of those pages or a written answer from Vobiz support to
+   the question in contract §6 (OPERATIONS §2 gate 55).
 2. **Our account:** `auth_id` type (MA_/SA_); trial or paid; KYC status (individual vs
    company); "India data region" or not; inbound enabled (trial is outbound-only).
+   **Partly answered:** `MA_`, account type "standard", a TRIAL account with ₹25 trial
+   credit, KYC "Verified" (PAN and Aadhaar), Asia/Kolkata, country IN. Individual vs
+   company KYC, "India data region" and the inbound switch were not shown. The held number
+   is tagged TRIAL, and the docs say trial numbers cannot take inbound calls
+   (`faq/trial-inbound.md:9`). The founder states the recharge converts the trial and
+   activates the account (2 Oct 2026). Closes on the first recharge and a re-read.
 3. **Limits:** `concurrent_calls_limit`, `cps_limit`, base vs purchased.
+   **Answered:** CPS 1 (1 base + 0 purchased), concurrent 3 (3 base + 0 purchased).
 4. **Numbers held:** e164, series (standard / 140 / 160 / 92), status,
    `aadhaar_verification_required`, `setup_fee`, `monthly_fee`, currency, attached
    application.
+   **Partly answered:** one number ending 4620, Karnataka, mobile series, TRIAL, Active,
+   voice, ₹159.00/month, attached to no application. Setup fee, minimum commitment and the
+   Aadhaar flag were not shown; `GET …/numbers` returns all three (contract §11).
 5. **Recording defaults:** any account-, number- or application-level auto-record
    setting; the retention of Vobiz-held recordings and CDRs.
+   **Partly answered:** no auto-record setting shown at any level; recordings "available
+   for the last 30 days". CDR retention not shown. Gate V-2 keeps its post-call check.
 6. **Rates for our account:** per-minute inbound and outbound (mobile and landline),
    streaming surcharge, billing increment and minimum, and number rental. Taken from the
    rate card or invoice view, with GST treatment.
+   **Partly answered (2 Oct 2026):** the India rate card the founder supplied states the
+   per-minute rates, ours being Voice API / streaming at ₹0.44 before tax, and the
+   number rentals (§10, contract §16). The card is not specific to mobile or landline and
+   states no billing increment, minimum or tax rate, only that tax is extra. The pulse and
+   minimum close on the first calls' CDRs and transaction rows (gate V-7) or Vobiz
+   support.
 7. **The console timezone** (it stamps hangup-callback times, contract §6).
+   **Answered:** Asia/Kolkata.
 8. **API IP allowlist settings** (`ip_auth_enabled`) and the callback IP-change
    notification subscription.
+   **Not shown** on the Security page; two-factor not shown either. Closes with Vobiz
+   support (gates V-1 and V-9).
 9. **The populated `extra_headers` shape** and the **`dtmf` event body**. These are best
    captured from one live test call's logs rather than the console.
+   **Open**, as expected: no call logs exist yet (gate V-4).
 10. **Whether the parent's credentials act on a sub-account's resources.**
+    **Not answered.** The console says only "Manage child accounts with isolated
+    credentials and number assignments".
 11. **Whether CDR `cost` is final at creation.**
+    **Open:** no calls exist, so no CDR could be read (gate V-7).
 12. **Partner programme / resale consent status** (commercial).
+    **Answered for the Terms; consent still absent:** the ToS clause quoted in §0, no
+    Partner menu in the console. Referrals & Rewards was not read (gate V-10).
 13. **Where Vobiz processes media** for a `<Stream>` to an Indian `wss://` endpoint, and
     whether Pipecat Cloud's edge for our worker is in India, given media anchoring
+    (contract §14).
+    **Not shown:** only country IN and the number's Karnataka location (gate V-8).
+14. **UCC/NDNC contact fields and the NDNC complaint webhook** (contract §14).
+    **Not shown.** Closes with Vobiz support; the webhook is activated by email
     (contract §14).
 
 ## 15. Sub-processor disclosure (legal impacts — listed, not edited)
@@ -503,7 +573,10 @@ KYC documents if `customer_use` sub-accounts are used.
 - `apps/web/src/lib/legal/subprocessors.ts:282-304`: the carrier row says
   "Exotel · Vobiz · Plivo … not settled". It must name Vobiz (Ilaimitado Private Limited),
   the data categories above, the processing location (CDR `region: ap-south-1`, contract
-  §14; full residency **UNKNOWN**), and retention (UNKNOWN until §14 item 5).
+  §14; full residency **UNKNOWN**), and retention. For recordings, the console states
+  "Recordings are available for the last 30 days" (§16a item 7); we never ask Vobiz to
+  record, but the statement is the one to carry if any recording ever exists. CDR
+  retention is still UNKNOWN.
 - `/legal/privacy` and `/legal/dpa`: the telephony processor, its location and transfers,
   and whether Vobiz trains on or analyses audio (not addressed in the docs; needs their
   privacy policy and terms read).
@@ -596,6 +669,48 @@ for it.
 Two items in §14 are better captured from a live test call than from the console: the
 populated `extra_headers` shape and the `dtmf` event body (log the raw `start` and one
 `dtmf` frame in a test run, with numbers masked).
+
+## 16a. What the console reading found (2 Oct 2026)
+
+**Evidence class: VENDOR-PUBLISHED, founder-relayed.** A read-only reading of
+`console.vobiz.ai` by a browser assistant in the founder's own session, 2 Oct 2026,
+10:17–10:30 IST. Nothing was changed and no screenshots were taken. Elsewhere in the tree
+it is cited as "Vobiz console, founder-relayed, 2 Oct 2026". "Not shown" means the pages
+read did not show it, never that Vobiz lacks it.
+
+| # | Item | What the console showed | Status | What closes it |
+|---|---|---|---|---|
+| 1 | Account | Auth ID `MA_…`; account type "standard"; banner "You are currently on a trial account — Complete your first recharge to convert to a full account and unlock all features"; wallet "Prepaid", ₹25 trial credit; KYC "Verified" (PAN and Aadhaar); Asia/Kolkata; IN. KYC type (individual or company) and "India data region" not shown | partly answered | the first recharge, then a re-read of the banner and the two missing fields |
+| 2 | Limits (Voice > Overview) | CPS 1 (1 base + 0 purchased); concurrent 3 (3 base + 0 purchased). More CPS ₹1,299/unit in blocks of 3; more concurrency ₹499/unit in blocks of 10 | answered | — (gate V-5 records it) |
+| 3 | Inbound enable/block | not shown anywhere checked | UNKNOWN in the console | the docs say trial numbers take no inbound calls (`faq/trial-inbound.md:9`) and the held number is tagged TRIAL; a re-read after the recharge |
+| 4 | Numbers | one number, Karnataka, mobile series, TRIAL, Active, voice; last four 4620; ₹159.00/month, bought 04 Sep 2026, next bill 04 Oct 2026; attached to no application. Setup fee, minimum commitment, Aadhaar flag not shown | partly answered | `GET …/numbers` returns the missing fields (contract §11) |
+| 5 | Applications | none exist. Create form: "Application name *", "Primary answer URL" (POST/GET), "Hangup URL (optional)", "Fallback answer URL (optional)", "Default endpoint app", "Public URI" ("Anyone can call this application over SIP without authentication."). No callback auth, credential or signing field | answered | — |
+| 6 | Callback signing | not shown. Checked: Applications create form, Security, Profile, Voice Overview, Subaccounts. Not checked: Endpoints, Push Notifications, Campaign Agents, SIP Trunk create flow, Auto-Recharge. No Developer or Webhooks menu | UNKNOWN | gate 55: those five pages, or Vobiz support in writing |
+| 7 | Recording | "Recordings are available for the last 30 days"; no recordings; no auto-record setting shown at account, number or application level | partly answered | gate V-2's check after the first call |
+| 8 | Rates | in the console: no per-minute rate card, WebSocket surcharge, pulse, minimum duration or GST shown; no invoice page. The India rate card the founder supplied the same day answers the per-minute rates (contract §16; §10); the pulse and minimum are still UNKNOWN. Number marketplace: "+₹100 setup", "₹700 release (if released)"; Karnataka 91-80 ₹500/month, Gujarat 91-79 ₹600/month, 92 series ₹1,000/month. Transaction fields: Transaction ID, Account ID, Reference, Reference Type, Balance ID, Amount, Type, Currency (INR), Status, Processed At, Created At | partly answered (number costs only) | the first call's CDR and its transaction row (gate V-7) |
+| 9 | Call logs / CDR | no calls exist; CDR labels and cost wording not shown | open | the first live call |
+| 10 | Security | Change Password; "Auth Token Rotation": status Active, last rotated Never, "The current token stays valid for the grace window". API IP allowlist, IP-change notification and two-factor not shown | partly answered | grace-window length from Vobiz support; gates V-1 and V-9 |
+| 11 | Subaccounts | "Manage child accounts with isolated credentials and number assignments"; create form: Name *, Email, Phone, Description, KYC Mode, Password *; KYC Mode "Personal use (inherits your KYC)" or "Customer use (independent KYC)" | answered for the form; parent-credential reach UNKNOWN | the §0 Model decision, then the sub-account docs or Vobiz support |
+| 12 | Partner programme | no Partner menu or resale acceptance in the console; Referrals & Rewards not read. Terms of Service at `www.vobiz.ai/legal`, "Last Updated: 13 Sep 2025": users agree not to "Resell or sublicense services without prior written consent" | answered (no consent held) | gate V-10: a written instrument from Vobiz |
+| 13 | Region / media | not shown; only country IN and the number's Karnataka location | UNKNOWN | gate V-8 |
+| 14 | UCC/NDNC contacts and complaint webhook | not shown | UNKNOWN | Vobiz support |
+
+**What the reading changes in the build.** Nothing in code needs to move: `carrier_cps`
+already defaults to 1, `vobiz_signature_required` stays off, the only per-minute price in
+the tree is a catalogue reference with no path to a bill (§10), and Applications are created by API with `public_uri` left at its documented
+default of false (`applications/create-application.md:45`). What it adds is operational:
+the account must be recharged before the first live call (item 1), inbound needs a
+number that is not a trial number (`faq/trial-inbound.md:9-35`), and the dispatcher's
+outbound pool is larger than the account's 3 concurrent calls (OPERATIONS §2 gate V-5).
+
+**Founder decisions, 2 Oct 2026.** (1) Recharging is all it takes to activate the account,
+and KYC is done: the founder states the recharge converts the trial. The trial-inbound rule
+above remains the reason inbound needs the recharge first, and the runbook still re-reads
+the number's TRIAL tag afterwards. (2) CPS 1 and 3 concurrent are enough for live testing;
+no concurrency limiter is built now, and a dispatcher concurrency cap is required before
+any client traffic (gate V-5; client traffic is already blocked by V-10). (3) Testing
+proceeds on the founder's own account; the resale clause blocks client traffic only
+(V-10).
 
 ## 17. Docs, gates and tests to change
 

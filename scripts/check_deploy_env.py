@@ -56,7 +56,10 @@ docs/evidence/raghava-deploy-teardown.md §2):
     keys). Theirs live in `.env`; ours live ENCRYPTED IN THE CONSOLE STORE (D-95), so a
     vendor key absent from the environment is the NORMAL state of a correct deployment and
     refusing on it would refuse every real host. That question belongs to
-    `runtime_config_missing_keys` at `/healthz/ready`, which already owns it.
+    `runtime_config_missing_keys` at `/healthz/ready`, which already owns it. The
+    exception is a credential that is ENV-ONLY (`ENV_ONLY_REASONS`): the environment is
+    its only home, so its absence is a fault this gate can see — `owned_runtime` refuses
+    the carrier pair and the claim key on that ground.
 
 Run:
     uv run python -m scripts.check_deploy_env                  # the process environment
@@ -89,6 +92,7 @@ from apps.api.core.settings import (
     MIN_HMAC_KEY_BYTES,
     BootstrapError,
     effective_env,
+    is_public_callback_base,
     validate_bootstrap_env,
 )
 from apps.api.ops.secret_service import manageable_secret_keys
@@ -99,6 +103,7 @@ from calevate_shared.config import (
     retired_env_key_message,
     retired_env_keys_in,
 )
+from calevate_shared.worker_api import MIN_CALLER_CLAIM_KEY_BYTES, usable_caller_claim_key
 from dotenv import dotenv_values
 from pydantic import ValidationError
 
@@ -150,6 +155,21 @@ HMAC_SECRET_KEYS: tuple[str, ...] = (
 RETIRED_PAIRS: tuple[tuple[str, str], ...] = (
     ("PLATFORM_KEK", "PLATFORM_KEK_RETIRED"),
     ("AUDIT_CHAIN_SECRET", "AUDIT_CHAIN_SECRET_RETIRED"),
+)
+
+#: What the owned runtime's carrier leg reads from this host's environment (`owned_runtime`).
+#: The first three are env-only, so the environment is their only home; the last two are
+#: console-managed and are checked only when the environment declares them, because a
+#: declared value is the one that wins.
+CARRIER_CLAIM_KEY = "CARRIER_CLAIM_SECRET"
+CARRIER_CREDENTIAL_KEYS: tuple[str, ...] = ("VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN")
+STREAM_BASE_KEY = "PIPECAT_STREAM_BASE_URL"
+CALLBACK_BASE_KEY = "WEBHOOK_BASE_URL"
+OWNED_RUNTIME_ENV_KEYS: tuple[str, ...] = (
+    CARRIER_CLAIM_KEY,
+    *CARRIER_CREDENTIAL_KEYS,
+    STREAM_BASE_KEY,
+    CALLBACK_BASE_KEY,
 )
 
 #: Set per SERVICE in `compose.prod.yml`, on purpose: DEPLOYMENT §2a's connection budget is
@@ -232,6 +252,10 @@ REFUSAL_CODES: frozenset[str] = frozenset(
         "example_value_verbatim",
         "placeholder_value",
         "retired_env_key",
+        "carrier_claim_secret_unusable",
+        "carrier_credentials_missing",
+        "pipecat_stream_base_url_blank",
+        "webhook_base_url_not_public",
         "env_file_missing",
         "settings_unbuildable",
     }
@@ -682,6 +706,82 @@ def retired_keys(env: Mapping[str, str]) -> list[Finding]:
     ]
 
 
+def owned_runtime(env: Mapping[str, str]) -> list[Finding]:
+    """The carrier leg's preconditions that live in this host's environment.
+
+    The same states `/healthz/ready` reports under `ENGINE=pipecat`
+    (`core/settings.owned_runtime_missing_keys`, `webhook_receiver_missing_keys`), refused
+    before the swap instead of discovered after it. This gate cannot read the console, so
+    it cannot see which engine is selected there: the leg is assumed live unless the
+    environment itself declares another `ENGINE`, because the owned runtime is what this
+    product runs and a host that is not running it can say so in one line.
+
+    A claim key under the floor is refused everywhere, `local` included: it is set, so it
+    looks configured, and the answer leg silently treats it as absent.
+    """
+    findings: list[Finding] = []
+    claim = _present(env, CARRIER_CLAIM_KEY)
+    if claim and usable_caller_claim_key(claim) is None:
+        findings.append(
+            Finding(
+                "carrier_claim_secret_unusable",
+                (CARRIER_CLAIM_KEY,),
+                f"is shorter than {MIN_CALLER_CLAIM_KEY_BYTES} bytes. voice-runtime and the "
+                "worker both treat it as absent, so no caller is identified and an outbound "
+                "call is taken for an inbound one.",
+            )
+        )
+    declared_engine = _present(env, "ENGINE")
+    if _stated_env(env) == "local" or (declared_engine and declared_engine != "pipecat"):
+        return findings
+
+    if not claim:
+        findings.append(
+            Finding(
+                "carrier_claim_secret_unusable",
+                (CARRIER_CLAIM_KEY,),
+                "is not set. It is env-only (voice-runtime never opens the credential "
+                "store) and signs the caller and call claims on every stream URL; without "
+                "it no caller is identified and an outbound call is taken for an inbound "
+                "one. Generate "
+                "at least 32 random bytes and put the SAME value in the Pipecat worker's "
+                "secret set (DEPLOYMENT §12.2).",
+            )
+        )
+    if not all(_present(env, key) for key in CARRIER_CREDENTIAL_KEYS):
+        findings.append(
+            Finding(
+                "carrier_credentials_missing",
+                CARRIER_CREDENTIAL_KEYS,
+                "are not both set. They are env-only and are the carrier's only "
+                "credential on this host: without them no call is placed, no number is "
+                "bound and no call record is read (DEPLOYMENT §12.6).",
+            )
+        )
+    if STREAM_BASE_KEY in env and not _present(env, STREAM_BASE_KEY):
+        findings.append(
+            Finding(
+                "pipecat_stream_base_url_blank",
+                (STREAM_BASE_KEY,),
+                "is declared EMPTY. The environment wins over the console, so the answer "
+                "route reads an empty worker address and refuses every call. Remove the "
+                "line and set it in the ops console, or set the worker's wss:// base here.",
+            )
+        )
+    callback = _present(env, CALLBACK_BASE_KEY)
+    if callback and not is_public_callback_base(callback):
+        findings.append(
+            Finding(
+                "webhook_base_url_not_public",
+                (CALLBACK_BASE_KEY,),
+                "is not an https:// URL on a host the carrier can reach. Every answer, "
+                "hangup and status URL the carrier is given is built on it, so a call "
+                "would ring and nothing would answer. Set it to the public hooks origin.",
+            )
+        )
+    return findings
+
+
 def settings_constructible() -> list[Finding]:
     """`Settings()` on THIS process's environment — the step this file absorbed.
 
@@ -737,6 +837,7 @@ def evaluate(env: Mapping[str, str], example: Mapping[str, str] | None) -> list[
     findings.extend(placeholders(env, example))
     findings.extend(console_managed_in_env(env, example))
     findings.extend(retired_keys(env))
+    findings.extend(owned_runtime(env))
     if example is None:
         findings.append(
             Finding(

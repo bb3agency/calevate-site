@@ -1,9 +1,10 @@
-"""The four in-call tools an `owned_runtime` agent may call, and the client behind them.
+"""The in-call tools an `owned_runtime` agent may call, and the client behind them.
 
-**FOUR, BECAUSE AN AGENT MUST BE ABLE TO DO FOUR THINGS MID-CALL**: honour a caller's
+**FOUR ACTS, BECAUSE AN AGENT MUST BE ABLE TO DO FOUR THINGS MID-CALL**: honour a caller's
 opt-out, book or cancel a call-back, and ask for a person. The opt-out half is a compliance
 obligation (hard rule 5, SEC-COMP §2.3): this is the in-call path by which "stop calling me"
-reaches the DNC list.
+reaches the DNC list. Beside them is the hang-up (`build_end_call_tool`), which reaches no
+API and is the only way the agent can end a call.
 
 **THE BEHAVIOUR IS THE SERVER'S AND THIS MODULE HOLDS NONE OF IT.** Every decision — what
 an opt-out does, whether a time is lawful to dial, whether a booking was confirmed, what
@@ -60,6 +61,7 @@ from calevate_shared.worker_api import (
 )
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.frames.frames import EndWorkerFrame, FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pydantic import BaseModel
 
@@ -94,6 +96,10 @@ OPT_OUT_TOOL_NAME: Final[str] = "record_do_not_call"
 BOOK_CALLBACK_TOOL_NAME: Final[str] = "book_callback"
 CANCEL_CALLBACK_TOOL_NAME: Final[str] = "cancel_callback"
 HANDOFF_TOOL_NAME: Final[str] = "request_human_handoff"
+END_CALL_TOOL_NAME: Final[str] = "end_call"
+
+#: The reason the pipeline records when the agent hangs up. Words, never caller content.
+END_CALL_REASON: Final[str] = "the agent ended the call"
 
 
 class CallToolApi(Protocol):
@@ -221,6 +227,15 @@ _HANDOFF_DESCRIPTION = (
     "is not something you can know, and the answer is what tells you. You may say you are "
     "trying. You may only say the caller is being connected when the answer says a person "
     "has accepted. Then do what the answer's 'guidance' says."
+)
+
+_END_CALL_DESCRIPTION = (
+    "Hang up this call. Call it ONLY when the conversation has reached a natural close and "
+    "you and the caller have both said goodbye, or when the caller asks you to end the "
+    "call. Say your goodbye first, in the caller's language; the call ends once you finish "
+    "speaking, and you cannot say anything after calling this. Never call it while the "
+    "caller is still talking or waiting for an answer, and never to get away from a hard "
+    "question or an upset caller — offer a call back or a person instead."
 )
 
 
@@ -444,7 +459,7 @@ def build_call_tools(
     caller_state: CallerIdentityState = "not_read",
     caller_e164: str | None = None,
 ) -> list[FunctionSchema]:
-    """The four tools, bound to one call. Empty when there is no API to reach.
+    """The four acts and the hang-up, bound to one call. Empty when there is no API to reach.
 
     **`api is None` MEANS NO TOOL IS ADVERTISED, AND THAT IS THE OPPOSITE OF
     `build_knowledge_tool`'s CHOICE ON PURPOSE.** The knowledge tool is advertised even
@@ -654,7 +669,48 @@ def build_call_tools(
             required=[],
             handler=_handoff,
         ),
+        build_end_call_tool(call_id=call_id),
     ]
+
+
+def build_end_call_tool(*, call_id: str) -> FunctionSchema:
+    """The agent's hang-up, as a tool. It reaches no API, so it can never fail to answer.
+
+    Without it the agent cannot end a call at all: `assemble_call` sets
+    `idle_timeout_secs=None` and the inbound carrier leg sets no time limit, so a caller who
+    said goodbye and did not hang up held the line, and the container's one session slot,
+    until the duration cap.
+
+    **IT PUSHES `EndWorkerFrame` DOWNSTREAM, AFTER ANSWERING THE MODEL**, the vendor's own
+    pattern for ending a conversation from a tool (`pipecat/cli/agent_templates/AGENTS.md:
+    186-193`). Downstream is what makes it wait: frames already queued ahead of it, the
+    goodbye being spoken among them, flush before the pipeline ends, and the Vobiz serializer
+    then hangs the leg up with its `stop`. A cancel would cut the caller off mid-word. It is
+    pushed through the LLM processor rather than queued on the worker from outside, because
+    changing a running pipeline is done by pushing a frame (`AGENTS.md:153`).
+
+    `run_llm=False`: the model has said its goodbye before calling this, and another
+    completion would be the agent talking over its own hang-up.
+
+    It rides with the four ACTS only because a session with no API is never a production
+    call; it needs nothing from the API itself.
+    """
+
+    async def _end_call(params: FunctionCallParams) -> None:
+        logger.info("in-call tool answered", tool=END_CALL_TOOL_NAME, call_id=call_id)
+        await params.result_callback(
+            {"status": "ending", "say": "The call is ending. Say nothing more."},
+            properties=FunctionCallResultProperties(run_llm=False),
+        )
+        await params.llm.push_frame(EndWorkerFrame(reason=END_CALL_REASON))
+
+    return FunctionSchema(
+        name=END_CALL_TOOL_NAME,
+        description=_END_CALL_DESCRIPTION,
+        properties={},
+        required=[],
+        handler=_end_call,
+    )
 
 
 def _log_outcome(tool: str, call_id: str, status: str, reason: str) -> None:
@@ -677,6 +733,8 @@ def _log_failure(tool: str, call_id: str, failure: WorkerApiError) -> None:
 __all__ = [
     "BOOK_CALLBACK_TOOL_NAME",
     "CANCEL_CALLBACK_TOOL_NAME",
+    "END_CALL_REASON",
+    "END_CALL_TOOL_NAME",
     "HANDOFF_GUIDANCE",
     "HANDOFF_TOOL_NAME",
     "OPT_OUT_TOOL_NAME",
@@ -684,5 +742,6 @@ __all__ = [
     "CallToolApi",
     "CallToolApiClient",
     "build_call_tools",
+    "build_end_call_tool",
     "handoff_outcome",
 ]

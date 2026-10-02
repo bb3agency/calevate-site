@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.agents.write_guard import assert_agent_writable
+from apps.api.callbacks.service import book as book_callback
 from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.models import (
     CALLBACK_CONSENT_WITHDRAWN_REASON,
@@ -53,9 +54,18 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
+from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
 from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
+
+#: The dial refusals that say the carrier account had no line or slot free, not that this
+#: lead may not be called: the call is booked as a call-back instead of being lost.
+LINE_REFUSALS: frozenset[str] = frozenset({LINES_BUSY_RULE, PACING_RULE})
+
+#: `scheduled_callbacks.source_execution_id` of a call-back booked because ingest found
+#: every line busy. Not an engine execution; namespaced so it can never collide with one.
+INGEST_CALLBACK_PREFIX = "lead-ingest:"
 
 # E.164-ish: our market is India, but a webhook may carry 10 digits with no prefix.
 _INDIA_PREFIX = "+91"
@@ -567,6 +577,43 @@ async def ingest_lead(
             extra={"lead_id": str(resolved_lead), "call_id": str(unconfirmed.call_id)},
         )
         return {"lead_id": resolved_lead, "dispatched": None, "call_id": unconfirmed.call_id}
+    except ProblemError as refused:
+        if refused.code not in LINE_REFUSALS:
+            raise
+        # Every line, or every dial slot this second, was taken: nothing rang, and the
+        # person is no less owed a call than a moment ago. Raising would roll the lead back
+        # with it, so the call is booked as a call-back due now, which the dispatch tick
+        # dials as soon as a line frees (inside `callbacks.service.GRACE`).
+        now = datetime.now(UTC)
+        booked = await book_callback(
+            session,
+            callback_id=uuid7(),
+            tenant_id=config.tenant_id,
+            agent_id=config.agent_id,
+            source_call_id=None,
+            # Unique per delivery: the upsert key is (tenant, execution), and a lead that
+            # arrives again later is a new promise, not a move of this one.
+            source_execution_id=f"{INGEST_CALLBACK_PREFIX}{uuid7()}",
+            lead_id=resolved_lead,
+            phone_e164=phone,
+            requested_at=now,
+            booked_at=now,
+            note=f"Enquiry via {config.source}",
+            language=None,
+        )
+        await _timeline(
+            session,
+            config.tenant_id,
+            resolved_lead,
+            "call_deferred",
+            {"rule": refused.code, "callback_id": str(booked[0]) if booked else None},
+        )
+        record_speed_to_lead(time.time() - received_at, outcome=f"deferred_{refused.code}")
+        log.info(
+            "lead_callback_deferred",
+            extra={"lead_id": str(resolved_lead), "rule": refused.code},
+        )
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": refused.code}
     await _timeline(session, config.tenant_id, resolved_lead, "call", {"engine_call_id": handle})
     elapsed = time.time() - received_at
     record_speed_to_lead(elapsed, outcome="dispatched")

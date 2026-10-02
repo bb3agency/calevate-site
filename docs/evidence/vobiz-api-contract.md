@@ -24,10 +24,10 @@ preferred over a concept or blog page. Section 17 lists the contradictions.
 | Auth ID shape | `MA_XXXXXXXX` (main account); sub-accounts are `SA_...` | VDOCS `api-reference/authentication.md:26`; `account-phone-number/purchase-from-inventory.md:15,23` |
 | Bearer tokens | Accepted only on the capacity pricing/purchase endpoints | VDOCS `api-reference/authentication.md:38-46` |
 | Credential check | `GET /api/v1/auth/me` returns the account object | VDOCS `api-reference/authentication.md:30-36` |
-| Rotation | Regenerating the token in the console invalidates the old one immediately | VDOCS `api-reference/authentication.md:54` |
+| Rotation | The docs say regenerating the token invalidates the old one immediately; the console's Auth Token Rotation panel says "The current token stays valid for the grace window", length not stated (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). Section 17 item 7 | VDOCS `api-reference/authentication.md:54`; integration plan §16a item 10 |
 | Path casing | `Account` and `Call` are PascalCase with a trailing slash; lowercasing or dropping the slash returns **401**, not 404 | VDOCS `guides/plivo-to-vobiz/gotchas.md:21-27`; `call/make-call.md:131` |
 | CDR path casing | `Account` capitalised, `cdr` lowercase | VDOCS `cdr/get-cdr.md:26` |
-| API IP allowlist | Account object carries `ip_auth_enabled` and `ip_whitelist_rules` "for API access" | VDOCS `account/account-object.md:49-50` — **how to set it is UNKNOWN** (no write endpoint documented) |
+| API IP allowlist | Account object carries `ip_auth_enabled` and `ip_whitelist_rules` "for API access" | VDOCS `account/account-object.md:49-50` — **how to set it is UNKNOWN** (no write endpoint documented, and the console's Security page did not show it, integration plan §16a item 10) |
 | Error body | Two shapes are documented: `{"status":"error","error":{"code","message","details"},"requestId"}` and the flatter `{"error": "...", "details": {...}}` | VDOCS `errors.md:13-41`; `applications/create-application.md:84-98` |
 
 **Python SDK.** Vobiz publishes SDKs only as GitHub repositories (`github.com/vobiz-ai`),
@@ -209,7 +209,73 @@ VDOCS `concepts/validating-callbacks.md`:
   it"; otherwise the callback arrives with no signature headers at all, and coverage
   varies by callback type** (`:56-64`). How to configure those credentials is **UNKNOWN**
   (no page, no API field). This is the console question that decides whether we can
-  verify anything.
+  verify anything. What the mirror does say, all of it:
+  - The vendor's Deepgram guide says the credentials are set "on the URL in the console"
+    (`integrations/deepgram.md:486`, again at `:498` and `:606`), without naming a page or
+    a field.
+  - The callback configuration page says only "configure shared secrets and verify HMAC
+    signatures" (`concepts/callback-configurations.md:131-133`), with no field for one.
+  - Neither the Application API (`applications/create-application.md:27-48`,
+    `update-application.md`) nor the console guide's create form
+    (`platform/voice/applications.md:52-60`) has a credential field. The console reading
+    agrees: the Applications create form has no auth, credential or signing field (Vobiz
+    console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED; integration plan §16a item 5).
+  - Endpoints are SIP softphone logins (username and password for `registrar.vobiz.ai`,
+    `platform/voice/endpoints.md:9,31-32`; `endpoint/endpoint-object.md:121-133`), not
+    callback credentials.
+  - Trunk webhooks use a different scheme, an HMAC over the raw body under a per-trunk
+    secret "configured in the Console" (`trunks/webhook.md:169,220`). That covers trunk
+    events, not Application callbacks.
+  - No page shows a callback URL carrying userinfo (`https://user:pass@host/…`). That
+    reading of "auth credentials … on the URL" is a guess, not a finding. A sweep of the
+    whole mirror on 2 Oct 2026 (`pages/`, `llms-full.txt`, `root-site/openapi.json`) for
+    userinfo-shaped URLs, "basic auth", `Authorization`, "auth credentials", "shared
+    secret" and credential fields found:
+    - no URL with userinfo anywhere;
+    - every "HTTP Basic" mention is about OUR requests to Vobiz's REST API
+      (`account-phone-number/cancel-release.md:30`, `account/transactions.md:21`) or about
+      Plivo's (`guides/plivo-to-vobiz/auth-and-base-url.md:20,76`); none says Vobiz sends
+      an `Authorization` header on a callback;
+    - no credential field on the Application in the OpenAPI schema
+      (`root-site/openapi.json:496-613`: answer, hangup, fallback, message and SIP-transfer
+      URLs and methods, and flags only);
+    - no auth attribute on `<Stream>`; `extraHeaders` is the only per-stream key-value
+      field (`xml/stream.md:48`), and the vendor's own guide says it never reaches the
+      socket (`integrations/deepgram.md:473`);
+    - the `username`/`password` fields in the OpenAPI spec belong to SIP endpoints and
+      deprecated trunk credentials (`root-site/openapi.json:622,6546-6556`), not callbacks;
+    - two other pages repeat the claim without the mechanism: "Every callback Vobiz sends
+      includes HMAC-SHA256 signatures" (`concepts/callbacks.md:117`) and "checking
+      signatures or an IP allowlist" (`xml/overview/best-practices.md:129-131`).
+    - The vendor's Deepgram bridge, which turns on signature checks once credentials are
+      set "on the URL in the console", rebuilds the signed URL from a bare hostname
+      (`integrations/deepgram.md:477,533`), so its own guide verifies against a URL with
+      no userinfo, as ours does. That is a hint, not a test result: the guide's source is
+      not in the mirror.
+
+    **Conclusion: the docs do not support credentials carried in the callback URL, so
+    nothing was built for it.** The verifier was not widened either: a with-userinfo
+    candidate can only be built from credentials we hold, and we hold none.
+  - **If it is userinfo, the vendor's own validators disagree on whether it is signed.**
+    The Python sample rebuilds the base URL from `netloc`, which includes userinfo
+    (`concepts/validating-callbacks.md:85-87`); the Node, Go and Ruby samples use the host
+    alone (`:127-130`, `:189-194`, `:248-251`). Our verifier rebuilds the URL from
+    `webhook_base_url` plus the path, with no userinfo
+    (`apps/voice-runtime/carrier_auth.py::signed_base_urls`), so it matches only if Vobiz
+    signs without it. If Vobiz signs with it, every signed request reads as invalid and is
+    refused even with `vobiz_signature_required` off. The runbook's signing step watches
+    for exactly that.
+  - **The question for Vobiz support, in writing** (also in the runbook, §4):
+    > On a Voice Application, how do we configure the "auth credentials" on the answer URL
+    > and hangup URL that make Vobiz send `X-Vobiz-Signature-V3` (your Validating
+    > Callbacks page, "Signature headers are emitted only when the callback URL has auth
+    > credentials configured on it")? Which console page and field, or which API field?
+    > Once configured: (1) is the answer request signed, as well as the hangup callback?
+    > (2) Is the URL that is signed the URL with the credentials in it
+    > (`https://user:pass@host/path`), or without them? Your Python sample keeps them and
+    > your Node, Go and Ruby samples drop them. (3) Do you also send an `Authorization`
+    > header carrying those credentials? (4) After an auth token rotation, which token
+    > signs callbacks during the grace window?
 - Whether the **answer URL** request (as opposed to status callbacks) is signed is not
   stated separately; the page says "every callback" (`:9`), qualified by the warning above.
 - The migration guide says the scheme is "identical" to Plivo's V3 (`guides/plivo-to-vobiz/webhooks-and-signatures.md:13-25`),
@@ -277,8 +343,12 @@ for Vobiz, and answer fact 3 with the vendor's own caveat.
   container may not match the extension, and storage is billed with durations rounded to
   60 s (`recording.md:24-41,75-77`).
 - Retention: a **blog** says "Vobiz keeps recordings for a 30-day window in-console and
-  auto-deletes older ones" (`blogs/call-recording-apis-compliant-pipelines.md:76`). Blog
-  class, not an API reference: treat as REPORTED until confirmed in the console.
+  auto-deletes older ones" (`blogs/call-recording-apis-compliant-pipelines.md:76`). The
+  console's Recordings page states "Recordings are available for the last 30 days" (Vobiz
+  console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). That confirms the 30-day window;
+  the auto-delete half is still the blog's alone.
+- No auto-record setting was shown at account, number or application level in the same
+  reading. Not shown is not absent, so the default stays UNKNOWN.
 - Delete: the recordings overview's operation table has no delete row
   (`recording.md:65-73`), but the vendor's OpenAPI specification declares
   `DELETE /api/v1/Account/{auth_id}/Recording/{recording_id}/`
@@ -308,7 +378,14 @@ Inbound routing is by **Application, not by a per-number URL**: the `answer_url`
 the application and the number points at the application. Porting a number in from
 another provider is not offered (`guides/plivo-to-vobiz/number-porting.md`; REPORTED
 earlier as "blocks it outright", `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md:56`).
-Trial accounts are outbound-only (`faq/trial-inbound`).
+Trial numbers cannot take inbound calls; inbound needs KYC, a payment method and a
+dedicated DID (`faq/trial-inbound.md:9-35`). The founder's account is a trial account and
+its one number is tagged TRIAL (Vobiz console, founder-relayed, 2 Oct 2026,
+VENDOR-PUBLISHED). Whether a trial account also limits outbound calls or WebSocket
+streaming is UNKNOWN: the console banner says only that a first recharge will "unlock all
+features". The founder states that recharging is all it takes to activate the account and
+that KYC is done (founder decision, 2 Oct 2026). That is the founder's statement, not a
+page of Vobiz's; the trial-inbound rule above is still why inbound waits for the recharge.
 
 ## 12. Sub-accounts and the partner programme
 
@@ -321,6 +398,9 @@ Trial accounts are outbound-only (`faq/trial-inbound`).
 - Partner programme: not self-serve; the partner is the master account, funds customer
   wallets and has read visibility over their traffic; "Typical response time: 1 business
   day" (`partner.md:13-33`, `:72-74`).
+- The console's Subaccounts create form offers KYC Mode "Personal use (inherits your
+  KYC)" or "Customer use (independent KYC)" (Vobiz console, founder-relayed, 2 Oct 2026,
+  VENDOR-PUBLISHED).
 - **UNKNOWN:** whether the parent's credentials can place a call or attach a number
   *on a sub-account's path*, or whether the sub-account's own token is required.
 
@@ -346,9 +426,13 @@ design bridges a PBX or uses SIP REFER (`faq/call-transfer.md:15-18`).
 | Concurrency `max_concurrent = base + purchased`; CPS likewise; `GET …/concurrency` reports live use | `account/concurrency.md:15-62`; `account/account-object.md:41-46` |
 | Infrastructure region in CDRs: `ap-south-1`, `origination_region: mumbai` | `cdr.md:190-192,313` |
 
-Our account's actual concurrency/CPS was REPORTED as 3 concurrent and 1 CPS on a trial
-account (`docs/evidence/carrier-pricing-concurrency-2026-09-17.md:49`) — re-read it from
-`GET …/concurrency` before relying on it.
+Our account's limits are CPS 1 (1 base + 0 purchased) and 3 concurrent calls (3 base + 0
+purchased) (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED), matching the
+earlier REPORTED figure (`docs/evidence/carrier-pricing-concurrency-2026-09-17.md:49`).
+The console prices more CPS at ₹1,299 per unit in blocks of 3 and more concurrency at
+₹499 per unit in blocks of 10; the India rate card agrees and adds ₹599 per unit in packs
+of 30 for 140/160 numbers (section 16). `GET …/concurrency` reports live use. The founder
+has decided CPS 1 and 3 concurrent are enough for live testing (2 Oct 2026, gate V-5).
 
 ## 15. CDR (the billing authority)
 
@@ -368,6 +452,60 @@ billing increment (fact 5).
 
 ## 16. Pricing (published only)
 
+### The India rate card (VENDOR-PUBLISHED, founder-relayed, 2 Oct 2026)
+
+Vobiz's "India Pricing" rate card, supplied by the founder as an image on 2 Oct 2026 and
+read figure by figure from that image. It is not in the mirror and was not fetched from
+here. Header: "Currency: INR (₹)", "Billing: monthly", "Geography: India".
+
+| Numbers | Monthly | One-time setup |
+| --- | --- | --- |
+| Standard Local DID (080/022/011 and other city codes) | ₹500 per number | ₹100 |
+| 79 series (Ahmedabad circle local DID) | ₹600 per number | ₹100 |
+| 92 series (special series) | ₹1,000 per number | ₹100 |
+| 140 series (regulatory number) | ₹599 per number | ₹100 |
+| 160 series (regulatory number) | ₹599 per number | ₹100 |
+
+| Usage | Per minute |
+| --- | --- |
+| Connected SIP trunk calls ("Inbound and outbound calls over your Vobiz SIP trunk") | ₹0.38 |
+| **Voice API / streaming calls ("Calls placed or controlled via Voice APIs and WebSocket media streaming")** | **₹0.44** |
+| Recording ("Call recording with storage") | ₹0.10 |
+| Transcription ("Recording is mandatory") | ₹0.30 |
+| PII redaction ("Recording + transcription are mandatory") | ₹0.30 |
+
+| Capacity | Rate |
+| --- | --- |
+| Included | 1 CPS, 3 concurrency |
+| Additional CPS | ₹1,299 per CPS per month, packs of 3 |
+| Additional concurrency, Local DIDs and 79 | ₹499 per concurrency per month, packs of 10 |
+| Additional concurrency, 140/160 | ₹599 per concurrency per month, packs of 30 |
+
+Footnotes on the card: "All charges in Indian Rupees and exclusive of applicable taxes and
+statutory levies."; "Number allocation is subject to TRAI/DoT eligibility, KYC and
+use-case approval."; "Volume and annual-commitment pricing available on request."
+
+What it means for us:
+
+- **Our calls are the ₹0.44 row.** We dial through the REST API and carry audio on a
+  `<Stream>` WebSocket, which is the card's "Voice API / streaming calls". The ₹0.38 SIP
+  trunk row is not ours (section 13).
+- **Every figure is before tax.** Tax is added on top. No GST percentage is applied
+  anywhere in this tree, because none has been read from a primary source.
+- **UNKNOWN, not on the card:** the billing pulse or increment, and any minimum duration
+  (gate V-7). Also UNKNOWN: whether the held trial number's ₹159.00/month in the console
+  is a different price from the card's ₹500 for a standard local DID. The console lists
+  that number as mobile series, so it may not be on that row at all.
+- The capacity rows agree with the console's ₹1,299 and ₹499 (section 14); the 140/160
+  concurrency row is new.
+- **It is a catalogue reference, not a cost.** `billing/rates.py::VOBIZ_INR_PER_MIN`
+  carries the per-minute rows with no path to `unit_cost_paid`; a call's cost remains the
+  CDR's INR `total_cost` (section 15, hard rule 7).
+- It supersedes the marketing figures below as the reference for our per-minute cost, and
+  the REPORTED ₹0.38 + ₹0.06 streaming reading below sums to the same ₹0.44.
+
+### Earlier published figures
+
 The docs publish list rates only in marketing contexts, and they disagree:
 
 | Figure | Where | Class |
@@ -378,7 +516,12 @@ The docs publish list rates only in marketing contexts, and they disagree:
 | ₹25 free credit on signup | `quick-start.md:37` | VENDOR-PUBLISHED |
 | Recording storage rounded up to 60 s | `recording.md:75-77` | VDOCS |
 
-None of these is an invoice or a rate card for our account. Hard rule 7: no telephony
+None of these is an invoice or a rate card for our account. The console itself shows no
+per-minute rate card, streaming surcharge, pulse, minimum duration or GST treatment, and
+has no invoice page; it shows number costs only (₹159.00/month for the held trial number,
+"+₹100 setup", "₹700 release (if released)", and ₹500, ₹600 and ₹1,000 a month for
+Karnataka 91-80, Gujarat 91-79 and the 92 series) (Vobiz console, founder-relayed,
+2 Oct 2026, VENDOR-PUBLISHED). Hard rule 7: no telephony
 figure may reach `unit_cost_paid` except an operator attestation or the CDR's own
 `cost`/`total_cost` per call. A previous session REPORTED account-level figures read from
 an authenticated trial console (₹0.38/min, +₹0.06 streaming, 60 s round-up,
@@ -400,12 +543,21 @@ an authenticated trial console (₹0.38/min, +₹0.06 streaming, 60 s round-up,
 4. **Answer latency** — 1–2 s, 10 s, and "3 retries or 60 s" on three pages (section 3).
 5. **`extraHeaders` charset** — `[A-Za-z0-9]` vs an example with `_` (section 4).
 6. **Signature equivalence to Plivo** (section 6).
+7. **Token rotation.** The docs say the old token stops working at once
+   (`api-reference/authentication.md:54`, `concepts/validating-callbacks.md:306`); the
+   console says it "stays valid for the grace window" (section 1). Plan a rotation as if
+   the window were zero.
+8. **Signed base URL.** The Python validator keeps userinfo in the signed URL, the Node,
+   Go and Ruby ones drop it (section 6).
 
 ## 18. What the docs do not answer
 
 See `docs/evidence/vobiz-integration-plan.md` §14 for the full list and the console
-research prompt. The load-bearing ones: how callback "auth credentials" are configured
-(and so whether signatures are sent at all); the `dtmf` event body; the populated
-`extra_headers` shape; whether call create is idempotent; account-level recording
-defaults; our account's concurrency, CPS, region and rates; whether parent credentials
-act on a sub-account; and whether `cost` on a CDR is final.
+research prompt, and §16a for what the 2 Oct 2026 console reading answered. The
+load-bearing ones still open: how callback "auth credentials" are configured (and so
+whether signatures are sent at all); the `dtmf` event body; the populated `extra_headers`
+shape; whether call create is idempotent; account-level recording defaults (none shown);
+our account's region; the billing pulse and minimum duration (the India rate card,
+section 16, states the per-minute rates but neither of these); whether parent credentials act on a
+sub-account; whether `cost` on a CDR is final; and the token rotation grace window.
+Concurrency and CPS are answered (section 14).

@@ -116,6 +116,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
+from apps.api.engine import engine_capabilities
 
 # No prefix — the reads live in the client realm's `/v1/agents` space and the
 # mutations under `/v1/admin/tenants/{tenant_id}/...`, so a shared prefix could only
@@ -297,9 +298,9 @@ class EngineStateOut(Strict):
     #: Null for an agent with no opening line — there is no second copy of nothing.
     prompt_disclosure_applied: bool | None
     #: The rule no toggle reaches (D-163): is the engine holding the instruction that
-    #: makes this agent answer "I am an AI" and "yes, this call is recorded" when a
-    #: caller asks? `false` is the one drift finding on this object that is a compliance
-    #: breach rather than a configuration difference.
+    #: makes this agent answer "I am an AI", and say truthfully whether the call is
+    #: recorded, when a caller asks? `false` is the one drift finding on this object that
+    #: is a compliance breach rather than a configuration difference.
     truthful_answer_applied: bool | None
     voice_applied: bool | None
     #: Is the voice platform handing callers to exactly the person this agent's handover
@@ -419,13 +420,15 @@ class CallCapOut(Strict):
     summary="Which agent settings apply immediately and which wait for Apply (§2b)",
 )
 async def list_lanes(_: PublishingReader) -> LanesOut:
-    """Static data: no DB, no engine, no tenant scoping — the split is the same for
-    every client, which is the point of publishing it rather than describing it."""
+    """No DB, no engine call, no tenant scoping — the split is the same for every client,
+    which is the point of publishing it rather than describing it. It reads one engine
+    CAPABILITY (`records_audio`), because the recording notice's explanation must match
+    what this deployment's phone line actually does."""
     return LanesOut(
         precedence_rule=publishing.PRECEDENCE_RULE,
         lanes=[
             LaneOut(field=e.field, lane=e.lane, precedence=e.precedence, why=e.why)
-            for e in publishing.LANES
+            for e in publishing.lanes(records_audio=engine_capabilities().records_audio)
         ],
         call_cap_default_s=CALL_CAP_DEFAULT_S,
         call_cap_min_s=CALL_CAP_MIN_S,

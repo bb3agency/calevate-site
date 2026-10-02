@@ -2106,8 +2106,10 @@ export interface paths {
         };
         /**
          * Which agent settings apply immediately and which wait for Apply (§2b)
-         * @description Static data: no DB, no engine, no tenant scoping — the split is the same for
-         *     every client, which is the point of publishing it rather than describing it.
+         * @description No DB, no engine call, no tenant scoping — the split is the same for every client,
+         *     which is the point of publishing it rather than describing it. It reads one engine
+         *     CAPABILITY (`records_audio`), because the recording notice's explanation must match
+         *     what this deployment's phone line actually does.
          */
         get: operations["list_lanes_v1_agents_lanes_get"];
         put?: never;
@@ -2452,9 +2454,9 @@ export interface paths {
          * Switch the AI disclosure and the recording notice on or off (D-163)
          * @description Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call.
          *
-         *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it says yes. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish — no script can withdraw it.
+         *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish — no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.
          *
-         *     Switching the recording notice off does not stop the call being recorded, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.
+         *     The recording notice is spoken only where audio is recorded; the switch is kept so it applies wherever it is. Switching it off does not stop a recording being made, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.
          *
          *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.
          */
@@ -6059,6 +6061,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/carrier/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the carrier whether the credential pair this deployment holds works
+         * @description Sends ONE read-only authenticated request to the selected carrier with the pair this process was started with, and reports whether it authenticated. Takes no candidate: the pair is env-only, so there is nothing to paste. Changes nothing.
+         */
+        post: operations["probe_carrier_v1_ops_carrier_probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/config": {
         parameters: {
             query?: never;
@@ -7472,10 +7494,7 @@ export interface components {
              * @enum {string}
              */
             status: "draft" | "live" | "paused" | "archived";
-            /**
-             * Truthful Answer Rule
-             * @default Whatever these settings say, the agent always answers honestly when a caller asks. "Am I speaking to a person?" is answered "I am an AI assistant", and "is this call being recorded?" is answered yes. This cannot be switched off and no script can override it.
-             */
+            /** Truthful Answer Rule */
             truthful_answer_rule: string;
         };
         /**
@@ -8654,6 +8673,26 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * CarrierProbeOut
+         * @description The configured carrier pair's verdict, in the same vocabulary as `SecretTestOut`.
+         */
+        CarrierProbeOut: {
+            /**
+             * Carrier
+             * @enum {string}
+             */
+            carrier: "vobiz" | "plivo";
+            /** Detail */
+            detail: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected" | "unreachable" | "no_probe";
+            /** Verified */
+            verified: boolean;
         };
         /**
          * CartesiaLadderPointOut
@@ -10279,10 +10318,7 @@ export interface components {
             opening_line: string;
             /** Recording Notice Enabled */
             recording_notice_enabled: boolean;
-            /**
-             * Truthful Answer Rule
-             * @default Whatever these settings say, the agent always answers honestly when a caller asks. "Am I speaking to a person?" is answered "I am an AI assistant", and "is this call being recorded?" is answered yes. This cannot be switched off and no script can override it.
-             */
+            /** Truthful Answer Rule */
             truthful_answer_rule: string;
         };
         /**
@@ -14625,12 +14661,21 @@ export interface components {
         ProvisionNumberIn: {
             /** Agent Id */
             agent_id?: string | null;
+            /**
+             * Direction
+             * @default inbound
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
             /** E164 */
             e164: string;
             /** Engine Number Ref */
             engine_number_ref?: string | null;
-            /** Provider */
-            provider?: string | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "vobiz" | "plivo";
             /** Purpose */
             purpose?: string | null;
             /**
@@ -28868,6 +28913,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChainVerifyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    probe_carrier_v1_ops_carrier_probe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarrierProbeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

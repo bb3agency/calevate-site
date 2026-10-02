@@ -145,9 +145,13 @@ def _prod(**overrides: object) -> Settings:
         "app_env": "prod",
         "database_url": "postgresql+psycopg://u:p@localhost/db",
         "redis_url": "redis://localhost:6379/0",
+        "object_store_endpoint": "https://example.invalid",
+        "object_store_bucket": "calevate-prod",
         "engine": "cartesia",
     }
-    return Settings(**{**base, **overrides})  # type: ignore[arg-type]
+    # `_env_file=None`: the receiver probe now reads env-only keys (`CARRIER_CLAIM_SECRET`)
+    # that a developer's `.env` may hold, and these assertions are about this configuration.
+    return Settings(_env_file=None, **{**base, **overrides})  # type: ignore[arg-type]
 
 
 def test_voice_runtime_is_the_service_that_opts_out_and_the_default_is_the_strict_probe() -> None:
@@ -160,16 +164,19 @@ def test_voice_runtime_is_the_service_that_opts_out_and_the_default_is_the_stric
     assert {"voice-runtime": webhook_receiver_missing_keys} == READINESS_CONFIG_PROBES
 
 
-def test_the_receiver_probe_reports_the_key_it_cannot_serve_without() -> None:
+def test_the_receiver_probe_does_not_demand_the_kek() -> None:
     """Readiness for a service that is CALLED BY the vendor rather than calling it.
 
-    `PLATFORM_KEK` is what it comes down to: the console-managed configuration this
-    service opts into is encrypted under it, and that configuration carries the selected
-    engine. Without the KEK the rows are unreadable and the process runs on whatever the
-    environment last gave it.
+    The config poller here runs `with_secrets=False`, so this process never unwraps a DEK
+    and a missing `PLATFORM_KEK` is not a fault it can have. What it does need under
+    `ENGINE=pipecat` is `tests/owned_runtime_readiness_test.py`'s subject.
     """
-    assert webhook_receiver_missing_keys(_prod(platform_kek="k" * 44)) == []
-    assert webhook_receiver_missing_keys(_prod()) == ["PLATFORM_KEK"]
+    assert webhook_receiver_missing_keys(_prod()) == []
+    assert webhook_receiver_missing_keys(_prod(engine="pipecat")) == [
+        "PIPECAT_STREAM_BASE_URL",
+        "CARRIER_CLAIM_SECRET",
+        "WEBHOOK_BASE_URL",
+    ]
 
 
 def test_the_receiver_probe_does_not_demand_another_deployables_credentials() -> None:

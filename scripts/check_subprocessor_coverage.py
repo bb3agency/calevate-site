@@ -184,19 +184,6 @@ NOT_A_SUBPROCESSOR: dict[str, str] = {
 #: published. The other direction of the same rule: a vendor that left the code and stayed
 #: on the page is the Clerk/Vertex drift the register's own header records.
 REGISTER_ONLY: dict[str, str] = {
-    "Bolna": (
-        "The rented voice engine D-639 removed from the code on 26 Sep 2026: no adapter, no "
-        "credential and no route remains. The row stays until the register's next change "
-        "notice retires it, because a register that over-discloses a vendor the product no "
-        "longer uses errs in the safe direction and one that drops a row without notice "
-        "does not. Changing its words is a new legal revision (versions.ts + "
-        "legal/catalogue.py), which is the legal lane's call, not this guard's."
-    ),
-    "Exotel": (
-        "A candidate carrier. No account, no credential and no adapter — the carriers with "
-        "code in the tree are Vobiz and Plivo. Published because a client evaluating the "
-        "product is entitled to see the candidates."
-    ),
     "Cohere": (
         "A contingency embedding vendor, and the register's own header already records that "
         "it 'appears nowhere in the code at all, which is what Contingency. Not selected. "
