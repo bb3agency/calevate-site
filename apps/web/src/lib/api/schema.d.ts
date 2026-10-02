@@ -8656,6 +8656,26 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * CarrierProbeOut
+         * @description The configured carrier pair's verdict, in the same vocabulary as `SecretTestOut`.
+         */
+        CarrierProbeOut: {
+            /**
+             * Carrier
+             * @enum {string}
+             */
+            carrier: "vobiz" | "plivo";
+            /** Detail */
+            detail: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected" | "unreachable" | "no_probe";
+            /** Verified */
+            verified: boolean;
+        };
+        /**
          * CartesiaLadderPointOut
          * @description The Cartesia cost curve at one monthly volume: which plan is cheapest, and what a
          *     minute costs there. The table that makes "COSTS US" an answerable question.
@@ -14625,12 +14645,21 @@ export interface components {
         ProvisionNumberIn: {
             /** Agent Id */
             agent_id?: string | null;
+            /**
+             * Direction
+             * @default inbound
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
             /** E164 */
             e164: string;
             /** Engine Number Ref */
             engine_number_ref?: string | null;
-            /** Provider */
-            provider?: string | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "vobiz" | "plivo";
             /** Purpose */
             purpose?: string | null;
             /**

@@ -1,12 +1,12 @@
 """The carrier shapes every deployable shares (D-662): names, URL paths, the outbound call
-claim and the sealed transfer token."""
+claim, the sealed caller claim and the sealed transfer token."""
 
 from __future__ import annotations
 
 import time
 
 import pytest
-from apps.api.core import carrier_token
+from calevate_shared import carrier_token
 from calevate_shared.carrier import (
     CARRIERS,
     DEFAULT_CARRIER,
@@ -19,8 +19,12 @@ from calevate_shared.carrier import (
 )
 from calevate_shared.config import Settings
 from calevate_shared.worker_api import (
+    CALLER_CLAIM_PURPOSE,
+    MIN_CALLER_CLAIM_KEY_BYTES,
     call_claim_mac,
-    caller_claim_mac,
+    open_caller_claim,
+    seal_caller_claim,
+    usable_caller_claim_key,
     verify_call_claim,
 )
 
@@ -93,11 +97,62 @@ def test_an_expired_call_claim_and_a_missing_key_are_refused() -> None:
     assert not verify_call_claim(None, **_claim(now))  # type: ignore[arg-type]
 
 
-def test_a_caller_mac_never_verifies_as_a_call_mac() -> None:
+def test_a_sealed_caller_claim_never_verifies_as_a_call_mac() -> None:
     now = time.time()
-    expires = int(now) + 60
-    forged = caller_claim_mac(KEY, ref=REF, e164="call-1", expires_at=expires)
-    assert not verify_call_claim(KEY, **_claim(now, mac=forged))  # type: ignore[arg-type]
+    sealed = seal_caller_claim(SECRET, ref=REF, e164="+919876543210", now=now)
+    assert not verify_call_claim(KEY, **_claim(now, mac=sealed))  # type: ignore[arg-type]
+
+
+NUMBER = "+919876543210"
+
+
+def test_a_sealed_caller_claim_opens_for_its_own_agent_and_hides_the_number() -> None:
+    """IG6: the number rode the stream URL in clear under a MAC, so every edge log between
+    the carrier and the worker held it. Sealed, the URL carries no digit of it."""
+    now = time.time()
+    sealed = seal_caller_claim(SECRET, ref=REF, e164=NUMBER, now=now)
+
+    assert "9876543210" not in sealed
+    assert open_caller_claim(SECRET, ref=REF, token=sealed, now=now) == NUMBER
+
+
+@pytest.mark.parametrize(
+    "case", ["other_agent", "other_key", "expired", "far_future", "tampered", "no_key", "absent"]
+)
+def test_a_caller_claim_that_does_not_open_names_nobody(case: str) -> None:
+    now = time.time()
+    sealed = seal_caller_claim(SECRET, ref=REF, e164=NUMBER, now=now)
+    ref, secret, at, token = REF, SECRET, now, sealed
+    if case == "other_agent":
+        ref = REF.replace("0002", "0003")
+    elif case == "other_key":
+        secret = "t" * 40
+    elif case == "expired":
+        at = now + 10 * 60
+    elif case == "far_future":
+        token = seal_caller_claim(SECRET, ref=REF, e164=NUMBER, now=now + 24 * 3600)
+    elif case == "tampered":
+        token = sealed[:-2] + ("A" if sealed[-2] != "A" else "B") + sealed[-1]
+    elif case == "no_key":
+        secret = None  # type: ignore[assignment]
+    elif case == "absent":
+        token = None  # type: ignore[assignment]
+
+    assert open_caller_claim(secret, ref=ref, token=token, now=at) is None
+
+
+def test_a_transfer_token_is_never_opened_as_a_caller_claim() -> None:
+    """The AEAD purpose is what separates the two sealed payloads one secret keys."""
+    token = carrier_token.seal(SECRET, "transfer", {"ref": REF, "e164": NUMBER}, ttl_s=60)
+    assert open_caller_claim(SECRET, ref=REF, token=token) is None
+    assert CALLER_CLAIM_PURPOSE != "transfer"
+
+
+def test_the_claim_secret_has_one_floor_for_both_claims() -> None:
+    assert MIN_CALLER_CLAIM_KEY_BYTES == carrier_token.MIN_SECRET_BYTES
+    assert usable_caller_claim_key("c" * 31) is None
+    assert usable_caller_claim_key("c" * 32) == b"c" * 32
+    assert carrier_token.usable_secret("c" * 31) is None
 
 
 def test_a_sealed_token_round_trips_and_hides_its_payload() -> None:

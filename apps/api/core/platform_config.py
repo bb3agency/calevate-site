@@ -374,8 +374,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "meta_lead_retriever": AppliesRule(LIVE),  # ingest/meta, per retrieval
     "inbound_reserve_ratio": AppliesRule(
         LIVE,
-        "read once per dispatch tick, before the loop — a tick that has started keeps "
-        "the pool it computed, and the next one (≤30s later) uses the new value",
+        "read by every dial's line check, and once per dispatch tick for its budget — a "
+        "tick that has started keeps the budget it computed, and the next one (≤30s later) "
+        "uses the new value",
     ),
     "self_serve_inr_per_min": AppliesRule(LIVE),  # billing/service, per quote
     # Both read through `get_settings()` inside the blocker that uses them, once per
@@ -568,19 +569,25 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # call the carrier fetches an answer document for, with no restart of the
     # latency-critical service.
     "pipecat_stream_base_url": AppliesRule(LIVE),
-    # The carrier switch (D-662). Read per dial and per number binding, but a number
-    # already bound at the other carrier keeps answering there until it is rebound.
+    # The carrier switch (D-662). The engine adapter resolves the carrier per operation, so
+    # a new dial goes out on the new carrier at once; a call already placed is hung up and
+    # its call record read on the carrier stamped on its row (`calls.carrier`, D-663). A
+    # number already bound at the other carrier keeps answering there until it is rebound.
     "carrier": AppliesRule(
         NEEDS_REPUBLISH,
-        "new calls are dialled on the new carrier at once, but every number already bound "
-        "to the other carrier keeps answering there until it is bound again from the "
-        "number's screen",
+        "new calls are dialled on the new carrier at once and calls already under way "
+        "finish on the carrier they started on, but every number already bound to the "
+        "other carrier keeps answering there until it is bound again from the number's "
+        "screen",
     ),
-    # The next four are read per request or per dial through `get_settings()`.
+    # The next six are read per request or per dial through `get_settings()`.
     "vobiz_api_base_url": AppliesRule(LIVE),
     "vobiz_signature_required": AppliesRule(LIVE),
     "vobiz_callback_ips": AppliesRule(LIVE),
     "carrier_cps": AppliesRule(LIVE),
+    # Read inside every dial's intent transaction (`agents/service.dispatch_call`) and
+    # once per dispatch tick for the outbound pool.
+    "carrier_concurrency": AppliesRule(LIVE),
     "carrier_transfer_enabled": AppliesRule(LIVE),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.

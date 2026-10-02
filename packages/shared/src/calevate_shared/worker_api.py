@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import math
+import time
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Final, Literal, get_args
@@ -48,6 +49,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from calevate_shared import carrier_token
 from calevate_shared.engine import AgentConfig, CallLatency, ModelConfig
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
 
@@ -461,6 +463,22 @@ SettlementStatus = Literal["completed", "failed", "no_answer", "busy", "cancelle
 SETTLEMENT_STATUSES: Final[frozenset[str]] = frozenset(get_args(SettlementStatus))
 
 
+class UnverifiedCallClaim(BaseModel):
+    """The stream URL carried a call claim that did not verify, so this call ran as inbound.
+
+    The worker cannot tell a forgery from a deployment whose voice-runtime and worker hold
+    different `CARRIER_CLAIM_SECRET` values; the server can, because only the second names a
+    `calls` row we dialled. So the worker reports what it saw and the server decides.
+
+    `claimed_call_id` is the id the unverified claim named, when it was a uuid at all. It is
+    attacker-controlled and only ever compared against this tenant's own rows under RLS.
+    """
+
+    model_config = _STRICT
+
+    claimed_call_id: UUID | None = None
+
+
 class SettlementRequest(BaseModel):
     """The terminal write, and the one that carries D-607.
 
@@ -521,6 +539,9 @@ class SettlementRequest(BaseModel):
     #: settlement is already the one terminal write, and the server stores it in the same
     #: transaction as the outbox row whose pipeline reads it back.
     latency: CallLatency | None = None
+    #: Present when this call's stream URL carried a call claim that did not verify. `None`
+    #: on every call whose claim verified or that carried none.
+    call_claim_unverified: UnverifiedCallClaim | None = None
 
     @field_validator("latency")
     @classmethod
@@ -859,21 +880,25 @@ class CallerMemoryOut(BaseModel):
     facts: list[str] = Field(default_factory=list, max_length=MAX_RECALLED_FACTS)
 
 
-# --- the signed caller claim on the stream URL ----------------------------------------
+# --- the sealed caller claim on the stream URL ----------------------------------------
 #
 # `apps/voice-runtime/carrier_routes.py` reads the calling party off the carrier's answer
 # request and hands it to the worker on the stream URL it mints. Anything can open the
-# worker's socket, so a number on that URL is believed only under a MAC this module defines
-# for both deployables (neither may import the other; both import this package).
+# worker's socket, so a number on that URL is believed only when it opens under the key both
+# deployables hold (neither may import the other; both import this package).
 #
-# The MAC binds the number to ONE agent ref and a short expiry: a captured URL cannot be
-# replayed onto another agent, nor onto the same agent once the window has passed. HMAC-
-# SHA256 (RFC 2104) over a domain-separated canonical string, hex-encoded, compared with
-# `hmac.compare_digest`.
+# SEALED (AES-256-GCM, `calevate_shared.carrier_token`) RATHER THAN MAC'D, because a MAC
+# authenticates the number and leaves it in the clear: the stream URL is a request line, so
+# every proxy and edge between the carrier and Pipecat Cloud would log the caller's number
+# (hard rule 6). The sealed payload binds the number to ONE agent ref and a short expiry, so
+# a captured URL can neither be replayed onto another agent nor reused once it has expired.
 
-#: Query parameters carrying the MAC and its expiry, beside `caller` / `caller_state`.
-CLAIM_MAC_PARAM: Final = "caller_mac"
-CLAIM_EXPIRES_PARAM: Final = "caller_exp"
+#: The query parameter carrying the sealed claim, beside `caller_state`.
+CALLER_SEAL_PARAM: Final = "caller_seal"
+
+#: The AEAD associated data a caller claim is sealed under, so a transfer token or any other
+#: sealed payload of ours can never be opened as a caller claim.
+CALLER_CLAIM_PURPOSE: Final = "caller-claim"
 
 #: How long a minted claim stays valid, in seconds. The carrier opens the stream straight
 #: after fetching the answer document, so this only has to cover that hop plus clock skew
@@ -881,15 +906,12 @@ CLAIM_EXPIRES_PARAM: Final = "caller_exp"
 CALLER_CLAIM_TTL_S: Final = 120
 
 #: How far in the future an expiry may lie before it is refused as not ours: the TTL plus
-#: a skew allowance. A MAC over a far-future expiry is still a MAC, but no minter of ours
-#: produces one.
+#: a skew allowance. No minter of ours writes one further ahead.
 _CLAIM_MAX_FUTURE_S: Final = CALLER_CLAIM_TTL_S + 60
 
-#: The shortest key accepted, in bytes: `apps/api/core/settings.MIN_HMAC_KEY_BYTES`' floor
-#: (RFC 2104 §3), restated because the worker cannot import `apps.api`.
-MIN_CALLER_CLAIM_KEY_BYTES: Final = 32
-
-_CLAIM_DOMAIN: Final = b"calevate-caller-claim-v1"
+#: The shortest key accepted, in bytes. ONE floor for the sealed claim and the call-claim
+#: HMAC derived from the same secret, so a secret one of them accepts the other cannot refuse.
+MIN_CALLER_CLAIM_KEY_BYTES: Final = carrier_token.MIN_SECRET_BYTES
 
 
 def usable_caller_claim_key(secret: str | None) -> bytes | None:
@@ -898,57 +920,51 @@ def usable_caller_claim_key(secret: str | None) -> bytes | None:
     `None` means "sign nothing / believe nothing", which is the safe reading on both sides:
     the answer leg forwards the state without a number, and the worker never learns one.
     """
-    if not secret:
-        return None
-    key = secret.encode()
-    return key if len(key) >= MIN_CALLER_CLAIM_KEY_BYTES else None
+    usable = carrier_token.usable_secret(secret)
+    return None if usable is None else usable.encode()
 
 
-def _claim_message(*, ref: str, e164: str, expires_at: int) -> bytes:
-    return b"\x00".join((_CLAIM_DOMAIN, ref.encode(), e164.encode(), str(expires_at).encode()))
+def seal_caller_claim(secret: str, *, ref: str, e164: str, now: float | None = None) -> str:
+    """The sealed claim the answer leg puts on the stream URL for one caller of one agent."""
+    return carrier_token.seal(
+        secret,
+        CALLER_CLAIM_PURPOSE,
+        {"ref": ref, "e164": e164},
+        ttl_s=CALLER_CLAIM_TTL_S,
+        now=now,
+    )
 
 
-def caller_claim_mac(key: bytes, *, ref: str, e164: str, expires_at: int) -> str:
-    """The MAC the answer leg puts on the stream URL for one caller of one agent."""
-    return hmac.new(
-        key, _claim_message(ref=ref, e164=e164, expires_at=expires_at), hashlib.sha256
-    ).hexdigest()
+def open_caller_claim(
+    secret: str | None, *, ref: str, token: str | None, now: float | None = None
+) -> str | None:
+    """The number our answer leg sealed for THIS ref, still in time, or `None`.
 
-
-def verify_caller_claim(
-    key: bytes | None,
-    *,
-    ref: str,
-    e164: str,
-    expires_at: str | None,
-    mac: str | None,
-    now: float,
-) -> bool:
-    """Is this number really what our answer leg minted for this ref, and still in time?
-
-    False on every failure — no key, no MAC, an unparseable or expired expiry, an expiry
-    further ahead than any minter of ours writes, or a MAC that does not match — and the
-    caller treats all of them alike: the number is not believed.
+    `None` on every failure — no key, no token, a forged or truncated token, another agent's
+    claim, an expired or far-future expiry, a payload without a number — and the caller treats
+    all of them alike: the number is not believed.
     """
-    if key is None or not mac or not expires_at or not e164 or not ref:
-        return False
-    try:
-        expiry = int(expires_at)
-    except ValueError:
-        return False
-    if expiry < now or expiry > now + _CLAIM_MAX_FUTURE_S:
-        return False
-    expected = caller_claim_mac(key, ref=ref, e164=e164, expires_at=expiry)
-    return hmac.compare_digest(mac.encode(), expected.encode())
+    if not token or not ref:
+        return None
+    instant = time.time() if now is None else now
+    body = carrier_token.open_sealed(secret, CALLER_CLAIM_PURPOSE, token, now=instant)
+    if body is None or body.get("ref") != ref:
+        return None
+    expiry = body.get("exp")
+    if not isinstance(expiry, int) or expiry > instant + _CLAIM_MAX_FUTURE_S:
+        return None
+    e164 = body.get("e164")
+    return e164 if isinstance(e164, str) and e164 else None
 
 
 # --- the signed call claim on the stream URL (outbound dials) --------------------------
 #
 # An outbound call reaches the worker through the same answer route as an inbound one, so
 # the worker cannot read the direction or OUR call id off the socket. The answer leg mints
-# both onto the stream URL under the same key as the caller claim, with its own domain
-# string so a caller MAC can never verify as a call MAC. Without a valid one the worker
-# treats the call as inbound and mints its own id, exactly as before.
+# both onto the stream URL under an HMAC keyed by the same secret as the caller claim. The
+# two cannot stand in for each other: the claim is sealed under an HKDF-derived key and a
+# purpose label, the MAC is keyed by the secret itself. Without a valid one the worker
+# treats the call as inbound and mints its own id (see `UnverifiedCallClaim`).
 
 #: Query parameters carrying our call id, its direction, the MAC and its expiry.
 CALL_ID_PARAM: Final = "call"
@@ -1017,13 +1033,13 @@ def verify_call_claim(
 
 
 __all__ = [
+    "CALLER_CLAIM_PURPOSE",
     "CALLER_CLAIM_TTL_S",
+    "CALLER_SEAL_PARAM",
     "CALL_CLAIM_EXPIRES_PARAM",
     "CALL_CLAIM_MAC_PARAM",
     "CALL_DIRECTION_PARAM",
     "CALL_ID_PARAM",
-    "CLAIM_EXPIRES_PARAM",
-    "CLAIM_MAC_PARAM",
     "DEFAULT_CALL_CAP_S",
     "DEGRADED_KNOWLEDGE_STATES",
     "KNOWLEDGE_STATES",
@@ -1073,10 +1089,11 @@ __all__ = [
     "SpeakingSide",
     "SpeakingStateIn",
     "SpeakingStateOut",
+    "UnverifiedCallClaim",
     "WorkerSessionOut",
     "call_claim_mac",
-    "caller_claim_mac",
+    "open_caller_claim",
+    "seal_caller_claim",
     "usable_caller_claim_key",
     "verify_call_claim",
-    "verify_caller_claim",
 ]

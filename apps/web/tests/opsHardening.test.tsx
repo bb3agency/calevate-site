@@ -22,7 +22,9 @@ import {
   type ConfigWrite,
 } from "@/lib/api/opsConfig";
 import {
+  OPS_CARRIER_PROBE_PATH,
   OPS_SECRETS_PATH,
+  type CarrierProbe,
   type KekState,
   type PlatformSecret,
   type SecretTest,
@@ -1124,7 +1126,7 @@ describe("the keys this console can never change", () => {
           reason:
             "the carrier credential is read by the voice worker's own telephony serializer.",
           configured: false,
-          held_by: "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
+          held_by: "the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`",
         },
       ],
     });
@@ -1153,8 +1155,61 @@ describe("the keys this console can never change", () => {
     // set, and a VPS declaring it would be a VPS holding a live carrier credential with
     // no reader. It gets the location, not a verdict.
     expect(container.textContent).toContain(
-      "Held by the Pipecat Cloud secret set for `calevate-pipecat-worker`",
+      "Held by the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`",
     );
+  });
+
+  // PG5. The Vobiz pair is env-only, so `/secrets/{key}/test` has no row to test it from;
+  // the check sits beside the pair and sends nothing but the request.
+  const withVobizPair = () =>
+    configList([configField()], {
+      bootstrap: [
+        {
+          key: "vobiz_auth_id",
+          env_var: "VOBIZ_AUTH_ID",
+          reason: "the Vobiz account id is read by voice-runtime as well.",
+          configured: true,
+          held_by: null,
+        },
+        {
+          key: "vobiz_auth_token",
+          env_var: "VOBIZ_AUTH_TOKEN",
+          reason: "the Vobiz token places calls.",
+          configured: true,
+          held_by: null,
+        },
+      ],
+    });
+
+  it("tests the carrier pair from beside it, once, with no value in the request", async () => {
+    const verdict: CarrierProbe = {
+      carrier: "vobiz",
+      outcome: "rejected",
+      detail: "The vendor refused the credential pair this deployment holds.",
+      verified: false,
+    };
+    const { calls } = renderOps(
+      opsRoutes({
+        [OPS_CONFIG_PATH]: withVobizPair(),
+        [`POST ${OPS_CARRIER_PROBE_PATH}`]: verdict,
+      }),
+    );
+
+    await screen.findByText("Set outside this console");
+    const buttons = screen.getAllByRole("button", { name: /Test the carrier credentials/ });
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]);
+
+    await screen.findByText(/The vendor refused the credential pair/);
+    const probes = calls.filter((c) => c.path === OPS_CARRIER_PROBE_PATH);
+    expect(probes).toHaveLength(1);
+    expect(probes[0].body).toBeNull();
+  });
+
+  it("offers no carrier check on a deployment that lists no carrier pair", async () => {
+    renderOps(opsRoutes({ [OPS_CONFIG_PATH]: envOnly() }));
+    await screen.findByText("Set outside this console");
+    expect(screen.queryByRole("button", { name: /Test the carrier credentials/ })).toBeNull();
   });
 });
 

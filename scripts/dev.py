@@ -106,6 +106,17 @@ def services() -> list[Service]:
     `--app-dir` on voice-runtime because D-18 gave that directory a hyphen, so it is not
     importable as a module path. Kept in step with the Makefile by
     `tests/dev_supervisor_test.py`, which compares the two rather than trusting a comment.
+
+    voice-runtime runs as `python -m uvicorn`, not the `uvicorn` console script, because
+    its `main.py` imports `apps.api…` and so needs the REPO ROOT on `sys.path` as well as
+    its own directory. The console script puts its own `Scripts/`/`bin/` directory at
+    `sys.path[0]`, never the working directory, and `--app-dir` inserts only
+    `apps/voice-runtime`, so the root is missing. `-m` puts the working directory there.
+    The reloader's server process inherits it because it is a `multiprocessing` spawn
+    child, and spawn hands the parent's `sys.path` to every child it starts — the first
+    and each one after a reload alike (`multiprocessing/spawn.py`, `get_preparation_data`
+    / `prepare`). The api needs no such change: its `--app-dir` defaults to `.`, which
+    is the root. Production sets `PYTHONPATH=/app` in the image instead (`Dockerfile`).
     """
     return [
         Service(
@@ -118,6 +129,8 @@ def services() -> list[Service]:
             [
                 "uv",
                 "run",
+                "python",
+                "-m",
                 "uvicorn",
                 "main:app",
                 "--reload",
@@ -194,6 +207,44 @@ def _show_secret(record: dict[str, object]) -> bool:
     return False
 
 
+#: What uvicorn's reloader logs immediately before it restarts its server process
+#: (`uvicorn/supervisors/basereload.py`, `run` then `restart`).
+_RELOAD_MARK = "Reloading..."
+
+#: A reload seen this close to a Ctrl-C is taken to have caused it. The mark is logged
+#: BEFORE the signal is sent, but it reaches this process through a pipe and a reader
+#: thread, so it can arrive after the signal does; hence a window on both sides.
+_ECHO_BEFORE_S = 3.0
+_ECHO_AFTER_S = 1.0
+
+#: `(monotonic time, service name)` of the newest reload mark any service printed.
+_last_reload: list[tuple[float, str]] = []
+
+
+def _is_reload_echo(signal_at: float, reload_at: float) -> bool:
+    return signal_at - _ECHO_BEFORE_S <= reload_at <= signal_at + _ECHO_AFTER_S
+
+
+def _reload_echo(signal_at: float) -> str | None:
+    """The service whose reloader sent this Ctrl-C, or None if it came from a person.
+
+    ON WINDOWS uvicorn restarts its server by `os.kill(child, CTRL_C_EVENT)`, and a
+    console control event is delivered to every process attached to the console — this
+    supervisor included, process groups notwithstanding. Treating it as the developer's
+    Ctrl-C stopped all four services on every saved file. POSIX reloaders send SIGTERM to
+    their own child only, so there is nothing to filter there.
+    """
+    if os.name != "nt":
+        return None
+    deadline = signal_at + _ECHO_AFTER_S
+    while True:
+        if _last_reload and _is_reload_echo(signal_at, _last_reload[-1][0]):
+            return _last_reload[-1][1]
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
 def _pump(service: Service, stream: IO[str], verbose: bool, tail: list[str]) -> None:
     """Read one service's output forever, printing only what earns the terminal.
 
@@ -205,6 +256,8 @@ def _pump(service: Service, stream: IO[str], verbose: bool, tail: list[str]) -> 
         line = raw.rstrip("\n")
         tail.append(line)
         del tail[:-30]
+        if _RELOAD_MARK in line:
+            _last_reload[:] = [(time.monotonic(), service.name)]
 
         if verbose:
             _emit(f"{_paint(service.name.rjust(13), '2;37')} │ {line}")
@@ -330,6 +383,30 @@ def _heal_schema() -> bool:
     ) and _run_quiet(["uv", "run", "python", "-m", "scripts.seed"], "seed")
 
 
+def _supervise(procs: list[tuple[Service, subprocess.Popen[str], list[str]]]) -> None:
+    """Return when a service exits; raise KeyboardInterrupt when a PERSON pressed Ctrl-C."""
+    while True:
+        try:
+            for service, proc, tail in procs:
+                if proc.poll() is None:
+                    continue
+                # A service died. Say so, and say what it said -- the whole reason `tail`
+                # is kept. Then stop: three services running without the fourth is a
+                # stack that fails in ways nobody should spend time on.
+                _emit(
+                    _paint(f"\n  {service.name} exited ({proc.returncode}). Last output:", "1;31")
+                )
+                for line in tail[-15:]:
+                    _emit(f"    {line}")
+                return
+            time.sleep(0.4)
+        except KeyboardInterrupt:
+            reloaded = _reload_echo(time.monotonic())
+            if reloaded is None:
+                raise
+            _emit(_paint(f"  {_stamp()}  {reloaded} reloading — its Ctrl-C, not yours", "2;37"))
+
+
 def main() -> int:
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
 
@@ -391,23 +468,11 @@ def main() -> int:
     print(_paint("  " + "─" * 68, "2;37"))
 
     try:
-        while True:
-            for service, proc, tail in procs:
-                if proc.poll() is None:
-                    continue
-                # A service died. Say so, and say what it said -- the whole reason `tail`
-                # is kept. Then stop: three services running without the fourth is a
-                # stack that fails in ways nobody should spend time on.
-                _emit(
-                    _paint(f"\n  {service.name} exited ({proc.returncode}). Last output:", "1;31")
-                )
-                for line in tail[-15:]:
-                    _emit(f"    {line}")
-                raise KeyboardInterrupt
-            time.sleep(0.4)
+        _supervise(procs)
     except KeyboardInterrupt:
-        print(_paint("\n  stopping…", "2;37"))
+        pass
     finally:
+        print(_paint("\n  stopping…", "2;37"))
         for _, proc, _ in procs:
             if proc.poll() is not None:
                 continue

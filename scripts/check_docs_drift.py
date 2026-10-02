@@ -145,6 +145,7 @@ rather than the conclusion:
 from __future__ import annotations
 
 import ast
+import importlib.util
 import io
 import json
 import re
@@ -613,6 +614,12 @@ def _resolve_module(claim: Claim) -> str | None:
         return None
     base = REPO_ROOT.joinpath(*module.split("."))
     if base.with_suffix(".py").exists() or (base / "__init__.py").exists():
+        return None
+    # An installed dependency resolves as well: `python -m uvicorn` is how the dev
+    # supervisor starts voice-runtime, because the console script leaves the repo root
+    # off sys.path. Only the top-level name is looked up, since find_spec on a dotted
+    # name imports its parent package.
+    if "." not in module and importlib.util.find_spec(module) is not None:
         return None
     return (
         f"{claim.where} tells the reader to run `python -m {module}`, and there is no "

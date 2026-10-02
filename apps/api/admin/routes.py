@@ -29,6 +29,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
 
+from calevate_shared.carrier import CarrierName
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import text
@@ -45,6 +46,7 @@ from apps.api.billing import terms as billing_terms
 from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND_INR
 from apps.api.billing.plans import IST, ist_billing_month, parse_billing_month
 from apps.api.campaigns import service as campaigns_service
+from apps.api.campaigns.number_catalog import NumberDirection
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import record_kyc
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -1998,9 +2000,13 @@ class ProvisionNumberIn(BaseModel):
     # The series decides what the number may lawfully dial (DATA-MODEL §6).
     series: Literal["140", "160", "standard"]
     agent_id: UUID | None = None
-    # The operator the CLIENT holds this connection with — Exotel, Plivo, Vobiz. Ours to
-    # record, never ours to choose: the account is theirs (Model B).
-    provider: str | None = Field(default=None, max_length=60)
+    # The carrier account that holds this number. Required, and only a carrier this
+    # platform dials through: the dial gate presents a number only on the carrier it is
+    # recorded on (`agents.service.agent_outbound_number_blocker`, `number_not_on_carrier`).
+    provider: CarrierName
+    # Which legs the number was bought for. `inbound` (the column's own default) cannot
+    # place outbound calls; the dial gate refuses it by name (`number_inbound_only`).
+    direction: NumberDirection = "inbound"
     purpose: str | None = Field(default=None, max_length=120)
     # **THE FIELD WHOSE ABSENCE BROKE EVERY INBOUND PUBLISH (GAP-1, D-537).** The voice
     # platform addresses a number by its OWN handle, not by the E.164, and
@@ -2241,6 +2247,7 @@ async def provision_number(
             series=payload.series,
             agent_id=payload.agent_id,
             provider=payload.provider,
+            direction=payload.direction,
             purpose=payload.purpose,
             engine_number_ref=payload.engine_number_ref,
         )

@@ -52,7 +52,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.lifecycle import assert_assignable, hold_agent_for_campaign_start
-from apps.api.agents.service import agent_registered_numbers
+from apps.api.agents.service import (
+    NUMBER_INBOUND_ONLY_REASON,
+    NUMBER_INBOUND_ONLY_RULE,
+    NUMBER_NOT_ON_CARRIER_REASON,
+    NUMBER_NOT_ON_CARRIER_RULE,
+    agent_registered_numbers,
+    outbound_carrier,
+)
 from apps.api.campaigns.models import (
     CONSENT_SOURCES,
     REFUSED_CONSENT_SOURCES,
@@ -208,6 +215,10 @@ class _CampaignFacts:
     #: WHICH AGENT THIS NUMBER IS BOUND TO, and the campaign's own agent beside it —
     #: the pair `number_not_bound_to_agent` compares (D-420).
     number_agent_id: UUID | None
+    #: The carrier the number is held on and the legs it was bought for: a campaign that
+    #: dials on our carrier must present a number that carrier holds for outgoing calls.
+    number_provider: str | None
+    number_direction: str | None
     agent_id: UUID
     agent_status: str | None
     disclosure: str | None
@@ -230,6 +241,7 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
                 "  n.series, n.id AS number_id, n.dlt_status AS number_dlt_status, "
                 "  n.agent_id AS number_agent_id, "
                 "  c.agent_id, "
+                "  n.provider AS number_provider, n.direction AS number_direction, "
                 # The AI sentence, not the legacy bundle (D-163) — the launch gate asks
                 # whether the agent HAS one on file, which is still mandatory. Whether it
                 # is volunteered at the top of the call is `ai_disclosure_enabled`, the
@@ -259,12 +271,14 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         number_dlt_status=row[7],
         number_agent_id=row[8],
         agent_id=row[9],
-        agent_status=row[10],
-        disclosure=row[11],
-        agent_direction=row[12],
-        agent_deleted=row[13] is not None,
-        consent_source=row[14],
-        consent_collected_at=row[15],
+        number_provider=row[10],
+        number_direction=row[11],
+        agent_status=row[12],
+        disclosure=row[13],
+        agent_direction=row[14],
+        agent_deleted=row[15] is not None,
+        consent_source=row[16],
+        consent_collected_at=row[17],
     )
 
 
@@ -554,6 +568,20 @@ def _channel_blockers(
                     _number_not_registered_reason(facts.number_dlt_status),
                 )
             )
+        # The dial presents only a number the dialling carrier holds for outgoing calls
+        # (`agents.service._AGENT_CALLER_ID_SQL`), so a campaign number that is not one
+        # would resolve to no header at dial time. Refused here by the dial gate's own
+        # rules, so the launch preview names it instead of every contact being refused.
+        carrier = outbound_carrier()
+        if carrier is not None:
+            if facts.number_provider != carrier:
+                blockers.append(
+                    LaunchBlocker(NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON)
+                )
+            elif facts.number_direction not in ("outbound", "both"):
+                blockers.append(
+                    LaunchBlocker(NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON)
+                )
 
     return blockers
 

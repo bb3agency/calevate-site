@@ -5,8 +5,9 @@ runtime (D-592) on the Vobiz carrier (D-662), on the founder's own Vobiz account
 
 **What it proves.** No call has ever been placed on this product. This sitting closes the
 gates only a live call can: OPERATIONS §2 gate 55 (signing) and V-1, V-2, V-3, V-4 and V-8,
-and it takes the first readings for V-5, V-6 and V-7. Write each result into its gate row
-with the date.
+and it takes the first call readings for V-6 and V-7 (V-5's limits were read in the
+console on 2 Oct 2026). Write each result into its gate row with the date. §10 is the
+token rotation procedure, which is not part of the sitting.
 
 **Ground rules for the whole sitting.**
 
@@ -23,21 +24,43 @@ with the date.
 ## 1. Vobiz console prerequisites
 
 Check each in the console (`https://console.vobiz.ai`) and record what the page says.
+The console was read once on 2 Oct 2026 (Vobiz console, founder-relayed, VENDOR-PUBLISHED;
+`docs/evidence/vobiz-integration-plan.md` §16a). Where that reading answered an item it
+is noted; re-read anything the recharge below could change.
 
+- [ ] **The account is recharged, or converted to a full account, before any live call.**
+      On 2 Oct 2026 it was a trial account: banner "Complete your first recharge to
+      convert to a full account and unlock all features", ₹25 trial credit, and the one
+      number tagged TRIAL. Vobiz documents that trial numbers cannot take inbound calls
+      (`faq/trial-inbound.md:9`), which is why inbound waits for the recharge. The founder
+      states that recharging is all it takes to activate the account and convert the
+      trial (2 Oct 2026). After the recharge, record whether the TRIAL banner and the
+      number's TRIAL tag are gone. If the number stays TRIAL, inbound needs a newly bought
+      number.
 - [ ] **KYC is complete.** Only India-registered businesses may rent Indian numbers and
-      use domestic routes, and KYC comes first (contract §14).
+      use domestic routes, and KYC comes first (contract §14). Read 2 Oct 2026: "Verified"
+      (PAN and Aadhaar); individual or company KYC type not shown.
 - [ ] **The account is an India data region account.** It is a distinct signup for
       domestic inventory (contract §14). Record the account's Auth ID prefix (`MA_`) and
-      its last four characters only.
-- [ ] **Inbound is enabled.** Trial accounts are outbound-only (contract §11).
+      its last four characters only. Read 2 Oct 2026: `MA_`, country IN; "India data
+      region" not shown.
+- [ ] **Inbound is enabled.** Trial numbers take no inbound calls (contract §11). No
+      inbound switch was shown on 2 Oct 2026; record any that appears after the recharge.
 - [ ] **One number is bought**, a standard Indian number. 140, 160 and 92 series are
       obtained by request to Vobiz support and are not needed for this test (contract
-      §14). Outbound caller ID must be a number rented from Vobiz.
+      §14). Outbound caller ID must be a number rented from Vobiz. Read 2 Oct 2026: one
+      number ending 4620, Karnataka, mobile, TRIAL, Active, attached to no application.
 - [ ] **No automatic recording** at account, number or application level (gate V-2).
-- [ ] **The console timezone**, as shown (gate V-6).
-- [ ] **Concurrency and CPS limits**, as shown on the account (gate V-5).
+      None was shown on 2 Oct 2026. That is not proof there is none, so §8's
+      after-the-call check stays.
+- [ ] **The console timezone**, as shown (gate V-6). Read 2 Oct 2026: Asia/Kolkata.
+- [ ] **Concurrency and CPS limits**, as shown on the account (gate V-5). Read
+      2 Oct 2026: CPS 1, concurrent 3, none purchased. Vobiz refuses a 4th simultaneous
+      call, inbound or outbound, so this sitting never has more than one call up at once.
 - [ ] **The balance** covers a few minutes of calls. A dial with too little balance is
-      refused with 402 (contract §2).
+      refused with 402 (contract §2). The India rate card prices our calls at ₹0.44/min
+      plus tax (contract §16); its billing pulse is UNKNOWN, so the first call's CDR and
+      transaction row are the first real cost reading (gate V-7).
 
 ## 2. Our side: configuration
 
@@ -47,7 +70,8 @@ DEPLOYMENT §12.6 is the full table and the deploy order. For this sitting:
       the Pipecat secret set has the same `CARRIER_CLAIM_SECRET`, `CARRIER=vobiz` and no
       Vobiz or Plivo credential.
 - [ ] In the ops console: `CARRIER` is `vobiz`; `VOBIZ_SIGNATURE_REQUIRED` is **off**;
-      `CARRIER_TRANSFER_ENABLED` is **off**; `CARRIER_CPS` is the account's CPS limit;
+      `CARRIER_TRANSFER_ENABLED` is **off**; `CARRIER_CPS` is the account's CPS limit (1 on
+      2 Oct 2026, which is the default);
       `VOBIZ_CALLBACK_IPS` is unset (the published list is used).
 - [ ] The ops console's Vobiz credential probe is green. It calls `GET /api/v1/auth/me`
       (contract §1), which changes nothing at Vobiz.
@@ -72,32 +96,77 @@ From the admin console, on the test client's numbers page:
 
 Then confirm in the Vobiz console, without editing anything: the Application exists, its
 answer URL starts with our public hooks origin and `/carrier/v1/vobiz/answer/`, the method
-is POST, and the number shows that Application. If the screen refused, record the refusal
+is POST, the number shows that Application, and Public URI is off ("Anyone can call this
+application over SIP without authentication"; we never set it, and the API default is
+false, `applications/create-application.md:45`). If the screen refused, record the refusal
 code and stop: do not create or edit the Application by hand in the Vobiz console, because
 our record and Vobiz's would then disagree about what answers the number.
 
 ## 4. Signing (gate 55)
 
 Vobiz signs callbacks only when "auth credentials" are configured on the callback URL, and
-no page says how (contract §6).
+no page says how (contract §6). The 2 Oct 2026 reading found no such field on the
+Applications create form and nothing on Security, Profile, Voice Overview or Subaccounts;
+the console has no Developer or Webhooks menu.
 
-1. Search the console for the setting: Applications (the edit form), Settings, Developer,
-   API, Webhooks, Security. Record the exact label and page. Do not save anything that
-   changes the answer URL itself.
-2. If the setting exists, enable it for the test Application, then place one inbound
-   call straight away. Once Vobiz sends a signature, voice-runtime refuses one that does
-   not verify even with `VOBIZ_SIGNATURE_REQUIRED` off, so a wrong `WEBHOOK_BASE_URL`
-   (scheme or host not exactly what Vobiz calls) shows up now as a refused call with
-   reason `signature invalid`. If that happens, disable the console setting, correct
-   `WEBHOOK_BASE_URL`, and try again.
-3. Leave `VOBIZ_SIGNATURE_REQUIRED` off for now; §6 decides when to turn it on.
+The whole downloaded mirror was searched on 2 Oct 2026 and does not say either: no
+callback URL with a username and password in it, no `Authorization` header on a callback,
+and no credential field on the Application or on `<Stream>` (contract §6). Nothing was
+built for it, so the steps below are about finding the setting, not about our code.
+
+1. **Look in the console.** Read the pages not yet checked: **Endpoints, Push
+   Notifications, Campaign Agents, the SIP Trunk create flow, Auto-Recharge**. Also open
+   the edit form of the Application §3 created, which did not exist on 2 Oct 2026. Record
+   the exact label and page. Do not save anything that changes the answer URL itself.
+2. **If none shows it, ask Vobiz support in writing**, by email so the reply is dated,
+   with this text:
+
+   > On a Voice Application, how do we configure the "auth credentials" on the answer URL
+   > and hangup URL that make Vobiz send `X-Vobiz-Signature-V3` (your Validating
+   > Callbacks page, "Signature headers are emitted only when the callback URL has auth
+   > credentials configured on it")? Which console page and field, or which API field?
+   > Once configured: (1) is the answer request signed, as well as the hangup callback?
+   > (2) Is the URL that is signed the URL with the credentials in it
+   > (`https://user:pass@host/path`), or without them? Your Python sample keeps them and
+   > your Node, Go and Ruby samples drop them. (3) Do you also send an `Authorization`
+   > header carrying those credentials? (4) After an auth token rotation, which token
+   > signs callbacks during the grace window?
+
+   Record the reply and its date under gate 55. Do not paste any credential into the
+   email. **If the reply says the credentials go in the URL and the signed URL includes
+   them, stop here:** our verifier rebuilds the URL without them and would refuse every
+   signed call. That is a code change, made on the reply.
+3. **Enable it**, once the setting is found and the reply does not call for a code change,
+   for the test Application only, then place one inbound call straight away. Once Vobiz
+   sends a signature, voice-runtime refuses one that does not verify even with
+   `VOBIZ_SIGNATURE_REQUIRED` off, so a wrong `WEBHOOK_BASE_URL` (scheme or host not
+   exactly what Vobiz calls) shows up now as a refused call with reason
+   `signature invalid`. If that happens, disable the console setting, correct
+   `WEBHOOK_BASE_URL`, and try again. If every signature is still invalid with
+   `WEBHOOK_BASE_URL` correct, disable the setting, record it under gate 55, and stop; the
+   likely cause is that the signed URL is not the one we rebuild (contract §6).
+4. **Record the outcome** of the answer request and the hangup callback, each as
+   verified, absent or invalid, from voice-runtime's log. Never the header values.
+5. Leave `VOBIZ_SIGNATURE_REQUIRED` off for now; §6 decides when to turn it on.
+
+**Changing the callback credentials later** (once they exist): turn
+`VOBIZ_SIGNATURE_REQUIRED` off in the ops console (it applies live), disable signing in
+the Vobiz console, change the credentials, re-enable signing, place one inbound call, and
+turn the flag back on only when that call shows a verified signature. With signing off for
+that minute a call is admitted on the source-address check alone, which is safer than a
+window in which every signed call is refused. The auth token, which is the
+signing key, rotates by §10.
 
 If no such setting exists, record "not shown" with the pages checked, and carry on: the
-source-address check is still in force.
+source-address check is still in force. It runs before the signature check whatever
+`VOBIZ_SIGNATURE_REQUIRED` says, and refuses any address outside Vobiz's published list
+(`apps/voice-runtime/carrier_routes.py::authenticate`).
 
 ## 5. The calls
 
-**Inbound.** From the founder's own mobile, call the bound number. Expect the agent to
+**Inbound.** Only on a number that is no longer tagged TRIAL (§1): a trial number takes no
+inbound calls (`faq/trial-inbound.md:9`), so a failed inbound call on one says nothing
+about our side. From the founder's own mobile, call the bound number. Expect the agent to
 speak first, then:
 
 - ask it a question it should answer from its knowledge;
@@ -109,6 +178,11 @@ speak first, then:
 the founder's own mobile and whose consent is recorded. It goes through the real dispatch
 path, compliance gate included. Answer, speak a few turns, and let the agent end the call
 if it will; otherwise hang up.
+
+**One call at a time.** The account allows 3 simultaneous calls, shared by inbound and
+outbound, and our campaign dispatcher does not cap itself at 3 (gate V-5). The founder has
+decided that is enough for testing; the cap is required before client traffic, not now. Do
+not start a campaign during this sitting.
 
 **If a call fails to connect,** stop and read §6 before placing another. A 5xx or a
 timeout on dial is never retried by our code, because Vobiz documents no idempotency key
@@ -198,7 +272,46 @@ What to record:
   default is 4 hours (contract §7).
 - **Signature enforcement refused a good call:** turn `VOBIZ_SIGNATURE_REQUIRED` off; it
   applies live.
-- **Credentials leaked:** regenerate the token in the Vobiz console, which invalidates the
-  old one at once (`api-reference/authentication.md:54`), put the new one in the VPS
-  `.env`, and restart api, workers and voice-runtime together. The token is also the
-  callback signing key, so until voice-runtime restarts every signed callback fails.
+- **Credentials leaked:** rotate the token as §10 describes, without waiting for a quiet
+  moment.
+
+## 10. Rotating `VOBIZ_AUTH_TOKEN`
+
+The console's Security page has an "Auth Token Rotation" panel that says "The current
+token stays valid for the grace window" (Vobiz console, founder-relayed, 2 Oct 2026,
+VENDOR-PUBLISHED). The docs say the old token stops working at once
+(`api-reference/authentication.md:54`). The length of the grace window is UNKNOWN, so
+plan as if it were zero; if it turns out to be long, the steps below simply have slack.
+
+The token lives only in the VPS `.env`, read by api, workers and voice-runtime. The
+Pipecat worker holds no Vobiz credential and is not touched.
+
+1. **Before rotating:** have the VPS shell open in the deploy checkout with `.env` ready to
+   edit. Prefer a moment with no live call and no campaign running; a leaked token is the
+   exception, rotate at once. Take each container's token fingerprint (12 hex characters
+   of a SHA-256, never the token):
+
+   ```sh
+   for s in api workers voice-runtime; do
+     docker compose -p calevate -f compose.prod.yml exec -T "$s" python -c \
+       'import hashlib,os; print(hashlib.sha256(os.environ["VOBIZ_AUTH_TOKEN"].encode()).hexdigest()[:12])'
+   done
+   ```
+
+2. **Rotate** in the console. Copy the new token straight into the VPS `.env` as
+   `VOBIZ_AUTH_TOKEN`; never into a chat, ticket or shell history.
+3. **Deploy the three services by name:** `scripts/vps-deploy.sh api workers
+   voice-runtime`. Name them: with no code change, the default `--changed` mode deploys
+   nothing. Until they restart, REST calls use the old token, which works only while the
+   grace window lasts.
+4. **Verify:** run the step 1 loop again. All three fingerprints must agree with each
+   other and differ from step 1; a container still printing its old value did not pick up
+   `.env` and must be redeployed. Then the ops console's Vobiz credential probe
+   (`GET /api/v1/auth/me`) must be green. A green probe alone proves nothing during the
+   grace window, because the old token still works. Record the rotation date; the
+   console's "last rotated" should now show it.
+5. **If callbacks are signed** (gate 55 passed): between step 2 and step 3 Vobiz may sign
+   with the new token while voice-runtime still holds the old one, and a signature that
+   does not verify is refused even with `VOBIZ_SIGNATURE_REQUIRED` off. Which token Vobiz
+   signs with during the grace window is UNKNOWN. Keep steps 2 and 3 to a minute, and
+   check voice-runtime's log for `signature invalid` refusals in that minute.

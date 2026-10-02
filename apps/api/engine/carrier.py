@@ -10,14 +10,16 @@ Vendor facts behind the Vobiz implementation are in `docs/evidence/vobiz-api-con
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Final, Literal, Protocol
+from typing import Final, Literal, Protocol, cast, runtime_checkable
 
-from calevate_shared.carrier import CarrierName
+from calevate_shared.carrier import CarrierName, is_carrier
 from calevate_shared.config import Settings
+from calevate_shared.engine import EngineAgentRef, ProvisionedNumber
 from calevate_shared.events import CallDirection, CallStatus
 
 from apps.api.core.errors import ProblemError
@@ -39,6 +41,13 @@ def capability_unverified(*, title: str, detail: str, remediation: str) -> Probl
         remediation=remediation,
     )
 
+
+#: How long an outbound dial may ring before the carrier hangs it up, in seconds. Sent as
+#: Vobiz's `hangup_on_ring` ("Max duration (in seconds) from start of ringing to hangup",
+#: `vobiz-findings/mirror/pages/call/make-call.md:72`). It bounds how long an unanswered
+#: dial holds one of the account's lines, which is what lets the dial gate's line count
+#: (`agents.service.dispatch_call`) age a `queued` row out after a known horizon.
+RING_TIMEOUT_S: Final = 60
 
 #: What a carrier callback said happened, in our words.
 CarrierEventKind = Literal["ringing", "answered", "hangup", "machine", "stream", "other"]
@@ -65,6 +74,8 @@ class CarrierCallEvent:
     direction: CallDirection | None = None
     #: The carrier's hangup cause name, for the forensic record only.
     hangup_cause: str | None = None
+    #: The carrier's numeric hangup code, when the callback carried one.
+    hangup_cause_code: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +127,11 @@ class CarrierClient(Protocol):
         hangup_url: str,
         ring_url: str,
         time_limit_s: int,
-    ) -> PlacedCall: ...
+        ring_timeout_s: int,
+    ) -> PlacedCall:
+        """`ring_timeout_s` bounds how long an unanswered dial rings; `time_limit_s` bounds
+        the answered call."""
+        ...
 
     async def hang_up(self, carrier_call_id: str) -> bool:
         """True when the call was ended now, False when it had already ended."""
@@ -144,12 +159,43 @@ class CarrierClient(Protocol):
 
     async def unbind_number(self, e164: str) -> None: ...
 
+    async def find_binding(self, label: str) -> str | None:
+        """The binding id `bind_number` created for `label`, or None if there is none."""
+        ...
+
+    async def delete_binding(self, binding_id: str) -> bool:
+        """Remove a binding no number uses any more. True when it was removed now, False
+        when it was already gone."""
+        ...
+
+    async def list_numbers(self) -> list[ProvisionedNumber]:
+        """Every number the carrier account holds, read from the carrier."""
+        ...
+
     async def probe(self) -> bool:
         """A read-only credential check. True when the credentials authenticate."""
         ...
 
     def parse_event(self, fields: dict[str, str]) -> CarrierCallEvent | None:
         """A callback's form fields, normalized; None when it names no call."""
+        ...
+
+    async def aclose(self) -> None:
+        """Release the carrier's HTTP connections. Safe to call more than once."""
+        ...
+
+
+@runtime_checkable
+class RetiresAgentBindings(Protocol):
+    """An engine adapter that can remove what the carrier holds for a retired agent.
+
+    Not on `VoiceEngine`: only an adapter whose carrier keeps a per-agent routing object
+    (Vobiz's Application) has anything to remove, and `agents.lifecycle.archive_agent`
+    asks by `isinstance` rather than every adapter growing a no-op.
+    """
+
+    async def retire_agent_bindings(self, ref: EngineAgentRef) -> bool:
+        """True when a carrier object was removed now, False when there was none."""
         ...
 
 
@@ -163,7 +209,13 @@ CARRIER_ADAPTER_MODULES: Final[Mapping[CarrierName, str]] = {
 
 
 def build_carrier(cfg: Settings, name: CarrierName | None = None) -> CarrierClient:
-    """The carrier named (default: the switch), built from these settings."""
+    """A NEW carrier client for the carrier named (default: the switch), from these settings.
+
+    Uncached, for a caller that hands in a `Settings` of its own (readiness, the credential
+    probe's candidate pair) and must not be answered by a client built from another. Such a
+    caller owns the client and closes it (`aclose`) if it made a request; every other caller
+    goes through `get_carrier`.
+    """
     chosen: CarrierName = name or cfg.carrier
     if chosen == "vobiz":
         from apps.api.engine.vobiz import VobizCarrier
@@ -174,19 +226,75 @@ def build_carrier(cfg: Settings, name: CarrierName | None = None) -> CarrierClie
     return PlivoCarrier()
 
 
+def carrier_of_record(recorded: str | None) -> CarrierName:
+    """The carrier a call is on: the one stamped on its `calls.carrier`, or the switch for a
+    row that predates the column. Every operation on an existing call resolves through this,
+    so moving `Settings.carrier` never redirects a hang-up or a call-record read to an
+    account that does not hold the call."""
+    if recorded is not None and is_carrier(recorded):
+        return cast(CarrierName, recorded)
+    return get_settings().carrier
+
+
+#: One client per carrier, with the identity it was built from. Keyed by carrier NAME so a
+#: rotated credential or a moved base URL REPLACES the entry rather than adding one beside
+#: it; the replaced client is dropped without `aclose` (a sync caller cannot await it), which
+#: leaves at most one idle connection pool per rotation for the garbage collector.
+_clients: dict[CarrierName, tuple[tuple[object, ...], CarrierClient]] = {}
+
+
+def _identity(cfg: Settings, name: CarrierName) -> tuple[object, ...]:
+    """What a client is built from, plus the event loop it will run on.
+
+    The loop is part of the key because an `httpx.AsyncClient`'s pooled connections belong to
+    the loop that opened them: one process runs one loop, but a test suite runs one per test,
+    and a client reused across them fails on a closed loop.
+    """
+    try:
+        loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if name == "vobiz":
+        return (loop, cfg.vobiz_auth_id, cfg.vobiz_auth_token, cfg.vobiz_api_base_url)
+    return (loop,)
+
+
 def get_carrier(name: CarrierName | None = None) -> CarrierClient:
-    """The carrier for this request, read from the live settings snapshot."""
-    return build_carrier(get_settings(), name)
+    """The carrier named (default: the switch), from the live settings snapshot.
+
+    Memoised per carrier, so the CDR reader, transfers and every dial share one HTTP client
+    instead of each opening a pool nothing ever closes. The switch is read on every call, so
+    moving `Settings.carrier` takes effect on the next operation without a restart.
+    """
+    cfg = get_settings()
+    chosen: CarrierName = name or cfg.carrier
+    identity = _identity(cfg, chosen)
+    held = _clients.get(chosen)
+    if held is not None and held[0] == identity:
+        return held[1]
+    client = build_carrier(cfg, chosen)
+    _clients[chosen] = (identity, client)
+    return client
+
+
+def reset_carrier_cache() -> None:
+    """Forget every memoised client. Tests switch settings between cases; production never
+    calls this."""
+    _clients.clear()
 
 
 __all__ = [
     "CARRIER_ADAPTER_MODULES",
     "CARRIER_UNVERIFIED_CODE",
+    "RING_TIMEOUT_S",
     "CarrierCallEvent",
     "CarrierCdr",
     "CarrierClient",
     "CarrierEventKind",
     "PlacedCall",
+    "RetiresAgentBindings",
     "build_carrier",
+    "carrier_of_record",
     "get_carrier",
+    "reset_carrier_cache",
 ]

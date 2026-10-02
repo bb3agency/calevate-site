@@ -276,17 +276,19 @@ AWS_REGION=auto
 AUDIT_CHAIN_SECRET=<32 random bytes>
 IDEMPOTENCY_SCOPE_SECRET=<32 random bytes>
 IMPERSONATION_GRANT_SECRET=<32 random bytes>
-# The carrier (D-662, DEPLOYMENT §12.6). Env-only: voice-runtime reads them and never
+# The carrier pair (D-662, DEPLOYMENT §12.6). Env-only: voice-runtime reads them and never
 # opens the credential store. Never copy the Vobiz pair into the Pipecat secret set.
-CARRIER=vobiz
 VOBIZ_AUTH_ID=<MA_… from the Vobiz console>
 VOBIZ_AUTH_TOKEN=<from the Vobiz console>
-# The same value goes into the Pipecat secret set (DEPLOYMENT §12.2).
+# Env-only too. The same value goes into the Pipecat secret set (DEPLOYMENT §12.2).
 CARRIER_CLAIM_SECRET=<32 random bytes>
 ```
 
-`CARRIER`, `VOBIZ_SIGNATURE_REQUIRED`, `VOBIZ_CALLBACK_IPS`, `CARRIER_CPS` and
-`CARRIER_TRANSFER_ENABLED` can also be set from the ops console once it is up. Leave
+**Do not put `CARRIER` in this file.** It is set in the ops console (Platform
+configuration) and defaults to `vobiz`. The environment always beats the console, so a
+`CARRIER=` line here would make the carrier switch on that screen accept a change and do
+nothing. The same holds for `VOBIZ_SIGNATURE_REQUIRED`, `VOBIZ_CALLBACK_IPS`,
+`CARRIER_CPS` and `CARRIER_TRANSFER_ENABLED`: set them from the console, not here. Leave
 signature enforcement and transfer off for the first deploy. Signature enforcement is
 turned on during the first live call (`runbooks/vobiz-first-live-call.md`); transfer stays
 off until a live test shows it working and the founder decides to enable it.
@@ -312,6 +314,11 @@ Expect `DEPLOY ENV: OK`. If it says `dsn_host_unreachable_from_container` you us
 `localhost` where you needed `host.docker.internal`. If it says `retired_env_key`, the
 file was copied from an older host and carries a key a decision deleted (the message
 names the decision): delete those lines. Every process refuses to boot while they remain.
+If it says `carrier_claim_secret_unusable` or `carrier_credentials_missing`, the carrier
+lines above are missing or the claim key is shorter than 32 bytes. If it says
+`webhook_base_url_not_public` or `pipecat_stream_base_url_blank`, this file holds a value
+for one of those console-managed keys that cannot work: remove the line and set the value
+in the console at §9a.
 
 ---
 
@@ -474,6 +481,70 @@ Finally enable the automatic install:
 export NGINX_AUTO_RELOAD=1
 scripts/vps-deploy.sh nginx
 ```
+
+---
+
+## 9a. The Pipecat voice worker, and the three values that point calls at it — **[unrun]**
+
+Nothing above deploys the conversation loop: it runs as a container on Pipecat Cloud, not
+on this box, and no call is answered until it is up (DEPLOYMENT §12). It needs the API
+reachable at `https://api.<ROOT_DOMAIN>`, so do this after step 9.
+
+**1. Set the VPS half in the ops console** (Platform configuration, after step 7 gives you
+an operator). These are console-managed: do not put them in `.env`.
+
+| Key | Value |
+|---|---|
+| `ENGINE` | `pipecat` |
+| `WEBHOOK_BASE_URL` | `https://hooks.<ROOT_DOMAIN>`, the exact scheme and host the carrier calls. It must be https and a public host; readiness refuses anything else outside `local`. |
+| `PIPECAT_WORKER_API_TOKEN` | 32 random bytes from the command in §0. The worker presents it to `/v1/worker/*`; with none set every one of those routes answers 401. |
+
+`PIPECAT_STREAM_BASE_URL` comes in step 4, once the worker exists. `CARRIER` stays at its
+default, `vobiz`.
+
+**2. Push the worker's secret set and deploy it**, with the script that holds the
+contract (DEPLOYMENT §12.2 for every variable, §12.6 for the carrier half):
+
+```sh
+scripts/deploy/pipecat-worker-setup.sh doctor        # changes nothing; lists what is missing
+scripts/deploy/pipecat-worker-setup.sh install-cli
+scripts/deploy/pipecat-worker-setup.sh login
+scripts/deploy/pipecat-worker-setup.sh sources       # where each value comes from; prints none
+scripts/deploy/pipecat-worker-setup.sh secrets
+scripts/deploy/pipecat-worker-setup.sh deploy
+```
+
+`secrets` asks for `PIPECAT_WORKER_API_BASE_URL` (`https://api.<ROOT_DOMAIN>`), the SAME
+`PIPECAT_WORKER_API_TOKEN` you set in step 1, the SAME `CARRIER_CLAIM_SECRET` as this
+host's `.env`, `CARRIER=vobiz`, and the read-only knowledge-pack R2 token from §0. No
+`VOBIZ_*` value ever goes in it, and no `PLIVO_*` value while the carrier is Vobiz.
+
+**3. Prove the deployed container reaches the API with its token.**
+`bot.py --preflight` inside the deployed container must print `VOICE WORKER PREFLIGHT: OK`
+(DEPLOYMENT §12.2). Read the agent's logs with `pipecat cloud agent logs
+calevate-pipecat-worker`.
+
+**4. Point the answer document at the worker.** Set `PIPECAT_STREAM_BASE_URL` in the ops
+console to the `wss://` base Pipecat Cloud gives the deployed agent. ⚠ That hostname
+scheme is not documented anywhere this repository can read (DEPLOYMENT §12, `docs.pipecat.ai`
+is not reachable from the development container), so take it from the Pipecat Cloud
+dashboard for `calevate-pipecat-worker`; do not construct it.
+
+**5. Check readiness on both services.** It names, by key, whatever is still missing:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/healthz/ready   # api
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8100/healthz/ready   # voice-runtime
+```
+
+Under `ENGINE=pipecat` the api is not ready without the worker token, the Vobiz pair, a
+usable `CARRIER_CLAIM_SECRET` and a public `WEBHOOK_BASE_URL`; voice-runtime is not ready
+without `PIPECAT_STREAM_BASE_URL`, the claim key and the public `WEBHOOK_BASE_URL`. A 503
+writes `health_not_ready` to the service's log with `missing_config_keys`, which is where
+the names are. Then press **Test the carrier credentials** beside the Vobiz rows under
+*Set outside this console* in the ops console: it asks Vobiz whether the pair this
+deployment holds authenticates. Then continue with DEPLOYMENT §12.6's carrier order and
+`runbooks/vobiz-first-live-call.md`.
 
 ---
 

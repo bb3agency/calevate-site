@@ -3,16 +3,18 @@
 The concurrency doctrine, in the order FLOWS §5 states it, because one client's
 campaign must never starve another's inbound receptionist:
 
-1. `platform_lines_total` (engine verification item 8, a config value for now)
-2. minus `inbound_reserve` (default 30%, min 4 lines) → the OUTBOUND pool
+1. `Settings.carrier_concurrency`, the lines the carrier account carries
+2. minus the inbound reserve (`max(1, ceil(lines × inbound_reserve_ratio))`) → the
+   OUTBOUND pool (`engine/carrier_pacing.outbound_line_pool`)
 3. per-tenant `concurrency_ceiling` (plans row), CLAMPED to that outbound pool —
    a ceiling above the pool is not a ceiling (`_tenant_ceiling`)
 4. per-campaign slider ≤ tenant ceiling
 
-Active-call counts come from OUR `calls` table (status queued/ringing/in_progress),
-which the webhook receiver and reconciliation poller keep current — the engine's own
-view arrives through exactly those paths, so a separate "live count" API call would be
-the same data, later.
+This tick's arithmetic is the BUDGET; the ENFORCEMENT is the line check inside every
+dial's intent transaction (`agents.service.dispatch_call`), which counts both directions
+on the carrier and covers the dials this tick does not make (the "call this lead" button,
+lead ingest). Active-call counts come from OUR `calls` table (status
+queued/ringing/in_progress), which the carrier callbacks keep current.
 
 TWO GATES RUN HERE, and they answer different questions:
 
@@ -95,6 +97,8 @@ from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import (
     UNCONFIRMED_ENGINE_CALL_PREFIX,
     DialUnconfirmedError,
+    carrier_lines_in_use,
+    dial_was_not_placed,
     dispatch_call,
 )
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
@@ -125,78 +129,26 @@ from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
-from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine.carrier_pacing import dials_through_our_carrier, outbound_line_pool
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
 # may cross this line and an HTTP status is on the safe side of it.
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.integrations import service as integrations
+from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX
 
 # The call-back pass this tick runs (D-514). NOT an arq job of its own, and the reason is
-# the shared outbound pool: a call-back and a campaign contact compete for the same ten
+# the shared outbound pool: a call-back and a campaign contact compete for the same
 # lines, and two schedulers with two opinions about that is how a receptionist stops being
 # able to answer the phone. It runs inside this tick's single-flight lease and out of this
 # tick's line budget.
 from apps.workers.callbacks import MAX_PER_TICK as MAX_CALLBACKS_PER_TICK
 from apps.workers.callbacks import dispatch_due_callbacks
-from apps.workers.carrier_pacing import PACING_RULE, DialPacingTimeoutError, await_dial_slot
 
 log = get_logger(__name__)
 
-# Until engine verification item 8 produces the real numbers, the pool is a config
-# default sized for the pilot. It lives here as ONE constant so the pilot's measured
-# value has exactly one place to land (or move to engine_capacity when that ships).
-#
-# **TEN IS NOW THE VENDOR'S OWN NUMBER RATHER THAN OURS, AND ITEM 8 IS A LOOKUP RATHER
-# THAN A MEASUREMENT** (VERIFIED-DOCS). Bolna: *"By default, Bolna allows up to **10
-# concurrent calls** for paid users"*
-# (`bolna-findings/mirror/pages/frequently-asked-questions.md:51`), and the live value for
-# an account is readable — no support ticket, no stopwatch — from `GET /user/me`:
-#
-#     "concurrency": { "max": 10, "current": 3 }
-#
-# (`bolna-findings/mirror/pages/api-reference/limits.md:11-19`). So the pilot default and
-# the vendor default coincide, which means this constant is not currently over-committing
-# the engine: `_outbound_pool()` hands campaigns 10 minus the inbound reserve, so we dial
-# strictly fewer lines than Bolna will accept and the engine's own queue is never the
-# thing that decides. An account whose limit is RAISED (`limits.md`: "contact support ...
-# or upgrade your plan") is the case that needs this number moved, and moving it is the
-# whole change — which is why it stayed one constant.
-#
-# **WHAT THIS CONSTANT IS: OUR TYPED-IN BELIEF ABOUT SOMEBODY ELSE'S NUMBER**, which the
-# vendor's own tier text says decays without a deploy — "Paid accounts — Starts at 10
-# concurrent calls, **scaling automatically with monthly usage**"
-# (`bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md:18`). A belief
-# that goes stale in the UP direction only wastes lines; stale in the DOWN direction is a
-# compliance failure, for the reason spelled out at `global_budget` in `_run_tick`.
-#
-# **WHAT WOULD REPLACE IT, EXACTLY:** the live value on `GET /user/me`
-# (`concurrency.max`, with `concurrency.current` as a free cross-check on our own
-# `total_active`), surfaced through a normalized `VoiceEngine` method — nothing in
-# `apps/workers/` may see a vendor payload (hard rule 2), so this cannot be a call from
-# here. It is NOT built, and the blocker is external in the CLAUDE.md sense: reading it
-# needs a real Bolna account, which is a vendor account nobody in this repo can create.
-# Until that exists this stays one constant, typed, and wrong-by-default in the safe
-# direction (the pilot number is the vendor's documented floor for a paid account).
-PLATFORM_LINES_TOTAL = 10
-MIN_INBOUND_RESERVE = 4
 ACTIVE_STATUSES = ("queued", "ringing", "in_progress")
-
-# What a tenant with no `plans` row is allowed (FLOWS §5 rule 3).
-#
-# **DERIVED, NOT TYPED, AND THAT IS THE WHOLE POINT.** This shipped as a literal `10`
-# beside `PLATFORM_LINES_TOTAL = 10` / `MIN_INBOUND_RESERVE = 4`, i.e. a per-tenant
-# ceiling of 10 over a platform outbound pool of 6 — a "ceiling" a single tenant could
-# not reach and which therefore capped nothing at all. Two constants that must agree are
-# a defect even on the day they do agree, because the next person raises one of them.
-#
-# So the default is the engine account's whole line count by construction, and the
-# ceiling that actually binds is computed by `_tenant_ceiling()` below, which clamps
-# whatever the `plans` row says to the outbound pool that exists. A plan sold with a
-# ceiling above the pool is then a commercial promise the platform cannot keep, not a
-# dispatcher that quietly hands one tenant the switchboard.
-DEFAULT_CONCURRENCY_CEILING = PLATFORM_LINES_TOTAL
 
 # A call row is only evidence of an occupied LINE while it is fresh. Rows can strand in
 # `queued`/`in_progress` when an engine event is lost — the reconciliation poller
@@ -412,33 +364,32 @@ async def _tick_lease() -> AsyncIterator[bool]:
 
 
 def _outbound_pool() -> int:
-    settings = get_settings()
-    reserve = max(MIN_INBOUND_RESERVE, int(PLATFORM_LINES_TOTAL * settings.inbound_reserve_ratio))
-    return max(0, PLATFORM_LINES_TOTAL - reserve)
+    """The tick's outbound budget: the dial gate's own pool, read once per tick."""
+    return outbound_line_pool()
 
 
 def _tenant_ceiling(configured: int | None, pool: int) -> int:
     """FLOWS §5 rule 3 UNDER rules 1+2: a tenant's ceiling, clamped to the pool.
 
-    **A per-tenant ceiling larger than the whole outbound pool is not a ceiling.** At the
-    shipped constants the pool is 6 lines and `plans.concurrency_ceiling` defaulted to 10,
-    so the first tenant in the spend order with a slider ≥ 6 could take the entire
-    platform — the failure rules 1+2 exist to prevent, arriving through rule 3.
+    **A per-tenant ceiling larger than the whole outbound pool is not a ceiling**: the
+    first tenant in the spend order with a large slider could take every line — the
+    failure rules 1+2 exist to prevent, arriving through rule 3. A tenant with no `plans`
+    row (`configured is None`) is allowed the whole pool, which is the same clamp.
 
     The clamp is here rather than in the SQL, and rather than as a constraint on `plans`,
-    for two reasons. The pool is not a constant — `_outbound_pool()` reads
-    `inbound_reserve_ratio` from settings at tick time — so a CHECK constraint could only
-    police a number that moves under it. And a plans row is a commercial promise: a client
-    sold 20 lines on a 6-line platform has been mis-sold, which is a conversation, not a
-    row to reject at 3am. Clamping keeps the dispatcher correct while leaving the promise
-    visible in the plan where somebody can notice it.
+    for two reasons. The pool is not a constant — it is computed from two live settings
+    at tick time — so a CHECK constraint could only police a number that moves under it.
+    And a plans row is a commercial promise: a client sold 20 lines on a 2-line account
+    has been mis-sold, which is a conversation, not a row to reject at 3am. Clamping keeps
+    the dispatcher correct while leaving the promise visible in the plan where somebody
+    can notice it.
 
     This is a CAP, never a floor: the vendor's model is floor + cap
     (`bolna-findings/mirror/pages/enterprise/concurrency-management.md:42-43`) and we have
     no floor column. `_run_tick`'s starvation alarm is what makes that absence visible;
     see the comment there for why a floor is not being invented in this file.
     """
-    ceiling = DEFAULT_CONCURRENCY_CEILING if configured is None else int(configured)
+    ceiling = pool if configured is None else int(configured)
     return max(0, min(ceiling, pool))
 
 
@@ -618,25 +569,17 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
         started += started_here
         running.extend(planned)
 
-    # Rule 1+2: what is left of the shared pool after everyone's active calls.
+    # Rule 1+2: what is left of the shared pool after the lines already in use. On the
+    # owned runtime that count is the carrier's, both directions (`carrier_lines_in_use`):
+    # an inbound caller on the line is a line this tick cannot have. The larger of the two
+    # counts wins, because over-counting idles a line for one tick and under-counting
+    # sends a dial the line check in `dispatch_call` will refuse.
     #
-    # **THIS IS A CALLING-HOURS CONTROL, NOT AN OPTIMISATION, AND NOBODY MAY READ IT AS A
-    # REFUSAL.** The instinct is that handing the engine more calls than it can run gets
-    # them rejected and we retry later. It does not: *"Outbound calls that don't fit your
-    # concurrency limit are **queued, not rejected**. They dial automatically as active
-    # calls finish"* (`bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md:41`,
-    # and again at `enterprise/concurrency-management.md:66`). So a dial we place past the
-    # real ceiling is not load-shed — it sits in a vendor-side queue we cannot see, cancel
-    # or DNC-scrub, and rings whenever the vendor gets to it.
-    #
-    # `compliance.service.check_dispatch` clears a contact at DISPATCH time: the DNC list,
-    # the tenant's cap and the TRAI calling hour, all as of now. A contact cleared at 20:55
-    # IST and queued at the vendor can ring after 21:00 — outside the window, with our own
-    # records showing it was lawfully cleared. Staying under the pool is what keeps our
-    # gate the thing that decides when a phone rings. That makes `PLATFORM_LINES_TOTAL`
-    # being HIGHER than the account's real ceiling a compliance defect rather than a
-    # throughput one, which is why that constant's comment is as long as it is.
-    global_budget = max(0, pool - total_active)
+    # The carrier REFUSES a dial over the account's concurrency (`429`,
+    # `vobiz-findings/mirror/pages/call/make-call.md:134`) and an inbound caller over it is
+    # turned away, so this budget is what keeps campaigns from eating the receptionist's
+    # line; the per-dial check is what makes it hold for dials this tick does not make.    in_use = await carrier_lines_in_use() if dials_through_our_carrier() else 0
+    global_budget = max(0, pool - max(total_active, in_use))
 
     # CALL-BACKS FIRST, OUT OF THE SAME POOL (D-514). Two decisions in one placement:
     #
@@ -1079,13 +1022,6 @@ async def _dispatch_for_campaign(
                 blocked += 1
                 continue
 
-            # After the gate, so a refused contact never spends one of the account's slots.
-            try:
-                await await_dial_slot()
-            except DialPacingTimeoutError:
-                await _refuse_contact(session, contact_id, rule=PACING_RULE)
-                blocked += 1
-                continue
 
             try:
                 # THE LINK IS WRITTEN BEFORE THE PHONE CAN RING, in `dispatch_call`'s
@@ -1133,7 +1069,24 @@ async def _dispatch_for_campaign(
                 )
                 exhausted += 1
                 continue
-            except Exception as exc:  # engine refused BEFORE dialling: the retry ladder
+            except Exception as exc:
+                if _refused_on_our_side(exc):
+                    # Nothing rang, and nothing about THIS person stopped it: the account's
+                    # pacing or lines, its balance or credentials, a missing configuration.
+                    # The attempt is refunded; spending a rung on it would exhaust a
+                    # reachable lead on refusals that were about us.
+                    await _refuse_contact(session, contact_id, rule=_refusal_rule(exc))
+                    blocked += 1
+                    log.warning(
+                        "campaign_dial_refused",
+                        extra={
+                            "campaign_id": str(campaign_id),
+                            "reason": _dial_failure_reason(exc),
+                        },
+                    )
+                    continue
+                # Refused before dialling for a reason that may be about the contact (a
+                # number the carrier would not accept): the retry ladder.
                 spent = await _record_failure(
                     session,
                     contact_id,
@@ -1327,6 +1280,34 @@ async def resolve_campaign_contact(
         extra={"tenant_id": str(tenant_id), "call_status": call_status},
     )
     return "failed" if spent else "pending"
+
+
+#: Statuses on which the carrier refused the request for something in it rather than about
+#: the account: a `400` names a malformed field, and on a dial the field most likely to be
+#: malformed is the contact's number. Every other proven refusal is about our side.
+_CONTACT_SIDE_STATUSES = frozenset({400})
+
+
+def _refused_on_our_side(exc: BaseException) -> bool:
+    """Did this dial fail before any line was seized, for a reason that is not the contact's?
+
+    `dial_was_not_placed` is the one place that decides "nothing rang". Of those, a `400`
+    can be about the contact's own number, so it keeps the retry ladder; the rest — the
+    account's pacing and line limits, a `402` balance refusal, missing credentials or
+    configuration — say nothing about the person and must not spend their attempts.
+    """
+    if not dial_was_not_placed(exc):
+        return False
+    return not (
+        isinstance(exc, EngineRejectedError) and exc.vendor_status in _CONTACT_SIDE_STATUSES
+    )
+
+
+def _refusal_rule(exc: BaseException) -> str:
+    """The rule a refunded refusal is recorded under: our code, never vendor text."""
+    if isinstance(exc, EngineRejectedError):
+        return f"{exc.code}_{exc.vendor_status}"
+    return exc.code if isinstance(exc, ProblemError) else type(exc).__name__
 
 
 def _dial_failure_reason(exc: BaseException) -> str:
@@ -1526,7 +1507,21 @@ async def _reap_stuck_dialing(
     `DialUnconfirmedError` the moment it happens. What reaches here is the case that outruns
     an `except` clause — a `CancelledError` through the dial, i.e. a worker killed
     mid-tick, which is a `BaseException` and by design not caught there.
+
+    FIRST, THE UNANSWERED DIALS. A dial nobody answered never reaches the post-call
+    pipeline: no conversation ran, so no worker settled it and `resolve_campaign_contact`
+    is never called. The carrier's hang-up moves the call row to `busy` / `no_answer` /
+    `failed`, and without this pass the contact sat in `dialing` until
+    `STUCK_DIALING_AFTER` (seventy minutes) before its next rung. `_settle_unanswered_dials`
+    puts it on the ladder minutes after the hang-up instead.
     """
+    await _settle_unanswered_dials(
+        session,
+        campaign_id,
+        tenant_id=tenant_id,
+        max_attempts=max_attempts,
+        retry_policy=retry_policy,
+    )
     stranded = (
         (
             await session.execute(
@@ -1586,6 +1581,76 @@ async def _reap_stuck_dialing(
     return len(reaped) + len(stranded)
 
 
+#: How long after the hang-up an unanswered dial waits before its contact is settled here:
+#: long enough for a post-call pipeline that IS coming to claim the call first.
+UNANSWERED_SETTLE_AFTER = timedelta(minutes=2)
+
+#: The same wait for a call that ended `failed`. Longer, because `failed` is also the status
+#: of a call whose hang-up cause we do not map — including one somebody answered — and a
+#: worker that died mid-call is finalised only after `call_finalise`'s grace. Settling it
+#: on the ladder first would ring back a person who was spoken to.
+FAILED_SETTLE_AFTER = timedelta(minutes=20)
+
+#: Contacts dialling a call that ended unanswered and that no post-call pipeline has
+#: claimed. The outbox row keyed `post-call:{calls.id}` is the claim
+#: (`worker/service.settle_call`); while it exists the pipeline owns the contact.
+_UNANSWERED_DIALS_SQL = text(
+    "SELECT cc.id, cc.attempts FROM campaign_contacts cc "
+    "JOIN calls c ON c.id = cc.last_call_id "
+    "WHERE cc.campaign_id = :cid AND cc.status = 'dialing' "
+    "AND ("
+    "  (c.status IN ('busy', 'no_answer') "
+    "   AND c.updated_at < now() - make_interval(secs => :unanswered)) "
+    "  OR (c.status = 'failed' AND c.updated_at < now() - make_interval(secs => :failed))"
+    ") "
+    "AND NOT EXISTS (SELECT 1 FROM outbox_messages o "
+    "  WHERE o.dedupe_key = :prefix || c.id::text) "
+    "FOR UPDATE OF cc SKIP LOCKED"
+)
+
+
+async def _settle_unanswered_dials(
+    session: Any,
+    campaign_id: UUID,
+    *,
+    tenant_id: UUID,
+    max_attempts: int,
+    retry_policy: dict[str, Any],
+) -> int:
+    """Put the contacts of unanswered, unclaimed dials on the retry ladder. Returns how many.
+
+    The ladder rather than `_refuse_contact`'s refund: the phone rang and nobody answered,
+    which is exactly the attempt the ladder counts.
+    """
+    rows = (
+        await session.execute(
+            _UNANSWERED_DIALS_SQL,
+            {
+                "cid": campaign_id,
+                "unanswered": UNANSWERED_SETTLE_AFTER.total_seconds(),
+                "failed": FAILED_SETTLE_AFTER.total_seconds(),
+                "prefix": POSTCALL_DEDUPE_PREFIX,
+            },
+        )
+    ).all()
+    for contact_id, attempts in rows:
+        await _record_failure(
+            session,
+            UUID(str(contact_id)),
+            int(attempts),
+            max_attempts,
+            retry_policy,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+        )
+    if rows:
+        log.info(
+            "campaign_unanswered_dials_settled",
+            extra={"campaign_id": str(campaign_id), "contacts": len(rows)},
+        )
+    return len(rows)
+
+
 async def _record_failure(
     session: Any,
     contact_id: UUID,
@@ -1643,8 +1708,6 @@ async def _record_failure(
 
 
 __all__ = [
-    "DEFAULT_CONCURRENCY_CEILING",
-    "PLATFORM_LINES_TOTAL",
     "STUCK_DIALING_AFTER",
     "TICK_INTERVAL_S",
     "TICK_LEASE_TTL_S",

@@ -200,9 +200,6 @@ ALLOWED_APPS_MODULES: frozenset[str] = frozenset(
         "apps.api.core.alarm_severity",
         "apps.api.core.alerting",
         "apps.api.core.bootstrap",
-        # The transfer route opens the API's sealed token to read the destination it may not
-        # look up (hard rule 3): AES-GCM over `cryptography`, already held, and no IO.
-        "apps.api.core.carrier_token",
         "apps.api.core.context",
         "apps.api.core.errors",
         "apps.api.core.health",
@@ -415,9 +412,9 @@ async def _drive_carrier(http: AsyncClient, tag: str) -> None:
     """The carrier routes' branches: answer (inbound, outbound, refused), signed and
     unsigned, status callbacks (accepted, duplicate, ignored, refused, oversized) and the
     transfer document (off, on, bad token)."""
-    from apps.api.core.carrier_token import seal
     from apps.api.core.settings import get_settings
     from calevate_shared.carrier import VOBIZ_CALLBACK_IPS, answer_path, events_path, transfer_path
+    from calevate_shared.carrier_token import seal
     from calevate_shared.engine import owned_runtime_agent_ref
 
     secret = "s" * 40
@@ -859,7 +856,9 @@ async def go():
         json.dump({"before": before, "after": after, "loaded": loaded, "tables": tables}, handle)
 
 
-asyncio.run(go())
+# psycopg's async mode refuses Windows' default ProactorEventLoop (InterfaceError), and
+# the served process runs on a selector loop there too, so the probe matches it.
+asyncio.run(go(), loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None)
 """
 
 

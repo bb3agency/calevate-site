@@ -129,6 +129,8 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish", "POST", "costly"),
         ("/v1/ops/secrets/{key}", "PUT", "admin_api"),
         ("/v1/ops/secrets/{key}/test", "POST", "costly"),
+        # A credentialled vendor call per click, like the candidate test above it.
+        ("/v1/ops/carrier/probe", "POST", "costly"),
         ("/v1/auth/signup", "POST", "auth"),
         ("/healthz/ready", "GET", "exempt"),
         # The public rate card must NOT fall into `client_api`: its one caller is the

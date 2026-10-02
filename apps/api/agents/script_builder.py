@@ -40,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompts import write_prompt_version
 from apps.api.core.errors import ProblemError
-from apps.api.engine import get_engine
+from apps.api.engine import engine_capabilities
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +218,11 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
     honest values from the agent row so the preview is not a lie about which agent it is.
     """
     row = await _agent_or_404(session, agent_id)
+    # THE PREVIEW SHOWS WHAT THIS DEPLOYMENT'S ENGINE WILL ACTUALLY HOLD — the opening's
+    # recording sentence and clause 2 of the truthful-answer floor both follow this fact. A
+    # preview that showed the recorded wording on a leg that records nothing would be the
+    # one screen a reviewer trusts, lying in the same direction as the bug it guards.
+    call_is_recorded = engine_capabilities().records_audio
     config = AgentConfig(
         tenant_id="preview",
         agent_id=str(agent_id),
@@ -225,12 +230,8 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
         direction=row.direction,
         language_primary=str(row.language_primary),
         system_prompt=compile_call_script(script),
-        opening_line=compose_opening_line(_posture(row)),
-        # THE PREVIEW SHOWS WHAT THIS DEPLOYMENT'S ENGINE WILL ACTUALLY HOLD, including
-        # clause 2 of the truthful-answer floor — a preview that showed the recorded wording
-        # on a leg that records nothing would be the one screen a reviewer trusts, lying in
-        # the same direction as the bug it is now guarding against.
-        call_is_recorded=get_engine().capabilities.records_audio,
+        opening_line=compose_opening_line(_posture(row), call_is_recorded=call_is_recorded),
+        call_is_recorded=call_is_recorded,
     )
     return compose_engine_prompt(config)
 

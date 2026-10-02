@@ -381,14 +381,14 @@ def test_the_credits_console_does_not_name_the_identity_tiers_for_a_money_rule()
         lowered = _copy_only(_read(rel)).lower()
         for phrase in STALE_WALLET_TIER_COPY:
             assert phrase not in lowered, (
-            f"{rel} tells an operator that an empty wallet stops calling for a "
-            f"\u201c{phrase}\u201d client. That is the IDENTITY set (`SELF_SERVE_TIERS` "
-            "\u2014 who signed up unattended), not the MONEY set: "
-            "`billing/rates.PREPAID_TIERS` is (prepaid, self_serve, trial) and `prepaid` "
-            "is the default tier every account is created on, so the sentence excuses "
-            "almost every client on the platform. Name the motion instead \u2014 every "
-            "client but a managed one pays from a wallet."
-        )
+                f"{rel} tells an operator that an empty wallet stops calling for a "
+                f"\u201c{phrase}\u201d client. That is the IDENTITY set (`SELF_SERVE_TIERS` "
+                "\u2014 who signed up unattended), not the MONEY set: "
+                "`billing/rates.PREPAID_TIERS` is (prepaid, self_serve, trial) and `prepaid` "
+                "is the default tier every account is created on, so the sentence excuses "
+                "almost every client on the platform. Name the motion instead \u2014 every "
+                "client but a managed one pays from a wallet."
+            )
 
 
 # ───────── the four conditions that did NOT change, pinned so nobody over-corrects ─────────

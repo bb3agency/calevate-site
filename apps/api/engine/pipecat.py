@@ -119,6 +119,7 @@ from calevate_shared.events import (
     Speaker,
     TranscriptTurn,
 )
+from calevate_shared.worker_api import usable_caller_claim_key
 from sqlalchemy import text
 
 from apps.api.agents.config_versions import Attestation, latest_attestation, mint_config_version
@@ -127,7 +128,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import CursorResult
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import env_var_for, get_settings, is_public_callback_base
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import joined_tenant_session, tenant_session, untenanted_session
@@ -138,8 +139,10 @@ from apps.api.engine.capabilities import (
 )
 from apps.api.engine.carrier import (
     CARRIER_UNVERIFIED_CODE,
+    RING_TIMEOUT_S,
     CarrierClient,
     capability_unverified,
+    carrier_of_record,
     get_carrier,
 )
 
@@ -236,6 +239,28 @@ def capabilities_for_carrier(carrier: CarrierName) -> EngineCapabilities:
     if carrier == "vobiz":
         return PIPECAT_VOBIZ_CAPABILITIES
     return PIPECAT_CAPABILITIES
+
+
+#: The `Settings` fields readiness names when a carrier is unconfigured on this host. Plivo's
+#: pair is the worker container's (`core/settings.ENV_ONLY_FOREIGN_ENV`) and its adapter is
+#: unbuilt, so no credential set here makes it work: the setting to correct is `carrier`.
+_CARRIER_CREDENTIAL_FIELDS: Final[dict[CarrierName, tuple[str, ...]]] = {
+    "vobiz": ("vobiz_auth_id", "vobiz_auth_token"),
+    "plivo": ("carrier",),
+}
+
+
+def _credential_env_keys(carrier: CarrierName) -> tuple[str, ...]:
+    return tuple(env_var_for(field) for field in _CARRIER_CREDENTIAL_FIELDS[carrier])
+
+
+@dataclass(frozen=True, slots=True)
+class CarrierCallRecord:
+    """What the control plane holds about one dialled call at the carrier."""
+
+    carrier_call_id: str
+    #: `calls.carrier`, or None for a row written before that column existed.
+    carrier: str | None
 
 
 #: A dial refused because a fact the request needs is missing (our call id, the public
@@ -335,14 +360,21 @@ class PipecatControlPlane(Protocol):
         ...
 
     async def record_dial(
-        self, ref: EngineAgentRef, *, call_id: str, carrier_call_id: str, from_e164: str
+        self,
+        ref: EngineAgentRef,
+        *,
+        call_id: str,
+        carrier_call_id: str,
+        from_e164: str,
+        carrier: CarrierName,
     ) -> None:
         """The carrier accepted a dial for our intent row `call_id`: keep its id for the
-        call and the caller id it was asked to present."""
+        call, the carrier that holds it, and the caller id it was asked to present."""
         ...
 
-    async def carrier_call_of(self, call_ref: str) -> str | None:
-        """The carrier's id for the call this engine handle names, or None."""
+    async def carrier_call_of(self, call_ref: str) -> CarrierCallRecord | None:
+        """The carrier's id for the call this engine handle names, and which carrier holds
+        it, or None."""
         ...
 
     async def record_number_binding(
@@ -354,6 +386,13 @@ class PipecatControlPlane(Protocol):
     async def number_binding(self, ref: EngineAgentRef, *, e164: str) -> str | None:
         """The binding this number was last attached to, or None."""
         ...
+
+
+#: The agent an experiment arm belongs to, or no row when the id is not an arm's.
+_ARM_AGENT_SQL: Final = (
+    "SELECT e.agent_id FROM prompt_experiment_variants AS v "
+    "JOIN prompt_experiments AS e ON e.id = v.experiment_id WHERE v.id = :vid"
+)
 
 
 class SqlControlPlane:
@@ -401,20 +440,40 @@ class SqlControlPlane:
     """
 
     async def publish(self, cfg: AgentConfig, *, ref: EngineAgentRef) -> UUID:
+        """Mint the version and point `ref`'s runtime row at it.
+
+        An EXPERIMENT ARM arrives with the variant's id in `cfg.agent_id`
+        (`agents.service._variant_config`: every adapter derives the arm's own ref from that
+        field). `agent_config_versions.agent_id` and `pipecat_agents.agent_id` are foreign
+        keys to `agents`, so an arm's version and row are written under the REAL agent and
+        the row names its arm in `variant_id`. `resolved_config` keeps the config as handed
+        in, so a later `override_call_script` on the arm's ref is recognised as the arm again.
+        """
         tenant_id = UUID(cfg.tenant_id)
-        agent_id = UUID(cfg.agent_id)
+        named = UUID(cfg.agent_id)
         async with joined_tenant_session(tenant_id) as session:
-            version = await mint_config_version(session, tenant_id, cfg)
+            arm_of = (
+                await session.execute(text(_ARM_AGENT_SQL), {"vid": named})
+            ).scalar_one_or_none()
+            agent_id = named
+            variant_id: UUID | None = None
+            minted_from = cfg
+            if arm_of is not None:
+                agent_id, variant_id = UUID(str(arm_of)), named
+                minted_from = cfg.model_copy(update={"agent_id": str(agent_id)})
+            version = await mint_config_version(session, tenant_id, minted_from)
             await session.execute(
                 text(
                     "INSERT INTO pipecat_agents "
-                    "(id, tenant_id, agent_id, engine_agent_ref, name, "
+                    "(id, tenant_id, agent_id, variant_id, engine_agent_ref, name, "
                     " agent_config_version_id, resolved_config) "
-                    "VALUES (:id, :tid, :aid, :ref, :name, :vid, CAST(:cfg AS jsonb)) "
+                    "VALUES (:id, :tid, :aid, :var, :ref, :name, :vid, CAST(:cfg AS jsonb)) "
                     # UPDATE, not DO NOTHING: this row is engine STATE and `update_agent`
                     # is a full replacement by contract. The append-only history is
-                    # `agent_config_versions`, which the line above wrote.
-                    "ON CONFLICT (agent_id) DO UPDATE SET "
+                    # `agent_config_versions`, which the line above wrote. The conflict
+                    # target is `ux_pipecat_agents_agent_variant` (NULLS NOT DISTINCT), so
+                    # the agent's own row and each arm's row are one row apiece.
+                    "ON CONFLICT (agent_id, variant_id) DO UPDATE SET "
                     "  engine_agent_ref = EXCLUDED.engine_agent_ref, "
                     "  name = EXCLUDED.name, "
                     "  agent_config_version_id = EXCLUDED.agent_config_version_id, "
@@ -425,6 +484,7 @@ class SqlControlPlane:
                     "id": uuid7(),
                     "tid": tenant_id,
                     "aid": agent_id,
+                    "var": variant_id,
                     "ref": ref,
                     "name": cfg.name,
                     "vid": version.id,
@@ -488,8 +548,32 @@ class SqlControlPlane:
             )
 
     async def attested(self, agent: RuntimeAgent) -> Attestation | None:
+        """The latest attestation that can be about THIS ref.
+
+        An agent and its experiment arms attest under one agent id, so an attestation of a
+        version a SIBLING ref currently serves is that sibling's worker, not a stale worker
+        of this ref, and is left out. A version both refs serve (identical config) is kept.
+        """
         async with joined_tenant_session(agent.tenant_id) as session:
-            return await latest_attestation(session, agent.agent_id)
+            siblings = (
+                await session.execute(
+                    text(
+                        "SELECT agent_config_version_id FROM pipecat_agents "
+                        "WHERE agent_id = :aid AND engine_agent_ref <> :ref "
+                        "AND agent_config_version_id <> :vid"
+                    ),
+                    {
+                        "aid": agent.agent_id,
+                        "ref": agent.engine_agent_ref,
+                        "vid": agent.agent_config_version_id,
+                    },
+                )
+            ).scalars()
+            return await latest_attestation(
+                session,
+                agent.agent_id,
+                excluding_versions=tuple(UUID(str(version)) for version in siblings),
+            )
 
     async def attach(self, agent: RuntimeAgent, *, handle: EngineKBRef, kb_id: str) -> None:
         async with joined_tenant_session(agent.tenant_id) as session:
@@ -778,14 +862,23 @@ class SqlControlPlane:
         )
 
     async def record_dial(
-        self, ref: EngineAgentRef, *, call_id: str, carrier_call_id: str, from_e164: str
+        self,
+        ref: EngineAgentRef,
+        *,
+        call_id: str,
+        carrier_call_id: str,
+        from_e164: str,
+        carrier: CarrierName,
     ) -> None:
-        """Stamp the carrier's id and our presented caller id onto the intent row.
+        """Stamp the carrier's id, the carrier that holds the call and our presented caller
+        id onto the intent row.
 
         Its OWN transaction, not the caller's: `dispatch_call` commits the intent row before
         the dial for the same reason — the carrier has accepted a call that may be ringing,
         and a caller's rollback must not take the only handle on it with it. The row is
         addressed by our id, never by a number, and `from_e164` keeps a value already there.
+        `carrier` overwrites whatever the intent row guessed: it is the carrier that accepted
+        the dial, and every later operation on the call goes to that account.
         """
         tenant_id = _tenant_of(ref)
         if tenant_id is None:
@@ -793,11 +886,17 @@ class SqlControlPlane:
         async with tenant_session(tenant_id) as session:
             result = await session.execute(
                 text(
-                    "UPDATE calls SET carrier_call_id = :cc, "
+                    "UPDATE calls SET carrier_call_id = :cc, carrier = :carrier, "
                     "from_e164 = COALESCE(from_e164, :from_e), updated_at = now() "
                     "WHERE id = :id AND tenant_id = :tid"
                 ),
-                {"cc": carrier_call_id, "from_e": from_e164, "id": call_id, "tid": tenant_id},
+                {
+                    "cc": carrier_call_id,
+                    "carrier": carrier,
+                    "from_e": from_e164,
+                    "id": call_id,
+                    "tid": tenant_id,
+                },
             )
         if rowcount_of(result) == 0:
             log.warning(
@@ -805,21 +904,25 @@ class SqlControlPlane:
                 extra={"call_id": call_id, "tenant_id": str(tenant_id)},
             )
 
-    async def carrier_call_of(self, call_ref: str) -> str | None:
+    async def carrier_call_of(self, call_ref: str) -> CarrierCallRecord | None:
         tenant_id = tenant_of_pipecat_ref(call_ref)
         if tenant_id is None:
             return None
         async with joined_tenant_session(tenant_id) as session:
-            value = (
+            row = (
                 await session.execute(
                     text(
-                        "SELECT carrier_call_id FROM calls "
+                        "SELECT carrier_call_id, carrier FROM calls "
                         "WHERE engine_call_id = :ref AND tenant_id = :tid"
                     ),
                     {"ref": call_ref, "tid": tenant_id},
                 )
-            ).scalar_one_or_none()
-        return str(value) if value else None
+            ).first()
+        if row is None or not row[0]:
+            return None
+        return CarrierCallRecord(
+            carrier_call_id=str(row[0]), carrier=None if row[1] is None else str(row[1])
+        )
 
     async def record_number_binding(
         self, ref: EngineAgentRef, *, e164: str, binding_id: str
@@ -908,11 +1011,7 @@ class SqlControlPlane:
         may do is INVENT the minutes — a call whose content we never received cannot be
         metered from nothing, and a fabricated quantity on an append-only ledger is worse
         than a call we failed to bill. Detect and alert are ours; the connected minute is the
-        carrier's and always was.
-
-        No dial can have happened yet in any case: `start_outbound_call` refuses every one
-        of them on this engine (BLOCKER-1).
-        """
+        carrier's and always was.        """
         return ()
 
 

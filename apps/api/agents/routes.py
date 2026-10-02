@@ -82,13 +82,14 @@ from apps.api.agents.publishing import (
 from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
 from apps.api.compliance.audit import write_audit
-from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
+from apps.api.compliance.disclosure import truthful_answer_promise
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
+from apps.api.engine import engine_capabilities
 
 #: The four outcome tags, zero-filled into every `AgentStatsOut.outcomes` so a screen never
 #: has to guard a missing key. Derived from the contract's Literal, never retyped (D-104):
@@ -782,8 +783,9 @@ class DisclosureOut(BaseModel):
     #: Did the voice platform get the change? False on an agent that is not live yet —
     #: there is nothing on the platform to update, and the first publish carries it.
     engine_synced: bool
-    #: The one behaviour these switches do not reach, in the words the API owns.
-    truthful_answer_rule: str = TRUTHFUL_ANSWER_PROMISE
+    #: The one behaviour these switches do not reach, in the words the API owns. Composed
+    #: from the engine's recording fact at the one construction site below.
+    truthful_answer_rule: str
 
 
 @router.patch(
@@ -796,13 +798,19 @@ class DisclosureOut(BaseModel):
         "outbound agents alike. A notice switched off means the agent does not VOLUNTEER "
         "that fact at the start of the call.\n\n"
         "It does not change what the agent says when a caller ASKS. Asked whether they "
-        "are speaking to a human, the agent says it is an AI assistant; asked whether "
-        "the call is recorded, it says yes. That is composed server-side, appended to "
-        "every agent's instructions after the script, and verified against the voice "
-        "platform on every publish — no script can withdraw it.\n\n"
-        "Switching the recording notice off does not stop the call being recorded, and "
-        "does not discharge the client's own notice obligation under the DPDP Act; it "
-        "moves where that notice is given. Every flip is written to the audit log.\n\n"
+        "are speaking to a human, the agent says it is an AI assistant. Asked whether "
+        "the call is recorded, it answers according to whether the voice platform records "
+        "audio: where it does, it says yes; where it does not (the platform's own voice "
+        "runtime today), it says the audio is not recorded and that a written transcript "
+        "is kept. That is composed server-side, appended to every agent's instructions "
+        "after the script, and verified against the voice platform on every publish — no "
+        "script can withdraw it. `truthful_answer_rule` in the response states the answer "
+        "in force.\n\n"
+        "The recording notice is spoken only where audio is recorded; the switch is kept "
+        "so it applies wherever it is. Switching it off does not stop a recording being "
+        "made, and does not discharge the client's own notice obligation under the DPDP "
+        "Act; it moves where that notice is given. Every flip is written to the audit "
+        "log.\n\n"
         "Applies immediately: a live agent is re-published to the voice platform in the "
         "same transaction, so the screen never claims a posture the platform is not "
         "running."
@@ -870,6 +878,9 @@ async def set_disclosure(
         recording_notice_enabled=result.recording_notice_enabled,
         opening_line=result.opening_line,
         engine_synced=result.engine_synced,
+        truthful_answer_rule=truthful_answer_promise(
+            call_is_recorded=engine_capabilities().records_audio
+        ),
     )
 
 

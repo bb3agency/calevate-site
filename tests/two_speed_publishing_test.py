@@ -445,6 +445,35 @@ async def test_the_lane_table_states_the_precedence_rule_surfaces_asks_for() -> 
     assert lanes["max_call_duration_s"].precedence < lanes["voice"].precedence
 
 
+def test_on_a_recording_engine_the_served_lanes_are_the_table_itself() -> None:
+    assert publishing.lanes(records_audio=True) == publishing.LANES
+
+
+def test_on_an_engine_that_records_nothing_the_recording_notice_says_so() -> None:
+    """The recording notice's explanation follows the engine's fact. Where no audio is
+    kept, "it does not stop the call being recorded" would describe a recording that does
+    not exist; the served text must say the notice is not spoken, and nothing else in the
+    table may move."""
+    served = publishing.lanes(records_audio=False)
+    by_field = {entry.field: entry for entry in served}
+    table = {entry.field: entry for entry in publishing.LANES}
+
+    notice = by_field["recording_notice_enabled"]
+    assert "not audio-recorded" in notice.why
+    assert "not spoken" in notice.why
+    assert "does not stop the call being recorded" not in notice.why
+    assert (notice.lane, notice.precedence) == (
+        table["recording_notice_enabled"].lane,
+        table["recording_notice_enabled"].precedence,
+    )
+    assert [entry.field for entry in served] == [entry.field for entry in publishing.LANES]
+    for field_name, entry in by_field.items():
+        if field_name != "recording_notice_enabled":
+            assert entry == table[field_name], f"{field_name} changed with the recording fact"
+    # `lane_of` is the server's own lookup and keeps reading the table.
+    assert publishing.lane_of("recording_notice_enabled") == table["recording_notice_enabled"]
+
+
 # --- 7. tenancy (hard rule 1) ------------------------------------------------
 
 

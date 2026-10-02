@@ -44,6 +44,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.models import AgentStatus
 from apps.api.agents.schemas import AgentOut
+from apps.api.compliance.disclosure import truthful_answer_promise
+from apps.api.engine import engine_capabilities
 
 #: The roster query, spelled once and reached from every reader (D-302).
 #:
@@ -97,6 +99,9 @@ def agent_out(r: Any) -> AgentOut:
     # and the config the engine is actually sent cannot disagree about which model an
     # agent runs or which level chose it.
     resolved = resolve_llm_model(agent_model=r[15], organization_model=r[16])
+    # ONE READ of the engine's recording fact for both sentences that depend on it, so the
+    # opening a client is shown and the answer they are promised cannot disagree.
+    recorded = engine_capabilities().records_audio
     return AgentOut(
         id=r[0],
         name=r[1],
@@ -128,8 +133,10 @@ def agent_out(r: Any) -> AgentOut:
                 recording_notice_enabled=bool(r[12]),
                 caller_memory_notice_line=str(r[17]),
                 caller_memory_enabled=bool(r[18]),
-            )
+            ),
+            call_is_recorded=recorded,
         ),
+        truthful_answer_rule=truthful_answer_promise(call_is_recorded=recorded),
     )
 
 

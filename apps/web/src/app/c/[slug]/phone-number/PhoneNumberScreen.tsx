@@ -66,12 +66,23 @@ export function PhoneNumberScreen() {
                 Ask your operator for <span className="font-medium text-ink">conditional call forwarding</span> to
                 the number below.
               </p>
-              {ours.some((number) => !number.answerable) && (
+              {/* `answerable` needs an agent on the number AND our connection of it at the
+                  carrier. Only the first is the client's to fix, so the two get different
+                  sentences: "nothing for you to do" beside a number with no agent would
+                  leave it silent for good. */}
+              {ours.some((number) => !number.answerable && !number.agent_id) && (
                 <p className="text-sm text-ink-muted">
-                  One of these is not ready to take calls yet — we are still connecting it.
-                  Please wait until it says <em>Ready to answer</em> before you set the
-                  forwarding up, or callers will reach silence. There is nothing for you to do;
-                  we will tell you when it is done.
+                  A number with no agent on it cannot take calls. Choose the agent that should
+                  answer it on its card below, and wait until it says <em>Ready to answer</em>{" "}
+                  before you set the forwarding up, or callers will reach silence.
+                </p>
+              )}
+              {ours.some((number) => !number.answerable && number.agent_id) && (
+                <p className="text-sm text-ink-muted">
+                  A number with an agent on it is not ready to take calls yet — we are still
+                  connecting it. Please wait until it says <em>Ready to answer</em> before you
+                  set the forwarding up, or callers will reach silence. There is nothing for
+                  you to do here.
                 </p>
               )}
               {ours.map((number) => (
@@ -109,7 +120,9 @@ function NumberCard({ number }: { number: CampaignNumber }) {
   const status = number.supplied_by_us
     ? number.answerable
       ? { text: "Ready to answer", tone: "bg-brand-soft text-brand-strong" }
-      : { text: "Not ready yet", tone: "border border-line text-ink-muted" }
+      : !number.agent_id
+        ? { text: "No agent on it yet", tone: "border border-line text-ink-muted" }
+        : { text: "Not ready yet", tone: "border border-line text-ink-muted" }
     : number.dlt_status === "registered"
       ? { text: "Registered for calling out", tone: "bg-ink/[0.06] text-ink" }
       : { text: "Registration still in progress", tone: "border border-line text-ink-muted" };

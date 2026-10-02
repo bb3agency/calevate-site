@@ -373,8 +373,10 @@ class NumberOut(Strict):
     dlt_status: str
     #: Did Calevate supply this number, or did the client bring their own connection?
     supplied_by_us: bool = False
-    #: Can the voice platform actually route calls on this number to an agent? False means
-    #: an agent set to answer it will not — the state GAP-1 left every number in.
+    #: Will a call to this number reach an agent? All three links of the chain: an agent on
+    #: it, the voice platform's record of the number (`engine_number_ref`), and the
+    #: carrier's binding of it to our answer URL (`carrier_binding_id`, the Vobiz
+    #: Application). Any one missing and the call rings nothing of ours.
     answerable: bool = False
     #: WHICH AGENT IS ON IT (`phone_numbers.agent_id`). Null means nothing rings: the
     #: outbound caller ID and the inbound answer are both resolved from this binding
@@ -437,7 +439,9 @@ async def list_numbers(
         await session.execute(
             text(
                 "SELECT id, e164, series, dlt_status, engine_owned, "
-                "engine_number_ref IS NOT NULL, agent_id, direction, client_inr_per_month, "
+                "(engine_number_ref IS NOT NULL AND carrier_binding_id IS NOT NULL "
+                "AND agent_id IS NOT NULL), "
+                "agent_id, direction, client_inr_per_month, "
                 "activated_at IS NOT NULL FROM phone_numbers "
                 # A released number is not one this account may dial from or be answered
                 # on: the vendor has it back. The ROW survives because a closed month's

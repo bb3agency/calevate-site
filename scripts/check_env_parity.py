@@ -130,10 +130,12 @@ DRILL_ENV_KEYS: dict[str, str] = {
 # WHAT REPLACES THE FAIL-FAST PROPERTY, because it genuinely still applies:
 # `voice_worker.boot.load_worker_config` refuses to start the container and names every
 # missing variable at once — which is strictly earlier than `Settings` would fail, since it
-# runs before any call is admitted. The keys the worker ALSO needs that ARE `Settings`
-# fields (`DATABASE_URL`, `OBJECT_STORE_*`, `SARVAM_API_KEY`, `CARTESIA_API_KEY`, the three
-# LLM credentials, and now the carrier pair) are deliberately spelled the same in both
-# places and so need no entry here: one value, one name, two homes.
+# runs before any call is admitted. The keys the worker ALSO reads that ARE `Settings`
+# fields (`PIPECAT_WORKER_API_BASE_URL` / `_TOKEN`, `OBJECT_STORE_*`, `SARVAM_API_KEY`,
+# `CARTESIA_API_KEY`, `GNANI_API_KEY`, the three LLM credentials, `CARRIER_CLAIM_SECRET`,
+# `CARRIER` and the Plivo pair) are deliberately spelled the same in both places and so
+# need no entry here: one value, one name, two homes. The worker has held no database
+# connection since D-621, so `DATABASE_URL` is not among them.
 # ⚠ `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` USED TO BE THE FIRST TWO ENTRIES HERE AND ARE
 # NOW `Settings` FIELDS (D-614). Nothing about their READER changed — Pipecat's own
 # serializer still reads them out of that container's process environment, and no VPS
@@ -375,6 +377,7 @@ def preflight_contract_failures(settings_fields: set[str]) -> list[str]:
     from scripts.check_deploy_env import (
         HMAC_SECRET_KEYS,
         OBJECT_STORE_CREDENTIALS,
+        OWNED_RUNTIME_ENV_KEYS,
         RETIRED_PAIRS,
         config_keys,
     )
@@ -383,6 +386,7 @@ def preflight_contract_failures(settings_fields: set[str]) -> list[str]:
         config_keys()
         | set(HMAC_SECRET_KEYS)
         | {key for pair in RETIRED_PAIRS for key in pair}
+        | set(OWNED_RUNTIME_ENV_KEYS)
         | OBJECT_STORE_CREDENTIALS
     )
     unknown = sorted(

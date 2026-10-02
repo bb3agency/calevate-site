@@ -48,9 +48,9 @@ def paced(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
 
 
 def test_the_gap_is_rounded_up_so_the_rate_is_never_exceeded() -> None:
-    assert slot_interval_ms(1) == 1000
-    assert slot_interval_ms(3) == 334
-    assert slot_interval_ms(50) == 20
+    assert slot_interval_ms(1) == 1100
+    assert slot_interval_ms(3) == 367
+    assert slot_interval_ms(50) == 22
 
 
 async def test_consecutive_dials_are_spaced_by_one_over_cps(paced: str) -> None:

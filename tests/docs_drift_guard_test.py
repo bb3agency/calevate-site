@@ -192,6 +192,20 @@ class TestCommands:
         failures = guard.unresolved_commands(_claims(root / "docs" / "X.md"))
         assert any("python -m eval.run" in f for f in failures), failures
 
+    def test_an_installed_dependency_resolves_and_an_absent_one_does_not(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "X.md").write_text(
+            "Start it with `uv run python -m uvicorn main:app`.\n"
+            "Then `uv run python -m calevate_no_such_dependency`.\n",
+            encoding="utf-8",
+        )
+        failures = guard.unresolved_commands(_claims(root / "docs" / "X.md"))
+        assert not any("python -m uvicorn" in f for f in failures), failures
+        assert any("calevate_no_such_dependency" in f for f in failures), failures
+
     def test_catches_a_bad_target_inside_a_fenced_block(self, tmp_path: Path) -> None:
         """Fenced blocks are where the copy-pasteable commands live, so a check that only
         read inline spans would miss the ones people actually run."""

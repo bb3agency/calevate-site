@@ -29,7 +29,9 @@ from urllib.parse import quote
 import httpx
 from calevate_shared.carrier import CarrierName
 from calevate_shared.config import Settings
+from calevate_shared.engine import ProvisionedNumber
 from calevate_shared.events import CallDirection, CallStatus
+from pydantic import ValidationError
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -56,12 +58,33 @@ APP_NAME_PREFIX: Final = "calevate-"
 _APPLICATION_PAGE: Final = 100
 _APPLICATION_MAX_PAGES: Final = 20
 
-#: `HangupCause` -> our terminal status (`cdr.md:320-342`). Everything else is `failed`.
+#: The owned numbers listing pages with `page`/`per_page`, not `limit`/`offset`
+#: (`account-phone-number/list-account-phone-numbers.md:23-33`). 25 is the documented
+#: default; no maximum is documented, so none is assumed. The page bound refuses an account
+#: larger than this by name rather than returning a short list that reads as complete.
+_NUMBER_PAGE: Final = 25
+_NUMBER_MAX_PAGES: Final = 40
+
+#: `HangupCause` -> our terminal status (`cdr.md:320-342`). Read before the numeric code.
 _HANGUP_STATUS: Final[dict[str, CallStatus]] = {
     "NORMAL_CLEARING": "completed",
     "USER_BUSY": "busy",
     "NO_ANSWER": "no_answer",
     "ORIGINATOR_CANCEL": "no_answer",
+}
+
+#: `HangupCauseCode` 4000-4030 are "Normal Completions" (`concepts/hangup-causes.md:37-46`):
+#: 4000 Normal Hangup, 4010 End Of XML Instructions (what Vobiz reports when the worker ends
+#: the stream, `xml/stream/stream-events.md:262-267`), 4020/4030 multiparty endings.
+_NORMAL_COMPLETION_CODES: Final = range(4000, 4031)
+
+#: Numeric codes for the unanswered outcomes, from the same page (`:79-80`, `:95`, `:119`).
+#: Everything not named here or above is `failed`.
+_HANGUP_CODE_STATUS: Final[dict[int, CallStatus]] = {
+    3000: "no_answer",
+    3010: "busy",
+    3100: "busy",
+    6010: "no_answer",
 }
 
 #: Stream lifecycle events (`xml/stream.md:68-204`): reported, never a call status.
@@ -151,12 +174,14 @@ class VobizCarrier:
         hangup_url: str,
         ring_url: str,
         time_limit_s: int,
+        ring_timeout_s: int,
     ) -> PlacedCall:
         """`POST /Account/{auth_id}/Call/` (`call/make-call.md:9-72`).
 
         200 means accepted and queued, not answered (`:122-124`). Numbers are sent in the
         E.164 form the parameter table names (`:31-32`); whether the API also accepts them
-        without the `+` its examples print is UNKNOWN and not relied on.
+        without the `+` its examples print is UNKNOWN and not relied on. `hangup_on_ring` is
+        "Max duration (in seconds) from start of ringing to hangup" (`:72`).
         """
         payload = await self._request(
             "POST",
@@ -171,6 +196,7 @@ class VobizCarrier:
                 "ring_url": ring_url,
                 "ring_method": "POST",
                 "time_limit": time_limit_s,
+                "hangup_on_ring": ring_timeout_s,
             },
             extra_refused_statuses=DIAL_REFUSED_STATUSES,
         )
@@ -345,6 +371,56 @@ class VobizCarrier:
             absent_is_success=True,
         )
 
+    async def find_binding(self, label: str) -> str | None:
+        """The id of the Application `bind_number` names for `label`, or None."""
+        return await self._find_application(application_name(label))
+
+    async def delete_binding(self, binding_id: str) -> bool:
+        """`DELETE /Account/{auth_id}/Application/{app_id}/` -> 204
+        (`applications/delete-application.md:9-37`).
+
+        404 is "Application not found" (`:40-45`): already gone, which is what a delete
+        wants. 409 means a number is still attached (`:23-25`) and is raised, because the
+        Application is then still answering that number.
+        """
+        try:
+            await self._request("DELETE", self._account(f"Application/{_segment(binding_id)}/"))
+        except EngineRejectedError as exc:
+            if exc.vendor_status == 404:
+                return False
+            raise
+        return True
+
+    async def list_numbers(self) -> list[ProvisionedNumber]:
+        """`GET /Account/{auth_id}/numbers`, every page (`account-phone-number/list-account-
+        phone-numbers.md:9-33`, response `:68-117`).
+
+        `engine_number_ref` is the number object's `id`; `application_id` is not carried,
+        because `ProvisionedNumber` has no field for it. A master account's listing includes
+        its sub-accounts' numbers (`:39-41`).
+        """
+        numbers: list[ProvisionedNumber] = []
+        for page in range(1, _NUMBER_MAX_PAGES + 1):
+            listing = await self._request(
+                "GET",
+                self._account("numbers"),
+                params={"page": page, "per_page": _NUMBER_PAGE},
+            )
+            items = listing.get("items")
+            if not isinstance(items, list):
+                raise _unreadable("The telephony carrier's number list was not readable.")
+            numbers.extend(_provisioned(item) for item in items)
+            total = listing.get("total")
+            if len(items) < _NUMBER_PAGE or (isinstance(total, int) and len(numbers) >= total):
+                return numbers
+        raise ProblemError(
+            kind="dependency",
+            code="carrier_number_listing_too_long",
+            title="The carrier account holds too many numbers to list",
+            detail="The telephony account holds more numbers than we can read in one listing.",
+            remediation="Compare the numbers in the Vobiz console by hand.",
+        )
+
     # --- credentials and callbacks ----------------------------------------------------
 
     async def probe(self) -> bool:
@@ -361,20 +437,46 @@ class VobizCarrier:
     def parse_event(self, fields: dict[str, str]) -> CarrierCallEvent | None:
         return parse_event(fields)
 
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+
+def _unreadable(detail: str) -> ProblemError:
+    return ProblemError(
+        kind="dependency",
+        code="engine_bad_response",
+        title="Voice engine returned an unreadable response",
+        detail=detail,
+        failure_stage="CORE_LOGIC",
+    )
+
 
 def _string_field(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if isinstance(value, int) and not isinstance(value, bool):
         value = str(value)
     if not isinstance(value, str) or not value:
-        raise ProblemError(
-            kind="dependency",
-            code="engine_bad_response",
-            title="Voice engine returned an unreadable response",
-            detail="The telephony carrier's answer did not carry the identifier it documents.",
-            failure_stage="CORE_LOGIC",
+        raise _unreadable(
+            "The telephony carrier's answer did not carry the identifier it documents."
         )
     return value
+
+
+def _provisioned(item: Any) -> ProvisionedNumber:
+    """One number object, or the refusal: a listing that skipped an unreadable entry would
+    read as complete while missing a number we pay for."""
+    if not isinstance(item, dict):
+        raise _unreadable("The telephony carrier's number list was not readable.")
+    try:
+        return ProvisionedNumber(
+            e164=_string_field(item, "e164"),
+            provider="vobiz",
+            engine_number_ref=_string_field(item, "id"),
+        )
+    except ValidationError:
+        raise _unreadable("The telephony carrier listed a number we could not read.") from None
 
 
 def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
@@ -386,6 +488,8 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
     if not call_id:
         return None
     event = (fields.get("Event") or "").strip()
+    cause = (fields.get("HangupCause") or "").strip() or None
+    code = _int_field(fields.get("HangupCauseCode"))
     raw_direction = (fields.get("Direction") or "").strip()
     direction: CallDirection | None = (
         "inbound"
@@ -395,7 +499,7 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
         else None
     )
 
-    def build(kind: Any, status: CallStatus | None, cause: str | None = None) -> CarrierCallEvent:
+    def build(kind: Any, status: CallStatus | None) -> CarrierCallEvent:
         return CarrierCallEvent(
             carrier="vobiz",
             carrier_call_id=call_id,
@@ -403,7 +507,8 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
             status=status,
             raw_event=event,
             direction=direction,
-            hangup_cause=cause,
+            hangup_cause=cause if kind == "hangup" else None,
+            hangup_cause_code=code if kind == "hangup" else None,
         )
 
     if event == "Ring":
@@ -411,15 +516,35 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
     if event == "StartApp":
         # Delivered to the answer URL when the called party answers (`:74-75`).
         return build("answered", "in_progress")
-    if event == "Hangup":
-        # The authoritative end of the call (`:76`); its status comes from the cause.
-        cause = (fields.get("HangupCause") or "").strip() or None
-        return build("hangup", _HANGUP_STATUS.get(cause or "", "failed"), cause)
+    # The authoritative end of the call (`:76`). An Application's hangup callback carries no
+    # `Event` at all (`applications.md:60-65`), so a callback with no event that reports how
+    # or when the call ended is the same hangup.
+    if event == "Hangup" or (not event and (cause or (fields.get("EndTime") or "").strip())):
+        return build("hangup", _hangup_status(cause, code))
     if event == "MachineDetection":
         return build("machine", "voicemail")
     if event in _STREAM_EVENTS:
         return build("stream", None)
     return build("other", None)
+
+
+def _hangup_status(cause: str | None, code: int | None) -> CallStatus:
+    """The cause name first, then the numeric code, then `failed`."""
+    named = _HANGUP_STATUS.get(cause or "")
+    if named is not None:
+        return named
+    if code is None:
+        return "failed"
+    if code in _NORMAL_COMPLETION_CODES:
+        return "completed"
+    return _HANGUP_CODE_STATUS.get(code, "failed")
+
+
+def _int_field(value: str | None) -> int | None:
+    try:
+        return int((value or "").strip())
+    except ValueError:
+        return None
 
 
 def parse_cdr(data: dict[str, Any], *, carrier_call_id: str) -> CarrierCdr:

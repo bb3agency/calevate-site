@@ -74,6 +74,7 @@ from calevate_shared.worker_api import (
     SettlementOut,
     SettlementRefusal,
     SettlementRequest,
+    UnverifiedCallClaim,
     WorkerSessionOut,
 )
 from sqlalchemy import text
@@ -201,6 +202,12 @@ _AGENT_VISIBLE_SQL: Final = "SELECT 1 FROM agents WHERE id = :aid"
 #:
 #: THE STATUS CLAUSE IS THE CONSTANT, NOT A COPY OF ITS MEMBERS: a sixth terminal status
 #: added to `calevate_shared.events` must be terminal to every statement that asks.
+#:
+#: FORWARD-ONLY PER COLUMN, NOT PER ROW. A terminal row keeps its status unless the incoming
+#: one is `completed`, but every other column still converges. The rejected alternative is a
+#: row-level `WHERE` on the status, which skipped the WHOLE update: when the carrier's hangup
+#: made the row terminal first, the worker's settlement lost its `ended_at`, `duration_s`,
+#: `knowledge_state` and `carrier_call_id` for good.
 _UPSERT_CALL_SQL: Final = """
 INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status,
                    started_at, ended_at, duration_s, from_e164, to_e164, knowledge_state,
@@ -208,7 +215,10 @@ INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status,
 VALUES (:id, :tid, :aid, :ecid, :dir, :status, :started, :ended, :dur, :from_e, :to_e,
         :kstate, :ccid, now(), now())
 ON CONFLICT (engine_call_id) DO UPDATE SET
-  status = EXCLUDED.status,
+  status = CASE
+    WHEN calls.status = ANY(:terminal) AND EXCLUDED.status <> 'completed' THEN calls.status
+    ELSE EXCLUDED.status
+  END,
   started_at = COALESCE(calls.started_at, EXCLUDED.started_at),
   ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at),
   duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s),
@@ -241,7 +251,6 @@ ON CONFLICT (engine_call_id) DO UPDATE SET
   -- call-create response, and a later body cannot re-point the row at another call.
   carrier_call_id = COALESCE(calls.carrier_call_id, EXCLUDED.carrier_call_id),
   updated_at = now()
-WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed'
 RETURNING id, from_e164, to_e164, agent_id
 """
 
@@ -1032,7 +1041,16 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
             await _record_latency(
                 session, tenant_id=tenant_id, call_row_id=call_row_id, latency=request.latency
             )
+        orphaned_dial = await _dialled_call_of_unverified_claim(
+            session, request.call_claim_unverified
+        )
 
+    _report_unverified_call_claim(
+        tenant_id=tenant_id,
+        call_row_id=call_row_id,
+        claim=request.call_claim_unverified,
+        orphaned_dial=orphaned_dial,
+    )
     if refusals:
         # `error` and not `warning`: an unmetered leg is spend we absorbed and cannot bill,
         # and it is the state `admin/health.calls_unmetered` stops the board for. It is
@@ -1100,6 +1118,60 @@ async def _record_latency(
                 "reason": type(exc).__name__,
             },
         )
+
+
+#: Is the id an unverified call claim named one of THIS tenant's dialled calls? Under the
+#: tenant's RLS session, so a forged id naming another tenant's call answers nothing.
+_DIALLED_CALL_SQL: Final = "SELECT id FROM calls WHERE id = :cid AND direction = 'outbound'"
+
+
+async def _dialled_call_of_unverified_claim(
+    session: AsyncSession, claim: UnverifiedCallClaim | None
+) -> UUID | None:
+    """The dialled call an unverified claim named, or `None`.
+
+    Only a claim naming a real outbound row of this tenant is a deployment fault: the worker
+    and voice-runtime hold different `CARRIER_CLAIM_SECRET` values, so the call we dialled ran
+    as inbound under a row of the worker's own and the dialled row will never be settled.
+    Anything else is a stale or forged claim, which needs a log line and no page.
+    """
+    if claim is None or claim.claimed_call_id is None:
+        return None
+    found = (
+        await session.execute(text(_DIALLED_CALL_SQL), {"cid": claim.claimed_call_id})
+    ).scalar()
+    return None if found is None else UUID(str(found))
+
+
+def _report_unverified_call_claim(
+    *,
+    tenant_id: UUID,
+    call_row_id: UUID,
+    claim: UnverifiedCallClaim | None,
+    orphaned_dial: UUID | None,
+) -> None:
+    """Page when a call we dialled ran as inbound; log any other unverified claim."""
+    if claim is None:
+        return
+    if orphaned_dial is None:
+        log.warning(
+            "worker_call_claim_unverified",
+            extra={"tenant_id": str(tenant_id), "call_id": str(call_row_id)},
+        )
+        return
+    alert(
+        "WORKER_TERMINAL",
+        "carrier_call_claim_mismatch",
+        detail=(
+            "A call this platform dialled was run by the voice worker as an inbound call, "
+            "because the worker could not verify the call claim on its stream URL. Its "
+            "transcript, usage and lead went to another call row and the dialled row will "
+            "never settle. The worker's CARRIER_CLAIM_SECRET differs from the VPS's."
+        ),
+        tenant_id=str(tenant_id),
+        call_id=str(orphaned_dial),
+        settled_call_id=str(call_row_id),
+    )
 
 
 def _alert_if_nobody_was_on_the_call(*, tenant_id: UUID, call: _CallRow, final_status: str) -> None:
@@ -1849,9 +1921,9 @@ async def _upsert_call(
 ) -> _CallRow:
     """Write the call row and answer it. Status only ever moves forward.
 
-    A status the forward-only clause REFUSES returns no row, which is not an error: a
-    terminal call receiving a late `in_progress` is exactly what that clause is for, and the
-    id is then read back — the same fallback `apps/workers/pipeline._upsert_call_row` uses.
+    A terminal call receiving a late `in_progress` keeps its status and still takes the
+    other columns the body carries (see `_UPSERT_CALL_SQL`), so the statement always returns
+    the row.
 
     `agent_id` is REQUIRED and not derived. A `calls` row cannot be minted without one, and
     the only two callers both hold it as a session fact — which is why `ObservationBatch`
@@ -1886,19 +1958,7 @@ async def _upsert_call(
                 "terminal": sorted(TERMINAL_STATUSES),
             },
         )
-    ).first()
-    if row is None:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT id, from_e164, to_e164, agent_id FROM calls "
-                    "WHERE engine_call_id = :ecid"
-                ),
-                {"ecid": engine_call_id},
-            )
-        ).first()
-        if row is None:  # pragma: no cover - only on a concurrent delete
-            raise RuntimeError("call row vanished during upsert")
+    ).one()
     if UUID(str(row[3])) != agent_id:
         # `ON CONFLICT` keeps the first agent a call was minted under, so a later body naming
         # another agent would otherwise attach its turns, usage and post-call pipeline to a

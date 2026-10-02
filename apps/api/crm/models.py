@@ -9,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
+from calevate_shared.carrier import CARRIERS
 from calevate_shared.events import CallDirection, CallStatus, Speaker
 from calevate_shared.extraction import OutcomeTag, Sentiment
 from calevate_shared.worker_api import DEGRADED_KNOWLEDGE_STATES, KNOWLEDGE_STATES
@@ -97,6 +98,7 @@ class Call(PKMixin, TimestampMixin, Base):
             f"knowledge_state IS NULL OR knowledge_state IN {tuple(sorted(KNOWLEDGE_STATES))!r}",
             name="knowledge_state_enum",
         ),
+        CheckConstraint(f"carrier IS NULL OR carrier IN {CARRIERS!r}", name="carrier_enum"),
         # The complaint-spike check (`campaigns/complaint_spike.py`, OPERATIONS §4) is
         # the first thing in this repo to filter calls by campaign, and it runs once per
         # running campaign per 30-second dispatch tick. PARTIAL because inbound calls
@@ -174,6 +176,12 @@ class Call(PKMixin, TimestampMixin, Base):
     #: handle on a copy we are obliged to have erased is the failure
     #: `recording_erasure_holds` exists to prevent.
     carrier_call_id: Mapped[str | None] = mapped_column(Text)
+    #: The carrier holding this call's leg (migration f5c2a8e41d07): stamped by the dial gate
+    #: on the intent row, by the dial itself, and by the first carrier callback for an
+    #: inbound call. Hang-up, the call-record read and the line count address THIS carrier,
+    #: not whatever `Settings.carrier` says now. NULL on rows that predate the column; their
+    #: readers fall back to the switch.
+    carrier: Mapped[str | None] = mapped_column(Text)
     direction: Mapped[str] = mapped_column(String, nullable=False)
     from_e164: Mapped[str | None] = mapped_column(Text)
     to_e164: Mapped[str | None] = mapped_column(Text)

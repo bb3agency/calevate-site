@@ -512,3 +512,40 @@ describe("choosing what a number is used for", () => {
     ).toBeTruthy();
   });
 });
+
+describe("a number we supplied says which link is missing", () => {
+  // PG6. `answerable` now needs an agent on the number as well as our carrier binding. A
+  // number with no agent is the client's to fix, so "nothing for you to do" beside it
+  // would leave the line silent for good.
+  const supplied = (id: string, agentId: string | null) => ({
+    id,
+    e164: id === "num-1" ? "+918041234567" : "+918041234568",
+    series: "standard",
+    dlt_status: "registered",
+    supplied_by_us: true,
+    answerable: false,
+    agent_id: agentId,
+    direction: "inbound",
+  });
+  const attestation = {
+    attested: false,
+    applicable: true,
+    statement: STATEMENT,
+    statement_version: "2026-09-20",
+  };
+
+  it("asks for an agent on one and asks for patience on the other", async () => {
+    const { container } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/campaigns/numbers": [supplied("num-1", null), supplied("num-2", "agent-1")],
+        "/v1/numbers/num-2/sender-attestation": attestation,
+      }),
+    );
+
+    expect(await screen.findByText("No agent on it yet")).toBeTruthy();
+    expect(screen.getByText("Not ready yet")).toBeTruthy();
+    expect(container.textContent).toContain("A number with no agent on it cannot take calls.");
+    expect(container.textContent).toContain("we are still connecting it");
+  });
+});

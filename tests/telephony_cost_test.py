@@ -18,8 +18,9 @@ it costs money:
 - **The rental amortises**, and a month with no minutes is refused rather than divided by.
 
 EVIDENCE CLASS of every figure below: **VENDOR-PUBLISHED, FOUNDER-RELAYED** — Plivo's
-India voice pricing page, read by the founder 22 Sep 2026. `www.plivo.com` is
-egress-blocked from this container, so no assertion here is a page this repository fetched.
+India voice pricing page, read by the founder 22 Sep 2026, and Vobiz's India rate card,
+supplied by the founder as an image on 2 Oct 2026. Neither is a page this repository
+fetched.
 """
 
 from __future__ import annotations
@@ -39,6 +40,9 @@ from apps.api.billing.rates import (
     TELEPHONY_INR_PER_MIN,
     TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH,
     TELEPHONY_PULSE_SECONDS,
+    VOBIZ_CARD_INCLUDES_TAX,
+    VOBIZ_INR_PER_MIN,
+    VOBIZ_OUR_CALL_USAGE,
     cost_floor_inr_per_min,
     stt_rate_inr_per_minute,
     telephony_addon_inr_per_min,
@@ -48,6 +52,7 @@ from apps.api.billing.rates import (
     telephony_inr_per_call_minute,
     telephony_number_rental_inr_per_min,
     telephony_rate_inr_per_min,
+    vobiz_rate_inr_per_min,
 )
 
 
@@ -269,6 +274,41 @@ def test_nothing_on_this_leg_is_a_billable_rate() -> None:
 
     for door in (rates.llm_inr_per_ktok, rates.tts_rate_inr_per_char):
         assert "elephony" not in inspect.getsource(door)
+        assert "VOBIZ" not in inspect.getsource(door).upper()
+
+
+def test_vobiz_card_is_transcribed_as_published_and_before_tax() -> None:
+    """Vobiz's India card, per-minute rows, exactly as the image states them.
+
+    Our calls are dialled over the REST API and carried on a `<Stream>` WebSocket, which is
+    the card's "Voice API / streaming calls" row at ₹0.44 — not the ₹0.38 SIP-trunk row,
+    which coincides with Plivo's domestic minute and is easy to mistake for ours.
+    """
+    assert {
+        "sip_trunk": Decimal("0.3800"),
+        "voice_api_streaming": Decimal("0.4400"),
+        "recording": Decimal("0.1000"),
+        "transcription": Decimal("0.3000"),
+        "pii_redaction": Decimal("0.3000"),
+    } == VOBIZ_INR_PER_MIN
+    assert VOBIZ_OUR_CALL_USAGE == "voice_api_streaming"
+    assert vobiz_rate_inr_per_min(VOBIZ_OUR_CALL_USAGE) == Decimal("0.4400")
+    assert VOBIZ_CARD_INCLUDES_TAX is False
+    with pytest.raises(ValueError, match="not a usage row on Vobiz's India card"):
+        vobiz_rate_inr_per_min("webrtc")  # type: ignore[arg-type]
+
+
+def test_a_vobiz_call_is_costed_from_its_cdr_and_never_from_the_card() -> None:
+    """Hard rule 7: `unit_cost_paid` for a Vobiz call is the CDR's INR `total_cost`. The
+    reader that turns a CDR into that figure must not consult the catalogue card."""
+    import inspect
+
+    from apps.workers import carrier_events
+
+    source = inspect.getsource(carrier_events.carrier_cost_inr)
+    assert "total_cost_inr" in source
+    assert "VOBIZ_INR_PER_MIN" not in source
+    assert "vobiz_rate_inr_per_min" not in source
 
 
 def test_a_four_decimal_carrier_rate_is_costed_exactly_and_rounded_once(

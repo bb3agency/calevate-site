@@ -9,7 +9,7 @@ spaces their dials instead of sending ten in the same second and losing nine to 
 WHY A SPACING LEASE AND NOT `core.ratelimit.consume`. That counter is a fixed window, which
 admits up to twice the rate across a window boundary: at 1 CPS it lets a dial at :00.99 and
 another at :01.01, and the carrier counts both inside one second. A `SET NX PX` key whose
-TTL is the minimum gap between two dials (`1000 / cps` ms) is a hard spacing guarantee with
+TTL is the minimum gap between two dials (`slot_interval_ms`) is a hard spacing guarantee with
 the same primitive `campaign_dispatch._tick_lease` already uses, and it needs no release:
 the key expiring IS the next slot opening.
 
@@ -25,7 +25,6 @@ carrier's own 429 is a definite refusal the dial path already treats as retryabl
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 from collections.abc import Awaitable, Callable
 from typing import Final
@@ -60,9 +59,17 @@ def pacing_applies() -> bool:
     return get_engine().capabilities.agent_hosting == "owned_runtime"
 
 
+#: Headroom on the gap. The slot is taken in Redis, but the request reaches the carrier after
+#: the work between the gate and the HTTP call, whose duration varies per dial; without a
+#: margin two dials can arrive closer than `1000 / cps` ms and the carrier counts both in one
+#: second.
+SPACING_MARGIN_PERCENT: Final = 110
+
+
 def slot_interval_ms(cps: int) -> int:
-    """The minimum gap between two dial starts, rounded UP so the rate is never exceeded."""
-    return max(1, math.ceil(1000 / max(1, cps)))
+    """The minimum gap between two dial starts, with headroom, rounded UP."""
+    # Integer ceiling: a float margin turns 1100 ms into 1101.
+    return max(1, -(-10 * SPACING_MARGIN_PERCENT // max(1, cps)))
 
 
 async def await_dial_slot(
@@ -108,6 +115,7 @@ __all__ = [
     "MAX_PACING_WAIT_S",
     "PACING_KEY_PREFIX",
     "PACING_RULE",
+    "SPACING_MARGIN_PERCENT",
     "DialPacingTimeoutError",
     "await_dial_slot",
     "pacing_applies",

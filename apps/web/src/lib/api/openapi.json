@@ -17710,6 +17710,16 @@
             ],
             "title": "Agent Id"
           },
+          "direction": {
+            "default": "inbound",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
           "e164": {
             "maxLength": 20,
             "minLength": 8,
@@ -17731,16 +17741,12 @@
             "title": "Engine Number Ref"
           },
           "provider": {
-            "anyOf": [
-              {
-                "maxLength": 60,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "enum": [
+              "vobiz",
+              "plivo"
             ],
-            "title": "Provider"
+            "title": "Provider",
+            "type": "string"
           },
           "purpose": {
             "anyOf": [
@@ -17766,7 +17772,8 @@
         },
         "required": [
           "e164",
-          "series"
+          "series",
+          "provider"
         ],
         "title": "ProvisionNumberIn",
         "type": "object"

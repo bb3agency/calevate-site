@@ -105,15 +105,16 @@ async def _remember(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, on: bool = Tru
 
 def test_the_sentence_is_spoken_exactly_when_memory_is_on() -> None:
     """The decision, asked directly: the flag is the switch, and there is no other."""
-    assert compose_opening_line(_posture(memory=True)).endswith(MEM)
-    assert MEM not in compose_opening_line(_posture(memory=False))
+    assert compose_opening_line(_posture(memory=True), call_is_recorded=True).endswith(MEM)
+    assert MEM not in compose_opening_line(_posture(memory=False), call_is_recorded=True)
 
 
 def test_the_sentence_comes_third() -> None:
     """After what the agent IS and after the recording — the order those facts become
     relevant to a caller. Pinned as the whole string, not as a substring test, because
     "appears somewhere" is true of every ordering."""
-    assert compose_opening_line(_posture(memory=True)) == f"{AI} {REC} {MEM}"
+    opening = compose_opening_line(_posture(memory=True), call_is_recorded=True)
+    assert opening == f"{AI} {REC} {MEM}"
 
 
 @pytest.mark.parametrize(
@@ -130,7 +131,10 @@ def test_the_sentence_comes_third() -> None:
 def test_it_survives_both_other_toggles_in_every_combination(
     ai: bool, rec: bool, expected: str
 ) -> None:
-    assert compose_opening_line(_posture(ai=ai, rec=rec, memory=True)) == expected
+    assert (
+        compose_opening_line(_posture(ai=ai, rec=rec, memory=True), call_is_recorded=True)
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -139,14 +143,16 @@ def test_it_survives_both_other_toggles_in_every_combination(
 def test_memory_off_leaves_d163s_four_postures_exactly_as_they_were(ai: bool, rec: bool) -> None:
     """The default must be a no-op: the field defaults exist so that every posture built
     before D-507 keeps meaning what it meant."""
-    with_field = compose_opening_line(_posture(ai=ai, rec=rec, memory=False))
+    remembering_nothing = _posture(ai=ai, rec=rec, memory=False)
+    with_field = compose_opening_line(remembering_nothing, call_is_recorded=True)
     without_field = compose_opening_line(
         DisclosurePosture(
             ai_disclosure_line=AI,
             ai_disclosure_enabled=ai,
             recording_notice_line=REC,
             recording_notice_enabled=rec,
-        )
+        ),
+        call_is_recorded=True,
     )
     assert with_field == without_field
 
@@ -154,7 +160,10 @@ def test_memory_off_leaves_d163s_four_postures_exactly_as_they_were(ai: bool, re
 def test_a_blank_sentence_cannot_be_padded_into_the_opening() -> None:
     """Whitespace is not a sentence. The column's CHECK is the real guard; this is the
     composer refusing to emit a trailing space if one ever gets past it."""
-    assert compose_opening_line(_posture(memory=True, memory_line="   ")) == f"{AI} {REC}"
+    assert (
+        compose_opening_line(_posture(memory=True, memory_line="   "), call_is_recorded=True)
+        == f"{AI} {REC}"
+    )
 
 
 # --- 2. every constructor of the posture ---------------------------------------------
@@ -247,7 +256,9 @@ async def test_the_engine_config_path_speaks_the_sentence() -> None:
     posture = posture_of(agent)
     assert posture.caller_memory_enabled is True
     assert posture.caller_memory_notice_line == CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
-    assert compose_opening_line(posture).endswith(CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"])
+    assert compose_opening_line(posture, call_is_recorded=True).endswith(
+        CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
+    )
 
 
 async def test_the_script_preview_speaks_the_sentence() -> None:
@@ -259,7 +270,9 @@ async def test_the_script_preview_speaks_the_sentence() -> None:
     async with tenant_session(tenant_id) as session:
         row = await script_builder._agent_or_404(session, agent_id)
     posture = script_builder._posture(row)
-    assert compose_opening_line(posture).endswith(CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"])
+    assert compose_opening_line(posture, call_is_recorded=True).endswith(
+        CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
+    )
 
 
 async def test_flipping_a_d163_toggle_does_not_drop_the_memory_sentence() -> None:

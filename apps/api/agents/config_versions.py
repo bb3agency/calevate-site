@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -415,8 +416,14 @@ async def record_attestation(
     return attestation
 
 
-async def latest_attestation(session: AsyncSession, agent_id: UUID) -> Attestation | None:
+async def latest_attestation(
+    session: AsyncSession, agent_id: UUID, *, excluding_versions: Sequence[UUID] = ()
+) -> Attestation | None:
     """What the worker last said it was running, or None if no worker ever has.
+
+    `excluding_versions` leaves out attestations of versions the caller knows belong to
+    another runtime record of the same agent (an experiment arm attests under its agent's
+    id; `engine/pipecat.SqlControlPlane.attested`).
 
     **THIS IS WHAT `get_agent` ANSWERS FROM ON AN `owned_runtime` ENGINE.** None is a real
     answer and not an absence to paper over: an agent that has been published and never
@@ -435,9 +442,10 @@ async def latest_attestation(session: AsyncSession, agent_id: UUID) -> Attestati
                 "FROM agent_config_attestations a "
                 "JOIN agent_config_versions v ON v.id = a.agent_config_version_id "
                 "WHERE a.agent_id = :aid "
+                "AND NOT (a.agent_config_version_id = ANY(CAST(:excluded AS uuid[]))) "
                 "ORDER BY a.observed_at DESC, a.id DESC LIMIT 1"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "excluded": list(excluding_versions)},
         )
     ).first()
     if row is None:

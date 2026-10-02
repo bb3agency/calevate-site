@@ -9,6 +9,7 @@ optional model key.
 
 from __future__ import annotations
 
+import ipaddress
 import itertools
 import os
 from collections.abc import Callable, Iterator, Mapping
@@ -18,6 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import get_args
+from urllib.parse import urlsplit
 
 from calevate_shared.config import (
     EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON,
@@ -256,15 +258,15 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "the carrier credential is read by the voice worker's own telephony serializer, "
         "inside a container on Pipecat Cloud that must never hold PLATFORM_KEK and "
         "therefore can never open this credential store. Set PLIVO_AUTH_ID in the "
-        "`calevate-pipecat-worker` secret set (`pipecat cloud secrets set`, DEPLOYMENT "
-        "§12.2) — a value saved here would be one nothing can read."
+        "`calevate-pipecat-worker-secrets` secret set (`pipecat cloud secrets set`, "
+        "DEPLOYMENT §12.2) — a value saved here would be one nothing can read."
     ),
     "plivo_auth_token": (
         "the other half of the pair above, with the same reader and the same reason. "
         "Without it the serializer cannot hang the leg up at EndFrame (DELETE "
         "/v1/Account/{auth_id}/Call/{call_id}/), and a leg nobody hung up is a leg the "
-        "carrier goes on billing. Set PLIVO_AUTH_TOKEN in the `calevate-pipecat-worker` "
-        "secret set (DEPLOYMENT §12.2)."
+        "carrier goes on billing. Set PLIVO_AUTH_TOKEN in the "
+        "`calevate-pipecat-worker-secrets` secret set (DEPLOYMENT §12.2)."
     ),
     # THE GNANI TTS KEY (D-618). Same category and the same reader as the carrier pair
     # above: a container on Pipecat Cloud that can never open this store. It differs from
@@ -282,19 +284,23 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "the API base URL is read by the voice worker's own HTTP client, inside a container "
         "on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can never open "
         "this credential store — and no process on this host reads it at all. Set "
-        "PIPECAT_WORKER_API_BASE_URL in the `calevate-pipecat-worker` secret set (`pipecat "
-        "cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would be one nothing "
-        "can read."
+        "PIPECAT_WORKER_API_BASE_URL in the `calevate-pipecat-worker-secrets` secret set "
+        "(`pipecat cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would be one "
+        "nothing can read."
     ),
-    # THE CALLER-CLAIM SIGNING KEY. Env-only for two readers at once: voice-runtime signs
-    # with it and does not open the credential store (`with_secrets=False`), and the voice
-    # worker verifies with it inside a container that can never open that store.
+    # THE CLAIM SIGNING KEY. Env-only because of two of its three readers: voice-runtime
+    # signs with it and does not open the credential store (`with_secrets=False`), and the
+    # voice worker verifies with it inside a container that can never open that store. The
+    # api also reads it, to seal the transfer token (`calevate_shared.carrier_token`); the
+    # api could read the store, but one key in two homes is one an operator rotates in the
+    # wrong one.
     "carrier_claim_secret": (
-        "the key that signs the caller's number on the stream URL is read by the "
-        "voice-runtime service, which never opens this credential store, and by the voice "
-        "worker on Pipecat Cloud, which cannot. Set CARRIER_CLAIM_SECRET (at least 32 "
-        "bytes) in the VPS environment AND, with the same value, in the "
-        "`calevate-pipecat-worker` secret set — a value saved here would reach neither."
+        "the key that protects the caller and call claims on the stream URL, and seals the "
+        "live-transfer token, is read by the API, by the voice-runtime service, which never "
+        "opens this credential store, and by the voice worker on Pipecat Cloud, which "
+        "cannot. Set CARRIER_CLAIM_SECRET (at least 32 bytes) in the VPS environment AND, "
+        "with the same value, in the `calevate-pipecat-worker-secrets` secret set — a value "
+        "saved here would reach none of them."
     ),
     # THE VOBIZ PAIR (D-662). Read on this host by the API and workers (dial, CDR, numbers)
     # and by voice-runtime, which verifies callback signatures with the token and never
@@ -314,9 +320,9 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "the Gnani TTS credential is read by the voice worker's own synthesis leg, inside "
         "a container on Pipecat Cloud that must never hold PLATFORM_KEK and therefore can "
         "never open this credential store — and no process on this host holds a Gnani "
-        "client to give it to. Set GNANI_API_KEY in the `calevate-pipecat-worker` secret "
-        "set (`pipecat cloud secrets set`, DEPLOYMENT §12.2) — a value saved here would "
-        "be one nothing can read."
+        "client to give it to. Set GNANI_API_KEY in the `calevate-pipecat-worker-secrets` "
+        "secret set (`pipecat cloud secrets set`, DEPLOYMENT §12.2) — a value saved here "
+        "would be one nothing can read."
     ),
 }
 
@@ -338,11 +344,13 @@ ENV_ONLY_REASONS: dict[str, str] = {
 #: The value is the environment that DOES hold it, in the words the console renders. Keys
 #: absent from this mapping are held by this deployment's own environment, which is why the
 #: mapping is the exception rather than a field on every entry.
+#: The set's name is `pcc-deploy.toml`'s `secret_set`, not the agent name beside it.
+_WORKER_SECRET_SET = "the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`"
 ENV_ONLY_FOREIGN_ENV: dict[str, str] = {
-    "plivo_auth_id": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
-    "plivo_auth_token": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
-    "gnani_api_key": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
-    "pipecat_worker_api_base_url": "the Pipecat Cloud secret set for `calevate-pipecat-worker`",
+    "plivo_auth_id": _WORKER_SECRET_SET,
+    "plivo_auth_token": _WORKER_SECRET_SET,
+    "gnani_api_key": _WORKER_SECRET_SET,
+    "pipecat_worker_api_base_url": _WORKER_SECRET_SET,
 }
 
 # Asserted at import rather than tested, for `_assert_holds_no_secret`'s reason: an entry
@@ -968,6 +976,96 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         # `alert_delivery_unconfigured` here — same reasoning as above, same promotion.
         if not cfg.alerts_email:
             missing.append(env_var_for("alerts_email"))
+    if cfg.engine == "pipecat":
+        missing.extend(key for key in owned_runtime_missing_keys(cfg) if key not in missing)
+    return missing
+
+
+#: Host names that are this machine rather than one a carrier can reach.
+_LOOPBACK_HOST_NAMES: frozenset[str] = frozenset({"localhost", "0.0.0.0"})
+
+
+def is_public_callback_base(url: str | None) -> bool:
+    """Can a carrier on the internet call this base URL back? https, and not this machine.
+
+    `webhook_base_url`'s own pattern admits its default, `http://localhost:8100`, so a
+    deployment that never set it is indistinguishable from one that did until the first
+    call rings: every answer, hangup and ring URL built on it points at the dialling host.
+    The single predicate for "public" so readiness, the deploy preflight and the dial
+    precondition cannot disagree about what passes.
+    """
+    if not url:
+        return False
+    try:
+        parts = urlsplit(url.strip())
+        host = parts.hostname
+    except ValueError:
+        return False
+    if parts.scheme != "https" or not host:
+        return False
+    if host in _LOOPBACK_HOST_NAMES or host.endswith(".localhost"):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (address.is_loopback or address.is_unspecified)
+
+
+def _caller_claim_key_unusable(cfg: Settings) -> bool:
+    # The worker's own floor (`usable_caller_claim_key`), not a second reading of it: a key
+    # this probe accepted and the answer leg then ignored would be a green light on a
+    # deployment that identifies no caller and claims no outbound call.
+    from calevate_shared.worker_api import usable_caller_claim_key
+
+    return usable_caller_claim_key(cfg.carrier_claim_secret) is None
+
+
+def _callback_base_not_public(cfg: Settings) -> bool:
+    # `local` keeps its loopback default: a developer's carrier double runs on this machine.
+    return cfg.app_env != "local" and not is_public_callback_base(cfg.webhook_base_url)
+
+
+def _carrier_credential_keys(cfg: Settings, carrier: str) -> list[str]:
+    """The env vars to set for an unconfigured carrier, derived from `Settings`.
+
+    A carrier's pair is `<name>_auth_id` / `<name>_auth_token`. A field held by another
+    deployable's environment (`ENV_ONLY_FOREIGN_ENV` — the Plivo pair lives in the worker's
+    secret set) is not this host's to set, so a carrier with nothing settable here names
+    `CARRIER`: the selection is what the operator must correct.
+    """
+    keys = [
+        env_var_for(field)
+        for field in (f"{carrier}_auth_id", f"{carrier}_auth_token")
+        if field in Settings.model_fields
+        and field not in ENV_ONLY_FOREIGN_ENV
+        and not getattr(cfg, field)
+    ]
+    return keys or [env_var_for("carrier")]
+
+
+def owned_runtime_missing_keys(cfg: Settings) -> list[str]:
+    """What the api and workers need before the owned runtime (`ENGINE=pipecat`) can carry
+    a call: the worker's token, a carrier that can authenticate, the claim key outbound
+    dials sign with, and a callback origin the carrier can reach.
+
+    `PipecatEngine.holds_credentials()` answers for the control plane, which is our own
+    store; these are the halves that can be unconfigured, and each one otherwise surfaces
+    only at the first call (a 401 to the worker, `engine_not_configured` at the dial, an
+    answer URL on localhost).
+    """
+    from apps.api.engine.carrier import build_carrier
+
+    missing: list[str] = []
+    if not cfg.pipecat_worker_api_token:
+        missing.append(env_var_for("pipecat_worker_api_token"))
+    carrier = build_carrier(cfg)
+    if not carrier.configured():
+        missing.extend(_carrier_credential_keys(cfg, carrier.name))
+    if _caller_claim_key_unusable(cfg):
+        missing.append(env_var_for("carrier_claim_secret"))
+    if _callback_base_not_public(cfg):
+        missing.append(env_var_for("webhook_base_url"))
     return missing
 
 
@@ -988,29 +1086,39 @@ def webhook_receiver_missing_keys(settings: Settings | None = None) -> list[str]
     NOT "DELETE THE CHECK": readiness still has to mean something for this service. What
     it means is different, because the job is different. This service never calls the
     vendor — it is called BY it — so a vendor API credential is not one of its
-    preconditions. What it must have is the one thing without which every value it reads
-    can be silently stale:
+    preconditions. Under `ENGINE=pipecat` it answers the carrier, and the answer document
+    it serves is only worth anything with three plain `Settings` values behind it:
 
-    * **it can decrypt its console-managed configuration.** `start_config_refresher`
-      (this service opts in deliberately — `apps/voice-runtime/main._startup`) applies
-      `platform_secrets` rows unwrapped with `PLATFORM_KEK`, and the values it carries are
-      exactly the ones an operator changes without a deploy, the selected engine among
-      them. Without the KEK those rows are unreadable (`platform_config` alerts
-      `platform_secret_unreadable`) and the process serves on whatever the environment
-      last gave it, silently.
+    * **`PIPECAT_STREAM_BASE_URL`** — the worker the document sends the call to. Without
+      it the answer route refuses every call.
+    * **`CARRIER_CLAIM_SECRET`**, at the worker's own floor — without it the stream URL
+      carries no signed caller or call claim, so the worker identifies no caller and
+      treats an outbound call as inbound.
+    * **a public `WEBHOOK_BASE_URL`** outside `local` — the hangup and status callbacks
+      the carrier is told to use are built on it.
+
+    `PLATFORM_KEK` IS NOT ONE OF THEM, although this probe used to demand it: the config
+    poller here runs `with_secrets=False` (`apps/voice-runtime/main._startup`), so this
+    process reads only plaintext `platform_settings` and never unwraps a DEK.
 
     Everything else `runtime_config_missing_keys` reports belongs to another deployable:
     `SARVAM_API_KEY` to the extraction worker, the object-store credentials to the
     recording copier, the email transport to the admin console's second factor, the audit
-    and idempotency secrets to the api's mutation paths, and the engine credential to
-    whatever calls the vendor — which this service never does. Reporting them here would make this
-    probe red for a fault this process cannot have and cannot fix: the "probe operators
-    learn to ignore" the function above declines to become.
+    and idempotency secrets to the api's mutation paths, and the engine and carrier
+    credentials to whatever calls the vendor. Reporting them here would make this probe red
+    for a fault this process cannot have and cannot fix: the "probe operators learn to
+    ignore" the function above declines to become.
     """
     cfg = settings or get_settings()
     missing: list[str] = []
-    if cfg.app_env != "local" and not cfg.platform_kek:
-        missing.append(env_var_for("platform_kek"))
+    if cfg.engine != "pipecat":
+        return missing
+    if not (cfg.pipecat_stream_base_url or "").strip():
+        missing.append(env_var_for("pipecat_stream_base_url"))
+    if _caller_claim_key_unusable(cfg):
+        missing.append(env_var_for("carrier_claim_secret"))
+    if _callback_base_not_public(cfg):
+        missing.append(env_var_for("webhook_base_url"))
     return missing
 
 
@@ -1051,6 +1159,8 @@ __all__ = [
     "env_declares",
     "env_var_for",
     "get_settings",
+    "is_public_callback_base",
+    "owned_runtime_missing_keys",
     "platform_overrides",
     "readiness_missing_keys",
     "resolve_hmac_key",

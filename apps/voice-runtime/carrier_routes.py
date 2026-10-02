@@ -25,9 +25,9 @@ names the tenant before any parameter is looked at.
 
 HARD RULE 6. No number is ever logged here. Log lines carry tenant and agent ids, the
 authenticity method, and the caller's STATE and GROUND — strings written in this module,
-never built from wire data. A number leaves this module only on the stream URL under a
-MAC the worker verifies (`stream_url`), and inside a transfer `<Dial>` sent to the
-carrier that asked for it.
+never built from wire data. A number leaves this module only SEALED on the stream URL for
+the worker to open (`stream_url`), and inside a transfer `<Dial>` sent to the carrier that
+asked for it.
 """
 
 from __future__ import annotations
@@ -43,11 +43,11 @@ from uuid import UUID
 from xml.etree.ElementTree import Element, tostring
 
 from apps.api.core.alerting import alert, record_webhook_ack_ms
-from apps.api.core.carrier_token import open_sealed
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from calevate_shared.carrier import VOBIZ_CALLBACK_IPS, is_carrier
+from calevate_shared.carrier_token import open_sealed, usable_secret
 from calevate_shared.client_address import client_ip
 from calevate_shared.engine import EngineAgentRef, parse_owned_runtime_agent_ref
 from calevate_shared.events import CallDirection
@@ -57,11 +57,10 @@ from calevate_shared.worker_api import (
     CALL_DIRECTION_PARAM,
     CALL_ID_PARAM,
     CALLER_CLAIM_TTL_S,
-    CLAIM_EXPIRES_PARAM,
-    CLAIM_MAC_PARAM,
+    CALLER_SEAL_PARAM,
     CallerIdentityState,
     call_claim_mac,
-    caller_claim_mac,
+    seal_caller_claim,
     usable_caller_claim_key,
 )
 from carrier_auth import (
@@ -98,8 +97,8 @@ EvidenceClass = Literal["VERIFIED-VENDOR-DOCS", "VENDOR-PUBLISHED", "REPORTED", 
 #: The query parameters the control plane puts on the stream URL, read back by
 #: `voice_worker.carrier.claim_from_stream_url`. Declared in both deployables because
 #: neither may import the other; `tests/carrier_answer_identity_test.py` asserts they agree.
+#: The sealed number rides `worker_api.CALLER_SEAL_PARAM`, which both import.
 CLAIM_CARRIER_PARAM: Final = "carrier"
-CLAIM_CALLER_PARAM: Final = "caller"
 CLAIM_CALLER_STATE_PARAM: Final = "caller_state"
 
 #: The one problem every refusal on these routes answers with. A distinct status, code
@@ -273,6 +272,15 @@ class AnswerCallerIdentity:
     e164: str | None = None
 
 
+#: What a calling-party value must look like to be a number at all: digits, optionally led by
+#: `+`, E.164's 7-15 length, not all zeros. NOT `_E164` below, which demands the `+`: Vobiz
+#: documents `From` both with it and without it (`xml/request.md:30` says "including the
+#: country code"; `xml/stream.md:98` shows `From=918071387423`), and a form-encoded `+` that
+#: was not percent-encoded arrives as a space, which the caller strips. A carrier's word for a
+#: withheld number ("anonymous", "private", "restricted") fails this and is read as withheld.
+_CALLER_NUMBER: Final = re.compile(r"^\+?(?!0+$)\d{7,15}$")
+
+
 def caller_identity_from_answer_request(
     carrier: str, params: Mapping[str, str], *, direction: CallDirection = "inbound"
 ) -> AnswerCallerIdentity:
@@ -304,13 +312,21 @@ def caller_identity_from_answer_request(
             ),
         )
     for name in names:
-        value = params.get(name, "")
-        if value.strip():
+        value = params.get(name, "").strip()
+        if not value:
+            continue
+        if not _CALLER_NUMBER.match(value):
+            # The value is not quoted in the ground: it is wire data, and it may be a number
+            # in a shape we refuse (hard rule 6).
             return AnswerCallerIdentity(
-                state="known",
-                ground=f"the {carrier} answer request carried {name}",
-                e164=value.strip(),
+                state="withheld_by_carrier",
+                ground=f"the {carrier} answer request carried {name} with no number in it",
             )
+        return AnswerCallerIdentity(
+            state="known",
+            ground=f"the {carrier} answer request carried {name}",
+            e164=value,
+        )
     return AnswerCallerIdentity(
         state="withheld_by_carrier",
         ground=(
@@ -581,7 +597,7 @@ def stream_url(
     *,
     carrier: str | None = None,
     caller: AnswerCallerIdentity | None = None,
-    claim_key: bytes | None = None,
+    claim_secret: str | None = None,
     now: float | None = None,
     call_id: str | None = None,
     direction: CallDirection | None = None,
@@ -592,25 +608,26 @@ def stream_url(
     `%3A`), because `apps/voice-worker/bot.py::_route_token` reads `path.rsplit("/", 1)`.
     Everything else rides the query.
 
-    THE NUMBER TRAVELS ONLY UNDER A MAC (`caller_claim_mac`), and our call id and
-    direction only under theirs (`call_claim_mac`): anything can open the worker's socket,
-    so the worker believes neither without one. With no usable key both are left off — the
-    worker would not believe them, and the number would still land in an edge access log
-    (hard rule 6). The way to keep even the signed number out of that log is the answer
-    document's body (`echoes_stream_parameters`), UNKNOWN for every carrier today.
+    THE NUMBER TRAVELS ONLY SEALED (`worker_api.seal_caller_claim`, AES-GCM), so neither an
+    edge log nor anything else between the carrier and the worker can read it (hard rule 6),
+    and the worker believes it only when it opens for this ref. Our call id and direction
+    travel under an HMAC (`call_claim_mac`); they are not personal data, only claims the
+    worker must be able to authenticate. With no usable secret both are left off: the worker
+    would not believe them.
     """
     url = f"{base_wss_url.rstrip('/')}/{quote(ref, safe='')}"
     claim: dict[str, str] = {}
     if carrier is not None:
         claim[CLAIM_CARRIER_PARAM] = carrier
-    expires_at = int(time.time() if now is None else now) + CALLER_CLAIM_TTL_S
+    instant = time.time() if now is None else now
+    expires_at = int(instant) + CALLER_CLAIM_TTL_S
+    secret = usable_secret(claim_secret)
+    claim_key = usable_caller_claim_key(claim_secret)
     if caller is not None:
         claim[CLAIM_CALLER_STATE_PARAM] = caller.state
-        if caller.e164 is not None and claim_key is not None:
-            claim[CLAIM_CALLER_PARAM] = caller.e164
-            claim[CLAIM_EXPIRES_PARAM] = str(expires_at)
-            claim[CLAIM_MAC_PARAM] = caller_claim_mac(
-                claim_key, ref=ref, e164=caller.e164, expires_at=expires_at
+        if caller.e164 is not None and secret is not None:
+            claim[CALLER_SEAL_PARAM] = seal_caller_claim(
+                secret, ref=ref, e164=caller.e164, now=instant
             )
     if call_id is not None and direction is not None and claim_key is not None:
         claim[CALL_ID_PARAM] = call_id
@@ -686,6 +703,31 @@ def _stream_base_url() -> str:
     return base
 
 
+def _unsigned_outbound_refusal(carrier: str, *, call_id: str, tenant_id: UUID) -> ProblemError:
+    """The refusal for a call WE dialled when there is no usable `CARRIER_CLAIM_SECRET`.
+
+    Refused rather than served unsigned. Served, the worker could not verify our call id,
+    would run the call as inbound under an id of its own, and the dialled `calls` row would
+    never receive its transcript, settlement or lead while the person we rang talked to an
+    agent. A refused answer ends the call before anybody speaks. The error handler raises the
+    alarm under this code (every 5xx does); this line adds the ids it cannot carry.
+    """
+    log.error(
+        "carrier_call_claim_key_missing",
+        extra={"carrier": carrier_label(carrier), "call_id": call_id, "tenant_id": str(tenant_id)},
+    )
+    return ProblemError(
+        kind="dependency",
+        code="carrier_call_claim_key_missing",
+        title="This deployment cannot run a dialled call yet",
+        detail="CARRIER_CLAIM_SECRET is not usable, so the call could not be handed to the worker.",
+        remediation=(
+            "Set the same CARRIER_CLAIM_SECRET (at least 32 bytes) on the VPS and in the "
+            "Pipecat worker's secret set (docs/DEPLOYMENT.md §12.2)."
+        ),
+    )
+
+
 async def _answer(carrier: str, ref: str, call_id: str | None, request: Request) -> Response:
     """Authenticity, then the ref, then the identity read, then the URL.
 
@@ -702,21 +744,16 @@ async def _answer(carrier: str, ref: str, call_id: str | None, request: Request)
     if contract.calling_party or contract.called_party:
         params, _readable = await read_params(request, carrier=carrier)
     caller = caller_identity_from_answer_request(carrier, params, direction=direction)
-    claim_key = usable_caller_claim_key(get_settings().carrier_claim_secret)
-    if ours is not None and claim_key is None:
-        # The worker cannot verify an unsigned call id, so it will treat this dial as an
-        # inbound call with an id of its own: the outbound call row is orphaned.
-        log.warning(
-            "carrier_call_claim_unsigned",
-            extra={"carrier": carrier, "call_id": ours, "tenant_id": str(tenant_id)},
-        )
+    claim_secret = get_settings().carrier_claim_secret
+    if ours is not None and usable_caller_claim_key(claim_secret) is None:
+        raise _unsigned_outbound_refusal(carrier, call_id=ours, tenant_id=tenant_id)
     document = answer_document(
         stream_url(
             _stream_base_url(),
             ref,
             carrier=carrier,
             caller=caller,
-            claim_key=claim_key,
+            claim_secret=claim_secret,
             call_id=ours,
             direction="outbound" if ours is not None else None,
         )
@@ -836,7 +873,7 @@ async def carrier_transfer(carrier: str, token: str, request: Request) -> Respon
     """The `<Dial>` document a live call is redirected to for a human handoff.
 
     The destination is inside an AES-GCM token minted by the API
-    (`apps.api.core.carrier_token`), because this route may not read the database and a
+    (`calevate_shared.carrier_token`), because this route may not read the database and a
     number in a URL lands in access logs. Off unless `CARRIER_TRANSFER_ENABLED`, and served
     only for a carrier whose row declares a `<Dial>` grammar: no Dial is ever served
     otherwise.
@@ -871,7 +908,6 @@ __all__ = [
     "ANSWER_DOCUMENT_CONTENT_TYPE",
     "CARRIER_ACK",
     "CARRIER_ANSWER_CONTRACT",
-    "CLAIM_CALLER_PARAM",
     "CLAIM_CALLER_STATE_PARAM",
     "CLAIM_CARRIER_PARAM",
     "TELEPHONY_SAMPLE_RATE_HZ",

@@ -246,7 +246,7 @@ def compose_agent_prompt(
         name="Vaidya Clinic receptionist",
         direction=direction,
         system_prompt=client_script,
-        opening_line=compose_opening_line(posture),
+        opening_line=compose_opening_line(posture, call_is_recorded=call_is_recorded),
         call_is_recorded=call_is_recorded,
     )
     return compose_engine_prompt(cfg)

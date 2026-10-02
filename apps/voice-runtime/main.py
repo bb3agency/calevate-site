@@ -1,8 +1,9 @@
 """Calevate voice-runtime — engine webhooks and the carrier's answer document.
 
-Run: uv run uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime
+Run: uv run python -m uvicorn main:app --reload --port 8100 --app-dir apps/voice-runtime
 (the directory is hyphenated by decision D-18, so it is not importable as a module
-path — `--app-dir` is how it gets on sys.path.)
+path — `--app-dir` is how it gets on sys.path. `python -m` is what puts the repo root
+there too, for the `apps.api` imports below; `scripts/dev.py::services` says why.)
 
 LATENCY-CRITICAL (root CLAUDE.md hard rule 3). Handlers must:
   - verify authenticity per engine before anything else,
