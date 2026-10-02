@@ -369,6 +369,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/calls/{call_id}/callback", {}, {}),
     ("POST", "/v1/calls/{call_id}/callback", {}, {}),
     ("GET", "/v1/calls/{call_id}/recording", {}, {}),
+    # D-656. An SSE stream, so the 404 must come from the dependency that resolves the call
+    # under RLS before the headers are sent; inside the generator it would be a 200.
+    ("GET", "/v1/calls/{call_id}/speaking", {}, {}),
     ("GET", "/v1/calls/{call_id}/transcript/raw", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}", {}, {}),
     (

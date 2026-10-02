@@ -179,12 +179,93 @@ async def test_knowledge_added_before_the_agent_is_published_goes_live_on_the_ne
         return [tenant_id]
 
     monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _only_this_tenant)
+    # The re-drive and link arms read fleet-wide, so on a shared database they would act on
+    # other tests' uploads; this test is about the typed arm only.
+    _quiet_fleet_wide_arms(monkeypatch)
     assert await kb_ingest._unpublished_typed_sources(datetime.now(UTC)) == [
         (tenant_id, uuid.UUID(str(created["id"])))
     ]
     outcome = await kb_ingest.sweep_kb_uploads({})
     assert "typed=1" in outcome
     assert (await _source(tenant_id, created["id"])).is_active is True
+
+
+def _quiet_fleet_wide_arms(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the sweep's re-drive and link-recheck arms with recorders."""
+    seen: list[str] = []
+
+    async def _redrive(_ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+        seen.append(str(payload["source_id"]))
+        return "skipped"
+
+    async def _recheck(**_kwargs: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(kb_ingest, "ingest_kb_source", _redrive)
+    monkeypatch.setattr(kb_ingest, "_recheck_link", _recheck)
+    return seen
+
+
+async def test_one_item_that_raises_does_not_stop_the_rest_of_the_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stalled upload whose object cannot be read used to raise out of the sweep before the
+    typed-knowledge arm ran, and on every later tick too, since its row led the queue again.
+    Now every other item runs, and the tick still fails so its retry and alarm apply."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
+    owner = await _member(tenant_id)
+    created = await _member_submission(tenant_id, agent_id, owner)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_sources SET updated_at = now() - interval '2 hours' WHERE id = :s"),
+            {"s": created["id"]},
+        )
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _only_this_tenant)
+    _quiet_fleet_wide_arms(monkeypatch)
+    # One stalled upload, the oldest in the fleet so the sweep's capped read always reaches it.
+    async with tenant_session(tenant_id) as session:
+        stalled = await uploads.create_link(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Price list",
+            url="https://example.com/prices",
+            submitted_by=owner,
+            auto_approve=True,
+        )
+        await session.execute(
+            text(
+                "UPDATE kb_uploads SET ingest_status = 'received', "
+                "updated_at = timestamptz '2000-01-01 00:00:00+00' WHERE id = :u"
+            ),
+            {"u": stalled["id"]},
+        )
+    broken = stalled["source_id"]
+
+    async def _redrive_fails(_ctx: dict[str, Any], _payload: dict[str, Any]) -> str:
+        raise ConnectionError("object storage unreachable")
+
+    monkeypatch.setattr(kb_ingest, "ingest_kb_source", _redrive_fails)
+
+    try:
+        with pytest.raises(
+            kb_ingest.KbSweepIncompleteError, match=f"redrive:{broken}:ConnectionError"
+        ):
+            await kb_ingest.sweep_kb_uploads({})
+        assert (await _source(tenant_id, created["id"])).is_active is True
+    finally:
+        # Out of the retryable set, so the next sweep on this database never sees it: an
+        # oldest-in-the-fleet stalled row left behind would fill every later test's capped read.
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE kb_uploads SET ingest_status = 'error' WHERE id = :u"),
+                {"u": stalled["id"]},
+            )
 
 
 async def test_the_sweep_leaves_an_admins_approve_then_publish_flow_alone(
