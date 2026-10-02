@@ -18,6 +18,7 @@ from apps.api.agents.transfer_providers.base import (
 )
 from apps.api.agents.transfer_providers.registry import (
     NOT_OUR_CARRIER_LEG,
+    OUTCOME_ARRIVES_LATE,
     PLATFORM_CANNOT_TRANSFER,
     PROVIDER_CONTRACT_UNVERIFIED,
     PROVIDER_NOT_LICENSED,
@@ -29,6 +30,7 @@ from apps.api.agents.transfer_providers.registry import (
 __all__ = [
     "HANDOFF_OUTCOME_OF",
     "NOT_OUR_CARRIER_LEG",
+    "OUTCOME_ARRIVES_LATE",
     "PLATFORM_CANNOT_TRANSFER",
     "PROVIDER_CONTRACT_UNVERIFIED",
     "PROVIDER_NOT_LICENSED",

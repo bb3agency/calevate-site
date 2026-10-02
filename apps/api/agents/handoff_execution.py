@@ -66,6 +66,7 @@ from apps.api.agents.handoff import on_duty, redacted_brief, spoken_line_for
 from apps.api.agents.service import resolve_caller_id
 from apps.api.agents.transfer_providers import (
     HANDOFF_OUTCOME_OF,
+    OUTCOME_ARRIVES_LATE,
     PLATFORM_CANNOT_TRANSFER,
     TransferContractUnverifiedError,
     TransferOutcome,
@@ -174,9 +175,6 @@ AGENT_UNKNOWN: Final = "agent_unknown"
 #: index already assumes, and what the rented engine enforces for itself
 #: (`workers/handoff._record` and `agents/handoff.py` carry that engine's citation).
 ALREADY_HANDED_OVER: Final = "already_handed_over"
-#: The carrier would take the request and report the ending later, on a path that has to
-#: answer the caller's agent now. See `CallTransferProvider.settles_synchronously`.
-OUTCOME_ARRIVES_LATE: Final = "outcome_arrives_late"
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,10 +297,6 @@ async def place_handoff(
         return _degraded(capability.reason or PLATFORM_CANNOT_TRANSFER)
     if not outcome_reaches_agent:
         return _degraded(OUTCOME_UNREPORTABLE)
-    if not capability.provider.settles_synchronously:
-        # The caller's agent is holding a turn open. A leg whose ending arrives after the
-        # agent has had to say something is a leg that cannot be announced truthfully.
-        return _degraded(OUTCOME_ARRIVES_LATE)
     row = (await session.execute(text(_AGENT_SQL), {"aid": agent_id})).first()
     if row is None:
         return _degraded(AGENT_UNKNOWN)

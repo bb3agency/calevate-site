@@ -8,11 +8,14 @@ from urllib.parse import unquote
 
 import pytest
 from apps.api.agents.transfer_providers import (
+    OUTCOME_ARRIVES_LATE,
+    PLATFORM_CANNOT_TRANSFER,
     PROVIDER_CONTRACT_UNVERIFIED,
     TransferContractUnverifiedError,
     TransferRefusedError,
     TransferRequest,
     available_transfer,
+    transfer_blocked_reason,
 )
 from apps.api.agents.transfer_providers.vobiz import (
     TRANSFER_TIME_LIMIT_S,
@@ -83,14 +86,20 @@ async def test_off_by_default_the_in_call_path_is_not_available(
     assert capability.reason == PROVIDER_CONTRACT_UNVERIFIED
 
 
-async def test_on_it_is_selected_and_still_reports_its_ending_late(
+async def test_on_it_is_still_not_offered_because_its_ending_arrives_late(
     transfer_env: pytest.MonkeyPatch,
 ) -> None:
+    """The `<Dial>` ending arrives on its own callback, after the caller has left the
+    stream, so the in-call tool could never use it. The selector the client's screen reads
+    must say so rather than promise a handover the tool refuses on every call."""
     _enable(transfer_env)
-    capability = available_transfer(PipecatEngine(store=object()))  # type: ignore[arg-type]
-    assert isinstance(capability.provider, VobizTransfers)
-    # The `<Dial>` ending arrives on its own callback, after the caller has left the stream.
-    assert capability.provider.settles_synchronously is False
+    assert VobizTransfers().contract_verified is True
+    assert VobizTransfers().settles_synchronously is False
+    engine = PipecatEngine(store=object())  # type: ignore[arg-type]
+    capability = available_transfer(engine)
+    assert capability.provider is None
+    assert capability.reason == OUTCOME_ARRIVES_LATE
+    assert transfer_blocked_reason(engine) == PLATFORM_CANNOT_TRANSFER
 
 
 async def test_the_switch_selects_plivo_and_plivo_stays_unverified(
