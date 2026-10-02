@@ -163,7 +163,7 @@ def _invalid_range(detail: str) -> ProblemError:
     return ProblemError(
         kind="validation",
         code="invalid_spend_range",
-        title="Invalid date range",
+        title="Those dates cannot be shown",
         detail=detail,
         remediation=(
             f"Use days=7, 30 or 90, or from=YYYY-MM-DD&to=YYYY-MM-DD (IST, at most "
