@@ -202,19 +202,14 @@ class LegNotMeterableError(Exception):
 
 
 class CarrierFactsMissingError(LegNotMeterableError):
-    """No CDR, so the billable quantity has no independent witness (§1.2).
+    """No CDR at settlement, so this container writes no carrier row (§1.2).
 
-    The tempting fix — time the call with our own clock — is the one §1.2 rejects by name,
-    so it is not offered here and the remediation says why.
-
-    **THE COST IS THE SMALLER HALF OF WHAT THIS REFUSAL COSTS, AND THE DETAIL NOW SAYS SO.**
-    `telephony_s` is not only a cost row: its `qty` is the unit every client-facing MINUTE
-    is billed off — `billing/models.CLIENT_BILLED_UNIT_TYPES[0]`, read by
-    `billing/service.usage_summary` for `minutes_used`, by `_tier_totals` for the overage
-    rungs and by `billing/attribution` for the per-call split. A refused carrier leg
-    therefore writes no minutes either, so the call consumes no plan allowance, earns no
-    overage and takes nothing off a prepaid wallet. An operator reading a refusal worded
-    only as unmetered spend would triage the wrong half.
+    The carrier writes its record only after the call ends, and this worker holds no
+    carrier credential (D-662), so the settlement never has one. The leg is closed
+    elsewhere, in two halves: the client's billable seconds are the worker's measured
+    duration, written as `telephony_s` by the post-call meter (D-648), and the carrier's
+    own charge lands later from its CDR as one compensating row
+    (`apps/workers/carrier_events.read_carrier_cdr`).
     """
 
     def __init__(self) -> None:
@@ -222,18 +217,16 @@ class CarrierFactsMissingError(LegNotMeterableError):
             leg=MeteredLeg.CARRIER,
             code="meter_carrier_cdr_missing",
             detail=(
-                "no carrier CDR was supplied, so the connected duration and the charge for "
-                "this call have no independent witness. No telephony_s row is written, and "
-                "that is the unit client minutes are billed off: this call consumes no plan "
-                "allowance, earns no overage and debits no wallet."
+                "the carrier's call record does not exist until the call has ended, so the "
+                "worker settled without it and wrote no carrier row. The client's minutes "
+                "are the worker's measured duration, written as telephony_s by the "
+                "post-call meter (D-648)."
             ),
             remediation=(
-                "Nothing in this deployment can retrieve a CDR yet: the reader refuses by "
-                "name (voice_worker/carrier.fetch_call_detail_record) because the carrier "
-                "account is BLOCKER-1 and the vendor's CDR grammar has not been read. Do "
-                "NOT substitute the worker's own session duration: the carrier billed the "
-                "minute and is the authority for it (PIPECAT-MIGRATION.md §1.2), and our "
-                "clock agrees with us by construction."
+                "Nothing to do on this call. The carrier's charge is read from its call "
+                "record after the hangup by apps/workers/carrier_events.read_carrier_cdr and "
+                "recorded as a compensating cost row; carrier_cdr_missing or "
+                "carrier_cdr_cost_unpriced is raised if that read cannot complete."
             ),
         )
 

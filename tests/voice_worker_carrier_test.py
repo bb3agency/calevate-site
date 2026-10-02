@@ -238,15 +238,6 @@ def test_the_serializer_refuses_to_be_built_without_what_a_hangup_needs() -> Non
     assert "auth_id" in str(refusal.value) and "auth_token" in str(refusal.value)
 
 
-def test_no_outbound_dial_is_invented_and_the_refusal_says_why() -> None:
-    """The one carrier operation that is NOT built, refused by name (hard rule 11)."""
-    with pytest.raises(carrier.CarrierNotWrittenError) as refusal:
-        carrier.place_outbound_call()
-
-    assert "not built" in str(refusal.value)
-    assert "serializers/plivo.py:184" in str(refusal.value)
-
-
 # --------------------------------------------------------------------------------------
 # 2. Routing: the stream URL names the agent, and nothing else does.
 # --------------------------------------------------------------------------------------
@@ -750,34 +741,7 @@ async def test_the_entrypoint_refuses_rather_than_guessing_whose_call_it_is(
         await bot.resolve_call_identity(cast(Any, _RunnerArgsWithPath(websocket=websocket)))
 
 
-def test_no_cdr_read_is_invented_and_the_refusal_names_what_it_costs() -> None:
-    """The carrier leg's missing producer, refused by name rather than simply absent.
-
-    `meter.CarrierCdr` has no production constructor, so every call settles
-    `meter_carrier_cdr_missing`. The refusal has to say the expensive half — no
-    `telephony_s` row means the CLIENT is billed no minutes — or an operator reads it as
-    unmetered supplier spend and triages the wrong thing.
-    """
-    with pytest.raises(carrier.CarrierNotWrittenError) as refusal:
-        carrier.fetch_call_detail_record()
-
-    reason = str(refusal.value)
-    assert "not built" in reason
-    assert "serializers/plivo.py:184" in reason
-    assert "no minutes" in reason
-
-
-def test_the_cdr_refusal_enumerates_the_facts_that_would_close_it() -> None:
-    """Hard rule 11's shape for an unreadable vendor grammar: say what is needed, not a guess.
-
-    The precedent is `apps/api/agents/transfer_providers/plivo.py`, which carries the five
-    facts its own unbuilt seam needs. Without the ROUNDING rule and the BILLED-vs-connected
-    distinction a CDR reader produces a systematically wrong quantity that nobody can
-    reconcile against the carrier's invoice — and `usage_events` cannot be corrected in
-    place (hard rule 4).
-    """
-    doc = carrier.fetch_call_detail_record.__doc__ or ""
-
-    for fact in ("BILLED duration", "CHARGE", "rounding", "minimum billable unit"):
-        assert fact in doc, f"the CDR refusal does not say it needs: {fact}"
-    assert "egress-blocked" in doc
+def test_the_worker_holds_no_dial_and_no_cdr_reader() -> None:
+    """The control plane dials and reads the CDR (D-662); this container never does."""
+    for gone in ("place_outbound_call", "fetch_call_detail_record"):
+        assert not hasattr(carrier, gone)

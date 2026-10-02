@@ -187,7 +187,7 @@ def _event_target(payload: dict[str, Any]) -> _EventTarget:
         raise ProblemError(
             kind="validation",
             code="carrier_event_payload_invalid",
-            title="Unusable carrier-event job payload",
+            title="A carrier event could not be read",
             detail="The carrier event job was enqueued without a usable carrier or fields.",
         ) from exc
 
@@ -480,7 +480,7 @@ def _cdr_target(payload: dict[str, Any]) -> _CdrTarget:
         raise ProblemError(
             kind="validation",
             code="carrier_cdr_payload_invalid",
-            title="Unusable CDR job payload",
+            title="A call record could not be read",
             detail="The CDR job was enqueued without a usable carrier, call or tenant id.",
         ) from exc
 

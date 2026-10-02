@@ -525,9 +525,11 @@ class Settings(BaseSettings):
     #: Outbound calls started per second, at most. The account's CPS limit is in its
     #: account object (`account/account-object.md:41-46`); 1 is the floor any account has.
     carrier_cps: int = Field(default=1, ge=1, le=50)
-    #: Whether a live caller may be transferred to a human through the carrier. Off by
-    #: default: Vobiz itself calls the accept-by-keypress step "currently unverified"
-    #: (`xml/dial.md:55-57`). Off means the in-call handoff answers `not_available`.
+    #: Whether the Vobiz transfer contract counts as verified. Off by default: Vobiz itself
+    #: calls the accept-by-keypress step "currently unverified" (`xml/dial.md:56`). On is
+    #: necessary and not sufficient: the `<Dial>` ending arrives on a later callback, so the
+    #: transfer registry still offers no handover (`outcome_arrives_late`) until a hand-off
+    #: mode exists that tells the caller first.
     carrier_transfer_enabled: bool = False
     # USD→INR for every cost a vendor quotes in dollars (number rentals, the console's
     # margin figures), stamped with its source wherever it reaches a ledger row (hard
