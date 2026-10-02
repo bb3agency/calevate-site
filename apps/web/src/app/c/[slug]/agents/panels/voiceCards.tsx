@@ -18,6 +18,7 @@ import { Check } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
 import { tierRateReading } from "@/components/voicePicker";
+import { LANGUAGE_NAMES } from "@/lib/agentState";
 import type { OfferedVoice, VoiceTierAvailability, VoiceTierRates } from "@/lib/api/voices";
 import { lookup } from "@/lib/lookup";
 
@@ -27,14 +28,8 @@ const GENDER_COPY: Record<string, string> = {
   neutral: "Neutral",
 };
 
-const LANGUAGE_SHORT: Record<string, string> = {
-  "te-IN": "Telugu",
-  "hi-IN": "Hindi",
-  "en-IN": "English",
-};
-
 function languageNames(codes: readonly string[]): string {
-  return codes.map((code) => lookup(LANGUAGE_SHORT, code) ?? code).join(" · ");
+  return codes.map((code) => lookup(LANGUAGE_NAMES, code) ?? code).join(" · ");
 }
 
 export function VoiceCards({
