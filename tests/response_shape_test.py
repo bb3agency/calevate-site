@@ -1108,6 +1108,13 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "`tests/admin_copilot_billing_test.py` and the redaction guard the route shares "
         "with its client twin."
     ),
+    "GET /v1/calls/{call_id}/speaking": (
+        "an SSE stream (D-656), exempt for `POST /v1/copilot/ask`'s reason: the declared "
+        "`itemSchema` is the SSE frame envelope, not the payload. The payload is "
+        "`crm/live_speaking.CallSpeakingOut` (`speaker`, `live`, `since` — no audio, text "
+        "or number), and `tests/live_speaking_test.py` pins it at runtime and against its "
+        "TypeScript twin."
+    ),
 }
 
 
