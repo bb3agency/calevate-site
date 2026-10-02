@@ -103,7 +103,7 @@ def _target(payload: dict[str, Any]) -> _Target:
         raise ProblemError(
             kind="validation",
             code="call_finalise_payload_invalid",
-            title="Unusable call-finalise job payload",
+            title="A finished call could not be wrapped up",
             detail="The call-finalise job was enqueued without a usable tenant or call id.",
         ) from exc
 
