@@ -568,8 +568,8 @@ async def read_params(request: Request, *, carrier: str) -> tuple[dict[str, str]
         raise ProblemError(
             kind="validation",
             code="payload_too_large",
-            title="Payload too large",
-            detail="The request body exceeds the accepted size.",
+            title="Too much data was sent",
+            detail="This call event carried more data than this address accepts.",
             status=413,
         )
     return carrier_params(request.query_params, request.headers.get("content-type", ""), raw)

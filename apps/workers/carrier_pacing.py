@@ -70,7 +70,8 @@ async def await_dial_slot(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> float:
-    """Wait until this process may start one dial. Returns the seconds waited.
+    """Wait until this process may start one dial. Returns the seconds spent asleep for a
+    slot, which is 0.0 whenever the first ask got one or pacing failed open.
 
     Read per call, not cached: `carrier_cps` and `carrier` are live settings, so an operator
     raising the account's CPS takes effect on the next dial.
@@ -82,13 +83,13 @@ async def await_dial_slot(
     settings = get_settings()
     interval_ms = slot_interval_ms(settings.carrier_cps)
     key = f"{PACING_KEY_PREFIX}:{settings.carrier}"
-    started = clock()
-    deadline = started + MAX_PACING_WAIT_S
+    deadline = clock() + MAX_PACING_WAIT_S
+    waited = 0.0
     while True:
         try:
             redis = get_redis()
             if await redis.set(key, "1", nx=True, px=interval_ms):
-                return clock() - started
+                return waited
             remaining_ms = int(await redis.pttl(key))
             if remaining_ms == -1:
                 # A key with no TTL would hold the slot for ever; give it the interval.
@@ -96,12 +97,13 @@ async def await_dial_slot(
                 remaining_ms = interval_ms
         except Exception:
             log.warning("carrier_pacing_unavailable", extra={"carrier": settings.carrier})
-            return clock() - started
+            return waited
         # -2: the key expired between SET and PTTL, so the slot is open now.
         wait_s = max(0, remaining_ms) / 1000
         if clock() + wait_s > deadline:
             raise DialPacingTimeoutError
         await sleep(wait_s)
+        waited += wait_s
 
 
 __all__ = [
