@@ -148,7 +148,7 @@ export function Cost({ rateCard }: { rateCard: PublicRateCard | null }) {
           <ul className="mt-8 grid gap-3.5 border-t border-line pt-6 sm:grid-cols-3">
             {RISK_REVERSAL.map((promise) => (
               <li key={promise} className={`flex items-start gap-2.5 text-ink-muted ${HOME.bodySm}`}>
-                <Check aria-hidden className="mt-1 h-4 w-4 shrink-0 text-brand-strong" strokeWidth={2.5} />
+                <Check aria-hidden className="mt-1 h-4 w-4 shrink-0 text-brand-strong dark:text-brand-bright" strokeWidth={2.5} />
                 {promise}
               </li>
             ))}

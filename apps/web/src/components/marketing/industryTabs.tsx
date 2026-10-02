@@ -174,7 +174,7 @@ export function IndustryTabs() {
                 {industry.result.map((chip) => (
                   <li
                     key={chip}
-                    className="rounded-lg bg-brand-soft px-3.5 py-2 text-base font-semibold text-brand-strong"
+                    className="rounded-lg bg-brand-soft dark:bg-brand-strong/20 px-3.5 py-2 text-base font-semibold text-brand-strong dark:text-brand-bright"
                   >
                     {chip}
                   </li>

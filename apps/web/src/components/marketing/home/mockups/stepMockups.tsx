@@ -36,12 +36,12 @@ export function FieldListMock() {
           >
             <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink">
               {label}
-              {required && <span className="ml-1 text-brand-strong">*</span>}
+              {required && <span className="ml-1 text-brand-strong dark:text-brand-bright">*</span>}
             </span>
             <span className="shrink-0 text-[11px] text-ink-muted">{type}</span>
           </span>
         ))}
-        <span className="flex items-center gap-2 rounded-lg border border-dashed border-ink/15 px-2.5 py-2 text-[12px] font-medium text-brand-strong">
+        <span className="flex items-center gap-2 rounded-lg border border-dashed border-ink/15 px-2.5 py-2 text-[12px] font-medium text-brand-strong dark:text-brand-bright">
           <Plus className="h-3.5 w-3.5" />
           Add variable
         </span>
@@ -83,7 +83,7 @@ export function LeadRecordMock() {
       <span className="mt-1.5 flex flex-col gap-1">
         {moments.map(({ at, label, ai }, i) => (
           <span key={at} className={`mk-rise mk-s${i + 2} flex items-center gap-2 text-[12px]`}>
-            <span className="w-8 shrink-0 font-mono text-[11px] text-brand-strong">{at}</span>
+            <span className="w-8 shrink-0 font-mono text-[11px] text-brand-strong dark:text-brand-bright">{at}</span>
             <span className="min-w-0 flex-1 truncate text-ink">{label}</span>
             {ai && <Tag tone="violet">AI</Tag>}
           </span>

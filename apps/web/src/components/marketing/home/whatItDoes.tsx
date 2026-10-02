@@ -146,7 +146,7 @@ export function WhatItDoes() {
               } ${HOME.panelLift} ${span}`}
             >
               <div className={`p-5 sm:p-7 ${span === "lg:col-span-6" ? "lg:w-1/2 lg:self-center" : ""}`}>
-                <span className="text-base font-medium text-brand-strong">{title}</span>
+                <span className="text-base font-medium text-brand-strong dark:text-brand-bright">{title}</span>
                 <h3 className={`mt-1.5 ${HOME.itemTitle} font-semibold text-balance text-ink`}>{benefit}</h3>
                 <p className={`mt-2 max-w-xl text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
               </div>

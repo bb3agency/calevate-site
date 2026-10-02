@@ -63,10 +63,10 @@ export function Turn({
     <span className={`flex ${agent ? "justify-start" : "justify-end"} ${className}`}>
       <span
         className={`flex max-w-[88%] flex-col gap-0.5 rounded-xl px-3 py-2 ${
-          agent ? "rounded-bl-sm bg-brand-soft" : "rounded-br-sm bg-slate-100"
+          agent ? "rounded-bl-sm bg-brand-soft dark:bg-brand-strong/20" : "rounded-br-sm bg-slate-100 dark:bg-white/[0.06]"
         }`}
       >
-        <span className={`text-[11px] font-semibold ${agent ? "text-brand-strong" : "text-slate-600"}`}>
+        <span className={`text-[11px] font-semibold ${agent ? "text-brand-strong dark:text-brand-bright" : "text-slate-600 dark:text-slate-300"}`}>
           {who}
         </span>
         <span lang="te" className="text-[13px] leading-snug text-ink">
@@ -183,7 +183,7 @@ export function ClinicLeadRow({
 }) {
   return (
     <span
-      className={`flex items-center gap-3 px-4 py-2.5 text-[12px] ${highlight ? "bg-brand-soft/60" : ""} ${className}`}
+      className={`flex items-center gap-3 px-4 py-2.5 text-[12px] ${highlight ? "bg-brand-soft/60 dark:bg-brand-strong/20" : ""} ${className}`}
     >
       <span className="flex w-36 shrink-0 items-center gap-2">
         <Avatar name={lead.name} tone={highlight ? "brand" : "base"} className="h-6 w-6" />

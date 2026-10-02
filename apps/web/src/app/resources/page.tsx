@@ -299,7 +299,7 @@ export default function ResourcesPage() {
             {READING.map(({ href, title, body }, i) => (
               <li key={href}>
                 <Link href={href} className={`${CARD_LINK} sm:p-6`}>
-                  <span className="font-mono text-sm font-semibold text-brand-strong">
+                  <span className="font-mono text-sm font-semibold text-brand-strong dark:text-brand-bright">
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   {/* Inline rather than a flex row: in a flex row a title that wraps takes

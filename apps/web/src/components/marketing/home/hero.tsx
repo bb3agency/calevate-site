@@ -111,7 +111,7 @@ export function Hero() {
           >
             {HERO_CLAIMS.map((claim) => (
               <li key={claim} className="flex items-center gap-2 text-base font-medium text-ink-muted">
-                <Check aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" strokeWidth={2.5} />
+                <Check aria-hidden className="h-4 w-4 shrink-0 text-brand-strong dark:text-brand-bright" strokeWidth={2.5} />
                 {claim}
               </li>
             ))}

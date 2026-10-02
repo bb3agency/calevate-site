@@ -833,7 +833,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 conversations a month — you&apos;d hire
               </p>
               <p className="mt-2 flex items-center gap-2.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright">
                   <UserRound aria-hidden className="h-5 w-5" />
                 </span>
                 <span className="tabular-nums">
@@ -939,7 +939,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 calls a month you&apos;d hire
               </p>
               <p className="mt-2 flex items-center gap-2.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright">
                   <UserRound aria-hidden className="h-5 w-5" />
                 </span>
                 <span className="tabular-nums">{result.headcount}</span>
@@ -1167,7 +1167,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             type="checkbox"
             checked={leadOpen}
             onChange={(e) => setLeadOpen(e.target.checked)}
-            className="h-4 w-4 rounded border-line text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong"
+            className="h-4 w-4 rounded border-line text-brand-strong dark:text-brand-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong"
           />
           Also weigh the value of the leads at stake (optional)
         </label>
