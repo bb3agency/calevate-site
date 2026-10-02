@@ -117,28 +117,33 @@ class VobizCarrier:
             return None
         return engine_not_configured("no_carrier_credentials:vobiz")
 
-    def _http(self) -> httpx.AsyncClient:
-        """The authenticated client, or the deployment-side refusal when there is none."""
-        refusal = self.unavailable("reach its carrier")
-        if refusal is not None:
-            raise refusal
-        if self._client is None:
-            # Both headers on every request (`api-reference/authentication.md:9-16`).
-            self._client = httpx.AsyncClient(
-                base_url=self._base_url,
-                headers={
-                    "X-Auth-ID": self._auth_id or "",
-                    "X-Auth-Token": self._auth_token or "",
-                },
-                timeout=REQUEST_TIMEOUT_S,
-            )
-        return self._client
+    def _new_client(self) -> httpx.AsyncClient:
+        """An authenticated client. Both headers on every request
+        (`api-reference/authentication.md:12-16`)."""
+        return httpx.AsyncClient(
+            base_url=self._base_url,
+            headers={"X-Auth-ID": self._auth_id or "", "X-Auth-Token": self._auth_token or ""},
+            timeout=REQUEST_TIMEOUT_S,
+        )
 
     def _account(self, suffix: str) -> str:
         return f"/Account/{quote(self._auth_id or '', safe='')}/{suffix}"
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        return await vendor_request(self._http(), method, path, engine=ENGINE_LABEL, **kwargs)
+        """One request, refused before it is built when the credentials are absent.
+
+        On the injected client, or on one opened and closed for this request rather than
+        held: `engine/carrier.get_carrier` builds a carrier per operation from the live
+        settings, so a held client would be an unclosed connection pool per dial, CDR read
+        and binding.
+        """
+        refusal = self.unavailable("reach its carrier")
+        if refusal is not None:
+            raise refusal
+        if self._client is not None:
+            return await vendor_request(self._client, method, path, engine=ENGINE_LABEL, **kwargs)
+        async with self._new_client() as client:
+            return await vendor_request(client, method, path, engine=ENGINE_LABEL, **kwargs)
 
     # --- calls ----------------------------------------------------------------------
 

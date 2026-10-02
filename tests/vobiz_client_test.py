@@ -402,10 +402,31 @@ async def test_without_credentials_every_request_is_refused_before_it_is_sent() 
 async def test_a_configured_carrier_builds_its_own_authenticated_client() -> None:
     carrier = VobizCarrier(auth_id=AUTH_ID, auth_token="tok", base_url=BASE + "/")
     assert carrier.unavailable("anything") is None
-    client = carrier._http()
+    client = carrier._new_client()
     assert client.headers["X-Auth-ID"] == AUTH_ID
     assert str(client.base_url).rstrip("/") == BASE
     await client.aclose()
+
+
+async def test_an_uninjected_carrier_opens_and_closes_one_client_per_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`get_carrier` builds a carrier per operation, so a client held by it would never be
+    closed. Each request gets its own, closed when the request is done."""
+    opened: list[httpx.AsyncClient] = []
+    recorder = _Recorder(httpx.Response(200, json={"account": "ok"}))
+
+    def _new_client(self: VobizCarrier) -> httpx.AsyncClient:
+        client = httpx.AsyncClient(base_url=BASE, transport=httpx.MockTransport(recorder))
+        opened.append(client)
+        return client
+
+    monkeypatch.setattr(VobizCarrier, "_new_client", _new_client)
+    carrier = VobizCarrier(auth_id=AUTH_ID, auth_token="tok", base_url=BASE)
+    assert await carrier.probe() is True
+    assert await carrier.probe() is True
+    assert len(opened) == 2
+    assert all(client.is_closed for client in opened)
 
 
 async def test_a_remembered_binding_is_reused_only_when_it_is_this_agents() -> None:

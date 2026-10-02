@@ -95,3 +95,31 @@ async def test_every_plivo_operation_refuses_with_the_unread_evidence() -> None:
         assert "pre-build-blockers" in (raised.value.remediation or "")
     with pytest.raises(ProblemError):
         carrier.parse_event({"CallUUID": "c"})
+
+
+def test_one_engine_instance_follows_the_switch_without_a_restart(
+    carrier_env: pytest.MonkeyPatch,
+) -> None:
+    """`get_engine` caches one adapter per process, so the carrier is read per operation:
+    `core/platform_config` says a moved switch dials on the new carrier at once."""
+    _select(carrier_env, "vobiz")
+    engine = PipecatEngine(store=object())  # type: ignore[arg-type]
+    assert engine.capabilities == PIPECAT_VOBIZ_CAPABILITIES
+    assert isinstance(engine._carrier, VobizCarrier)
+
+    _select(carrier_env, "plivo")
+    assert engine.capabilities == PIPECAT_CAPABILITIES
+    assert isinstance(engine._carrier, PlivoCarrier)
+
+
+def test_an_injected_carrier_and_a_set_descriptor_stay_pinned(
+    carrier_env: pytest.MonkeyPatch,
+) -> None:
+    _select(carrier_env, "plivo")
+    pinned = VobizCarrier(auth_id=None, auth_token=None, base_url="https://api.example/api/v1")
+    engine = PipecatEngine(store=object(), carrier=pinned)  # type: ignore[arg-type]
+    assert engine._carrier is pinned
+    assert engine.capabilities == PIPECAT_VOBIZ_CAPABILITIES
+
+    engine.capabilities = PIPECAT_CAPABILITIES
+    assert engine.capabilities == PIPECAT_CAPABILITIES
