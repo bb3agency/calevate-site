@@ -92,7 +92,7 @@ export function TeamReceives() {
           <Reveal as="ul" className={`${DARK_PANEL} divide-y divide-white/15`}>
             {QUALIFICATION.map(({ title, body }, index) => (
               <li key={title} className="flex gap-4 p-5 sm:gap-5 sm:p-7">
-                <span aria-hidden className="w-6 shrink-0 pt-1 font-mono text-sm font-semibold text-white/70">
+                <span aria-hidden className="w-6 shrink-0 pt-1 font-mono text-sm font-semibold text-white/80">
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <div>

@@ -57,7 +57,7 @@ export function Avatar({
   return (
     <span
       className={`flex shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-        tone === "brand" ? "bg-brand-soft text-brand-strong" : "bg-slate-100 text-slate-600"
+        tone === "brand" ? "bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright" : "bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-slate-300"
       } ${className}`}
     >
       {initials}
@@ -72,7 +72,7 @@ export function Avatar({
 export type LeadStatus = "new" | "contacted" | "interested" | "hot" | "won" | "lost";
 
 const STATUS_TONE: Record<LeadStatus, string> = {
-  new: "bg-slate-100 text-slate-700",
+  new: "bg-slate-100 dark:bg-white/[0.06] text-slate-700 dark:text-slate-300",
   contacted: "bg-sky-100 text-sky-800",
   interested: "bg-violet-100 text-violet-800",
   hot: "bg-amber-100 text-amber-900",
@@ -101,12 +101,12 @@ export function Tag({
   className?: string;
 }) {
   const fill = {
-    slate: "bg-slate-100 text-slate-700",
+    slate: "bg-slate-100 dark:bg-white/[0.06] text-slate-700 dark:text-slate-300",
     emerald: "bg-emerald-100 text-emerald-800",
     sky: "bg-sky-100 text-sky-800",
     amber: "bg-amber-100 text-amber-900",
     violet: "bg-violet-100 text-violet-800",
-    brand: "bg-brand-soft text-brand-strong",
+    brand: "bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright",
   }[tone];
   return (
     <span
@@ -140,7 +140,7 @@ export function Chip({
     <span
       className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] leading-5 font-medium whitespace-nowrap ${
         tone === "brand"
-          ? "bg-brand-soft text-brand-strong"
+          ? "bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright"
           : "bg-surface text-ink-muted ring-1 ring-line"
       } ${className}`}
     >

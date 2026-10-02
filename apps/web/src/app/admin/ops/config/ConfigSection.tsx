@@ -3,6 +3,7 @@
 import { DashboardDataUsePanel } from "@/app/admin/ops/DashboardDataUsePanel";
 import { FxRatePanel } from "@/app/admin/ops/FxRatePanel";
 import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
+import { NumberPricePanel } from "@/app/admin/ops/NumberPricePanel";
 import { RateCardPanel } from "@/app/admin/ops/RateCardPanel";
 import { WithheldPanel } from "@/app/admin/withheld";
 import { SettingRows } from "@/components/console/settingRow";
@@ -36,6 +37,8 @@ export function ConfigSectionBody({ id, access }: { id: ConfigSectionId; access:
       {/* The live exchange rate sits beside its fallback (`usd_inr_rate`, above). It is
           read-only: the operator's control over it is that fallback. */}
       {id === "billing" && <FxRatePanel />}
+      {/* Client number purchases are refused until this price is attested. */}
+      {id === "billing" && <NumberPricePanel />}
       {/* A model becomes available on a confirmed price, so the prices sit with the models
           they unlock rather than with the rate card clients pay. */}
       {id === "voices-models" && (

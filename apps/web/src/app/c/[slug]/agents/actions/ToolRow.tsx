@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { FlaskConical, Trash2 } from "lucide-react";
+import { FlaskConical, Pencil, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import {
@@ -34,6 +34,11 @@ import {
 import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
+import { ActionForm } from "./ActionForm";
+import type { Kind } from "./params";
+
+const KINDS: readonly Kind[] = ["custom_api", "whatsapp", "calendar"];
+
 export function ToolRow({
   tool,
   agentId,
@@ -46,6 +51,9 @@ export function ToolRow({
   const setEnabled = useSetActionEnabled(session, agentId);
   const remove = useDeleteAction(session, agentId);
   const [testing, setTesting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  // A kind this build has no form for is listed and removable, never offered for editing.
+  const editableKind = KINDS.find((k) => k === tool.kind);
   // A boolean is enough here — the row IS the action, so there is only one thing this
   // dialog can be about.
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
@@ -67,6 +75,18 @@ export function ToolRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {editableKind ? (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              onClick={() => setEditing((v) => !v)}
+              aria-expanded={editing}
+              aria-label={`Edit ${tool.name}`}
+            >
+              <Pencil className="mr-1 inline h-3.5 w-3.5" />
+              Edit
+            </button>
+          ) : null}
           <button
             type="button"
             className={SECONDARY_BUTTON_SM}
@@ -117,6 +137,17 @@ export function ToolRow({
           <p>You can set it up again later, with the same credential.</p>
         </ConfirmDialog>
       )}
+      {editing && editableKind ? (
+        <div className="mt-3">
+          <ActionForm
+            kind={editableKind}
+            agentId={agentId}
+            session={session}
+            existing={tool}
+            onDone={() => setEditing(false)}
+          />
+        </div>
+      ) : null}
       {testing ? <TestPanel tool={tool} agentId={agentId} session={session} /> : null}
     </li>
   );

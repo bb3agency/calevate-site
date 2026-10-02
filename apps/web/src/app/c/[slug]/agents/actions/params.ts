@@ -64,3 +64,26 @@ export function toParam(p: DraftParam): ActionParam {
     required: p.required,
   };
 }
+
+const SOURCES = ["static", "lead_var", "ai"] as const;
+const TYPES = ["string", "integer", "number", "boolean"] as const;
+
+/**
+ * A stored parameter back into the editor's draft. `ToolOut.params` is a list of open
+ * dicts on the wire, so every field is read defensively rather than asserted.
+ */
+export function fromParam(stored: Record<string, unknown>): DraftParam {
+  const text = (key: string): string => {
+    const value = stored[key];
+    return typeof value === "string" ? value : "";
+  };
+  return {
+    name: text("name"),
+    source: SOURCES.find((s) => s === stored.source) ?? "ai",
+    value: text("value"),
+    lead_var: text("lead_var") || "caller_phone",
+    description: text("description"),
+    type: TYPES.find((t) => t === stored.type) ?? "string",
+    required: stored.required === true,
+  };
+}
