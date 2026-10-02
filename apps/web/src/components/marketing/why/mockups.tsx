@@ -32,7 +32,7 @@ export function WhyHeroMock() {
         <span className="relative flex flex-col gap-1.5 rounded-xl ring-2 ring-brand/40 ring-offset-2 ring-offset-surface">
           <Turn {...CALL_TURNS[0]} />
         </span>
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-brand-strong">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-brand-strong dark:text-brand-bright">
           <Check className="h-3 w-3" strokeWidth={3} />
           AI disclosure line
         </span>

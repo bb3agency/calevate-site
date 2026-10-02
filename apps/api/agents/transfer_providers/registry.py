@@ -51,6 +51,9 @@ PROVIDER_NOT_LICENSED: Final = "transfer_provider_not_licensed"
 #: person by NEITHER mechanism. It is what a client's own screen renders, so it lives
 #: beside its sentence in `agents/handoff._UNAVAILABLE_REASONS`.
 PLATFORM_CANNOT_TRANSFER: Final = "platform_cannot_transfer"
+#: The carrier would take the request and report the ending later, on a path that has to
+#: answer the caller's agent now. See `CallTransferProvider.settles_synchronously`.
+OUTCOME_ARRIVES_LATE: Final = "outcome_arrives_late"
 
 
 def _carrier_of_engine(engine_name: str) -> str | None:
@@ -128,6 +131,12 @@ def available_transfer(engine: VoiceEngine | None = None) -> TransferCapability:
     # with a caller on the line.
     if not provider.contract_verified:
         return TransferCapability(None, PROVIDER_CONTRACT_UNVERIFIED)
+    # Asked HERE rather than only on the in-call path: the client's handover screen and the
+    # publish path read this selector too, and an adapter whose ending arrives after the
+    # agent has had to answer is one the in-call tool can never use. Selecting it would
+    # show a client a handover that refuses on every call.
+    if not provider.settles_synchronously:
+        return TransferCapability(None, OUTCOME_ARRIVES_LATE)
     return TransferCapability(provider, None)
 
 
@@ -154,6 +163,7 @@ def transfer_blocked_reason(engine: VoiceEngine) -> str | None:
 
 __all__ = [
     "NOT_OUR_CARRIER_LEG",
+    "OUTCOME_ARRIVES_LATE",
     "PLATFORM_CANNOT_TRANSFER",
     "PROVIDER_CONTRACT_UNVERIFIED",
     "PROVIDER_NOT_LICENSED",

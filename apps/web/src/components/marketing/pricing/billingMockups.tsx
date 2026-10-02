@@ -62,8 +62,8 @@ export function CreditOverviewMock({ voiceLabel }: { voiceLabel: string | null }
           </span>
           <MaskedAmount className="mt-2 block text-2xl font-bold" />
         </Panel>
-        <span className="mk-rise mk-s3 block rounded-xl border border-line bg-brand-soft p-4 shadow-card">
-          <span className="flex items-center gap-2 text-[12px] font-medium text-brand-strong">
+        <span className="mk-rise mk-s3 block rounded-xl border border-line bg-brand-soft dark:bg-brand-strong/20 p-4 shadow-card">
+          <span className="flex items-center gap-2 text-[12px] font-medium text-brand-strong dark:text-brand-bright">
             <Timer aria-hidden className="h-3.5 w-3.5" />
             How long this lasts
           </span>
@@ -160,12 +160,12 @@ export function SpendingLimitMock() {
 /** Overview tab, the morning the balance crosses the warning line. */
 export function LowCreditNoticeMock() {
   return (
-    <span className="mk-rise mk-s3 block rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12px] text-amber-950 shadow-card">
+    <span className="mk-rise mk-s3 block rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12px] text-amber-950 shadow-card dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
       <span className="flex items-start gap-2 font-semibold">
         <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         Your calling credit is running low.
       </span>
-      <span className="mt-1.5 block pl-5.5 text-amber-900">We email the account owner at this point too.</span>
+      <span className="mt-1.5 block pl-5.5 text-amber-900 dark:text-amber-200">We email the account owner at this point too.</span>
     </span>
   );
 }

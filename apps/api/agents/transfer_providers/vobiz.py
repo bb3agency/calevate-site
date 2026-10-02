@@ -18,9 +18,10 @@ contract counts as verified only when an operator switches it on.
 
 AND IT DOES NOT SETTLE SYNCHRONOUSLY. The ending of the second leg arrives later, on the
 `<Dial>` callbacks (`xml/dial.md:77-104`), and the redirect takes the caller off the
-agent's stream the moment it lands — so the agent never hears an outcome. `place_handoff`
-therefore refuses to place a leg through this adapter on the in-call path
-(`outcome_arrives_late`) until a hand-off mode exists that tells the caller first.
+agent's stream the moment it lands — so the agent never hears an outcome. The transfer
+registry therefore selects no provider for it (`outcome_arrives_late`), and the client's
+handover screen says the platform cannot transfer, until a hand-off mode exists that tells
+the caller first.
 """
 
 from __future__ import annotations

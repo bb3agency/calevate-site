@@ -296,13 +296,14 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "bytes) in the VPS environment AND, with the same value, in the "
         "`calevate-pipecat-worker` secret set — a value saved here would reach neither."
     ),
-    # THE VOBIZ PAIR (D-662). Read on this host by the API and workers (dial, CDR, numbers)
-    # and by voice-runtime, which verifies callback signatures with the token and never
-    # opens the credential store. Never in the Pipecat worker's secret set.
+    # THE VOBIZ PAIR (D-662). Read on this host by the API and workers (dial, CDR, numbers);
+    # voice-runtime reads the token to verify callback signatures and never opens the
+    # credential store. Never in the Pipecat worker's secret set.
     "vobiz_auth_id": (
-        "the Vobiz account id is read by voice-runtime as well as the API and workers, and "
-        "voice-runtime never opens this credential store. Set VOBIZ_AUTH_ID in the VPS "
-        "environment; never in the Pipecat worker's secret set."
+        "the Vobiz account id is one half of a pair whose other half voice-runtime must "
+        "read from the environment, and halves kept in two places disagree after a "
+        "rotation. Set VOBIZ_AUTH_ID in the VPS environment beside VOBIZ_AUTH_TOKEN; never "
+        "in the Pipecat worker's secret set."
     ),
     "vobiz_auth_token": (
         "the Vobiz token places calls, reads call records and is the key Vobiz signs its "

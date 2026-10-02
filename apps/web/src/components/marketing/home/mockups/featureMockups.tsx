@@ -58,7 +58,7 @@ export function CallDetailMock() {
               Priya asked whether the clinic does root canals and what it costs. The agent
               explained it depends on the tooth and booked a check-up for Tuesday evening.
             </span>
-            <span className="flex items-center gap-1 text-[11px] font-semibold text-brand-strong">
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-brand-strong dark:text-brand-bright">
               View the lead this call created
               <ArrowRight className="h-3 w-3" />
             </span>
@@ -78,7 +78,7 @@ export function CallDetailMock() {
             <span className="text-[11px] font-semibold text-ink-muted">Key points in this call</span>
             {moments.map(({ at, label, ai }) => (
               <span key={at} className="flex items-center gap-2 text-[12px]">
-                <span className="w-8 shrink-0 font-mono text-[11px] text-brand-strong">{at}</span>
+                <span className="w-8 shrink-0 font-mono text-[11px] text-brand-strong dark:text-brand-bright">{at}</span>
                 <span className="min-w-0 flex-1 truncate text-ink">{label}</span>
                 {ai && <Tag tone="violet">AI</Tag>}
               </span>
@@ -121,8 +121,8 @@ export function AnsweredMini() {
       </span>
       <span className="mk-rise mk-s1 relative block h-12 overflow-hidden rounded-lg border border-line bg-surface">
         {/* Closed hours: midnight to 9 AM, and 9 PM to midnight. */}
-        <span className="absolute inset-y-0 left-0 w-[37.5%] bg-slate-100" />
-        <span className="absolute inset-y-0 right-0 w-[12.5%] bg-slate-100" />
+        <span className="absolute inset-y-0 left-0 w-[37.5%] bg-slate-100 dark:bg-white/[0.06]" />
+        <span className="absolute inset-y-0 right-0 w-[12.5%] bg-slate-100 dark:bg-white/[0.06]" />
         {TICKS.map((left) => (
           <span
             key={left}
@@ -172,8 +172,8 @@ export function FollowUpMini() {
         </span>
         <span className="hidden h-px w-10 border-t border-dashed border-brand/60 min-[420px]:block" />
       </span>
-      <span className="mk-rise mk-s3 flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-brand/30 bg-brand-soft/60 p-3 shadow-card">
-        <span className="text-[11px] font-semibold text-brand-strong">First call · outbound</span>
+      <span className="mk-rise mk-s3 flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-brand/30 bg-brand-soft/60 dark:bg-brand-strong/20 p-3 shadow-card">
+        <span className="text-[11px] font-semibold text-brand-strong dark:text-brand-bright">First call · outbound</span>
         <span className="text-[13px] font-semibold text-ink">Call placed</span>
         <span className="flex items-center gap-1.5">
           <StatusPill status="interested" />
@@ -301,7 +301,7 @@ export function CampaignBoardMock() {
             <span className="text-[12px] font-semibold text-ink">Progress</span>
             <span className="text-[11px] text-ink-muted">Launched 14 Sep · up to 5 calls at a time</span>
           </span>
-          <span className="mk-rise mk-s4 flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+          <span className="mk-rise mk-s4 flex h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-white/[0.06]">
             {progress.map(({ label, w, tone }) => (
               <span key={label} className={`block h-full ${w} ${tone}`} />
             ))}
@@ -351,7 +351,7 @@ export function LaunchCheckMock() {
             key={label}
             className={`mk-rise mk-s${Math.min(i + 1, 6)} flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2`}
           >
-            <Check className="h-3.5 w-3.5 shrink-0 text-brand-strong" strokeWidth={2.5} />
+            <Check className="h-3.5 w-3.5 shrink-0 text-brand-strong dark:text-brand-bright" strokeWidth={2.5} />
             <span className="min-w-0 flex-1 text-[12px] font-medium text-ink">{label}</span>
           </span>
         ))}
@@ -404,7 +404,7 @@ export function VoicePickerMock() {
             <span
               key={name ?? i}
               className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
-                selected ? "border-brand/40 bg-brand-soft/50" : "border-line bg-surface"
+                selected ? "border-brand/40 bg-brand-soft/50 dark:bg-brand-strong/20" : "border-line bg-surface"
               }`}
             >
               <span

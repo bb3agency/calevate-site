@@ -38,10 +38,19 @@ import {
   type DashboardDataUseList,
 } from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
+import { NUMBER_PRICING_PATH, type NumberPrice } from "@/lib/api/numberPricing";
 
 import { expectNoA11yViolations } from "./a11y";
 import { expectTextCount, problem, stubApi, type Routes } from "./harness";
 import { OPS_RATE_CARD } from "./fixtures/opsRateCard";
+
+/** The number-price panel shares the config screen's billing section. */
+const NUMBER_PRICE: NumberPrice = {
+  attested: true,
+  inr_per_month: "499.00",
+  source: "carrier order form, 1 Oct 2026",
+  attested_at: "2026-10-01T06:30:00Z",
+};
 
 /*
  * The configuration screen is a settings layout (D-661): one section is mounted at a time,
@@ -340,6 +349,7 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       [OPS_RATE_CARD_PATH]: OPS_RATE_CARD,
       [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
       [OPS_FX_RATE_PATH]: FX_RATE,
+      [NUMBER_PRICING_PATH]: NUMBER_PRICE,
       [OPS_SECRETS_PATH]: SECRETS,
       [`${OPS_SECRETS_PATH}/kek`]: KEK,
     },

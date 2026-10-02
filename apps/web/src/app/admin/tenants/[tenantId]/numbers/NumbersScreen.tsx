@@ -61,6 +61,7 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON,
   Skeleton,
+  formatPhone,
 } from "@/components/ui";
 import { useProvisionNumber, useTenant, useTenantAgents } from "@/lib/api/admin";
 import {
@@ -229,7 +230,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
               <ul className="divide-y divide-line">
                 {offers.data.map((offer) => (
                   <li key={offer.e164} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
-                    <span className="font-mono text-ink">{offer.e164}</span>
+                    <span className="font-mono text-ink">{formatPhone(offer.e164)}</span>
                     {offer.region && <span className="text-ink-muted">{offer.region}</span>}
                     {offer.provider && <span className="text-xs text-ink-muted">{offer.provider}</span>}
                     <span className="text-ink-muted">
@@ -344,7 +345,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
 
       {buying && (
         <ConfirmDialog
-          title={`Buy ${buying.e164} for ${tenant.data?.name ?? "this client"}?`}
+          title={`Buy ${formatPhone(buying.e164)} for ${tenant.data?.name ?? "this client"}?`}
           confirmLabel="Buy the number"
           pendingLabel="Buying…"
           pending={buy.isPending}
@@ -373,7 +374,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
 
       {releasing && (
         <ConfirmDialog
-          title={`Give ${releasing.e164} back to the voice platform?`}
+          title={`Give ${formatPhone(releasing.e164)} back to the voice platform?`}
           confirmLabel="Release the number"
           pendingLabel="Releasing…"
           pending={release.isPending}

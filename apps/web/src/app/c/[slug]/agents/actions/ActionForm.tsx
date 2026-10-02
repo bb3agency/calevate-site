@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ADDING ONE ACTION — the kind-specific form, and the wire body it builds.
+ * ADDING OR EDITING ONE ACTION — the kind-specific form, and the wire body it builds.
  *
  * Split out of `Actions.tsx` (UX-DOCTRINE §6). The form is one component rather than three
  * because the SHARED half (name, when the AI should use it, credential, parameters,
@@ -25,6 +25,8 @@ import {
   useCalendarConnect,
   useCreateAction,
   useCredentials,
+  useUpdateAction,
+  type ActionTool,
   type ActionToolInput,
 } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
@@ -32,41 +34,66 @@ import type { Session } from "@/lib/api/client";
 import { useFormValidation } from "@/components/formValidation";
 
 import { ParamEditor } from "./ParamEditor";
-import { toParam, type DraftParam, type Kind, type Provider } from "./params";
+import { fromParam, toParam, type DraftParam, type Kind, type Provider } from "./params";
+
+/** A stored config value as a string, or the fallback. `config` is an open dict on the wire. */
+function configText(existing: ActionTool | undefined, key: string, fallback: string): string {
+  const value = existing?.config[key];
+  return typeof value === "string" && value !== "" ? value : fallback;
+}
 
 export function ActionForm({
   kind,
   agentId,
   session,
   onDone,
+  existing,
 }: {
   kind: Kind;
   agentId: string;
   session: Session;
   onDone: () => void;
+  /** The stored action this form edits; absent, it creates a new one. */
+  existing?: ActionTool;
 }) {
   const create = useCreateAction(session, agentId);
+  const update = useUpdateAction(session, agentId);
+  const save = existing ? update : create;
   const creds = useCredentials(session);
   const calendarConnect = useCalendarConnect(session);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(existing?.name ?? "");
   const valid = useFormValidation();
-  const [description, setDescription] = useState("");
-  const [trigger, setTrigger] = useState<"during_call" | "after_call">("during_call");
-  const [preCall, setPreCall] = useState("");
-  const [credentialId, setCredentialId] = useState("");
-  const [provider, setProvider] = useState<Provider>(kind === "calendar" ? "google" : "aisensy");
-  const [params, setParams] = useState<DraftParam[]>([]);
+  const [description, setDescription] = useState(existing?.description ?? "");
+  const [trigger, setTrigger] = useState<"during_call" | "after_call">(
+    existing?.trigger === "after_call" ? "after_call" : "during_call",
+  );
+  const [preCall, setPreCall] = useState(existing?.pre_call_message ?? "");
+  const [credentialId, setCredentialId] = useState(existing?.credential_id ?? "");
+  const [provider, setProvider] = useState<Provider>(
+    kind === "calendar"
+      ? "google"
+      : ((["aisensy", "meta_cloud", "interakt", "custom"] as const).find(
+          (p) => p === existing?.provider,
+        ) ?? "aisensy"),
+  );
+  const [params, setParams] = useState<DraftParam[]>(() =>
+    (existing?.params ?? []).map(fromParam),
+  );
 
   // custom_api
-  const [method, setMethod] = useState<"GET" | "POST">("POST");
-  const [url, setUrl] = useState("");
+  const [method, setMethod] = useState<"GET" | "POST">(
+    configText(existing, "method", "POST") === "GET" ? "GET" : "POST",
+  );
+  const [url, setUrl] = useState(configText(existing, "url", ""));
   // whatsapp
-  const [template, setTemplate] = useState("");
-  const [language, setLanguage] = useState("en");
-  const [phoneNumberId, setPhoneNumberId] = useState("");
+  const [template, setTemplate] = useState(configText(existing, "template", ""));
+  const [language, setLanguage] = useState(configText(existing, "language", "en"));
+  const [phoneNumberId, setPhoneNumberId] = useState(configText(existing, "phone_number_id", ""));
   // calendar
-  const [operation, setOperation] = useState<"book" | "check">("check");
-  const [calendarId, setCalendarId] = useState("primary");
+  const [operation, setOperation] = useState<"book" | "check">(
+    configText(existing, "operation", "check") === "book" ? "book" : "check",
+  );
+  const [calendarId, setCalendarId] = useState(configText(existing, "calendar_id", "primary"));
 
   function buildBody(): ActionToolInput {
     const base = {
@@ -139,10 +166,14 @@ export function ActionForm({
       className="space-y-3 rounded-card border border-line bg-app p-4"
       noValidate
       onSubmit={valid.onSubmit(() => {
-        create.mutate(buildBody(), { onSuccess: onDone });
+        const body = buildBody();
+        if (existing) update.mutate({ toolId: existing.id, body }, { onSuccess: onDone });
+        else create.mutate(body, { onSuccess: onDone });
       })}
     >
-      <p className="text-sm font-semibold text-ink">New {ACTION_KIND_LABELS[kind]} action</p>
+      <p className="text-sm font-semibold text-ink">
+        {existing ? `Edit ${existing.name}` : `New ${ACTION_KIND_LABELS[kind]} action`}
+      </p>
 
       {kind !== "custom_api" && kind !== "calendar" ? (
         <div>
@@ -372,10 +403,10 @@ export function ActionForm({
         </div>
       </div>
 
-      {create.isError ? <ProblemNotice error={create.error} /> : null}
+      {save.isError ? <ProblemNotice error={save.error} /> : null}
       <div className="flex gap-2">
-        <button type="submit" className={PRIMARY_BUTTON} disabled={create.isPending}>
-          {create.isPending ? "Saving…" : "Save action"}
+        <button type="submit" className={PRIMARY_BUTTON} disabled={save.isPending}>
+          {save.isPending ? "Saving…" : existing ? "Save changes" : "Save action"}
         </button>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel

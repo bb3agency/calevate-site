@@ -139,6 +139,60 @@ describe("removing a configured action", () => {
   });
 });
 
+describe("editing a configured action", () => {
+  // `PUT /v1/agents/{agent_id}/actions/{tool_id}` had a hook and no control: an action
+  // could be added, switched and removed, and a typo in its URL meant deleting it.
+  const STORED: ActionTool = {
+    ...TOOL,
+    id: "tool-2",
+    name: "lookup_order",
+    kind: "custom_api",
+    provider: null,
+    trigger: "during_call",
+    description: "Looks up an order.",
+    credential_id: null,
+    pre_call_message: "One moment…",
+    params: [
+      { name: "order_id", source: "ai", description: "The order number", type: "string", required: true },
+    ],
+    config: { method: "GET", url: "https://api.example.in/orders", query: [], body: [] },
+  };
+
+  it("opens on the stored values and sends the whole action back with PUT", async () => {
+    const { calls } = await renderClientPage(
+      <ToolRow tool={STORED} agentId="agent-1" session={SESSION} />,
+      {
+        "/v1/integrations/credentials": [],
+        "PUT /v1/agents/agent-1/actions/tool-2": STORED,
+      },
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit lookup_order" }));
+    const url = (await screen.findByLabelText("API URL")) as HTMLInputElement;
+    expect(url.value).toBe("https://api.example.in/orders");
+    expect((screen.getByLabelText("Method") as HTMLSelectElement).value).toBe("GET");
+
+    fireEvent.change(url, { target: { value: "https://api.example.in/v2/orders" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const sent = JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}");
+    expect(sent).toMatchObject({
+      kind: "custom_api",
+      name: "lookup_order",
+      description: "Looks up an order.",
+      pre_call_message: "One moment…",
+      config: {
+        method: "GET",
+        url: "https://api.example.in/v2/orders",
+        query: [{ key: "order_id", param: "order_id" }],
+      },
+      params: [{ name: "order_id", source: "ai", required: true, type: "string" }],
+    });
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+});
+
 /**
  * AND THE CLASS, NOT JUST THESE TWO ROWS.
  *

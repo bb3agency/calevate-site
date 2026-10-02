@@ -276,8 +276,14 @@ async def test_an_unkeyable_callback_is_acked_ignored(
             ),
             VOBIZ_IP,
         ),
+        # Plivo's callback grammar is unread, so its worker job could only refuse; the
+        # route must not turn an unauthenticated POST into an inbox row and an alarm.
+        (
+            events_path("plivo", owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))),
+            "203.0.113.9",
+        ),
     ],
-    ids=["unknown-ref", "stranger", "unknown-carrier", "bad-call-id"],
+    ids=["unknown-ref", "stranger", "unknown-carrier", "bad-call-id", "unread-carrier"],
 )
 async def test_a_refused_callback_queues_nothing_and_still_reports_its_ack(
     path: str, source_ip: str, enqueued: Enqueued

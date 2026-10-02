@@ -38,12 +38,21 @@ import {
   type DashboardDataUseList,
 } from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
+import { NUMBER_PRICING_PATH, type NumberPrice } from "@/lib/api/numberPricing";
 
 import { formatISTInput, istInputToInstant } from "@/components/ui";
 
 import { problem, renderAdminPage, type Routes } from "./harness";
 import { OPS_RATE_CARD_PATH } from "@/lib/api/opsRateCard";
 import { OPS_RATE_CARD } from "./fixtures/opsRateCard";
+
+/** The number-price panel shares the config screen's billing section. */
+const NUMBER_PRICE: NumberPrice = {
+  attested: true,
+  inr_per_month: "499.00",
+  source: "carrier order form, 1 Oct 2026",
+  attested_at: "2026-10-01T06:30:00Z",
+};
 
 /*
  * The configuration screen is a settings layout (D-661): one section is mounted at a time,
@@ -186,6 +195,7 @@ function configRoutes(
     [OPS_MODEL_PRICES_PATH]: modelPrices(),
     // The exchange-rate panel shares this screen too, and is stubbed for the same reason.
     [OPS_FX_RATE_PATH]: fxRate(),
+    [NUMBER_PRICING_PATH]: NUMBER_PRICE,
     // The dashboard AI data-use panel shares this screen too, and is stubbed for the same
     // reason: an unrouted read paints a `ProblemNotice` over a screen these cases assert the
     // exact controls of.

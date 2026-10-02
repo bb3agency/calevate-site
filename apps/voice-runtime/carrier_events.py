@@ -28,7 +28,14 @@ from apps.api.core.alerting import alert
 from apps.api.core.queue import job_id_for
 from apps.api.reliability.service import body_hash
 from calevate_shared.carrier import CARRIER_EVENT_JOB
-from carrier_routes import CARRIER_ACK, admit, parse_call_id, parse_ref, read_params
+from carrier_routes import (
+    CARRIER_ACK,
+    admit,
+    parse_call_id,
+    parse_ref,
+    read_params,
+    refuse,
+)
 from engine_intake import keyable
 from fastapi import APIRouter, Request, Response
 from webhook_routes import InboxWork, WebhookAckOut, acknowledge_ignored, measured, settle
@@ -135,7 +142,9 @@ async def _receive(
     """Source and signature, then the ref, then the body — the order every carrier route
     keeps, so a caller we refuse never gets us to allocate for them."""
     surface = "events"
-    _contract, verdict = admit(carrier, request, surface=surface)
+    contract, verdict = admit(carrier, request, surface=surface)
+    if not contract.status_callbacks:
+        raise refuse("status_callbacks_not_supported", carrier=carrier, surface=surface)
     parse_ref(ref, carrier=carrier, surface=surface)
     ours = parse_call_id(call_id, carrier=carrier, surface=surface) if call_id else None
     params, readable = await read_params(request, carrier=carrier)
