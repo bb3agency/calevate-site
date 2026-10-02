@@ -270,38 +270,19 @@ def test_a_missing_cdr_refuses_rather_than_timing_the_call_ourselves() -> None:
 
     assert exc.leg is MeteredLeg.CARRIER
     assert exc.code == "meter_carrier_cdr_missing"
-    assert "session duration" in exc.remediation
+    assert "read_carrier_cdr" in exc.remediation
 
 
-def test_the_carrier_refusal_names_the_minutes_the_client_is_not_billed() -> None:
-    """The refusal's expensive half, which it used to leave unsaid.
-
-    `telephony_s` is `billing/models.CLIENT_BILLED_UNIT_TYPES[0]` and its `qty` is what
-    `billing/service.usage_summary` reports as `minutes_used`, what the overage rungs are
-    cut from and what a prepaid wallet is debited against. A refused carrier leg writes no
-    such row, so the call earns nothing — a revenue fact, not a cost one, and an operator
-    triaging "unmetered spend" would never look for it.
-    """
+def test_the_carrier_refusal_says_where_the_minutes_and_the_charge_come_from() -> None:
+    """The client's minutes come from the post-call meter (D-648) and the carrier's charge
+    from its CDR; a refusal saying the call bills nothing sends an operator after a loss
+    that does not exist."""
     meter = CallMeter()
     exc = _only_refusal(CarrierFactsMissingError, meter, carrier=None, runtime=RUNTIME)
 
     assert "telephony_s" in exc.detail
-    assert "plan allowance" in exc.detail
-    assert "wallet" in exc.detail
-
-
-def test_the_carrier_refusal_points_at_the_reader_that_refuses_rather_than_at_a_chore() -> None:
-    """ "Retrieve the CDR and meter again" is not an action anybody here can take.
-
-    Nothing in this deployment can read a CDR — `carrier.fetch_call_detail_record` refuses
-    by name — so a remediation phrased as a chore sends an operator looking for a console
-    button that does not exist. It has to name the blocker instead.
-    """
-    meter = CallMeter()
-    exc = _only_refusal(CarrierFactsMissingError, meter, carrier=None, runtime=RUNTIME)
-
-    assert "fetch_call_detail_record" in exc.remediation
-    assert "BLOCKER-1" in exc.remediation
+    assert "D-648" in exc.detail
+    assert "no plan allowance" not in exc.detail
 
 
 def test_the_runtime_leg_refuses_because_the_active_minute_is_unknown() -> None:
