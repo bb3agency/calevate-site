@@ -97,7 +97,7 @@ export function StartTrialForm({
 
   return (
     <form
-      className="mt-5 space-y-4 border-t border-line pt-5"
+      className="space-y-4"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -197,7 +197,7 @@ export function StartTrialForm({
           suspend, then that it is recorded. An operator who reads only the first line has
           read the part that matters. */}
       <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
-        <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+        <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
         <div className="min-w-0">
           <p className="font-semibold text-ink">
             {days === null

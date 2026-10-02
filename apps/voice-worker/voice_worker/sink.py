@@ -168,10 +168,15 @@ class HttpEventSink:
         tenant_id: UUID,
         agent_id: UUID,
         direction: CallDirection,
+        carrier_call_id: str | None = None,
         turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
         turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
     ) -> None:
         """The four ids this call is, and the client it posts them through.
+
+        `carrier_call_id` is the carrier's id for the call, sent on every batch and on the
+        settlement so whichever request mints or first touches the `calls` row records it;
+        the server keeps the first value it stores.
 
         **FOUR IDS RATHER THAN A `SessionConfig`, WHICH IS THE ONE SHAPE DECISION HERE.**
         Those are the only fields of that object this sink would read — and taking the whole
@@ -194,6 +199,7 @@ class HttpEventSink:
         self._tenant_id = tenant_id
         self._agent_id = agent_id
         self._direction = direction
+        self._carrier_call_id = carrier_call_id
         self._lock = asyncio.Lock()
         #: Turns waiting to be sent. RAW, because redaction is the server's now — which also
         #: means this buffer holds exactly what the wire will carry and nothing derived.
@@ -347,6 +353,7 @@ class HttpEventSink:
         batch = ObservationBatch(
             agent_id=self._agent_id,
             direction=self._direction,
+            carrier_call_id=self._carrier_call_id,
             events=self._events[:MAX_EVENTS_PER_BATCH],
             turns=self._pending[:MAX_TURNS_PER_BATCH],
             knowledge=self._knowledge,
@@ -490,6 +497,7 @@ class HttpEventSink:
             direction=self._direction,
             agent_id=self._agent_id,
             agent_config_version_id=agent_config_version_id,
+            carrier_call_id=self._carrier_call_id,
             refusals=[_refusal_of(refused) for refused in metered.refusals],
             quantities=[_quantity_of(row) for row in metered.rows],
             latency=latency,

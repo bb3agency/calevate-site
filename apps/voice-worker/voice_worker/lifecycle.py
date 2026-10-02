@@ -244,12 +244,13 @@ class SessionRegistry:
         asked to stop, so no call is admitted into a container that is on its way out.
         Then every live session is asked to end the graceful way — `stop_when_done()`
         queues an `EndFrame`, which drains what is already in flight and lets the transport
-        close normally (`pipecat/pipeline/worker.py:765-772`). On the Plivo leg that close
-        is also what HANGS UP: `PlivoFrameSerializer` answers an `EndFrame` with
-        `DELETE /v1/Account/{auth_id}/Call/{call_id}/` (`pipecat/serializers/plivo.py:
-        118-135`, `:172-192`), which is why `boot` refuses to start without those
-        credentials. A `cancel()` here instead would cut the socket, and the carrier would
-        keep the leg — and the meter — running on a call nobody is on.
+        close normally (`pipecat/pipeline/worker.py:765-772`). That `EndFrame` is also what
+        HANGS UP: on Vobiz `VobizFrameSerializer` answers it with an in-band `stop`, after
+        which Vobiz ends the call (`stream-events.md:262-293`); on Plivo
+        `PlivoFrameSerializer` answers it with `DELETE /v1/Account/{auth_id}/Call/
+        {call_id}/` (`pipecat/serializers/plivo.py:118-135`, `:172-192`), which is why
+        `boot` refuses `CARRIER=plivo` without those credentials. A `cancel()` here instead
+        would cut the caller off mid-sentence and can lose the terminal event.
 
         **WHAT HAPPENS TO THE RECORD, WHICH IS THE PART THAT IS NOT AN OPS NICETY.** A
         session that drains inside the grace ends the way every call ends: the pipeline's

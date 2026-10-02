@@ -23,10 +23,11 @@
  *
  * ## Hierarchy (UX §1)
  *
- * The primary surface is the recording form: brand-bordered, first under the header, and
- * holding the screen's only `PRIMARY_BUTTON_LG`. Buying is deliberately BELOW it and
- * secondary — it is Model A, and this deployment holds no reseller authorisation, so every
- * call on that path refuses by name until one is recorded.
+ * The list is the screen: each row is where an operator says who answers a number, and a
+ * number nobody answers says so on its own row. Recording a new number is the header's
+ * action and opens in a drawer (the form keeps the screen's only `PRIMARY_BUTTON_LG`).
+ * Buying is disclosed at the bottom — it is Model A, and this deployment holds no reseller
+ * authorisation, so every call on that path refuses by name until one is recorded.
  *
  * ## Three things this screen must not get wrong
  *
@@ -38,18 +39,21 @@
  *    ringing phone.** Every row says where it stands on both.
  */
 
-import Link from "next/link";
 import { useState } from "react";
-import { ArrowLeft, Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { Drawer } from "@/components/console/drawer";
+import { EmptyState } from "@/components/console/emptyState";
+import { InfoTip } from "@/components/console/infoTip";
+import { PageHeader } from "@/components/console/pageHeader";
 import { useFormValidation } from "@/components/formValidation";
 import {
-  Card,
-  EmptyState,
+  Disclosure,
   FIELD,
   FIELD_HINT,
+  FIELD_INLINE,
   FIELD_LABEL,
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_LG,
@@ -116,122 +120,62 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
   const release = useReleaseNumber(tenantId);
   const [buying, setBuying] = useState<PricedNumber | null>(null);
   const [releasing, setReleasing] = useState<TenantNumberCost | null>(null);
+  const [recording, setRecording] = useState(false);
+
+  const recordAction = (
+    <button type="button" className={PRIMARY_BUTTON} disabled={!write.allowed} onClick={() => setRecording(true)}>
+      <Plus aria-hidden className="h-4 w-4" />
+      Record a number
+    </button>
+  );
 
   return (
     <div className="space-y-5">
-      <Link
-        href={`/admin/tenants/${tenantId}`}
-        className="inline-flex items-center gap-1.5 rounded-sm text-sm text-ink-muted hover:text-ink touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        {tenant.data?.name ?? "Back to the client"}
-      </Link>
-
-      <div>
-        <h1 className="text-lg font-semibold text-ink">Phone numbers</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          Record the connection this client already holds in their own name, then choose
-          which agent answers it. Until an agent is attached, a call to the number reaches
-          nobody — however many agents are published.
-        </p>
-      </div>
+      <PageHeader
+        title="Numbers"
+        description="Record the client's own connection, then choose which agent answers it."
+        actions={recordAction}
+      />
 
       <RestrictionNote reason={write.reason} />
 
-      {/* THE PRIMARY SURFACE (UX §1): brand-bordered, first, and the only large button. */}
-      <Card title="Record a number this client holds" className="border-2 border-brand">
-        <form
-          className="space-y-4 p-4 sm:p-6"
-          noValidate
-          onSubmit={numberValid.onSubmit(() => {
-            record.mutate({ e164, series }, { onSuccess: () => setE164("") });
-          })}
-        >
-          <p className="text-sm text-ink-muted">
-            Calevate does not buy or resell this number: the client is the subscriber of
-            record on their own operator account and issues us revocable credentials for
-            it. Recording it here is what lets an agent be put on it.
-          </p>
-          {record.error && <ProblemNotice error={record.error} />}
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className={FIELD_LABEL}>The number, with its country code</span>
-              <input
-                {...numberValid.field("e164", "Enter the number to record.")}
-                required
-                minLength={8}
-                value={e164}
-                disabled={!write.allowed}
-                onChange={(ev) => setE164(ev.target.value)}
-                placeholder="+918041234567"
-                className={`font-mono ${FIELD}`}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className={FIELD_LABEL}>Series</span>
-              <select
-                className={FIELD}
-                value={series}
-                disabled={!write.allowed}
-                onChange={(ev) => setSeries(ev.target.value as Series)}
-              >
-                <option value="standard">standard — an ordinary business line</option>
-                <option value="160">160 — service / transactional</option>
-                <option value="140">140 — telemarketing / promotional</option>
-              </select>
-            </label>
-          </div>
-          {numberValid.error("e164")}
-          <p className={FIELD_HINT}>
-            The series is fixed when the operator issues the number, and the campaign launch
-            gate matches it against a campaign&apos;s classification — a number filed under
-            the wrong one dials the wrong traffic. The server checks it against the
-            number&apos;s own prefix and refuses a disagreement rather than correcting it.
-          </p>
-          <button type="submit" className={PRIMARY_BUTTON_LG} disabled={!write.allowed || record.isPending}>
-            {record.isPending ? "Recording…" : "Record this number"}
-          </button>
-        </form>
-      </Card>
+      {held.error ? (
+        <ProblemNotice error={held.error} onRetry={() => held.refetch()} />
+      ) : held.isLoading || !held.data ? (
+        <Skeleton rows={3} />
+      ) : held.data.length === 0 ? (
+        <EmptyState
+          message="No numbers on this account. Nothing can make their phone ring until one is on file."
+          action={recordAction}
+        />
+      ) : (
+        <ul className="divide-y divide-line rounded-card border border-line bg-surface">
+          {held.data.map((number) => (
+            <NumberRow
+              key={number.id}
+              number={number}
+              tenantId={tenantId}
+              agents={agents.data}
+              agentsFailed={Boolean(agents.error)}
+              canWrite={write.allowed}
+              onRelease={() => setReleasing(number)}
+            />
+          ))}
+        </ul>
+      )}
 
-      <Card title="Numbers on this account">
-        {held.error ? (
-          <div className="p-4">
-            <ProblemNotice error={held.error} onRetry={() => held.refetch()} />
-          </div>
-        ) : held.isLoading || !held.data ? (
-          <div className="p-4">
-            <Skeleton rows={3} />
-          </div>
-        ) : held.data.length === 0 ? (
-          <EmptyState
-            title="No numbers on this account"
-            hint="Record the client's own connection above. Nothing else on this screen can make their phone ring until one is on file."
-          />
-        ) : (
-          <ul className="divide-y divide-line">
-            {held.data.map((number) => (
-              <NumberRow
-                key={number.id}
-                number={number}
-                tenantId={tenantId}
-                agents={agents.data}
-                agentsFailed={Boolean(agents.error)}
-                canWrite={write.allowed}
-                onRelease={() => setReleasing(number)}
-              />
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card title="Buy a number">
-        <div className="space-y-4 p-4">
+      {/* Disclosed, with the fact in the closed state: this path refuses by name on this
+          deployment until a reseller authorisation is recorded (Model A). */}
+      <Disclosure
+        title="Buy a number"
+        subtitle="Model A only: refused on this deployment until a reseller authorisation is recorded."
+      >
+        <div className="space-y-4 px-4 pb-4 sm:px-6">
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1">
               <span className={FIELD_LABEL}>Country</span>
               <select
-                className={FIELD}
+                className={FIELD_INLINE}
                 value={country}
                 onChange={(ev) => {
                   setCountry(ev.target.value as "IN" | "US");
@@ -248,7 +192,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
                   puzzled by an empty result. */}
               <span className={FIELD_LABEL}>Starts with (optional, up to 3 digits)</span>
               <input
-                className={FIELD}
+                className={FIELD_INLINE}
                 value={pattern}
                 maxLength={8}
                 placeholder="80"
@@ -264,7 +208,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
               disabled={!write.allowed || offers.isFetching}
               onClick={() => setSearching(true)}
             >
-              <Search className="mr-1.5 inline h-3.5 w-3.5" />
+              <Search aria-hidden className="h-3.5 w-3.5" />
               {offers.isFetching ? "Searching…" : "Search"}
             </button>
           </div>
@@ -282,22 +226,14 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
                 prefix — this is their inventory today, not a permanent answer.
               </p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="divide-y divide-line">
                 {offers.data.map((offer) => (
-                  <li
-                    key={offer.e164}
-                    className="flex flex-wrap items-center gap-3 rounded-card border border-line p-3 text-sm"
-                  >
+                  <li key={offer.e164} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
                     <span className="font-mono text-ink">{offer.e164}</span>
                     {offer.region && <span className="text-ink-muted">{offer.region}</span>}
-                    {offer.provider && (
-                      <span className="rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
-                        {offer.provider}
-                      </span>
-                    )}
+                    {offer.provider && <span className="text-xs text-ink-muted">{offer.provider}</span>}
                     <span className="text-ink-muted">
-                      {/* The vendor's own figure, in the vendor's own currency. Not
-                          converted here — see the module note. */}
+                      {/* The vendor's own figure, in the vendor's own currency. */}
                       {offer.monthly_price_usd
                         ? `$${offer.monthly_price_usd} / month`
                         : "no price quoted"}
@@ -305,7 +241,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
                     <span className="ml-auto">
                       <button
                         type="button"
-                        className={PRIMARY_BUTTON}
+                        className={SECONDARY_BUTTON}
                         disabled={!write.allowed || !offer.monthly_price_usd || buy.isPending}
                         onClick={() => {
                           // The type, not the disabled attribute, is what keeps an
@@ -327,7 +263,84 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
             </p>
           )}
         </div>
-      </Card>
+      </Disclosure>
+
+      <Drawer
+        open={recording}
+        onClose={() => setRecording(false)}
+        title="Record a number"
+        description="A connection this client already holds in their own name."
+      >
+        <form
+          className="space-y-4"
+          noValidate
+          onSubmit={numberValid.onSubmit(() => {
+            record.mutate(
+              { e164, series },
+              {
+                onSuccess: () => {
+                  setE164("");
+                  setRecording(false);
+                },
+              },
+            );
+          })}
+        >
+          {/* The legal posture (Model B), stated where the number is entered. */}
+          <p className="text-sm text-ink-muted">
+            Calevate does not buy or resell this number: the client is the subscriber of
+            record on their own operator account and issues us revocable credentials for
+            it. Recording it here is what lets an agent be put on it.
+          </p>
+          {record.error && <ProblemNotice error={record.error} />}
+          <label className="block">
+            <span className={FIELD_LABEL}>The number, with its country code</span>
+            <input
+              {...numberValid.field("e164", "Enter the number to record.")}
+              required
+              minLength={8}
+              value={e164}
+              disabled={!write.allowed}
+              onChange={(ev) => setE164(ev.target.value)}
+              placeholder="+918041234567"
+              className={`font-mono ${FIELD}`}
+            />
+          </label>
+          {numberValid.error("e164")}
+          <div>
+            <label className="block">
+              <span className={FIELD_LABEL}>Series</span>
+              <select
+                className={FIELD}
+                value={series}
+                disabled={!write.allowed}
+                onChange={(ev) => setSeries(ev.target.value as Series)}
+              >
+                <option value="standard">standard — an ordinary business line</option>
+                <option value="160">160 — service / transactional</option>
+                <option value="140">140 — telemarketing / promotional</option>
+              </select>
+            </label>
+            <div className={`${FIELD_HINT} flex items-start gap-1`}>
+              <span>It must match the number&apos;s prefix; the server refuses a mismatch.</span>
+              <InfoTip label="Series">
+                The series is fixed when the operator issues the number, and the campaign
+                launch gate matches it against a campaign&apos;s classification — a number
+                filed under the wrong one dials the wrong traffic. The server checks it
+                against the number&apos;s own prefix and refuses a disagreement rather than
+                correcting it.
+              </InfoTip>
+            </div>
+          </div>
+          <button
+            type="submit"
+            className={`${PRIMARY_BUTTON_LG} max-sm:w-full max-sm:justify-center`}
+            disabled={!write.allowed || record.isPending}
+          >
+            {record.isPending ? "Recording…" : "Record this number"}
+          </button>
+        </form>
+      </Drawer>
 
       {buying && (
         <ConfirmDialog

@@ -117,9 +117,9 @@ export const SEVERITY_MEANINGS: Record<string, string> = {
  * `lib/lookup.ts` exists to make unrepeatable (`tests/wireLookupGuard.test.ts`).
  */
 export const SEVERITY_STYLES: Record<string, string> = {
-  page: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200",
-  attention: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
-  record: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  page: "bg-danger-soft text-danger",
+  attention: "bg-warn-soft text-warn",
+  record: "bg-ink/[0.06] text-ink-muted",
 };
 
 export function severityLabel(severity: string): string {
@@ -127,10 +127,7 @@ export function severityLabel(severity: string): string {
 }
 
 export function severityStyle(severity: string): string {
-  return (
-    lookup(SEVERITY_STYLES, severity) ??
-    "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-  );
+  return lookup(SEVERITY_STYLES, severity) ?? "bg-ink/[0.06] text-ink-muted";
 }
 
 /**

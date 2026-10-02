@@ -38,9 +38,15 @@ COMPLETE_ENV: dict[str, str] = {
     "AWS_ACCESS_KEY_ID": "key",
     "AWS_SECRET_ACCESS_KEY": "secret",
     "SARVAM_API_KEY": "sarvam",
+    "AZURE_OPENAI_API_KEY": "azure",
+}
+
+#: The same container on the Plivo leg, which is the only carrier that needs a credential.
+PLIVO_ENV: dict[str, str] = {
+    **COMPLETE_ENV,
+    "CARRIER": "plivo",
     "PLIVO_AUTH_ID": "plivo-id",
     "PLIVO_AUTH_TOKEN": "plivo-token",
-    "AZURE_OPENAI_API_KEY": "azure",
 }
 
 
@@ -123,6 +129,8 @@ def test_a_complete_environment_loads_with_the_documented_defaults() -> None:
     assert config.cartesia_api_key is None
     assert config.drain_grace_s == boot.DEFAULT_DRAIN_GRACE_S
     assert config.ready_file is None
+    assert config.carrier == "vobiz"
+    assert config.plivo_credentials is None
 
 
 def test_an_empty_environment_names_every_missing_variable_at_once() -> None:
@@ -137,13 +145,59 @@ def test_an_empty_environment_names_every_missing_variable_at_once() -> None:
         boot.AWS_KEY_ENV,
         boot.AWS_SECRET_ENV,
         boot.SARVAM_KEY_ENV,
-        boot.PLIVO_AUTH_ID_ENV,
-        boot.PLIVO_AUTH_TOKEN_ENV,
         "OBJECT_STORE_BUCKET",
         "OBJECT_STORE_ENDPOINT",
     ):
         assert name in message, f"{name} is required and the refusal did not name it"
     assert "AZURE_OPENAI_API_KEY" in message and "GEMINI_API_KEY" in message
+    # The default carrier is Vobiz, which ends a call in-band and holds no credential here.
+    assert boot.PLIVO_AUTH_ID_ENV not in message
+    assert boot.PLIVO_AUTH_TOKEN_ENV not in message
+
+
+def test_the_plivo_leg_names_its_two_credentials_when_they_are_missing() -> None:
+    with pytest.raises(boot.WorkerConfigError) as raised:
+        boot.load_worker_config({boot.CARRIER_ENV: "plivo"})
+    message = str(raised.value)
+    assert boot.PLIVO_AUTH_ID_ENV in message and boot.PLIVO_AUTH_TOKEN_ENV in message
+
+
+@pytest.mark.parametrize("missing", [boot.PLIVO_AUTH_ID_ENV, boot.PLIVO_AUTH_TOKEN_ENV])
+def test_each_plivo_credential_is_required_on_the_plivo_leg(missing: str) -> None:
+    env = {k: v for k, v in PLIVO_ENV.items() if k != missing}
+    with pytest.raises(boot.WorkerConfigError) as raised:
+        boot.load_worker_config(env)
+    assert missing in str(raised.value)
+
+
+def test_the_plivo_leg_carries_its_credentials_into_the_config() -> None:
+    config = boot.load_worker_config(PLIVO_ENV)
+    assert config.carrier == "plivo"
+    assert config.plivo_credentials is not None
+    assert config.plivo_credentials.auth_id == "plivo-id"
+    assert config.plivo_credentials.auth_token == "plivo-token"
+
+
+def test_the_vobiz_leg_needs_no_carrier_credential_and_ignores_a_stray_one() -> None:
+    """A Plivo pair left in a Vobiz worker's secret set is not carried: the Vobiz leg must
+    not be able to reach Plivo's REST API by accident."""
+    config = boot.load_worker_config({**PLIVO_ENV, boot.CARRIER_ENV: "vobiz"})
+    assert config.carrier == "vobiz"
+    assert config.plivo_credentials is None
+
+
+@pytest.mark.parametrize("value", ["VOBIZ", " Plivo "])
+def test_the_carrier_is_read_case_insensitively(value: str) -> None:
+    config = boot.load_worker_config({**PLIVO_ENV, boot.CARRIER_ENV: value})
+    assert config.carrier == value.strip().lower()
+
+
+@pytest.mark.parametrize("value", ["twilio", "vobis", "plivo,vobiz"])
+def test_a_carrier_this_build_does_not_know_is_refused_rather_than_defaulted(value: str) -> None:
+    with pytest.raises(boot.WorkerConfigError) as raised:
+        boot.load_worker_config({**COMPLETE_ENV, boot.CARRIER_ENV: value})
+    assert boot.CARRIER_ENV in str(raised.value)
+    assert value not in str(raised.value)
 
 
 @pytest.mark.parametrize("missing", sorted(COMPLETE_ENV))

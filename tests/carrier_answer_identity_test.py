@@ -44,6 +44,8 @@ from main import app as voice_app
 from voice_worker import carrier
 
 STREAM_BASE = "wss://calevate-pipecat-worker.example.invalid/ws"
+#: The carrier whose row is UNKNOWN in every cell, which is what most of this file drives.
+PLIVO = "plivo"
 CALLER = "+919876500011"
 
 #: A contract row with a calling-party parameter filled in — i.e. what ONE founder reading
@@ -54,7 +56,7 @@ CALLER = "+919876500011"
 #: `From` could. What is under test is the MECHANISM; the vendor's word for it is the one
 #: thing this container cannot supply.
 FILLED = replace(
-    carrier_routes.CARRIER_ANSWER_CONTRACT[carrier_routes.ANSWER_CARRIER],
+    carrier_routes.CARRIER_ANSWER_CONTRACT[PLIVO],
     calling_party=("caller_param_a", "caller_param_b"),
     calling_party_evidence_class="VENDOR-PUBLISHED",
     calling_party_evidence="a test fixture standing in for a read page",
@@ -76,7 +78,7 @@ def filled_contract(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(
         carrier_routes,
         "CARRIER_ANSWER_CONTRACT",
-        {carrier_routes.ANSWER_CARRIER: FILLED},
+        {PLIVO: FILLED},
     )
     yield
 
@@ -115,7 +117,7 @@ def test_the_shipped_plivo_row_is_unknown_in_every_cell_it_cannot_verify() -> No
     evidence: a blank `calling_party` with a `VENDOR-PUBLISHED` class beside it would be a
     not-finding recorded as a vendor fact, which is exactly D-631.
     """
-    row = carrier_routes.CARRIER_ANSWER_CONTRACT[carrier_routes.ANSWER_CARRIER]
+    row = carrier_routes.CARRIER_ANSWER_CONTRACT[PLIVO]
 
     assert row.calling_party == ()
     assert row.source_ip_allowlist == ()
@@ -132,22 +134,22 @@ def test_the_shipped_plivo_row_is_unknown_in_every_cell_it_cannot_verify() -> No
         assert "egress-blocked" in evidence or "docs/evidence/" in evidence
 
 
-def test_no_unverified_vendor_name_has_been_written_into_the_seam() -> None:
-    """The three names the brief supplied are plausible, unread, and must stay out.
+def test_no_unverified_plivo_name_has_been_written_into_the_seam() -> None:
+    """The names the brief supplied for PLIVO are plausible, unread, and must stay out.
 
-    This asserts on the SOURCE rather than on the table, because the failure this guards
-    against is somebody hard-coding a parameter or a header in a branch that the table does
-    not govern. The names may appear in prose that says they are unverified — which is why
-    the match is on a code-shaped context (quoted string or attribute), not on the word.
+    `From` and `CallUUID` are Vobiz's verified names (`vobiz-findings/mirror/pages/xml/
+    request.md:29-30`) and live in Vobiz's row; what must not happen is the Plivo row
+    borrowing them, or a Plivo signature header appearing anywhere in code.
     """
+    row = carrier_routes.CARRIER_ANSWER_CONTRACT[PLIVO]
+    assert "From" not in row.calling_party + row.called_party
     for module in (carrier_routes, carrier):
         source = inspect.getsource(module)
-        for name in ("From", "CallUUID", "X-Plivo-Signature-V2"):
-            for quoted in (f'"{name}"', f"'{name}'"):
-                assert quoted not in source, (
-                    f"{module.__name__} hard-codes {name!r}, a vendor fact nobody has read "
-                    "(www.plivo.com is egress-blocked here — hard rule 11, D-631)"
-                )
+        for quoted in ('"X-Plivo-Signature-V2"', "'X-Plivo-Signature-V2'"):
+            assert quoted not in source, (
+                f"{module.__name__} hard-codes a Plivo signature header nobody has read "
+                "(www.plivo.com is egress-blocked here — hard rule 11, D-631)"
+            )
 
 
 def test_the_answer_leg_speaks_the_one_state_vocabulary_that_reaches_the_wire() -> None:
@@ -181,7 +183,7 @@ async def test_todays_answer_forwards_a_named_unknown_rather_than_a_silent_null(
 
     assert response.status_code == 200
     claim = _claim_of(response.text)
-    assert claim[carrier_routes.CLAIM_CARRIER_PARAM] == [carrier_routes.ANSWER_CARRIER]
+    assert claim[carrier_routes.CLAIM_CARRIER_PARAM] == [PLIVO]
     assert claim[carrier_routes.CLAIM_CALLER_STATE_PARAM] == ["unparsed_by_client"]
     assert carrier_routes.CLAIM_CALLER_PARAM not in claim
     # Nothing digit-shaped may reach a URL when there is no number to put there.
@@ -332,7 +334,7 @@ def test_with_no_published_egress_range_the_method_is_none_and_says_so() -> None
     """Not a fail-open dressed up: an empty allowlist enforced is an outage with no remedy
     available to an operator, and the remedy is a VENDOR FACT rather than a setting
     (`calevate_shared.config:396` makes the same argument)."""
-    verdict = carrier_routes.verify_answer_source(carrier_routes.ANSWER_CARRIER, "203.0.113.9")
+    verdict = carrier_routes.verify_answer_source(PLIVO, "203.0.113.9")
 
     assert verdict.ok and verdict.method == "none"
     assert "no source-ip allowlist" in verdict.reason
@@ -370,15 +372,15 @@ def test_a_declared_allowlist_enforces_itself_with_no_switch_to_remember(
         carrier_routes,
         "CARRIER_ANSWER_CONTRACT",
         {
-            carrier_routes.ANSWER_CARRIER: replace(
-                carrier_routes.CARRIER_ANSWER_CONTRACT[carrier_routes.ANSWER_CARRIER],
+            PLIVO: replace(
+                carrier_routes.CARRIER_ANSWER_CONTRACT[PLIVO],
                 source_ip_allowlist=("198.51.100.7",),
                 source_ip_evidence_class="VENDOR-PUBLISHED",
             )
         },
     )
 
-    verdict = carrier_routes.verify_answer_source(carrier_routes.ANSWER_CARRIER, source_ip)
+    verdict = carrier_routes.verify_answer_source(PLIVO, source_ip)
 
     assert verdict.ok is ok
     assert verdict.method == "source_ip"
@@ -399,8 +401,8 @@ async def test_a_request_from_outside_a_declared_allowlist_mints_no_stream_url(
         carrier_routes,
         "CARRIER_ANSWER_CONTRACT",
         {
-            carrier_routes.ANSWER_CARRIER: replace(
-                carrier_routes.CARRIER_ANSWER_CONTRACT[carrier_routes.ANSWER_CARRIER],
+            PLIVO: replace(
+                carrier_routes.CARRIER_ANSWER_CONTRACT[PLIVO],
                 source_ip_allowlist=("198.51.100.7",),
             )
         },
@@ -435,10 +437,10 @@ def test_the_url_this_service_mints_round_trips_through_both_worker_readers() ->
     tenant_id, agent_id = uuid.uuid4(), uuid.uuid4()
     ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
 
-    url = carrier_routes.plivo_stream_url(
+    url = carrier_routes.stream_url(
         STREAM_BASE,
         ref,
-        carrier=carrier_routes.ANSWER_CARRIER,
+        carrier=PLIVO,
         caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),
     )
 
@@ -633,7 +635,7 @@ async def test_an_explicit_claim_is_checked_against_the_detection_rather_than_re
         f"{STREAM_BASE}/token?carrier=plivo&caller_state=known&caller={CALLER}"
     )
 
-    handshake = await carrier.read_plivo_handshake(_SocketSaying(PLIVO_START), claim=claim)
+    handshake = await carrier.read_handshake(_SocketSaying(PLIVO_START), claim=claim)
 
     assert handshake.stream_id == "s-1" and handshake.carrier_call_id == "c-1"
     # The fold: the socket said `unparsed_by_client` and the unauthenticated claim names no
@@ -648,7 +650,7 @@ async def test_a_claim_that_disagrees_with_the_socket_refuses_the_call() -> None
     claim = carrier.claim_from_stream_url(f"{STREAM_BASE}/token?carrier=plivo")
 
     with pytest.raises(carrier.CarrierClaimMismatchError) as refusal:
-        await carrier.read_plivo_handshake(_SocketSaying(TWILIO_START), claim=claim)
+        await carrier.read_handshake(_SocketSaying(TWILIO_START), claim=claim)
 
     assert "plivo" in str(refusal.value) and "twilio" in str(refusal.value)
     # Distinguishable from a provisioning fault, which is a different page for a different
@@ -662,7 +664,7 @@ async def test_a_claim_naming_another_carrier_is_believed_over_the_deployments_c
     that would make the seam unusable the day D-05's Exotel arrives."""
     claim = carrier.claim_from_stream_url(f"{STREAM_BASE}/token?carrier=twilio")
 
-    handshake = await carrier.read_plivo_handshake(_SocketSaying(TWILIO_START), claim=claim)
+    handshake = await carrier.read_handshake(_SocketSaying(TWILIO_START), claim=claim)
 
     assert handshake.stream_id == "MZ1" and handshake.carrier_call_id == "CA1"
     # Twilio's calling party IS mapped by the pinned client, from parameters the ANSWER
@@ -673,7 +675,7 @@ async def test_a_claim_naming_another_carrier_is_believed_over_the_deployments_c
 async def test_with_no_claim_the_deployments_own_carrier_is_still_enforced() -> None:
     """Every existing caller keeps its behaviour, including the refusal it relied on."""
     with pytest.raises(carrier.UnroutableCallError) as refusal:
-        await carrier.read_plivo_handshake(_SocketSaying(TWILIO_START))
+        await carrier.read_handshake(_SocketSaying(TWILIO_START))
 
     assert not isinstance(refusal.value, carrier.CarrierClaimMismatchError)
 
@@ -778,10 +780,10 @@ NOW = 1_800_000_000.0
 
 
 def _signed_url(ref: str, *, key: bytes = CLAIM_KEY, now: float = NOW) -> str:
-    return carrier_routes.plivo_stream_url(
+    return carrier_routes.stream_url(
         STREAM_BASE,
         ref,
-        carrier=carrier_routes.ANSWER_CARRIER,
+        carrier=PLIVO,
         caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),
         claim_key=key,
         now=now,
@@ -839,7 +841,7 @@ def test_a_claim_that_does_not_verify_names_nobody(case: str) -> None:
 
 def test_without_a_signing_key_the_answer_leg_puts_no_number_on_the_url() -> None:
     ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
-    url = carrier_routes.plivo_stream_url(
+    url = carrier_routes.stream_url(
         STREAM_BASE,
         ref,
         caller=carrier_routes.AnswerCallerIdentity(state="known", ground="test", e164=CALLER),

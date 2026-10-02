@@ -2,14 +2,20 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Hash, ScrollText } from "lucide-react";
 
 import {
   Card,
+  FIELD,
+  FIELD_HINT,
+  FIELD_LABEL,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   Skeleton,
+  formatPhone,
 } from "@/components/ui";
+import { PageHeader } from "@/components/console/pageHeader";
 import { useFormValidation } from "@/components/formValidation";
 import { useAdminAccess } from "@/app/admin/access";
 import {
@@ -22,23 +28,22 @@ import {
 import { Term } from "@/lib/glossary";
 
 import { DltRegistrationPanel } from "./DltRegistrationPanel";
-import { FIELD, PrimaryButton, SecondaryButton } from "./controls";
+import { TonePill } from "./tonePill";
+
+const LINK =
+  "rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2";
 
 /**
- * The prerequisites every client campaign stalls on (SEC-COMP §3).
+ * The prerequisites every client campaign stalls on (SEC-COMP §3), as the Campaign setup
+ * page's body.
  *
- * Neither of them is a thing we obtain. **We do not buy the number** — the client takes
- * the connection in their own name on their own Exotel / Plivo / Vobiz account and stays
- * the subscriber of record (Model B: `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9, published
- * Terms clause 3); the form below RECORDS the number they bought, so the launch gate can
- * read its series. **And we cannot file a template under their PE** — they hold that DLT
- * login, not us; what we do is draft the template content for them to file, and record
- * the registrar's verdict.
- *
- * They live in the ADMIN console anyway, because both are compliance facts the launch
- * gate reads: a client who could mark their own template "approved" would be launching
- * under a registration that does not exist. The client realm reads these and never
- * writes them.
+ * None of them is a thing we obtain. **We do not buy the number**: the client takes the
+ * connection in their own name and stays the subscriber of record (Model B,
+ * `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9), and recording it is the Numbers page's job. **We
+ * cannot file a template under their PE**: they hold that DLT login, so we draft the
+ * content and record the registrar's verdict. They live in the ADMIN console because the
+ * launch gate reads them — a client who could mark their own template approved would be
+ * launching under a registration that does not exist.
  */
 export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const numbers = useTenantNumbers(slug);
@@ -46,7 +51,7 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
   const setDlt = useSetNumberDltStatus(tenantId);
   const register = useRegisterTemplate(tenantId);
   const setStatus = useSetTemplateStatus(tenantId);
-  // Every write in this panel is `admin:tenants` on `/v1/admin/tenants/{id}/...`.
+  // Every write here is `admin:tenants` on `/v1/admin/tenants/{id}/...`.
   const write = useAdminAccess("admin:tenants", "change this client's telecom setup");
 
   const [classification, setClassification] = useState<
@@ -55,170 +60,137 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
   const [body, setBody] = useState("");
   const templateValid = useFormValidation();
   const [dltRef, setDltRef] = useState("");
+  const bodyField = templateValid.field("body", "Type the wording registered with the registrar.");
 
   return (
-    <Card title="Campaign setup">
-      <p className="-mt-2 text-xs text-ink-muted">
-        Until a number, an approved template and an active entity registration exist,
-        every campaign this client creates is blocked at launch.
-      </p>
-      {/* THE FOURTH PREREQUISITE, WHICH IS NOT RECORDED HERE. A promotional campaign is
-          held by `national_dnd_blocker` on top of everything above, and it is per
-          CAMPAIGN rather than per client — so it cannot be a field on this panel, and an
-          operator reading three green prerequisites here would otherwise conclude the
-          launch gate was open. The pointer is the honest half of that. */}
-      <p className="mt-2 text-xs text-ink-muted">
-        A <span className="font-medium">promotional</span> campaign needs one thing more,
-        and it is recorded per campaign rather than per client: a national DND scrub, on{" "}
-        <Link
-          href={`/admin/tenants/${tenantId}/dnd-scrub`}
-          className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-        >
+    <div className="space-y-5">
+      <PageHeader
+        title="Campaign setup"
+        description="Until a number, an approved template and an active entity registration exist, every campaign this client creates is blocked at launch."
+      />
+
+      {/* THE FOURTH PREREQUISITE, NOT RECORDED HERE: a promotional campaign is also held by
+          `national_dnd_blocker`, per CAMPAIGN rather than per client, so it cannot be a
+          field on this page — and three green prerequisites here would otherwise read as
+          an open launch gate. */}
+      <p className="text-sm text-ink-muted">
+        A <span className="font-medium text-ink">promotional</span> campaign needs one thing
+        more, and it is recorded per campaign rather than per client: a national DND scrub,
+        on{" "}
+        <Link href={`/admin/tenants/${tenantId}/dnd-scrub`} className={LINK}>
           DND scrub
         </Link>
         . Without a current one it stays held whatever is green below.
       </p>
-      <div className="mt-4">
-        <RestrictionNote reason={write.reason} />
-      </div>
-      {/* `min-w-0` on the columns: a grid item defaults to `min-width: auto`, so it
-          refuses to shrink below its own min-content and pushes the grid past the
-          viewport instead of wrapping. Measured at 320px this column's min-content was
-          288px inside a 238px box — the compliance forms below (a `flex-1` input, a
-          `<select>` sized by its longest option) are what set it. */}
-      <div className="mt-4 grid gap-6 lg:grid-cols-2">
-        <div className="min-w-0 space-y-3">
-          {/* The heading is a flex ROW of two items — the icon and the label — and the
-              link is a sibling of the whole heading rather than a third child of it: a
-              flex container holding loose text beside an inline element lays that element
-              out as its own item with the gap on both sides (tests/inlineFlow.test.ts). */}
-          <div className="flex items-center gap-2">
-            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-              <Hash className="h-3.5 w-3.5" />
-              <span>Numbers</span>
-            </h3>
-            {/* THE DOOR TO THE NUMBERS SCREEN, which is now where a number is RECORDED
-                and where an agent is put on it (D-576). This panel kept a second copy of
-                the recording form until then, with the series preselected to 160 — so an
-                operator onboarding an inbound-only client was sent to a CAMPAIGN screen,
-                with a DLT class already chosen, to do the one step that makes the phone
-                ring. What stays here is the registrar's verdict, which is what the rest
-                of this panel is about. */}
-            <Link
-              href={`/admin/tenants/${tenantId}/numbers`}
-              className="rounded-sm ml-auto text-xs font-medium text-ink-muted underline underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-            >
-              Record a number, or choose which agent answers it
-            </Link>
-          </div>
-          {setDlt.error && <ProblemNotice error={setDlt.error} />}
-          {/* A failed read printed "No numbers on file" — the sentence an operator acts
-              on by asking a client who already has a number to go and get another. */}
-          {numbers.error ? (
-            <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />
-          ) : numbers.isLoading || !numbers.data ? (
-            <Skeleton rows={2} />
-          ) : numbers.data.length === 0 ? (
-            <p className="text-xs text-ink-muted">No numbers on file.</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {numbers.data.map((number) => (
-                <li
-                  key={number.id}
-                  className="flex flex-wrap items-center gap-2 rounded-card border border-line p-2 text-xs"
-                >
-                  {/* The client's OWN published business number, which is the whole
-                      point of the panel — not a called party's, which is the number
-                      hard rule 6 is about. */}
-                  <span className="font-mono text-ink">{number.e164}</span>
-                  <span className="rounded bg-brand-soft px-1.5 py-0.5 font-medium text-brand-strong">
-                    {number.series}
-                  </span>
-                  <span className="text-ink-muted">{number.dlt_status.replace(/_/g, " ")}</span>
-                  {number.dlt_status !== "registered" && (
-                    <span className="ml-auto">
-                      <SecondaryButton
-                        disabled={setDlt.isPending || !write.allowed}
-                        onClick={() => setDlt.mutate({ numberId: number.id, dltStatus: "registered" })}
-                      >
-                        Mark registered
-                      </SecondaryButton>
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          {/* What this panel still owns is the REGISTRAR'S VERDICT, which is why the
-              list and its one action stay here beside the templates. Recording a number,
-              and putting an agent on it, is the numbers screen's job — the link above. */}
-          <p className="text-xs text-ink-muted">
-            Marking a number registered records what the registrar decided. Recording a
-            new number, and choosing which agent answers it, is on the numbers screen.
-          </p>
-        </div>
 
-        <div className="min-w-0 space-y-3">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-            <ScrollText className="h-3.5 w-3.5" />
-            <span>
-              <Term id="dlt" /> voice
-              templates
-            </span>
-          </h3>
-          {register.error && <ProblemNotice error={register.error} />}
-          {setStatus.error && <ProblemNotice error={setStatus.error} />}
-          {templates.error ? (
-            <ProblemNotice error={templates.error} onRetry={() => templates.refetch()} />
-          ) : templates.isLoading || !templates.data ? (
-            <Skeleton rows={2} />
-          ) : templates.data.length === 0 ? (
-            <p className="text-xs text-ink-muted">No templates registered.</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {templates.data.map((template) => (
-                <li key={template.id} className="rounded-card border border-line p-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded bg-brand-soft px-1.5 py-0.5 font-medium text-brand-strong">
-                      {template.classification}
-                    </span>
-                    <span className="text-ink-muted">{template.status.replace(/_/g, " ")}</span>
-                    {template.status !== "approved" && (
-                      <span className="ml-auto">
-                        <PrimaryButton
-                          disabled={setStatus.isPending || !write.allowed}
-                          onClick={() =>
-                            setStatus.mutate({ templateId: template.id, status: "approved" })
-                          }
-                        >
-                          Registrar approved
-                        </PrimaryButton>
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-ink-muted">{template.body}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-          <form
-            className="space-y-2"
-            noValidate
-            onSubmit={templateValid.onSubmit(() => {
-              register.mutate(
-                { classification, body, dlt_ref: dltRef || null },
-                {
-                  onSuccess: () => {
-                    setBody("");
-                    setDltRef("");
-                  },
+      <RestrictionNote reason={write.reason} />
+
+      <Card
+        title="Numbers"
+        action={
+          <Link href={`/admin/tenants/${tenantId}/numbers`} className={`${LINK} text-sm`}>
+            Record a number, or choose which agent answers it
+          </Link>
+        }
+      >
+        <p className="-mt-1 mb-3 text-sm text-ink-muted">
+          Marking a number registered records what the registrar decided. Recording a new
+          number, and choosing which agent answers it, is on the numbers screen.
+        </p>
+        {setDlt.error && <ProblemNotice error={setDlt.error} />}
+        {/* A failed read never prints "No numbers on file": that sentence has an operator
+            ask a client who already has a number to go and get another. */}
+        {numbers.error ? (
+          <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />
+        ) : numbers.isLoading || !numbers.data ? (
+          <Skeleton rows={2} />
+        ) : numbers.data.length === 0 ? (
+          <p className="text-sm text-ink-muted">No numbers on file.</p>
+        ) : (
+          <ul className="divide-y divide-line border-y border-line">
+            {numbers.data.map((number) => (
+              <li key={number.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 text-sm">
+                {/* The client's OWN published business number — not a called party's,
+                    which is the number hard rule 6 is about. */}
+                <span className="font-mono text-ink">{formatPhone(number.e164)}</span>
+                <TonePill tone="neutral">{number.series}</TonePill>
+                <span className="text-ink-muted">{number.dlt_status.replace(/_/g, " ")}</span>
+                {number.dlt_status !== "registered" && (
+                  <button
+                    type="button"
+                    className={`${SECONDARY_BUTTON_SM} ml-auto`}
+                    disabled={setDlt.isPending || !write.allowed}
+                    onClick={() => setDlt.mutate({ numberId: number.id, dltStatus: "registered" })}
+                  >
+                    Mark registered
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="Voice templates">
+        <p className="-mt-1 mb-3 text-sm text-ink-muted">
+          Templates registered with the <Term id="dlt" /> registrar, and the registrar&apos;s
+          verdict on each.
+        </p>
+        {register.error && <ProblemNotice error={register.error} />}
+        {setStatus.error && <ProblemNotice error={setStatus.error} />}
+        {templates.error ? (
+          <ProblemNotice error={templates.error} onRetry={() => templates.refetch()} />
+        ) : templates.isLoading || !templates.data ? (
+          <Skeleton rows={2} />
+        ) : templates.data.length === 0 ? (
+          <p className="text-sm text-ink-muted">No templates registered.</p>
+        ) : (
+          <ul className="divide-y divide-line border-y border-line">
+            {templates.data.map((template) => (
+              <li key={template.id} className="py-2.5 text-sm">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <TonePill tone="neutral">{template.classification}</TonePill>
+                  <span className="text-ink-muted">{template.status.replace(/_/g, " ")}</span>
+                  {template.status !== "approved" && (
+                    <button
+                      type="button"
+                      className={`${PRIMARY_BUTTON_SM} ml-auto`}
+                      disabled={setStatus.isPending || !write.allowed}
+                      onClick={() => setStatus.mutate({ templateId: template.id, status: "approved" })}
+                    >
+                      Registrar approved
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1.5 text-ink">{template.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form
+          className="mt-5 max-w-xl space-y-3"
+          noValidate
+          onSubmit={templateValid.onSubmit(() => {
+            register.mutate(
+              { classification, body, dlt_ref: dltRef || null },
+              {
+                onSuccess: () => {
+                  setBody("");
+                  setDltRef("");
                 },
-              );
-            })}
-          >
-            <div className="flex gap-2">
+              },
+            );
+          })}
+        >
+          <h3 className="text-sm font-semibold text-ink">Register a template</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="template-classification" className={FIELD_LABEL}>
+                Template classification
+              </label>
               <select
-                aria-label="Template classification"
+                id="template-classification"
                 value={classification}
                 disabled={!write.allowed}
                 onChange={(ev) => setClassification(ev.target.value as typeof classification)}
@@ -228,43 +200,49 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
                 <option value="service">service</option>
                 <option value="transactional">transactional</option>
               </select>
+            </div>
+            <div>
+              <label htmlFor="template-dlt-ref" className={FIELD_LABEL}>
+                Registrar template id (optional)
+              </label>
               <input
-                aria-label="Registrar template id"
+                id="template-dlt-ref"
                 value={dltRef}
                 disabled={!write.allowed}
                 onChange={(ev) => setDltRef(ev.target.value)}
-                placeholder="registrar template id (optional)"
-                className={`flex-1 ${FIELD}`}
+                className={`${FIELD} font-mono`}
               />
             </div>
+          </div>
+          <div>
+            <label htmlFor={bodyField.id} className={FIELD_LABEL}>
+              Template wording
+            </label>
             <textarea
-              {...templateValid.field("body", "Type the wording registered with the registrar.")}
+              {...bodyField}
+
               required
-              aria-label="Template wording"
               minLength={10}
               rows={3}
               value={body}
               disabled={!write.allowed}
               onChange={(ev) => setBody(ev.target.value)}
-              placeholder="The exact wording registered with the DLT registrar."
-              className={`w-full ${FIELD}`}
+              className={FIELD}
             />
+            <span className={FIELD_HINT}>The exact wording registered with the registrar.</span>
             {templateValid.error("body")}
-            <PrimaryButton
-              type="submit"
-              /* The ten-character rule is the field's now. */
-              disabled={register.isPending || !write.allowed}
-            >
-              Register template
-            </PrimaryButton>
-          </form>
-        </div>
+          </div>
+          <button
+            type="submit"
+            className={PRIMARY_BUTTON_SM}
+            disabled={register.isPending || !write.allowed}
+          >
+            Register template
+          </button>
+        </form>
+      </Card>
 
-        {/* Beside the numbers and the templates, because they are the same family of
-            registrar paperwork and an operator working one is usually working all
-            three — not on a separate screen a launch blocker has to send them to. */}
-        <DltRegistrationPanel tenantId={tenantId} write={write} />
-      </div>
-    </Card>
+      <DltRegistrationPanel tenantId={tenantId} write={write} />
+    </div>
   );
 }

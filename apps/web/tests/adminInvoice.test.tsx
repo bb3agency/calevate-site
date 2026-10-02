@@ -201,6 +201,31 @@ describe("the tenant invoice", () => {
     expect(container.textContent).toContain("The usage ledger is unavailable.");
   });
 
+  it("shows the operator why it is not a tax invoice, and keeps that off the sheet", async () => {
+    // D-659: the settings a GST registration would need are named ONLY on the operator's
+    // copy. They are a plain note above the sheet — unset is the normal state — and never
+    // part of the document, which the client also prints.
+    const blocker = "GST_SUPPLIER_GSTIN is not set.";
+    await render(
+      invoice({
+        document_type: "bill_of_supply",
+        document_blockers: [blocker],
+        tax_note: "Calevate is not registered for GST.",
+      }),
+    );
+
+    const note = await screen.findByRole("region", { name: "Not a tax invoice yet" });
+    expect(note.textContent).toContain(blocker);
+    const sheet = screen.getByText("BILL OF SUPPLY").closest("div.rounded-card");
+    expect(sheet?.textContent).not.toContain(blocker);
+  });
+
+  it("says nothing about blockers when there are none", async () => {
+    await render(invoice());
+    await screen.findByText("TAX INVOICE");
+    expect(screen.queryByText("Not a tax invoice yet")).toBeNull();
+  });
+
   it("will not print what has not loaded", async () => {
     await render(
       problem(403, {

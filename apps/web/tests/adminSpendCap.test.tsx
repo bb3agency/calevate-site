@@ -2,20 +2,18 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
-import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
-import {
-  spendCapConfirmation,
-  type Margin,
-  type TenantSummary,
-} from "@/lib/api/admin";
+import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
+import { spendCapConfirmation, type TenantSummary } from "@/lib/api/admin";
 import type { Caps } from "@/lib/api/caps";
+import { currentISTMonth } from "@/lib/api/invoice";
+import type { TenantSpend } from "@/lib/api/spend";
 
 import { problem, type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
-import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
 
 /**
- * The spend-cap panel on a client's own screen — the console path for
+ * The spend-cap panel on a client's Spend page (D-661 Money › Spend; it moved there from
+ * the client's overview) — the console path for
  * `POST /v1/ops/tenants/{id}/spend-cap/recompute`.
  *
  * Until this landed, `runbooks/calls-stopped.md` §2 told an operator to hand-write a curl
@@ -48,6 +46,7 @@ const SLUG = "sri-traders";
 const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const RECOMPUTE_PATH = `/v1/ops/tenants/${TENANT}/spend-cap/recompute`;
 const CAPS_PATH = "/v1/billing/caps";
+const SPEND_PATH = `${TENANT_PATH}/spend?month=${currentISTMonth()}`;
 
 function me(permissions: string[]): AdminMe {
   return {
@@ -103,52 +102,45 @@ function caps(over: Partial<Caps> = {}): Caps {
   };
 }
 
+/** The month's spend, so the page around the panel renders; its figures are not under test. */
+const SPEND: TenantSpend = {
+  month: "2026-08",
+  plan_tier: "prepaid",
+  charge_basis: "wallet_debit",
+  calls: 0,
+  minutes_used: "0.00",
+  retainer_inr: null,
+  revenue_inr: "0.00",
+  cost_inr: "0.00",
+  margin_inr: "0.00",
+  margin_pct: null,
+  cost_currency: "INR",
+  cost_currency_stated: true,
+  period_charge_inr: "0.00",
+  itemised_charge_inr: "0.00",
+  itemisation_residual_inr: "0.00",
+  residual_reason: null,
+  unattributed: null,
+  ai_assist: null,
+  by_unit: [],
+  by_agent: [],
+  top_calls: [],
+  top_calls_truncated: false,
+};
+
 /** Everything else on this screen green, so each case breaks exactly one thing. */
 function healthy(): Routes {
   return {
     [TENANT_PATH]: tenant({ capped: true }),
     [ADMIN_ME_PATH]: SUPERADMIN,
     [CAPS_PATH]: caps(),
-    "/v1/kb/sources?status=pending_approval": [],
-    "/v1/kb/sources?status=approved": [],
-    "/v1/agents": [],
-    "/v1/campaigns/numbers": [],
-    "/v1/campaigns/templates": [],
-    "/v1/kb/delivery": KB_ALL_DELIVERED,
-    [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
-    [`${TENANT_PATH}/margin`]: {
-      month: "2026-08",
-      minutes_used: "812.00",
-      calls: 412,
-      revenue_inr: "5002.40",
-      cost_inr: "2001.00",
-      margin_inr: "3001.40",
-      margin_pct: "59.99",
-      legs_unpriced: 0,
-      tiers: {
-        // BOTH SPELLINGS, because that is what the wire carries for one release
-        // (hard rule 8 step 1, D-558): `*_base_rung` / `*_second_rung` are the
-        // names, `*_premium` / `*_value` are deprecated and carry the identical
-        // figure. The screen prefers the new pair;
-        // `rungRenameFallback.test.tsx` is the one that omits it.
-        minutes_base_rung: "600.00",
-        minutes_second_rung: "200.00",
-        minutes_premium: "600.00",
-        minutes_value: "200.00",
-        minutes_unattributed: "12.00",
-        cost_base_rung_inr: "1500.00",
-        cost_second_rung_inr: "480.00",
-        cost_premium_inr: "1500.00",
-        cost_value_inr: "480.00",
-        cost_unattributed_inr: "21.00",
-      },
-    } satisfies Margin,
+    [SPEND_PATH]: SPEND,
   };
 }
 
 function render(routes: Partial<Routes> = {}) {
   return renderAdminRoute(
-    <TenantDetailPage params={routeParams({ tenantId: TENANT })} />,
+    <TenantSpendPage params={routeParams({ tenantId: TENANT })} />,
     {
       ...healthy(),
       ...routes,

@@ -60,7 +60,7 @@ export function EndTrialForm({
 
   return (
     <form
-      className="mt-5 space-y-4 border-t border-line pt-5"
+      className="space-y-4"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();

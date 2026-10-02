@@ -87,7 +87,7 @@ async def _get(path: str) -> Any:
 
 
 def test_the_answer_document_is_pipecats_own_template_and_not_our_reading_of_it() -> None:
-    """`plivo_answer_document` must render exactly the element the shipped runner renders.
+    """`answer_document` must render exactly the element the shipped runner renders.
 
     What is compared is the tag and the FULL attribute set, because the attributes are the
     part we could not verify any other way (Plivo's own grammar is egress-blocked here).
@@ -97,7 +97,7 @@ def test_the_answer_document_is_pipecats_own_template_and_not_our_reading_of_it(
     assert match, "pipecat no longer ships a Plivo answer template at the shape we read"
     theirs = fromstring(match.group(1) + "</Stream>")
 
-    ours = fromstring(carrier_routes.plivo_answer_document("wss://voice.example.invalid/ws/token"))
+    ours = fromstring(carrier_routes.answer_document("wss://voice.example.invalid/ws/token"))
 
     assert ours.tag == "Response"
     (stream,) = list(ours)
@@ -125,7 +125,7 @@ def test_the_sample_rate_is_pinned_to_the_vendors_own_template_not_to_the_worker
 def test_the_answer_document_escapes_a_url_rather_than_concatenating_it() -> None:
     """A wire value with an `&` in it must not break the document a carrier parses."""
     url = "wss://voice.example.invalid/ws/a?x=1&y=2"
-    document = carrier_routes.plivo_answer_document(url)
+    document = carrier_routes.answer_document(url)
 
     assert "&amp;" in document
     (stream,) = list(fromstring(document))
@@ -238,7 +238,7 @@ async def test_serving_the_document_opens_no_database_and_no_redis_connection(
 def test_the_stream_url_this_service_mints_is_one_the_worker_can_route() -> None:
     """The whole point of the design, in one assertion.
 
-    `carrier_routes.plivo_stream_url` (voice-runtime, no pipecat) mints the URL; the
+    `carrier_routes.stream_url` (voice-runtime, no pipecat) mints the URL; the
     carrier connects to it; `carrier.route_of` (voice-worker) reads the segment back. The
     two modules may never import each other, so this is the only place the agreement is
     checked — and the `%3A` encoding is exactly the part that would silently break it.
@@ -246,7 +246,7 @@ def test_the_stream_url_this_service_mints_is_one_the_worker_can_route() -> None
     tenant_id, agent_id = uuid.uuid4(), uuid.uuid4()
     ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
 
-    url = carrier_routes.plivo_stream_url(STREAM_BASE, ref)
+    url = carrier_routes.stream_url(STREAM_BASE, ref)
     token = unquote(urlparse(url).path.rsplit("/", 1)[-1])
 
     assert "%3A" in url

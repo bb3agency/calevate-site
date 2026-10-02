@@ -51,10 +51,11 @@ from typing import Final, Literal, Protocol, runtime_checkable
 
 from calevate_shared.engine import E164
 
-#: The names this seam knows: one carrier and the in-house adapter. `registry` may only map
-#: an engine onto a member, so a carrier added to that map without an adapter is a refusal
-#: at the gate rather than an AttributeError on a live call.
-TRANSFER_PROVIDERS: Final[tuple[str, ...]] = ("plivo", "fake")
+#: The names this seam knows: the two carriers `Settings.carrier` selects between and the
+#: in-house adapter. `registry` may only map an engine onto a member, so a carrier added to
+#: that map without an adapter is a refusal at the gate rather than an AttributeError on a
+#: live call.
+TRANSFER_PROVIDERS: Final[tuple[str, ...]] = ("vobiz", "plivo", "fake")
 
 #: HOW A HANDOVER ENDED, in our words rather than any carrier's.
 #:

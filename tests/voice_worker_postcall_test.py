@@ -405,10 +405,10 @@ async def test_the_adapter_reads_the_call_back_under_the_tenant_its_id_names(
     assert snapshot.terminal is True
     assert [turn.idx for turn in snapshot.transcript] == [0, 1]
     assert snapshot.engine == "pipecat"
-    # The FACTS half stays the carrier's (§1.2). Asserted rather than left implied, because
-    # a snapshot that started inventing a cost would silently double-meter the call: the
-    # worker already wrote its `usage_events` rows at settlement.
-    assert snapshot.cost is None
+    # The cost is the sum of the legs the settlement already wrote, flagged so the metering
+    # stage writes none of them twice (`PipecatEngine.execution`); it invents nothing.
+    assert snapshot.cost is not None
+    assert snapshot.cost.legs_metered_at_settlement is True
     assert snapshot.billable_ready is False
     # Settled without timings, so none are reported — never an empty `CallLatency()`.
     assert snapshot.latency is None

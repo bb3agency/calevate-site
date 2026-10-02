@@ -203,8 +203,27 @@ function render(routes: Partial<Routes> = {}) {
   );
 }
 
+/**
+ * Every write on the credits screen opens in a drawer over the wallet, one at a time
+ * (D-661): "Record a payment" from the header, the rest from "Fix or adjust".
+ */
+async function openAct(title: string) {
+  if (title === "Record a payment") {
+    fireEvent.click(await screen.findByRole("button", { name: "Record a payment" }));
+    return;
+  }
+  fireEvent.click(await screen.findByRole("button", { name: "Fix or adjust" }));
+  fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${title}`) }));
+}
+
+/** The wallet's Ledger / Payments / Lots are one segmented control (D-655). */
+async function showView(name: "Payments" | "Lots") {
+  fireEvent.click(await screen.findByRole("radio", { name: new RegExp(`^${name}`) }));
+}
+
 /** Fill the form the way an operator does: reference, reference again, amount. */
 async function fillTopUp(reference: string, amount: string) {
+  await openAct("Record a payment");
   const ref = (await screen.findByLabelText(
     "Bank reference (UTR / RRN)",
   )) as HTMLInputElement;
@@ -227,6 +246,7 @@ async function fillCorrection(
   amount: string,
   why = "wrong client",
 ) {
+  await openAct("Correct a wrong entry");
   const select = (await screen.findByLabelText(
     "Entry to correct",
   )) as HTMLSelectElement;
@@ -254,6 +274,7 @@ async function fillRestatement(
   total: string,
   why = "statement shows 50,000; the 2,500 was a transposition",
 ) {
+  await openAct("A payment was for more than we recorded");
   const select = (await screen.findByLabelText(
     "Payment to restate",
   )) as HTMLSelectElement;
@@ -280,7 +301,7 @@ function restateButton(): HTMLButtonElement {
 
 describe("the credits screen", () => {
   it("records a payment and sends the amount as the exact string, never a number", async () => {
-    const { calls, container } = await render({
+    const { calls } = await render({
       [`POST ${CREDITS_PATH}`]: result(),
     });
 
@@ -315,14 +336,14 @@ describe("the credits screen", () => {
     expect(post?.headers["X-Confirm-Action"]).toBeUndefined();
 
     await screen.findByText("Recorded — ₹2,500.10 credited");
-    expect(container.textContent).toContain("₹5,000.10");
+    expect(document.body.textContent).toContain("₹5,000.10");
   });
 
   it("reads a repeated reference as ALREADY RECORDED, not as a second credit", async () => {
     // The same 200 the route answers on a replay: the existing entry, `recorded: false`,
     // and a balance that did not move. The only thing separating this from a fresh
     // credit is the flag.
-    const { container } = await render({
+    await render({
       [`POST ${CREDITS_PATH}`]: result({
         recorded: false,
         payment_ref: REF,
@@ -336,29 +357,29 @@ describe("the credits screen", () => {
     submit();
 
     await screen.findByText("Already recorded — nothing was credited");
-    expect(container.textContent).toContain("no second entry was written");
-    expect(container.textContent).toContain("has not been credited twice");
+    expect(document.body.textContent).toContain("no second entry was written");
+    expect(document.body.textContent).toContain("has not been credited twice");
     // NOT a failure: no refusal panel anywhere on the screen.
     expect(screen.queryByRole("alert")).toBeNull();
     // And NOT a fresh credit. This is the belief that causes the damage — the money is
     // already unrecoverable by the time anyone acts on it.
-    expect(container.textContent).not.toContain("Recorded — ₹");
+    expect(document.body.textContent).not.toContain("Recorded — ₹");
   });
 
   it("warns before the click when the reference is already on the ledger", async () => {
     // A preview from the entries already on screen, one-directional by design: a match
     // is a fact worth saying; an absence proves nothing, because this list is the newest
     // 50 and the server checks the whole ledger.
-    const { container } = await render();
+    await render();
 
     await fillTopUp(REF, "2500.00");
 
     await waitFor(() => {
-      expect(container.textContent).toContain(
+      expect(document.body.textContent).toContain(
         "That reference is already on this ledger",
       );
     });
-    expect(container.textContent).toContain("Sending it again credits nothing");
+    expect(document.body.textContent).toContain("Sending it again credits nothing");
     // Not blocked: submitting a repeat is harmless and is how the operator finds out.
     expect(
       (screen.getByRole("button", { name: /^Credit / }) as HTMLButtonElement)
@@ -371,13 +392,13 @@ describe("the credits screen", () => {
     // space off the statement types it both times. The server keys on the exact string,
     // so silently stripping it here would make the console's key differ from the
     // ledger's — the caution is raised and the value is sent verbatim.
-    const { calls, container } = await render({
+    const { calls } = await render({
       [`POST ${CREDITS_PATH}`]: result(),
     });
 
     await fillTopUp("UTR 900042", "2500.00");
     await waitFor(() => {
-      expect(container.textContent).toContain(
+      expect(document.body.textContent).toContain(
         "This reference has a space inside it",
       );
     });
@@ -393,6 +414,7 @@ describe("the credits screen", () => {
   it("keeps the button dead until the reference has been typed twice and matches", async () => {
     await render();
 
+    await openAct("Record a payment");
     const ref = (await screen.findByLabelText(
       "Bank reference (UTR / RRN)",
     )) as HTMLInputElement;
@@ -432,7 +454,7 @@ describe("the credits screen", () => {
   });
 
   it("withholds the form entirely when the ledger could not be read", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: problem(503, {
         title: "Upstream unavailable",
         detail: "We could not read this client's wallet.",
@@ -447,15 +469,15 @@ describe("the credits screen", () => {
     expect(screen.queryByLabelText("Bank reference (UTR / RRN)")).toBeNull();
     // The three sentences a failed read must never produce: a balance, an empty ledger,
     // or a wallet that reads healthy. Each is a REAL state with a different remedy.
-    expect(container.textContent).not.toContain("₹0");
-    expect(container.textContent).not.toContain("On the wallet now");
-    expect(container.textContent).not.toContain(
+    expect(document.body.textContent).not.toContain("₹0");
+    expect(document.body.textContent).not.toContain("On the wallet now");
+    expect(document.body.textContent).not.toContain(
       "Nothing has ever been written to this ledger",
     );
   });
 
   it("states an empty ledger as an empty ledger, but only after a successful read", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: credits({
         balance_inr: "0.00",
         is_low: true,
@@ -464,9 +486,9 @@ describe("the credits screen", () => {
     });
 
     await screen.findByText("Nothing has ever been written to this ledger");
-    expect(container.textContent).toContain("₹0.00");
+    expect(document.body.textContent).toContain("₹0.00");
     // The server's own verdict, displayed and not recomputed from the balance.
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Below the low-balance line of ₹200.00",
     );
   });
@@ -476,6 +498,7 @@ describe("the credits screen", () => {
       [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] },
     });
 
+    await openAct("Record a payment");
     const button = (await screen.findByRole("button", {
       name: /^Credit /,
     })) as HTMLButtonElement;
@@ -489,26 +512,28 @@ describe("the credits screen", () => {
     expect(
       screen.getByText(/record a payment on this client's wallet/),
     ).toBeDefined();
+    await openAct("Correct a wrong entry");
     expect(
       screen.getByText(/correct an entry on this client's wallet/),
     ).toBeDefined();
   });
 
   it("routes each mistake to the remedy that repairs it", async () => {
-    const { container } = await render();
+    await render();
 
     await screen.findByText("If a credit was wrong");
-    expect(container.textContent).toContain("There is no undo");
+    await openAct("Record a payment");
+    expect(document.body.textContent).toContain("There is no undo");
     // The duplicate case still belongs to the reconciliation tool: a duplicate is
     // DETECTED, and its correction is keyed on a fingerprint of the rows it cancels — not
     // something an operator can type into a form.
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "cancelled by our reconciliation tool",
     );
     // …and the sentence this slice deleted. The console HAS a control for the wrong
     // client and the wrong amount now, so the card must not still send people away.
-    expect(container.textContent).not.toContain("There is no control for this");
-    expect(container.textContent).toContain("Correct a wrong entry");
+    expect(document.body.textContent).not.toContain("There is no control for this");
+    expect(document.body.textContent).toContain("Correct a wrong entry");
   });
 
   it("scans clean once the form is filled and its notices are on screen", async () => {
@@ -516,7 +541,7 @@ describe("the credits screen", () => {
     // field errors, the duplicate-reference notice and the outcome panel do not exist.
     // They are markup with labels and colours of their own, so they are scanned here —
     // the device tests/dataRights.test.tsx uses for its certificate.
-    const { container } = await render({
+    await render({
       [`POST ${CREDITS_PATH}`]: result({ recorded: false }),
       [`POST ${ADJUST_PATH}`]: correction({
         balance_inr: "-500.00",
@@ -542,7 +567,8 @@ describe("the credits screen", () => {
     await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
 
     await expectNoA11yViolations(
-      container,
+      // The filled form is the open drawer, a dialog portalled onto <body>.
+      screen.getByRole("dialog"),
       "admin/tenants/[tenantId]/credits (filled)",
     );
     // AN EXPLICIT BUDGET, because this test drives three forms to completion and then runs
@@ -576,7 +602,7 @@ describe("the credits screen", () => {
  */
 describe("correcting a wrong entry", () => {
   it("appends a compensating entry, with the confirmation the direction demands", async () => {
-    const { calls, container } = await render({
+    const { calls } = await render({
       [`POST ${ADJUST_PATH}`]: correction(),
     });
 
@@ -613,7 +639,7 @@ describe("correcting a wrong entry", () => {
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
 
     await screen.findByText("Corrected — -₹2,500.00 taken back");
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "The entry it cancels is still there too",
     );
   });
@@ -629,7 +655,7 @@ describe("correcting a wrong entry", () => {
       balance_after_inr: "2420.00",
       reversible_inr: "80.00",
     });
-    const { calls, container } = await render({
+    const { calls } = await render({
       [CREDITS_READ]: credits({
         balance_inr: "2420.00",
         entries: [charge, entry()],
@@ -643,7 +669,7 @@ describe("correcting a wrong entry", () => {
     });
 
     await fillCorrection(charge.id, "80.00", "the call never connected");
-    expect(container.textContent).toContain("puts credit back on this wallet");
+    expect(document.body.textContent).toContain("puts credit back on this wallet");
     fireEvent.click(
       screen.getByRole("button", { name: /^Put ₹80.00 back on/ }),
     );
@@ -663,7 +689,7 @@ describe("correcting a wrong entry", () => {
   });
 
   it("reads a repeated correction as ALREADY CORRECTED, not as a second debit", async () => {
-    const { container } = await render({
+    await render({
       [`POST ${ADJUST_PATH}`]: correction({ recorded: false }),
     });
 
@@ -671,15 +697,15 @@ describe("correcting a wrong entry", () => {
     fireEvent.click(correctButton());
 
     await screen.findByText("Already corrected — nothing moved");
-    expect(container.textContent).toContain("no second one was written");
-    expect(container.textContent).toContain("has not been debited twice");
+    expect(document.body.textContent).toContain("no second one was written");
+    expect(document.body.textContent).toContain("has not been debited twice");
     // NOT a failure, and NOT a fresh debit — the belief that causes the damage.
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(container.textContent).not.toContain("Corrected — -₹");
+    expect(document.body.textContent).not.toContain("Corrected — -₹");
   });
 
   it("says out loud when the correction has stopped the client dialling", async () => {
-    const { container } = await render({
+    await render({
       [`POST ${ADJUST_PATH}`]: correction({
         balance_inr: "-12000.00",
         stops_dialling: true,
@@ -695,9 +721,9 @@ describe("correcting a wrong entry", () => {
     // ⚠ THIS USED TO ASSERT "Inbound calls are unaffected". D-551 made that false: at or
     // below zero the agents are silenced at the engine too, and an operator who believes
     // the old sentence declines to chase a payment that is holding a phone line down.
-    expect(container.textContent).toContain("refuses every outbound call");
-    expect(container.textContent).toContain("answering incoming ones");
-    expect(container.textContent).not.toContain("Inbound calls are unaffected");
+    expect(document.body.textContent).toContain("refuses every outbound call");
+    expect(document.body.textContent).toContain("answering incoming ones");
+    expect(document.body.textContent).not.toContain("Inbound calls are unaffected");
   });
 
   it("keeps the button dead until the entry, both amounts and the reason are in", async () => {
@@ -705,6 +731,7 @@ describe("correcting a wrong entry", () => {
 
     // The consequences are stated before anything is chosen — above the control, not
     // revealed by filling it in.
+    await openAct("Correct a wrong entry");
     const upfront = await screen.findByText(/There is no undo, here either/);
     expect(upfront).toBeDefined();
 
@@ -764,10 +791,11 @@ describe("correcting a wrong entry", () => {
       ref: "UTR-ALREADY-FIXED",
       reversible_inr: "0.00",
     });
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: credits({ entries: [spent, entry()] }),
     });
 
+    await openAct("Correct a wrong entry");
     const select = (await screen.findByLabelText(
       "Entry to correct",
     )) as HTMLSelectElement;
@@ -777,11 +805,11 @@ describe("correcting a wrong entry", () => {
     expect(values).not.toContain(spent.id);
     expect(values).toContain(ENTRY);
     // …and the ledger says WHY it is missing, rather than leaving it unexplained.
-    expect(container.textContent).toContain("fully corrected");
+    expect(document.body.textContent).toContain("fully corrected");
   });
 
   it("says so plainly when there is nothing left to correct", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: credits({
         balance_inr: "0.00",
         is_low: true,
@@ -789,17 +817,18 @@ describe("correcting a wrong entry", () => {
       }),
     });
 
+    await openAct("Correct a wrong entry");
     await screen.findByText(
       /Every entry on this wallet has already been taken back in full/,
     );
     expect(screen.queryByLabelText("Entry to correct")).toBeNull();
-    expect(container.textContent).not.toContain("Correct this entry");
+    expect(document.body.textContent).not.toContain("Correct this entry");
   });
 
   it("renders the server's refusal and keeps the draft", async () => {
     // The ceiling is the SERVER's: this console shows `reversible_inr` but never
     // enforces it, so the refusal has to be legible and the values have to survive it.
-    const { container } = await render({
+    await render({
       [`POST ${ADJUST_PATH}`]: problem(422, {
         type: "https://calevate.tech/problems/adjustment_exceeds_entry",
         title: "Request rejected by a business rule",
@@ -814,7 +843,7 @@ describe("correcting a wrong entry", () => {
     fireEvent.click(correctButton());
 
     await screen.findByText(/That entry has ₹400.00 left to take back/);
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Correct at most what is left of the entry",
     );
     // The draft survives, so the operator edits the amount instead of retyping the lot.
@@ -832,6 +861,7 @@ describe("correcting a wrong entry", () => {
       [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] },
     });
 
+    await openAct("Correct a wrong entry");
     await screen.findByLabelText("Entry to correct");
     expect(correctButton().disabled).toBe(true);
     expect(
@@ -890,7 +920,7 @@ describe("correcting a wrong entry", () => {
  */
 describe("restating an under-recorded payment", () => {
   it("sends the TOTAL as a string, with the confirmation that carries the amount", async () => {
-    const { calls, container } = await render({
+    const { calls } = await render({
       [`POST ${RESTATE_PATH}`]: restatement(),
     });
 
@@ -927,13 +957,14 @@ describe("restating an under-recorded payment", () => {
 
     await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
     // The assertion the whole slice exists for, in the sentence an operator reads.
-    expect(container.textContent).toContain("now credits ₹50,000.00");
-    expect(container.textContent).toContain("one bank transfer");
+    expect(document.body.textContent).toContain("now credits ₹50,000.00");
+    expect(document.body.textContent).toContain("one bank transfer");
   });
 
   it("shows what the payment credits TODAY, so the total is not mistaken for the difference", async () => {
-    const { container } = await render();
+    await render();
 
+    await openAct("A payment was for more than we recorded");
     const select = (await screen.findByLabelText(
       "Payment to restate",
     )) as HTMLSelectElement;
@@ -946,14 +977,14 @@ describe("restating an under-recorded payment", () => {
     // Said on the notice, on the field label, on its hint and on the outstanding-step
     // line. Collapsed whitespace, because the sentence wraps across JSX nodes and a
     // literal match would pin the indentation rather than the words.
-    const said = container.textContent?.replace(/\s+/g, " ") ?? "";
+    const said = document.body.textContent?.replace(/\s+/g, " ") ?? "";
     expect(said).toContain("total the bank moved, not the difference");
     expect(said).toContain("Total the bank moved (₹)");
     expect(said).toContain("not the 45000.00 that is missing");
   });
 
   it("reads a repeated restatement as ALREADY RESTATED, not as a second credit", async () => {
-    const { container } = await render({
+    await render({
       [`POST ${RESTATE_PATH}`]: restatement({ recorded: false }),
     });
 
@@ -961,16 +992,17 @@ describe("restating an under-recorded payment", () => {
     fireEvent.click(restateButton());
 
     await screen.findByText("Already restated — nothing was credited");
-    expect(container.textContent).toContain("no second entry was written");
-    expect(container.textContent).toContain("has not been credited twice");
+    expect(document.body.textContent).toContain("no second entry was written");
+    expect(document.body.textContent).toContain("has not been credited twice");
     // NOT a failure, and NOT a fresh credit — the belief that causes the damage.
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(container.textContent).not.toContain("Restated — ₹");
+    expect(document.body.textContent).not.toContain("Restated — ₹");
   });
 
   it("keeps the button dead until the payment, both totals and the reason are in", async () => {
     await render();
 
+    await openAct("A payment was for more than we recorded");
     // The consequences are stated before anything is chosen, not revealed by filling in.
     expect(
       await screen.findByText(/This one cannot be undone either/),
@@ -1032,7 +1064,7 @@ describe("restating an under-recorded payment", () => {
     // The refusal an operator who typed the DIFFERENCE actually meets, once the payment
     // has been restated once. The message has to be legible and the values have to
     // survive it, because the fix is one field.
-    const { container } = await render({
+    await render({
       [`POST ${RESTATE_PATH}`]: problem(422, {
         type: "https://calevate.tech/problems/restatement_not_an_increase",
         title: "Request rejected by a business rule",
@@ -1048,7 +1080,7 @@ describe("restating an under-recorded payment", () => {
     fireEvent.click(restateButton());
 
     await screen.findByText(/That reference already credits ₹50000.00/);
-    expect(container.textContent).toContain("not the difference");
+    expect(document.body.textContent).toContain("not the difference");
     expect(
       (screen.getByLabelText("Total the bank moved (₹)") as HTMLInputElement)
         .value,
@@ -1058,7 +1090,7 @@ describe("restating an under-recorded payment", () => {
   it("says so plainly when there is no payment to restate", async () => {
     // A restatement repairs a payment we already recorded; it never invents one, which
     // is one of the two things standing in for a numeric ceiling on this route.
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: credits({
         balance_inr: "0.00",
         is_low: true,
@@ -1067,9 +1099,10 @@ describe("restating an under-recorded payment", () => {
       }),
     });
 
+    await openAct("A payment was for more than we recorded");
     await screen.findByText(/No payment has been recorded on this wallet/);
     expect(screen.queryByLabelText("Payment to restate")).toBeNull();
-    expect(container.textContent).toContain("it never creates one");
+    expect(document.body.textContent).toContain("it never creates one");
   });
 
   it("disables the restatement, with its own reason, for a session that may not make it", async () => {
@@ -1077,6 +1110,7 @@ describe("restating an under-recorded payment", () => {
       [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] },
     });
 
+    await openAct("A payment was for more than we recorded");
     await screen.findByLabelText("Payment to restate");
     expect(restateButton().disabled).toBe(true);
     expect(
@@ -1114,7 +1148,7 @@ describe("restating an under-recorded payment", () => {
       balance_after_inr: "50000.00",
       reversible_inr: "47500.00",
     });
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: credits({
         balance_inr: "50000.00",
         entries: [restated, entry()],
@@ -1122,25 +1156,27 @@ describe("restating an under-recorded payment", () => {
       }),
     });
 
+    // Two rows on the ledger…
+    expect((await screen.findAllByText(`restated:${REF}:50000.00`)).length).toBe(1);
+    // …and one line on the payments view.
+    await showView("Payments");
     await screen.findByText("Payments — one line per bank transfer");
-    expect(container.textContent).toContain("2 — restated");
-    expect(container.textContent).toContain("₹50,000.00");
-    // Two rows on the ledger, one line on the payments table.
-    expect(screen.getAllByText(`restated:${REF}:50000.00`).length).toBe(1);
+    expect(document.body.textContent).toContain("2 — restated");
+    expect(document.body.textContent).toContain("₹50,000.00");
   });
 
   it("routes an under-credit to this panel and refuses the annotated reference by name", async () => {
-    const { container } = await render();
+    await render();
 
     await screen.findByText("If a credit was wrong");
-    expect(container.textContent).toContain("TOO LITTLE was credited");
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain("TOO LITTLE was credited");
+    expect(document.body.textContent).toContain(
       "A payment was for more than we recorded",
     );
     // The workaround is named and refused, because "do not do X" only works when X is
     // spelled out — an operator who has not read this invents exactly that string.
-    expect(container.textContent).toContain("UTR-123-part2");
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain("UTR-123-part2");
+    expect(document.body.textContent).toContain(
       "two payments where the bank shows one",
     );
   });
@@ -1207,10 +1243,11 @@ function walletWithLots(over: Partial<Credits> = {}): Credits {
 
 describe("what the balance is made of", () => {
   it("lists each lot with both rates, both vendors and the client's own words for them", async () => {
-    const { container } = await render({ [CREDITS_READ]: walletWithLots() });
+    await render({ [CREDITS_READ]: walletWithLots() });
 
+    await showView("Lots");
     await screen.findByText("Credit lots — what the balance is made of");
-    expect(container.textContent).toContain("₹1,200.00 left of ₹2,000.00");
+    expect(document.body.textContent).toContain("₹1,200.00 left of ₹2,000.00");
     // VENDOR and tier label together — the admin console's deliberate exception.
     // ⚠ **THE CHEAPER RUNG'S VENDOR IS GNANI AND WAS SARVAM UNTIL D-629 (18 Sep 2026).**
     // The wire field and the DB column are still `clear_inr_per_min` — renaming a money
@@ -1218,10 +1255,10 @@ describe("what the balance is made of", () => {
     // resolving the months a Sarvam voice spoke — so what moved is the NAME PRINTED, which
     // is there so an operator can connect a lot's rate to the invoice that will arrive.
     // The rate is the RUNG's and is frozen on the lot whoever speaks it.
-    expect(container.textContent).toContain("Gnani (Clear) ₹5.0000/min");
-    expect(container.textContent).toContain("Cartesia (Studio) ₹8.0000/min");
+    expect(document.body.textContent).toContain("Gnani (Clear) ₹5.0000/min");
+    expect(document.body.textContent).toContain("Cartesia (Studio) ₹8.0000/min");
     // The promise, stated where the lots are listed.
-    expect(container.textContent).toContain("never its rates");
+    expect(document.body.textContent).toContain("never its rates");
   });
 
   it("says a wallet with no open lot has none, and invents no rates for it", async () => {
@@ -1229,14 +1266,15 @@ describe("what the balance is made of", () => {
     // API that published no lots at all — is no longer expressible: the field is on the
     // wire and the compiler will not let a fixture omit it. What remains is the real
     // emptiness, and the assertion that matters is unchanged: no invented ₹0.0000 rate.
-    const { container } = await render();
+    await render();
 
+    await showView("Lots");
     await screen.findByText("No open lots");
-    expect(container.textContent).not.toContain("₹0.0000/min");
+    expect(document.body.textContent).not.toContain("₹0.0000/min");
   });
 
   it("names the lot a payment opened, with the rates frozen onto it", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: walletWithLots(),
       [`POST ${CREDITS_PATH}`]: {
         ...result(),
@@ -1248,12 +1286,12 @@ describe("what the balance is made of", () => {
     submit();
 
     await screen.findByText(/Recorded — ₹2,500.10 credited/);
-    expect(container.textContent).toContain("It opened lot");
-    expect(container.textContent).toContain("Those rates are frozen on it");
+    expect(document.body.textContent).toContain("It opened lot");
+    expect(document.body.textContent).toContain("Those rates are frozen on it");
   });
 
   it("says a restatement moved the totals and left the rates alone", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: walletWithLots(),
       [`POST ${RESTATE_PATH}`]: {
         ...restatement(),
@@ -1268,14 +1306,14 @@ describe("what the balance is made of", () => {
     await screen.findByText(/Restated — ₹47,500.00 credited/);
     // THE REGRESSION THIS TEST EXISTS FOR: the rates sentence, in the words that make the
     // promise checkable at the moment it is kept.
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "a restatement moves totals, never rates",
     );
-    expect(container.textContent).toContain("Gnani (Clear) ₹5.0000/min");
+    expect(document.body.textContent).toContain("Gnani (Clear) ₹5.0000/min");
   });
 
   it("states the overdraft a downward restatement could not absorb", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: walletWithLots(),
       [`POST ${RESTATE_PATH}`]: {
         ...restatement(),
@@ -1288,10 +1326,10 @@ describe("what the balance is made of", () => {
     fireEvent.click(restateButton());
 
     await screen.findByText(/Restated — ₹47,500.00 credited/);
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "₹1,000.00 of the correction was more than the lot",
     );
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "repays that before it opens a new lot",
     );
   });
@@ -1306,6 +1344,7 @@ describe("selling a lot at another pack's rates", () => {
       },
     });
 
+    await openAct("Sell a lot at another pack's rates");
     await screen.findByText("Sell a lot at another pack's rates");
     fireEvent.change(screen.getByLabelText(/Which lot/), {
       target: { value: LOT },
@@ -1342,6 +1381,7 @@ describe("selling a lot at another pack's rates", () => {
       }),
     });
 
+    await openAct("Sell a lot at another pack's rates");
     await screen.findByText("Sell a lot at another pack's rates");
     const button = () =>
       screen.getByRole("button", {
@@ -1377,15 +1417,16 @@ describe("selling a lot at another pack's rates", () => {
   });
 
   it("offers no re-pricing at all when the pack ladder is empty", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: walletWithLots({ override_packs: [] }),
     });
 
+    await showView("Lots");
     await screen.findByText("Credit lots — what the balance is made of");
     expect(
       screen.queryByRole("button", { name: /^Re-price this lot$/ }),
     ).toBeNull();
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "re-pricing a client's minutes blind",
     );
   });

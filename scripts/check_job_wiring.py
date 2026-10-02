@@ -111,6 +111,12 @@ DYNAMIC_ENQUEUE_SITES: dict[str, str] = {
         "column goes through `enqueue_outbox`/`enqueue_outbox_once`, which this scan "
         "reads, so the name is covered at the producer where it is actually chosen"
     ),
+    "apps/voice-runtime/webhook_routes.py::work.job": (
+        "the shared inbox claim enqueues the job its caller names on `InboxWork`. Both "
+        "callers (the engine receiver in this file and `carrier_events.py`) also key the "
+        "job with `job_id_for(<module-level constant>, ...)`, which this scan reads, so "
+        "each name is checked at the site that chooses it"
+    ),
 }
 
 #: Floors. Each is a fact about the tree today, one below the real number, so a normal

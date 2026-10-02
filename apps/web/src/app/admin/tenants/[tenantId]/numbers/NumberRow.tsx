@@ -25,11 +25,13 @@
 import { useState } from "react";
 import { PhoneOff } from "lucide-react";
 
+import { RowMenu } from "@/components/console/rowMenu";
 import {
-  FIELD,
+  FIELD_INLINE,
   FIELD_LABEL,
   ProblemNotice,
   SECONDARY_BUTTON,
+  formatPhone,
 } from "@/components/ui";
 import type { components } from "@/lib/api/schema";
 import {
@@ -37,6 +39,8 @@ import {
   useSetNumberEngineRef,
   type TenantNumberCost,
 } from "@/lib/api/numbers";
+
+import { StatePill } from "../statePill";
 
 type Agent = components["schemas"]["AgentOut"];
 
@@ -74,33 +78,37 @@ export function NumberRow({
   );
 
   return (
-    <li className="space-y-2 p-3 text-sm">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-mono text-ink">{number.e164}</span>
-        <span className="rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
-          {number.series}
-        </span>
+    <li className="space-y-3 px-4 py-3.5 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-mono text-[15px] font-medium text-ink">{formatPhone(number.e164)}</span>
+        <StatePill>{number.series}</StatePill>
         <span className="text-xs text-ink-muted">
           {number.engine_owned ? "we bought it" : "the client's own connection"}
+          {number.engine_owned && number.monthly_rental_usd
+            ? ` · $${number.monthly_rental_usd} / month`
+            : ""}
+          {number.released ? " · released — no longer charged" : ""}
         </span>
-        {number.engine_owned && number.monthly_rental_usd && (
-          <span className="text-xs text-ink-muted">${number.monthly_rental_usd} / month</span>
-        )}
-        {number.released && (
-          <span className="text-xs text-ink-muted">released — no longer charged</span>
-        )}
         {number.engine_owned && !number.released && canWrite && (
           <span className="ml-auto">
-            <button type="button" className={SECONDARY_BUTTON} onClick={onRelease}>
-              <PhoneOff className="mr-1.5 inline h-3.5 w-3.5" />
-              Release
-            </button>
+            <RowMenu
+              label={number.e164}
+              items={[
+                {
+                  id: "release",
+                  label: "Release",
+                  tone: "danger",
+                  icon: <PhoneOff aria-hidden className="h-4 w-4" />,
+                  onSelect: onRelease,
+                },
+              ]}
+            />
           </span>
         )}
       </div>
 
       {!number.released && (
-        <div className="space-y-2 rounded-card border border-line bg-surface-muted p-2">
+        <div className="space-y-2">
           {/* THE SENTENCE THAT WAS MISSING FROM EVERY SCREEN. It is a fact, not a
               warning tone, and it is stated before the control that changes it. */}
           <p className="text-xs text-ink-muted">
@@ -121,7 +129,7 @@ export function NumberRow({
               <span className="flex flex-col gap-1">
                 <span className={FIELD_LABEL}>Answered by</span>
                 <select
-                  className={FIELD}
+                  className={FIELD_INLINE}
                   value={number.agent_id ?? DETACHED}
                   disabled={!canWrite || attach.isPending}
                   onChange={(ev) =>
@@ -161,7 +169,7 @@ export function NumberRow({
       )}
 
       {!number.engine_linked && !number.released && (
-        <div className="space-y-2 rounded-card border border-line bg-surface-muted p-2">
+        <div className="space-y-2 rounded-card border border-warn-line bg-warn-soft p-3">
           <p className="text-xs text-ink-muted">
             The voice platform has no handle for this number, so no agent can answer it —
             publishing one will report success and the phone will not ring. Paste the
@@ -171,7 +179,7 @@ export function NumberRow({
           <div className="flex flex-wrap gap-2">
             <input
               aria-label={`Voice platform identifier for ${number.e164}`}
-              className={`flex-1 font-mono ${FIELD}`}
+              className={`flex-1 font-mono ${FIELD_INLINE}`}
               value={ref}
               disabled={!canWrite}
               onChange={(ev) => setRef(ev.target.value.trim())}

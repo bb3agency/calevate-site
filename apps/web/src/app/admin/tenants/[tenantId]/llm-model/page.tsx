@@ -1,12 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { use, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Wrench } from "lucide-react";
 
 import {
   Card,
-  EmptyState,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -17,6 +15,8 @@ import {
   Skeleton,
   formatRupeeRate,
 } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
+import { PageHeader } from "@/components/console/pageHeader";
 import { useTenant } from "@/lib/api/admin";
 import {
   adminLlmDefaultBlockReason,
@@ -129,60 +129,16 @@ export default function LlmModelPage({
   const set = useSetAdminLlmDefault(tenantId);
   const write = useAdminAccess("admin:tenants", "change which model a client's agents use");
 
-  if (tenantQuery.isLoading) return <Skeleton rows={6} />;
-  // A 403, a 500 or a dropped connection is not "no such client".
-  if (tenantQuery.error)
-    return <ProblemNotice error={tenantQuery.error} onRetry={() => tenantQuery.refetch()} />;
-  if (!tenant) return <EmptyState title="Client not found" />;
+  // The layout resolves the tenant before this page mounts; a render without it (a test
+  // that mounts the page alone) paints nothing rather than a guess.
+  if (!tenant) return null;
 
   return (
     <div className="max-w-3xl space-y-5">
-      <div>
-        <Link
-          href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          {tenant.name}
-        </Link>
-        {/* `admin/layout.tsx` prints no page title (unlike the client shell), so this
-            heading is the only name this screen has. Delete it if a title lands there. */}
-        <h1 className="mt-1 text-xl font-semibold text-ink">Language model</h1>
-        <p className="text-sm text-ink-muted">
-          Which model this client&apos;s voice agents think with, what it adds to their
-          bill, and what it costs us to run. Every model here runs on the same speech
-          stack — this changes the language leg only.
-        </p>
-      </div>
-
-      <NoticeBox
-        tone="warn"
-        icon={<AlertTriangle className="h-5 w-5" />}
-        title="This changes what this client is billed, and what it costs us"
-      >
-        <ul className="mt-1 space-y-1 text-xs opacity-90">
-          <li>
-            Each model shows{" "}
-            <span className="font-medium">what it adds to this client&apos;s bill</span>{" "}
-            per minute — their plan&apos;s model surcharge, set on Commercials — and,
-            separately, <span className="font-medium">what it costs us</span> to run.
-            &ldquo;No extra charge&rdquo; means their plan quotes no surcharge, so a dearer
-            model is margin we give up rather than revenue we gain. Nothing already billed
-            is touched: a past call is priced from what the ledger recorded, not from this
-            setting.
-          </li>
-          <li>
-            It reaches every agent on this account that has not been given a model of its
-            own. An agent with its own choice keeps that choice.
-          </li>
-          <li>
-            The client can change this themselves from their own console. An operator
-            setting it here is making the same decision on their behalf, and it is recorded
-            against your admin account.
-          </li>
-        </ul>
-      </NoticeBox>
-
+      <PageHeader
+        title="Language model"
+        description="Which model this client's agents think with, and what it costs them and us. Speech is unchanged."
+      />
       {defaults.error && (
         <ProblemNotice error={defaults.error} onRetry={() => defaults.refetch()} />
       )}
@@ -232,7 +188,6 @@ export default function LlmModelPage({
           />
           {set.error != null && <ProblemNotice error={set.error} />}
           {set.isSuccess && <Recorded sent={set.variables} defaults={defaults.data} />}
-          <PerAgentNote />
         </>
       )}
     </div>
@@ -310,6 +265,42 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
         </NoticeBox>
       )}
     </Card>
+  );
+}
+
+/**
+ * The money warning, verbatim (D-661): it sits directly above the confirmation, so the
+ * consequence is read where the decision is made (UX-DOCTRINE §4).
+ */
+function MoneyWarning() {
+  return (
+    <NoticeBox
+      tone="warn"
+      icon={<AlertTriangle className="h-5 w-5" />}
+      title="This changes what this client is billed, and what it costs us"
+    >
+      <ul className="mt-1 space-y-1 text-xs opacity-90">
+        <li>
+          Each model shows{" "}
+          <span className="font-medium">what it adds to this client&apos;s bill</span>{" "}
+          per minute — their plan&apos;s model surcharge, set on Commercials — and,
+          separately, <span className="font-medium">what it costs us</span> to run.
+          &ldquo;No extra charge&rdquo; means their plan quotes no surcharge, so a dearer
+          model is margin we give up rather than revenue we gain. Nothing already billed
+          is touched: a past call is priced from what the ledger recorded, not from this
+          setting.
+        </li>
+        <li>
+          It reaches every agent on this account that has not been given a model of its
+          own. An agent with its own choice keeps that choice.
+        </li>
+        <li>
+          The client can change this themselves from their own console. An operator
+          setting it here is making the same decision on their behalf, and it is recorded
+          against your admin account.
+        </li>
+      </ul>
+    </NoticeBox>
   );
 }
 
@@ -510,15 +501,25 @@ function ChoiceForm({
   };
 
   return (
-    <Card title="Choose a model">
-      <p className="-mt-2 text-sm text-ink-muted">
-        Each row shows what the model ADDS to this client&apos;s bill per minute (their
-        plan&apos;s model surcharge) and, separately, what a minute of a five-minute call
-        costs US to run. Comparisons are against what they are on today.
-      </p>
-
+    <Card
+      title="Choose a model"
+      info={
+        <>
+          <p>
+            Each row shows what the model ADDS to this client&apos;s bill per minute (their
+            plan&apos;s model surcharge) and, separately, what a minute of a five-minute call
+            costs US to run. Comparisons are against what they are on today.
+          </p>
+          <p>
+            One agent can be put on a different model from the rest. That choice lives on the
+            agent and belongs to the client, and it is not made from here — this page sets
+            the account-wide default that every agent without a choice of its own follows.
+          </p>
+        </>
+      }
+    >
       <form
-        className="mt-4 space-y-4"
+        className="space-y-4"
         // These forms carry no rule the browser can refuse — only `maxLength`, which
         // it enforces by not accepting the keystroke — and their own refusals are
         // already written in our words beside each control. `noValidate` so a rule
@@ -548,7 +549,7 @@ function ChoiceForm({
                 <div key={group.key} role="group" aria-labelledby={headingId} className="space-y-2">
                   <p
                     id={headingId}
-                    className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
+                    className="text-[13px] font-medium text-ink-muted"
                   >
                     {group.label}
                   </p>
@@ -592,6 +593,8 @@ function ChoiceForm({
         {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON — blast radius first, then the money,
             then that it is recorded. The order `admin/ops/page.tsx` established: an
             operator who reads only the first line has read the part that matters. */}
+        <MoneyWarning />
+
         <div className="rounded-card border border-line bg-app p-3 text-xs text-ink-muted">
           <p className="font-medium text-ink">This will record, against {tenantName}:</p>
           <ul className="mt-1.5 space-y-1">
@@ -651,12 +654,15 @@ function ChoiceForm({
             }}
             className={`${FIELD} font-mono`}
           />
-          <span className={FIELD_HINT}>
-            The model this client ends up on — not the option you clicked, which is the
-            same thing only when you are setting one explicitly. Typing it is what
-            separates &ldquo;I meant this client, on this model&rdquo; from a mis-click on
-            a row.
-          </span>
+          <div className={`${FIELD_HINT} flex items-start gap-1`}>
+            <span>Type the model they end up on.</span>
+            <InfoTip label="Why type it">
+              The model this client ends up on — not the option you clicked, which is the
+              same thing only when you are setting one explicitly. Typing it is what
+              separates &ldquo;I meant this client, on this model&rdquo; from a mis-click on
+              a row.
+            </InfoTip>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -667,7 +673,7 @@ function ChoiceForm({
           >
             {set.isPending ? "Saving…" : "Save this model"}
           </button>
-          {blocked && <span className="text-xs text-amber-700 dark:text-amber-400">{blocked}</span>}
+          {blocked && <span className="text-xs text-warn">{blocked}</span>}
         </div>
       </form>
     </Card>
@@ -755,7 +761,7 @@ function ModelOption({
           <span className="mt-0.5 block text-ink-faint">{change}</span>
         )}
         {undeployed && (
-          <span className="mt-0.5 block font-medium text-amber-700 dark:text-amber-400">
+          <span className="mt-0.5 block font-medium text-warn">
             {/* One sentence for a row the platform cannot run, shared with the client
                 picker's rendering of the same fact: this was written out here and again
                 in `MODEL_UNAVAILABLE_FALLBACK`, and two spellings of one refusal is how
@@ -802,27 +808,6 @@ function Recorded({
             platform default becomes.
           </>
         )}{" "}
-        The panel above has been re-read from the server; it is the record, not this line.
-      </p>
-    </NoticeBox>
-  );
-}
-
-/**
- * The one thing this screen deliberately does NOT offer: a per-agent override.
- *
- * `llm_model` on an agent is the client's own control (`lib/api/llmModels.ts`), and D-21's
- * boundary is about what an agent SAYS and CAPTURES rather than what it costs. An operator
- * reaching for a per-agent model from here is usually about to solve an account-level
- * problem one agent at a time; the note points them at the right control instead.
- */
-function PerAgentNote() {
-  return (
-    <NoticeBox tone="neutral" icon={<Info className="h-5 w-5" />} title="Per agent">
-      <p className="mt-1 text-xs opacity-90">
-        One agent can be put on a different model from the rest. That choice lives on the
-        agent and belongs to the client, and it is not made from here — this page sets the
-        account-wide default that every agent without a choice of its own follows.
       </p>
     </NoticeBox>
   );

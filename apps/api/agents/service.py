@@ -216,6 +216,10 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # request is built, so no line was seized and the contact keeps its place — the
         # same standing as a missing caller id, and for the same reason.
         ENGINE_COMPLIANCE_FLOOR_ABSENT,
+        # The owned runtime's carrier dial was missing a fact its request needs (our call
+        # id, the public callback address, the published agent). Raised before the request
+        # is built (`engine/pipecat._dial_precondition_failed`).
+        "carrier_dial_precondition_failed",
     }
 )
 
@@ -3010,6 +3014,9 @@ async def dispatch_call(
                     merge_values={"lead_name": lead_name, "phone": phone_e164},
                 ),
                 from_e164=from_e164,
+                # Our intent row's id, for an engine whose carrier calls back into our
+                # routes with it in the path (`calevate_shared.carrier.answer_path`).
+                call_id=str(call_id),
             ),
         )
     except Exception as exc:

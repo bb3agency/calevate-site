@@ -1,16 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Bot, PhoneCall, Sparkles, Users } from "lucide-react";
 
-import {
-  EmptyState,
-  ProblemNotice,
-  Skeleton,
-  StatTile,
-  formatCount,
-  formatIST,
-} from "@/components/ui";
+import { Metric } from "@/components/console/metric";
+import { Card, formatCount, formatIST } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import { useTenant, useTenantKbQueue } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -18,18 +11,18 @@ import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 
 import { AccountStateBanner } from "./AccountStateBanner";
-import { AgentsPanel } from "./AgentsPanel";
-import { CampaignSetup } from "./CampaignSetup";
 import { HoldsBanner } from "./HoldsBanner";
 import { KnowledgeDeliveryPanel } from "./KnowledgeDeliveryPanel";
 import { KnowledgeQueue, unpublishedSources } from "./KnowledgeQueue";
 import { MarginPanel } from "./MarginPanel";
-import { SpendCapPanel } from "./SpendCapPanel";
-import { TenantNav } from "./TenantNav";
-import { WhatsAppAlertsPanel } from "./WhatsAppAlertsPanel";
 
 /**
- * One client: health, the view-as link, and the KB approval queue.
+ * One client's overview: is it working, and what is waiting on us.
+ *
+ * Primary job: *tell the operator where to go next.* Stops first (account state, then the
+ * gates holding it), then this week's activity and this month's margin, then the knowledge
+ * an operator still has to decide or publish and whether it reached the phone. Everything
+ * else is a section of the client layout (D-661) and is reached from its menu.
  *
  * The queue is READ through impersonation and DECIDED through the admin surface. That
  * split was D-22's ("no acting-as: mutations still go through admin surfaces") and it
@@ -53,9 +46,8 @@ import { WhatsAppAlertsPanel } from "./WhatsAppAlertsPanel";
  * see `@/app/admin/access` for why the client realm's `useWriteAccess` cannot be used
  * here, and where the permission set is read from (`GET /v1/admin/me`).
  *
- * The `<h1>` stays: unlike the client shell, `admin/layout.tsx` prints no page title, so
- * removing it would leave the screen unnamed. If a title lands in the shell, this is the
- * copy to delete.
+ * The client's name, state and section menu are the tenant layout's (`TenantShell.tsx`),
+ * which prints the page's `h1`; this screen starts at `h2`.
  *
  * ## Why the panels are eight files and not one
  *
@@ -178,33 +170,12 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     apply: noFill,
   });
 
-  if (tenantQuery.isLoading) return <Skeleton rows={6} />;
-  // A 403, a 500 or a dropped connection is not "no such client" — saying so sends
-  // an operator hunting for a deleted tenant that is sitting right there.
-  if (tenantQuery.error)
-    return <ProblemNotice error={tenantQuery.error} onRetry={() => tenantQuery.refetch()} />;
-  if (!tenant) return <EmptyState title="Client not found" />;
+  // The layout resolves the tenant before this page mounts; a render without it (a test
+  // that mounts the page alone, before its stub answers) paints nothing rather than a guess.
+  if (!tenant) return null;
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Link
-            href="/admin"
-            className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Clients
-          </Link>
-          <h1 className="mt-1 text-xl font-semibold text-ink">{tenant.name}</h1>
-          <p className="text-sm text-ink-muted">
-            /c/{tenant.slug} · {tenant.status} · {tenant.plan_tier} ·{" "}
-            {tenant.vertical_template ?? "no template"}
-          </p>
-        </div>
-        <TenantNav tenantId={tenantId} slug={tenant.slug} />
-      </div>
-
       {/* ABOVE the holds, because it outranks them: `check_dispatch` asks the account
           state before it asks any gate, so a suspended account is refused whether or not
           a hold is also open, and an operator told only about the hold would clear it and
@@ -213,23 +184,27 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
       <HoldsBanner tenantId={tenantId} holds={tenant.holds} />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile
-          label="Live agents"
-          value={formatCount(tenant.live_agents)}
-          icon={<Bot className="h-5 w-5" />}
-        />
-        <StatTile
-          label="Calls (7d)"
-          value={formatCount(tenant.calls_7d)}
-          icon={<PhoneCall className="h-5 w-5" />}
-        />
-        <StatTile label="Leads" value={formatCount(tenant.leads)} icon={<Users className="h-5 w-5" />} />
-        <StatTile
-          label="Last call"
-          value={formatIST(tenant.last_call_at)}
-          icon={<Sparkles className="h-5 w-5" />}
-        />
+      <div className="grid gap-5 2xl:grid-cols-2">
+        <Card title="Activity" density="compact">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 2xl:grid-cols-2">
+            <Metric
+              label="Live agents"
+              value={formatCount(tenant.live_agents)}
+              hint={
+                <Link
+                  href={`/admin/tenants/${tenantId}/agents`}
+                  className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                >
+                  Open agents
+                </Link>
+              }
+            />
+            <Metric label="Calls (7d)" value={formatCount(tenant.calls_7d)} />
+            <Metric label="Leads" value={formatCount(tenant.leads)} />
+            <Metric label="Last call" value={formatIST(tenant.last_call_at)} />
+          </div>
+        </Card>
+        <MarginPanel tenantId={tenantId} />
       </div>
 
       <KnowledgeQueue tenantId={tenantId} slug={slug} />
@@ -237,26 +212,9 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       {/* Directly under the queue, because it is the other end of the same job: the queue
           ends at Publish, and a publish whose pack failed to store leaves every screen
           showing the new words while the phone quotes the old ones
-          (`kb/pack.refresh_published_pack` survives that failure by design). An operator
-          who has just worked this queue is the one person positioned to notice. */}
+          (`kb/pack.refresh_published_pack` survives that failure by design). */}
       <KnowledgeDeliveryPanel slug={slug} />
 
-      <AgentsPanel tenantId={tenantId} slug={slug} />
-
-      <MarginPanel tenantId={tenantId} />
-
-      {/* Beside the margin because both are this client's money, and on THIS screen
-          rather than on /admin/ops because the route names a tenant in its path and binds
-          its step-up confirmation to that tenant id — see the panel. */}
-      <SpendCapPanel tenantId={tenantId} slug={slug} directoryCapped={tenant.capped} />
-
-      <CampaignSetup tenantId={tenantId} slug={slug} />
-
-      {/* On THIS screen for `SpendCapPanel`'s reason: the route names a tenant in its
-          path and the subject is that tenant's owner. The client's own version of this
-          control is `/c/[slug]/settings/alerts` — this one exists for the opt-in that was
-          given on an onboarding call rather than on a screen. */}
-      <WhatsAppAlertsPanel tenantId={tenantId} />
     </div>
   );
 }

@@ -1,0 +1,2413 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+    
+  <url>
+    <loc>https://www.vobiz.ai/docs/account</loc>
+    <lastmod>2026-09-18T06:06:08.649Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number</loc>
+    <lastmod>2026-07-31T06:36:31.678Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/account-phone-number-object</loc>
+    <lastmod>2026-07-17T06:24:35.971Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/assign-subaccount</loc>
+    <lastmod>2026-07-17T06:24:35.973Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/cancel-release</loc>
+    <lastmod>2026-07-20T09:27:12.961Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/get-number-health</loc>
+    <lastmod>2026-07-03T04:22:33.329Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/list-account-phone-numbers</loc>
+    <lastmod>2026-07-17T06:24:35.972Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/list-inventory-numbers</loc>
+    <lastmod>2026-07-17T06:24:35.973Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/purchase-from-inventory</loc>
+    <lastmod>2026-07-17T06:24:35.975Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/unassign-subaccount</loc>
+    <lastmod>2026-07-17T06:24:35.970Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account-phone-number/unrent-number</loc>
+    <lastmod>2026-07-31T06:36:31.678Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/account-object</loc>
+    <lastmod>2026-07-18T06:38:10.363Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/balance</loc>
+    <lastmod>2026-09-18T06:06:08.646Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/channel-pricing-preview</loc>
+    <lastmod>2026-07-18T06:38:10.361Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/channel-subscriptions</loc>
+    <lastmod>2026-07-18T06:38:10.362Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/concurrency</loc>
+    <lastmod>2026-07-17T06:24:35.969Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/ndnc-webhook</loc>
+    <lastmod>2026-07-17T06:24:34.310Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/retrieve-account</loc>
+    <lastmod>2026-06-16T10:36:22.141Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/account/transactions</loc>
+    <lastmod>2026-09-18T06:06:07.643Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/api-reference</loc>
+    <lastmod>2026-08-10T05:29:31.835Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/api-reference/authentication</loc>
+    <lastmod>2026-07-22T16:55:22.277Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/api-reference/versioning</loc>
+    <lastmod>2026-08-10T05:29:31.834Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications</loc>
+    <lastmod>2026-05-13T06:12:40.680Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/application-object</loc>
+    <lastmod>2026-06-16T10:36:22.144Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/attach-number</loc>
+    <lastmod>2026-08-10T05:29:31.838Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/create-application</loc>
+    <lastmod>2026-06-16T10:36:22.163Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/delete-application</loc>
+    <lastmod>2026-06-16T10:36:22.162Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/detach-number</loc>
+    <lastmod>2026-08-10T05:29:31.840Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/list-all-applications</loc>
+    <lastmod>2026-05-13T06:37:07.714Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/retrieve-application</loc>
+    <lastmod>2026-05-13T06:37:07.762Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/applications/update-application</loc>
+    <lastmod>2026-06-16T10:36:22.218Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/audio-streams</loc>
+    <lastmod>2026-07-13T16:51:14.666Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/audio-streams/list-audio-streams</loc>
+    <lastmod>2026-05-13T06:12:40.671Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/audio-streams/retrieve-audio-stream</loc>
+    <lastmod>2026-05-13T06:12:40.711Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/audio-streams/start-audio-stream</loc>
+    <lastmod>2026-09-02T14:35:44.774Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/audio-streams/stop-all-audio-streams</loc>
+    <lastmod>2026-08-10T05:29:31.784Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/audio-streams/stop-audio-stream</loc>
+    <lastmod>2026-06-16T10:36:22.241Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/audio-streams/stream-object</loc>
+    <lastmod>2026-07-13T16:51:14.691Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices</loc>
+    <lastmod>2026-08-10T05:29:31.785Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices/140-160-acquisition</loc>
+    <lastmod>2026-09-04T10:46:51.903Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices/92-series-guide</loc>
+    <lastmod>2026-07-17T06:40:08.659Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices/did-provisioning</loc>
+    <lastmod>2026-09-04T10:46:51.905Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices/dlt-registration</loc>
+    <lastmod>2026-09-04T10:46:51.910Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices/number-health-guide</loc>
+    <lastmod>2026-07-17T06:24:34.307Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices/number-utilization</loc>
+    <lastmod>2026-07-17T06:40:08.672Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/best-practices/outbound-campaign-manager</loc>
+    <lastmod>2026-06-04T12:38:43.940Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs</loc>
+    <lastmod>2026-07-15T09:03:42.916Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/automated-calling-answering-machine-detection</loc>
+    <lastmod>2026-07-17T06:24:34.300Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/call-center-optimization-with-ai</loc>
+    <lastmod>2026-07-13T16:51:14.716Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/call-recording-apis-compliant-pipelines</loc>
+    <lastmod>2026-07-17T06:24:34.300Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/context-aware-call-transfers</loc>
+    <lastmod>2026-07-17T06:24:34.295Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/intelligent-call-escalations</loc>
+    <lastmod>2026-07-17T06:24:34.303Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/sip-vs-voip</loc>
+    <lastmod>2026-07-13T16:51:14.718Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/toll-free-vs-local-vs-mobile-numbers</loc>
+    <lastmod>2026-07-17T06:24:34.308Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-a-call-leg</loc>
+    <lastmod>2026-07-17T06:24:34.298Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-a-did-number</loc>
+    <lastmod>2026-07-13T16:51:14.720Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-a-landline-number</loc>
+    <lastmod>2026-06-10T10:55:55.694Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-a-virtual-phone-number</loc>
+    <lastmod>2026-07-13T16:51:14.752Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-a-voice-api</loc>
+    <lastmod>2026-06-10T10:55:55.696Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-an-ivr</loc>
+    <lastmod>2026-07-13T16:51:14.753Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-answering-machine-detection</loc>
+    <lastmod>2026-07-17T06:24:34.297Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-call-routing</loc>
+    <lastmod>2026-07-17T06:24:34.305Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-caller-id-cnam</loc>
+    <lastmod>2026-07-17T06:24:34.306Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-e164-phone-number-formatting</loc>
+    <lastmod>2026-07-13T16:51:14.749Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-multi-level-ivr</loc>
+    <lastmod>2026-07-17T06:24:34.294Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-number-masking</loc>
+    <lastmod>2026-07-17T06:24:34.293Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-sip</loc>
+    <lastmod>2026-06-10T10:55:55.692Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-sip-trunking</loc>
+    <lastmod>2026-06-10T10:55:55.693Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-voice-transcription-asr</loc>
+    <lastmod>2026-07-17T06:24:34.294Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-voip</loc>
+    <lastmod>2026-07-13T16:51:14.777Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/blogs/what-is-webrtc</loc>
+    <lastmod>2026-07-13T16:51:14.776Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/buy-a-phone-number</loc>
+    <lastmod>2026-07-31T06:36:30.876Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/call-object</loc>
+    <lastmod>2026-05-13T06:37:07.803Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/dtmf</loc>
+    <lastmod>2026-07-10T12:51:17.396Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/dtmf/send-digits</loc>
+    <lastmod>2026-06-16T10:36:22.380Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/hangup-call</loc>
+    <lastmod>2026-08-10T05:29:31.780Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/machine-detection</loc>
+    <lastmod>2026-09-04T10:46:51.851Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/make-call</loc>
+    <lastmod>2026-06-16T10:36:22.379Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/overview</loc>
+    <lastmod>2026-05-13T06:37:07.804Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/play-audio</loc>
+    <lastmod>2026-05-12T09:50:27.262Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/play-audio/play-audio</loc>
+    <lastmod>2026-06-16T10:36:22.378Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/play-audio/stop-audio</loc>
+    <lastmod>2026-05-13T06:37:07.842Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/record-calls</loc>
+    <lastmod>2026-05-12T09:50:27.263Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/record-calls/start-recording</loc>
+    <lastmod>2026-06-16T10:36:22.404Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/record-calls/stop-recording</loc>
+    <lastmod>2026-05-13T06:37:07.841Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/retrieve-all-live-calls</loc>
+    <lastmod>2026-05-13T06:37:07.844Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/retrieve-all-queued-calls</loc>
+    <lastmod>2026-05-13T06:37:07.839Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/retrieve-live-call</loc>
+    <lastmod>2026-06-11T16:08:52.856Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/retrieve-queued-call</loc>
+    <lastmod>2026-05-13T06:37:07.837Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/speak-text</loc>
+    <lastmod>2026-05-12T09:50:27.732Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/speak-text/speak-text</loc>
+    <lastmod>2026-06-16T10:36:22.402Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/speak-text/stop-speak</loc>
+    <lastmod>2026-05-13T06:37:07.889Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/call/transfer-call</loc>
+    <lastmod>2026-08-10T05:29:31.712Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/agents/create-agent</loc>
+    <lastmod>2026-08-28T13:51:13.786Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/agents/delete-agent</loc>
+    <lastmod>2026-08-28T13:51:13.793Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/agents/list-agents</loc>
+    <lastmod>2026-08-28T13:51:13.790Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/agents/retrieve-agent</loc>
+    <lastmod>2026-08-28T13:51:13.791Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/agents/update-agent</loc>
+    <lastmod>2026-08-28T13:51:13.783Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/authentication</loc>
+    <lastmod>2026-08-28T13:51:13.784Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/caller-pool/add-pool-numbers</loc>
+    <lastmod>2026-08-28T13:51:13.807Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/caller-pool/delete-pool-number</loc>
+    <lastmod>2026-08-28T13:51:13.789Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/caller-pool/list-pool-numbers</loc>
+    <lastmod>2026-08-28T13:51:13.783Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/caller-pool/update-pool-number</loc>
+    <lastmod>2026-08-28T13:51:13.807Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/campaigns/create-campaign</loc>
+    <lastmod>2026-08-28T13:51:13.785Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/campaigns/list-campaigns</loc>
+    <lastmod>2026-08-28T13:51:13.787Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/campaigns/retrieve-campaign</loc>
+    <lastmod>2026-08-28T13:51:13.798Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/campaigns/update-campaign</loc>
+    <lastmod>2026-08-28T13:51:13.790Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/capacity/account-capacity</loc>
+    <lastmod>2026-08-28T13:51:13.796Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/capacity/call-lookup</loc>
+    <lastmod>2026-08-28T13:51:13.792Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/contacts/download-results</loc>
+    <lastmod>2026-08-28T13:51:13.782Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/contacts/list-calls</loc>
+    <lastmod>2026-08-28T13:51:13.782Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/contacts/list-contacts</loc>
+    <lastmod>2026-08-28T13:51:13.784Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/contacts/upload-contacts</loc>
+    <lastmod>2026-08-28T13:51:12.871Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/controls/archive-campaign</loc>
+    <lastmod>2026-08-28T13:51:12.883Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/controls/cancel-campaign</loc>
+    <lastmod>2026-08-28T13:51:12.881Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/controls/pause-campaign</loc>
+    <lastmod>2026-08-28T13:51:12.872Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/controls/resume-campaign</loc>
+    <lastmod>2026-08-28T13:51:12.866Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/controls/start-campaign</loc>
+    <lastmod>2026-08-28T13:51:12.880Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/overview</loc>
+    <lastmod>2026-08-28T13:51:12.882Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/campaign-manager/webhooks</loc>
+    <lastmod>2026-07-21T10:17:16.131Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/cdr</loc>
+    <lastmod>2026-09-02T14:35:44.775Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/cdr/export-cdrs</loc>
+    <lastmod>2026-06-16T10:36:22.430Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/cdr/get-cdr</loc>
+    <lastmod>2026-06-16T10:36:22.427Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/cdr/list-cdrs</loc>
+    <lastmod>2026-07-17T06:24:30.912Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/cdr/recent-cdrs</loc>
+    <lastmod>2026-06-16T10:36:22.429Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/cdr/search-cdrs</loc>
+    <lastmod>2026-06-30T11:01:41.433Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/changelog</loc>
+    <lastmod>2026-08-10T05:29:31.708Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/call-control-xml</loc>
+    <lastmod>2026-07-17T06:24:30.909Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/code-snippets</loc>
+    <lastmod>2026-07-17T06:24:30.907Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/conferences</loc>
+    <lastmod>2026-07-17T06:24:30.906Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/migration-agent</loc>
+    <lastmod>2026-07-17T06:24:30.918Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/overview</loc>
+    <lastmod>2026-07-17T06:24:30.907Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/phone-numbers</loc>
+    <lastmod>2026-07-17T06:24:30.910Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/recordings</loc>
+    <lastmod>2026-07-17T06:24:30.915Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/sdks</loc>
+    <lastmod>2026-07-17T06:24:30.913Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/sip-trunking</loc>
+    <lastmod>2026-07-17T06:24:30.916Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/sub-accounts</loc>
+    <lastmod>2026-07-17T06:24:30.916Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/voice-call-api</loc>
+    <lastmod>2026-06-30T12:04:11.899Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/plivo/webhooks</loc>
+    <lastmod>2026-07-17T06:24:30.914Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/code-snippets</loc>
+    <lastmod>2026-07-17T06:24:30.903Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/conferences</loc>
+    <lastmod>2026-07-17T06:24:30.900Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/migration-agent</loc>
+    <lastmod>2026-07-17T06:24:30.901Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/overview</loc>
+    <lastmod>2026-07-17T06:24:30.911Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/phone-numbers</loc>
+    <lastmod>2026-07-17T06:24:30.900Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/recordings</loc>
+    <lastmod>2026-07-17T06:24:30.917Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/sdks</loc>
+    <lastmod>2026-07-17T06:24:30.902Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/sip-trunking</loc>
+    <lastmod>2026-07-17T06:24:30.905Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/subaccounts</loc>
+    <lastmod>2026-07-17T06:24:30.914Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/twiml-to-vobizxml</loc>
+    <lastmod>2026-07-17T06:24:28.858Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/voice-call-api</loc>
+    <lastmod>2026-07-17T06:24:28.857Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/twilio/webhooks</loc>
+    <lastmod>2026-07-17T06:24:28.857Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/vobiz-vs-exotel</loc>
+    <lastmod>2026-05-18T06:04:44.087Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/vobiz-vs-justcall</loc>
+    <lastmod>2026-05-18T06:04:44.082Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/vobiz-vs-plivo</loc>
+    <lastmod>2026-07-17T06:40:08.660Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/vobiz-vs-telecrm</loc>
+    <lastmod>2026-07-17T06:40:08.666Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/vobiz-vs-telnyx</loc>
+    <lastmod>2026-07-17T06:40:08.658Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/vobiz-vs-twilio</loc>
+    <lastmod>2026-07-17T06:40:08.671Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compare/vobiz-vs-vonage</loc>
+    <lastmod>2026-05-18T06:04:44.090Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compliance/india/calling-regulations</loc>
+    <lastmod>2026-05-12T09:50:28.659Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compliance/india/kyc</loc>
+    <lastmod>2026-07-17T06:24:28.854Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/compliance/india/ucc</loc>
+    <lastmod>2026-05-25T05:43:59.843Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts</loc>
+    <lastmod>2026-06-10T16:51:52.094Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/bring-your-own-carrier</loc>
+    <lastmod>2026-08-28T13:19:29.882Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/callback-configurations</loc>
+    <lastmod>2026-07-22T16:55:22.279Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/callbacks</loc>
+    <lastmod>2026-09-02T14:35:44.767Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/hangup-causes</loc>
+    <lastmod>2026-06-10T16:51:52.091Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/ip-whitelisting</loc>
+    <lastmod>2026-09-01T13:14:53.796Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/sip-trunking</loc>
+    <lastmod>2026-05-12T09:57:51.586Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/sip-vs-websockets</loc>
+    <lastmod>2026-05-12T09:50:29.188Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/streaming-websockets</loc>
+    <lastmod>2026-07-13T16:51:14.938Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/concepts/validating-callbacks</loc>
+    <lastmod>2026-09-02T14:35:44.766Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/conference-object</loc>
+    <lastmod>2026-07-14T09:31:26.696Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/hang-up-all-conferences</loc>
+    <lastmod>2026-07-14T09:31:26.694Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/hang-up-conference</loc>
+    <lastmod>2026-07-14T09:31:26.693Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members</loc>
+    <lastmod>2026-09-02T14:35:44.768Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/deaf-member</loc>
+    <lastmod>2026-07-14T09:31:26.693Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/hang-up-member</loc>
+    <lastmod>2026-07-14T09:31:26.719Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/kick-member</loc>
+    <lastmod>2026-07-14T09:31:26.719Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/mute-member</loc>
+    <lastmod>2026-07-14T09:31:26.721Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/play-audio</loc>
+    <lastmod>2026-07-14T09:31:26.717Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/stop-audio</loc>
+    <lastmod>2026-06-16T10:36:22.504Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/undeaf-member</loc>
+    <lastmod>2026-07-14T09:31:26.721Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/members/unmute-member</loc>
+    <lastmod>2026-07-14T09:31:26.722Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/recording</loc>
+    <lastmod>2026-07-14T09:31:26.724Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/recording/start-recording</loc>
+    <lastmod>2026-07-14T09:31:26.718Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/recording/stop-recording</loc>
+    <lastmod>2026-07-14T09:31:26.720Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/retrieve-all-conferences</loc>
+    <lastmod>2026-07-14T09:31:26.749Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/conference/retrieve-conference</loc>
+    <lastmod>2026-07-14T09:31:26.750Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/endpoint</loc>
+    <lastmod>2026-07-17T18:57:14.168Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/endpoint/create-endpoint</loc>
+    <lastmod>2026-07-15T09:26:12.008Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/endpoint/delete-endpoint</loc>
+    <lastmod>2026-05-13T06:37:08.405Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/endpoint/endpoint-object</loc>
+    <lastmod>2026-07-15T09:26:12.006Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/endpoint/list-all-endpoints</loc>
+    <lastmod>2026-07-14T06:57:00.560Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/endpoint/retrieve-endpoint</loc>
+    <lastmod>2026-07-14T06:57:00.561Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/endpoint/update-endpoint</loc>
+    <lastmod>2026-06-16T10:36:22.570Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/errors</loc>
+    <lastmod>2026-05-13T06:37:08.454Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/livekit-vobiz-all-feature-example</loc>
+    <lastmod>2026-05-12T09:50:31.193Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/livekit-vobiz-inbound</loc>
+    <lastmod>2026-05-13T06:12:40.959Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/livekit-vobiz-machine-detection-agent-example</loc>
+    <lastmod>2026-05-13T06:12:40.958Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/livekit-vobiz-outbound</loc>
+    <lastmod>2026-05-13T06:12:40.951Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/livekit-vobiz-webhook-integration-example</loc>
+    <lastmod>2026-05-13T06:12:40.941Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-all-xml</loc>
+    <lastmod>2026-05-13T06:12:40.989Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-appointment-reminder-xml-python</loc>
+    <lastmod>2026-05-13T06:12:40.988Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-bun-media-stream</loc>
+    <lastmod>2026-07-13T16:51:15.012Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-call-queue-xml-python</loc>
+    <lastmod>2026-05-13T06:12:40.984Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-call-survey-xml-python</loc>
+    <lastmod>2026-05-13T06:12:40.986Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-ivr-xml-python</loc>
+    <lastmod>2026-05-13T06:12:40.982Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-livekit-agent-to-agent-handoff-example</loc>
+    <lastmod>2026-05-13T06:12:40.985Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-livekit-call-transfer-example</loc>
+    <lastmod>2026-05-13T06:12:40.983Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-livekit-ivr-dtmf-example</loc>
+    <lastmod>2026-05-12T09:50:31.838Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-number-capture-xml-python</loc>
+    <lastmod>2026-05-12T09:50:31.837Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-otp-call-xml-python</loc>
+    <lastmod>2026-05-13T06:12:40.987Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-two-way-number-masking-python</loc>
+    <lastmod>2026-07-17T06:24:27.974Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-voicemail-xml-python</loc>
+    <lastmod>2026-05-13T06:12:40.987Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/examples/vobiz-x-pipecat</loc>
+    <lastmod>2026-05-13T06:12:40.983Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq</loc>
+    <lastmod>2026-07-17T06:40:08.665Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/call-transfer</loc>
+    <lastmod>2026-05-13T06:12:41.025Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/concurrency</loc>
+    <lastmod>2026-08-13T06:01:18.873Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/contact-support</loc>
+    <lastmod>2026-05-13T06:37:09.046Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/cps</loc>
+    <lastmod>2026-08-13T06:01:18.870Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/domestic-calling-india</loc>
+    <lastmod>2026-05-13T06:12:41.028Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/error-429</loc>
+    <lastmod>2026-08-13T06:01:18.872Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/integrations</loc>
+    <lastmod>2026-05-13T06:37:09.043Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/ivr</loc>
+    <lastmod>2026-05-13T06:37:09.095Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/number-series</loc>
+    <lastmod>2026-07-17T06:40:08.666Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/purchase-concurrency-cps</loc>
+    <lastmod>2026-07-18T06:38:09.571Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/sip-codes-480-486</loc>
+    <lastmod>2026-05-13T06:37:09.090Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/trial-inbound</loc>
+    <lastmod>2026-05-13T06:37:09.089Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/faq/verification-docs</loc>
+    <lastmod>2026-05-13T06:37:09.088Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/ai-voice-agent</loc>
+    <lastmod>2026-06-18T14:19:54.346Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/ai-voice-agent/inbound</loc>
+    <lastmod>2026-07-13T16:51:15.080Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/ai-voice-agent/outbound</loc>
+    <lastmod>2026-06-16T10:36:22.638Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz</loc>
+    <lastmod>2026-07-01T05:15:35.435Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz/auth-and-base-url</loc>
+    <lastmod>2026-06-29T13:03:22.489Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz/cutover-checklist</loc>
+    <lastmod>2026-07-01T05:15:35.433Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz/endpoint-mapping</loc>
+    <lastmod>2026-07-17T06:24:27.967Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz/gotchas</loc>
+    <lastmod>2026-06-18T14:19:54.374Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz/number-porting</loc>
+    <lastmod>2026-07-17T06:40:08.657Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz/webhooks-and-signatures</loc>
+    <lastmod>2026-06-18T14:19:54.373Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/plivo-to-vobiz/xml-migration</loc>
+    <lastmod>2026-07-01T05:15:35.869Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/guides/receive-inbound-call</loc>
+    <lastmod>2026-09-21T04:18:58.472Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations</loc>
+    <lastmod>2026-09-21T18:33:48.545Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/3cx</loc>
+    <lastmod>2026-05-25T05:43:59.845Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/agora</loc>
+    <lastmod>2026-09-22T20:15:45.426Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/bolna</loc>
+    <lastmod>2026-05-13T06:12:41.053Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/clickup</loc>
+    <lastmod>2026-09-21T18:15:10.091Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/csharp-sdk</loc>
+    <lastmod>2026-07-17T06:24:27.977Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/deepgram</loc>
+    <lastmod>2026-09-28T16:54:30.029Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/dograh</loc>
+    <lastmod>2026-09-22T20:15:45.420Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/elevenlabs</loc>
+    <lastmod>2026-09-22T20:15:45.419Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/elevenlabs-api</loc>
+    <lastmod>2026-07-15T18:46:01.548Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/elevenlabs-dashboard</loc>
+    <lastmod>2026-07-15T18:46:01.545Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/expedify</loc>
+    <lastmod>2026-09-14T13:22:32.086Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/freshdesk</loc>
+    <lastmod>2026-09-15T03:36:51.640Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/gemini-live</loc>
+    <lastmod>2026-09-01T13:14:52.567Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/go-sdk</loc>
+    <lastmod>2026-07-17T06:24:27.269Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/hubspot</loc>
+    <lastmod>2026-09-21T18:33:48.537Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/java-sdk</loc>
+    <lastmod>2026-06-29T13:46:56.681Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/livekit</loc>
+    <lastmod>2026-09-22T20:15:45.423Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/node-sdk</loc>
+    <lastmod>2026-07-17T06:24:27.268Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/openai-realtime</loc>
+    <lastmod>2026-08-25T20:01:01.415Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/php-sdk</loc>
+    <lastmod>2026-07-17T06:24:27.266Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/pipecat</loc>
+    <lastmod>2026-09-22T20:15:45.430Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/pipedrive</loc>
+    <lastmod>2026-09-21T18:33:48.539Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/python-sdk</loc>
+    <lastmod>2026-07-28T03:20:22.930Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/rapida-ai</loc>
+    <lastmod>2026-07-18T06:22:18.271Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/retellai-api</loc>
+    <lastmod>2026-09-16T17:28:13.852Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/retellai-dashboard</loc>
+    <lastmod>2026-09-22T20:15:45.427Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/ruby-sdk</loc>
+    <lastmod>2026-07-17T06:24:27.264Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/salesforce</loc>
+    <lastmod>2026-09-21T18:33:48.536Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/sarvam</loc>
+    <lastmod>2026-07-29T17:52:38.245Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/servicenow</loc>
+    <lastmod>2026-09-21T18:15:10.093Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/smallest-ai</loc>
+    <lastmod>2026-09-22T20:15:45.423Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/ultravox</loc>
+    <lastmod>2026-05-13T06:37:09.174Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/vapi</loc>
+    <lastmod>2026-09-22T20:15:45.421Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/vapi-api</loc>
+    <lastmod>2026-07-13T10:04:55.958Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/vapi-dashboard</loc>
+    <lastmod>2026-09-22T20:15:45.422Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/webrtc-application-setup</loc>
+    <lastmod>2026-09-21T04:18:57.696Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/websockets</loc>
+    <lastmod>2026-07-13T16:51:15.580Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/xai</loc>
+    <lastmod>2026-08-10T06:41:03.329Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/zendesk</loc>
+    <lastmod>2026-09-23T08:01:34.679Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/zoho</loc>
+    <lastmod>2026-09-21T18:33:47.651Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/integrations/zoiper</loc>
+    <lastmod>2026-07-09T06:22:54.520Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/introduction</loc>
+    <lastmod>2026-07-21T10:55:22.269Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner</loc>
+    <lastmod>2026-05-13T06:37:09.497Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api</loc>
+    <lastmod>2026-09-09T16:23:31.870Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/analytics</loc>
+    <lastmod>2026-06-16T10:36:22.725Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/authentication</loc>
+    <lastmod>2026-06-16T10:36:22.723Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/balance</loc>
+    <lastmod>2026-06-16T10:36:22.724Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/capacity</loc>
+    <lastmod>2026-09-09T16:23:31.872Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/cdrs</loc>
+    <lastmod>2026-06-16T10:36:22.722Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/customers</loc>
+    <lastmod>2026-06-16T10:36:22.722Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/kyc-sessions</loc>
+    <lastmod>2026-05-22T07:27:22.527Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/numbers</loc>
+    <lastmod>2026-06-16T10:36:22.720Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/profile</loc>
+    <lastmod>2026-06-16T10:36:22.751Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/api/transactions</loc>
+    <lastmod>2026-08-29T06:39:09.292Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/partner/flow</loc>
+    <lastmod>2026-07-10T13:26:48.851Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/campaigns/agents</loc>
+    <lastmod>2026-08-28T13:51:11.949Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/campaigns/call-logs</loc>
+    <lastmod>2026-05-22T07:27:23.566Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/campaigns/list</loc>
+    <lastmod>2026-07-21T10:17:15.419Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/capacity/concurrency</loc>
+    <lastmod>2026-09-22T03:20:56.966Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/capacity/cps</loc>
+    <lastmod>2026-09-22T03:20:56.971Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/capacity/subscriptions</loc>
+    <lastmod>2026-09-22T03:20:56.971Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/dashboard</loc>
+    <lastmod>2026-07-28T03:20:22.933Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/login</loc>
+    <lastmod>2026-05-22T07:27:23.565Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/numbers/buy</loc>
+    <lastmod>2026-09-22T03:20:56.967Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/numbers/my-numbers</loc>
+    <lastmod>2026-09-22T03:20:56.965Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/call-logs</loc>
+    <lastmod>2026-05-22T07:27:23.559Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/credentials</loc>
+    <lastmod>2026-05-22T07:27:23.560Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/inbound-trunks</loc>
+    <lastmod>2026-05-22T07:27:26.692Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/ip-access-control-list</loc>
+    <lastmod>2026-05-22T07:27:26.695Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/origination-uri</loc>
+    <lastmod>2026-05-22T07:27:26.690Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/outbound-trunks</loc>
+    <lastmod>2026-05-22T07:27:26.665Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/overview</loc>
+    <lastmod>2026-05-22T07:27:26.666Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/sip/recordings</loc>
+    <lastmod>2026-05-22T07:27:26.687Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/subaccounts</loc>
+    <lastmod>2026-09-22T03:20:56.972Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/voice/applications</loc>
+    <lastmod>2026-05-22T07:27:26.693Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/voice/call-logs</loc>
+    <lastmod>2026-05-22T07:27:26.664Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/voice/endpoints</loc>
+    <lastmod>2026-07-14T06:50:18.290Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/voice/overview</loc>
+    <lastmod>2026-06-17T12:24:49.815Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/platform/voice/recordings</loc>
+    <lastmod>2026-05-22T07:27:27.301Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/quick-start</loc>
+    <lastmod>2026-07-10T13:26:49.728Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/recording</loc>
+    <lastmod>2026-09-02T14:35:44.770Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/recording/download-recording</loc>
+    <lastmod>2026-06-16T10:36:22.799Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/recording/export-historical-recordings</loc>
+    <lastmod>2026-05-13T06:12:41.197Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/recording/list-all-recordings</loc>
+    <lastmod>2026-06-16T10:36:22.797Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/recording/recording-object</loc>
+    <lastmod>2026-09-02T14:35:44.765Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/recording/retrieve-recording</loc>
+    <lastmod>2026-06-16T10:36:22.795Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/bulk-operations</loc>
+    <lastmod>2026-08-28T13:51:11.946Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/calculator</loc>
+    <lastmod>2026-07-15T09:03:42.113Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/cps-concurrency-visualizer</loc>
+    <lastmod>2026-08-13T06:01:18.064Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/dial-transfer-visualizer</loc>
+    <lastmod>2026-07-25T12:34:42.345Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/gather-visualizer</loc>
+    <lastmod>2026-07-28T17:11:00.997Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/mcp</loc>
+    <lastmod>2026-08-10T05:29:31.424Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/sip-vs-websocket-visualizer</loc>
+    <lastmod>2026-08-11T09:37:18.884Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/sitemap</loc>
+    <lastmod>2026-09-22T03:21:16.207Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/skills</loc>
+    <lastmod>2026-07-17T18:57:14.171Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/resources/stream-events-visualizer</loc>
+    <lastmod>2026-07-20T07:36:48.528Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions</loc>
+    <lastmod>2026-05-13T06:37:09.575Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/agent-to-agent-handoff</loc>
+    <lastmod>2026-05-13T06:37:09.570Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/ai-voice-agent</loc>
+    <lastmod>2026-07-17T06:40:08.664Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/appointment-reminders</loc>
+    <lastmod>2026-05-13T06:37:09.572Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/automated-outbound-calling</loc>
+    <lastmod>2026-05-13T06:12:41.230Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/call-escalation</loc>
+    <lastmod>2026-05-13T06:12:41.229Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/call-recording</loc>
+    <lastmod>2026-05-13T06:12:41.237Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/call-transfer</loc>
+    <lastmod>2026-05-13T06:37:09.573Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/cloud-ivr</loc>
+    <lastmod>2026-07-10T13:26:50.040Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/conference-calling</loc>
+    <lastmod>2026-05-13T06:12:41.296Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/contact-centre</loc>
+    <lastmod>2026-05-13T06:37:09.846Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/crm-integration</loc>
+    <lastmod>2026-05-13T06:12:41.300Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/ecommerce-retail</loc>
+    <lastmod>2026-05-13T06:12:41.291Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/finance-fintech</loc>
+    <lastmod>2026-05-13T06:12:41.298Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/healthcare</loc>
+    <lastmod>2026-05-13T06:12:41.293Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/logistics-delivery</loc>
+    <lastmod>2026-05-13T06:12:41.296Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/number-masking</loc>
+    <lastmod>2026-06-12T06:07:59.634Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/post-call-analytics</loc>
+    <lastmod>2026-05-13T06:12:41.292Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/solutions/real-estate</loc>
+    <lastmod>2026-05-13T06:37:09.850Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts</loc>
+    <lastmod>2026-07-17T06:24:26.163Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/create-subaccount</loc>
+    <lastmod>2026-07-17T06:24:26.151Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/delete-subaccount</loc>
+    <lastmod>2026-06-30T16:57:09.081Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/cin-confirm</loc>
+    <lastmod>2026-07-17T06:24:26.153Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/cin-search</loc>
+    <lastmod>2026-07-17T06:24:26.150Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/digilocker-initiate</loc>
+    <lastmod>2026-07-17T06:24:26.149Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/digilocker-verify</loc>
+    <lastmod>2026-07-17T06:24:26.161Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/email-flow-webhook</loc>
+    <lastmod>2026-07-17T06:24:26.165Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/kyc-session</loc>
+    <lastmod>2026-07-17T06:24:26.154Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/kyc-status</loc>
+    <lastmod>2026-07-17T06:24:26.147Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/overview</loc>
+    <lastmod>2026-07-17T06:24:26.145Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/redirect-flow-webhook</loc>
+    <lastmod>2026-07-17T06:24:26.152Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/test-mode</loc>
+    <lastmod>2026-07-17T06:24:26.148Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/verify-gst</loc>
+    <lastmod>2026-07-17T06:24:26.149Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/kyc/verify-pan</loc>
+    <lastmod>2026-07-17T06:24:26.144Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/list-all-subaccounts</loc>
+    <lastmod>2026-06-16T10:36:22.890Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/onboarding-flow</loc>
+    <lastmod>2026-07-17T06:24:26.165Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/retrieve-subaccount</loc>
+    <lastmod>2026-07-17T06:24:26.147Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/subaccount-object</loc>
+    <lastmod>2026-07-17T06:24:26.146Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/sub-accounts/update-subaccount</loc>
+    <lastmod>2026-07-17T06:24:26.162Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks</loc>
+    <lastmod>2026-05-13T06:37:09.880Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/assign-number</loc>
+    <lastmod>2026-06-16T10:36:22.922Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/create-trunk</loc>
+    <lastmod>2026-06-16T10:36:22.920Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/credentials</loc>
+    <lastmod>2026-05-12T09:50:37.609Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/credentials/create-credential</loc>
+    <lastmod>2026-06-16T10:36:22.921Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/credentials/credential-object</loc>
+    <lastmod>2026-06-16T10:36:22.919Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/credentials/delete-credential</loc>
+    <lastmod>2026-05-13T06:37:09.927Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/credentials/retrieve-all-credentials</loc>
+    <lastmod>2026-05-13T06:37:09.928Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/credentials/update-credential</loc>
+    <lastmod>2026-05-13T06:12:41.375Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/delete-trunk</loc>
+    <lastmod>2026-05-13T06:37:09.925Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/ip-acl</loc>
+    <lastmod>2026-05-12T09:50:38.371Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/ip-acl/create-ip-acl</loc>
+    <lastmod>2026-06-16T10:36:22.946Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/ip-acl/delete-ip-acl</loc>
+    <lastmod>2026-05-13T06:12:41.374Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/ip-acl/ip-acl-object</loc>
+    <lastmod>2026-05-13T06:37:09.923Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/ip-acl/retrieve-all-ip-acls</loc>
+    <lastmod>2026-05-13T06:12:41.414Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/ip-acl/update-ip-acl</loc>
+    <lastmod>2026-06-16T10:36:22.947Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/origination-uri</loc>
+    <lastmod>2026-05-12T09:50:38.763Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/origination-uri/create-origination-uri</loc>
+    <lastmod>2026-06-16T10:36:22.943Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/origination-uri/delete-origination-uri</loc>
+    <lastmod>2026-05-13T06:37:10.025Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/origination-uri/origination-uri-object</loc>
+    <lastmod>2026-05-13T06:37:10.028Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/origination-uri/retrieve-all-origination-uris</loc>
+    <lastmod>2026-05-13T06:37:10.021Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/origination-uri/update-origination-uri</loc>
+    <lastmod>2026-06-16T10:36:23.044Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/retrieve-all-trunks</loc>
+    <lastmod>2026-05-13T06:37:10.022Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/retrieve-trunk</loc>
+    <lastmod>2026-05-13T06:37:10.022Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/trunk-object</loc>
+    <lastmod>2026-05-13T06:37:10.067Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/unassign-number</loc>
+    <lastmod>2026-05-13T06:37:10.066Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/update-trunk</loc>
+    <lastmod>2026-06-16T10:36:23.043Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/trunks/webhook</loc>
+    <lastmod>2026-07-03T04:31:20.102Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api</loc>
+    <lastmod>2026-07-21T09:27:05.030Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/authentication</loc>
+    <lastmod>2026-06-16T06:01:51.501Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/calls</loc>
+    <lastmod>2026-08-10T05:29:31.358Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/campaigns</loc>
+    <lastmod>2026-08-10T05:29:31.360Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/canned-responses</loc>
+    <lastmod>2026-08-10T05:29:31.355Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/channels</loc>
+    <lastmod>2026-06-16T06:01:51.502Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/contacts</loc>
+    <lastmod>2026-06-16T06:01:51.504Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/conversations</loc>
+    <lastmod>2026-06-16T06:01:51.506Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/numbers</loc>
+    <lastmod>2026-06-16T06:01:51.505Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/send-message</loc>
+    <lastmod>2026-08-10T05:29:31.355Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/templates</loc>
+    <lastmod>2026-08-10T05:29:31.358Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/api/webhooks</loc>
+    <lastmod>2026-08-10T05:29:31.353Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/channels</loc>
+    <lastmod>2026-05-12T09:57:51.618Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/channels/byon</loc>
+    <lastmod>2026-05-13T06:37:10.114Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/getting-started/console-walkthrough</loc>
+    <lastmod>2026-09-21T04:18:53.931Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/getting-started/introduction</loc>
+    <lastmod>2026-06-16T06:01:51.527Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/getting-started/prerequisites</loc>
+    <lastmod>2026-06-16T06:01:51.526Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/getting-started/quick-start</loc>
+    <lastmod>2026-06-16T06:01:51.524Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/messaging</loc>
+    <lastmod>2026-05-12T09:50:40.785Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/messaging/inbox</loc>
+    <lastmod>2026-05-13T06:37:10.161Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/messaging/templates</loc>
+    <lastmod>2026-06-16T06:01:51.526Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/webhooks</loc>
+    <lastmod>2026-07-17T06:24:25.353Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/whatsapp/webhooks/events</loc>
+    <lastmod>2026-07-17T06:24:25.352Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml-builder</loc>
+    <lastmod>2026-07-15T09:03:41.970Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/conference</loc>
+    <lastmod>2026-07-14T09:31:27.262Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/conference/attributes</loc>
+    <lastmod>2026-09-02T14:35:44.769Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/conference/conference-callbacks</loc>
+    <lastmod>2026-09-02T14:35:44.766Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial</loc>
+    <lastmod>2026-09-02T14:35:44.773Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/confirm-to-answer-call</loc>
+    <lastmod>2026-07-13T18:32:30.688Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/custom-caller-tone</loc>
+    <lastmod>2026-07-13T18:32:30.689Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/dial-status-reporting</loc>
+    <lastmod>2026-07-13T18:32:30.695Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/number</loc>
+    <lastmod>2026-07-13T18:32:30.690Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/sequential-dialing</loc>
+    <lastmod>2026-07-13T18:32:30.696Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/simultaneous-dialing</loc>
+    <lastmod>2026-07-13T18:32:30.696Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/transferred-calls</loc>
+    <lastmod>2026-08-14T07:51:57.387Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dial/user</loc>
+    <lastmod>2026-09-20T06:14:39.401Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/dtmf</loc>
+    <lastmod>2026-07-15T18:57:48.764Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/gather</loc>
+    <lastmod>2026-07-15T18:57:48.770Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/gather/detecting-speech-inputs</loc>
+    <lastmod>2026-06-04T12:38:46.887Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/gather/pricing-for-speech-recognition</loc>
+    <lastmod>2026-05-12T09:50:41.898Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/gather/supported-languages</loc>
+    <lastmod>2026-05-12T09:50:41.900Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/hangup</loc>
+    <lastmod>2026-07-15T18:57:48.764Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/hangup/hang-up-after-a-minute</loc>
+    <lastmod>2026-05-12T09:50:42.152Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/overview/best-practices</loc>
+    <lastmod>2026-09-02T14:35:44.771Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/overview/getting-started</loc>
+    <lastmod>2026-06-04T12:38:47.718Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/overview/how-it-works</loc>
+    <lastmod>2026-06-04T12:38:47.734Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/play</loc>
+    <lastmod>2026-07-15T18:57:48.766Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/play/play-music</loc>
+    <lastmod>2026-05-12T09:50:42.147Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/preanswer</loc>
+    <lastmod>2026-06-16T10:36:23.190Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/preanswer/notify-callers</loc>
+    <lastmod>2026-05-12T09:32:50.183Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/record</loc>
+    <lastmod>2026-09-02T14:35:44.773Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/record/record-a-voicemail</loc>
+    <lastmod>2026-05-09T08:29:55.809Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/record/stream-with-record</loc>
+    <lastmod>2026-07-13T18:32:31.522Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/redirect</loc>
+    <lastmod>2026-07-15T18:57:48.766Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/redirect/transfer-a-call</loc>
+    <lastmod>2026-05-12T09:32:50.828Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/request</loc>
+    <lastmod>2026-07-13T18:59:46.359Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/request/call-status</loc>
+    <lastmod>2026-07-13T18:59:46.363Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/request/event</loc>
+    <lastmod>2026-07-13T18:59:46.363Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/request/sip-headers</loc>
+    <lastmod>2026-09-02T14:35:44.769Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/response</loc>
+    <lastmod>2026-07-13T18:32:31.519Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/speak</loc>
+    <lastmod>2026-06-16T10:36:23.215Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/speak/play-a-message</loc>
+    <lastmod>2026-05-12T09:50:43.108Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/speak/play-in-a-loop</loc>
+    <lastmod>2026-05-12T09:50:43.106Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/speak/ssml</loc>
+    <lastmod>2026-05-12T09:32:51.159Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream</loc>
+    <lastmod>2026-09-02T14:35:44.772Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream/audio-formats</loc>
+    <lastmod>2026-07-13T16:51:16.070Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream/checkpoint-event</loc>
+    <lastmod>2026-07-13T16:51:16.069Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream/clear-audio</loc>
+    <lastmod>2026-07-13T16:51:16.066Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream/initiate</loc>
+    <lastmod>2026-07-13T16:51:16.068Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream/play-audio</loc>
+    <lastmod>2026-09-02T14:35:44.767Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream/stop-event</loc>
+    <lastmod>2026-07-13T16:51:16.066Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/stream/stream-events</loc>
+    <lastmod>2026-07-20T06:31:45.259Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/wait</loc>
+    <lastmod>2026-07-15T18:57:48.765Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/wait/basic-wait</loc>
+    <lastmod>2026-05-12T09:50:43.733Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/wait/beep-detection</loc>
+    <lastmod>2026-05-09T08:29:57.495Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/wait/delayed-call-answer</loc>
+    <lastmod>2026-05-12T09:50:43.730Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://www.vobiz.ai/docs/xml/wait/machine-detection</loc>
+    <lastmod>2026-05-12T09:32:51.742Z</lastmod>
+  </url>
+</urlset>

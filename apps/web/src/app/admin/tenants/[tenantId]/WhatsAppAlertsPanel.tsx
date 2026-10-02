@@ -61,16 +61,12 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
   const ready = write.allowed && reference.trim().length > 0 && !record.isPending;
 
   return (
-    <Card title="WhatsApp alerts to the owner">
-      <p className="-mt-2 text-xs text-ink-muted">
-        Hot-lead alerts go to the owner&apos;s mobile only if they have agreed to receive
-        them. Record an agreement given during onboarding here; the client can turn it on
-        or off themselves on their own Alerts screen.
-      </p>
-
-      <div className="mt-4">
-        <RestrictionNote reason={write.reason} />
-      </div>
+    <Card
+      title="WhatsApp alerts to the owner"
+      density="compact"
+      info="Hot-lead alerts go to the owner's mobile only if they have agreed to receive them. Record an agreement given during onboarding here; the client can turn it on or off themselves on their own Alerts screen."
+    >
+      <RestrictionNote reason={write.reason} />
 
       {/* Loading is a skeleton and a failure is a refusal — never "not opted in", which
           is the sentence an operator answers by recording one they have no document for. */}

@@ -7,22 +7,20 @@ have to hold, and they are facts about three different things:
    leg to us: on a rented control plane the vendor holds the call and supplies its own
    in-call handover (`EngineCapabilities.in_call_handoff`), and a second mechanism beside
    it would be two ways to do one thing with a caller in the middle.
-2. **That carrier has an adapter.** `plivo` is declared and unimplemented because its
-   transfer grammar is unread (`plivo.py`), and a carrier with no adapter at all is a
-   refusal rather than a crash.
-3. **The adapter's contract was read from the carrier's own documentation.** The in-house
-   adapter is the only one that passes, because its contract is ours — and it is refused
-   off a developer's machine for the reason its own rung gives below.
+2. **That carrier has an adapter.** `vobiz` is written (`vobiz.py`); `plivo` is declared
+   and unimplemented because its transfer grammar is unread (`plivo.py`); a carrier with
+   no adapter at all is a refusal rather than a crash.
+3. **The adapter's contract is verified.** The in-house adapter passes because its
+   contract is ours, and is refused off a developer's machine for the reason its own rung
+   gives below. Vobiz passes only when an operator sets `CARRIER_TRANSFER_ENABLED`.
 
 **ONE SELECTOR, ASKED BY EVERYONE** — the in-call tool, the publish path and the client's
 own handover screen all reach this through `agents/handoff_execution`, so a screen can
 never promise what the tool refuses. Same discipline `kyc_providers.available_provider`
 and `billing.payment_capability` follow.
 
-**WHICH CARRIER IS NOT AN OPERATOR'S CHOICE AND HAS NO SETTING.** It is decided by the
-answer path: one carrier per answer URL, bound to the number (D-610). Making it config
-would let a deployment claim a carrier its calls do not arrive on, which is a claim no
-screen could check.
+**WHICH CARRIER IS `Settings.carrier`** (D-662): the carrier this deployment dials on and
+binds numbers to, so the carrier a live call's leg is on.
 """
 
 from __future__ import annotations
@@ -39,6 +37,7 @@ from apps.api.agents.transfer_providers.base import (
 )
 from apps.api.agents.transfer_providers.fake import FakeTransfers
 from apps.api.agents.transfer_providers.plivo import PlivoTransfers
+from apps.api.agents.transfer_providers.vobiz import VobizTransfers
 from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
 
@@ -64,12 +63,11 @@ def _carrier_of_engine(engine_name: str) -> str | None:
     per engine is the sanctioned form — `engine/__init__.build_engine` is the same shape
     for the same reason.
 
-    The answer is derived from the answer path rather than configured: one carrier per
-    answer URL, bound to the number (D-610). Config here would let a deployment claim a
-    carrier its calls do not arrive on, which is a claim no screen could check.
+    On the owned runtime it is the carrier switch: the carrier numbers are bound to and
+    dials are placed on.
     """
     if engine_name == "pipecat":
-        return "plivo"
+        return get_settings().carrier
     if engine_name == "fake":
         return "fake"
     return None
@@ -91,6 +89,8 @@ def _build(carrier: str) -> CallTransferProvider:
     """The adapter for one carrier, or a refusal naming what it would take to write it."""
     if carrier == "fake":
         return FakeTransfers()
+    if carrier == "vobiz":
+        return VobizTransfers()
     if carrier == "plivo":
         return PlivoTransfers()
     raise TransferContractUnverifiedError(

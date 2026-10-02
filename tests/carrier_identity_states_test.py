@@ -145,8 +145,13 @@ def test_the_capability_table_agrees_with_the_installed_client() -> None:
     repo-internal value repeating itself as evidence — hard rule 11's named failure — so
     the assertion is made through the parser rather than against the citation text.
     """
-    assert set(carrier.CALLER_IDENTITY_PARSE) == {"plivo", "telnyx", "exotel", "twilio"}
+    assert set(carrier.CALLER_IDENTITY_PARSE) == {"vobiz", "plivo", "telnyx", "exotel", "twilio"}
     assert carrier.CALLER_IDENTITY_PARSE["plivo"].maps_calling_party is False
+    # Vobiz's row is a vendor-documentation fact, not a parse of the wheel: its `start`
+    # carries callId, streamId, accountId, tracks and mediaFormat and nothing else.
+    vobiz = carrier.CALLER_IDENTITY_PARSE["vobiz"]
+    assert vobiz.maps_calling_party is False and vobiz.documented_absent is True
+    assert vobiz.evidence.startswith("vobiz-findings/mirror/pages/xml/stream/stream-events.md:")
     for named in ("telnyx", "exotel", "twilio"):
         assert carrier.CALLER_IDENTITY_PARSE[named].maps_calling_party is True
         assert "pipecat/runner/utils.py:" in carrier.CALLER_IDENTITY_PARSE[named].evidence
@@ -207,6 +212,16 @@ async def test_plivo_is_unparsed_by_client_and_the_ground_says_it_is_unverified(
     assert "egress-blocked" in identity.ground
 
 
+def test_vobiz_is_unparsed_and_the_ground_cites_the_vendors_own_page() -> None:
+    """Vobiz's handshake is documented, so its ground states the absence as the vendor's
+    and does not call it unverified; the answer leg's signed claim is the only source."""
+    identity = carrier.caller_identity_of("vobiz", type("N", (), {"from_number": None})())
+
+    assert identity.state == "unparsed_by_client"
+    assert "stream-events.md" in identity.ground
+    assert "UNVERIFIED" not in identity.ground
+
+
 def test_an_unknown_carrier_is_unparsed_rather_than_silently_absent() -> None:
     """A carrier with no row in the table must not read as "asked and got nothing"."""
 
@@ -228,7 +243,7 @@ def test_not_read_is_a_state_of_its_own_and_is_the_default() -> None:
     assert carrier.CallerIdentity.not_read().state == "not_read"
     assert not carrier.CallerIdentity.not_read().is_known
 
-    handshake = carrier.PlivoHandshake(stream_id="s", carrier_call_id="c")
+    handshake = carrier.CarrierHandshake(stream_id="s", carrier_call_id="c")
     assert handshake.caller.state == "not_read"
 
     states = {
@@ -246,7 +261,7 @@ def test_not_read_is_a_state_of_its_own_and_is_the_default() -> None:
 
 @pytest.mark.parametrize(
     "transport_type",
-    ["plivo", "telnyx", "exotel", "twilio", "some-new-carrier"],
+    ["vobiz", "plivo", "telnyx", "exotel", "twilio", "some-new-carrier"],
 )
 def test_no_state_or_ground_can_carry_a_number(transport_type: str) -> None:
     """`state` and `ground` are what a log line gets, so neither may contain the number.
@@ -262,7 +277,7 @@ def test_no_state_or_ground_can_carry_a_number(transport_type: str) -> None:
 
 
 async def test_the_call_start_log_line_records_the_state_and_not_the_number() -> None:
-    """`start_carrier_call` logs the verdict. It must log the WORD, never the value.
+    """The carrier leg logs the verdict. It must log the WORD, never the value.
 
     Driven through loguru's own sink rather than by reading the source, because the defect
     this guards against is an interpolation that a `grep` would not obviously catch.

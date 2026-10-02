@@ -36,8 +36,8 @@ export function useCampaignsCopilotSurface({
   templates: { data: DltTemplate[] | undefined };
 }): void {
   const {
-    name, classification, numberId, templateId, concurrency, csv,
-    consentSource, consentDate, restrictHours, windowStart, windowEnd, parsed,
+    name, classification, numberId, templateId, concurrency,
+    consentSource, consentDate, restrictHours, windowStart, windowEnd, checked,
   } = form;
   const { startDate, startTime, repeatTime, repeatEnds } = scheduleForm;
 
@@ -50,12 +50,11 @@ export function useCampaignsCopilotSurface({
    * exactly the family `lib/copilot/dom.ts` warns cannot be driven by writing `.value`;
    * none of them is driven that way here, because the state is right in this component.
    *
-   * ## THE CONTACT LIST IS READ-ONLY AND REDACTED, AND BOTH HALVES ARE DELIBERATE
+   * ## THE CONTACT LIST IS NOT DECLARED AT ALL, ONLY ITS COUNTS
    *
-   * The CSV is a list of named people's phone numbers — the densest personal data in this
-   * console — so it leaves as a single «PRIVATE_1» placeholder (hard rule 6 / D-127 G-2)
-   * and the assistant is told how many rows parsed rather than what is in them. It is
-   * `writable: false` because a machine-authored call list is a set of strangers nobody
+   * The list is named people's phone numbers — the densest personal data in this console
+   * (hard rule 6 / D-127 G-2) — so the assistant is told how many rows are ready, left out
+   * and duplicated, and never what is in them. It is not fillable because a machine-authored call list is a set of strangers nobody
    * chose to ring, and the compliance gate downstream checks CONSENT for numbers a human
    * supplied, not the provenance of the text box.
    *
@@ -138,15 +137,6 @@ export function useCampaignsCopilotSurface({
         value: String(concurrency),
       },
       {
-        id: "campaign-csv",
-        label: "Contact list (CSV)",
-        type: "textarea",
-        value: csv,
-        writable: false,
-        personal: "text",
-        help: `A human-supplied list. ${parsed.length} row(s) parsed so far.`,
-      },
-      {
         id: "campaign-consent-source",
         label: "Where these numbers came from",
         type: "select",
@@ -178,7 +168,9 @@ export function useCampaignsCopilotSurface({
       { id: "campaign-repeat-ends", label: "Repeat until", type: "date", value: repeatEnds },
     ],
     facts: [
-      { key: "contacts_parsed", label: "Contacts parsed from the list", value: String(parsed.length) },
+      { key: "contacts_ready", label: "Contacts ready to call", value: String(checked.counts.ready) },
+      { key: "contacts_invalid", label: "Rows that can't be called", value: String(checked.counts.invalid) },
+      { key: "contacts_duplicate", label: "Duplicate rows", value: String(checked.counts.duplicate) },
     ],
     apply: (items) => {
       for (const item of items) {

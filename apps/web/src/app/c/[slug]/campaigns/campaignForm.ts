@@ -4,11 +4,12 @@ import { useMemo, useState } from "react";
 
 import {
   consentCollectedAt,
-  parseContactCsv,
   scheduleStartAt,
   type Classification,
   type ConsentSource,
 } from "@/lib/api/campaigns";
+
+import { checkContacts, type CheckedList, type ContactEntry } from "./contactList";
 
 /**
  * THE TWO FORMS' STATE, pulled out of the JSX.
@@ -16,7 +17,7 @@ import {
  * UX-DOCTRINE §6: "Pull the arithmetic out of the JSX. Key derivation, dirty comparison,
  * validation and wire mapping belong in a plain module beside the component." These two
  * hooks are that half — every `useState` the campaigns screen holds, plus the three
- * derived values (`parsed`, `consentIso`, `provenanceAnswered`, `startIso`) the controls
+ * derived values (`checked`, `consentIso`, `provenanceAnswered`, `startIso`) the controls
  * read. The screen keeps them because ONE component must declare the copilot surface
  * (`lib/copilot/registry.ts` makes the innermost registration the live one), and the
  * surface names controls from both forms.
@@ -37,8 +38,9 @@ export interface CampaignFormState {
   setNumberId: (value: string) => void;
   templateId: string;
   setTemplateId: (value: string) => void;
-  csv: string;
-  setCsv: (value: string) => void;
+  /** The contact list as the editor holds it, before upload. */
+  contacts: ContactEntry[];
+  setContacts: (value: ContactEntry[]) => void;
   consentSource: ConsentSource | "";
   setConsentSource: (value: ConsentSource | "") => void;
   consentDate: string;
@@ -49,8 +51,8 @@ export interface CampaignFormState {
   setWindowStart: (value: string) => void;
   windowEnd: string;
   setWindowEnd: (value: string) => void;
-  /** The rows we could read out of the pasted CSV. */
-  parsed: ReturnType<typeof parseContactCsv>;
+  /** Each row's verdict, the counts, and the request the ready rows become. */
+  checked: CheckedList;
   /** The consent date as the API takes it, or `null` when it is unusable. */
   consentIso: string | null;
   /** Both halves of the declaration, or neither — the API refuses a half-filled one. */
@@ -66,7 +68,7 @@ export function useCampaignForm(): CampaignFormState {
   const [concurrency, setConcurrency] = useState(3);
   const [numberId, setNumberId] = useState("");
   const [templateId, setTemplateId] = useState("");
-  const [csv, setCsv] = useState("");
+  const [contacts, setContacts] = useState<ContactEntry[]>([]);
   // Asked at creation, not deferred to the launch check: the client is holding the
   // list in their hand at this moment, which is the only moment they can answer
   // cheaply. Empty string, never a default source — there is no sensible default for
@@ -82,7 +84,7 @@ export function useCampaignForm(): CampaignFormState {
   const [windowStart, setWindowStart] = useState("10:00");
   const [windowEnd, setWindowEnd] = useState("18:00");
 
-  const parsed = useMemo(() => parseContactCsv(csv), [csv]);
+  const checked = useMemo(() => checkContacts(contacts), [contacts]);
   // Both or neither, decided here so the two halves cannot be sent apart: the API
   // takes provenance as one nested object and refuses a half-filled one.
   const consentIso = consentCollectedAt(consentDate);
@@ -104,7 +106,7 @@ export function useCampaignForm(): CampaignFormState {
    */
   const reset = () => {
     setName("");
-    setCsv("");
+    setContacts([]);
     setConsentSource("");
     setConsentDate("");
   };
@@ -116,17 +118,26 @@ export function useCampaignForm(): CampaignFormState {
     concurrency, setConcurrency,
     numberId, setNumberId,
     templateId, setTemplateId,
-    csv, setCsv,
+    contacts, setContacts,
     consentSource, setConsentSource,
     consentDate, setConsentDate,
     restrictHours, setRestrictHours,
     windowStart, setWindowStart,
     windowEnd, setWindowEnd,
-    parsed, consentIso, provenanceAnswered, reset,
+    checked, consentIso, provenanceAnswered, reset,
   };
 }
 
+/**
+ * How a new campaign starts. `review`: the owner launches it from its checklist (the
+ * default, and the only path with the typed-count confirmation). `later`: one start at a
+ * set time. `weekly`: a repeat. Both armed starts run the same launch gate when they fire.
+ */
+export type StartMode = "review" | "later" | "weekly";
+
 export interface ScheduleFormState {
+  startMode: StartMode;
+  setStartMode: (value: StartMode) => void;
   startDate: string;
   setStartDate: (value: string) => void;
   startTime: string;
@@ -147,6 +158,7 @@ export function useScheduleForm(): ScheduleFormState {
   // phone renders usefully, and most of these clients are on one. Empty by default —
   // there is no sensible default start, and a pre-filled "tomorrow 10am" is a date
   // nobody chose sitting one click from dialling a list.
+  const [startMode, setStartMode] = useState<StartMode>("review");
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("10:00");
 
@@ -165,6 +177,7 @@ export function useScheduleForm(): ScheduleFormState {
     );
 
   return {
+    startMode, setStartMode,
     startDate, setStartDate,
     startTime, setStartTime,
     startIso: scheduleStartAt(startDate, startTime),

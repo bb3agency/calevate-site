@@ -54,6 +54,7 @@ specifics into the one module that has none.
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import re
 from collections.abc import Callable
@@ -252,7 +253,13 @@ class EngineRejectedError(ProblemError):
     opt-in: a caller that does not care is not changed at all.
     """
 
-    def __init__(self, *, status: int, vendor_error: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        status: int,
+        vendor_error: int | None = None,
+        refused_statuses: frozenset[int] = REQUEST_REFUSED_STATUSES,
+    ) -> None:
         super().__init__(
             kind="dependency",
             code="engine_rejected",
@@ -262,11 +269,12 @@ class EngineRejectedError(ProblemError):
         )
         self.vendor_status = status
         self.vendor_error = vendor_error
+        self._refused_statuses = refused_statuses
 
     @property
     def request_refused(self) -> bool:
         """True when the vendor's own docs say this status means "I did not do it"."""
-        return self.vendor_status in REQUEST_REFUSED_STATUSES
+        return self.vendor_status in self._refused_statuses
 
 
 def _error_envelope(response: httpx.Response) -> dict[str, Any] | None:
@@ -419,9 +427,19 @@ async def vendor_request(
     *,
     engine: str,
     absent_is_success: bool = False,
+    extra_refused_statuses: frozenset[int] = frozenset(),
+    parse_float: Callable[[str], Any] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """One vendor round trip, with the throttle ladder and the error normalization.
+
+    `extra_refused_statuses` widens `REQUEST_REFUSED_STATUSES` for ONE call site, and only
+    with a status that vendor's own documentation defines as a refusal of that request
+    (Vobiz's `402` on call create, `call/make-call.md:132`). The default set is unchanged
+    for every other caller.
+
+    `parse_float` is handed to `json.loads` for the success body, so a caller reading money
+    can take every JSON number as `Decimal` and never pass it through a binary float.
 
     `absent_is_success` exists for `delete_agent` and for nothing else: the Protocol
     makes delete IDEMPOTENT, so "the object you asked me to remove is not here" is
@@ -567,14 +585,18 @@ async def vendor_request(
             # before reaching here, deliberately — a throttle is the vendor working as
             # designed and has its own ladder (D-204).
             await record_engine_failure(engine, kind="server_error")
-        raise EngineRejectedError(status=response.status_code, vendor_error=vendor_error)
+        raise EngineRejectedError(
+            status=response.status_code,
+            vendor_error=vendor_error,
+            refused_statuses=REQUEST_REFUSED_STATUSES | extra_refused_statuses,
+        )
     if not response.content:
         # A successful DELETE may answer 204/empty. `response.json()` raises on an
         # empty body, and a delete that "failed" only because the vendor said
         # nothing is the worst possible lie on this particular path.
         return {}
     try:
-        payload = response.json()
+        payload = json.loads(response.content, parse_float=parse_float)
     except ValueError:
         # A 2xx WITH A NON-JSON BODY (P2.2). The `>= 400` branch above raises first,
         # so what reaches here is a success status carrying something that is not

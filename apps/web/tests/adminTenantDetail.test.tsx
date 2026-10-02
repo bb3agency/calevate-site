@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
-  cleanup,
   fireEvent,
   render as rtlRender,
   screen,
@@ -13,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
+import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 import type { Routes } from "./harness";
 
@@ -188,37 +188,6 @@ function render(routes: Partial<Routes> = {}) {
 }
 
 describe("the client detail screen", () => {
-  it("does not report a client as having no numbers when the numbers could not be read", async () => {
-    const { container } = await render({
-      [NUMBERS_PATH]: problem(503, {
-        title: "Upstream unavailable",
-        detail: "We could not read this client's numbers.",
-        retryable: true,
-      }),
-    });
-
-    await screen.findByText("We could not read this client's numbers.");
-
-    // The sentence that gets a client asked for a second DID they do not need.
-    expect(container.textContent).not.toContain("No numbers on file");
-  });
-
-  it("does not report an empty template list when the templates could not be read", async () => {
-    const { container } = await render({
-      [TEMPLATES_PATH]: problem(500, {
-        title: "Upstream unavailable",
-        detail: "We could not read this client's DLT templates.",
-        retryable: true,
-      }),
-    });
-
-    await screen.findByText("We could not read this client's DLT templates.");
-
-    // "No templates registered" sends an operator to file a template that already exists
-    // with the registrar — under a PE that then has two.
-    expect(container.textContent).not.toContain("No templates registered");
-  });
-
   it("does not report an empty approval queue when the queue could not be read", async () => {
     const { container } = await render({
       [QUEUE_PATH]: problem(500, {
@@ -281,14 +250,20 @@ describe("the client detail screen", () => {
     ).toBeTruthy();
   });
 
+  // The agent list moved from the overview to the Agents section (D-661); the two
+  // sentences it must and must not say moved with it, unchanged.
   it("does not render silence where a client's agents should be", async () => {
-    const { container } = await render({
+    const { container } = await renderAdminRoute(
+      <TenantAgentsPage params={routeParams({ tenantId: TENANT })} />,
+      {
+        ...healthy(),
       [AGENTS_PATH]: problem(500, {
         title: "Upstream unavailable",
         detail: "We could not list this client's agents.",
         retryable: true,
       }),
-    });
+      },
+    );
 
     await screen.findByText("We could not list this client's agents.");
 
@@ -300,36 +275,23 @@ describe("the client detail screen", () => {
   it("says an empty list is empty when the SERVER says so", async () => {
     const { container } = await render();
 
-    await screen.findByText("No numbers on file.");
+    await screen.findByText("Nothing awaiting approval");
 
     // The counterpart to the four tests above: with 200s in hand the screen must state
     // the emptiness plainly, because an operator reading a refusal where there is simply
     // no work would go looking for an outage.
     expect(container.textContent).toContain("Nothing awaiting approval");
-    expect(container.textContent).toContain("No agents yet");
-    expect(container.textContent).toContain("No templates registered.");
+  });
+
+  it("says a client has no agents only when the SERVER says so", async () => {
+    await renderAdminRoute(<TenantAgentsPage params={routeParams({ tenantId: TENANT })} />, healthy());
+    await screen.findByText(/No agents yet/);
   });
 
   it("disables every write with its reason when the session lacks admin:tenants", async () => {
     await render({
       [ME_PATH]: me(["org:read", "billing:read", "agents:read"]),
       [QUEUE_PATH]: [source()],
-      [NUMBERS_PATH]: [
-        {
-          id: "n-1",
-          e164: "+918041234567",
-          series: "160",
-          dlt_status: "pending",
-        },
-      ],
-      [TEMPLATES_PATH]: [
-        {
-          id: "t-1",
-          classification: "service",
-          status: "submitted",
-          body: "Namaste…",
-        },
-      ],
     });
 
     // The gate answers only once `/v1/admin/me` has, so the sentence settles the render.
@@ -341,15 +303,8 @@ describe("the client detail screen", () => {
     for (const name of [
       "Approve",
       "Reject…",
-      "Mark registered",
-      "Registrar approved",
-      // "Add" LEFT THIS SCREEN, it was not un-gated (D-576): recording a client's number
-      // moved to `/admin/tenants/[tenantId]/numbers`, where the same permission gates the
-      // same write and `adminNumberAttachment.test.tsx` drives it. It was on a CAMPAIGN
-      // panel with the series preselected to a DLT class, which is how an inbound-only
-      // client's onboarding ran through a screen about outbound campaigns.
-      "Register template",
-      "Record registration",
+      // The registrar controls moved to Compliance › Campaign setup (D-661) and are
+      // gated there; tests/adminCampaignSetup.test.tsx drives them.
     ]) {
       const button = await screen.findByRole("button", { name });
       expect(
@@ -435,26 +390,8 @@ describe("the client detail screen", () => {
     );
   });
 
-  it("says the view-as link is LOGGED where a keyboard user reads it, never read-only", async () => {
-    /**
-     * THE LABEL USED TO PROMISE "(read-only)" AND THIS TEST USED TO REQUIRE IT. D-587
-     * makes a view-as session able to change the account, so that label was a promise an
-     * operator would rely on and the product would break. What stays true — and is what a
-     * reader needs before clicking — is that everything they view and change is recorded
-     * against them, so the label says "(logged)".
-     *
-     * The unchanged half is why the assertion is still ON THE LABEL: it carries the fact,
-     * not a `title` only a mouse finds. The `view=admin` marker selects the impersonating
-     * credential and grants nothing (lib/api/session.tsx).
-     */
-    await render();
-
-    const link = await screen.findByRole("link", {
-      name: /View as client \(logged\)/,
-    });
-    expect(link.getAttribute("href")).toBe(`/c/${SLUG}?view=admin`);
-    expect(screen.queryByRole("link", { name: /read-only/i })).toBeNull();
-  });
+  // The view-as link moved to the tenant layout's header (D-661); its "(logged), never
+  // read-only" assertion moved with it, to adminTenantLayout.test.tsx.
 
   it("formats margin money without ever parsing it, and keeps 'not billed yet' out of 0%", async () => {
     const { container } = await render({
@@ -514,90 +451,17 @@ describe("the client detail screen", () => {
   it("shows no state banner at all for a live account", async () => {
     const { container } = await render();
 
-    await screen.findByText("Sri Traders");
+    // The client's name moved to the tenant layout's header (D-661), so the page is
+    // awaited on its own first figure.
+    await screen.findByText("Live agents");
     expect(container.textContent).not.toContain("This account is suspended.");
     expect(container.textContent).not.toContain("This account is closed.");
   });
 
-  it("names the billing motion on the page, not only on the commercials screen", async () => {
-    // Which way the money moves decides what the rest of this screen means: a managed
-    // client has no wallet to be empty, so "why have their calls stopped" has a different
-    // answer either side of it.
-    const { container } = await render({ [TENANT_PATH]: tenant({ plan_tier: "managed" }) });
+  // "Names the billing motion on the page" moved with the header line that carries it, to
+  // adminTenantLayout.test.tsx.
 
-    await screen.findByText("Sri Traders");
-    expect(container.textContent).toContain("managed");
-  });
+  // The tenant read's refusal is the layout's now (adminTenantLayout.test.tsx): this page
+  // is not mounted until the client has been read.
 
-  it("refuses to invent a client when the tenant read fails", async () => {
-    const { container } = await render({
-      [TENANT_PATH]: problem(403, {
-        title: "Forbidden",
-        detail: "You do not have permission to do this.",
-        retryable: false,
-      }),
-    });
-
-    await screen.findByRole("alert");
-
-    // "Client not found" would send an operator hunting for a deleted tenant that is
-    // sitting right there.
-    expect(container.textContent).not.toContain("Client not found");
-    expect(container.textContent).toContain(
-      "You do not have permission to do this.",
-    );
-  });
-
-  /**
-   * THE REGISTRAR'S DATE IS A CALENDAR DATE IN INDIA, NOT ON THIS MACHINE.
-   *
-   * `registered_at` is the date printed on an Indian registrar's letter, and this screen
-   * reads it back with `formatIST`. It was parsed as `new Date("<picked>T00:00:00")` —
-   * midnight in the VIEWER's zone — which is the defect `components/ui.tsx::formatISTInput`
-   * documents at length. East of IST that lands on the PREVIOUS IST day outright, so the
-   * same digits filed a different date depending on whose laptop typed them, on a
-   * compliance record. `/admin/ops` already records the same fact IST-first and labels its
-   * field for it; this is the second of the two screens and now matches.
-   *
-   * `TZ` is forced because the property under test is "the answer does not move with the
-   * viewer" — asserted in a single zone, the old code would have passed.
-   */
-  it("files the DLT registration date as IST, whatever zone the operator is in", async () => {
-    const dltPath = `${TENANT_PATH}/dlt-registration`;
-    const originalTz = process.env.TZ;
-    try {
-      for (const zone of ["UTC", "America/Los_Angeles", "Pacific/Auckland"]) {
-        // One mounted form per iteration: RTL's auto-cleanup is per TEST.
-        cleanup();
-        process.env.TZ = zone;
-        const { calls } = await render({
-          [`POST ${dltPath}`]: { status: "active", tm_link_status: "linked" },
-        });
-
-        fireEvent.change(await screen.findByLabelText("Registered on (IST)"), {
-          target: { value: "2026-08-10" },
-        });
-        fireEvent.click(
-          screen.getByRole("button", { name: "Record registration" }),
-        );
-
-        await vi.waitFor(() => {
-          expect(
-            calls.some((c) => c.method === "POST" && c.path === dltPath),
-          ).toBe(true);
-        });
-        const body = JSON.parse(
-          calls.find((c) => c.method === "POST" && c.path === dltPath)?.body ??
-            "{}",
-        );
-        // Midnight IST on the picked day === 18:30Z the day before.
-        expect(body.registered_at, `registered_at in ${zone}`).toBe(
-          "2026-08-09T18:30:00.000Z",
-        );
-      }
-    } finally {
-      if (originalTz === undefined) delete process.env.TZ;
-      else process.env.TZ = originalTz;
-    }
-  });
 });

@@ -37,6 +37,7 @@ import pytest
 from apps.api.db.session import tenant_session
 from apps.api.engine.pipecat import engine_agent_ref_for
 from apps.api.main import app as api_app
+from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from calevate_shared.worker_api import (
     MeteredQuantity,
@@ -939,6 +940,200 @@ async def test_a_later_batch_neither_blanks_nor_overwrites_a_party_the_first_one
         )
 
     assert await _parties(tenant_id, ref) == ("+919000000003", "+918000000004")
+
+
+# ---------------------------------------------------------------------------------------
+# The carrier's own id, and the outbound row the dial already wrote.
+# ---------------------------------------------------------------------------------------
+
+CARRIER_CALL_ID = "5401fd2e-6344-40df-a22c-c8ffea7a92e7"
+
+
+async def _call_row(tenant_id: uuid.UUID, ref: str) -> Any:
+    async with tenant_session(tenant_id) as db:
+        return (
+            await db.execute(
+                text(
+                    "SELECT id, carrier_call_id, direction, to_e164, agent_id, status "
+                    "FROM calls WHERE engine_call_id = :c"
+                ),
+                {"c": ref},
+            )
+        ).one()
+
+
+async def test_a_batch_records_the_carriers_call_id_and_a_later_one_cannot_move_it(
+    worker_token: None,
+) -> None:
+    tenant_id, agent_id, _ = await published_agent()
+    call_id, ref = call_ref(tenant_id)
+    first = batch(call_id, tenant_id, agent_id).model_copy(
+        update={"carrier_call_id": CARRIER_CALL_ID}
+    )
+    later = batch(call_id, tenant_id, agent_id, turns=((0, "hi"),)).model_copy(
+        update={"carrier_call_id": "another-carrier-call"}
+    )
+
+    async with worker_client() as api:
+        await api.post_observations(ref, first)
+        await api.post_observations(ref, batch(call_id, tenant_id, agent_id))
+        await api.post_observations(ref, later)
+
+    assert (await _call_row(tenant_id, ref))[1] == CARRIER_CALL_ID
+
+
+async def test_a_settlement_that_mints_the_row_records_the_carriers_call_id(
+    worker_token: None,
+) -> None:
+    tenant_id, agent_id, _ = await published_agent()
+    _call_id, ref = call_ref(tenant_id)
+    request = refusal_settlement(agent_id).model_copy(update={"carrier_call_id": CARRIER_CALL_ID})
+
+    async with worker_client() as api:
+        await api.post_settlement(ref, request)
+
+    assert (await _call_row(tenant_id, ref))[1] == CARRIER_CALL_ID
+
+
+@pytest.mark.parametrize("value", ["", "x" * 65, "has space", "semi;colon", "+919876500001\n"])
+def test_a_carrier_call_id_that_is_not_an_identifier_is_refused_at_the_edge(value: str) -> None:
+    with pytest.raises(ValidationError):
+        ObservationBatch(agent_id=uuid.uuid4(), direction="inbound", carrier_call_id=value)
+    with pytest.raises(ValidationError):
+        SettlementRequest(
+            final_status="completed",
+            direction="inbound",
+            agent_id=uuid.uuid4(),
+            carrier_call_id=value,
+        )
+
+
+async def _dialled_row(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, stamped: str) -> uuid.UUID:
+    """The row `agents.service.dispatch_call` writes before it dials, already stamped with
+    whatever handle the dial returned."""
+    row_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as db:
+        await db.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+                "status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, 'outbound', "
+                "'+919876500009', 'queued', now(), now())"
+            ),
+            {"id": row_id, "tid": tenant_id, "aid": agent_id, "ecid": stamped},
+        )
+    return row_id
+
+
+def _outbound(payload: Any) -> Any:
+    """The same body with the direction an outbound call claim gives the worker."""
+    update: dict[str, Any] = {"direction": "outbound", "carrier_call_id": CARRIER_CALL_ID}
+    if isinstance(payload, ObservationBatch):
+        update["events"] = [
+            event.model_copy(update={"direction": "outbound"}) for event in payload.events
+        ]
+    return payload.model_copy(update=update)
+
+
+@pytest.mark.parametrize("stamped", ["ours", "vendor"])
+async def test_an_outbound_call_lands_on_the_row_the_dial_wrote(
+    worker_token: None, stamped: str
+) -> None:
+    """The worker addresses an outbound call by the dialled row's own id, carried on the
+    stream URL's signed call claim. Whether the dial stamped our ref or a vendor handle onto
+    that row, the session and the settlement must converge on it and never mint a second
+    row for one call — a second row would bill the call twice and leave the lead pointing
+    at a row with no transcript."""
+    tenant_id, agent_id, _ = await published_agent()
+    probe = uuid.uuid4()
+    row_id = await _dialled_row(
+        tenant_id,
+        agent_id,
+        stamped=f"vendor-handle-{probe}" if stamped == "vendor" else f"placeholder-{probe}",
+    )
+    ref = pipecat_call_ref(tenant_id, row_id)
+    if stamped == "ours":
+        async with tenant_session(tenant_id) as db:
+            await db.execute(
+                text("UPDATE calls SET engine_call_id = :r WHERE id = :id"),
+                {"r": ref, "id": row_id},
+            )
+
+    async with worker_client() as api:
+        await api.post_observations(
+            ref, _outbound(batch(str(row_id), tenant_id, agent_id, turns=((0, "hello"),)))
+        )
+        await api.post_settlement(ref, _outbound(refusal_settlement(agent_id)))
+
+    row = await _call_row(tenant_id, ref)
+    assert row[0] == row_id
+    assert row[1] == CARRIER_CALL_ID
+    assert (row[2], row[3]) == ("outbound", "+919876500009"), "the dialled party was lost"
+    assert row[5] == "completed"
+    async with tenant_session(tenant_id) as db:
+        rows = (
+            await db.execute(
+                text("SELECT count(*) FROM calls WHERE id = :id OR engine_call_id = :r"),
+                {"id": row_id, "r": ref},
+            )
+        ).scalar_one()
+    assert rows == 1
+    assert (await counts(tenant_id, ref)) == {"turns": 1, "usage": 0, "refusals": 1, "outbox": 1}
+
+
+async def test_an_outbound_call_naming_another_agent_cannot_take_the_dialled_row(
+    worker_token: None,
+) -> None:
+    """The dialled row is this tenant's (RLS), but it was dialled for ONE agent. A worker
+    body naming another agent is refused exactly as on an inbound row, and the refusal rolls
+    the re-key back with it."""
+    tenant_id, agent_id, _ = await published_agent()
+    other_agent = uuid.uuid4()
+    async with tenant_session(tenant_id) as db:
+        await db.execute(
+            text(
+                "INSERT INTO agents SELECT (jsonb_populate_record(NULL::agents, to_jsonb(a) || "
+                "jsonb_build_object('id', CAST(:new AS text), 'name', a.name || ' (copy)', "
+                "'engine_agent_ref', NULL))).* FROM agents a WHERE a.id = :aid"
+            ),
+            {"new": str(other_agent), "aid": agent_id},
+        )
+    stamped = f"vendor-handle-{uuid.uuid4()}"
+    row_id = await _dialled_row(tenant_id, agent_id, stamped=stamped)
+    ref = pipecat_call_ref(tenant_id, row_id)
+
+    async with worker_client() as api:
+        with pytest.raises(WorkerApiError) as refused:
+            await api.post_observations(ref, _outbound(batch(str(row_id), tenant_id, other_agent)))
+    assert "422" in str(refused.value)
+
+    async with tenant_session(tenant_id) as db:
+        kept = (
+            await db.execute(
+                text("SELECT engine_call_id FROM calls WHERE id = :id"), {"id": row_id}
+            )
+        ).scalar_one()
+    assert kept == stamped
+
+
+async def test_an_inbound_ref_never_re_keys_a_dialled_row(worker_token: None) -> None:
+    """Only an OUTBOUND body may adopt a dialled row: an inbound call with a colliding id is
+    a fresh row of its own."""
+    tenant_id, agent_id, _ = await published_agent()
+    stamped = f"vendor-handle-{uuid.uuid4()}"
+    row_id = await _dialled_row(tenant_id, agent_id, stamped=stamped)
+    ref = pipecat_call_ref(tenant_id, row_id)
+
+    async with worker_client() as api:
+        await api.post_observations(ref, batch(str(row_id), tenant_id, agent_id))
+
+    async with tenant_session(tenant_id) as db:
+        kept = (
+            await db.execute(
+                text("SELECT engine_call_id FROM calls WHERE id = :id"), {"id": row_id}
+            )
+        ).scalar_one()
+    assert kept == stamped
+    assert (await _call_row(tenant_id, ref))[0] != row_id
 
 
 async def test_a_settlement_can_mint_the_row_with_its_parties(

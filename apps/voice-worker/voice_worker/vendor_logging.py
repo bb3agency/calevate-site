@@ -54,6 +54,10 @@ floor does not reach them either:
       misconfiguration rather than a routine event — but the rule is not "rarely log
       transcript text".
 
+The `plivo.py:221` entry matters only on the Plivo leg. The Vobiz leg's serializer is ours
+(`voice_worker.vobiz_serializer`) and logs no wire content at all — a dropped frame is
+counted, never printed — so it needs no entry here.
+
 Everything else read in the new modules carries ids, sizes, exception types or our own
 configuration. `pipecat/transports/base_output.py:918` looks like the same defect and is
 not: it is guarded by `isinstance(frame, OutputAudioRawFrame)` (`:915`) and that frame's

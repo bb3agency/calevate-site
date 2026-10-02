@@ -40,6 +40,7 @@ from apps.api.engine.pipecat import (
     PipecatEngine,
     engine_agent_ref_for,
 )
+from apps.api.engine.plivo_carrier import PlivoCarrier
 from apps.api.kb import service as kb_service
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_MARKER,
@@ -521,10 +522,10 @@ async def test_the_llm_credential_refusal_names_a_ground_the_old_gate_could_not(
 async def test_the_carrier_methods_refuse_with_the_ground_and_a_next_step(
     method: str, args: tuple[object, ...]
 ) -> None:
-    """Every carrier refusal names the same unread evidence and points at the document that
-    closes it — never `engine_capability_absent`, which would tell an operator to go and
-    find a different platform."""
-    engine = PipecatEngine()
+    """On Plivo, every carrier refusal names the same unread evidence and points at the
+    document that closes it — never `engine_capability_absent`, which would tell an operator
+    to go and find a different platform."""
+    engine = PipecatEngine(carrier=PlivoCarrier())
     with pytest.raises(ProblemError) as raised:
         await getattr(engine, method)(*args)
     assert raised.value.code == "engine_capability_unverified"
@@ -535,7 +536,7 @@ async def test_dialling_refuses_and_names_the_caller_id_first_when_one_was_given
     """THE ORDER IS THE POINT (D-420). Both refusals are correct; they send an operator to
     two different places, and only one of them is about the number they just configured."""
     tenant_id, agent_id = await _org()
-    engine = PipecatEngine()
+    engine = PipecatEngine(carrier=PlivoCarrier())
     cfg = _config(tenant_id, agent_id)
     ref = await engine.create_agent(cfg)
 
@@ -681,3 +682,75 @@ async def test_a_kb_publish_completes_while_the_caller_holds_the_agent_row_locke
     finally:
         get_settings.cache_clear()
         reset_engine_cache()
+
+
+# --- the carrier record the control plane keeps (D-662) -------------------------
+
+
+async def test_a_dial_stamps_the_carriers_call_id_and_our_caller_id_on_the_intent_row() -> None:
+    """`record_dial` writes onto the row `dispatch_call` committed before dialling, in its
+    own transaction, and `carrier_call_of` finds it again by the engine handle."""
+    from apps.api.db.base import uuid7
+    from apps.api.engine.pipecat import SqlControlPlane
+    from calevate_shared.engine import pipecat_call_ref
+
+    tenant_id, agent_id = await _org()
+    ref = engine_agent_ref_for(str(tenant_id), str(agent_id))
+    call_id = uuid7()
+    handle = pipecat_call_ref(tenant_id, call_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "to_e164, status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
+                "'outbound', '+919876543210', 'queued', now(), now())"
+            ),
+            {"id": call_id, "tid": tenant_id, "aid": agent_id, "ecid": handle},
+        )
+
+    store = SqlControlPlane()
+    await store.record_dial(
+        ref, call_id=str(call_id), carrier_call_id="vz-uuid-1", from_e164="+911140000000"
+    )
+    assert await store.carrier_call_of(handle) == "vz-uuid-1"
+    assert await store.carrier_call_of("not-a-pipecat-ref") is None
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT carrier_call_id, from_e164 FROM calls WHERE id = :id"),
+                {"id": call_id},
+            )
+        ).one()
+    assert tuple(row) == ("vz-uuid-1", "+911140000000")
+
+    # A ref this engine did not mint, and a row that is not there, write nothing.
+    await store.record_dial("x", call_id=str(call_id), carrier_call_id="other", from_e164="+91")
+    await store.record_dial(ref, call_id=str(uuid7()), carrier_call_id="other", from_e164="+91")
+    assert await store.carrier_call_of(handle) == "vz-uuid-1"
+
+
+async def test_a_bind_records_the_carrier_binding_on_the_number() -> None:
+    """Needs migration `d4a7b2c91e30` (`phone_numbers.carrier_binding_id`)."""
+    from apps.api.db.base import uuid7
+    from apps.api.engine.pipecat import SqlControlPlane
+
+    tenant_id, agent_id = await _org()
+    ref = engine_agent_ref_for(str(tenant_id), str(agent_id))
+    e164 = f"+9111{uuid.uuid4().int % 10**8:08d}"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series) "
+                "VALUES (:id, :tid, :aid, :e164, 'standard')"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "aid": agent_id, "e164": e164},
+        )
+    await SqlControlPlane().record_number_binding(ref, e164=e164, binding_id="app-9")
+    await SqlControlPlane().record_number_binding("x", e164=e164, binding_id="never")
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT carrier_binding_id FROM phone_numbers WHERE e164 = :e"), {"e": e164}
+            )
+        ).scalar_one()
+    assert stored == "app-9"

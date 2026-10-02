@@ -24,6 +24,7 @@ import httpx
 import pytest
 from apps.api.agents.config_versions import Attestation, model_config_digest, prompt_digest
 from apps.api.engine import cartesia as cartesia_module
+from apps.api.engine.carrier import CarrierClient
 from apps.api.engine.cartesia import CartesiaEngine
 from apps.api.engine.fake import (
     DICTATED_SPEECH_CAPABILITIES,
@@ -35,6 +36,8 @@ from apps.api.engine.pipecat import (
     PipecatEngine,
     RuntimeAgent,
 )
+from apps.api.engine.plivo_carrier import PlivoCarrier
+from apps.api.engine.vobiz import VobizCarrier
 from calevate_shared.engine import (
     AccountKBObject,
     AgentConfig,
@@ -44,6 +47,8 @@ from calevate_shared.engine import (
     ExecutionSnapshot,
     VoiceEngine,
     compose_engine_prompt,
+    pipecat_call_ref,
+    tenant_of_pipecat_ref,
 )
 from calevate_shared.events import TranscriptTurn
 
@@ -87,6 +92,11 @@ from calevate_shared.events import TranscriptTurn
 #: reporting "nobody has confirmed this" when none has — is the whole of §1.1. Its double
 #: below supplies the store AND the worker; see `_InMemoryControlPlane`.
 #:
+#: `pipecat` runs on the default carrier, Vobiz, over a transport stub of the requests
+#: `apps/api/engine/vobiz.py` documents; `pipecat-plivo` runs the same adapter on Plivo,
+#: whose every carrier operation refuses by name. Between them the carrier-dependent clauses
+#: (`caller_id`, `inbound_binding`, the dial) run in both directions on one real adapter.
+#:
 #: BOTH SUBJECTS STAY. The fixture keeps the hosting branches executable with no store at
 #: all — it is what every OTHER clause in this file runs against on that shape, at fixture
 #: speed — and deleting it would make the roster's hosting coverage depend on one adapter
@@ -101,6 +111,7 @@ ENGINE_IDS = [
     "fake-owned-runtime",
     "cartesia",
     "pipecat",
+    "pipecat-plivo",
 ]
 
 
@@ -437,6 +448,14 @@ class _InMemoryControlPlane:
         #: that clause unfalsifiable.
         self._kb: dict[EngineKBRef, tuple[str, EngineAgentRef | None]] = {}
         self._executions: dict[str, ExecutionSnapshot] = {}
+        #: Calls the adapter dialled. A POINT read finds them (`execution`) and the listing
+        #: does not, as in `SqlControlPlane`: the listing is the poller's DISCOVERY question
+        #: and is answered from no table of ours.
+        self._dialled: dict[str, ExecutionSnapshot] = {}
+        #: engine handle -> the carrier's call id, as `record_dial` received it.
+        self._carrier_calls: dict[str, str] = {}
+        #: e164 -> the carrier binding id the last bind recorded.
+        self.bindings: dict[str, str] = {}
 
     async def publish(self, cfg: AgentConfig, *, ref: EngineAgentRef) -> UUID:
         version_id = uuid4()
@@ -530,7 +549,7 @@ class _InMemoryControlPlane:
         return PIPECAT_FIXTURE_VOICES
 
     async def execution(self, call_id: str) -> ExecutionSnapshot | None:
-        return self._executions.get(call_id)
+        return self._executions.get(call_id) or self._dialled.get(call_id)
 
     async def executions(self, *, since: datetime) -> tuple[ExecutionSnapshot, ...]:
         return tuple(
@@ -538,6 +557,40 @@ class _InMemoryControlPlane:
             for snapshot in self._executions.values()
             if (snapshot.started_at or datetime.now(UTC)) >= since
         )
+
+    async def record_dial(
+        self, ref: EngineAgentRef, *, call_id: str, carrier_call_id: str, from_e164: str
+    ) -> None:
+        """The dial reached the carrier, and the WORKER picked the call up: a session in
+        progress, with the caller id the dial presented and the agent's first turn."""
+        tenant_id = tenant_of_pipecat_ref(ref)
+        assert tenant_id is not None, "the adapter dialled on a ref it did not mint"
+        handle = pipecat_call_ref(tenant_id, call_id)
+        self._carrier_calls[handle] = carrier_call_id
+        self._dialled[handle] = ExecutionSnapshot(
+            engine_call_id=handle,
+            engine_agent_ref=ref,
+            direction="outbound",
+            status="in_progress",
+            raw_status="in_progress",
+            terminal=False,
+            billable_ready=False,
+            started_at=datetime.now(UTC),
+            from_e164=from_e164,
+            transcript=[TranscriptTurn(call_id=handle, idx=0, speaker="agent", text="Namaskaram.")],
+            engine="pipecat",
+        )
+
+    async def carrier_call_of(self, call_ref: str) -> str | None:
+        return self._carrier_calls.get(call_ref)
+
+    async def record_number_binding(
+        self, ref: EngineAgentRef, *, e164: str, binding_id: str
+    ) -> None:
+        self.bindings[e164] = binding_id
+
+    async def number_binding(self, ref: EngineAgentRef, *, e164: str) -> str | None:
+        return self.bindings.get(e164)
 
     def seed_execution(self, call_id: str) -> None:
         """Stage one session the runtime recorded — what `saturated()` needs.
@@ -568,6 +621,82 @@ class _InMemoryControlPlane:
             ],
             engine="pipecat",
         )
+
+
+#: The account the Vobiz stub answers for. Not a real auth id.
+CONFORMANCE_VOBIZ_AUTH_ID = "MA_CONFORMANCE"
+CONFORMANCE_VOBIZ_BASE_URL = "https://api.vobiz.ai/api/v1"
+
+
+class _VobizStub:
+    """Vobiz's documented REST surface, in memory: the calls `VobizCarrier` makes, answered
+    in the shapes `vobiz-findings/mirror/pages/` prints. A request the docs do not describe
+    is a 404 here, so an adapter that invented a path fails the clause that reached it."""
+
+    def __init__(self) -> None:
+        self.live_calls: set[str] = set()
+        self.applications: dict[str, str] = {}
+        self.attached: dict[str, str] = {}
+        self._next_app = 1
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        prefix = f"/api/v1/Account/{CONFORMANCE_VOBIZ_AUTH_ID}/"
+        path = request.url.raw_path.decode().split("?", 1)[0]
+        assert request.headers.get("X-Auth-ID") == CONFORMANCE_VOBIZ_AUTH_ID
+        assert request.headers.get("X-Auth-Token")
+        if path == "/api/v1/auth/me" and request.method == "GET":
+            return httpx.Response(200, json={"auth_id": CONFORMANCE_VOBIZ_AUTH_ID})
+        if not path.startswith(prefix):
+            return httpx.Response(404, json={"error": "not found"})
+        rest = path[len(prefix) :]
+        body = json.loads(request.content) if request.content else {}
+        if rest == "Call/" and request.method == "POST":
+            for field in ("from", "to", "answer_url", "answer_method"):
+                assert body.get(field), f"call create is missing {field}"
+            call_uuid = str(uuid4())
+            self.live_calls.add(call_uuid)
+            return httpx.Response(
+                200,
+                json={"api_id": str(uuid4()), "message": "Call fired", "request_uuid": call_uuid},
+            )
+        if rest.startswith("Call/") and request.method == "DELETE":
+            call_uuid = rest[len("Call/") :].rstrip("/")
+            if call_uuid not in self.live_calls:
+                return httpx.Response(404, json={"error": "call not found"})
+            self.live_calls.discard(call_uuid)
+            return httpx.Response(204)
+        if rest == "Application/" and request.method == "GET":
+            objects = [{"app_id": i, "app_name": n} for n, i in self.applications.items()]
+            return httpx.Response(200, json={"meta": {}, "objects": objects})
+        if rest == "Application/" and request.method == "POST":
+            app_id = f"{self._next_app:017d}"
+            self._next_app += 1
+            self.applications[str(body["app_name"])] = app_id
+            return httpx.Response(201, json={"app_id": app_id, "message": "created"})
+        if rest.startswith("Application/") and request.method == "POST":
+            return httpx.Response(200, json={"message": "changed"})
+        if rest.startswith("numbers/") and rest.endswith("/application"):
+            number = rest[len("numbers/") : -len("/application")]
+            assert number.startswith("%2B"), "the number must be URL-encoded"
+            if request.method == "POST":
+                self.attached[number] = str(body["application_id"])
+                return httpx.Response(200, json={"message": "Number attached to application"})
+            self.attached.pop(number, None)
+            return httpx.Response(200, json={"message": "Number detached from application"})
+        return httpx.Response(404, json={"error": "not found"})
+
+
+def conformance_vobiz() -> VobizCarrier:
+    return VobizCarrier(
+        auth_id=CONFORMANCE_VOBIZ_AUTH_ID,
+        auth_token="conformance-token",
+        base_url=CONFORMANCE_VOBIZ_BASE_URL,
+        client=httpx.AsyncClient(
+            base_url=CONFORMANCE_VOBIZ_BASE_URL,
+            headers={"X-Auth-ID": CONFORMANCE_VOBIZ_AUTH_ID, "X-Auth-Token": "conformance-token"},
+            transport=httpx.MockTransport(_VobizStub()),
+        ),
+    )
 
 
 #: THE ADAPTERS THAT REACH NO VENDOR OVER HTTP, so the transport ladder has nothing to
@@ -614,8 +743,11 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
         )
     if engine_id == "pipecat":
         # The REAL adapter over a double of its database and its worker — see
-        # `_InMemoryControlPlane` for why that is a vendor stub and not a second adapter.
-        return PipecatEngine(store=_InMemoryControlPlane())
+        # `_InMemoryControlPlane` for why that is a vendor stub and not a second adapter —
+        # and the REAL Vobiz client over a stub of its documented API.
+        return PipecatEngine(store=_InMemoryControlPlane(), carrier=conformance_vobiz())
+    if engine_id == "pipecat-plivo":
+        return PipecatEngine(store=_InMemoryControlPlane(), carrier=PlivoCarrier())
     if engine_id == "cartesia":
         return CartesiaEngine(
             api_key="test-key",
@@ -685,7 +817,10 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
         saturated_store = _InMemoryControlPlane()
         for i in range(FULL_LISTING_PAGE + 1):
             saturated_store.seed_execution(f"pipecat_seed_{i}")
-        return PipecatEngine(store=saturated_store)
+        carrier: CarrierClient = (
+            conformance_vobiz() if engine.capabilities.caller_id else PlivoCarrier()
+        )
+        return PipecatEngine(store=saturated_store, carrier=carrier)
     assert isinstance(engine, CartesiaEngine), f"no saturation recipe for {type(engine).__name__}"
     return make_engine("cartesia", listing_rows=CARTESIA_FULL_PAGE)
 

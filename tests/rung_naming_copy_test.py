@@ -147,7 +147,10 @@ ADMIN_RUNG_SCREENS = (
     # by subject (UX-DOCTRINE §6, Sep 2026) and the rung labels went with the panel. Aimed
     # at the route it left behind, this guard would be scanning a nineteen-line file.
     "apps/web/src/app/admin/tenants/[tenantId]/MarginPanel.tsx",
-    "apps/web/src/app/admin/tenants/[tenantId]/commercials/page.tsx",
+    # RE-AIMED (D-661): the commercials route module now only mounts the screen; the rate
+    # labels live in the screen (in effect, history) and the terms form.
+    "apps/web/src/app/admin/tenants/[tenantId]/commercials/CommercialsScreen.tsx",
+    "apps/web/src/app/admin/tenants/[tenantId]/commercials/TermsForm.tsx",
 )
 
 
@@ -218,8 +221,13 @@ def test_ordinary_english_value_and_premium_survive() -> None:
     verticals = (REPO / "apps/web/src/lib/verticalExamples.ts").read_text(encoding="utf-8")
     assert "Annual premium" in verticals, "the insurance example lost its policy premium"
 
-    config = REPO / "apps/web/src/app/admin/ops/ConfigPanel.tsx"
-    assert "New value" in config.read_text(encoding="utf-8"), (
+    # The config screen is a folder of section modules (D-661); the change form is one of
+    # them, so the whole folder is read rather than one file that may move again.
+    config_dir = REPO / "apps/web/src/app/admin/ops/config"
+    config_files = sorted(config_dir.glob("*.ts*"))
+    assert config_files, "apps/web/src/app/admin/ops/config has moved — this check reads nothing"
+    config = "\n".join(path.read_text(encoding="utf-8") for path in config_files)
+    assert "New value" in config, (
         'the platform config panel lost its ordinary-English "New value" — that is a '
         "field's contents, not a pricing rung"
     )

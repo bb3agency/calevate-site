@@ -294,7 +294,8 @@ describe("the activity trail", () => {
     );
 
     await screen.findByText("admin.plan_tier_changed");
-    fireEvent.click(screen.getByRole("button", { name: "the client" }));
+    // A segmented control (D-655: one filter over one list), so its options are radios.
+    fireEvent.click(screen.getByRole("radio", { name: "the client" }));
 
     await screen.findByText(/Nothing matches this filter/);
     expect(calls.some((call) => call.path.includes("actor_type=user"))).toBe(true);

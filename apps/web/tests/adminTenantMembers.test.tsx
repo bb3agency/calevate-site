@@ -7,7 +7,7 @@ import type { TenantSummary } from "@/lib/api/admin";
 import { removeMemberConfirmation, type TenantMember } from "@/lib/api/tenantMembers";
 import type { Routes } from "./harness";
 
-import { problem } from "./harness";
+import { problem, stillLoading } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -84,6 +84,10 @@ function renderMembers(routes: Partial<Routes> = {}) {
     [ADMIN_ME_PATH]: ME,
     [TENANT_PATH]: SUMMARY,
     [MEMBERS_PATH]: [OWNER, STAFF],
+    // The People page (D-661) also lists invitations and the owner's WhatsApp consent;
+    // neither is this file's subject.
+    [`${TENANT_PATH}/invitations`]: [],
+    [`${TENANT_PATH}/whatsapp-alerts`]: stillLoading(),
     ...routes,
   });
 }

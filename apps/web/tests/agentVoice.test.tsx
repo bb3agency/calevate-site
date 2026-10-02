@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import type { AgentVoiceState } from "@/lib/api/publishing";
@@ -14,6 +14,26 @@ import {
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
 import { agentRow } from "./fixtures/sharedReads";
+/*
+ * The agent page is a settings layout (D-661, D-657): one section is mounted at a time,
+ * chosen by `?section=`. Each describe opens the section that owns its subject.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/admin/tenants/t/agents/a/prompt",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+function openSection(id: string) {
+  nav.params = new URLSearchParams(`section=${id}`);
+}
 
 /**
  * Voice selection on the agent screen — `GET /v1/agents/voices` finally has a consumer.
@@ -323,6 +343,7 @@ function voiceRow(name: RegExp): HTMLInputElement {
 }
 
 describe("the voice panel", () => {
+  beforeEach(() => openSection("voice"));
   it("reads the catalogue through the tenant's impersonation session", async () => {
     const { calls } = await render();
 

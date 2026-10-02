@@ -54,7 +54,7 @@ export function Field({
       {error && (
         <span
           id={`${id}-error`}
-          className="mt-1 block text-xs font-medium text-rose-700 dark:text-rose-300"
+          className="mt-1 block text-xs font-medium text-danger"
         >
           {error}
         </span>

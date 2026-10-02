@@ -422,6 +422,22 @@ export function useTenant(tenantId: string): UseQueryResult<TenantSummary> {
   });
 }
 
+/**
+ * The tenant record as already read by the tenant layout, WITHOUT a fetch of its own.
+ *
+ * For a page mounted after the layout settled the read. A second `useTenant` observer
+ * refetches an ERRORED query on mount, which reports `pending` to the layout too: on the
+ * one route the layout mounts despite a 404 (an erased client's Closing page), that
+ * unmounts the page, the refetch 404s again, and the two loop. `enabled: false` reads the
+ * cache reactively and never fetches.
+ */
+export function useCachedTenant(tenantId: string): UseQueryResult<TenantSummary> {
+  return useQuery({
+    queryKey: ["admin", "tenant", tenantId],
+    queryFn: () => apiRequest<TenantSummary>(adminSession(), `/v1/admin/tenants/${tenantId}`),
+    enabled: false,
+  });
+}
 export function useCreateTenant() {
   const client = useQueryClient();
   return useMutation({

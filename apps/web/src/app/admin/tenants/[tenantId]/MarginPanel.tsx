@@ -1,10 +1,11 @@
 "use client";
 
+import { Metric } from "@/components/console/metric";
 import {
   Card,
+  Disclosure,
   ProblemNotice,
   Skeleton,
-  StatTile,
   formatCount,
   formatINR,
 } from "@/components/ui";
@@ -27,43 +28,43 @@ import { useMargin, type Margin } from "@/lib/api/admin";
  */
 export function MarginPanel({ tenantId }: { tenantId: string }) {
   const margin = useMargin(tenantId);
-  if (margin.error) return <ProblemNotice error={margin.error} onRetry={() => margin.refetch()} />;
-  if (!margin.data)
+  const data = margin.data;
+  const info = "Cost is what we actually paid, stamped per usage row at capture time with the fx rate used.";
+
+  if (margin.error)
     return (
-      <Card title="Margin">
+      <Card title="Margin" density="compact">
+        <ProblemNotice error={margin.error} onRetry={() => margin.refetch()} />
+      </Card>
+    );
+  if (!data)
+    return (
+      <Card title="Margin" density="compact">
         <Skeleton rows={2} />
       </Card>
     );
-  const data = margin.data;
   const negative = data.margin_inr.trim().startsWith("-");
 
   return (
-    <Card title={`Margin · ${data.month}`}>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Revenue" value={formatINR(data.revenue_inr)} />
-        <StatTile label="Our cost" value={formatINR(data.cost_inr)} />
-        <div className="rounded-card border border-line bg-surface p-5">
-          <p className="text-[13px] font-medium text-ink-muted">Margin</p>
-          <p
-            className={
-              negative
-                ? "mt-1 text-2xl font-bold tracking-tight tabular-nums text-rose-600 dark:text-rose-400"
-                : "mt-1 text-2xl font-bold tracking-tight tabular-nums text-brand-strong dark:text-brand-bright"
-            }
-          >
-            {formatINR(data.margin_inr)}
-          </p>
-        </div>
+    <Card title={`Margin · ${data.month}`} density="compact" info={info}>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 2xl:grid-cols-2">
+        <Metric label="Revenue" value={formatINR(data.revenue_inr)} />
+        <Metric label="Our cost" value={formatINR(data.cost_inr)} />
+        <Metric
+          label="Margin"
+          value={formatINR(data.margin_inr)}
+          tone={negative ? "danger" : "default"}
+          hint={negative ? "Below cost this month" : undefined}
+        />
         {/* null, not 0%: "nothing billed yet" and "we made nothing" are different
             facts, and an operator acts differently on each. */}
-        <StatTile
+        <Metric
           label="Margin %"
           value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
         />
       </div>
-      <p className="mt-3 text-xs text-ink-muted">
-        {data.minutes_used} minutes across {formatCount(data.calls)} calls. Cost is what we
-        actually paid, stamped per usage row at capture time with the fx rate used.
+      <p className="mt-3 text-[13px] text-ink-muted">
+        {data.minutes_used} minutes across {formatCount(data.calls)} calls
       </p>
       <TierSplit tiers={data.tiers} />
     </Card>
@@ -139,24 +140,21 @@ function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
       cost: tiers.cost_unattributed_inr,
     },
   ];
+  // Disclosed: the split answers "why is the margin thin", which is asked after the totals
+  // above, not before. `h3` because it sits under the card's `h2`; the rows stay in the DOM.
   return (
-    <div className="mt-4 border-t border-line pt-3">
-      {/* h3, not h4: this panel sits inside a `Card`, whose title is an <h2>, so an h4
-          skips a level. Pre-existing and previously invisible to the axe sweep — jsdom
-          implements no `matchMedia`, and without it axe cannot resolve media-query
-          visibility, so it was not evaluating this heading at all. The stub added in
-          tests/setup.ts for the marketing page's reduced-motion check made the sweep
-          able to see it. Size is carried by the class, so nothing moves on screen. */}
-      <h3 className="text-[13px] font-medium text-ink-muted">Cost by overage rung</h3>
-      <dl className="mt-2 grid gap-3 sm:grid-cols-3">
+    <Disclosure title="Cost by overage rung" variant="inline" headingLevel={3} className="mt-3 border-t border-line pt-1">
+      <dl className="grid gap-x-6 gap-y-2 pb-2 sm:grid-cols-3">
         {rungs.map((rung) => (
-          <div key={rung.label} className="rounded-card border border-line bg-surface px-4 py-3">
-            <dt className="text-xs text-ink-muted">{rung.label}</dt>
-            <dd className="mt-0.5 text-sm font-semibold tabular-nums">{formatINR(rung.cost)}</dd>
-            <dd className="text-xs tabular-nums text-ink-muted">{rung.minutes} min</dd>
+          <div key={rung.label}>
+            <dt className="text-[13px] text-ink-muted">{rung.label}</dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">
+              {formatINR(rung.cost)}
+              <span className="ml-1.5 font-normal text-ink-muted">{rung.minutes} min</span>
+            </dd>
           </div>
         ))}
       </dl>
-    </div>
+    </Disclosure>
   );
 }

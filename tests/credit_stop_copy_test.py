@@ -193,6 +193,18 @@ def test_the_silenced_agent_row_says_what_stopped_and_what_undoes_it() -> None:
 
 # ────────────────────── the TypeScript copy, by reading source ──────────────────────
 
+#: The admin credits screen, one file per subject (D-661).
+CREDITS_DIR = "apps/web/src/app/admin/tenants/[tenantId]/credits"
+#: The trial control is deliberately NOT swept — see the note in `WEB_CREDIT_REGIONS`.
+TRIAL_FILES = frozenset({"TrialPanel.tsx", "StartTrialForm.tsx", "EndTrialForm.tsx"})
+CREDITS_SCREEN_FILES: tuple[str, ...] = tuple(
+    sorted(
+        f"{CREDITS_DIR}/{path.name}"
+        for path in (REPO / CREDITS_DIR).iterdir()
+        if path.suffix == ".tsx" and path.name not in TRIAL_FILES
+    )
+)
+
 #: One region per surface. `None` for the end marker means "to the end of the file", used
 #: only where the whole file is about the wallet; the two mixed files stop at the SPEND-CAP
 #: arm, which is a different condition and whose copy is still true.
@@ -239,10 +251,13 @@ WEB_CREDIT_REGIONS: tuple[tuple[str, str, str | None], ...] = (
     # there, and forbidding the withdrawn phrasings in that file would fail a correct
     # sentence with a message telling its author to say something false. What the trial
     # control must say instead is pinned by `apps/web/tests/adminTrial.test.tsx`.
-    (
-        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
-        "export default function CreditsPage",
-        None,
+    *(
+        # ⚠ RE-AIMED AND WIDENED (D-661): the credits screen was split by subject into one
+        # file per write, so the whole-file sweep is every file in the folder rather than
+        # the route module it used to be. Derived, not listed, so a new file is swept the
+        # day it lands. `""` as the start anchor means "from the top of the file".
+        (rel, "", None)
+        for rel in CREDITS_SCREEN_FILES
     ),
     ("apps/web/src/app/pricing/page.tsx", "Prepaid credit", "Two ceilings"),
 )
@@ -294,20 +309,21 @@ def test_the_client_is_told_on_the_wallet_screen_what_their_callers_hear() -> No
 #: same vocabulary — one guard, one set of accepted spellings, no second definition of what
 #: correct credit copy says.
 WEB_CREDIT_BOTH_HALVES: tuple[tuple[str, str, str, str], ...] = (
+    # RE-AIMED (D-661): the screen was split by subject; each sentence went with its panel.
     (
-        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
+        f"{CREDITS_DIR}/WalletSummary.tsx",
         "Below the low-balance line",
         "</NoticeBox>",
         "the low-balance notice on the balance panel",
     ),
     (
-        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
+        f"{CREDITS_DIR}/CorrectionForm.tsx",
         "A correction may take the balance",
         "Recorded in the audit log",
         "the consequence stated above the Correct button",
     ),
     (
-        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
+        f"{CREDITS_DIR}/WalletSummary.tsx",
         "TOO MUCH was credited",
         "TOO LITTLE was credited",
         "the \u201cif a credit was wrong\u201d card",
@@ -358,10 +374,13 @@ def test_the_credits_console_does_not_name_the_identity_tiers_for_a_money_rule()
     withdrawn wording \u2014 the convention every corrected file in this sweep follows \u2014
     are not what this reads. Only what an operator can see is scanned.
     """
-    rel = "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx"
-    lowered = _copy_only(_read(rel)).lower()
-    for phrase in STALE_WALLET_TIER_COPY:
-        assert phrase not in lowered, (
+    assert f"{CREDITS_DIR}/CorrectionForm.tsx" in CREDITS_SCREEN_FILES, (
+        "the credits folder sweep found no CorrectionForm.tsx — it is scanning the wrong place"
+    )
+    for rel in CREDITS_SCREEN_FILES:
+        lowered = _copy_only(_read(rel)).lower()
+        for phrase in STALE_WALLET_TIER_COPY:
+            assert phrase not in lowered, (
             f"{rel} tells an operator that an empty wallet stops calling for a "
             f"\u201c{phrase}\u201d client. That is the IDENTITY set (`SELF_SERVE_TIERS` "
             "\u2014 who signed up unattended), not the MONEY set: "
@@ -389,7 +408,10 @@ UNCHANGED_CONDITIONS: tuple[tuple[str, str, str], ...] = (
         "a suspended account",
     ),
     (
-        "apps/web/src/app/admin/ops/maintenance/page.tsx",
+        # The state sentences moved out of the route module when the maintenance screen was
+        # split by subject (D-661). Same sentence, rendered on the page by `CurrentWindow`
+        # whenever a window is active, one file down.
+        "apps/web/src/app/admin/ops/maintenance/windowState.tsx",
         "Inbound calls are still answered",
         "a platform maintenance window",
     ),

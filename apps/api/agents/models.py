@@ -810,6 +810,10 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     series: Mapped[str] = mapped_column(String, nullable=False, server_default="standard")
     provider: Mapped[str | None] = mapped_column(Text)
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
+    # The carrier's id for what this number is attached to — on Vobiz, the Application
+    # whose answer URL routes it to an agent. Written by `engine/pipecat.bind_inbound_number`;
+    # NULL until the first bind, and left as the last attachment after an unbind.
+    carrier_binding_id: Mapped[str | None] = mapped_column(Text)
     dlt_status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     purpose: Mapped[str | None] = mapped_column(Text)
     #: Which legs this number was bought for (`NUMBER_DIRECTIONS`). Defaults to `inbound`

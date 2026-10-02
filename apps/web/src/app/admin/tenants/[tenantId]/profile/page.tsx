@@ -1,15 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { use, useState } from "react";
-import { ArrowLeft, CheckCircle2, Lock } from "lucide-react";
+import { CheckCircle2, Lock } from "lucide-react";
 
+import { PageHeader } from "@/components/console/pageHeader";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
   Card,
   EmptyState,
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
+  FIELD_INLINE,
   MonoValue,
   NoticeBox,
   ProblemNotice,
@@ -27,6 +26,7 @@ import {
 } from "@/lib/api/tenantProfile";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { useAdminAccess } from "@/app/admin/access";
 
@@ -125,23 +125,11 @@ export default function TenantProfilePage({
   if (!profile.data) return <EmptyState title="Client not found" />;
 
   return (
-    <div className="max-w-2xl space-y-5">
-      <div>
-        <Link
-          href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          {profile.data.name}
-        </Link>
-        <h1 className="mt-1 text-xl font-semibold text-ink">Business details</h1>
-        <p className="text-sm text-ink-muted">
-          The client&apos;s own record. Every field you change is audited on its own, naming
-          the value it replaced. Their plan, credits, phone numbers, knowledge, account
-          state and closure each have their own screen; this one deliberately cannot reach
-          them.
-        </p>
-      </div>
+    <div className="max-w-3xl space-y-5">
+      <PageHeader
+        title="Business details"
+        description="The client's own record. Every change is audited, naming the value it replaced."
+      />
 
       <EditForm
         key={`${profile.data.name}|${profile.data.billing_email ?? ""}|${profile.data.vertical_template ?? ""}`}
@@ -187,6 +175,7 @@ function EditForm({
   const emailChanged = email.trim() !== (profile.billing_email ?? "");
   const verticalChanged = vertical !== (profile.vertical_template ?? "");
   const changed = nameChanged || emailChanged || verticalChanged;
+  useUnsavedGuard(changed);
 
   // The API refuses these before it writes; the screen refuses first so an operator is told
   // before the click rather than after. The server is still the enforcement in both cases.
@@ -217,7 +206,7 @@ function EditForm({
             : null;
 
   return (
-    <Card title="Correct this record">
+    <Card>
       <form
         className="space-y-4"
         noValidate
@@ -241,83 +230,83 @@ function EditForm({
       >
         <RestrictionNote reason={write.reason} />
 
-        <div>
-          <label htmlFor="tenant-name" className={FIELD_LABEL}>
-            {EDIT_FIELD_COPY.name.label}
-          </label>
-          <input
-            id="tenant-name"
-            value={name}
-            maxLength={200}
-            disabled={!write.allowed}
-            onChange={(event) => {
-              setName(event.target.value);
-              edit.reset();
-            }}
-            className={FIELD}
+        <SettingRows className="-my-1">
+          <SettingRow
+            label={EDIT_FIELD_COPY.name.label}
+            htmlFor="tenant-name"
+            hint={EDIT_FIELD_COPY.name.hint}
+            control={
+              <input
+                id="tenant-name"
+                value={name}
+                maxLength={200}
+                disabled={!write.allowed}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  edit.reset();
+                }}
+                className={`${FIELD_INLINE} w-full sm:w-72`}
+              />
+            }
           />
-          <span className={FIELD_HINT}>{EDIT_FIELD_COPY.name.hint}</span>
-        </div>
-
-        <div>
-          <span className={FIELD_LABEL}>Web address</span>
-          <p className="mt-1 flex items-center gap-2 text-sm text-ink">
-            <Lock className="h-3.5 w-3.5 text-ink-faint" aria-hidden />
-            <MonoValue>{`/c/${profile.slug}`}</MonoValue>
-          </p>
-          <span className={FIELD_HINT}>
-            Frozen, and not because nobody built the form: this is in every link the client
-            has bookmarked and in every URL their staff use, and the database refuses to
-            change it. A client who needs a different one needs a new account.
-          </span>
-        </div>
-
-        <div>
-          <label htmlFor="tenant-billing-email" className={FIELD_LABEL}>
-            {EDIT_FIELD_COPY.billing_email.label}
-          </label>
-          <input
-            id="tenant-billing-email"
-            type="email"
-            value={email}
-            maxLength={254}
-            disabled={!write.allowed}
-            onChange={(event) => {
-              setEmail(event.target.value);
-              edit.reset();
-            }}
-            className={FIELD}
+          {/* Rendered, greyed, with the reason: a field an operator cannot find is a field
+              they ring somebody about. A database trigger enforces it regardless. */}
+          <SettingRow
+            label="Web address"
+            hint="Fixed: it is in every link the client has bookmarked, and the database refuses to change it. A different one needs a new account."
+            value={
+              <span className="inline-flex items-center gap-2">
+                <Lock className="h-3.5 w-3.5 text-ink-faint" aria-hidden />
+                <MonoValue>{`/c/${profile.slug}`}</MonoValue>
+              </span>
+            }
           />
-          <span className={FIELD_HINT}>{EDIT_FIELD_COPY.billing_email.hint}</span>
-        </div>
-
-        <div>
-          <label htmlFor="tenant-vertical" className={FIELD_LABEL}>
-            {EDIT_FIELD_COPY.vertical_template.label}
-          </label>
-          <select
-            id="tenant-vertical"
-            value={vertical}
-            disabled={!write.allowed}
-            onChange={(event) => {
-              setVertical(event.target.value);
-              edit.reset();
-            }}
-            className={FIELD}
-          >
-            {/* The options come from the API, not from a list retyped here: a vertical
-                added to the server's `Literal` appears in this dropdown without an edit,
-                and one removed stops being offered. */}
-            {profile.vertical_template == null && <option value="">Not set</option>}
-            {profile.verticals.map((choice) => (
-              <option key={choice} value={choice}>
-                {choice.replace(/_/g, " ")}
-              </option>
-            ))}
-          </select>
-          <span className={FIELD_HINT}>{EDIT_FIELD_COPY.vertical_template.hint}</span>
-        </div>
-
+          <SettingRow
+            label={EDIT_FIELD_COPY.billing_email.label}
+            htmlFor="tenant-billing-email"
+            hint={EDIT_FIELD_COPY.billing_email.hint}
+            control={
+              <input
+                id="tenant-billing-email"
+                type="email"
+                value={email}
+                maxLength={254}
+                disabled={!write.allowed}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  edit.reset();
+                }}
+                className={`${FIELD_INLINE} w-full sm:w-72`}
+              />
+            }
+          />
+          <SettingRow
+            label={EDIT_FIELD_COPY.vertical_template.label}
+            htmlFor="tenant-vertical"
+            hint={EDIT_FIELD_COPY.vertical_template.hint}
+            control={
+              <select
+                id="tenant-vertical"
+                value={vertical}
+                disabled={!write.allowed}
+                onChange={(event) => {
+                  setVertical(event.target.value);
+                  edit.reset();
+                }}
+                className={`${FIELD_INLINE} w-full sm:w-72`}
+              >
+                {/* The options come from the API, not from a list retyped here: a vertical
+                    added to the server's `Literal` appears without an edit. */}
+                {profile.vertical_template == null && <option value="">Not set</option>}
+                {profile.verticals.map((choice) => (
+                  <option key={choice} value={choice}>
+                    {choice.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            }
+          />
+        </SettingRows>
         {emailChanged && (
           <TypedConfirmation
             phrase="CHANGE ADDRESS"
@@ -340,7 +329,7 @@ function EditForm({
             Save changes
           </ActionButton>
           {refusal != null && (
-            <span className="text-xs text-amber-700 dark:text-amber-400">{refusal}</span>
+            <span className="text-xs text-warn">{refusal}</span>
           )}
         </div>
       </form>

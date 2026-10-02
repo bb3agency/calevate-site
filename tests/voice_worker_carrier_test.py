@@ -103,7 +103,7 @@ def _pipecat_source(relative: str) -> str:
 
 
 async def test_the_handshake_fields_are_the_ones_pipecat_parses_for_plivo() -> None:
-    """`PlivoHandshake` carries what the vendor's client really hands us, and no more.
+    """`CarrierHandshake` carries what the vendor's client really hands us, and no more.
 
     Driven through `parse_telephony_websocket` itself — Pipecat's own detector and parser —
     so this fails if the provider's start message, its detection rule or the parsed field
@@ -116,33 +116,35 @@ async def test_the_handshake_fields_are_the_ones_pipecat_parses_for_plivo() -> N
     )
     transport_type, call_data = await parse_telephony_websocket(socket)
 
-    assert transport_type == carrier.PLIVO_TRANSPORT_TYPE == "plivo"
+    assert transport_type == carrier.wire_family_of("plivo") == "plivo"
     assert call_data.from_number is None and call_data.to_number is None
 
-    handshake = carrier.PlivoHandshake.from_call_data(call_data)
+    handshake = carrier.CarrierHandshake.from_call_data(call_data, carrier="plivo")
     assert handshake.stream_id == "stream-1"
     assert handshake.carrier_call_id == "carrier-call-1"
-    # THREE FIELDS, and the third is a VERDICT rather than a number: the absence of a
-    # calling party is itself a fact the CRM, the lead pipeline and the DNC path all need,
-    # and modelling it as nothing is what left `calls.from_e164` NULL with no reader able
-    # to say why (`tests/carrier_identity_states_test.py` drives the four states).
-    assert set(carrier.PlivoHandshake.__dataclass_fields__) == {
+    # The caller is a VERDICT rather than a number: the absence of a calling party is itself
+    # a fact the CRM, the lead pipeline and the DNC path all need
+    # (`tests/carrier_identity_states_test.py` drives the four states).
+    assert set(carrier.CarrierHandshake.__dataclass_fields__) == {
         "stream_id",
         "carrier_call_id",
+        "carrier",
         "caller",
+        "media_format",
     }
     assert handshake.caller.state == "unparsed_by_client"
     assert not handshake.caller.is_known
 
 
 async def test_the_handshake_reader_uses_pipecats_detection_and_agrees_with_it() -> None:
-    """`read_plivo_handshake` is the door a mount will use, so it is driven whole."""
+    """`read_handshake` is the door the entrypoint uses, so it is driven whole."""
     socket = _SocketSaying(
         '{"event": "start", "start": {"streamId": "stream-2", "callId": "carrier-call-2"}}'
     )
 
-    handshake = await carrier.read_plivo_handshake(socket)
+    handshake = await carrier.read_handshake(socket, default_carrier="plivo")
 
+    assert handshake.carrier == "plivo"
     assert handshake.stream_id == "stream-2"
     assert handshake.carrier_call_id == "carrier-call-2"
     # The reader asks the identity question of the carrier it DETECTED, not of a constant,
@@ -155,7 +157,7 @@ async def test_a_socket_from_another_carrier_is_refused_rather_than_mis_serializ
     """Pipecat's parser spans four providers; this deployment has one.
 
     A Twilio start message really does detect as `twilio` (`runner/utils.py:62-110`), and a
-    mount that handed that `CallData` to `build_plivo_transport` would connect a call and
+    mount that handed that `CallData` to `build_transport` would connect a call and
     put silence on it — the serializer would be speaking the wrong protocol. The refusal is
     what makes that impossible rather than unlikely.
     """
@@ -165,8 +167,9 @@ async def test_a_socket_from_another_carrier_is_refused_rather_than_mis_serializ
     )
 
     with pytest.raises(carrier.UnroutableCallError) as refusal:
-        await carrier.read_plivo_handshake(socket)
+        await carrier.read_handshake(socket)
 
+    # The default carrier is Vobiz, whose wire family Pipecat calls "plivo".
     assert "twilio" in str(refusal.value) and "plivo" in str(refusal.value)
 
 
@@ -178,13 +181,13 @@ async def test_a_handshake_missing_its_ids_is_refused_rather_than_answered() -> 
         call_id = None
 
     with pytest.raises(carrier.UnroutableCallError):
-        carrier.PlivoHandshake.from_call_data(_Empty())
+        carrier.CarrierHandshake.from_call_data(_Empty(), carrier="plivo")
 
 
 async def test_the_serializer_speaks_the_envelopes_this_module_depends_on() -> None:
     """The media wire shape, round-tripped through the vendor's own serializer.
 
-    Not a test OF Pipecat: it is the pin on the two facts `build_plivo_transport` is built
+    Not a test OF Pipecat: it is the pin on the two facts `build_transport` is built
     from — that outbound audio leaves as a `playAudio` envelope of 8 kHz μ-law, and that
     inbound `media` arrives as PCM at the pipeline's rate. If either moves, the transport
     we hand `assemble_call` is wrong and every call is silence.
@@ -414,10 +417,11 @@ async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first
     await transport.connect()
     await _settle()
 
-    assert call.context.messages[-1] == {
-        "role": "developer",
-        "content": "Greet the caller as your instructions direct.",
-    }
+    # The wording depends on whether the agent volunteered a spoken notice first
+    # (`pipeline.py`); what this path must guarantee is that the first turn was queued.
+    greeting = call.context.messages[-1]
+    assert greeting["role"] == "developer"
+    assert "as your instructions direct" in greeting["content"]
 
 
 async def test_a_transport_that_cannot_say_when_the_caller_connected_is_refused(
@@ -650,7 +654,7 @@ async def test_the_carrier_path_logs_no_phone_number_and_no_transcript_text(
 
 
 async def test_the_transport_is_built_from_the_handshake_and_the_carrier_secrets() -> None:
-    """`build_plivo_transport` wires the serializer, the rate and the header setting.
+    """`build_transport` wires the serializer, the rate and the header setting.
 
     Asserted on the params the transport holds rather than by connecting anything: this is
     the one function here that touches a real `FastAPIWebsocketTransport`, and what it must
@@ -663,10 +667,12 @@ async def test_the_transport_is_built_from_the_handshake_and_the_carrier_secrets
         async def accept(self) -> None:  # pragma: no cover - never called here
             raise AssertionError("the transport must not accept a socket at construction")
 
-    transport = carrier.build_plivo_transport(
+    transport = carrier.build_transport(
         _Socket(),
-        handshake=carrier.PlivoHandshake(stream_id="stream-1", carrier_call_id="carrier-call-1"),
-        credentials=PLIVO_CREDENTIALS,
+        handshake=carrier.CarrierHandshake(
+            stream_id="stream-1", carrier_call_id="carrier-call-1", carrier="plivo"
+        ),
+        plivo_credentials=PLIVO_CREDENTIALS,
     )
 
     params = transport._params

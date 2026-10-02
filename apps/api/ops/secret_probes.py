@@ -49,8 +49,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 import httpx
+from calevate_shared.carrier import CarrierName
 
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
+from apps.api.engine.carrier import build_carrier
 
 log = get_logger(__name__)
 
@@ -236,6 +240,21 @@ PROBES: Mapping[str, Probe] = {
 }
 
 
+#: Credentials checked through the carrier seam rather than a declarative `Probe`: Vobiz
+#: authenticates with a PAIR (`X-Auth-ID` + `X-Auth-Token`,
+#: `vobiz-findings/mirror/pages/api-reference/authentication.md:9-16`), so the candidate is
+#: one half and the deployment's configured value is the other. The read is
+#: `GET /auth/me`, which returns the account object and changes nothing (`:30-36`).
+CARRIER_PROBES: Mapping[str, CarrierName] = {
+    "vobiz_auth_id": "vobiz",
+    "vobiz_auth_token": "vobiz",
+}
+_CARRIER_PROBE_SOURCE = (
+    "apps/api/engine/vobiz.py (VobizCarrier.probe: GET /auth/me, "
+    "vobiz-findings/mirror/pages/api-reference/authentication.md:30-36)"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ProbeResult:
     """What we asked, what came back, and how much it is worth.
@@ -264,6 +283,9 @@ async def probe_credential(key: str, candidate: str) -> ProbeResult:
     `Authorization` header — which `core/logging.REDACT_KEYS` masks anywhere it could be
     logged, and which nothing here logs anyway.
     """
+    carrier = CARRIER_PROBES.get(key)
+    if carrier is not None:
+        return await _probe_carrier(key, candidate, carrier)
     probe = PROBES.get(key)
     if probe is None:
         return ProbeResult(
@@ -336,4 +358,57 @@ async def probe_credential(key: str, candidate: str) -> ProbeResult:
     )
 
 
-__all__ = ["PROBES", "Probe", "ProbeOutcome", "ProbeResult", "probe_credential"]
+async def _probe_carrier(key: str, candidate: str, carrier: CarrierName) -> ProbeResult:
+    """The candidate half of a carrier pair, checked with the configured other half."""
+    cfg = get_settings().model_copy(update={key: candidate})
+    client = build_carrier(cfg, carrier)
+    if not client.configured():
+        return ProbeResult(
+            outcome="unreachable",
+            status=None,
+            detail=(
+                "This credential is one half of a pair and the other half is not set on "
+                "this deployment, so it has NOT been checked."
+            ),
+            verified=False,
+            source=_CARRIER_PROBE_SOURCE,
+        )
+    try:
+        accepted = await client.probe()
+    except ProblemError as exc:
+        log.warning("secret_probe_unreachable", extra={"config_key": key, "reason": exc.code})
+        return ProbeResult(
+            outcome="unreachable",
+            status=None,
+            detail=(
+                "The vendor could not be reached or did not answer as documented, so this "
+                "credential has NOT been checked. This says nothing about whether it is correct."
+            ),
+            verified=False,
+            source=_CARRIER_PROBE_SOURCE,
+        )
+    outcome: ProbeOutcome = "accepted" if accepted else "rejected"
+    log.info("secret_probe", extra={"config_key": key, "outcome": outcome, "status": None})
+    return ProbeResult(
+        outcome=outcome,
+        status=None,
+        detail=(
+            "The vendor accepted this credential pair for one authenticated read. That does "
+            "not prove it has every scope this platform uses, only that it authenticates."
+            if accepted
+            else "The vendor refused this credential pair. One half is wrong or revoked — it "
+            "has NOT been stored."
+        ),
+        verified=False,
+        source=_CARRIER_PROBE_SOURCE,
+    )
+
+
+__all__ = [
+    "CARRIER_PROBES",
+    "PROBES",
+    "Probe",
+    "ProbeOutcome",
+    "ProbeResult",
+    "probe_credential",
+]

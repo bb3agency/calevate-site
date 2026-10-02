@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
-
 /**
- * The small controls this screen's panels share — the header's nav pills, the three
- * button weights its dense rows use, and the field class those rows' inputs take.
+ * The small controls this screen's panels share — the three button weights its dense
+ * rows use, and the field class those rows' inputs take.
  *
  * They are HERE rather than in `components/ui.tsx` because they are this screen's own
  * density (`text-xs`, `py-1`), not the console's: promoting them would put a second
@@ -12,30 +10,6 @@ import Link from "next/link";
  * two-ways-of-one-thing defect UX-DOCTRINE §7 is about. If a third screen needs this
  * scale, that is the moment to hoist it and move both callers.
  */
-
-/** The screen-to-screen affordances in the header, in one shape rather than four. */
-export function NavLink({
-  href,
-  icon,
-  title,
-  children,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      title={title}
-      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand press"
-    >
-      {icon}
-      {children}
-    </Link>
-  );
-}
 
 // `enabled:hover` rather than `hover`, so a disabled button does not darken under the
 // pointer and read as live. Each weight adds its own ring colour.

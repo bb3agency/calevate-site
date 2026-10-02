@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import type { Experiment, ExperimentState } from "@/lib/api/publishing";
@@ -7,6 +7,26 @@ import type { Experiment, ExperimentState } from "@/lib/api/publishing";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { browserOffline, problem, type Routes } from "./harness";
 import { agentRow, voiceCatalogue } from "./fixtures/sharedReads";
+/*
+ * The agent page is a settings layout (D-661, D-657): one section is mounted at a time,
+ * chosen by `?section=`. Each describe opens the section that owns its subject.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/admin/tenants/t/agents/a/prompt",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+function openSection(id: string) {
+  nav.params = new URLSearchParams(`section=${id}`);
+}
 
 /**
  * The A/B script test panel on the agent's prompt screen (ROADMAP M3).
@@ -185,6 +205,7 @@ function render(routes: Partial<Routes> = {}) {
 }
 
 describe("the A/B script test panel", () => {
+  beforeEach(() => openSection("test"));
   it("publishes no comparison and no winner below the minimum sample", async () => {
     const { container } = await render({
       [EXPERIMENT_PATH]: state({
@@ -592,6 +613,7 @@ describe("the A/B script test panel", () => {
 });
 
 describe("the call cap", () => {
+  beforeEach(() => openSection("limits"));
   /**
    * ONE READING OF A CAP, SHARED WITH THE CLIENT'S OWN SCREEN.
    *
@@ -649,6 +671,7 @@ describe("the call cap", () => {
  * the same time.
  */
 describe("the version history when the read did not answer (§52)", () => {
+  beforeEach(() => openSection("script"));
   it("refuses rather than claiming no versions over a read the browser never made", async () => {
     browserOffline();
     const { container } = await render();

@@ -158,6 +158,31 @@ describe("SettingsLayout", () => {
     expect(screen.getAllByRole("link", { name: "Script" })).toHaveLength(1);
   });
 
+  it("keeps the menu a row of pills at every width when asked, and a column by default", () => {
+    nav.params = new URLSearchParams("section=voice");
+    const { unmount } = render(
+      <SettingsLayout label="Agent settings" sections={SECTIONS} renderSection={(id) => <p>body {id}</p>} />,
+    );
+    const columnList = screen.getByRole("navigation", { name: "Agent settings" }).querySelector("ul")!;
+    expect(columnList.className).toContain("lg:flex-col");
+    unmount();
+
+    render(
+      <SettingsLayout
+        label="Agent settings"
+        menu="row"
+        sections={SECTIONS}
+        renderSection={(id) => <p>body {id}</p>}
+      />,
+    );
+    const nav_ = screen.getByRole("navigation", { name: "Agent settings" });
+    expect(nav_.querySelector("ul")!.className).not.toContain("lg:flex-col");
+    expect(nav_.parentElement!.className).not.toContain("lg:grid");
+    // Same links and the same open section; only the shape changes.
+    expect(screen.getByRole("link", { name: /Voice/ }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByText("body voice")).toBeTruthy();
+  });
+
   it("falls back to the first section for a value it does not know", () => {
     nav.params = new URLSearchParams("section=nonsense");
     render(<SettingsLayout label="Agent settings" sections={SECTIONS} renderSection={(id) => <p>body {id}</p>} />);

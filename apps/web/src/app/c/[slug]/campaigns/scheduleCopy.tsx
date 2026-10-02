@@ -39,7 +39,7 @@ export function formatOccurrence(value: string | null | undefined): string {
 }
 
 /** "every Tuesday and Friday at 10:00" — the rule, read back as a sentence. */
-export function describeRepeat(recurrence: CampaignRecurrence): string {
+export function describeRepeat(recurrence: Pick<CampaignRecurrence, "days" | "at">): string {
   const chosen = WEEKDAYS.filter((day) => recurrence.days.includes(day.value));
   if (chosen.length === WEEKDAYS.length) return `every day at ${recurrence.at}`;
   const names = chosen.map((day) => day.label);

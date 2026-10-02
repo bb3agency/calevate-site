@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -123,6 +123,35 @@ function listOf(...operators: Operator[]): { operators: Operator[] } {
   return { operators };
 }
 
+/**
+ * A row's Change tier / Resend setup link / Revoke access live in its "More actions" menu
+ * (admin redesign, D-661); choosing one opens the same inline confirmation as before.
+ */
+async function chooseRowAction(account: string, item: RegExp): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: `More actions for ${account}` }));
+  });
+  const choice = await screen.findByRole("menuitem", { name: item });
+  await act(async () => {
+    fireEvent.click(choice);
+  });
+}
+
+/** Open a row's menu and return its items, by name, for assertions about what is offered. */
+async function rowMenuItems(account: string): Promise<HTMLElement[]> {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: `More actions for ${account}` }));
+  });
+  const menu = await screen.findByRole("menu", { name: `Actions for ${account}` });
+  return within(menu).getAllByRole("menuitem");
+}
+
+/** The Add form lives in a drawer behind the page's primary button (D-661). */
+async function openAddAdmin(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "Add an admin" }));
+  await screen.findByRole("dialog", { name: "Add an admin" });
+}
+
 /** Fill a labelled box on the screen. */
 function type(label: RegExp | string, value: string): void {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -234,13 +263,13 @@ describe("what a normal admin is shown", () => {
         "has not been able to establish what you may do",
       ),
     );
+    // The add form is behind the page's "Add an admin" button now (D-661), and that button
+    // is what stays closed — so the form cannot even be opened, let alone submitted.
     expect(
-      (
-        screen.getByLabelText(
-          /Email address of the admin to add/,
-        ) as HTMLInputElement
-      ).disabled,
+      (screen.getByRole("button", { name: "Add an admin" }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
+    expect(screen.queryByLabelText(/Email address of the admin to add/)).toBeNull();
   });
 
   it("renders a 403 on the list as a refusal rather than as an outage", async () => {
@@ -332,14 +361,13 @@ describe("the account you are signed in as", () => {
     );
     // The controls are ABSENT on that row, not disabled: the API refuses both acts
     // outright, so a greyed-out button would be one that is never available.
+    // (The row actions live in a "More actions" menu; on your own row there is no menu.)
     expect(
-      screen.queryByRole("button", { name: /Change the tier of Sri J/ }),
+      screen.queryByRole("button", { name: "More actions for Sri J" }),
     ).toBeNull();
     expect(
-      screen.queryByRole("button", {
-        name: /Revoke the admin access of Sri J/,
-      }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "More actions for Asha Rao" }),
+    ).toBeTruthy();
   });
 
   it("still offers both on somebody ELSE's row, including another super admin", async () => {
@@ -354,12 +382,12 @@ describe("the account you are signed in as", () => {
     renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER, second)));
 
     await screen.findByText("Ravi K");
-    expect(
-      screen.getByRole("button", { name: /Change the tier of Ravi K/ }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /Revoke the admin access of Ravi K/ }),
-    ).toBeTruthy();
+    const items = await rowMenuItems("Ravi K");
+    const offered = items
+      .filter((item) => item.getAttribute("aria-disabled") !== "true")
+      .map((item) => item.textContent);
+    expect(offered).toContain("Change tier");
+    expect(offered).toContain("Revoke access");
   });
 
   it("refuses to guess a direction for a tier this build has no words for", async () => {
@@ -372,17 +400,15 @@ describe("the account you are signed in as", () => {
     );
 
     await screen.findByText("Asha Rao");
-    expect(
-      screen.queryByRole("button", { name: /Change the tier of Asha Rao/ }),
-    ).toBeNull();
     expect(container.textContent).toContain("does not recognise the tier");
-    // Revoking needs no opinion about which tier they are in, so it stays — and the row
-    // still renders the wire value rather than hiding an account it cannot classify.
-    expect(
-      screen.getByRole("button", {
-        name: /Revoke the admin access of Asha Rao/,
-      }),
-    ).toBeTruthy();
+    // In the row menu the tier change is shown but refused, with its reason, and cannot
+    // be chosen; revoking needs no opinion about which tier they are in, so it stays — and
+    // the row still renders the wire value rather than hiding an account it cannot classify.
+    const items = await rowMenuItems("Asha Rao");
+    const change = items.find((item) => item.textContent?.startsWith("Change tier"));
+    expect(change?.getAttribute("aria-disabled")).toBe("true");
+    const revoke = items.find((item) => item.textContent === "Revoke access");
+    expect(revoke?.getAttribute("aria-disabled")).toBeNull();
     expect(container.textContent).toContain("auditor");
 
     expect(tierChangeTarget(operator({ role: "auditor" }))).toBeNull();
@@ -422,9 +448,7 @@ describe("the typed confirmation on a consequential act", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
-    );
+    await chooseRowAction("Asha Rao", /^Change tier/);
 
     // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
     // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
@@ -459,9 +483,7 @@ describe("the typed confirmation on a consequential act", () => {
     renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER, operator())));
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
-    );
+    await chooseRowAction("Asha Rao", /^Change tier/);
     // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
     // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
     // the API builds and validates and which may never be an email, because headers land
@@ -500,9 +522,7 @@ describe("the typed confirmation on a consequential act", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
-    );
+    await chooseRowAction("Asha Rao", /^Change tier/);
     type(
       /Why you are changing Asha Rao's tier/,
       "swapping their responsibilities",
@@ -532,6 +552,7 @@ describe("the typed confirmation on a consequential act", () => {
     renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER)));
 
     await screen.findByText("Sri J");
+    await openAddAdmin();
     type(/Email address of the admin to add/, "new@calevate.tech");
     type(
       /Why you are adding this admin/,
@@ -564,9 +585,7 @@ describe("the typed confirmation on a consequential act", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
-    );
+    await chooseRowAction("Asha Rao", /^Change tier/);
     // The three facts a super admin is actually agreeing to, in the order they matter.
     expect(container.textContent).toContain("the vendor API keys");
     expect(container.textContent).toContain(
@@ -590,11 +609,7 @@ describe("revoking an account", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Revoke the admin access of Asha Rao/,
-      }),
-    );
+    await chooseRowAction("Asha Rao", /^Revoke access/);
     // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
     // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
     // the API builds and validates and which may never be an email, because headers land
@@ -627,11 +642,7 @@ describe("revoking an account", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Revoke the admin access of Asha Rao/,
-      }),
-    );
+    await chooseRowAction("Asha Rao", /^Revoke access/);
     expect(container.textContent).toContain("Their row is kept");
     expect(container.textContent).toContain(
       "Nothing about this is a data erasure",
@@ -653,19 +664,16 @@ describe("the setup link", () => {
     );
 
     await screen.findByText("Asha Rao");
-    expect(
-      screen.getByRole("button", {
-        name: /Resend the setup link for Asha Rao/,
-      }),
-    ).toBeTruthy();
     // Ravi has a password. Offering it for him would be offering a password reset, which
     // the API refuses (`operator_already_activated`) and which must not be reachable from
-    // the person asking on somebody else's behalf.
-    expect(
-      screen.queryByRole("button", {
-        name: /Resend the setup link for Ravi K/,
-      }),
-    ).toBeNull();
+    // the person asking on somebody else's behalf — so his menu does not hold it at all.
+    const ravi = await rowMenuItems("Ravi K");
+    expect(ravi.map((item) => item.textContent)).not.toContain("Resend setup link");
+    fireEvent.keyDown(screen.getByRole("menu", { name: "Actions for Ravi K" }), {
+      key: "Escape",
+    });
+    const asha = await rowMenuItems("Asha Rao");
+    expect(asha.map((item) => item.textContent)).toContain("Resend setup link");
   });
 
   it("says it is not a password reset, at the control", async () => {
@@ -675,11 +683,7 @@ describe("the setup link", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Resend the setup link for Asha Rao/,
-      }),
-    );
+    await chooseRowAction("Asha Rao", /^Resend setup link/);
     expect(container.textContent).toContain("never set a password");
     expect(container.textContent).toContain(
       "mails the link to them rather than to you",
@@ -707,6 +711,7 @@ describe("adding an admin", () => {
     );
 
     await screen.findByText("Sri J");
+    await openAddAdmin();
     type(/Email address of the admin to add/, "new@calevate.tech");
     type(
       /Why you are adding this admin/,
@@ -731,7 +736,7 @@ describe("adding an admin", () => {
   });
 
   it("surfaces the API's own refusal verbatim when the address is taken", async () => {
-    const { container } = renderAdminPage(
+    renderAdminPage(
       <OperatorsPage />,
       routes(listOf(FOUNDER), SUPERADMIN, {
         [`POST ${OPERATORS_PATH}`]: problem(409, {
@@ -745,6 +750,7 @@ describe("adding an admin", () => {
     );
 
     await screen.findByText("Sri J");
+    await openAddAdmin();
     type(/Email address of the admin to add/, "asha@calevate.tech");
     type(
       /Why you are adding this admin/,
@@ -757,7 +763,8 @@ describe("adding an admin", () => {
       "A live operator account already uses that email address.",
     );
     // The remediation is the actionable half and is printed, not paraphrased.
-    expect(container.textContent).toContain("resend its setup link");
+    // The refusal is printed inside the Add drawer, which is portalled to <body>.
+    expect(document.body.textContent).toContain("resend its setup link");
   });
 });
 
@@ -825,11 +832,7 @@ describe("what the screen says when it has no answer", () => {
     });
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Revoke the admin access of Asha Rao/,
-      }),
-    );
+    await chooseRowAction("Asha Rao", /^Revoke access/);
     // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
     // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
     // the API builds and validates and which may never be an email, because headers land

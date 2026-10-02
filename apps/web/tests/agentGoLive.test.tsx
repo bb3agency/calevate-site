@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import { VOICES_PATH } from "@/lib/api/voices";
@@ -7,6 +7,26 @@ import { VOICES_PATH } from "@/lib/api/voices";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, stillLoading, type Routes } from "./harness";
 import { agentRow, voiceCatalogue } from "./fixtures/sharedReads";
+/*
+ * The agent page is a settings layout (D-661): Live opens first and holds the publish
+ * controls this file is about; the call-cap cases open Call length.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/admin/tenants/t/agents/a/prompt",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+beforeEach(() => {
+  nav.params = new URLSearchParams();
+});
 
 /**
  * The FIRST publish, from the console — the control that did not exist.
@@ -215,6 +235,7 @@ describe("putting an agent on the voice platform for the first time", () => {
    * work the operator can still legitimately do.
    */
   it("says the allowed call-cap range is unknown rather than showing an unbounded box", async () => {
+    nav.params = new URLSearchParams("section=limits");
     const { container } = await render({
       [LANES_PATH]: problem(503, { title: "Upstream unavailable" }),
     });
@@ -227,6 +248,7 @@ describe("putting an agent on the voice platform for the first time", () => {
   });
 
   it("prints the allowed range when the read succeeded", async () => {
+    nav.params = new URLSearchParams("section=limits");
     // The other half of the pair. If this and the test above ever agree, the panel has
     // stopped telling a failed read apart from a successful one.
     const { container } = await render();

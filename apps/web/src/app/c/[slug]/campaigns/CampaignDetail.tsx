@@ -7,8 +7,6 @@ import { ProgressBar } from "@/components/interior/progress-bar";
 import {
   Card,
   Disclosure,
-  FIELD,
-  FIELD_HINT,
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
@@ -31,6 +29,7 @@ import { lookup } from "@/lib/lookup";
 
 import { ArmingForms } from "./ArmingForms";
 import { LaunchGate } from "./LaunchGate";
+import { ContactEditor } from "./ContactEditor";
 import { ScheduleCards } from "./ScheduleCards";
 import type { CampaignFormState, ScheduleFormState } from "./campaignForm";
 import { CampaignStatusPill } from "./campaignStatus";
@@ -141,7 +140,7 @@ export function CampaignDetail({
       {progress.isLoading && <Skeleton rows={3} />}
 
       {/* The list stays editable until launch. After a create whose upload failed, the
-          pasted list is still here (`csv` is cleared only on success), so this button is
+          list is still in the editor (cleared only on success), so this button is
           the retry. */}
       {(status === "draft" || status === "scheduled") && (
         <ContactsCard
@@ -246,41 +245,28 @@ function ContactsCard({
   canWrite: boolean;
   refusal: string | undefined;
 }) {
-  const { csv, setCsv, parsed } = form;
+  const { contacts, setContacts, checked } = form;
   const result = addContacts.data;
+  const ready = checked.ready.length;
   return (
     <Disclosure
       title="Contacts"
       subtitle="Add more numbers to this campaign any time before it launches."
-      defaultOpen={csv.trim() !== "" || addContacts.isError}
+      defaultOpen={contacts.length > 0 || addContacts.isError}
     >
       <div className="space-y-3">
         {addContacts.error && <ProblemNotice error={addContacts.error} />}
-        <textarea
-          rows={5}
-          value={csv}
-          onChange={(e) => setCsv(e.target.value)}
-          aria-label="Contact list, as CSV"
-          placeholder={"phone,name\n9876543210,Priya\n9876501234,Ravi"}
-          className={`${FIELD} font-mono text-xs`}
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className={FIELD_HINT}>
-            {parsed.length > 0
-              ? `${formatCount(parsed.length)} rows ready. Numbers we can't read are counted and skipped — never guessed.`
-              : "Paste your CSV, or one number per line."}
-          </p>
-          <button
-            type="button"
-            title={refusal}
-            disabled={!canWrite || addContacts.isPending || parsed.length === 0}
-            onClick={() => addContacts.mutate(parsed, { onSuccess: () => setCsv("") })}
-            className={SECONDARY_BUTTON}
-          >
-            <ListPlus aria-hidden className="h-4 w-4" />
-            {addContacts.isPending ? "Adding…" : "Add contacts"}
-          </button>
-        </div>
+        <ContactEditor entries={contacts} onChange={setContacts} label="Contacts to add" />
+        <button
+          type="button"
+          title={refusal}
+          disabled={!canWrite || addContacts.isPending || ready === 0 || checked.refusal !== null}
+          onClick={() => addContacts.mutate(checked.ready, { onSuccess: () => setContacts([]) })}
+          className={SECONDARY_BUTTON}
+        >
+          <ListPlus aria-hidden className="h-4 w-4" />
+          {addContacts.isPending ? "Adding…" : "Add contacts"}
+        </button>
         {result && (
           <p role="status" className="text-xs text-ink-muted">
             Added {formatCount(result.added)}.{" "}

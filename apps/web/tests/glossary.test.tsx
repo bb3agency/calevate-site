@@ -192,9 +192,6 @@ describe("every screen that uses a term explains it", () => {
       "Same entry, same reason: the string is the assistant's `help` for the " +
       "classification control, and `campaigns/choices.tsx` glosses the series where the " +
       "client reads it.",
-    "src/app/admin/tenants/[tenantId]/TenantNav.tsx:kyc":
-      "Operator realm, and the string is the section label `Identity (KYC)` — the " +
-      "parenthesis IS the gloss, and a label is not prose a box can sit in.",
     "src/app/admin/tenants/[tenantId]/CampaignSetup.tsx:series140":
       "The option label is `140 — promotional`: it explains itself in the two words " +
       "beside it, and an <option> cannot hold an element.",
@@ -212,18 +209,11 @@ describe("every screen that uses a term explains it", () => {
       "The FAQ answer under it is the gloss, at length. A prospect reading a question " +
       "gets the explanation by reading on, which is what an FAQ is.",
     "src/components/marketing/faq.tsx:tm": "Same answer, same reason.",
-    "src/app/admin/tenants/[tenantId]/dnd-scrub/page.tsx:dnd":
-      "This screen IS the explanation of the term. Its subtitle is the gloss, at length " +
-      "and in plain language — 'the national customer preference register … scrubs a " +
-      "campaign's list against it and hands back a reference, a report and a verdict good " +
-      "until midnight IST that day'. A tooltip repeating the sentence directly above it " +
-      "is the noise this mechanism exists to prevent, same case as `security/page.tsx:tm`.",
-    "src/app/admin/tenants/[tenantId]/dnd-scrub/page.tsx:dnc":
-      "The term appears only as the LABEL of a link to `ops · DNC`, inside a sentence " +
-      "whose whole job is telling the two apart — 'It is not the platform-wide " +
-      "do-not-call list (that is ops · DNC)'. The sentence glosses it better than a box " +
-      "could, and the screen it links to carries the full `<Term id=\"dnc\">`.",
-    "src/app/admin/tenants/[tenantId]/TenantNav.tsx:dnd":
+    "src/app/admin/tenants/[tenantId]/kyc/KycRecordForm.tsx:kyc":
+      "Not screen copy: it is the TITLE of the form this screen declares to the assistant. " +
+      "The screen glosses the term where a person reads it — the page title in " +
+      "`kyc/KycScreen.tsx` — same case as `admin/ops/OpsSurface.tsx:tm` above.",
+    "src/app/admin/tenants/[tenantId]/tenantSections.ts:dnd":
       "A NAV LABEL, not screen copy. The destination glosses the term in its own subtitle " +
       "and a tooltip inside a sidebar item is a tooltip nobody opens; same class as the " +
       "`OpsSurface.tsx:tm` entries above.",

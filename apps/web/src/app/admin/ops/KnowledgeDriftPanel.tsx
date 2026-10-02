@@ -2,7 +2,8 @@
 
 import { CheckCircle2, CircleHelp, TriangleAlert } from "lucide-react";
 
-import { Card, NoticeBox, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
+import { NoticeBox, Skeleton, formatCount, formatIST } from "@/components/ui";
 
 import type { KbDriftState } from "./opsSurfaceState";
 
@@ -50,14 +51,21 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
   const swept = read !== null && read.oldest_checked_at !== null;
 
   return (
-    <Card title="What the voice platform is answering from">
-      <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
-          Every hour a sweep reads live agents&apos; knowledge bases back off the voice
-          platform and compares them with what was approved and published. It only ever
-          reads &mdash; whatever knowledge is on the platform now is still there after the
-          sweep.
-        </p>
+    <section aria-labelledby="kb-drift-heading" className="space-y-3">
+      <div className="flex items-center gap-1">
+        <h3 id="kb-drift-heading" className="text-sm font-semibold text-ink">
+          What it is answering from
+        </h3>
+        <InfoTip label="Knowledge drift">
+          <p>
+            Every hour a sweep reads live agents&apos; knowledge bases back off the voice
+            platform and compares them with what was approved and published. It only ever
+            reads &mdash; whatever knowledge is on the platform now is still there after the
+            sweep.
+          </p>
+        </InfoTip>
+      </div>
+      <div className="space-y-3">
 
         {drift.status === "loading" && <Skeleton rows={2} />}
 
@@ -102,7 +110,7 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
             <p className="mt-1">
               There is nothing here for the sweep to watch, so it records nothing and the
               counts below stay at zero. Agents answer from the prompt they were published
-              with, and the panel above is what watches that.
+              with, and the configuration check beside this one is what watches that.
             </p>
           </NoticeBox>
         )}
@@ -153,6 +161,7 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
 
         {read !== null && (
           <table className="w-full text-left text-xs">
+            <caption className="sr-only">Live agents by knowledge check</caption>
             <tbody>
               <tr>
                 <td className="py-0.5 text-ink-muted">Live agents</td>
@@ -192,6 +201,6 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
           </table>
         )}
       </div>
-    </Card>
+    </section>
   );
 }

@@ -4,11 +4,10 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import type { TenantSummary } from "@/lib/api/admin";
-import type { TenantErasure } from "@/lib/api/erasure";
 import { tenantStatusPath } from "@/lib/api/commercials";
 import type { Routes } from "./harness";
 
-import { problem, stillLoading } from "./harness";
+import { problem } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import type { Closure } from "@/lib/api/closure";
 
@@ -35,9 +34,6 @@ import type { Closure } from "@/lib/api/closure";
 const TENANT = "0192f0aa-7777-7000-8000-0000000000d1";
 const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const STATUS_PATH = tenantStatusPath(TENANT);
-const ERASURE_PATH = `${TENANT_PATH}/erasure`;
-/** The submit control, which is also the erasure card's title — hence the role. */
-const ERASE_BUTTON = { name: /Erase this client's data/ };
 
 function tenant(status = "active"): TenantSummary {
   return {
@@ -69,20 +65,11 @@ function render(routes: Partial<Routes> = {}) {
     {
       [TENANT_PATH]: tenant(),
       [ADMIN_ME_PATH]: ME,
-      [ERASURE_PATH]: [],
       ...routes,
     },
   );
 }
 
-/** A superadmin: `ops:manage` is what unlocks the erasure control (admin/routes.py). */
-const SUPERADMIN: AdminMe = {
-  ...ME,
-  role: "superadmin",
-  permissions: ["org:read", "admin:tenants", "ops:manage"],
-};
-
-/** The erasure panel only ever renders for a CLOSED account — the API 409s any other. */
 /** A closed account's screen also reads its closure record. */
 const CLOSURE_PATH = `${TENANT_PATH}/closure`;
 const CLOSURE = {
@@ -96,15 +83,6 @@ const CLOSURE = {
   restorable: true,
   days_remaining: 13,
 } satisfies Closure;
-
-function renderClosed(routes: Partial<Routes> = {}) {
-  return render({
-    [TENANT_PATH]: tenant("churned"),
-    [ADMIN_ME_PATH]: SUPERADMIN,
-    [CLOSURE_PATH]: CLOSURE,
-    ...routes,
-  });
-}
 
 describe("the account state screen", () => {
   it("refuses to render a state it could not read", async () => {
@@ -251,26 +229,42 @@ describe("the account state screen", () => {
   it("cannot close an account at all — there is one door and it is not this one", async () => {
     /**
      * THE D-546 COLLAPSE, pinned. Two ways to end a client relationship existed and the
-     * reachable one was the worse one: this dropdown wrote `churned`, told the client
-     * nothing, set no erasure deadline and had no undo. What replaced it is not a nicer
-     * dialog on this screen — it is that this screen cannot do it.
+     * reachable one was the worse one: a dropdown here wrote `churned`, told the client
+     * nothing, set no erasure deadline and had no undo. What replaced it is that this screen
+     * cannot do it at all.
      *
-     * Asserted on the DROPDOWN's options rather than only on the absence of a button,
-     * because a re-added option with a disabled button would pass the weaker check and
+     * An active account is offered exactly one move (Suspend), so the assertion is that NO
+     * control on the screen — no button and no option — can close it. An account in some
+     * other state still gets the choice, and that choice is checked option by option,
+     * because a re-added `churned` with a disabled button would pass a weaker check and
      * would still be a second door the moment somebody enabled it.
      */
-    await render();
+    const { container } = await render();
+
+    await screen.findByRole("button", { name: /Suspend/ });
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.textContent ?? "").not.toMatch(/clos/i);
+    }
+    expect(container.querySelector("option[value='churned']")).toBeNull();
+    // The typed word went with the move it guarded; nothing left here is irreversible.
+    expect(screen.queryByLabelText(/to confirm/)).toBeNull();
+  });
+
+  it("offers both reversible moves, and only those, from any other state", async () => {
+    await render({ [TENANT_PATH]: tenant("onboarding") });
 
     const select = (await screen.findByLabelText(
       "New state",
     )) as HTMLSelectElement;
     const options = Array.from(select.options).map((option) => option.value);
     expect(options).toEqual(["active", "suspended"]);
-    expect(
-      screen.queryByRole("button", { name: /Close the account/ }),
-    ).toBeNull();
-    // The typed word went with the move it guarded; nothing left here is irreversible.
-    expect(screen.queryByLabelText(/to confirm/)).toBeNull();
+  });
+
+  it("offers one move from active and one from suspended, with no pointless choice", async () => {
+    await render();
+    await screen.findByRole("button", { name: /Suspend/ });
+    // The other option of the old dropdown was the state the account was already in.
+    expect(screen.queryByLabelText("New state")).toBeNull();
   });
 
   it("sends the suspend with no confirmation header — the header went with the close", async () => {
@@ -316,188 +310,3 @@ describe("the account state screen", () => {
     expect(screen.getByText(/change an account's state/)).toBeDefined();
   });
 });
-
-/**
- * The erasure panel, and the §52 defect that lived in it — the most expensive one this
- * console has held.
- *
- * `useTenantErasures`'s `isLoading` and `error` were read NOWHERE, and `filed.data?.[0]`
- * is undefined in both of those states. The undefined fell straight through to the
- * "Erase this client's data" FORM. So while the read was in flight, and forever after it
- * 503d, the screen told an operator that no erasure had been filed and offered to start
- * an irreversible, tenant-wide DPDP erasure — one that may already have been running.
- *
- * Both tests assert the REPLACEMENT is on screen, not merely that the form is gone. A
- * panel that rendered nothing at all would satisfy "no erase button" and would be its own
- * §52 violation; that is the trap this suite has walked into before.
- */
-describe("the erasure panel", () => {
-  it("shows a skeleton, and no erasure form, while the filed-erasures read is in flight", async () => {
-    const { container } = await renderClosed({
-      [ERASURE_PATH]: stillLoading(),
-    });
-
-    // The card is there and it is visibly waiting — `Skeleton` is the only thing in this
-    // app that animates, and it is `aria-hidden`, so the class is how a test sees it.
-    // Scoped to the card, so a skeleton belonging to some other query cannot stand in.
-    const card = (await screen.findByText("Data erasure")).closest("section");
-    expect(card, "the erasure panel is not a Card any more").not.toBeNull();
-    expect(
-      card!.querySelectorAll(".animate-pulse").length,
-      "no skeleton in the erasure panel while the read is in flight",
-    ).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
-    expect(container.textContent).not.toContain("Type the confirmation");
-  });
-
-  it("refuses, rather than offering an erasure it could not rule out", async () => {
-    const { container } = await renderClosed({
-      [ERASURE_PATH]: problem(503, {
-        title: "Upstream unavailable",
-        retryable: true,
-      }),
-    });
-
-    // A refusal the operator can act on, naming WHY the form is closed — not a blank
-    // card, and inside the erasure panel rather than anywhere on the page. Awaited on
-    // the ALERT, not on the card title: the title is on screen during the loading branch
-    // too, so scoping off it would look at the skeleton and find no alert.
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Upstream unavailable");
-    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe(
-      "Data erasure",
-    );
-    expect(container.textContent).toContain(
-      "we cannot tell you whether this client's data has already",
-    );
-    expect(container.textContent).toContain(
-      "Filing a second one would start a destructive job",
-    );
-    expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
-  });
-
-  it("still offers the form when the read says no erasure has been filed", async () => {
-    // The premise of the two above: if the panel never offered the form, they would pass
-    // for the wrong reason and this file would be testing nothing at all.
-    await renderClosed();
-
-    const button = (await screen.findByRole(
-      "button",
-      ERASE_BUTTON,
-    )) as HTMLButtonElement;
-    expect(button.disabled).toBe(true); // no reason typed yet
-    // The most irreversible submit in the product is rose, never brand green (F-2).
-    expect(button.className).toContain("bg-rose-600");
-    expect(screen.getByText("Type the confirmation")).toBeDefined();
-  });
-
-  it("reports an erasure that has already been filed, and offers no second one", async () => {
-    await renderClosed({
-      // `satisfies TenantErasure`, which this fixture did not carry and needed: it
-      // named the key `id` (the server sends `request_id`) and claimed a status of
-      // "running", which `TenantErasureOut`'s enum is `pending | completed` and no
-      // server can answer with. Neither showed, because the screen's ladder tests for
-      // "completed" and treats everything else as in-flight — a fixture lying in the
-      // direction the screen ignores, which is `wireFixtureGuard.test.ts`'s subject.
-      [ERASURE_PATH]: [
-        {
-          request_id: "0192f0aa-7777-7000-8000-0000000000e1",
-          tenant_id: TENANT,
-          status: "pending",
-          reason: "client asked, ticket 4471",
-          requested_at: "2026-08-14T10:00:00Z",
-          completed_at: null,
-          proof: null,
-          limitations: [],
-        } satisfies TenantErasure,
-      ],
-    });
-
-    await screen.findByText(
-      /An erasure has been filed for this client and is running/,
-    );
-    expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
-  });
-
-  /**
-   * THE CERTIFICATE'S DATES ARE IST, IN WHATEVER TIMEZONE THE OPERATOR'S LAPTOP IS ON.
-   *
-   * Both lines interpolated a bare `new Date(...).toLocaleString()` /
-   * `.toLocaleDateString()` — no locale and no `timeZone` — so this panel took the
-   * BROWSER's zone and the browser's locale while every other instant in both consoles
-   * goes through `formatIST` (CLAUDE.md: stored UTC, shown IST at the edge). On a laptop
-   * still set to a US timezone the DPDP erasure certificate — the record that answers
-   * "when was this destroyed" — read "8/19/2026, 4:00:00 PM" and named the PREVIOUS day.
-   *
-   * The fixture picks two instants that fall on a different calendar day either side of
-   * the boundary, and the timezone is moved for real rather than mocked, so this test
-   * is about the code and not about the machine it runs on.
-   */
-  it("dates the erasure certificate in IST from a browser outside India", async () => {
-    const original = process.env.TZ;
-    process.env.TZ = "America/New_York";
-    try {
-      const { container } = await renderClosed({
-        [ERASURE_PATH]: [ERASED],
-      });
-
-      await screen.findByText(/This client's data was erased on/);
-      // 19 Aug 20:00Z is 20 Aug 01:30 IST — and 19 Aug 16:00 in New York.
-      expect(container.textContent).toContain("erased on 20 Aug, 01:30 am");
-      // 15 Nov 18:45Z is 16 Nov 00:15 IST — a retention deadline off by a day is a
-      // recording kept, or destroyed, on the wrong side of the TRAI floor.
-      expect(container.textContent).toContain("destroyed by 16 Nov, 12:15 am");
-      // What the browser's own formatting would have produced.
-      expect(container.textContent).not.toContain("8/19/2026");
-      expect(container.textContent).not.toContain("11/15/2026");
-    } finally {
-      if (original === undefined) delete process.env.TZ;
-      else process.env.TZ = original;
-    }
-  });
-});
-
-/**
- * A COMPLETED erasure with its certificate — `satisfies TenantErasure` so the compiler
- * checks it against the generated wire type. The route map takes `unknown`, which is
- * exactly the hole `tests/wireFixtureGuard.test.ts` documents: a fixture nothing checks
- * drifts from the server silently.
- */
-const ERASED = {
-  request_id: "0192f0aa-7777-7000-8000-0000000000e2",
-  tenant_id: TENANT,
-  status: "completed",
-  reason: "client asked, ticket 4471",
-  requested_at: "2026-08-19T19:00:00Z",
-  completed_at: "2026-08-19T20:00:00Z",
-  proof: {
-    tenant_id: TENANT,
-    executed_at: "2026-08-19T20:00:00Z",
-    scope: {
-      calls_erased: 128,
-      transcript_turns_erased: 2140,
-      call_extractions_erased: 128,
-      leads_erased: 44,
-      campaign_contacts_erased: 44,
-      recordings_destroyed: 96,
-      recordings_within_trai_floor: 32,
-      webhook_bodies_erased: 12,
-      // Present-and-numeric is the shape a proof written today carries. `null` is a
-      // different state the server also sends — a proof from before `caller_chunks`
-      // existed, which could not look — and `_caller_sentences` says the two in two
-      // different sentences rather than rendering a `0` for both.
-      caller_vectors_erased: 812,
-      caller_memories_erased: 19,
-      // The managed-retrieval box's own count, on the same footing as the two above: a
-      // number is a proof that looked, `null` is a proof from before that store existed.
-      indexed_documents_purged: 37,
-    },
-    recording_hold_until: "2026-11-15T18:45:00Z",
-    actions: { calls: "stripped", leads: "anonymised" },
-    engine_deletion: "requested, unconfirmed",
-    not_erased: [],
-    limitations: [],
-    limitations_version: "1",
-  },
-  limitations: [],
-} satisfies TenantErasure;

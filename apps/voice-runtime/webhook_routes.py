@@ -44,7 +44,7 @@ import asyncio
 import hashlib
 import json
 import time
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -63,7 +63,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_enqueued
 from calevate_shared.client_address import client_ip
-from engine_intake import IntakeEvent, engine_label, extract, verify_source
+from engine_intake import engine_label, extract, verify_source
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
@@ -172,7 +172,7 @@ _MAX_BODY_BYTES = 1_048_576
 
 # How long the caller has to finish sending that body.
 #
-# WITHOUT IT THE BODY READ IS UNBOUNDED IN TIME. `_read_bounded` iterates
+# WITHOUT IT THE BODY READ IS UNBOUNDED IN TIME. `read_bounded` iterates
 # `request.stream()` with a bound in BYTES only, so a caller that dribbles the body holds
 # this handler for as long as it likes: a body delivered in seven chunks 250ms apart was
 # answered **202 with `X-Ack-Ms: 1506.1`** — three times the budget, correctly measured,
@@ -252,6 +252,10 @@ class AckMeter:
     body_deadline_s: float
     #: How long this surface's durable section (a claim, an enqueue) may take.
     durable_deadline_s: float
+    #: Bounds the URL's sender segment before it becomes a metric label or alert field:
+    #: on a refusal it is a stranger's string. Engines by default; the carrier surface
+    #: passes its own vocabulary.
+    label: Callable[[str], str] = engine_label
 
 
 #: The post-call receiver: hard rule 3's 500ms, `webhook_ack_ms`.
@@ -329,7 +333,7 @@ def _refuse(started: float, engine: str, *, meter: AckMeter) -> str:
     refusal path passed the raw value through).
     """
     elapsed = _ack_ms(started)
-    meter.record(elapsed, provider=engine_label(engine))
+    meter.record(elapsed, provider=meter.label(engine))
     return f"{elapsed:.1f}"
 
 
@@ -373,7 +377,7 @@ def _ack(
     # a name in `WEBHOOK_AUTH_BY_ENGINE` — so this was two spellings of one rule rather
     # than a live hole, which is exactly the state a rule is in just before it is broken
     # by a change one branch away. One answer for the metric, the span and the alert.
-    label = engine_label(engine)
+    label = meter.label(engine)
     meter.record(elapsed, provider=label)
     # The same number the metric and the `X-Ack-Ms` header carry, on the span. "The ack
     # was slow" is a metric; "the ack was slow AND its inbox-claim child took 480ms of
@@ -384,6 +388,13 @@ def _ack(
         alert("ROUTE_HANDLER", meter.slow_code, detail=f"{elapsed:.0f}ms", engine=label)
     response.headers["X-Ack-Ms"] = f"{elapsed:.1f}"
     return body
+
+
+def acknowledge_ignored(
+    response: Response, started: float, source: str, *, reason: str, meter: AckMeter
+) -> dict[str, str]:
+    """Ack a delivery that cannot be keyed. `reason` is OURS — never the payload's."""
+    return _ack(response, started, source, {"status": "ignored", "reason": reason}, meter=meter)
 
 
 def _body_digest(raw: bytes) -> str:
@@ -476,7 +487,7 @@ async def _remember_fast_path(redis_key: str, digest: str, *, engine: str) -> No
         log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
 
 
-async def _read_bounded(
+async def read_bounded(
     request: Request,
     *,
     engine: str,
@@ -635,7 +646,7 @@ async def _receive(
     # signs nothing today, but an engine that does will need the exact bytes (its
     # signature check belongs right here, as a SECOND gate after the source check), and
     # retro-fitting raw-body preservation into a live receiver is miserable.
-    raw = await _read_bounded(request, engine=engine, meter=WEBHOOK_ACK)
+    raw = await read_bounded(request, engine=engine, meter=WEBHOOK_ACK)
     if raw is None:
         alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
         raise ProblemError(
@@ -674,50 +685,119 @@ async def _receive(
         # _keyable`). The reason string does not distinguish them on purpose: it is read
         # by the vendor's logs, and the distinction is ours to keep in the alert.
         alert("ROUTE_HANDLER", "webhook_unkeyable", engine=engine)
-        return _ack(
+        return acknowledge_ignored(
             response,
             started,
             engine,
-            {
-                "status": "ignored",
-                "reason": "unusable execution key" if readable else "unreadable payload",
-            },
+            reason="unusable execution key" if readable else "unreadable payload",
             meter=WEBHOOK_ACK,
         )
 
-    redis_key = f"calevate:wh:{engine}:{event.execution_id}:{event.raw_status}"
-    digest = _body_digest(raw)
-    if await _fast_path_seen(redis_key, digest, engine=engine):
+    return await settle(
+        InboxWork(
+            provider=engine,
+            key_id=event.execution_id,
+            event_name=event.raw_status,
+            # The hash of the unit of work, not of this delivery: `_claim_and_enqueue`
+            # argues why, and its spelling is frozen because rows already hold it.
+            payload_hash=body_hash(
+                {
+                    "engine": engine,
+                    "execution_id": event.execution_id,
+                    "raw_status": event.raw_status,
+                }
+            ),
+            redis_key=f"calevate:wh:{engine}:{event.execution_id}:{event.raw_status}",
+            job=INGEST_JOB,
+            job_id=job_id_for(INGEST_JOB, engine, event.execution_id, event.raw_status),
+            job_payload={
+                "engine": engine,
+                "execution_id": event.execution_id,
+                "raw_status": event.raw_status,
+                "engine_agent_ref": event.engine_agent_ref,
+            },
+        ),
+        raw,
+        response=response,
+        started=started,
+        meter=WEBHOOK_ACK,
+        signed=verdict.method == "hmac",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class InboxWork:
+    """One unit of work an intake surface hands to the inbox and the queue.
+
+    Built by the surface that understands the vendor's payload (the engine receiver, the
+    carrier events route); everything after that — fast-path dedupe, the durable claim,
+    the forensic row, the enqueue, the ack — is one implementation for all of them.
+    """
+
+    #: `webhook_inbox_events.provider` and `webhook_deliveries.source`.
+    provider: str
+    #: The vendor's id of the unit (an execution id, a carrier call id), echoed in the ack.
+    key_id: str
+    #: The transition: `webhook_inbox_events.event_name` and `webhook_deliveries.event_type`.
+    event_name: str
+    #: A pure function of the key, never of the delivery (see `_claim_and_enqueue`).
+    payload_hash: str
+    redis_key: str
+    job: str
+    job_id: str
+    #: The job's payload; `inbox_row_id` is added once the claim exists.
+    job_payload: Mapping[str, Any]
+
+    @property
+    def event_key(self) -> str:
+        return f"{self.key_id}:{self.event_name}"
+
+
+async def settle(
+    work: InboxWork,
+    delivered: bytes,
+    *,
+    response: Response,
+    started: float,
+    meter: AckMeter,
+    signed: bool,
+) -> dict[str, str]:
+    """Dedupe, claim, enqueue and ack one keyed delivery whose sender is already verified.
+
+    `delivered` is what the fast path fingerprints to count rewritten replays: the raw body
+    for the engine receiver, the parsed parameters for a carrier (whose GET has no body).
+    """
+    source = work.provider
+    digest = _body_digest(delivered)
+    if await _fast_path_seen(work.redis_key, digest, engine=source):
         return _ack(
             response,
             started,
-            engine,
-            {"status": "duplicate", "execution_id": event.execution_id},
-            meter=WEBHOOK_ACK,
+            source,
+            {"status": "duplicate", "execution_id": work.key_id},
+            meter=meter,
         )
 
     # The durable half of the dedupe, under the one deadline on this path. Everything
     # that can wait on a socket for an unbounded time is inside it: the three Postgres
     # statements and the enqueue.
     try:
-        async with asyncio.timeout(WEBHOOK_ACK.durable_deadline_s):
-            claimed, job_id = await _claim_and_enqueue(
-                engine, event, signed=verdict.method == "hmac"
-            )
+        async with asyncio.timeout(meter.durable_deadline_s):
+            claimed, job_id = await _claim_and_enqueue(work, signed=signed)
     except TimeoutError:
         # NOT an ack. The transaction rolled back with the cancellation, so the inbox key
         # is still free and the reconciliation poller can still do this work; saying 202
         # here would be a call we told the vendor we had taken and then dropped.
         #
         # Alerted here as well as by the 5xx path in `install_error_handlers`, because
-        # only this line knows which engine and how long — the two facts an operator
-        # needs to tell "Postgres is gone" from "one engine's traffic is pathological".
+        # only this line knows which sender and how long — the two facts an operator
+        # needs to tell "Postgres is gone" from "one sender's traffic is pathological".
         # The header and the metric are `measured`'s job, here as on every other exit.
         alert(
             "ROUTE_HANDLER",
             "webhook_claim_timeout",
             detail=f"{_ack_ms(started):.0f}ms",
-            engine=engine,
+            engine=source,
         )
         raise ProblemError(
             kind="transient",
@@ -731,7 +811,7 @@ async def _receive(
     # exception above propagates and never reaches this line. Reached on the duplicate
     # branch too, because a delivery the inbox has already settled is exactly the thing
     # the next copy should be spared a Postgres round trip for.
-    await _remember_fast_path(redis_key, digest, engine=engine)
+    await _remember_fast_path(work.redis_key, digest, engine=source)
 
     if claimed and job_id is None:
         # A CLAIMED TRANSITION WITH NO JOB BEHIND IT. `enqueue` returns None when arq
@@ -745,38 +825,36 @@ async def _receive(
         # and it must not guess: refusing the ack would throw away the benign case, which
         # is the common one. What it CAN do is stop the case being invisible. `enqueue`
         # logs `job_deduped` at INFO from inside a shared helper, which says nothing about
-        # a webhook and reads as routine; this line names the execution, at WARNING, from
-        # the one frame that knows the claim was fresh. Ids only (hard rule 6).
+        # a webhook and reads as routine; this line names the unit, at WARNING, from the
+        # one frame that knows the claim was fresh. Ids only (hard rule 6).
         log.warning(
             "webhook_claimed_without_job",
-            extra={"engine": engine, "execution_id": event.execution_id},
+            extra={"engine": source, "execution_id": work.key_id},
         )
 
     if not claimed:
         return _ack(
             response,
             started,
-            engine,
-            {"status": "duplicate", "execution_id": event.execution_id},
-            meter=WEBHOOK_ACK,
+            source,
+            {"status": "duplicate", "execution_id": work.key_id},
+            meter=meter,
         )
 
     return _ack(
         response,
         started,
-        engine,
+        source,
         {
             "status": "accepted",
-            "execution_id": event.execution_id,
+            "execution_id": work.key_id,
             "job_id": job_id or "deduped",
         },
-        meter=WEBHOOK_ACK,
+        meter=meter,
     )
 
 
-async def _claim_and_enqueue(
-    engine: str, event: IntakeEvent, *, signed: bool
-) -> tuple[bool, str | None]:
+async def _claim_and_enqueue(work: InboxWork, *, signed: bool) -> tuple[bool, str | None]:
     """Claim the transition, write the forensic row, queue the work. One transaction.
 
     Returns (claimed, job_id) — `claimed` False means the inbox had already settled this
@@ -790,44 +868,27 @@ async def _claim_and_enqueue(
     # whole transaction (claim + forensic row + enqueue + mark), because that is the
     # unit that has to commit, and a claim span that ended before the commit would
     # attribute a slow flush to nothing at all.
-    with span("webhook.inbox_claim", kind="client", engine=engine) as claim_stage:
+    with span("webhook.inbox_claim", kind="client", engine=work.provider) as claim_stage:
         async with untenanted_session() as session:
             claim = await claim_inbox_event(
                 session,
-                provider=engine,
-                # THE UNIT OF WORK IS THE TRANSITION, NOT THE EXECUTION. Bolna fires one
-                # webhook per status change (queued → in-progress → completed, TRD §5) with
-                # the same execution id each time, and `job_id_for` below already keys the
-                # job on (execution, status). Keying the inbox on the execution alone made
-                # the two disagree: the FIRST transition claimed the row and enqueued, and
-                # every later one — including `completed`, the only transition where cost,
-                # recording and transcript exist — came back `duplicate` and enqueued
-                # nothing. The post-call pipeline then never ran from a webhook at all;
-                # every call waited for the 10-minute reconciliation poller, which makes
-                # FLOWS §3.6 ("lead + summary visible < 2 min after hangup") unmeetable and
-                # quietly turns D-31's "poller = guarantee of record, webhook = low-latency
-                # hint" into "the poller does everything". `pipeline.py` returning
-                # `awaiting_completion:{raw_status}` is the other half of the evidence: it
-                # expects to be called once per transition.
-                event_key=f"{event.execution_id}:{event.raw_status}",
+                provider=work.provider,
+                # THE UNIT OF WORK IS THE TRANSITION, NOT THE EXECUTION. An engine fires
+                # one webhook per status change with the same execution id each time, and a
+                # carrier one callback per `Event` with the same `CallUUID`; the job is
+                # keyed on the same pair. Keying the inbox on the id alone made the first
+                # transition claim the row and every later one — including the terminal
+                # one, the only transition where cost and outcome exist — come back
+                # `duplicate` and enqueue nothing.
+                event_key=work.event_key,
                 # The hash of that unit of work, not of this delivery. The inbox reads a
                 # changed hash under an existing key as a doctored replay and answers 409 +
                 # `webhook_payload_mismatch` — and two deliveries of the SAME transition can
                 # still differ in body (a retry with a fuller payload), so hashing the
                 # delivery raised a spoofing alarm on healthy traffic. An alarm that always
                 # fires is an alarm nobody reads when a real one arrives.
-                #
-                # Nothing is lost by narrowing it: at an unsigned endpoint the caller
-                # controls the entire payload, so a body hash was never evidence of
-                # authenticity — the source-IP check is, and the poller is the truth.
-                payload_hash=body_hash(
-                    {
-                        "engine": engine,
-                        "execution_id": event.execution_id,
-                        "raw_status": event.raw_status,
-                    }
-                ),
-                event_name=event.raw_status,
+                payload_hash=work.payload_hash,
+                event_name=work.event_name,
             )
             claimed = claim.state != "duplicate"
 
@@ -844,24 +905,18 @@ async def _claim_and_enqueue(
                     ),
                     {
                         "id": uuid7(),
-                        "source": engine,
-                        "event_type": event.raw_status,
+                        "source": work.provider,
+                        "event_type": work.event_name,
                         "sig": signed,
                     },
                 )
 
-                # Keyed by the natural key, so a duplicate webhook and a poller rediscovery
-                # collapse into one job before any worker runs.
+                # Keyed by the natural key, so a duplicate delivery and a poller
+                # rediscovery collapse into one job before any worker runs.
                 job_id = await enqueue(
-                    INGEST_JOB,
-                    {
-                        "engine": engine,
-                        "execution_id": event.execution_id,
-                        "raw_status": event.raw_status,
-                        "engine_agent_ref": event.engine_agent_ref,
-                        "inbox_row_id": str(claim.row_id),
-                    },
-                    job_id=job_id_for(INGEST_JOB, engine, event.execution_id, event.raw_status),
+                    work.job,
+                    {**work.job_payload, "inbox_row_id": str(claim.row_id)},
+                    job_id=work.job_id,
                 )
                 await mark_inbox_enqueued(session, row_id=claim.row_id)
         # Outside the session, inside the span: set after the `async with` so the value
@@ -870,4 +925,15 @@ async def _claim_and_enqueue(
     return claimed, job_id
 
 
-__all__ = ["INGEST_JOB", "WEBHOOK_ACK", "AckMeter", "measured", "router"]
+__all__ = [
+    "INGEST_JOB",
+    "WEBHOOK_ACK",
+    "AckMeter",
+    "InboxWork",
+    "WebhookAckOut",
+    "acknowledge_ignored",
+    "measured",
+    "read_bounded",
+    "router",
+    "settle",
+]

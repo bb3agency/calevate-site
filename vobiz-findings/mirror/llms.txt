@@ -1,0 +1,180 @@
+# Vobiz Documentation
+
+> Vobiz is a global programmable telephony platform for developers - SIP trunking, voice calls, WhatsApp Business API, and AI voice agent integrations - available in 130+ countries. Pay per minute, no monthly commitments. First call in under 5 minutes.
+
+Vobiz provides REST APIs and Voice XML to build outbound dialers, IVR systems, AI voice agents, call centres, conference bridges, and WhatsApp messaging workflows. It integrates natively with AI voice platforms including Vapi, Retell AI, ElevenLabs, LiveKit, Pipecat, Bolna, Rapida AI, and Ultravox. Official SDKs for Python, Node.js, Ruby, Go, C#, Java, and PHP are distributed from the GitHub organisation https://github.com/vobiz-ai - install each one straight from its repository.
+
+Base API URL: `https://api.vobiz.ai/api/v1`
+Authentication: Most requests use `X-Auth-ID` + `X-Auth-Token`. Capacity pricing and subscription endpoints also accept an account Bearer access token. Full details: https://vobiz.ai/docs/api-reference/authentication
+Console: https://console.vobiz.ai
+Support: support@vobiz.ai
+
+For machine-readable content: append `.md` to any page URL for clean Markdown (e.g. `https://vobiz.ai/docs/quick-start.md`), or fetch the entire site as one file at https://vobiz.ai/docs/llms-full.txt.
+
+## Developer resources
+
+- [API Documentation](https://vobiz.ai/docs/introduction): Start with the Vobiz platform overview and developer documentation.
+- [OpenAPI Specification](https://vobiz.ai/openapi.json): Download the machine-readable OpenAPI 3.0 specification.
+- [MCP Server](https://vobiz.ai/docs/mcp): Connect MCP-compatible agents and coding tools to the live documentation.
+- [MCP Setup Guide](https://vobiz.ai/docs/resources/mcp): Configure Claude, Cursor, VS Code, and other MCP clients.
+- [Developer Console](https://console.vobiz.ai): Create an account and manage API credentials.
+- [llms.txt](https://vobiz.ai/llms.txt): Read the root machine-oriented developer index.
+- [agents.md](https://vobiz.ai/agents.md): Give coding agents the recommended Vobiz entry points.
+- [GitHub](https://github.com/vobiz-ai): Browse official SDKs, examples, and reference applications.
+- [Agent Skills](https://github.com/vobiz-ai/Agent-Skills): Install reusable Vobiz skills for coding agents.
+- [Integrations](https://vobiz.ai/docs/integrations): Follow setup guides for supported voice AI platforms and SDKs.
+- [Status](https://status.vobiz.ai): Check current service availability and incident history.
+
+## Getting Started
+
+- [Introduction](https://vobiz.ai/docs/introduction): Platform overview - what Vobiz is, what you can build, and how to get your first call running
+- [Quick Start](https://vobiz.ai/docs/quick-start): Go from zero to your first call - choose between AI agent, SIP trunk, or programmable XML path
+- [Authentication](https://vobiz.ai/docs/api-reference/authentication): X-Auth-ID/X-Auth-Token headers, capacity-endpoint Bearer tokens, credential locations, and common 401 causes
+- [Error Handling](https://vobiz.ai/docs/errors): JSON error format, all HTTP status codes, retry strategies, and status page link
+- [Blogs](https://vobiz.ai/docs/blogs): Articles, guides, and product updates from the Vobiz team
+
+## Core Concepts
+
+- [SIP Trunking](https://vobiz.ai/docs/concepts/sip-trunking): How SIP trunking works, signaling flow, and when to use trunks vs the call API
+- [Bring Your Own Carrier (BYOC)](https://vobiz.ai/docs/concepts/bring-your-own-carrier): Connect your own carrier, SBC, or PBX - details to send Vobiz, IPs to whitelist, provisioning steps
+- [WebSockets & Streaming](https://vobiz.ai/docs/concepts/streaming-websockets): Real-time audio streaming over WebSocket - architecture, codecs, bidirectional mode
+- [Callbacks](https://vobiz.ai/docs/concepts/callbacks): How Vobiz sends events to your webhook URL - ring, answer, hangup, recording events
+- [Callback Configuration](https://vobiz.ai/docs/concepts/callback-configurations): Configure retry behavior, timeout, and HTTP method for each callback type
+- [IP Whitelisting](https://vobiz.ai/docs/concepts/ip-whitelisting): Lock your SIP trunks and API access to specific IP ranges
+
+## Account Management
+
+- [Account API Overview](https://vobiz.ai/docs/account): Retrieve account details, check balance, view concurrency and CPS limits
+- [Account Object](https://vobiz.ai/docs/account/account-object): All fields on the Account resource - auth_id, balance, billing mode, concurrency
+- [Capacity Pricing Preview](https://vobiz.ai/docs/account/channel-pricing-preview): Calculate monthly CPS or concurrent-call pricing without purchasing or debiting the account
+- [Purchase Capacity](https://vobiz.ai/docs/account/channel-subscriptions): Purchase recurring CPS or concurrent-call capacity after confirming the previewed charge
+- [Sub-accounts](https://vobiz.ai/docs/sub-accounts): Create and manage child accounts under a master account for multi-tenant SaaS or resellers
+- [Phone Numbers](https://vobiz.ai/docs/account-phone-number): Buy, list, and release phone numbers - India 140/1600/92 series and international DIDs
+
+## SIP Trunking
+
+- [SIP Trunks Overview](https://vobiz.ai/docs/trunks): Create and manage SIP trunks - inbound, outbound, BYOC, concurrent call limits, CPS throttling
+- [Create a Trunk](https://vobiz.ai/docs/trunks/create-trunk): POST /api/v1/Account/{auth_id}/trunks - provision a SIP trunk with TLS/SRTP and auth
+- [Trunk Credentials](https://vobiz.ai/docs/trunks/credentials/credential-object): Username/password credentials for SIP digest authentication
+- [IP ACLs](https://vobiz.ai/docs/trunks/ip-acl/ip-acl-object): Restrict trunk access to specific IP addresses or CIDR ranges
+- [Origination URIs](https://vobiz.ai/docs/trunks/origination-uri/origination-uri-object): Outbound SIP routing destinations with priority and weight for failover
+- [SIP Endpoints](https://vobiz.ai/docs/endpoint): Register softphones, IP phones, and SIP clients directly against a Vobiz endpoint
+
+## Voice Calls
+
+- [Call Management Overview](https://vobiz.ai/docs/call/overview): Full list of call operations - make, transfer, hangup, retrieve live and queued calls
+- [Make an Outbound Call](https://vobiz.ai/docs/call/make-call): POST /api/v1/Account/{auth_id}/Call/ - initiate calls to PSTN or SIP, bulk dial up to 1000 destinations
+- [Machine Detection (AMD)](https://vobiz.ai/docs/call/machine-detection): Detect answering machines on outbound calls - sync and async modes
+- [Transfer a Call](https://vobiz.ai/docs/call/transfer-call): Redirect an active call to a new destination mid-call via REST
+- [Call Object](https://vobiz.ai/docs/call/call-object): All fields on the Call resource - UUID, status, direction, duration, STIR/SHAKEN
+
+## Applications (Voice XML Webhooks)
+
+- [Applications Overview](https://vobiz.ai/docs/applications): Create webhook applications that Vobiz calls when a call arrives - Answer URL, Hangup URL, SIP URI
+- [Create Application](https://vobiz.ai/docs/applications/create-application): POST /api/v1/Account/{auth_id}/Application/ - register a webhook endpoint for call control
+
+## Conference Calling
+
+- [Conference Overview](https://vobiz.ai/docs/conference/conference-object): Multi-party voice calls - join, mute, kick, record conference participants
+- [Conference Members](https://vobiz.ai/docs/conference/members/mute-member): Mute, deafen, kick, or play audio to individual conference members
+
+## Audio Streams
+
+- [Audio Streams Overview](https://vobiz.ai/docs/audio-streams): Fork live call audio to a WebSocket server - PCM L16 or μ-law, 8/16 kHz, bidirectional
+- [Start Audio Stream](https://vobiz.ai/docs/audio-streams/start-audio-stream): Begin streaming a live call to your WebSocket URL
+
+## Recordings
+
+- [Recordings Overview](https://vobiz.ai/docs/recording): Record, retrieve, download, and delete call recordings - MP3 or WAV
+- [CDR (Call Detail Records)](https://vobiz.ai/docs/cdr): Query call logs, billing records, hangup causes, and traffic analytics
+
+## Voice XML
+
+- [How Voice XML Works](https://vobiz.ai/docs/xml/overview/how-it-works): Event-driven webhook cycle - Vobiz calls your URL, you return XML, Vobiz executes it
+- [Getting Started with XML](https://vobiz.ai/docs/xml/overview/getting-started): Build your first voice application with XML verbs and ngrok
+- [Gather (DTMF + Speech)](https://vobiz.ai/docs/xml/gather): Collect keypad input or speech from callers - IVR menus, voice commands, ASR
+- [Dial](https://vobiz.ai/docs/xml/dial): Connect the caller to one or multiple phone numbers or SIP users
+- [Speak (TTS)](https://vobiz.ai/docs/xml/speak): Convert text to speech in a call - multiple voices and languages including Hindi
+- [Play](https://vobiz.ai/docs/xml/play): Play MP3 or WAV audio files into a call
+- [Record](https://vobiz.ai/docs/xml/record): Record the call from within XML - configurable format, transcription, callback
+- [Stream](https://vobiz.ai/docs/xml/stream): Fork audio to a WebSocket from XML - bidirectional AI voice agent streaming
+- [Redirect](https://vobiz.ai/docs/xml/redirect): Transfer call control to a new URL mid-flow
+- [Hangup](https://vobiz.ai/docs/xml/hangup): End the call from XML - with optional reason code and delay
+- [XML Builder](https://vobiz.ai/docs/xml-builder): Interactive visual builder for composing Voice XML - drag, reorder, copy
+
+## WhatsApp Business API
+
+- [WhatsApp Introduction](https://vobiz.ai/docs/whatsapp/getting-started/introduction): Send and receive WhatsApp messages via API - templates, media, interactive messages
+- [WhatsApp Prerequisites](https://vobiz.ai/docs/whatsapp/getting-started/prerequisites): Meta Business account, WABA, phone number requirements before getting started
+- [Send a Message](https://vobiz.ai/docs/whatsapp/api/send-message): POST to send text, image, audio, video, document, or template messages
+- [WhatsApp Webhooks](https://vobiz.ai/docs/whatsapp/webhooks/events): Receive inbound messages, delivery receipts, and status events
+
+## AI Voice Agent Integrations
+
+- [Integrations Overview](https://vobiz.ai/docs/integrations): All supported AI voice platforms - Vapi, Retell AI, ElevenLabs, LiveKit, Pipecat, Bolna, Rapida AI, Ultravox
+- [Vapi (Dashboard)](https://vobiz.ai/docs/integrations/vapi-dashboard): Connect Vapi AI agents to Vobiz SIP trunking - no-code setup via Vapi dashboard
+- [Vapi (API)](https://vobiz.ai/docs/integrations/vapi-api): Connect Vapi to Vobiz SIP trunking programmatically via REST API
+- [Retell AI (Dashboard)](https://vobiz.ai/docs/integrations/retellai-dashboard): Connect Retell AI to Vobiz without code - dashboard setup guide
+- [Retell AI (API)](https://vobiz.ai/docs/integrations/retellai-api): Connect Retell AI to Vobiz via API - inbound and outbound configuration
+- [ElevenLabs](https://vobiz.ai/docs/integrations/elevenlabs-dashboard): Connect ElevenLabs Conversational AI to Vobiz SIP trunking
+- [LiveKit](https://vobiz.ai/docs/integrations/livekit): Connect LiveKit SIP to Vobiz - inbound/outbound, room management, webhooks
+- [Pipecat](https://vobiz.ai/docs/integrations/pipecat): Build real-time voice AI pipelines with Pipecat on Vobiz SIP trunking
+- [Bolna](https://vobiz.ai/docs/integrations/bolna): Connect Bolna AI voice agents to Vobiz for outbound and inbound calls
+- [Rapida AI](https://vobiz.ai/docs/integrations/rapida-ai): Connect an open-source Rapida AI deployment to Vobiz for inbound and outbound calls using XML Applications, the REST API, and bidirectional WebSocket audio
+- [Ultravox](https://vobiz.ai/docs/integrations/ultravox): Connect Ultravox voice AI to Vobiz SIP trunking
+- [OpenAI Realtime](https://vobiz.ai/docs/integrations/openai-realtime): Bridge OpenAI Realtime API to PSTN calls using Vobiz SIP trunking
+- [WebSockets](https://vobiz.ai/docs/integrations/websockets): Custom WebSocket audio streaming for real-time voice AI pipelines
+- [WebRTC](https://vobiz.ai/docs/integrations/webrtc-application-setup): Browser-based calling with the Vobiz WebRTC SDK
+- [Expedify](https://vobiz.ai/docs/integrations/expedify): Connect Expedify CRM and its AI calling agents to Vobiz - outbound Caller IDs, inbound applications, recording and transcription
+
+## SDKs
+
+Each SDK is distributed from its own repository under https://github.com/vobiz-ai. Follow the page below for the exact install command for your language.
+
+- [Python SDK](https://vobiz.ai/docs/integrations/python-sdk): Official Vobiz Python SDK from vobiz-ai/Vobiz-Python-SDK - install, authenticate, make calls, manage trunks
+- [Node.js SDK](https://vobiz.ai/docs/integrations/node-sdk): Official Vobiz Node.js SDK from vobiz-ai/Vobiz-Node-SDK
+- [Ruby SDK](https://vobiz.ai/docs/integrations/ruby-sdk): Official Vobiz Ruby SDK from vobiz-ai/Vobiz-Ruby-SDK
+- [Go SDK](https://vobiz.ai/docs/integrations/go-sdk): Official Vobiz Go SDK from vobiz-ai/Vobiz-Go-SDK - `go get github.com/vobiz-ai/Vobiz-Go-SDK`
+- [C# SDK](https://vobiz.ai/docs/integrations/csharp-sdk): Official Vobiz C# / .NET SDK from vobiz-ai/Vobiz-Csharp-sdk
+- [Java SDK](https://vobiz.ai/docs/integrations/java-sdk): Official Vobiz Java SDK from vobiz-ai/Vobiz-Java-SDK
+- [PHP SDK](https://vobiz.ai/docs/integrations/php-sdk): Official Vobiz PHP SDK from vobiz-ai/Vobiz-Php-SDK
+
+## Partner Program
+
+- [Partner Portal](https://vobiz.ai/docs/partner): White-label Vobiz telephony as a reseller - create child accounts, manage billing, view CDRs
+- [Partner API](https://vobiz.ai/docs/partner/api): REST API for programmatic partner account management
+
+## Solutions & Use Cases
+
+- [AI Voice Agent](https://vobiz.ai/docs/solutions/ai-voice-agent): Deploy 24/7 AI voice agents with sub-second latency on Vobiz SIP trunking
+- [Automated Outbound Calling](https://vobiz.ai/docs/solutions/automated-outbound-calling): High-volume outbound dialers for reminders, surveys, and campaigns
+- [Cloud IVR](https://vobiz.ai/docs/solutions/cloud-ivr): Programmable IVR menus with DTMF and speech recognition
+- [Contact Centre](https://vobiz.ai/docs/solutions/contact-centre): Inbound/outbound contact centre infrastructure on Vobiz
+- [Conference Calling](https://vobiz.ai/docs/solutions/conference-calling): Multi-party audio conferencing with moderator controls
+- [Appointment Reminders](https://vobiz.ai/docs/solutions/appointment-reminders): Automated voice reminders for healthcare, finance, and logistics
+- [WhatsApp for Business](https://vobiz.ai/docs/whatsapp/getting-started/introduction): Two-way WhatsApp messaging at scale
+
+## Competitor Comparisons
+
+- [Vobiz vs Twilio](https://vobiz.ai/docs/compare/vobiz-vs-twilio): Pricing in INR vs USD, TRAI compliance, GST invoicing, India support SLAs
+- [Vobiz vs Plivo](https://vobiz.ai/docs/compare/vobiz-vs-plivo): Feature and pricing comparison for India developers
+- [Vobiz vs Telnyx](https://vobiz.ai/docs/compare/vobiz-vs-telnyx): Global SIP trunking comparison - Telnyx vs Vobiz
+- [Vobiz vs Vonage](https://vobiz.ai/docs/compare/vobiz-vs-vonage): Enterprise voice API comparison
+- [Vobiz vs Exotel](https://vobiz.ai/docs/compare/vobiz-vs-exotel): India-focused CPaaS comparison
+- [Vobiz vs JustCall](https://vobiz.ai/docs/compare/vobiz-vs-justcall): Sales phone platform vs developer API
+- [Vobiz vs TeleCRM](https://vobiz.ai/docs/compare/vobiz-vs-telecrm): CRM telephony vs programmable voice API
+
+## Compliance & Best Practices
+
+- [India Compliance](https://vobiz.ai/docs/compliance/india/calling-regulations): TRAI DND regulations, DLT registration, calling hours for India outbound
+- [DLT Registration](https://vobiz.ai/docs/best-practices/dlt-registration): How to register headers and templates on the DLT platform for India calling
+- [140/160 Number Acquisition](https://vobiz.ai/docs/best-practices/140-160-acquisition): How to get regulated 140 and 1600 series numbers for India outbound calling
+- [KYC Requirements](https://vobiz.ai/docs/compliance/india/kyc): Documents required for Vobiz verification - GST, Aadhaar, PAN for India
+
+## FAQ
+
+- [What is CPS and concurrency?](https://vobiz.ai/docs/faq/cps): Calls per second vs concurrent channels - how they work and how to size them
+- [Why am I getting a 429 error?](https://vobiz.ai/docs/faq/error-429): Rate limit exceeded - CPS vs concurrency causes and fixes
+- [Why is inbound calling blocked on trial?](https://vobiz.ai/docs/faq/trial-inbound): Trial accounts are outbound-only - how to unlock inbound
+- [SIP 480 and 486 errors](https://vobiz.ai/docs/faq/sip-codes-480-486): Temporarily Unavailable vs Busy Here - causes, CDR debugging
+- [Domestic calling in India](https://vobiz.ai/docs/faq/domestic-calling-india): Media anchoring, caller ID, latency for India IN-to-IN traffic

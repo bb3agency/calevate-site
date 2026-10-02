@@ -409,6 +409,28 @@ async def test_a_handover_rings_the_person_on_duty_and_presents_our_own_number()
     assert [(o, d) for o, d, _n, _s in await _attempts(tenant_id, agent_id)] == [("connected", 42)]
 
 
+async def test_the_carrier_is_handed_its_own_id_for_the_callers_leg() -> None:
+    """A carrier addresses a live leg by the id IT issued (`calls.carrier_call_id`), never
+    by our engine handle; a call no carrier named keeps our handle (the case above)."""
+    tenant_id, agent_id = await _org()
+    execution = f"exec-{uuid.uuid4().hex[:10]}"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, carrier_call_id, "
+                "direction, status, created_at, updated_at) VALUES (:id, :tid, :aid, :ex, "
+                "'vz-leg-1', 'inbound', 'in_progress', now(), now())"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "aid": agent_id, "ex": execution},
+        )
+    provider = FakeTransfers()
+    async with _provider(provider):
+        placement = await _place(tenant_id, agent_id, execution=execution)
+    assert placement.placed
+    (request,) = provider.requests
+    assert request.call_ref == "vz-leg-1"
+
+
 async def test_a_declined_handover_is_recorded_as_unreached_and_told_truthfully() -> None:
     """The founder's condition: a person who saw the call and said no is not a dead end.
     The caller is told plainly and offered the call-back, and the client's screen carries

@@ -21,4 +21,7 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=600]
+        # The vendor mirror's single-file corpus (llms-full.txt, ~3.4 MB) is evidence that
+        # must be committed byte-exact; see vobiz-findings/mirror/README.md.
+        exclude: ^vobiz-findings/mirror/
       - id: detect-private-key

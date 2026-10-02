@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import MaintenancePage from "@/app/admin/ops/maintenance/page";
@@ -44,6 +44,15 @@ const DRAINING = {
   cancelled_at: null,
   announced: true,
 };
+
+/**
+ * The amend form lives in a drawer behind "Change window" (admin redesign, D-661): the open
+ * window's state and counts lead the screen, and editing is one click away.
+ */
+async function openChangeWindow() {
+  fireEvent.click(await screen.findByRole("button", { name: "Change window" }));
+  await screen.findByRole("dialog", { name: "Change window" });
+}
 
 describe("the maintenance confirmations", () => {
   it("name the action and its target, and no two verbs share a string", () => {
@@ -164,6 +173,62 @@ describe("the operator's screen", () => {
     expect(screen.queryByText("Call it off")).toBeNull();
   });
 
+  it("ends a window only after a confirmation that says what ending does", async () => {
+    const active = { ...DRAINING, state: "active" as const, in_flight: null };
+    const view = renderAdminPage(<MaintenancePage />, {
+      "/v1/ops/maintenance": { current: active, history: [], notice_lead_hours: 24 },
+      [`POST /v1/ops/maintenance/${DRAINING.id}/end`]: { ...active, state: "completed" },
+    });
+    fireEvent.click(
+      await view.findByRole("button", { name: "End now and reopen the portals" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    // The consequence is restated where the decision is made, and nothing is sent yet.
+    expect(dialog.textContent).toContain("Client portals are closed");
+    expect(dialog.textContent).toContain("Ending restores the portals first");
+    expect(view.calls.some((call) => call.method === "POST")).toBe(false);
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "End now and reopen the portals" }),
+    );
+    await waitFor(() => {
+      const sent = view.calls.find((call) => call.path.endsWith("/end"));
+      expect(sent?.method).toBe("POST");
+      expect(sent?.headers["X-Confirm-Action"]).toBe(`end_maintenance:${DRAINING.id}`);
+    });
+  });
+
+  it("calls off a scheduled window only after a confirmation", async () => {
+    const scheduled = {
+      ...DRAINING,
+      state: "scheduled" as const,
+      in_flight: null,
+      drain_deadline_at: null,
+    };
+    const view = renderAdminPage(<MaintenancePage />, {
+      "/v1/ops/maintenance": { current: scheduled, history: [], notice_lead_hours: 24 },
+      [`POST /v1/ops/maintenance/${DRAINING.id}/cancel`]: { ...scheduled, state: "cancelled" },
+    });
+    fireEvent.click(await view.findByRole("button", { name: "Call it off" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("The window never opens");
+    expect(view.calls.some((call) => call.method === "POST")).toBe(false);
+
+    // Backing out sends nothing.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(view.calls.some((call) => call.method === "POST")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Call it off" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Call it off" }),
+    );
+    await waitFor(() => {
+      const sent = view.calls.find((call) => call.path.endsWith("/cancel"));
+      expect(sent?.headers["X-Confirm-Action"]).toBe(`cancel_maintenance:${DRAINING.id}`);
+    });
+  });
+
   it("does not invite a second window when the board could not be read", async () => {
     // A FAILED READ IS NOT "NO WINDOW". The platform has one maintenance slot; inviting a
     // schedule off a dead read is how an operator books over a window they cannot see.
@@ -174,6 +239,7 @@ describe("the operator's screen", () => {
       await view.findByText("The maintenance board could not be read"),
     ).toBeTruthy();
     expect(screen.queryByText("Schedule it")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Schedule a window" })).toBeNull();
   });
 
   it("sends the amendment as only the fields that moved, with the bound confirmation", async () => {
@@ -188,7 +254,7 @@ describe("the operator's screen", () => {
         max_drain_minutes: 40,
       },
     });
-    await view.findByText("Change it");
+    await openChangeWindow();
     fireEvent.change(screen.getByDisplayValue("15"), {
       target: { value: "40" },
     });
@@ -228,6 +294,7 @@ describe("moving an announced window", () => {
         notice_lead_hours: 24,
       },
     });
+    await openChangeWindow();
     expect(
       await view.findByText("Clients have already been told about this window"),
     ).toBeTruthy();
@@ -237,14 +304,14 @@ describe("moving an announced window", () => {
   it("does not offer the start on a window that has begun", async () => {
     // A draining window's start is history and the API refuses it by name. An input
     // rendered to fail teaches an operator to read this surface's refusals as noise.
-    const view = renderAdminPage(<MaintenancePage />, {
+    renderAdminPage(<MaintenancePage />, {
       "/v1/ops/maintenance": {
         current: DRAINING,
         history: [],
         notice_lead_hours: 24,
       },
     });
-    await view.findByText("Change it");
+    await openChangeWindow();
     expect(screen.queryByText("Opens at (IST)")).toBeNull();
     expect(screen.getByText("Ends at (IST)")).toBeTruthy();
   });
@@ -260,11 +327,14 @@ describe("moving an announced window", () => {
         notice_lead_hours: 6,
       },
     });
+    // The schedule form opens in a drawer from the empty state (D-661), and a drawer is
+    // portalled to <body>, so the hint is read from the document rather than the container.
+    fireEvent.click(await view.findByRole("button", { name: "Schedule a window" }));
     expect(await view.findByText("Schedule it")).toBeTruthy();
-    expect(view.container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Clients are emailed 6 hours ahead",
     );
-    expect(view.container.textContent).not.toContain("24 hours ahead");
+    expect(document.body.textContent).not.toContain("24 hours ahead");
   });
 });
 
@@ -300,14 +370,14 @@ describe("the window's times are IST, whoever is looking", () => {
 
   it("shows the IST wall clock on an operator whose machine is not in India", async () => {
     process.env.TZ = "America/Los_Angeles";
-    const view = renderAdminPage(<MaintenancePage />, {
+    renderAdminPage(<MaintenancePage />, {
       "/v1/ops/maintenance": {
         current: SCHEDULED,
         history: [],
         notice_lead_hours: 24,
       },
     });
-    await view.findByText("Change it");
+    await openChangeWindow();
     // 2026-09-06T20:30Z is 07 Sep 02:00 IST; the browser's own zone would say 13:30 on
     // the 6th, which is the same digits a different day begins with.
     expect(screen.getByDisplayValue("2026-09-07T02:00")).toBeTruthy();
@@ -324,7 +394,7 @@ describe("the window's times are IST, whoever is looking", () => {
       },
       [`/v1/ops/maintenance/${SCHEDULED.id}`]: SCHEDULED,
     });
-    await view.findByText("Change it");
+    await openChangeWindow();
     fireEvent.change(screen.getByDisplayValue("2026-09-07T03:00"), {
       target: { value: "2026-09-07T04:00" },
     });

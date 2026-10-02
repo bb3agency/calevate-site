@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { formatWholeCount } from "@/components/ui";
@@ -31,6 +31,31 @@ import { OPS_FX_RATE_PATH } from "@/lib/api/opsFxRate";
 import { OPS_SECRETS_PATH } from "@/lib/api/opsSecrets";
 
 import { problem, stubApi, type Routes } from "./harness";
+
+/*
+ * The configuration screen is a settings layout (D-661): one section is mounted at a time,
+ * chosen by `?section=`. Each test opens the section that owns its subject; the default is
+ * Calling, which is also what a real visit opens first.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/admin/ops/config",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+function openSection(id: string) {
+  nav.params = new URLSearchParams(`section=${id}`);
+}
+beforeEach(() => {
+  nav.params = new URLSearchParams();
+});
 
 /**
  * THE RATE CARD AND THE VOICE PRICE, on the ops console (D-547).
@@ -432,12 +457,15 @@ function renderOps(table: Routes) {
       <OpsConfigPage />
     </QueryClientProvider>,
   );
-  return Object.assign(result, { calls });
+  // The change form opens in a Drawer, which is portalled to <body>; assertions about the
+  // screen read the whole document so the form is part of what they see.
+  return Object.assign(result, { container: document.body, calls });
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════ */
 
 describe("the rate card an operator is about to date", () => {
+  beforeEach(() => openSection("billing"));
   it("prints every cell with the vendor, the tier the client reads, and the server's own margin", async () => {
     const { container } = renderOps(routes());
 
@@ -624,6 +652,7 @@ describe("the rate card an operator is about to date", () => {
 });
 
 describe("the voice price that decides whether a tier can be sold", () => {
+  beforeEach(() => openSection("voices-models"));
   it("says an unconfirmed price BLOCKS the voice, and names the vendor beside the tier", async () => {
     const { container } = renderOps(routes());
 
@@ -730,6 +759,7 @@ describe("the voice price that decides whether a tier can be sold", () => {
  */
 
 describe("the encoder price that decides whether an upload is indexed at all", () => {
+  beforeEach(() => openSection("voices-models"));
   it("leads with what is switched off, not with a status token", async () => {
     // D-608. An unpriced encoder is the one row on this panel whose absence is SILENT:
     // uploads still succeed, the knowledge base still fills, and the agent still answers —
@@ -909,6 +939,7 @@ describe("what a margin verdict may say", () => {
 });
 
 describe("the volume every Studio cost figure is struck at", () => {
+  beforeEach(() => openSection("billing"));
   it("prints the volume, the plan, the FX rate and a break-even beside the cost", async () => {
     const { container } = renderOps(routes());
     await screen.findByText(/Rate card — six packs, two voices/);
@@ -1027,6 +1058,7 @@ describe("reading a voice price off the wire", () => {
  *    take the whole configuration screen — settings, secrets, prices — down with it.
  */
 describe("recording the next rate card", () => {
+  beforeEach(() => openSection("billing"));
   it("says how many clients will be emailed before anything is sent", async () => {
     const { container } = renderOps(
       routes({ [OPS_RATE_CARD_PATH]: fullCard() }),
@@ -1190,6 +1222,7 @@ describe("recording the next rate card", () => {
 });
 
 describe("a card that is scheduled but has not started", () => {
+  beforeEach(() => openSection("billing"));
   it("lists it with what it moves, and can withdraw it with the server's own instant", async () => {
     const { calls, container } = renderOps(
       routes({

@@ -52,6 +52,17 @@ limit_req_zone $binary_remote_addr zone=client_api:10m rate=120r/m;
 # per source IP and the engine has one, so this is a ceiling on ONE sender.
 limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
 
+# The carrier's HTTP leg (`/carrier/v1/` on hooks.): answer documents a ringing call is
+# waiting on, its status/hangup callbacks, transfer documents. Its OWN zone so a flood on
+# the engine webhook path cannot spend the budget an answer document needs. Keyed per
+# source IP, and the carrier calls from a handful of published addresses, so this is a
+# ceiling per carrier egress host. Size it from the account's concurrency: each call costs
+# roughly one answer request plus a callback per event (ring, answer, hangup), so 600r/m
+# with a burst of 100 covers ~100 concurrent calls starting together — far above the 3
+# concurrent / 1 CPS a trial account is REPORTED to have
+# (`docs/evidence/carrier-pricing-concurrency-2026-09-17.md:49`).
+limit_req_zone $binary_remote_addr zone=carrier:10m rate=600r/m;
+
 # Health endpoints. Generous enough for an uptime monitor at any sane interval, bounded
 # so /healthz cannot be used as a free database-load generator.
 limit_req_zone $binary_remote_addr zone=health:5m rate=60r/m;

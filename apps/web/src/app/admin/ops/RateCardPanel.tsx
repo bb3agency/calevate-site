@@ -204,7 +204,7 @@ function RateCardTable({ card }: { card: RateCard }) {
       <ScrollRegion label="The rate card, by pack and voice">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
-            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+            <tr className="border-b border-line text-left text-[12px] font-medium text-ink-faint">
               <th className="py-2 pr-4 font-semibold">Pack</th>
               <th className="py-2 pr-4 font-semibold">Voice</th>
               <th className="py-2 pr-4 text-right font-semibold">₹ / min</th>
@@ -501,7 +501,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
       <ScrollRegion label="What a Studio minute costs at each monthly volume">
         <table className="w-full min-w-[420px] text-xs">
           <thead>
-            <tr className="border-b border-line text-left text-[10px] uppercase tracking-wider text-ink-faint">
+            <tr className="border-b border-line text-left text-[12px] font-medium text-ink-faint">
               <th className="py-1 pr-4 font-semibold">Platform min/mo</th>
               <th className="py-1 pr-4 font-semibold">Cheapest plan</th>
               <th className="py-1 text-right font-semibold">Costs us / min</th>
@@ -633,7 +633,7 @@ function ScheduledCards({
   const scheduled = pendingCards(card);
   return (
     <section className="space-y-2 border-t border-line pt-3">
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-faint">
+      <h4 className="text-sm font-semibold text-ink">
         Scheduled changes
       </h4>
       {scheduled.length === 0 ? (
@@ -926,7 +926,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
             it compares with the card in force.
           </caption>
           <thead>
-            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+            <tr className="border-b border-line text-left text-[12px] font-medium text-ink-faint">
               <th scope="col" className="py-2 pr-4 font-semibold">
                 Pack
               </th>

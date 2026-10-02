@@ -26,6 +26,9 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { InfoTip } from "@/components/console/infoTip";
+import { PageHeader } from "@/components/console/pageHeader";
 import { useFormValidation } from "@/components/formValidation";
 import { ActionButton } from "@/components/actionButton";
 import { ApiProblem } from "@/lib/api/client";
@@ -76,10 +79,9 @@ import { examplesFor } from "@/lib/verticalExamples";
  *
  * ## What this pass changed
  *
- * Restyled to the console's design language (globals.css tokens, `Card`, `NoticeBox`,
- * lucide icons as affordances) with the field, button and radio-card shapes COPIED
- * VERBATIM from `/c/[slug]/campaigns` — see the constants below. Three things that were
- * wrong underneath the old styling are fixed rather than carried across:
+ * Restyled to the console's design language; the radio-card classes are the shared
+ * `components/console/choiceCard.ts`. Three things that were wrong underneath the old
+ * styling are fixed rather than carried across:
  *
  * - **The success panel described the account from what was TYPED, not from what came
  *   back.** It read "{name} created as /c/{created.slug}", mixing a local input with a
@@ -117,43 +119,6 @@ import { examplesFor } from "@/lib/verticalExamples";
  * NO `<h1>`: the admin shell derives the page title from the same nav list it renders,
  * so a heading here would print "New client" twice.
  */
-
-/**
- * The screen's field and control styling, written once.
- *
- * COPIED VERBATIM from `/c/[slug]/campaigns` — same strings, same order, including the
- * radio-as-card trio and its reasoning. Its author flagged them as belonging in `ui.tsx`
- * once a second screen needed them; this is that second screen, and copying identically
- * is what makes the promotion a lift rather than a reconciliation. They stay local until
- * someone moves all of them at once.
- */
-
-/**
- * A radio rendered as a card.
- *
- * Selection is a brand ring plus a tick, NOT a brand fill. `--brand-soft` has no dark
- * value by design (it is the medallion tint, and `ui.tsx` uses it with a fixed dark-green
- * foreground), so a filled card would need its own text colour in each theme to stay
- * readable — a two-colour pair that the next person to add an option will get wrong. A
- * ring changes nothing about the text.
- */
-/*
- * The FOCUS ring, on the card rather than on the input.
- *
- * The `<input type="radio">` inside each of these cards is `sr-only`, which deletes the
- * browser's own focus indicator — WCAG 2.4.7 Focus Visible (AA), failure technique F78,
- * exactly. `has-[:focus-visible]` puts it back on the label that hides it, so a keyboard
- * user tabbing into the group can see where they are; `focus-visible` rather than `focus`
- * so a mouse click does not leave a ring behind. `ring-offset-2` separates it from
- * `CHOICE_ON`'s selection ring, so "focused" and "chosen" stay two readable states.
- * `tests/contrast.test.ts` guards this at the source, because axe cannot evaluate a focus
- * indicator and jsdom has no layout to evaluate one in.
- */
-const CHOICE_CARD =
-  "relative block cursor-pointer rounded-card border p-3 transition-colors " +
-  "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app";
-const CHOICE_ON = "border-brand ring-1 ring-brand bg-surface";
-const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";
 
 /**
  * The vertical templates, with what choosing one actually DOES.
@@ -365,19 +330,18 @@ export default function NewClientPage() {
 
   return (
     <div className="max-w-3xl space-y-5">
-      <div>
-        <p className="mt-0.5 text-sm text-ink-muted">
-          Creates the account, its data-retention rules, a draft receptionist, and the
-          lead fields for its CRM, based on the business type you choose.
-        </p>
-        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
-          {!created
-            ? "Step 1 of 3 — account details"
-            : step === "intake"
-              ? "Step 2 of 3 — business intake"
-              : "Step 3 of 3 — invite the owner"}
-        </p>
-      </div>
+      <PageHeader
+        description="Creates the account, a draft receptionist and its CRM fields."
+        status={
+          <span className="text-[13px] font-medium text-ink-muted">
+            {!created
+              ? "Step 1 of 3 · Account details"
+              : step === "intake"
+                ? "Step 2 of 3 · Business intake"
+                : "Step 3 of 3 · Invite the owner"}
+          </span>
+        }
+      />
 
       {!created && <ResumePanel onResume={(row) => setCreated(resumedAccount(row))} />}
 
@@ -453,11 +417,13 @@ export default function NewClientPage() {
             </label>
 
             <fieldset>
-              <legend className={FIELD_LABEL}>Business type</legend>
-              <p className="mt-1 text-xs text-ink-faint">
-                Sets up the lead fields the agent collects, which become this
-                client&apos;s CRM columns.
-              </p>
+              <legend className={`${FIELD_LABEL} flex items-center gap-1`}>
+                Business type
+                <InfoTip label="business type" align="start">
+                  Sets up the lead fields the agent collects, which become this
+                  client&apos;s CRM columns.
+                </InfoTip>
+              </legend>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {VERTICALS.map((option) => (
                   <label
@@ -535,8 +501,7 @@ export default function NewClientPage() {
               />
               {valid.error("email")}
               <span className={FIELD_HINT}>
-                Where hot-lead alerts and invoices go. Offered again as the invite address
-                in step 3.
+                Gets hot-lead alerts and invoices. Offered as the invite address in step 3.
               </span>
             </label>
 
@@ -601,6 +566,7 @@ export default function NewClientPage() {
  */
 function ResumePanel({ onResume }: { onResume: (row: UnfinishedOnboarding) => void }) {
   const unfinished = useUnfinishedOnboardings();
+  const [showAll, setShowAll] = useState(false);
 
   if (unfinished.isError) {
     return (
@@ -625,18 +591,19 @@ function ResumePanel({ onResume }: { onResume: (row: UnfinishedOnboarding) => vo
 
   if (unfinished.data.length === 0) return null;
 
+  // Most recently worked on first (the server's order). A long tail of abandoned
+  // starts is still reachable, one click away, rather than pushing step 1 off the screen.
+  const shown = showAll ? unfinished.data : unfinished.data.slice(0, RESUME_PREVIEW);
+
   return (
-    <Card title="Unfinished onboardings">
-      <p className="-mt-2 text-xs text-ink-muted">
-        Accounts you started but never finished, most recently worked on first. Picking
-        one reopens its intake with whatever was saved.
-      </p>
-      <ul className="mt-4 space-y-2">
-        {unfinished.data.map((row) => (
-          <li
-            key={row.tenant_id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-app p-3"
-          >
+    <Card
+      title="Unfinished onboardings"
+      density="compact"
+      info="Accounts you started but never finished, most recently worked on first. Resuming reopens the intake with whatever was saved."
+    >
+      <ul className="divide-y divide-line">
+        {shown.map((row) => (
+          <li key={row.tenant_id} className="flex items-start justify-between gap-3 py-2.5">
             <div className="min-w-0">
               <p title={row.name} className="truncate text-sm font-semibold text-ink">
                 {row.name}
@@ -644,29 +611,48 @@ function ResumePanel({ onResume }: { onResume: (row: UnfinishedOnboarding) => vo
               <p className="mt-0.5 text-xs text-ink-faint">
                 <MonoValue>/c/{row.slug}</MonoValue>
                 {" · "}
-                {/* Two different states, said differently. A never-opened intake is not
-                    a zero and not "saved never"; it is an account whose step 3 nobody
-                    has started, which is what the server's `null` means. */}
+                {/* A never-opened intake is not "saved never": it is an account whose step
+                    3 nobody has started, which is what the server's `null` means. */}
                 {row.draft_saved_at
                   ? `draft saved ${formatIST(row.draft_saved_at)}`
                   : `created ${formatIST(row.created_at)} — intake never opened`}
               </p>
               {row.blockers.length > 0 && (
-                <p className="mt-1 text-xs text-ink-muted">
-                  Still needed: {row.blockers.map(blockerCopy).join(" ")}
-                </p>
+                // A native disclosure: the reasons stay in the document, the row stays one line.
+                <details className="mt-1 text-xs text-ink-muted">
+                  <summary className="cursor-pointer rounded-sm hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:py-3">
+                    {row.blockers.length} {row.blockers.length === 1 ? "thing" : "things"} still needed
+                  </summary>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {row.blockers.map((blocker) => (
+                      <li key={blocker}>{blockerCopy(blocker)}</li>
+                    ))}
+                  </ul>
+                </details>
               )}
             </div>
-            <button type="button" onClick={() => onResume(row)} className={SECONDARY_BUTTON}>
+            <button type="button" onClick={() => onResume(row)} className={`${SECONDARY_BUTTON} shrink-0`}>
               Resume
               <ArrowRight aria-hidden className="h-4 w-4" />
             </button>
           </li>
         ))}
       </ul>
+      {unfinished.data.length > RESUME_PREVIEW && (
+        <button
+          type="button"
+          onClick={() => setShowAll((was) => !was)}
+          aria-expanded={showAll}
+          className="press mt-1 rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+        >
+          {showAll ? "Show fewer" : `Show all ${unfinished.data.length}`}
+        </button>
+      )}
     </Card>
   );
 }
+
+const RESUME_PREVIEW = 3;
 
 /**
  * Everything after the account exists: the confirmation, then step 3, then step 8.

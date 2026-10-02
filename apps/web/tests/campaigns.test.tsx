@@ -165,27 +165,33 @@ function consentDateInput(container: HTMLElement): HTMLInputElement {
 }
 
 /**
- * The create flow sits behind "New campaign" since the round-2 redesign (a list first,
- * then a step flow). These open it, and answer the first step so a test can reach the
- * agent, number and template questions on the second.
+ * The create flow sits behind "New campaign" (a list first, then a step flow). Its steps
+ * are: the basics (name, agent, call type, number, template), who to call (the contact
+ * editor and the consent questions), when, and review.
  */
 async function openNewCampaign(): Promise<void> {
   fireEvent.click(await screen.findByRole("button", { name: "New campaign" }));
+  await screen.findByRole("heading", { name: "The basics" });
+}
+
+/** Name the campaign on the basics step and move on to the contact list. */
+async function reachWhoStep(name = "Diwali reminder"): Promise<void> {
+  await openNewCampaign();
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
   await screen.findByRole("heading", { name: "Who should we call?" });
 }
 
-async function reachWhatStep(container: HTMLElement): Promise<void> {
-  await openNewCampaign();
-  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
-    target: { value: "Diwali reminder" },
-  });
-  fireEvent.change(screen.getByRole("textbox", { name: /Contact list/ }), {
-    target: { value: "9876543210,Priya" },
-  });
+/** Paste rows into the contact editor, the way a client pastes from a spreadsheet. */
+function pasteContacts(text: string): void {
+  fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Paste rows" }), { target: { value: text } });
+  fireEvent.click(screen.getByRole("button", { name: "Add these rows" }));
+}
+
+function answerConsent(container: HTMLElement): void {
   fireEvent.click(consentRadios(container)[0]);
   fireEvent.change(consentDateInput(container), { target: { value: "2026-08-01" } });
-  fireEvent.click(screen.getByRole("button", { name: "Next" }));
-  await screen.findByRole("heading", { name: "What will they hear?" });
 }
 
 describe("the create form's consent declaration", () => {
@@ -208,7 +214,7 @@ describe("the create form's consent declaration", () => {
       }),
     );
 
-    await openNewCampaign();
+    await reachWhoStep();
     const before = consentRadios(container);
     expect(before).toHaveLength(5);
 
@@ -224,22 +230,17 @@ describe("the create form's consent declaration", () => {
     fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
     await screen.findByText("Before you launch");
     fireEvent.click(screen.getByRole("button", { name: "All campaigns" }));
-    await openNewCampaign();
+    await reachWhoStep("Second list");
 
     expect(consentRadios(container).some((r) => r.checked)).toBe(false);
     expect(consentDateInput(container).value).toBe("");
     // And the step will not let an unanswered declaration through.
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
-      target: { value: "Second list" },
-    });
-    fireEvent.change(screen.getByRole("textbox", { name: /Contact list/ }), {
-      target: { value: "9876543210" },
-    });
+    pasteContacts("9876543210");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Answer both questions about your list",
     );
-    expect(screen.queryByRole("heading", { name: "What will they hear?" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "When should we call?" })).toBeNull();
   });
 });
 
@@ -306,7 +307,7 @@ describe("a campaign whose progress the screen could not read", () => {
     // …and once it lands, the server's numbers do appear, so the guard above is not
     // simply hiding the tiles for good.
     // The header's facts line arrives with the read, and only then.
-    await screen.findByText(/0 contacts/);
+    await screen.findByText(/^0 contacts · /);
   });
 });
 
@@ -394,7 +395,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
       }),
     );
 
-    await reachWhatStep(container);
+    await openNewCampaign();
     const picker = container.querySelector<HTMLSelectElement>("select");
     expect(picker, "the create form has no agent picker").not.toBeNull();
     const options = Array.from(picker!.options).map(
@@ -414,7 +415,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
       landingRoutes([], { "/v1/agents": [agentIn({ name: "Follow-ups" })] }),
     );
 
-    await reachWhatStep(container);
+    await openNewCampaign();
     await screen.findByText("Which agent makes these calls");
     const picker = container.querySelector<HTMLSelectElement>("select");
     expect(
@@ -440,7 +441,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
       }),
     );
 
-    await reachWhatStep(container);
+    await openNewCampaign();
     const picker = container.querySelector<HTMLSelectElement>("select");
     expect(picker!.options[0].textContent).toContain(
       "not able to call out yet",
@@ -519,7 +520,7 @@ describe("the three reads the create form is built from", () => {
       landingRoutes([], { "/v1/agents": [] }),
     );
 
-    await reachWhatStep(container);
+    await openNewCampaign();
     expect(container.textContent).toContain(NO_AGENT_CLAIM);
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -551,12 +552,12 @@ describe("the three reads the create form is built from", () => {
     // in-flight frame now held open forever, the "and then it appears" half needs its own
     // render — otherwise the guard could be suppressing the sentence for good and this
     // suite would not notice.
-    const { container } = await renderClientPage(
+    await renderClientPage(
       <CampaignsPage />,
       landingRoutes([], { "/v1/agents": [] }),
     );
 
-    await reachWhatStep(container);
+    await openNewCampaign();
     await screen.findByText(new RegExp(NO_AGENT_CLAIM));
   });
 
@@ -591,7 +592,7 @@ describe("the three reads the create form is built from", () => {
       landingRoutes([]),
     );
 
-    await reachWhatStep(container);
+    await openNewCampaign();
     expect(container.textContent).toContain("No numbers yet");
     expect(container.textContent).toContain("None registered yet");
     expect(screen.queryByRole("alert")).toBeNull();
@@ -601,7 +602,9 @@ describe("the three reads the create form is built from", () => {
 describe("creating a campaign is two calls: the draft, then its list", () => {
   /** Walk the four steps with a one-row list, and press Create. */
   async function createWithOneRow(container: HTMLElement): Promise<void> {
-    await reachWhatStep(container);
+    await reachWhoStep();
+    pasteContacts("9876543210,Priya");
+    answerConsent(container);
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByRole("heading", { name: "When should we call?" });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -629,8 +632,9 @@ describe("creating a campaign is two calls: the draft, then its list", () => {
       expect(call).toBeDefined();
       return call!;
     });
+    // The number the editor checked, in the E.164 form the server stores.
     expect(JSON.parse(upload.body ?? "{}").contacts).toEqual([
-      { phone: "9876543210", name: "Priya" },
+      { phone: "+919876543210", name: "Priya" },
     ]);
   });
 
@@ -651,10 +655,9 @@ describe("creating a campaign is two calls: the draft, then its list", () => {
     await createWithOneRow(rendered.container);
 
     await screen.findByText("We could not save those contacts just now.");
-    // The draft exists, so the screen is on it, with the pasted list still there…
+    // The draft exists, so the screen is on it, with the list still in the editor…
     expect(screen.getByText("Before you launch")).toBeTruthy();
-    const list = screen.getByRole("textbox", { name: "Contact list, as CSV" }) as HTMLTextAreaElement;
-    expect(list.value).toContain("9876543210");
+    expect(screen.getByText("+91 98765 43210")).toBeTruthy();
     // …and one press sends it again.
     const retry = screen.getByRole("button", { name: "Add contacts" }) as HTMLButtonElement;
     expect(retry.disabled).toBe(false);
@@ -666,5 +669,47 @@ describe("creating a campaign is two calls: the draft, then its list", () => {
         ),
       ).toHaveLength(2),
     );
+  });
+});
+
+describe("starting it later, chosen in the flow", () => {
+  it("arms the start the When step asked for, after the draft exists", async () => {
+    const rendered = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], {
+        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0 },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/schedule`]: {
+          campaign_id: CAMPAIGN_ID,
+          status: "scheduled",
+          scheduled_start_at: "2030-01-15T04:30:00+00:00",
+        },
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      }),
+    );
+    await reachWhoStep();
+    pasteContacts("9876543210,Priya");
+    answerConsent(rendered.container);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "When should we call?" });
+    fireEvent.click(screen.getByRole("radio", { name: /At a set time/ }));
+    // Refused until the date is chosen: a start nobody picked is never armed.
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2030-01-15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Check and create" });
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+
+    const armed = await vi.waitFor(() => {
+      const call = rendered.calls.find(
+        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/schedule`,
+      );
+      expect(call).toBeDefined();
+      return call!;
+    });
+    // 10:00 IST, the default start time, with its offset attached.
+    expect(JSON.parse(armed.body ?? "{}").start_at).toBe("2030-01-15T10:00:00+05:30");
   });
 });

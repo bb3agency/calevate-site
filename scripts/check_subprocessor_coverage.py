@@ -127,6 +127,9 @@ VENDOR_OF: dict[str, str | None] = {
     # checks and by a reader, not by this scan.
     "otel_exporter_otlp": None,
     "plivo": "Plivo",
+    # The carrier the switch selects by default (D-662): its credential pair and its API base.
+    "vobiz": "Vobiz",
+    "vobiz_api": "Vobiz",
     "razorpay": "Razorpay",
     "resend": "Resend",
     "sentry": "Sentry",
@@ -190,14 +193,9 @@ REGISTER_ONLY: dict[str, str] = {
         "legal/catalogue.py), which is the legal lane's call, not this guard's."
     ),
     "Exotel": (
-        "A candidate carrier. No account, no credential and no adapter — the only carrier "
-        "with code in the tree is Plivo. Published because the carrier is not chosen yet "
-        "and a client evaluating the product is entitled to see the candidates."
-    ),
-    "Vobiz": (
-        "A candidate carrier, on the same footing as Exotel: no account, no credential and "
-        "no adapter. It is named so the register describes the decision that is open rather "
-        "than only the one line of code that exists."
+        "A candidate carrier. No account, no credential and no adapter — the carriers with "
+        "code in the tree are Vobiz and Plivo. Published because a client evaluating the "
+        "product is entitled to see the candidates."
     ),
     "Cohere": (
         "A contingency embedding vendor, and the register's own header already records that "

@@ -3842,6 +3842,12 @@ class CallContext(BaseModel):
     #: not forbid carrying it; nothing should log it either. `CallContext` is dumped into
     #: vendor request bodies by design and into nothing else.
     system_prompt: str | None = None
+    #: OUR `calls.id` for this dial, minted by `agents.service.dispatch_call` before the
+    #: engine is asked. An engine whose carrier calls back into our routes puts it in the
+    #: callback PATH (`calevate_shared.carrier.answer_path`), so the answer document and the
+    #: status callbacks name the row the intent was recorded on. `None` on an engine that
+    #: has no use for it; an engine that needs it refuses a dial without it.
+    call_id: str | None = None
 
 
 class NumberSearch(BaseModel):

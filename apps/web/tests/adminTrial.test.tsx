@@ -140,12 +140,20 @@ function render(routes: Partial<Routes> = {}) {
   );
 }
 
+/** The trial forms open in a drawer from the trial card (D-661); this opens the start form. */
+async function daysField(): Promise<HTMLElement> {
+  const open = screen.queryByLabelText("Days on us");
+  if (open) return open;
+  fireEvent.click(await screen.findByRole("button", { name: "Start trial" }));
+  return screen.findByLabelText("Days on us");
+}
+
 /** Fill the trial form the way an operator does: days, days again, why. */
 async function fillTrial(
   days: string,
   why = "onboarding gift, agreed with the founder",
 ) {
-  fireEvent.change(await screen.findByLabelText("Days on us"), {
+  fireEvent.change(await daysField(), {
     target: { value: days },
   });
   fireEvent.change(screen.getByLabelText("Type the number of days again"), {
@@ -167,7 +175,7 @@ function startButton(): HTMLButtonElement {
 
 describe("the trial control on the credits screen", () => {
   it("sends the days, the reason and the route's own confirmation header", async () => {
-    const { calls, container } = await render({
+    const { calls } = await render({
       [`POST ${TRIAL_PATH}`]: started(),
     });
 
@@ -196,7 +204,7 @@ describe("the trial control on the credits screen", () => {
       startTrialConfirmation(TENANT, 14),
     );
     await expectNoA11yViolations(
-      container,
+      screen.getByRole("dialog"),
       "admin/tenants/[tenantId]/credits (trial form)",
     );
   });
@@ -204,7 +212,7 @@ describe("the trial control on the credits screen", () => {
   it("will not submit until the number of days has been typed twice and matches", async () => {
     await render();
 
-    fireEvent.change(await screen.findByLabelText("Days on us"), {
+    fireEvent.change(await daysField(), {
       target: { value: "14" },
     });
     fireEvent.change(
@@ -228,9 +236,9 @@ describe("the trial control on the credits screen", () => {
   });
 
   it("says what it does, for how long, and what it does NOT suspend, before the press", async () => {
-    const { container } = await render();
-    await screen.findByLabelText("Days on us");
-    const text = container.textContent ?? "";
+    await render();
+    await daysField();
+    const text = document.body.textContent ?? "";
 
     expect(text).toContain("no spend ceiling");
     expect(text).toContain("their wallet is not debited");
@@ -255,16 +263,18 @@ describe("the trial control on the credits screen", () => {
   });
 
   it("shows what a running trial has cost us, and offers to end it rather than start a second", async () => {
-    const { container } = await render({ [TRIAL_PATH]: trial() });
+    await render({ [TRIAL_PATH]: trial() });
     await screen.findByText(/Cost to Calevate so far/);
 
-    const text = container.textContent ?? "";
+    const text = document.body.textContent ?? "";
     expect(text).toContain("₹1,284.50");
     expect(text).toContain("never shown to the client");
     // The route refuses a second open trial with a 409; offering the form anyway would be
     // a control that can only fail.
     expect(screen.queryByLabelText("Days on us")).toBeNull();
-    expect(screen.getByRole("button", { name: "End this trial" })).toBeTruthy();
+    // The card offers the END control, which opens its form in a drawer.
+    fireEvent.click(screen.getByRole("button", { name: "End trial" }));
+    expect(await screen.findByRole("button", { name: "End this trial" })).toBeTruthy();
   });
 
   it("reports a trial that has ENDED rather than showing nothing", async () => {
@@ -280,23 +290,23 @@ describe("the trial control on the credits screen", () => {
     expect(await screen.findByText(/Their trial ended/)).toBeTruthy();
     // And a new one may be started, which is the whole reason the read is "newest" rather
     // than "the open one".
-    expect(await screen.findByLabelText("Days on us")).toBeTruthy();
+    expect(await daysField()).toBeTruthy();
   });
 
   it("withholds the control when the trial read failed, rather than saying they never had one", async () => {
-    const { container } = await render({
+    await render({
       [TRIAL_PATH]: problem(500, { title: "Server error" }),
     });
     await screen.findByText(/We could not read this client's trial/);
 
     expect(screen.queryByLabelText("Days on us")).toBeNull();
-    expect(container.textContent).not.toContain("has never been given a trial");
+    expect(document.body.textContent).not.toContain("has never been given a trial");
   });
 
   it("states plainly that the client has never had one when the server says null", async () => {
-    const { container } = await render();
-    await screen.findByLabelText("Days on us");
-    expect(container.textContent).toContain(
+    await render();
+    await daysField();
+    expect(document.body.textContent).toContain(
       "Sri Traders has never been given a trial",
     );
   });

@@ -142,6 +142,8 @@ describe("an admin form with two answers missing", () => {
 
   it("names both in our words, sends nothing, and focuses the first", async () => {
     const page = renderOperators();
+    // The form opens in a drawer from the page's primary button (admin redesign, D-661).
+    fireEvent.click(await screen.findByRole("button", { name: "Add an admin" }));
     const email = (await screen.findByLabelText(
       "Email address of the admin to add",
     )) as HTMLInputElement;

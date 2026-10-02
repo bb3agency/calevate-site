@@ -1,7 +1,5 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
-
 import { useAdminAccess } from "@/app/admin/access";
 import { Card, ProblemNotice, Skeleton } from "@/components/ui";
 import { usePlatformState } from "@/lib/api/admin";
@@ -13,6 +11,7 @@ import { EngineDriftPanel } from "./EngineDriftPanel";
 import { KnowledgeDriftPanel } from "./KnowledgeDriftPanel";
 import { LoadShedPanel } from "./LoadShedPanel";
 import { OutboundHaltPanel } from "./OutboundHaltPanel";
+import { OpsStatusStrip } from "./OpsStatusStrip";
 import { OutboxReplayPanel } from "./OutboxReplayPanel";
 import { TmRegistrationPanel } from "./TmRegistrationPanel";
 import { UnknownStatePanel } from "./UnknownStatePanel";
@@ -275,13 +274,13 @@ export function OpsSurface() {
   });
 
   return (
-    <div className="max-w-2xl space-y-5">
-      <div>
-        <p className="mt-0.5 text-sm text-ink-muted">
-          Platform-wide switches. Every change is recorded in the activity log with your
-          reason, and every one of them applies to every client at the same moment.
-        </p>
-      </div>
+    <div className="max-w-3xl space-y-5 pb-12">
+      <p className="text-sm text-ink-muted">
+        Platform-wide switches. Every one applies to every client at once and is recorded
+        with your reason.
+      </p>
+
+      <OpsStatusStrip platform={platform} deadLetters={deadLetters} engineDrift={engineDrift} />
 
       {state.error && <ProblemNotice error={state.error} onRetry={() => state.refetch()} />}
 
@@ -291,66 +290,48 @@ export function OpsSurface() {
         </Card>
       ) : state.data ? (
         <>
-          <OutboundHaltPanel state={state.data} access={access} />
-          <LoadShedPanel state={state.data} access={access} />
-          <TmRegistrationPanel registration={state.data.tm_registration} access={access} />
+          {/* THE PRIMARY SURFACE: the big red switch, first under the facts. */}
+          <div id="outbound" className="scroll-mt-4">
+            <OutboundHaltPanel state={state.data} access={access} />
+          </div>
+          <div id="slowdown" className="scroll-mt-4">
+            <LoadShedPanel state={state.data} access={access} />
+          </div>
+          <div id="registration" className="scroll-mt-4">
+            <TmRegistrationPanel registration={state.data.tm_registration} access={access} />
+          </div>
         </>
       ) : (
         <UnknownStatePanel reason={access.reason} />
       )}
 
-      {/* Gated on `mayManage` and NOT on `access`, deliberately: neither of these acts on
-          the platform row, so neither has a state we failed to read. Hiding the audit-chain
-          verification because an unrelated row was unreadable would remove the one control
-          an operator most wants when the platform is behaving strangely — and both still
-          disable themselves, with the reason, for a session that lacks `ops:manage`. */}
-      <OutboxReplayPanel access={mayRecover} queue={deadLetters} />
-      {/* READ-ONLY, and the only panel on this screen with no lever — deliberately. The
-          sweep behind it re-publishes nothing (D-121/D-123: overwriting an operator's
-          emergency console edit is a decision with a blast radius), so the console must
-          not offer a "fix it" button that would make that decision from a summary. What
-          an operator does with a drift starts on the AGENT's own screen, where the
-          per-agent sentence lives. Not gated on `access` for the reason the two panels
-          above are not: it reads no platform-row state. */}
-      <EngineDriftPanel drift={engineDrift} />
-      {/* The same read, on the other object. `EngineDriftPanel` above answers "is the
-          agent CONFIGURED as we published"; this answers "is it ANSWERING from text a
-          human approved" — an agent can be perfectly in sync on the first and be reading
-          out a knowledge base somebody pasted into the vendor's console. Also read-only,
-          and here the absence of a lever is stronger: the repair a KB drift invites is a
-          DELETE at the vendor of a document our tables cannot describe. */}
-      <KnowledgeDriftPanel drift={kbDrift} />
+      {/* Gated on the permission and NOT on `access`: neither recovery tool acts on the
+          platform row, so an unreadable row is no reason to withhold them — and the
+          tamper check is the control an operator most wants when things look strange. */}
+      <div id="stuck" className="scroll-mt-4">
+        <OutboxReplayPanel access={mayRecover} queue={deadLetters} />
+      </div>
       <AuditChainPanel access={mayRecover} />
 
-      {/* THE CONFIG AND CREDENTIAL PANELS USED TO SIT HERE AND NOW HAVE THEIR OWN SCREEN
-          (`/admin/ops/config`), because the founder's correction to D-457 asked for the
-          ops config panel to be findable from the sidebar and a nav entry needs a
-          destination of its own. The split is also what the permissions were already
-          saying: everything above is `ops:manage` — the incident levers, held by whoever
-          is on call — and everything that moved is `platform:config` or
-          `platform:secrets`, which is change management. One screen carrying three
-          permissions meant its nav entry could declare only one of them.
-
-          Deliberately NOT left behind as a link: this screen is what an operator opens
-          when calls have stopped, and a pointer to the credential console is not
-          something that belongs on it. The sidebar is where surfaces are discovered. */}
-
-      <Card title="What is never shed">
-        <ul className="space-y-1.5 text-sm text-ink-muted">
-          <li className="flex gap-2">
-            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            Health endpoints
-          </li>
-          <li className="flex gap-2">
-            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            Engine webhooks — a dropped callback is a call whose lead never appears
-          </li>
-          <li className="flex gap-2">
-            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            This ops surface — an operator must not be able to lock themselves out
-          </li>
-        </ul>
-      </Card>
+      {/* READ-ONLY, both halves: the sweeps re-publish nothing, and the repair a drift
+          invites starts on the agent's own screen (D-121/D-123). One card, two questions —
+          is the agent CONFIGURED as we published, and is it ANSWERING from approved text. */}
+      <div id="drift" className="scroll-mt-4">
+        <Card
+          title="What the voice platform is running"
+          info={
+            <p>
+              Sweeps read live agents back off the voice platform and compare them with what
+              we published. They only ever read; nothing here re-publishes.
+            </p>
+          }
+        >
+          <div className="grid gap-6 lg:grid-cols-2">
+            <EngineDriftPanel drift={engineDrift} />
+            <KnowledgeDriftPanel drift={kbDrift} />
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

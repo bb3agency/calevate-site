@@ -81,25 +81,49 @@ function routes(over: Routes = {}): Routes {
   return { [ADMIN_ME_PATH]: SUPERADMIN, [LIST_PATH]: [entry()], ...over };
 }
 
+/**
+ * The suppress form lives in a drawer opened by the page's primary button, which unlocks
+ * only once `/v1/admin/me` has said this session may write. Returns the form's submit
+ * button. The drawer renders through a portal, which is why the assertions below read
+ * `document.body` rather than the render container.
+ */
+async function openSuppress(): Promise<HTMLButtonElement> {
+  const open = (await screen.findByRole("button", {
+    name: "Suppress numbers",
+  })) as HTMLButtonElement;
+  await waitFor(() => expect(open.disabled).toBe(false));
+  fireEvent.click(open);
+  return (await screen.findByRole("button", {
+    name: /platform-wide/,
+  })) as HTMLButtonElement;
+}
+
+/** Release sits in the row's menu and opens a confirmation drawer for that one entry. */
+async function openRelease(display: string): Promise<void> {
+  fireEvent.click(
+    await screen.findByRole("button", { name: `More actions for ${display}` }),
+  );
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Release…" }));
+  await screen.findByLabelText(/Type RELEASE to confirm/);
+}
+
 describe("the platform-wide do-not-call list", () => {
   it("says what the suppression will do BEFORE it is clicked, and sends the step-up header", async () => {
-    const { calls, container } = renderAdminPage(
+    const { calls } = renderAdminPage(
       <GlobalDncPage />,
       routes({
         [`POST ${OPS_DNC_GLOBAL_PATH}`]: { added: 1, already_suppressed: 0, malformed: 0 },
       }),
     );
 
-    // Found by the stem, because the label counts what is in the box and there is
-    // nothing in it yet — the count itself is asserted after the paste, below.
-    const button = await screen.findByRole("button", { name: /Suppress/ });
-    expect(container.textContent).toContain(
+    const button = await openSuppress();
+    expect(document.body.textContent).toContain(
       "Every client stops dialling these numbers, from the next dispatch decision",
     );
     // The half that is NOT affected, said in the same breath, and the distinction the
     // route's own docstring says operators get wrong.
-    expect(container.textContent).toContain("Inbound calls are unaffected");
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain("Inbound calls are unaffected");
+    expect(document.body.textContent).toContain(
       "not the national customer preference register",
     );
 
@@ -148,7 +172,7 @@ describe("the platform-wide do-not-call list", () => {
   it("will not submit a whitespace reason the server would strip and reject", async () => {
     const { calls } = renderAdminPage(<GlobalDncPage />, routes());
 
-    const button = await screen.findByRole("button", { name: /Suppress/ });
+    const button = await openSuppress();
     // Deliberately NOT the number in the list fixture: since D-436 the list renders its
     // rows in full, so an assertion using the same digits could not tell "the form was
     // cleared and the server echoed nothing" from "the list is on screen".
@@ -179,7 +203,7 @@ describe("the platform-wide do-not-call list", () => {
   });
 
   it("answers a completed suppression with counts and never echoes what was typed", async () => {
-    const { container } = renderAdminPage(
+    renderAdminPage(
       <GlobalDncPage />,
       routes({
         [`POST ${OPS_DNC_GLOBAL_PATH}`]: {
@@ -190,7 +214,7 @@ describe("the platform-wide do-not-call list", () => {
       }),
     );
 
-    const button = await screen.findByRole("button", { name: /Suppress/ });
+    const button = await openSuppress();
     fireEvent.change(screen.getByPlaceholderText(/9876543210/), {
       target: { value: "9876543210" },
     });
@@ -206,51 +230,48 @@ describe("the platform-wide do-not-call list", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(container.textContent).toContain("Already suppressed");
+      expect(document.body.textContent).toContain("Already suppressed");
     });
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "Totals, not which number went where",
     );
     // The number typed in is gone from the form, and none came back from the server to
     // render — `GlobalSuppressOut` is three integers.
-    expect(container.textContent).not.toContain(SUBMITTED_NUMBER);
+    expect(document.body.textContent).not.toContain(SUBMITTED_NUMBER);
   });
 
   it("offers Release on a row the CLIENT surface calls unremovable", async () => {
     renderAdminPage(<GlobalDncPage />, routes());
     // `removable: false` is `is_removable()`'s answer about clients. If this control ever
     // hangs off it, ops loses the only route by which a global suppression can be lifted.
+    // Release sits in the row menu; the number is shown grouped for reading.
+    await openRelease("+91 98765 43210");
     expect(
-      await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +919876543210",
-      }),
+      screen.getByRole("button", { name: /Release \+91 98765 43210/ }),
     ).toBeTruthy();
   });
 
   it("takes a typed confirmation naming the row, and sends the RELEASE header", async () => {
-    const { calls, container } = renderAdminPage(
+    const { calls } = renderAdminPage(
       <GlobalDncPage />,
       routes({ [`DELETE ${OPS_DNC_GLOBAL_PATH}/${entry().id}`]: null }),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +919876543210",
-      }),
-    );
+    await openRelease("+91 98765 43210");
+    const drawer = screen.getByRole("dialog", { name: /Release \+91 98765 43210/ });
 
     // The blast radius, in the direction that matters: this re-permits calling somebody.
-    expect(container.textContent).toContain(
-      "Releasing +919876543210 lets every client dial it again",
+    expect(drawer.textContent).toContain(
+      "Releasing +91 98765 43210 lets every client dial it again",
     );
     // …and WHY it was suppressed, quoted back through the shared source copy, so the
     // operator lifting it knows whose instruction they are overriding.
-    expect(container.textContent).toContain(
+    expect(drawer.textContent).toContain(
       "A regulator, telecom operator or registrar told us to",
     );
 
     const confirm = await screen.findByRole("button", {
-      name: /Release \+9198/,
+      name: /Release \+91 98765/,
     });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
 
@@ -294,26 +315,22 @@ describe("the platform-wide do-not-call list", () => {
       }),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +919876543210",
-      }),
-    );
+    await openRelease("+91 98765 43210");
     fireEvent.change(screen.getByLabelText(/Type RELEASE to confirm/), {
       target: { value: "RELEASE" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     // The SECOND row's confirmation opens empty and its button is dead: the typed word
     // belongs to the number it was typed against, which is the whole reason it is
     // collected per row rather than once for the list.
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Release the platform-wide suppression on +919812347788",
-      }),
-    );
+    await openRelease("+91 98123 47788");
+    expect(
+      (screen.getByLabelText(/Type RELEASE to confirm/) as HTMLInputElement).value,
+    ).toBe("");
     expect(
       (
         screen.getByRole("button", {
-          name: /Release \+919812347788/,
+          name: /Release \+91 98123 47788/,
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -392,15 +409,16 @@ describe("the platform-wide do-not-call list", () => {
       ).disabled,
     ).toBe(true);
     // The destructive control is not merely disabled, it is not offered: a Release button
-    // that 403s teaches an operator that our compliance rules are a bug.
+    // that 403s teaches an operator that our compliance rules are a bug. Release lives in
+    // the row menu, so the menu itself is absent.
     expect(
-      screen.queryByRole("button", { name: /Release the platform-wide/ }),
+      screen.queryByRole("button", { name: /More actions for/ }),
     ).toBeNull();
     expect(calls.some((c) => c.method !== "GET")).toBe(false);
   });
 
   it("explains a refused confirmation as a version skew, not a retry", async () => {
-    const { container } = renderAdminPage(
+    renderAdminPage(
       <GlobalDncPage />,
       routes({
         [`POST ${OPS_DNC_GLOBAL_PATH}`]: problem(403, {
@@ -417,7 +435,7 @@ describe("the platform-wide do-not-call list", () => {
       }),
     );
 
-    const button = await screen.findByRole("button", { name: /Suppress/ });
+    const button = await openSuppress();
     fireEvent.change(screen.getByPlaceholderText(/9876543210/), {
       target: { value: "9876543210" },
     });
@@ -433,28 +451,26 @@ describe("the platform-wide do-not-call list", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(container.textContent).toContain(
+      expect(document.body.textContent).toContain(
         "Refused: this console's confirmation is not the one the API expects",
       );
     });
     // The console DID send the header, so "you forgot to confirm" is impossible here and
     // clicking again cannot help. Both facts are on screen.
-    expect(container.textContent).toContain("Nothing was changed");
-    expect(container.textContent).toContain("Reload this page first");
+    expect(document.body.textContent).toContain("Nothing was changed");
+    expect(document.body.textContent).toContain("Reload this page first");
   });
 
   it("has no accessibility violation with a release confirmation open", async () => {
     // The confirmation block only exists after a click, so the populated-screen sweep in
     // a11y.test.tsx cannot reach it — the same gap the data-rights certificate has, closed
     // the same way rather than left to the sweep it is invisible to.
-    const { container } = renderAdminPage(<GlobalDncPage />, routes());
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +919876543210",
-      }),
-    );
+    renderAdminPage(<GlobalDncPage />, routes());
+    await openRelease("+91 98765 43210");
+    // The drawer renders through a portal, outside the render container, so the sweep is
+    // pointed at the dialog itself (as callAssist.test.tsx does for its dialog).
     await expectNoA11yViolations(
-      container,
+      screen.getByRole("dialog", { name: /Release \+91 98765 43210/ }),
       "admin/ops/dnc (release confirmation)",
     );
   });

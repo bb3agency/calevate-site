@@ -24,7 +24,7 @@ import TenantNumbersPage from "@/app/admin/tenants/[tenantId]/numbers/page";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import TenantClosurePage from "@/app/admin/tenants/[tenantId]/closure/page";
 import TenantProfilePage from "@/app/admin/tenants/[tenantId]/profile/page";
-import TenantInvitationsPage from "@/app/admin/tenants/[tenantId]/invitations/page";
+import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
@@ -44,6 +44,7 @@ import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
 import PreferenceScrubPage from "@/app/admin/tenants/[tenantId]/dnd-scrub/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
+import TenantCampaignSetupPage from "@/app/admin/tenants/[tenantId]/campaign-setup/page";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
 import NewAgentPage from "@/app/c/[slug]/agents/new/page";
@@ -92,6 +93,7 @@ import Home from "@/app/page";
 import ClientConsoleJunction from "@/app/c/page";
 import TenantActivityPage from "@/app/admin/tenants/[tenantId]/activity/page";
 import TenantReadinessPage from "@/app/admin/tenants/[tenantId]/readiness/page";
+import TenantLayout from "@/app/admin/tenants/[tenantId]/layout";
 import SignupPage from "@/app/signup/page";
 
 import {
@@ -2951,6 +2953,22 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    // The client header and the grouped section menu every client page sits in (D-661).
+    file: "admin/tenants/[tenantId]/layout.tsx",
+    realm: "admin",
+    element: () => (
+      <TenantLayout params={tenant}>
+        <p>client page body</p>
+      </TenantLayout>
+    ),
+    routes: {
+      ...TENANT_ROUTES,
+      // `plan_tier` is required on the wire and the header prints it; the shared fixture
+      // predates the field. Capped, so the second pill is scanned too.
+      "/v1/admin/tenants/t1": { ...TENANT_SUMMARY, plan_tier: "prepaid", capped: true },
+    },
+  },
+  {
     file: "admin/tenants/[tenantId]/readiness/page.tsx",
     realm: "admin",
     element: () => <TenantReadinessPage params={tenant} />,
@@ -3578,6 +3596,14 @@ const ADMIN_SCREENS: Screen[] = [
     routes: TENANT_ROUTES,
   },
   {
+    // The Campaign setup panel moved off the Overview to its own Compliance route (D-661).
+    // TENANT_ROUTES already carries the numbers, templates and registration reads it makes.
+    file: "admin/tenants/[tenantId]/campaign-setup/page.tsx",
+    realm: "admin",
+    element: () => <TenantCampaignSetupPage params={tenant} />,
+    routes: TENANT_ROUTES,
+  },
+  {
     // Populated with a priced agreement AND a history row: the form, the "in effect"
     // definition list and the history table are three different pieces of markup, and
     // an unpriced fixture would scan none of them.
@@ -3729,23 +3755,18 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
-    // Swept CLOSED, which is the state that renders the most markup on this screen: the
-    // closed notice with its link out, plus the whole erasure panel. An active account
-    // renders a two-option dropdown and a reason box, a strict subset.
+    // Swept ACTIVE, the state with the most markup since the erasure panel moved to the
+    // Closing screen: the Suspend form with its consequence, reason box and submit. A
+    // closed account renders one notice with a link out.
     file: "admin/tenants/[tenantId]/lifecycle/page.tsx",
     realm: "admin",
     element: () => <LifecyclePage params={tenant} />,
-    routes: {
-      ...TENANT_ROUTES,
-      "/v1/admin/tenants/t1": { ...TENANT_SUMMARY, status: "churned" },
-      "/v1/admin/tenants/t1/erasure": [],
-      "/v1/admin/tenants/t1/closure": CLOSED_ACCOUNT,
-    },
+    routes: TENANT_ROUTES,
   },
   {
     // A CLOSED account, on purpose: it renders the deadline description list, the
-    // countdown, the "their number still rings" disclosure and the reopen control — the
-    // heavier of this screen's two shapes. ⚠ The OPEN shape (reason textarea, typed
+    // countdown, the "their number still rings" disclosure, the reopen control and the
+    // erasure form (moved here from Account state) — the heaviest of this screen's shapes. ⚠ The OPEN shape (reason textarea, typed
     // confirmation, danger submit) is NOT scanned here, because this table is keyed by
     // file and takes one entry per screen; every control it uses is a shared primitive
     // swept elsewhere (`TypedConfirmation`, `FIELD`, `DANGER_BUTTON`), and its behaviour
@@ -3756,6 +3777,7 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       ...TENANT_ROUTES,
       "/v1/admin/tenants/t1/closure": CLOSED_ACCOUNT,
+      "/v1/admin/tenants/t1/erasure": [],
     },
   },
   {
@@ -3772,6 +3794,10 @@ const ADMIN_SCREENS: Screen[] = [
     element: () => <TenantMembersPage params={tenant} />,
     routes: {
       ...TENANT_ROUTES,
+      // People merges members and invitations (D-661). TWO invitations on purpose — one
+      // freshly minted and one re-sent four times — so both readings of the send counter
+      // render.
+      "/v1/admin/tenants/t1/invitations": PENDING_INVITATIONS,
       "/v1/admin/tenants/t1/members": [
         {
           user_id: "u-owner",
@@ -3820,16 +3846,11 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
-    // TWO invitations on purpose — one freshly minted and one that has been re-sent four
-    // times — so both readings of the send counter render, and the list is not a single
-    // row whose plural nobody sees.
-    file: "admin/tenants/[tenantId]/invitations/page.tsx",
+    // The Agents section's index (D-661): one link row per agent.
+    file: "admin/tenants/[tenantId]/agents/page.tsx",
     realm: "admin",
-    element: () => <TenantInvitationsPage params={tenant} />,
-    routes: {
-      ...TENANT_ROUTES,
-      "/v1/admin/tenants/t1/invitations": PENDING_INVITATIONS,
-    },
+    element: () => <TenantAgentsPage params={tenant} />,
+    routes: TENANT_ROUTES,
   },
   {
     file: "admin/tenants/[tenantId]/kyc/page.tsx",
@@ -3851,6 +3872,9 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <TenantSpendPage params={tenant} />,
     routes: {
+      // The spend-cap panel moved here from the overview (D-661): the cap read and the
+      // admin identity read are in `TENANT_ROUTES`.
+      ...TENANT_ROUTES,
       "/v1/admin/tenants/t1": TENANT_SUMMARY,
       [`/v1/admin/tenants/t1/spend?month=${IST_MONTH}`]: TENANT_SPEND,
     },
@@ -4155,10 +4179,40 @@ const AGENT_SECTION_SCREENS: Screen[] = [
   "advanced",
 ].map((id) => ({ ...AGENT_WORKSPACE, search: `section=${id}` }));
 
+/**
+ * The platform-configuration screen's other sections (D-661). Calling is swept by the
+ * screen's own entry; each other section mounts its own panels and is swept under its own
+ * search, so moving a panel into a section cannot take it out of the sweep.
+ */
+const OPS_CONFIG_SCREEN = ADMIN_SCREENS.find((entry) => entry.file === "admin/ops/config/page.tsx") as Screen;
+const OPS_CONFIG_SECTION_SCREENS: Screen[] = [
+  "voices-models",
+  "billing",
+  "compliance",
+  "messaging",
+  "integrations",
+  "access",
+  "platform",
+  "credentials",
+].map((id) => ({ ...OPS_CONFIG_SCREEN, search: `section=${id}` }));
+
+/**
+ * The admin agent page's other sections (D-661, a settings layout like the client's):
+ * Live is swept by the screen's own entry; each other section is its own mount.
+ */
+const ADMIN_AGENT_PAGE = ADMIN_SCREENS.find(
+  (entry) => entry.file === "admin/tenants/[tenantId]/agents/[agentId]/prompt/page.tsx",
+) as Screen;
+const ADMIN_AGENT_SECTION_SCREENS: Screen[] = ["script", "voice", "limits", "test"].map(
+  (id) => ({ ...ADMIN_AGENT_PAGE, search: `section=${id}` }),
+);
+
 export const SCREENS: Screen[] = [
   ...CLIENT_SCREENS,
   ...AGENT_SECTION_SCREENS,
   ...ADMIN_SCREENS,
+  ...ADMIN_AGENT_SECTION_SCREENS,
+  ...OPS_CONFIG_SECTION_SCREENS,
   ...AUTHN_SCREENS,
 ];
 

@@ -1,9 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import OpsPage from "@/app/admin/ops/page";
+import { sectionOf } from "@/app/admin/ops/config/configSections";
 import {
   OUTBOX_REPLAY_CONFIRMATION,
   platformConfirmation,
@@ -43,6 +44,31 @@ import { formatISTInput, istInputToInstant } from "@/components/ui";
 import { problem, renderAdminPage, type Routes } from "./harness";
 import { OPS_RATE_CARD_PATH } from "@/lib/api/opsRateCard";
 import { OPS_RATE_CARD } from "./fixtures/opsRateCard";
+
+/*
+ * The configuration screen is a settings layout (D-661): one section is mounted at a time,
+ * chosen by `?section=`. Each test opens the section that owns its subject; the default is
+ * Calling, which is also what a real visit opens first.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/admin/ops/config",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+function openSection(id: string) {
+  nav.params = new URLSearchParams(`section=${id}`);
+}
+beforeEach(() => {
+  nav.params = new URLSearchParams();
+});
 
 /**
  * The operations screen — the highest-consequence surface in either realm, because its
@@ -2153,7 +2179,9 @@ describe("our own telemarketer registration", () => {
 
       // READ. 2026-01-04T06:30:00Z is 12:00 IST — what the letter says — and 01:30 in the
       // browser's own zone, which is what the field used to show.
-      const field = (await screen.findByDisplayValue(
+      // The registration form opens on request; its verdict and facts are always shown.
+    fireEvent.click(await screen.findByRole("button", { name: "Record a change" }));
+    const field = (await screen.findByDisplayValue(
         "2026-01-04T12:00",
       )) as HTMLInputElement;
       expect(field.type).toBe("datetime-local");
@@ -2246,6 +2274,7 @@ describe("our own telemarketer registration", () => {
  *    by it. That is a sentence, not a silence.
  */
 describe("the platform configuration panel", () => {
+  beforeEach(() => openSection("billing"));
   it("refuses to show values it did not receive", async () => {
     renderAdminPage(
       <OpsConfigPage />,
@@ -2263,6 +2292,7 @@ describe("the platform configuration panel", () => {
   });
 
   it("renders an env-pinned key read-only, with the variable that pins it", async () => {
+    openSection("platform");
     const { container } = renderAdminPage(<OpsConfigPage />, configRoutes());
 
     await screen.findByText("object_store_bucket");
@@ -2413,6 +2443,7 @@ describe("the platform configuration panel", () => {
   });
 
   it("warns on a setting that will not take effect until a restart", async () => {
+    openSection("platform");
     const { container } = renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
@@ -2492,39 +2523,42 @@ describe("the platform configuration panel", () => {
    * D-410, the auth switch with D-177 — and prefix matching cannot notice that on its
    * own, which is the whole reason this test exists rather than a comment.
    */
-  it("files the language model and the sign-in switch under their own headings", async () => {
-    const { container } = renderAdminPage(
-      <OpsConfigPage />,
-      configRoutes(SUPERADMIN, {
-        [OPS_CONFIG_PATH]: configList({
-          fields: [
-            configField({
-              key: "azure_openai_model",
-              env_var: "AZURE_OPENAI_MODEL",
-              value: "gpt-4o-mini",
-              default: "gpt-4o-mini",
-              kind: "string",
-            }),
-            configField({
-              key: "first_party_auth_enabled",
-              env_var: "FIRST_PARTY_AUTH_ENABLED",
-              value: true,
-              default: true,
-              kind: "boolean",
-            }),
-          ],
-        }),
+  it("files the language model and the sign-in switch under their own sections", async () => {
+    expect(sectionOf("azure_openai_model")).toBe("voices-models");
+    expect(sectionOf("first_party_auth_enabled")).toBe("access");
+    const routes = configRoutes(SUPERADMIN, {
+      [OPS_CONFIG_PATH]: configList({
+        fields: [
+          configField({
+            key: "azure_openai_model",
+            env_var: "AZURE_OPENAI_MODEL",
+            value: "gpt-4o-mini",
+            default: "gpt-4o-mini",
+            kind: "string",
+          }),
+          configField({
+            key: "first_party_auth_enabled",
+            env_var: "FIRST_PARTY_AUTH_ENABLED",
+            value: true,
+            default: true,
+            kind: "boolean",
+          }),
+        ],
       }),
-    );
+    });
 
+    openSection("voices-models");
+    const first = renderAdminPage(<OpsConfigPage />, routes);
     await screen.findByText("azure_openai_model");
-    expect(screen.getByText("Language model")).toBeTruthy();
-    expect(screen.getByText("Sign-in")).toBeTruthy();
-    // The bucket that says this console has no opinion about a setting — neither of
-    // these may land in it.
-    expect(container.textContent).not.toContain(
-      "Settings this console has no group for yet",
-    );
+    expect(screen.getByRole("heading", { name: "Voices and models" })).toBeTruthy();
+    // Neither key falls through to "Other", so the menu does not offer that section.
+    expect(screen.queryByRole("link", { name: "Other" })).toBeNull();
+    first.unmount();
+
+    openSection("access");
+    renderAdminPage(<OpsConfigPage />, routes);
+    await screen.findByText("first_party_auth_enabled");
+    expect(screen.getByRole("heading", { name: "Sign-in and sign-up" })).toBeTruthy();
   });
 
   /**
@@ -2542,8 +2576,12 @@ describe("the platform configuration panel", () => {
    * module does not export (D-196) — the same reason `opsAccess` is exercised through the
    * DOM one describe over.
    */
-  it("gives the speech legs and the platform model a heading of their own", async () => {
-    const { container } = renderAdminPage(
+  it("gives the speech legs and the platform model a section of their own", async () => {
+    for (const key of ["sarvam_stt_model", "stt_autodetect_language", "platform_llm_model"]) {
+      expect(sectionOf(key)).toBe("voices-models");
+    }
+    openSection("voices-models");
+    renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({
@@ -2575,13 +2613,10 @@ describe("the platform configuration panel", () => {
     );
 
     await screen.findByText("sarvam_stt_model");
-    expect(screen.getByText("Speech")).toBeTruthy();
-    expect(screen.getByText("Language model")).toBeTruthy();
-    // None of the three may sit in the bucket whose hint tells an operator the console
-    // has no opinion about the setting they are about to change.
-    expect(container.textContent).not.toContain(
-      "Settings this console has no group for yet",
-    );
+    expect(screen.getByText("stt_autodetect_language")).toBeTruthy();
+    expect(screen.getByText("platform_llm_model")).toBeTruthy();
+    // None of the three may sit in "Other", so the menu does not offer that section.
+    expect(screen.queryByRole("link", { name: "Other" })).toBeNull();
   });
 });
 
@@ -2619,6 +2654,7 @@ function secretInput(): HTMLInputElement {
 }
 
 describe("the credentials panel", () => {
+  beforeEach(() => openSection("credentials"));
   it("never puts a credential on screen, including after a test", async () => {
     const { container, calls } = renderAdminPage(
       <OpsConfigPage />,
@@ -2752,6 +2788,7 @@ describe("the credentials panel", () => {
 });
 
 describe("the key-management panel", () => {
+  beforeEach(() => openSection("credentials"));
   it("tells the operator NOT to remove the retired key while any DEK is pending", async () => {
     const { container } = renderAdminPage(
       <OpsConfigPage />,
@@ -2860,7 +2897,10 @@ describe("the key-management panel", () => {
       }),
     );
 
-    await screen.findByText("Your admin account cannot see this");
+    // Both credential panels are refused, so the refusal title appears once per panel.
+    expect(
+      (await screen.findAllByText("Your admin account cannot see this")).length,
+    ).toBe(2);
     // The API's own sentence, printed verbatim rather than paraphrased — an
     // authorization refusal is the server's to word.
     expect(container.textContent).toContain(
@@ -2874,6 +2914,7 @@ describe("the key-management panel", () => {
 });
 
 describe("a model withheld on merit says so, instead of asking for a price", () => {
+  beforeEach(() => openSection("voices-models"));
   /**
    * THE SCREEN TOLD THE FOUNDER TO DO SOMETHING THAT COULD NOT WORK.
    *

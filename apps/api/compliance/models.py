@@ -141,10 +141,10 @@ CARRIER_APPLICATION_STATUSES = (
 # The one state that satisfies the gate. Named so the gate, the routes and the CHECK
 # cannot drift into three spellings of one idea (`KYC_VERIFIED` does the same job).
 CARRIER_APPLICATION_ACCEPTED = "accepted"
-# WHICH carrier this application is with. One member because one carrier account exists;
-# it is stored rather than assumed because their application identifier is meaningless
-# without knowing whose it is, and because the carrier choice is not closed (§5.5).
-CARRIER_APPLICATION_CARRIERS = ("plivo",)
+# WHICH carrier this application is with: the members of `Settings.carrier` (D-662). Stored
+# rather than assumed because a carrier's application identifier is meaningless without
+# knowing whose it is. Spelled out here, matching migration `d4a7b2c91e30`'s CHECK.
+CARRIER_APPLICATION_CARRIERS = ("plivo", "vobiz")
 # WHICH proof of registration was supplied. REPORTED (12 Sep 2026, §5.2): any ONE of a
 # GST certificate with an active GSTIN, a Certificate of Incorporation with a CIN, or a
 # Udyam Registration Certificate. PAN alone is refused, which is why no PAN member

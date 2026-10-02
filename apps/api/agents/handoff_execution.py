@@ -251,6 +251,8 @@ ON CONFLICT (tenant_id, source_execution_id) DO NOTHING
 RETURNING id
 """
 
+_CARRIER_CALL_SQL: Final = "SELECT carrier_call_id FROM calls WHERE engine_call_id = :ex"
+
 _SETTLE_ATTEMPT_SQL: Final = """
 UPDATE handoff_attempts
    SET outcome = :outcome, raw_status = :raw, leg_duration_s = :dur,
@@ -325,8 +327,13 @@ async def place_handoff(
     # not the caller, and the row is the same column the engine's job fills redacted.
     about = redacted_brief(about)
     summary = redacted_brief(summary)
+    # The carrier addresses the caller's leg by ITS id, which the dial or the worker stamps
+    # on the call row; a call no carrier named (the in-house adapter's) keeps our handle.
+    carrier_call_id = (
+        await session.execute(text(_CARRIER_CALL_SQL), {"ex": engine_call_id})
+    ).scalar_one_or_none()
     request = TransferRequest(
-        call_ref=engine_call_id,
+        call_ref=str(carrier_call_id) if carrier_call_id else engine_call_id,
         to_e164=duty.member.phone_e164,
         present_as=present_as,
         whisper=compose_whisper(

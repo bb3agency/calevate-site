@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -141,6 +141,20 @@ function routes(over: Routes = {}): Routes {
   };
 }
 
+/** The Add form lives in a drawer opened from the page's primary button (D-661). */
+async function openAddVoice(): Promise<HTMLElement> {
+  await screen.findByRole("table");
+  fireEvent.click(screen.getByRole("button", { name: "Add a voice" }));
+  return screen.findByRole("dialog", { name: "Add a voice" });
+}
+
+/** A row's Enable / Disable / Archive moved into its "More actions" menu (D-661). */
+async function openRowMenu(label: string): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: `More actions for ${label}` }));
+  });
+}
+
 async function rowFor(label: string): Promise<HTMLElement> {
   const table = await screen.findByRole("table");
   const row = within(table)
@@ -164,7 +178,7 @@ describe("the voices page", () => {
         },
       }),
     );
-    await screen.findByRole("table");
+    await openAddVoice();
 
     fireEvent.click(screen.getByRole("radio", { name: /cartesia/i }));
     fireEvent.change(screen.getByLabelText(/Voice ID/i), { target: { value: " abc123 " } });
@@ -199,7 +213,7 @@ describe("the voices page", () => {
 
   it("offers exactly the providers the server sent, and invents none of its own", async () => {
     renderAdminPage(<VoicesPage />, routes());
-    await screen.findByRole("table");
+    await openAddVoice();
 
     // The whole list, in the server's order. A provider compiled into the browser — for a
     // vendor this product once refused, or one it has stopped running — shows up here as a
@@ -213,7 +227,7 @@ describe("the voices page", () => {
   });
 
   it("shows a provider the server refuses, disabled and with the server's own reason", async () => {
-    const { container } = renderAdminPage(
+    renderAdminPage(
       <VoicesPage />,
       routes({
         [LIST_PATH]: catalogue({
@@ -237,13 +251,13 @@ describe("the voices page", () => {
         }),
       }),
     );
-    await screen.findByRole("table");
+    const drawer = await openAddVoice();
 
     // NOT FILTERED AWAY. An operator who cloned a voice somewhere this product cannot bill
     // must read why, on the screen where they would otherwise type it in and be refused.
     const option = screen.getByRole("radio", { name: /some-clone-shop/i }) as HTMLInputElement;
     expect(option.disabled).toBe(true);
-    expect(container.textContent).toMatch(/no voice tier and no price/i);
+    expect(drawer.textContent).toMatch(/no voice tier and no price/i);
   });
 
   it("prints the server's refusal verbatim when a voice id is not on the platform", async () => {
@@ -258,7 +272,7 @@ describe("the voices page", () => {
         }),
       }),
     );
-    await screen.findByRole("table");
+    await openAddVoice();
 
     fireEvent.change(screen.getByLabelText(/Voice ID/i), { target: { value: "typo-id" } });
     fireEvent.change(screen.getByLabelText(/Name, exactly/i), { target: { value: "Whatever" } });
@@ -276,12 +290,17 @@ describe("the voices page", () => {
 
     // THE FOUNDER'S ACTUAL COMPLAINT: one added voice on screen, 418 on the platform, and
     // no suggestion that the other 417 are a to-do list.
-    expect(container.textContent).toContain(CLONE_FIRST);
     expect(within(await screen.findByRole("table")).getAllByRole("row")).toHaveLength(2);
+    // The scope is a two-way view switch over one list (D-655): "added here" is the one
+    // checked, and the vendor's count rides on the other option.
     expect(
-      screen.getByRole("button", { name: /Show every voice the platform lists \(418\)/i }),
-    ).toBeTruthy();
+      screen.getByRole("radio", { name: /Added here/i }).getAttribute("aria-checked"),
+    ).toBe("true");
+    const everything = screen.getByRole("radio", { name: /Every voice the platform lists/i });
+    expect(everything.textContent).toContain("418");
     expect(container.textContent).toMatch(/Nothing needs to be done with them/i);
+    // Where a NEW voice comes from is said where it is typed in: the Add drawer.
+    expect((await openAddVoice()).textContent).toContain(CLONE_FIRST);
   });
 
   it("fetches the full list only when the operator asks for it", async () => {
@@ -298,7 +317,7 @@ describe("the voices page", () => {
     await screen.findByRole("table");
     expect(calls.some((call) => call.path === ALL_PATH)).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: /Show every voice/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /Every voice the platform lists/i }));
 
     await waitFor(() => expect(calls.some((call) => call.path === ALL_PATH)).toBe(true));
     const stock = await rowFor("Stock One");
@@ -388,11 +407,18 @@ describe("the voices page", () => {
     // The reassurance travels WITH the number, because the number alone reads as a warning
     // that the click will break something — and it will not.
     expect(row.textContent).toMatch(/keep speaking it/i);
-    // ARCHIVING IS OFFERED, NOT REFUSED.
-    expect(
-      (within(row).getByRole("button", { name: /Archive Ashutosh/i }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+    // ARCHIVING IS OFFERED, NOT REFUSED — and its confirmation repeats the count and the
+    // reassurance, word for word, where the decision is made.
+    await openRowMenu("Ashutosh");
+    const archive = await screen.findByRole("menuitem", { name: /^Archive/ });
+    expect(archive.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(archive);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Archive Ashutosh?");
+    expect(dialog.textContent).toContain("4 live agents speak it now");
+    expect(dialog.textContent).toContain(
+      "Disabling or archiving will not affect them — they keep speaking it.",
+    );
   });
 
   it("sends one PATCH naming the voice and the destination state", async () => {
@@ -406,9 +432,18 @@ describe("the voices page", () => {
         },
       }),
     );
-    const row = await rowFor("Ashutosh");
+    await rowFor("Ashutosh");
 
-    fireEvent.click(within(row).getByRole("button", { name: /Disable Ashutosh/i }));
+    await openRowMenu("Ashutosh");
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Disable/ }));
+
+    // Disabling withdraws the voice from every picker, so it is confirmed first (founder
+    // decision): choosing it from the menu opens the confirmation and sends NOTHING.
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Disable Ashutosh?");
+    expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disable voice" }));
 
     await waitFor(() => {
       const patch = calls.find((call) => call.method === "PATCH");
@@ -418,20 +453,18 @@ describe("the voices page", () => {
         state: "disabled",
       });
     });
+    expect(calls.filter((call) => call.method === "PATCH")).toHaveLength(1);
   });
 
   it("does not offer the state a voice is already in", async () => {
     renderAdminPage(<VoicesPage />, routes());
-    const row = await rowFor("Ashutosh");
+    await rowFor("Ashutosh");
+    await openRowMenu("Ashutosh");
 
-    const enable = within(row).getByRole("button", {
-      name: /Enable Ashutosh/i,
-    }) as HTMLButtonElement;
-    const disable = within(row).getByRole("button", {
-      name: /Disable Ashutosh/i,
-    }) as HTMLButtonElement;
-    expect(enable.disabled).toBe(true);
-    expect(disable.disabled).toBe(false);
+    const enable = await screen.findByRole("menuitem", { name: /^Enable/ });
+    const disable = screen.getByRole("menuitem", { name: /^Disable/ });
+    expect(enable.getAttribute("aria-disabled")).toBe("true");
+    expect(disable.getAttribute("aria-disabled")).toBeNull();
   });
 
   it("refreshes through the voice platform and prints the server's own sentence", async () => {
@@ -481,9 +514,9 @@ describe("the voices page", () => {
     // rather than a narrower matcher, because which of the two a reader sees first is a
     // layout question this assertion has no business pinning.
     expect((await screen.findAllByText(/No voice has been added yet/i)).length).toBeGreaterThan(0);
-    // The ADD FORM is still there — the empty state's fix is the control above it, not a
-    // Refresh against a vendor that has nothing to do with this.
-    expect(screen.getByRole("button", { name: /Add this voice/i })).toBeTruthy();
+    // The ADD action is still there — the empty state's fix is the page's primary button
+    // (which opens the form in a drawer), not a Refresh against an unrelated vendor.
+    expect(screen.getByRole("button", { name: "Add a voice" })).toBeTruthy();
     // §52: an empty catalogue is a state, and it must not be painted as a transport fault.
     expect(screen.queryByRole("button", { name: /Try again/i })).toBeNull();
   });
@@ -496,6 +529,7 @@ describe("the voices page", () => {
     // The form needs the server's options, so it waits with the table rather than rendering
     // a provider picker of nothing.
     expect(screen.queryByRole("button", { name: /Add this voice/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a voice" })).toBeNull();
   });
 
   it("renders a failed read as a refusal, never as 'no voices'", async () => {
@@ -519,5 +553,6 @@ describe("the voices page", () => {
     // The refusal INSTEAD of the screen, and no retry button.
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByRole("button", { name: /Add this voice/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a voice" })).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
-import { TenantNav } from "@/app/admin/tenants/[tenantId]/TenantNav";
+import { TenantSectionNav } from "@/app/admin/tenants/[tenantId]/TenantShell";
 import { carrierApplicationPath, type TenantSummary } from "@/lib/api/admin";
 import { KYC_PATH, type CarrierApplication, type KycRecord } from "@/lib/api/kyc";
 
@@ -343,7 +343,7 @@ describe("the carrier compliance application panel", () => {
 describe("finding the carrier decision at all", () => {
   it("names the tenant nav entry for both checks, not only ours", async () => {
     const { container } = await renderAdminRoute(
-      <TenantNav tenantId={TENANT} slug="sri-traders" />,
+      <TenantSectionNav tenantId={TENANT} />,
       { [ADMIN_ME_PATH]: ME },
     );
 

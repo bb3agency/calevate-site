@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
+  recurrenceUntil,
   useAddContacts,
   useCampaignNumbers,
   useCampaignProgress,
@@ -27,7 +28,8 @@ import { useAgents } from "@/lib/api/agents";
 import { CampaignDetail } from "./CampaignDetail";
 import { CampaignList } from "./CampaignList";
 import { NewCampaignFlow } from "./NewCampaignFlow";
-import { useCampaignForm, useScheduleForm } from "./campaignForm";
+import { useCampaignForm, useScheduleForm, type StartMode } from "./campaignForm";
+import type { ContactPayload } from "./contactList";
 import { useCampaignsCopilotSurface } from "./campaignsCopilotSurface";
 
 /**
@@ -77,14 +79,13 @@ export function CampaignsScreen() {
   /** Which view: the list, the new-campaign flow, or one campaign. */
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  /** The parsed list waiting for its campaign to exist — see the effect below. */
-  const [pendingContacts, setPendingContacts] = useState<
-    { phone: string; name?: string }[] | null
-  >(null);
+  /** What waits for the new campaign to exist: its list, and the start it was given. */
+  const [pendingContacts, setPendingContacts] = useState<ContactPayload[] | null>(null);
+  const [pendingStart, setPendingStart] = useState<StartMode | null>(null);
   const [rowError, setRowError] = useState<unknown>(null);
   const form = useCampaignForm();
   const scheduleForm = useScheduleForm();
-  const { name, numberId, csv } = form;
+  const { name, numberId } = form;
 
   /**
    * Every mutating step here is `leads:dispatch` (campaigns/routes.py), which `staff` does
@@ -133,12 +134,12 @@ export function CampaignsScreen() {
   });
 
   /*
-   * What a reload would lose: the pasted list until it is uploaded, and before the
+   * What a reload would lose: the contact list until it is uploaded, and before the
    * campaign exists, the typed name, agent and number. Schedule fields carry defaults
    * nobody typed, so they are not counted.
    */
   useUnsavedGuard(
-    csv.trim() !== "" ||
+    form.contacts.length > 0 ||
       (campaignId === null &&
         (name.trim() !== "" || form.agentId !== "" || numberId !== "")),
   );
@@ -149,18 +150,34 @@ export function CampaignsScreen() {
    * is bound to the id this screen holds. Setting the id re-renders with the hook bound to
    * the new campaign; this effect then sends the list through it. On failure the screen
    * is already on the new draft, the error renders on its contacts panel, and the list
-   * is still in the textarea (it is cleared only on success), so "Add contacts" retries.
+   * is still in the editor (it is cleared only on success), so "Add contacts" retries.
+   *
+   * A start or a repeat chosen in the flow is armed the same way, through the hooks the
+   * campaign page's own "Start later or repeat" forms use; a refusal renders at the top,
+   * and those forms still hold the values to try again.
    */
   useEffect(() => {
-    if (!campaignId || !pendingContacts) return;
-    setPendingContacts(null);
-    addContacts.mutate(pendingContacts, { onSuccess: () => form.setCsv("") });
+    if (!campaignId) return;
+    if (pendingContacts) {
+      setPendingContacts(null);
+      addContacts.mutate(pendingContacts, { onSuccess: () => form.setContacts([]) });
+    }
+    if (pendingStart === "later" && scheduleForm.startIso) schedule.mutate(scheduleForm.startIso);
+    if (pendingStart === "weekly") {
+      repeat.mutate({
+        days: scheduleForm.repeatDays,
+        at: scheduleForm.repeatTime,
+        until: recurrenceUntil(scheduleForm.repeatEnds),
+      });
+    }
+    if (pendingStart) setPendingStart(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once per create
-  }, [campaignId, pendingContacts]);
+  }, [campaignId, pendingContacts, pendingStart]);
 
   const submitNew = () => {
     if (!selectedAgentId) return;
-    const contacts = form.parsed;
+    const contacts = form.checked.ready;
+    const start = scheduleForm.startMode;
     create.mutate(
       {
         agent_id: selectedAgentId,
@@ -181,6 +198,7 @@ export function CampaignsScreen() {
         onSuccess: (data) => {
           setCreating(false);
           setPendingContacts(contacts);
+          setPendingStart(start === "review" ? null : start);
           setCampaignId(data.id);
         },
       },
@@ -197,6 +215,7 @@ export function CampaignsScreen() {
     create.reset();
     addContacts.reset();
     form.reset();
+    scheduleForm.setStartMode("review");
   };
 
   const startNew = () => {
@@ -269,6 +288,7 @@ export function CampaignsScreen() {
       ) : creating ? (
         <NewCampaignFlow
           form={form}
+          schedule={scheduleForm}
           agents={agents}
           agentOptions={agentOptions}
           selectedAgentId={selectedAgentId}

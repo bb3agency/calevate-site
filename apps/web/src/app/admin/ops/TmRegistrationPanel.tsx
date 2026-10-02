@@ -12,6 +12,8 @@ import {
   FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
   formatIST,
   formatISTInput,
   istInputToInstant,
@@ -81,6 +83,9 @@ export function TmRegistrationPanel({
   const [registeredAt, setRegisteredAt] = useState(formatISTInput(registration.registered_at));
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
+  // The form is rare and the verdict is not: LIVE / NOT LIVE and the facts stay on screen,
+  // and the fields open on request. The consequence still sits above the button once open.
+  const [editing, setEditing] = useState(false);
 
   // Which write this is, in the operator's words and in the API's. Both derive from the
   // status being ACTIVE — the direction of this request — and neither is a claim about
@@ -96,7 +101,22 @@ export function TmRegistrationPanel({
   const ready = confirm === confirmWord;
 
   return (
-    <Card title="Our telemarketer registration">
+    <Card
+      title="Our telemarketer registration"
+      action={
+        editing ? undefined : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            disabled={!access.allowed}
+            title={access.reason ?? undefined}
+            className={SECONDARY_BUTTON_SM}
+          >
+            Record a change
+          </button>
+        )
+      }
+    >
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
           Calevate is the registered{" "}
@@ -159,8 +179,16 @@ export function TmRegistrationPanel({
           </p>
         )}
 
+        {!editing && !access.allowed && access.reason && (
+          <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {access.reason}
+          </p>
+        )}
+
+        {editing && (
         <form
-          className="space-y-3"
+          className="space-y-3 border-t border-line pt-4"
           noValidate
           onSubmit={valid.onSubmit(() => {
             record.mutate(
@@ -264,18 +292,31 @@ export function TmRegistrationPanel({
             </p>
           </div>
 
-          <button
-            type="submit"
-            title={access.reason ?? undefined}
-            disabled={!access.allowed || !ready || record.isPending}
-            className={makingLive ? PRIMARY_BUTTON : DANGER_BUTTON}
-          >
-            {record.isPending
-              ? "Recording…"
-              : makingLive
-                ? "Record registration as active"
-                : `Record as “${tmStatusCopy(status).label}”`}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              title={access.reason ?? undefined}
+              disabled={!access.allowed || !ready || record.isPending}
+              className={makingLive ? PRIMARY_BUTTON : DANGER_BUTTON}
+            >
+              {record.isPending
+                ? "Recording…"
+                : makingLive
+                  ? "Record registration as active"
+                  : `Record as “${tmStatusCopy(status).label}”`}
+            </button>
+            <button
+              type="button"
+              disabled={record.isPending}
+              onClick={() => {
+                setEditing(false);
+                setConfirm("");
+              }}
+              className={SECONDARY_BUTTON}
+            >
+              Cancel
+            </button>
+          </div>
 
           {!access.allowed && access.reason && (
             <p className="flex items-start gap-2 text-xs text-ink-muted">
@@ -284,6 +325,7 @@ export function TmRegistrationPanel({
             </p>
           )}
         </form>
+        )}
       </div>
     </Card>
   );
@@ -292,7 +334,7 @@ export function TmRegistrationPanel({
 function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-ink-faint">{label}</dt>
+      <dt className="text-xs font-medium text-ink-faint">{label}</dt>
       <dd className={mono ? "mt-0.5 font-mono text-sm text-ink" : "mt-0.5 text-sm text-ink"}>
         {value}
       </dd>

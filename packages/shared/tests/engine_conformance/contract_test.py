@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -227,7 +228,14 @@ def _dial_context(
     it differently would be testing a system we do not run.
     """
     prompt = None if engine.capabilities.hosts_agents() else compose_engine_prompt(cfg)
-    return CallContext(system_prompt=prompt, **fields)
+    # `dispatch_call` always names its intent row, and resolves the agent's registered
+    # header; an engine that presents a caller id we name is handed one, as in production.
+    return CallContext(
+        system_prompt=prompt,
+        call_id=str(uuid.uuid4()),
+        from_e164=CONFORMANCE_CALLER_ID if engine.capabilities.caller_id else None,
+        **fields,
+    )
 
 
 #: THE REFUSAL CODES A DIAL MAY HONESTLY GIVE INSTEAD OF PLACING A CALL.
@@ -926,6 +934,12 @@ async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
     one = (await engine.get_execution(first)).raw_document
     two = (await engine.get_execution(second)).raw_document
 
+    if one is None and engine.capabilities.agent_hosting == "owned_runtime":
+        # On an engine we RUN there is no vendor document: the rows the runtime wrote are
+        # the record (D-607), and the archive stage answers `none_offered` for them
+        # (`apps/workers/pipeline.py`). The carrier's own record is its CDR, read by the
+        # workers, never through `get_execution`.
+        pytest.skip("an owned runtime has no vendor document to archive")
     assert one is not None, (
         "this adapter carries no raw document out of `get_execution`, so nothing can "
         "archive what the vendor said — `calls.engine_payload_ref` is a column with no "

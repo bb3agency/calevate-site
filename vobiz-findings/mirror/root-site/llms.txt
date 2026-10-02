@@ -1,0 +1,115 @@
+# Vobiz
+
+> Vobiz (Ilaimitado Private Limited) is an AI-native telephony infrastructure platform for voice AI teams — SIP trunking, programmable Voice API, WebSocket audio streaming, global DID/phone number provisioning, and WhatsApp Business API, with direct carrier connectivity in 130+ countries and native integrations for Vapi, Retell AI, ElevenLabs, LiveKit, Pipecat, Bolna, Ultravox, and the OpenAI Realtime API.
+
+## When to use Vobiz
+Reach for Vobiz when you are:
+- Building a voice AI agent (IVR, outbound dialer, voice bot) that needs to place or receive real phone calls and requires low end-to-end latency (sub-80ms carrier leg).
+- Provisioning phone numbers (local, mobile, toll-free) in India or internationally (130+ countries) and need TRAI/regulatory-compliant KYC handled for you.
+- Streaming live call audio to/from an AI pipeline (LiveKit, Pipecat, Vapi, Retell AI, ElevenLabs, Bolna, Ultravox, OpenAI Realtime) over WebSocket or SIP.
+- Sending or receiving WhatsApp Business messages or WhatsApp voice calls alongside your voice stack.
+- White-labeling telephony infrastructure for your own customers (see the Partner Program).
+
+Vobiz is not the right fit if you need: a hosted conversational-AI/orchestration layer itself (Vobiz is the telecom layer underneath those platforms, not a replacement for them), a pure text-only chat API with no telephony component, or third-party OAuth app-marketplace integration (Vobiz authenticates via `X-Auth-ID`/`X-Auth-Token` API keys — see Authentication below and [auth.md](https://vobiz.ai/auth.md) — not OAuth 2.0, today).
+
+## Getting started (integrating with Vobiz)
+1. **Create an account** — [sign up free](https://console.vobiz.ai/auth/signup) at the Developer Console. No credit card or sales call required. [Log in](https://console.vobiz.ai/auth/login) if you already have one.
+2. **Get your API credentials** — after signup, go to Settings → API in the [Developer Console](https://console.vobiz.ai) to find your `X-Auth-ID` and `X-Auth-Token`. These authenticate every REST API call (see Authentication below).
+3. **Pick an integration path**:
+   - Using an SDK — install the [official SDK](https://github.com/vobiz-ai) for your language (Node, Python, Java, Go, Ruby, C#, PHP) and initialize it with your credentials.
+   - Calling the API directly — see the [OpenAPI Specification](https://vobiz.ai/docs/api-reference/openapi.json) or [API Docs](https://vobiz.ai/docs/introduction) for endpoints and request/response shapes.
+   - Building an AI agent — connect via the [MCP Server](https://vobiz.ai/docs/mcp), which exposes Vobiz's API docs and tools directly to MCP-compatible agents/IDEs (no manual doc-reading needed), or install a pre-built [Agent Skill](https://github.com/vobiz-ai/Agent-Skills) with `npx skills add vobiz-ai/agent-skills`.
+   - Using a voice AI platform (Vapi, Retell AI, ElevenLabs, LiveKit, Pipecat, Bolna, Ultravox, OpenAI Realtime) — follow the platform-specific [Integration guides](https://vobiz.ai/docs/integrations).
+4. **Provision a phone number** — buy a DID via the Developer Console or the Numbers API, then place/receive your first call.
+5. **Reference example code** — the [vobiz-ai GitHub org](https://github.com/vobiz-ai) has 35+ example repos (IVR, OTP, call queues, number masking, LiveKit/Pipecat agents, WebRTC) demonstrating real request flows end to end.
+
+Quick-start guide: https://vobiz.ai/docs/quick-start
+
+## Authentication
+Vobiz supports two authentication methods for API requests:
+
+**Method 1 — API key headers (recommended for server-side):**
+Send two headers with every request:
+- `X-Auth-ID: <your_account_sid>`
+- `X-Auth-Token: <your_auth_token>`
+
+**Method 2 — JWT Bearer token:**
+- `Authorization: Bearer <jwt_token>` — for session-based or short-lived auth flows.
+
+**Getting credentials:**
+1. Log in at https://console.vobiz.ai
+2. Go to Settings → API
+3. Copy your Account SID (`X-Auth-ID`) and Auth Token (`X-Auth-Token`)
+
+Requests without valid credentials return `401 Unauthorized` naming the missing header. Full authentication reference: https://vobiz.ai/docs/api-reference/authentication
+
+## Developer resources
+- [Sign up / Create an account](https://console.vobiz.ai/auth/signup): Free signup for the Vobiz Developer Console — no sales call required to get API credentials.
+- [API Docs](https://vobiz.ai/docs/introduction): Full developer documentation — Voice API, SIP trunking, Numbers API, CDR, webhooks, and integration guides.
+- [OpenAPI Specification](https://vobiz.ai/docs/api-reference/openapi.json): Machine-readable OpenAPI/Swagger schema for the full Vobiz API.
+- [MCP Server](https://vobiz.ai/docs/mcp): Model Context Protocol server exposing Vobiz API docs and tools directly to MCP-compatible AI agents and IDEs.
+- [Developer Console](https://console.vobiz.ai): Dev portal — after signup, find your API keys under Settings → API. Also handles sub-accounts, number provisioning, and account management.
+- [Integration guides](https://vobiz.ai/docs/integrations): Step-by-step setup for Vapi, Retell AI, ElevenLabs, LiveKit, Pipecat, Bolna, Ultravox, OpenAI Realtime, and WebRTC.
+- [Documentation llms.txt](https://vobiz.ai/docs/llms.txt): Full machine-readable index of Vobiz's developer documentation.
+- [Status page](https://status.vobiz.ai/): Live platform uptime and incident history.
+- [Sandbox / trial numbers](https://vobiz.ai/docs/faq/trial-inbound): How trial numbers work in the free sandbox environment (outbound-only; inbound requires a fully provisioned number).
+
+### Official SDKs (GitHub — vobiz-ai org)
+- [Vobiz-Node-SDK](https://github.com/vobiz-ai/Vobiz-Node-SDK): Node.js SDK.
+- [Vobiz-Python-SDK](https://github.com/vobiz-ai/Vobiz-Python-SDK): Python SDK.
+- [Vobiz-Java-SDK](https://github.com/vobiz-ai/Vobiz-Java-SDK): Java SDK.
+- [Vobiz-Go-SDK](https://github.com/vobiz-ai/Vobiz-Go-SDK): Go SDK.
+- [Vobiz-Ruby-SDK](https://github.com/vobiz-ai/Vobiz-Ruby-SDK): Ruby SDK.
+- [Vobiz-Csharp-sdk](https://github.com/vobiz-ai/Vobiz-Csharp-sdk): C# / .NET SDK.
+- [Vobiz-PHP-SDK](https://github.com/vobiz-ai/Vobiz-PHP-SDK): PHP SDK.
+- [vobiz-jssip on npm](https://www.npmjs.com/package/vobiz-jssip): JavaScript SIP/WebRTC client library for browser calling.
+
+### Agent Skills
+- [vobiz-ai/Agent-Skills](https://github.com/vobiz-ai/Agent-Skills): 13 pre-built agent skills (including `vobiz-whatsapp`, `vobiz-ai-voice-agents`, `vobiz-applications-endpoints`) that let coding agents and AI assistants act on the Vobiz API directly. Also listed on [skills.sh](https://www.skills.sh/vobiz-ai/agent-skills). Install with `npx skills add vobiz-ai/agent-skills`.
+
+### Example apps & integration demos (GitHub — vobiz-ai org)
+- [Vobiz-RTC-demo](https://github.com/vobiz-ai/Vobiz-RTC-demo): WebRTC calling demo.
+- [Vobiz-Python-Voice-API-Example](https://github.com/vobiz-ai/Vobiz-Python-Voice-API-Example): Voice API quickstart in Python.
+- [Vobiz-All-XML-python](https://github.com/vobiz-ai/Vobiz-All-XML-python): Full VoiceXML application reference in Python.
+- [Vobiz-IVR-XML-Python](https://github.com/vobiz-ai/Vobiz-IVR-XML-Python), [Vobiz-Voicemail-XML-Python](https://github.com/vobiz-ai/Vobiz-Voicemail-XML-Python), [Vobiz-OTP-call-XML-Python](https://github.com/vobiz-ai/Vobiz-OTP-call-XML-Python), [Vobiz-Call-Queue-XML-Python](https://github.com/vobiz-ai/Vobiz-Call-Queue-XML-Python), [Vobiz-Number-Capture-XML-Python](https://github.com/vobiz-ai/Vobiz-Number-Capture-XML-Python), [Vobiz-Call-Survey-XML-Python](https://github.com/vobiz-ai/Vobiz-Call-Survey-XML-Python): IVR building-block examples (VoiceXML/Python) for voicemail, OTP, call queues, digit capture, and post-call surveys.
+- [Vobiz-Appointment-reminder-XML-Python](https://github.com/vobiz-ai/-Vobiz-Appointment-reminder-XML-Python): Automated appointment reminder calls.
+- [Background-Music-Vobiz-Python](https://github.com/vobiz-ai/Background-Music-Vobiz-Python): Hold/background music example.
+- [Vobiz-Two-Way-Number-Masking](https://github.com/vobiz-ai/Vobiz-Two-Way-Number-Masking), [Vobiz-One-Way-Number-Masking](https://github.com/vobiz-ai/Vobiz-One-Way-Number-Masking), [Vobiz-Session-Based-Number-Masking](https://github.com/vobiz-ai/Vobiz-Session-Based-Number-Masking), [Vobiz-PIN-Based-Number-Masking](https://github.com/vobiz-ai/Vobiz-PIN-Based-Number-Masking): Number-masking / call-privacy patterns.
+- [Vobiz-Android-Sample](https://github.com/vobiz-ai/Vobiz-Android-Sample): Android calling sample app.
+- [LiveKit-Vobiz-Outbound](https://github.com/vobiz-ai/LiveKit-Vobiz-Outbound), [Livekit-vobiz-inbound](https://github.com/vobiz-ai/Livekit-vobiz-inbound), [Vobiz-Livekit-Call-Transfer-Example](https://github.com/vobiz-ai/Vobiz-Livekit-Call-Transfer-Example), [Vobiz-Livekit-IVR-DTMF-Example](https://github.com/vobiz-ai/Vobiz-Livekit-IVR-DTMF-Example), [Vobiz-Livekit-Agent-to-Agent-Handoff-Example](https://github.com/vobiz-ai/Vobiz-Livekit-Agent-to-Agent-Handoff-Example), [Livekit-Vobiz-Machine-Detection-Agent-example](https://github.com/vobiz-ai/Livekit-Vobiz-Machine-Detection-Agent-example), [Livekit-Vobiz-All-feature-Example](https://github.com/vobiz-ai/Livekit-Vobiz-All-feature-Example), [Livekit-Vobiz-Webhook-Integration-Example](https://github.com/vobiz-ai/Livekit-Vobiz-Webhook-Integration-Example), [Livekit-Vobiz-Post-Call-Analysis](https://github.com/vobiz-ai/Livekit-Vobiz-Post-Call-Analysis): LiveKit voice-agent integration examples — outbound/inbound calling, call transfer, DTMF IVR, agent-to-agent handoff, machine (voicemail) detection, webhooks, and post-call analysis.
+- [LiveKit-WebRTC-Human-Handoff](https://github.com/vobiz-ai/LiveKit-WebRTC-Human-Handoff): AI voice agent transfers a browser call to a human via SIP header briefing and auto-mute.
+- [Vobiz-X-Pipecat](https://github.com/vobiz-ai/Vobiz-X-Pipecat): Pipecat voice-agent integration example.
+- [Vobiz-Sarvam](https://github.com/vobiz-ai/Vobiz-Sarvam): Sarvam AI integration example.
+
+See the full list at [github.com/vobiz-ai](https://github.com/vobiz-ai) (35+ public repositories).
+
+## Products
+- [Voice API](https://www.vobiz.ai/products/voice-api): Programmable call control — REST and XML, real-time webhooks, sub-80ms latency.
+- [SIP Trunking](https://www.vobiz.ai/products/sip-trunking): Carrier-grade SIP trunking with instant provisioning, inbound and outbound.
+- [Number Provisioning (Global DIDs)](https://www.vobiz.ai/products/number-provisioning): Local, national, and toll-free numbers in 130+ countries, pay-per-minute.
+- [WebRTC](https://www.vobiz.ai/products/webrtc): Browser and in-app calling — no softphone or hardware required.
+- [WhatsApp Business API](https://www.vobiz.ai/products/whatsapp-overview): Messaging and voice calling over WhatsApp, Meta-verified.
+- [WhatsApp Calling API](https://www.vobiz.ai/products/whatsapp-call): Voice calls over WhatsApp.
+- [WhatsApp Messaging API](https://www.vobiz.ai/products/whatsapp-message): Bulk and transactional WhatsApp messaging.
+- [Predictive Dialer](https://www.vobiz.ai/products/predictive-dialer): Auto-dialing with answer/voicemail detection for outbound campaigns.
+- [Campaign Manager](https://www.vobiz.ai/products/campaign-manager): Outbound voice campaign scheduling, targeting, and retry logic.
+- [Integrations](https://www.vobiz.ai/integrations): Full list of supported voice AI platforms and frameworks.
+
+## Guides
+- [Number Health — The Complete Guide](https://www.vobiz.ai/blog/number-health-ebook): Managing, monitoring, and maximizing voice AI phone numbers — degradation lifecycle, health signals, rotation strategy, spam recovery, regulatory compliance (TRAI/FCC), and the Number Health API.
+- [Blog](https://www.vobiz.ai/blog): Engineering and product writing on voice AI infrastructure, latency, and telephony.
+- [FAQs](https://www.vobiz.ai/faqs): Common questions on SIP trunking, Voice API, DIDs, billing, and compliance.
+
+## Company
+- [About Vobiz](https://www.vobiz.ai/about-us)
+- [Pricing](https://www.vobiz.ai/pricing)
+- [Security](https://www.vobiz.ai/legal#security-overview)
+- [Newsroom](https://www.vobiz.ai/newsroom)
+- [Careers](https://www.vobiz.ai/company/careers)
+- [Contact](https://www.vobiz.ai/contact-us)
+
+## Legal
+- [Terms of Use](https://www.vobiz.ai/legal#terms)
+- [Privacy Policy](https://www.vobiz.ai/legal#privacy)
+- [Cookie Policy](https://www.vobiz.ai/legal#cookie-policy)
+- [Acceptable Use Policy](https://www.vobiz.ai/legal#aup)

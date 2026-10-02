@@ -43,10 +43,8 @@ const IMPERSONATED = [
   // session on purpose — the operator must see the client's own answer, not a parallel
   // one — so it needs the grant exactly like the two queue reads above it.
   "/v1/kb/delivery",
-  "/v1/agents",
-  "/v1/campaigns/numbers",
-  "/v1/campaigns/templates",
-  "/v1/billing/caps",
+  // The agents, numbers, templates and spend-cap reads left the overview with their panels
+  // (D-661: Agents, Compliance › Campaign setup, Money › Spend); the grant rule is unchanged.
 ];
 
 function routes(): Routes {
@@ -188,7 +186,7 @@ describe("view-as sends a grant, and mints it once", () => {
     }
   });
 
-  it("mints ONE grant for a screen that opens six impersonated reads at once", async () => {
+  it("mints ONE grant for a screen that opens several impersonated reads at once", async () => {
     const { calls } = await renderAdminRoute(page(), routes());
     await settled(calls);
 

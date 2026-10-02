@@ -1,0 +1,4 @@
+# Vendor documentation mirrors are byte-exact, hash-pinned snapshots (each has a
+# MANIFEST.json of sha256 per page). `-text` stops core.autocrlf from rewriting their line
+# endings on commit or checkout, which would break every hash without touching the content.
+vobiz-findings/mirror/** -text

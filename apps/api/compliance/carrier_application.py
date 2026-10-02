@@ -93,6 +93,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.models import CARRIER_APPLICATION_ACCEPTED
 from apps.api.core.errors import ProblemError
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.transition import transition_status
 
@@ -110,9 +111,17 @@ from apps.api.db.transition import transition_status
 # rows long after we learned better.
 # --------------------------------------------------------------------------------------
 
-#: The carrier we hold an account with. Stored on every row rather than assumed, because
-#: an application identifier is meaningless without knowing whose it is.
+#: The carrier the first applications were recorded under. NOT the carrier a new
+#: application is made with: that is `current_carrier()`, the switch (D-662).
 CARRIER: Final = "plivo"
+
+
+def current_carrier() -> str:
+    """The carrier this deployment rents numbers through, and so the one a tenant's
+    application must be with. Stored on every row rather than assumed, because an
+    application identifier is meaningless without knowing whose it is."""
+    return get_settings().carrier
+
 
 #: The largest single document the carrier is reported to accept (~5 MB per file). We
 #: refuse above it at the door, while the client still has the file in front of them —
@@ -335,7 +344,7 @@ _SELECT = (
 
 
 async def read_carrier_application(
-    session: AsyncSession, *, tenant_id: UUID, carrier: str = CARRIER
+    session: AsyncSession, *, tenant_id: UUID, carrier: str | None = None
 ) -> CarrierApplicationRecord:
     """This tenant's application, on the caller's RLS-scoped session.
 
@@ -346,7 +355,11 @@ async def read_carrier_application(
     `NOT_RECORDED`, which is the correct answer in both cases: this session cannot see an
     application, so as far as it is concerned there is none.
     """
-    row = (await session.execute(text(_SELECT), {"tid": tenant_id, "carrier": carrier})).first()
+    row = (
+        await session.execute(
+            text(_SELECT), {"tid": tenant_id, "carrier": carrier or current_carrier()}
+        )
+    ).first()
     if row is None:
         return NOT_RECORDED
     return CarrierApplicationRecord(
@@ -504,7 +517,7 @@ async def submit_application(
     document_object_ref: str,
     document_filename: str,
     signed_application_ref: str | None,
-    carrier: str = CARRIER,
+    carrier: str | None = None,
 ) -> UUID:
     """Record that this tenant has sent us their carrier paperwork. Returns the row id.
 
@@ -547,7 +560,7 @@ async def submit_application(
                 "from_states": list(SUBMITTABLE_FROM),
                 "id": application_id,
                 "tid": tenant_id,
-                "carrier": carrier,
+                "carrier": carrier or current_carrier(),
                 "kind": document_kind,
                 "doc_ref": document_object_ref,
                 "filename": document_filename,
@@ -696,7 +709,7 @@ async def record_carrier_decision(
 
 
 async def assert_carrier_application_accepted(
-    session: AsyncSession, *, tenant_id: UUID, carrier: str = CARRIER
+    session: AsyncSession, *, tenant_id: UUID, carrier: str | None = None
 ) -> None:
     """The acquisition-side gate. Raises; writes nothing.
 
@@ -744,7 +757,7 @@ async def assert_carrier_application_accepted(
 
 
 async def ensure_application_row(
-    session: AsyncSession, *, tenant_id: UUID, carrier: str = CARRIER
+    session: AsyncSession, *, tenant_id: UUID, carrier: str | None = None
 ) -> UUID:
     """The row id for this tenant's application, creating a `not_started` one if needed.
 
@@ -761,7 +774,7 @@ async def ensure_application_row(
             "VALUES (:id, :tid, :carrier, 'not_started', now(), now()) "
             "ON CONFLICT (tenant_id, carrier) DO NOTHING"
         ),
-        {"id": uuid7(), "tid": tenant_id, "carrier": carrier},
+        {"id": uuid7(), "tid": tenant_id, "carrier": carrier or current_carrier()},
     )
     # `scalar_one`, not `first()` behind a None arm: the INSERT above either wrote the row
     # or found it already there, so exactly one row is this query's guarantee rather than a
@@ -775,7 +788,7 @@ async def ensure_application_row(
                 "SELECT id FROM carrier_compliance_applications "
                 "WHERE tenant_id = :tid AND carrier = :carrier"
             ),
-            {"tid": tenant_id, "carrier": carrier},
+            {"tid": tenant_id, "carrier": carrier or current_carrier()},
         )
     ).scalar_one()
     return UUID(str(application_id))

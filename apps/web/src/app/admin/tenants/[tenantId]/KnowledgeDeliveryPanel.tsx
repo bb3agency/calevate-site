@@ -1,8 +1,11 @@
 "use client";
 
-import { Card, EmptyState, MonoValue, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
+import { Card, MonoValue, ProblemNotice, Skeleton, formatIST, type NoticeTone } from "@/components/ui";
 import { useTenantKbDelivery, type AgentDelivery } from "@/lib/api/admin";
 import { lookup } from "@/lib/lookup";
+
+import { StatePill } from "./statePill";
 
 /**
  * WHAT THIS CLIENT'S PHONE IS ACTUALLY ANSWERING FROM — the other half of the queue above.
@@ -38,7 +41,7 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
 
   if (delivery.isLoading) {
     return (
-      <Card title="On the phone">
+      <Card title="On the phone" density="compact">
         <Skeleton rows={3} />
       </Card>
     );
@@ -46,7 +49,7 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
 
   if (delivery.error || !delivery.data) {
     return (
-      <Card title="On the phone">
+      <Card title="On the phone" density="compact">
         <ProblemNotice
           error={
             delivery.error ??
@@ -63,26 +66,18 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
   return (
     <Card
       title="On the phone"
+      density="compact"
+      info="What each agent is answering callers out of, against what this client has published. Approving and publishing do not guarantee the frozen knowledge reached the agent — this is where that shows."
       action={
         not_delivered_count > 0 ? (
-          <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-900 dark:bg-rose-950 dark:text-rose-200">
-            {not_delivered_count} stale
-          </span>
+          <StatePill tone="stop">{not_delivered_count} stale</StatePill>
         ) : undefined
       }
     >
-      <p className="mb-3 text-[12px] text-ink-muted">
-        What each agent is answering callers out of, against what this client has
-        published. Approving and publishing do not guarantee the frozen knowledge reached
-        the agent — this is where that shows.
-      </p>
       {items.length === 0 ? (
-        <EmptyState
-          title="No agents"
-          hint="This client has no live agents, so there is nothing for knowledge to reach."
-        />
+        <EmptyState message="No live agents, so there is nothing for knowledge to reach." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="divide-y divide-line">
           {items.map((row) => (
             <Row key={row.agent_id} row={row} />
           ))}
@@ -99,26 +94,26 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
  * diagnosing, so these name the MECHANISM: which sweep owes work, and whether anything is
  * coming. `apps/api/kb/delivery.py` is the single definition both render.
  */
-const STATE: Record<AgentDelivery["state"], { label: string; note: string; tone: string }> = {
+const STATE: Record<AgentDelivery["state"], { label: string; note: string; tone: NoticeTone }> = {
   live: {
     label: "In sync",
     note: "the pack matches what is published",
-    tone: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+    tone: "ok",
   },
   preparing: {
     label: "Gloss pending",
     note: "the gloss sweep still owes this agent work and will rebuild (:12 and :42)",
-    tone: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    tone: "neutral",
   },
   not_delivered: {
     label: "Stale",
     note: "nothing is queued, so no sweep is coming — the pack failed to build or store",
-    tone: "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200",
+    tone: "stop",
   },
   no_knowledge: {
     label: "Nothing published",
     note: "no corpus and no pointer; the agent answers not_found, correctly",
-    tone: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    tone: "neutral",
   },
 };
 
@@ -128,14 +123,10 @@ function Row({ row }: { row: AgentDelivery }) {
   const state = lookup(STATE, row.state) ?? STATE.no_knowledge;
 
   return (
-    <li className="rounded-lg border border-line bg-surface p-3">
+    <li className="py-3 first:pt-1 last:pb-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="min-w-0 truncate text-sm font-medium text-ink">{row.agent_name}</span>
-        <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${state.tone}`}
-        >
-          {state.label}
-        </span>
+        <StatePill tone={state.tone}>{state.label}</StatePill>
       </div>
       <p className="mt-1 text-[12px] text-ink-muted">{state.note}</p>
       <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-ink-faint">

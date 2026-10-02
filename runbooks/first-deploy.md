@@ -59,8 +59,17 @@ Nothing below can be improvised, and each is somebody else's to provide:
       from the development container** (403 on CONNECT, measured 18 Sep 2026); check it in
       the dashboard and use the prefix if it is offered. Read-only bucket scope is the
       floor.
-- [ ] **A Plivo credential for the voice worker that is NOT your account-level one**
-      (DEPLOYMENT §12.5 gate 11). The worker uses it only to hang a leg up; the
+- [ ] **The Vobiz account's Auth ID and Auth Token** (D-662; Vobiz is the default carrier).
+      They go into `/var/www/calevate/.env` as `VOBIZ_AUTH_ID` / `VOBIZ_AUTH_TOKEN` and
+      **nowhere else**: never into the Pipecat secret set, because the worker ends a Vobiz
+      call with the stream `stop` message and needs no carrier credential. The token is
+      also the key Vobiz signs callbacks with, which is why voice-runtime reads it. Before
+      the first live call, the account needs KYC done, an India data region, inbound
+      enabled and a number bought: `runbooks/vobiz-first-live-call.md` §1.
+- [ ] **Only if you will run `CARRIER=plivo`**: a Plivo credential for the voice worker
+      that is NOT your account-level one (DEPLOYMENT §12.5 gate 11). No Plivo account has
+      ever existed, and with `CARRIER=vobiz` (the default) skip this item. The worker uses
+      it only to hang a leg up; the
       account-level auth token can also originate calls, buy numbers and read every CDR,
       in that same third-party container. Hold it as `PLIVO_WORKER_AUTH_ID` /
       `PLIVO_WORKER_AUTH_TOKEN`. ⚠ **What Plivo actually offers as the narrowest such
@@ -267,7 +276,20 @@ AWS_REGION=auto
 AUDIT_CHAIN_SECRET=<32 random bytes>
 IDEMPOTENCY_SCOPE_SECRET=<32 random bytes>
 IMPERSONATION_GRANT_SECRET=<32 random bytes>
+# The carrier (D-662, DEPLOYMENT §12.6). Env-only: voice-runtime reads them and never
+# opens the credential store. Never copy the Vobiz pair into the Pipecat secret set.
+CARRIER=vobiz
+VOBIZ_AUTH_ID=<MA_… from the Vobiz console>
+VOBIZ_AUTH_TOKEN=<from the Vobiz console>
+# The same value goes into the Pipecat secret set (DEPLOYMENT §12.2).
+CARRIER_CLAIM_SECRET=<32 random bytes>
 ```
+
+`CARRIER`, `VOBIZ_SIGNATURE_REQUIRED`, `VOBIZ_CALLBACK_IPS`, `CARRIER_CPS` and
+`CARRIER_TRANSFER_ENABLED` can also be set from the ops console once it is up. Leave
+signature enforcement and transfer off for the first deploy. Signature enforcement is
+turned on during the first live call (`runbooks/vobiz-first-live-call.md`); transfer stays
+off until a live test shows it working and the founder decides to enable it.
 
 ```sh
 chmod 600 .env

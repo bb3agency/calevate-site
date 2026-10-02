@@ -447,7 +447,8 @@ describe("the engine latency report", () => {
     );
 
     await screen.findAllByRole("table");
-    fireEvent.click(screen.getByRole("button", { name: "Last 30 days" }));
+    // A SegmentedControl since the redesign (D-655): its options are radios, not buttons.
+    fireEvent.click(screen.getByRole("radio", { name: "Last 30 days" }));
 
     await waitFor(() => {
       expect(calls.some((call) => call.path === WINDOW_PATH(30))).toBe(true);
@@ -531,7 +532,7 @@ describe("the engine latency report", () => {
     expect(screen.queryByRole("button", { name: /Try again/i })).toBeNull();
     // And no window picker over a report that is not there, no table, and above all no
     // claim about what the engine measured.
-    expect(screen.queryByRole("group", { name: "Choose a window" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Window" })).toBeNull();
     expect(screen.queryAllByRole("table")).toHaveLength(0);
     expect(container.textContent).not.toContain(
       "No timed replies in this window",

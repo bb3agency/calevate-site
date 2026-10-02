@@ -6,11 +6,11 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
-import { appliesVerdict } from "@/app/admin/ops/ConfigPanel";
+import { appliesVerdict } from "@/app/admin/ops/config/configField";
 import { testOutcomeCopy } from "@/app/admin/ops/opsLanguage";
 import { ApiProblem } from "@/lib/api/client";
 import {
@@ -42,6 +42,31 @@ import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 import { expectNoA11yViolations } from "./a11y";
 import { expectTextCount, problem, stubApi, type Routes } from "./harness";
 import { OPS_RATE_CARD } from "./fixtures/opsRateCard";
+
+/*
+ * The configuration screen is a settings layout (D-661): one section is mounted at a time,
+ * chosen by `?section=`. Each test opens the section that owns its subject; the default is
+ * Calling, which is also what a real visit opens first.
+ */
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  usePathname: () => "/admin/ops/config",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+function openSection(id: string) {
+  nav.params = new URLSearchParams(`section=${id}`);
+}
+beforeEach(() => {
+  nav.params = new URLSearchParams();
+});
 
 /**
  * The ops console, hardened for the operator who is tired, in a hurry, or NOT ALONE.
@@ -333,7 +358,9 @@ function renderOps(routes: Routes) {
       <OpsConfigPage />
     </QueryClientProvider>,
   );
-  return Object.assign(result, { calls, client });
+  // The change form opens in a Drawer, which is portalled to <body>; assertions about the
+  // screen read the whole document so the form is part of what they see.
+  return Object.assign(result, { container: document.body, calls, client });
 }
 
 /** Fill the config form for one key. Assumes the row's Change button is already clicked. */
@@ -386,6 +413,7 @@ function stalePrecondition() {
 /* ════════════════════════════════════════════════════════════════════════════════════ */
 
 describe("two operators, one key", () => {
+  beforeEach(() => openSection("billing"));
   it("answers a refused write with the value that is there NOW, and never retries it", async () => {
     let reads = 0;
     const routes = opsRoutes({
@@ -743,7 +771,9 @@ describe("two operators, one key", () => {
 });
 
 describe("what saving will actually do, said before the save", () => {
+  beforeEach(() => openSection("billing"));
   it("puts the restart consequence inside the form that has the Save button", async () => {
+    openSection("platform");
     renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
@@ -776,6 +806,7 @@ describe("what saving will actually do, said before the save", () => {
   });
 
   it("does not let a live-but-not-retroactive change read as a finished one", async () => {
+    openSection("calling");
     renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
@@ -890,6 +921,7 @@ describe("what saving will actually do, said before the save", () => {
   });
 
   it("says a key the store can never deliver is not merely awaiting a restart", async () => {
+    openSection("platform");
     const { container } = renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
@@ -924,6 +956,7 @@ describe("what saving will actually do, said before the save", () => {
 });
 
 describe("the receipt is the server's answer", () => {
+  beforeEach(() => openSection("billing"));
   it("shows what the SERVER stored, not what was typed", async () => {
     const { container } = renderOps(
       opsRoutes({
@@ -1034,6 +1067,7 @@ describe("the receipt is the server's answer", () => {
 });
 
 describe("a write the server did not perform", () => {
+  beforeEach(() => openSection("billing"));
   it("says nothing was written when the value was already the value", async () => {
     // `recorded: false` — `set_value` found the submitted value identical to the stored
     // one, touched no row, bumped no sentinel and wrote no audit entry. A double-clicked
@@ -1069,6 +1103,7 @@ describe("a write the server did not perform", () => {
 });
 
 describe("the keys this console can never change", () => {
+  beforeEach(() => openSection("platform"));
   // D-614. The API has published `bootstrap` since D-101 and the console rendered NONE of
   // it, so the surface built to stop "an operator looking for APP_ENV found nothing at
   // all" produced exactly that nothing. These two rows look alike and mean opposite
@@ -1124,7 +1159,9 @@ describe("the keys this console can never change", () => {
 });
 
 describe("a key the environment pins", () => {
+  beforeEach(() => openSection("billing"));
   it("offers no form, states the reason, and survives the value moving underneath", async () => {
+    openSection("platform");
     const pinned = (value: string) =>
       configList([
         configField({
@@ -1241,6 +1278,7 @@ async function openSecretFormAndTest(
 }
 
 describe("a credential verdict belongs to one candidate", () => {
+  beforeEach(() => openSection("credentials"));
   it("is gone the moment the value in the box changes", async () => {
     const { container } = await openSecretFormAndTest(testVerdict());
     await screen.findByText(ACCEPTED_UNCONFIRMED);
@@ -1297,6 +1335,7 @@ describe("a credential verdict belongs to one candidate", () => {
 });
 
 describe("the four outcomes of a test, kept apart", () => {
+  beforeEach(() => openSection("credentials"));
   it("does not spend a tick on a check nobody has confirmed", async () => {
     const { container } = await openSecretFormAndTest(
       testVerdict({ verified: false }),
@@ -1389,6 +1428,7 @@ describe("the four outcomes of a test, kept apart", () => {
 });
 
 describe("installing a credential", () => {
+  beforeEach(() => openSection("credentials"));
   it("reports the last four the SERVER holds, and its version", async () => {
     renderOps(
       opsRoutes({
@@ -1461,6 +1501,7 @@ describe("installing a credential", () => {
 });
 
 describe("the rewrap", () => {
+  beforeEach(() => openSection("credentials"));
   it("cannot be fired twice by two quick submits", async () => {
     const { calls } = renderOps(
       opsRoutes({
@@ -1595,8 +1636,9 @@ describe("the rewrap", () => {
  * operator meets while something has gone wrong.
  */
 describe("the states that only exist after a click are still operable", () => {
+  beforeEach(() => openSection("billing"));
   it("has no violations with a config form open and its value in conflict", async () => {
-    const { container } = renderOps(
+    renderOps(
       opsRoutes({
         [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: stalePrecondition(),
       }),
@@ -1614,18 +1656,20 @@ describe("the states that only exist after a click are still operable", () => {
       "Someone changed this setting first — nothing was saved",
     );
 
-    await expectNoA11yViolations(container, "admin/ops — config conflict");
+    // The form under test is in a drawer, portalled outside the page root.
+    await expectNoA11yViolations(screen.getByRole("dialog"), "admin/ops — config conflict");
   });
 
   it("has no violations with a credential form open and a verdict on screen", async () => {
-    const { container } = await openSecretFormAndTest(testVerdict());
+    openSection("credentials");
+    await openSecretFormAndTest(testVerdict());
     await screen.findByText(ACCEPTED_UNCONFIRMED);
 
-    await expectNoA11yViolations(container, "admin/ops — credential verdict");
+    await expectNoA11yViolations(document.body.firstElementChild as Element, "admin/ops — credential verdict");
   });
 
   it("has no violations showing a write receipt", async () => {
-    const { container } = renderOps(
+    renderOps(
       opsRoutes({
         [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
@@ -1652,6 +1696,6 @@ describe("the states that only exist after a click are still operable", () => {
     fireEvent.click(saveButton());
     await screen.findByRole("status");
 
-    await expectNoA11yViolations(container, "admin/ops — write receipt");
+    await expectNoA11yViolations(document.body.firstElementChild as Element, "admin/ops — write receipt");
   });
 });

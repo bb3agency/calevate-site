@@ -282,19 +282,38 @@ Models (per-agent config, BYOK):
   may no longer be offered, which moves the TTS cost line to the v3 band (₹30/10K,
   ~₹1.20–1.35/min) [docs-verified; cost model §10 updated]. Ear-test at verification
   (item 3) is now V3 vs their bundled voices, not a v2/v3 bake-off.
-- Telephony: Bolna guides verified for **Exotel (inbound+outbound+connect-your-account),
-  Plivo (in+out), Twilio (in+out), Vobiz (connect + outbound guides published;
-  **inbound is ASSERTED IN THEIR CAPABILITY MATRIX AND HAS NO PROVIDER-SPECIFIC GUIDE** —
-  `bolna-findings/mirror/pages/supported-telephony-providers.md:33` reads
-  "| [Vobiz](/docs/vobiz) | India | ✅ Yes | ✅ Yes | ✅ Yes |" (Inbound / Outbound / BYOA)
-  and `guides/telephony/vobiz.md:22-24` links "Accept incoming calls using Vobiz" at the
-  GENERIC `/docs/guides/inbound/receiving-incoming-calls`, while Twilio, Plivo and Exotel
-  each have their own inbound page and each does it differently. This line used to say
-  "outbound only — no inbound guide": half of that moved, half did not, and the
-  operational consequence is unchanged — the inbound-DID plan must still confirm Vobiz
-  inbound at pilot or shift inbound DIDs to Exotel)** [docs-verified Aug 2026 against the
-  mirror]. DLT-aware, and the carrier↔series map is their own TABLE, not prose: **140 via
-  Vobiz, 160 via Plivo** (`guides/inbound/obtaining-regulated-phone-numbers.md:13-16`).
+- Telephony (D-662): **Vobiz is the carrier, behind a switch.** `Settings.carrier` is
+  `vobiz` or `plivo`, default `vobiz`; it chooses where new dials go and where numbers are
+  bound, and both carriers' answer and events routes stay served so a number keeps
+  answering at the carrier it is bound to until it is rebound. Plivo's side is a set of
+  named refusals, because no Plivo account ever existed. The founder's own Vobiz account
+  carries the testing phase (Model A for that account only); whose account a client's
+  numbers sit on is still open (D-474, D-537, OPERATIONS §2 gate V-10). The wire, every
+  fact cited into the hash-pinned mirror `vobiz-findings/mirror/pages/`, is
+  `docs/evidence/vobiz-api-contract.md`:
+  - **Inbound** is routed by a Vobiz Application whose `answer_url` is our
+    `/carrier/v1/vobiz/answer/{agent ref}` on voice-runtime; the number is attached to the
+    Application, and the agent is chosen by the URL, never by the dialled number (D-603).
+    The answer request carries `From` (form-encoded); the answer document is a
+    bidirectional `<Stream>` (μ-law 8 kHz) to the worker on Pipecat Cloud.
+  - **Outbound** is `POST /api/v1/Account/{auth_id}/Call/` from the API or workers, with
+    our call id in the answer URL's PATH (Vobiz signs the URL with its query stripped).
+    No idempotency key is documented, so only a 429 is retried.
+  - **Callbacks** (answer, ring, hangup) are checked against Vobiz's published source
+    addresses and, once gate 55 closes, against `X-Vobiz-Signature-V3`, which covers the
+    URL path and a nonce and never the body. Events go through the inbox to the
+    `ingest_carrier_event` job.
+  - **Hangup** from the worker is the stream `stop` message, so the worker holds no carrier
+    credential; the API can also hang up by REST.
+  - **The carrier's charge** comes from its CDR, read by a worker job after the call
+    ends: `total_cost` (INR) becomes our `unit_cost_paid` for the carrier leg. The client's
+    billable minutes stay the worker's measured duration (D-648); the CDR's `billsec` is
+    recorded beside it for comparison.
+  - **Transfer** is built and off by default (`carrier_transfer_enabled`); Vobiz calls its
+    accept-by-keypress step unverified.
+  - **140 and 160 series** numbers are obtained from Vobiz by request to support, not by
+    API (`vobiz-findings/mirror/pages/faq/number-series.md:11-34`); the regulatory side is
+    OPERATIONS §2 gates 47 and 58.
 - Embeddings: provider-managed if the D-28 RAG service bundles them; otherwise
   **Cohere Embed v4** (strongest hosted cross-lingual ~0.955), BGE-M3 as fallback.
   Whoever embeds: model name+version recorded per source version (embedding model

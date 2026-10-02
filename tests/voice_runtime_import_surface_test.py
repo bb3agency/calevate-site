@@ -200,6 +200,9 @@ ALLOWED_APPS_MODULES: frozenset[str] = frozenset(
         "apps.api.core.alarm_severity",
         "apps.api.core.alerting",
         "apps.api.core.bootstrap",
+        # The transfer route opens the API's sealed token to read the destination it may not
+        # look up (hard rule 3): AES-GCM over `cryptography`, already held, and no IO.
+        "apps.api.core.carrier_token",
         "apps.api.core.context",
         "apps.api.core.errors",
         "apps.api.core.health",
@@ -288,6 +291,10 @@ ALLOWED_THIRD_PARTY: frozenset[str] = frozenset(
         # rather than the route importing it: that package drags `pipecat-ai`, ONNX turn
         # detection and three vendor SDKs, and this assertion is what would catch it.
         "carrier_routes",
+        # The carrier seam's two siblings: the pure signature/allowlist checks, and the
+        # status-callback route that hands work to the receiver's own inbox machinery.
+        "carrier_auth",
+        "carrier_events",
         # The web layer.
         "fastapi",
         "starlette",
@@ -400,6 +407,66 @@ async def _drive(http: AsyncClient, tag: str) -> None:
         await http.post(HOOK, json=body, headers=headers)  # 409 from the inbox
         patch.setattr(webhook_routes, "claim_inbox_event", _explode)
         await http.post(HOOK, json=body, headers=headers)  # 500, the catch-all
+
+    await _drive_carrier(http, tag)
+
+
+async def _drive_carrier(http: AsyncClient, tag: str) -> None:
+    """The carrier routes' branches: answer (inbound, outbound, refused), signed and
+    unsigned, status callbacks (accepted, duplicate, ignored, refused, oversized) and the
+    transfer document (off, on, bad token)."""
+    from apps.api.core.carrier_token import seal
+    from apps.api.core.settings import get_settings
+    from calevate_shared.carrier import VOBIZ_CALLBACK_IPS, answer_path, events_path, transfer_path
+    from calevate_shared.engine import owned_runtime_agent_ref
+
+    secret = "s" * 40
+    vobiz = {"CF-Connecting-IP": VOBIZ_CALLBACK_IPS[0]}
+    form = {**vobiz, "content-type": "application/x-www-form-urlencoded"}
+    ref = owned_runtime_agent_ref(str(uuid.uuid4()), str(uuid.uuid4()))
+    call_id = str(uuid.uuid4())
+    hangup = f"CallUUID=c-{tag}&Event=Hangup&From=%2B919876500011".encode()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("PIPECAT_STREAM_BASE_URL", "wss://worker.example.invalid/ws")
+        patch.setenv("CARRIER_CLAIM_SECRET", secret)
+        patch.setenv("VOBIZ_AUTH_TOKEN", "vobiz-token")
+        patch.setenv("CARRIER_TRANSFER_ENABLED", "true")
+        get_settings.cache_clear()
+        try:
+            await http.post(answer_path("vobiz", ref), content=hangup, headers=form)
+            await http.get(answer_path("vobiz", ref, call_id=call_id), headers=vobiz)
+            await http.get(answer_path("plivo", ref))
+            await http.get(answer_path("vobiz", ref))  # refused: no source address
+            await http.post(
+                answer_path("vobiz", ref),
+                headers={
+                    **vobiz,
+                    "X-Vobiz-Signature-V3": "forged",
+                    "X-Vobiz-Signature-V3-Nonce": "1",
+                },
+            )
+            await http.post(events_path("vobiz", ref), content=hangup, headers=form)
+            await http.post(events_path("vobiz", ref), content=hangup, headers=form)
+            await http.post(
+                events_path("vobiz", ref, call_id=call_id), content=b"x=1", headers=form
+            )
+            await http.post(events_path("vobiz", ref), content=b"{bad", headers=vobiz)
+            await http.post(events_path("vobiz", "nope"), content=hangup, headers=form)
+            await http.post(events_path("vobiz", ref), content=b"a" * 70_000, headers=form)
+            order = {
+                "to": "+919876500021",
+                "caller_id": "+918000000001",
+                "timeout_s": 20,
+                "time_limit_s": 600,
+                "call": call_id,
+            }
+            await http.post(
+                transfer_path("vobiz", seal(secret, "transfer", order, ttl_s=60)), headers=vobiz
+            )
+            await http.post(transfer_path("vobiz", "bad-token"), headers=vobiz)
+            await http.post(transfer_path("plivo", "bad-token"), headers=vobiz)
+        finally:
+            get_settings.cache_clear()
 
 
 async def _trickle() -> AsyncIterator[bytes]:

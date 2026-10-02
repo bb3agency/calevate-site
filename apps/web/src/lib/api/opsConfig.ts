@@ -50,7 +50,7 @@ export type ConfigKind = "string" | "integer" | "number" | "boolean" | "enum" | 
  * BUILD has words for, and the server's value is what the RUNNING DEPLOYMENT sends. A
  * key labelled `on_republish` by a newer API must reach the screen as an unrecognised
  * word it can say so about, not as a response-validation failure — `appliesVerdict` in
- * ConfigPanel.tsx is where that fourth answer is rendered.
+ * admin/ops/config/configField.tsx is where that fourth answer is rendered.
  */
 export type ConfigApplies = "live" | "on_restart";
 

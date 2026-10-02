@@ -354,11 +354,19 @@ def test_every_shipped_adapter_is_forbidden_to_the_rest_of_the_tree() -> None:
     #: supporting modules beside them (`capabilities`, `health`, `vendor_http`, ...) hold
     #: no vendor payload shape and are the factory's own machinery, so naming them would
     #: forbid business code from reaching an engine at all.
+    #: Carrier adapters are vendor modules too, named by the carrier seam's own map (D-662).
+    from apps.api.engine.carrier import CARRIER_ADAPTER_MODULES
+
+    carrier_modules = set(CARRIER_ADAPTER_MODULES.values())
     shipped = {
         f"apps.api.engine.{path.stem}"
         for path in sorted(engine_dir.glob("*.py"))
-        if path.stem in ALL_ENGINE_NAMES
+        if path.stem in ALL_ENGINE_NAMES or f"apps.api.engine.{path.stem}" in carrier_modules
     }
+    assert carrier_modules <= shipped, (
+        f"`CARRIER_ADAPTER_MODULES` names {sorted(carrier_modules - shipped)}, which are not "
+        "files in apps/api/engine/"
+    )
 
     missing = sorted(shipped - forbidden)
     assert not missing, (

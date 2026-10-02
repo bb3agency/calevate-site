@@ -30,10 +30,14 @@ gone together.
 the answer document `apps/voice-runtime/carrier_routes.py` serves puts the agent ref in
 the stream URL's path, and this reads it back off the socket the carrier connected to.
 The route is the URL and NEVER the dialled number (D-603, hard rule 1) — resolving a
-number before its tenant is known would be a cross-tenant read, and Pipecat's Plivo parser
-leaves `from`/`to` `None` anyway. What still waits on the Plivo account (BLOCKER-1) is
-configuration: the carrier credentials `create_transport` reads, a number, and
-`PIPECAT_STREAM_BASE_URL`.
+number before its tenant is known would be a cross-tenant read, and neither carrier's
+stream handshake names one anyway.
+
+**THE TRANSPORT IS BUILT EXPLICITLY, NOT BY `create_transport`.** Pipecat's auto-selection
+names a Vobiz socket "plivo" (`runner/utils.py:89-96`) and would hang it up through
+Plivo's REST API with credentials this container must not hold. So the stream URL's
+`carrier=` claim (or the worker's `CARRIER` setting) chooses the serializer, Pipecat's
+detection only checks it, and `carrier.open_carrier_leg` builds the transport.
 
 So this container still refuses to serve a call it cannot record, loudly, at the first
 thing it cannot do — the boot gate now proves the platform API answers AND accepts this
@@ -47,17 +51,13 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from collections.abc import Callable
-from typing import Any, Final
+from typing import Final
 from urllib.parse import unquote
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
 from loguru import logger
 from pipecat.runner.types import RunnerArguments
-from pipecat.runner.utils import create_transport
-from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 from uuid_utils.compat import uuid7
 from voice_worker.boot import (
     WorkerConfig,
@@ -65,21 +65,14 @@ from voice_worker.boot import (
     load_worker_config,
     open_runtime,
 )
-from voice_worker.carrier import UnroutableCallError, claim_from_stream_url, route_of
+from voice_worker.carrier import (
+    UnroutableCallError,
+    call_claim_from_stream_url,
+    claim_from_stream_url,
+    open_carrier_leg,
+    route_of,
+)
 from voice_worker.lifecycle import ReadinessFile, SessionRegistry, ShutdownSignal
-
-#: The transport parameter factories `create_transport` selects from by provider. Only the
-#: legs this product has: Plivo is the carrier (D-592, §6 step 6) and `websocket` is what a
-#: local run without a carrier gets. A key for a provider we do not use would be a
-#: transport somebody could reach by accident.
-#:
-#: `audio_in_enabled` / `audio_out_enabled` are the two the telephony path needs; the
-#: serializer and `add_wav_header` are set by `create_transport` itself
-#: (`pipecat/runner/utils.py:486-553`), which is why they are absent here.
-_TRANSPORT_PARAMS: Final[dict[str, Callable[[], Any]]] = {
-    "plivo": lambda: FastAPIWebsocketParams(audio_in_enabled=True, audio_out_enabled=True),
-    "websocket": lambda: TransportParams(audio_in_enabled=True, audio_out_enabled=True),
-}
 
 #: Process-scoped, built once, guarded by a lock because the platform may — and we cannot
 #: verify that it does not — start a session before a previous one's boot has finished.
@@ -90,16 +83,9 @@ _runtime_lock: asyncio.Lock | None = None
 _drain_task: asyncio.Task[None] | None = None
 
 
-#: The direction of every call this entrypoint can serve today.
-#:
-#: A CONSTANT RATHER THAN SOMETHING READ OFF THE WIRE, and it is honest rather than lazy:
-#: the only way a media stream reaches this process is a carrier answering a ringing
-#: number, because the request that PLACES a call is UNKNOWN here and refuses by name
-#: (`carrier.OUTBOUND_DIAL_UNKNOWN`). Nothing on the Plivo handshake distinguishes the two
-#: directions either (`runner/utils.py:257-262` maps two fields and neither is one), so a
-#: value "read" from the wire would be this constant wearing a lookup. When the dial is
-#: written it will carry its own direction into the session, exactly as
-#: `carrier.start_carrier_call` already takes one.
+#: The direction of a call that carries no valid call claim. Nothing on either carrier's
+#: handshake says which way a call went, so only our own signed claim can say "outbound"
+#: (`carrier.call_claim_from_stream_url`); without it the call is one that rang us.
 INBOUND: Final[CallDirection] = "inbound"
 
 
@@ -202,21 +188,26 @@ def _route_token(runner_args: RunnerArguments) -> str:
 
 async def resolve_call_identity(
     runner_args: RunnerArguments,
+    *,
+    claim_key: bytes | None = None,
+    now: float | None = None,
 ) -> tuple[str, UUID, UUID, CallDirection]:
     """(our call_id, tenant, agent, direction) for the session on the wire.
 
-    **OUR `call_id` IS MINTED HERE AND READ FROM NOWHERE** (§1.2). The carrier's CDR is
-    the authority on the FACTS of a call and our worker on its CONTENT, and the
-    reconciliation only works if the two ids are independent: an id taken from the
-    carrier's handshake would make our record a copy of theirs rather than a second
-    witness. `uuid7` so the id sorts by time, which is what every other id in this tree
-    does (`sink.py` mints the call ref from it).
-
-    `async` although nothing here awaits: this is the seam a future outbound path enters
-    through, and a caller that has already written `await` does not have to be edited when
-    it does. Changing it back would be a change to `bot()` for no behaviour.
+    **OUR `call_id` IS NEVER THE CARRIER'S** (§1.2). The carrier's CDR is the authority on
+    the FACTS of a call and our worker on its CONTENT, and the reconciliation only works if
+    the two ids are independent. So the id is either one our own control plane minted —
+    an outbound dial's `calls` row, carried on the stream URL under a MAC for this agent
+    ref (`carrier.call_claim_from_stream_url`) so the worker's writes land on that row —
+    or, with no valid claim, a fresh `uuid7` for an inbound call.
     """
-    route = route_of(_route_token(runner_args))
+    token = _route_token(runner_args)
+    route = route_of(token)
+    claimed = call_claim_from_stream_url(
+        _stream_url(runner_args), ref=token, claim_key=claim_key, now=now
+    )
+    if claimed is not None:
+        return claimed.call_id, route.tenant_id, route.agent_id, claimed.direction
     return str(uuid7()), route.tenant_id, route.agent_id, INBOUND
 
 
@@ -247,8 +238,11 @@ async def bot(runner_args: RunnerArguments) -> None:
     what forced the duplicate in the first place.
     """
     runtime, registry = await container()
+    config = runtime.config
     engine_agent_ref = _route_token(runner_args)
-    call_id, tenant_id, agent_id, direction = await resolve_call_identity(runner_args)
+    call_id, tenant_id, agent_id, direction = await resolve_call_identity(
+        runner_args, claim_key=config.caller_claim_key
+    )
 
     # THE SLOT IS TAKEN BEFORE ANY IO, and that ordering is the fix rather than a tidy-up.
     # This used to admit only after the transport, the session read and the whole pipeline
@@ -258,28 +252,32 @@ async def bot(runner_args: RunnerArguments) -> None:
     # them. Refusing costs that caller nothing now.
     registry.reserve(call_id)
     try:
-        transport = await create_transport(runner_args, _TRANSPORT_PARAMS)
+        # WHAT THE CONTROL PLANE SAID, READ OFF THE URL IT MINTED. The whole query is
+        # attacker-controlled — anything can open a WebSocket — so a claimed `known`
+        # caller is believed only under a MAC for THIS agent ref (`claim_from_stream_url`),
+        # and the claimed carrier is checked against Pipecat's detection before it chooses
+        # a serializer (`carrier.read_handshake`).
+        claim = claim_from_stream_url(
+            _stream_url(runner_args), ref=engine_agent_ref, claim_key=config.caller_claim_key
+        )
+        leg = await open_carrier_leg(
+            # Present: `_route_token` above refuses a session with no socket.
+            getattr(runner_args, "websocket", None),
+            claim=claim,
+            default_carrier=config.carrier,
+            plivo_credentials=config.plivo_credentials,
+        )
         await runtime.calls.run_call(
             call_id=call_id,
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction=direction,
             engine_agent_ref=engine_agent_ref,
-            credentials_for=runtime.config.credentials_for,
-            transport=transport,
-            # WHAT THE CONTROL PLANE SAID ABOUT THE CALLER, READ OFF THE URL IT MINTED.
-            #
-            # `claim_from_stream_url` treats the whole query as attacker-controlled —
-            # anything can open a WebSocket — so an unrecognised state is dropped rather
-            # than coerced, and a claimed `known` number is believed only when its MAC
-            # verifies for THIS agent ref and has not expired — otherwise it would key an
-            # opt-out, a memory recall and a call-back for whoever connected. A missing
-            # query is `not_read`, which is an honest answer and not a failure.
-            caller=claim_from_stream_url(
-                _stream_url(runner_args),
-                ref=engine_agent_ref,
-                claim_key=runtime.config.caller_claim_key,
-            ).caller,
+            credentials_for=config.credentials_for,
+            transport=leg.transport,
+            # The claim folded with the handshake's own verdict (`fold_caller_identity`).
+            caller=leg.handshake.caller,
+            carrier_call_id=leg.handshake.carrier_call_id,
             on_assembled=lambda call: registry.attach(call_id, call),
         )
     finally:

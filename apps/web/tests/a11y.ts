@@ -314,6 +314,11 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
       "a server redirect into c/[slug]/billing (D-525) — it renders no markup to scan",
     ]),
   ),
+  "admin/tenants/[tenantId]/invitations/page.tsx": (
+    "a server redirect into admin/tenants/[tenantId]/members (D-661), where members and " +
+    "invitations are one People page — it renders no markup to scan, and under jsdom " +
+    "`redirect()` throws `NEXT_REDIRECT`. What it redirects TO is swept, with invitations."
+  ),
   "signup/layout.tsx": (
     "a METADATA-ONLY layout: it exists because `signup/page.tsx` is a client component " +
     "and a client component cannot export `metadata`, so `/signup` would otherwise " +

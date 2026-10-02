@@ -242,6 +242,12 @@ def _keyable(value: str) -> str | None:
     return trimmed
 
 
+#: The same rule for every intake surface whose fields become a durable key — the carrier
+#: events route keys the inbox on `CallUUID` + `Event` exactly as this module keys it on
+#: execution id + status.
+keyable = _keyable
+
+
 def scalar_hint(value: Any) -> str | None:
     """A payload field as text we are willing to carry, or None if it is not a scalar.
 
@@ -344,6 +350,7 @@ __all__ = [
     "engine_label",
     "execution_key",
     "extract",
+    "keyable",
     "scalar_hint",
     "verify_source",
 ]

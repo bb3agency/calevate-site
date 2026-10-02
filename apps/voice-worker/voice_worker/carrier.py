@@ -1,10 +1,17 @@
-"""The carrier leg: a Plivo call becomes a running pipeline (`docs/PIPECAT-MIGRATION.md`
-§6 step 6).
+"""The carrier leg: a Vobiz or Plivo media stream becomes a running pipeline
+(`docs/PIPECAT-MIGRATION.md` §6 step 6, `docs/evidence/vobiz-integration-plan.md` §3).
 
-**WHAT THIS MODULE IS FOR, IN ONE SENTENCE.** It turns an inbound carrier connection into
-the three arguments `session.start_session` already takes — the platform API client, the
-two ids of the agent being called, and a Pipecat transport — and it is the only place in
-this repository that knows the carrier is Plivo.
+**WHAT THIS MODULE IS FOR, IN ONE SENTENCE.** It turns a carrier connection into a routed
+agent, a validated handshake and a Pipecat transport with the right serializer, and it is
+the only place in this deployable that knows which carriers exist.
+
+**WHICH CARRIER A SOCKET IS.** Our control plane claims it on the stream URL
+(`carrier=vobiz|plivo`, minted by `apps/voice-runtime/carrier_routes.py`); without a claim
+the worker's own `CARRIER` setting decides. Pipecat's auto-detection cannot tell the two
+apart — a Vobiz `start` carries the exact keys Pipecat reads as Plivo
+(`calevate_shared.carrier.WIRE_FAMILY`) — so detection CHECKS the claim and never chooses.
+Vobiz gets `vobiz_serializer.VobizFrameSerializer` (in-band `stop`, no credential); Plivo
+keeps Pipecat's `PlivoFrameSerializer` and the credentials its REST hangup needs.
 
 **THE ACCOUNT IS THE GATE ON THE CALL, NOT ON THE CODE.** A Plivo account in the India data
 region (BLOCKER-1) is what step 6 waits for; nothing here waits for it. Every Plivo-shaped
@@ -89,31 +96,39 @@ A phone number is PII and never reaches a log line here. What is logged is the c
 tenant and agent ids, the carrier's own stream id, and words. That now includes a number
 that arrived on the stream URL's query rather than the handshake: `claim_from_stream_url`
 normalises it onto `CallerIdentity.e164` and no logging path in this module reads that
-field. `apps/voice-runtime/carrier_routes.plivo_stream_url` argues what putting it in a URL
+field. The voice-runtime's answer route argues what putting it in a URL
 at all costs, and what would remove it.
 """
 
 from __future__ import annotations
 
+import json
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, cast
 from urllib.parse import parse_qsl
 from uuid import UUID
 
+from calevate_shared.carrier import DEFAULT_CARRIER, WIRE_FAMILY, CarrierName, is_carrier
 from calevate_shared.engine import parse_owned_runtime_agent_ref
 from calevate_shared.events import CallDirection
 from calevate_shared.extraction import normalize_phone
 from calevate_shared.worker_api import (
+    CALL_CLAIM_EXPIRES_PARAM,
+    CALL_CLAIM_MAC_PARAM,
+    CALL_DIRECTION_PARAM,
+    CALL_ID_PARAM,
     CLAIM_EXPIRES_PARAM,
     CLAIM_MAC_PARAM,
     CallerIdentityState,
+    verify_call_claim,
     verify_caller_claim,
 )
 from loguru import logger
 from pipecat.frames.frames import EndWorkerFrame
 from pipecat.runner.utils import parse_telephony_websocket
+from pipecat.serializers.base_serializer import FrameSerializer
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.websocket.fastapi import (
@@ -131,6 +146,7 @@ from voice_worker.pipeline import (
     VendorCredentials,
 )
 from voice_worker.session import start_session
+from voice_worker.vobiz_serializer import MediaFormat, VobizFrameSerializer
 
 #: The event a transport fires when the far end is really connected.
 #:
@@ -145,10 +161,15 @@ CLIENT_CONNECTED_EVENT: Final = "on_client_connected"
 #: nothing else: no frame reaches the pipeline, so without a handler the call runs on.
 CLIENT_DISCONNECTED_EVENT: Final = "on_client_disconnected"
 
-#: What Pipecat's telephony auto-detection calls our carrier (`runner/utils.py:89-96`), and
-#: the value `create_transport` switches on (`:532`). ONE deployment, ONE carrier: anything
-#: else on this socket is refused rather than served with the wrong serializer.
-PLIVO_TRANSPORT_TYPE: Final = "plivo"
+
+def wire_family_of(carrier: str) -> str:
+    """What Pipecat's auto-detection calls a socket from `carrier` (`runner/utils.py:62-110`).
+
+    A carrier we have no row for is expected to detect as its own name, which is how
+    Pipecat names Twilio, Telnyx and Exotel; `build_transport` still refuses to serve it.
+    """
+    return WIRE_FAMILY[cast(CarrierName, carrier)] if is_carrier(carrier) else carrier
+
 
 #: Why no outbound dial exists in this module, in the words an operator gets.
 #:
@@ -215,6 +236,16 @@ class PlivoCredentials:
 
     auth_id: str
     auth_token: str
+
+
+class CarrierCredentialsMissingError(RuntimeError):
+    """A Plivo call reached a worker that holds no Plivo credentials.
+
+    The boot gate requires them only when `CARRIER=plivo`, so a Plivo-claimed socket on a
+    worker configured for Vobiz lands here: refused before the call is answered, because
+    `PlivoFrameSerializer` cannot hang the leg up without them and the carrier would go on
+    billing a call nobody is on.
+    """
 
 
 #: WHY WE DO OR DO NOT KNOW WHO IS ON THE CALL. Four states, and the fourth is the defect.
@@ -287,6 +318,9 @@ class CarrierIdentityParse:
     #: Does `parse_telephony_websocket` map a `from` key for this carrier at all?
     maps_calling_party: bool
     evidence: str
+    #: True when `evidence` is the CARRIER's own documentation showing the handshake has no
+    #: calling party, rather than only our client's parse. Changes what the ground may say.
+    documented_absent: bool = False
 
 
 #: WHAT THE PINNED `pipecat-ai==1.10.0` CLIENT DOES WITH EACH CARRIER'S CALLING PARTY.
@@ -302,6 +336,18 @@ class CarrierIdentityParse:
 #: this container (measured 19 Sep 2026, `curl` → 000). Writing "Plivo does not send it"
 #: anywhere is the exact failure hard rule 11 exists for.
 CALLER_IDENTITY_PARSE: Final[Mapping[str, CarrierIdentityParse]] = {
+    # A VENDOR FACT, unlike the Plivo row below: Vobiz documents the `start` event in full
+    # and it carries `callId`, `streamId`, `accountId`, `tracks` and `mediaFormat` only. The
+    # answer leg's signed claim is therefore the only source of the calling party.
+    "vobiz": CarrierIdentityParse(
+        carrier="vobiz",
+        maps_calling_party=False,
+        evidence=(
+            "vobiz-findings/mirror/pages/xml/stream/stream-events.md:81-97 "
+            "(start carries no from/to)"
+        ),
+        documented_absent=True,
+    ),
     "plivo": CarrierIdentityParse(
         carrier="plivo",
         maps_calling_party=False,
@@ -375,6 +421,14 @@ def caller_identity_of(transport_type: str, call_data: Any) -> CallerIdentity:
                 f"({parse.evidence}) and the carrier sent none"
             ),
         )
+    if parse.documented_absent:
+        return CallerIdentity(
+            state="unparsed_by_client",
+            ground=(
+                f"{transport_type}'s stream handshake carries no calling party "
+                f"({parse.evidence}); only the answer leg's signed claim can supply one"
+            ),
+        )
     return CallerIdentity(
         state="unparsed_by_client",
         ground=(
@@ -390,7 +444,7 @@ def caller_identity_of(transport_type: str, call_data: Any) -> CallerIdentity:
 # THE CONTROL PLANE'S EXPLICIT CLAIM — the fifth source of truth (issue 3).
 # ======================================================================================
 
-#: The query parameters `apps/voice-runtime/carrier_routes.plivo_stream_url` mints.
+#: The query parameters the voice-runtime's answer route mints onto the stream URL.
 #:
 #: DECLARED TWICE ACROSS TWO DEPLOYABLES, exactly like `TELEPHONY_SAMPLE_RATE_HZ`, because
 #: neither module may import the other (hard rule 3 forbids the heavy import there, and
@@ -428,7 +482,7 @@ class CarrierClaimMismatchError(UnroutableCallError):
     somewhere wrong. This one means the answer URL we minted for carrier A was answered by
     a socket speaking carrier B, which is either a number bound to the wrong answer URL or
     somebody connecting to our stream endpoint while pretending to be a carrier. Refusing
-    is the only safe direction: `build_plivo_transport` would otherwise hand the wrong
+    is the only safe direction: `build_transport` would otherwise hand the wrong
     serializer to the wrong protocol, which is a connected call with silence on it.
     """
 
@@ -438,13 +492,13 @@ class ControlPlaneClaim:
     """What OUR OWN control plane says about a call, read off the stream URL it minted.
 
     **THIS IS AN EXPLICIT CLAIM AND NOT A DETECTION, WHICH IS THE POINT.** The carrier a
-    number is on is a fact of our configuration: the answer route is `/carrier/v1/plivo/
+    number is on is a fact of our configuration: the answer route is `/carrier/v1/<carrier>/
     answer/{ref}`, one carrier per path, minted by us. Sniffing for it — which is what
     `parse_telephony_websocket` does — is a fallback designed for a multi-tenant gateway
     that really does not know, and it breaks silently when a vendor renames a handshake
     key. That is precisely how the calling-party gap arose.
 
-    **THE DETECTION IS NOT DELETED AND MUST NOT BE**, and `read_plivo_handshake` says what
+    **THE DETECTION IS NOT DELETED AND MUST NOT BE**, and `read_handshake` says what
     still depends on it: it is the ONLY source of `start.streamId` and `start.callId`,
     without which nothing can be hung up; it is what VALIDATES this claim rather than being
     replaced by it; and it is the only source of a calling party on the three carriers
@@ -533,6 +587,61 @@ def claim_from_stream_url(
     return ControlPlaneClaim(present=True, carrier=carrier, caller=caller)
 
 
+@dataclass(frozen=True, slots=True)
+class ClaimedCall:
+    """Our call id and direction, as the answer leg minted them for an outbound dial."""
+
+    call_id: str
+    direction: CallDirection
+
+
+#: The query parameters that make up a call claim. Any one of them present means the
+#: answer leg tried to say something, which is worth a log line when it does not verify.
+_CALL_CLAIM_PARAMS: Final = (
+    CALL_ID_PARAM,
+    CALL_DIRECTION_PARAM,
+    CALL_CLAIM_MAC_PARAM,
+    CALL_CLAIM_EXPIRES_PARAM,
+)
+
+
+def call_claim_from_stream_url(
+    url: str,
+    *,
+    ref: str,
+    claim_key: bytes | None,
+    now: float | None = None,
+) -> ClaimedCall | None:
+    """The call claim on the stream URL, believed only under a valid MAC for `ref`.
+
+    An outbound dial reaches the worker through the same answer route as an inbound call,
+    so neither its direction nor the id of the `calls` row `dispatch_call` already wrote can
+    be read off the socket. The answer leg puts both on the URL under
+    `worker_api.call_claim_mac`; anything that does not verify (no key, another agent's
+    MAC, an expired or far-future expiry, a direction outside `CallDirection`) is `None`,
+    and the caller treats the call as inbound with an id of its own, as before.
+    """
+    query = url.split("?", 1)[1] if "?" in url else url
+    params = dict(parse_qsl(query, keep_blank_values=True))
+    if not any(name in params for name in _CALL_CLAIM_PARAMS):
+        return None
+    call_id = params.get(CALL_ID_PARAM) or None
+    direction = params.get(CALL_DIRECTION_PARAM) or None
+    if not verify_call_claim(
+        claim_key,
+        ref=ref,
+        call_id=call_id,
+        direction=direction,
+        expires_at=params.get(CALL_CLAIM_EXPIRES_PARAM),
+        mac=params.get(CALL_CLAIM_MAC_PARAM),
+        now=time.time() if now is None else now,
+    ):
+        # No value from the query is logged: it is attacker-controlled.
+        logger.warning("stream URL call claim did not verify; treating the call as inbound")
+        return None
+    return ClaimedCall(call_id=cast(str, call_id), direction=cast(CallDirection, direction))
+
+
 def fold_caller_identity(
     claimed: CallerIdentity | None, detected: CallerIdentity
 ) -> CallerIdentity:
@@ -600,50 +709,41 @@ def fold_caller_identity(
 
 
 @dataclass(frozen=True, slots=True)
-class PlivoHandshake:
-    """What the carrier says at the top of a stream, as Pipecat parses it.
+class CarrierHandshake:
+    """What the carrier says at the top of a stream: which carrier, two ids and a verdict.
 
-    TWO IDENTIFIERS AND A VERDICT. `parse_telephony_websocket` maps `start.streamId` and
-    `start.callId` for this provider and nothing else (`runner/utils.py:257-262`).
+    `carrier` is the carrier this socket was CLAIMED (or configured) as and the detection
+    agreed with, which is what `build_transport` chooses a serializer by.
 
-    ⚠ **THIS DOCSTRING USED TO ARGUE THAT A THIRD FIELD WOULD BE WRONG** — "a
-    `from_number`/`to_number` pair … would be two fields that are always `None` on the one
-    carrier we run — an invitation to route on them". The routing half of that is still
-    true and `route_of` still routes on the URL. The rest was the defect: the absence
-    itself is a FACT the rest of the system needs, and modelling it as nothing at all is
-    what left `calls.from_e164` NULL with no reader able to say why. `caller` is that fact
-    — a state and a ground, never a guessed number — and it is not routable because it is
-    not a number.
+    `carrier_call_id` is the CARRIER's id for the call (Vobiz `start.callId` = `CallUUID`,
+    `stream-events.md:101`) and is NOT `SessionConfig.call_id`, which is ours (§1.2: the
+    carrier's CDR is reconciled against our id rather than being its source). Both are kept:
+    the carrier's is persisted as `calls.carrier_call_id`, the join key for its hangup
+    webhook, its CDR and a transfer.
 
-    `call_id` here is the CARRIER's id for the call and is NOT `SessionConfig.call_id`,
-    which is ours (§1.2: the carrier's CDR is reconciled against our id rather than being
-    its source). Both are kept: the hangup is addressed with theirs.
+    `caller` is a state and a ground, never a guessed number, and is not routable because
+    it is not a number; `route_of` routes on the URL.
+
+    `media_format` is the `start` event's inbound format when the reader saw it, which only
+    the Vobiz serializer checks.
     """
 
     stream_id: str
     carrier_call_id: str
-    #: DEFAULTS TO `not_read()` RATHER THAN BEING REQUIRED, and the default is the honest
-    #: one: a handshake built by hand (a test fixture, a future second entrypoint) really
-    #: has asked no carrier anything, and saying so is the state this type exists to make
-    #: sayable. `from_call_data` always supplies a real verdict.
+    carrier: str = DEFAULT_CARRIER
+    #: `not_read()` by default because a handshake built by hand really has asked no
+    #: carrier anything; `from_call_data` always supplies a real verdict.
     caller: CallerIdentity = field(default_factory=lambda: CallerIdentity.not_read())
+    media_format: MediaFormat | None = None
 
     @classmethod
     def from_call_data(
-        cls, call_data: Any, *, transport_type: str = PLIVO_TRANSPORT_TYPE
-    ) -> PlivoHandshake:
-        """Build one from `parse_telephony_websocket`'s `CallData`.
+        cls, call_data: Any, *, carrier: str, media_format: MediaFormat | None = None
+    ) -> CarrierHandshake:
+        """Build one from `parse_telephony_websocket`'s `CallData`, or refuse.
 
-        Takes the parsed object rather than the raw websocket so that the caller owns the
-        single-use message stream, and takes it as `Any` because `CallData` declares both
-        fields as `str | None` (`runner/types.py:94-95`) — a shape that is right for a
-        model spanning four carriers and wrong for the one contract this worker has. The
-        narrowing to two required strings happens here, once, with a refusal attached.
-
-        `transport_type` is a keyword with a default rather than a positional, because the
-        two ids are Plivo-shaped and the identity question is not: the default keeps every
-        existing caller correct while `caller_identity_of` stays answerable for the carrier
-        we migrate to.
+        `CallData` declares both ids `str | None` (`runner/types.py:94-95`) because it spans
+        four carriers; the narrowing to two required strings happens here, once.
         """
         stream_id = getattr(call_data, "stream_id", None)
         carrier_call_id = getattr(call_data, "call_id", None)
@@ -655,54 +755,90 @@ class PlivoHandshake:
         return cls(
             stream_id=str(stream_id),
             carrier_call_id=str(carrier_call_id),
-            caller=caller_identity_of(transport_type, call_data),
+            carrier=carrier,
+            caller=caller_identity_of(carrier, call_data),
+            media_format=media_format,
         )
 
 
-async def read_plivo_handshake(
-    websocket: Any, *, claim: ControlPlaneClaim | None = None
-) -> PlivoHandshake:
+class _HandshakeTap:
+    """The socket as `parse_telephony_websocket` sees it, keeping the frames it reads.
+
+    The parser discards `start.mediaFormat`, which the Vobiz serializer must check, and the
+    frames it reads are gone from the socket once read. Recording them on the way past
+    keeps Pipecat as the one detector and parser while still letting us read the format.
+    Every other attribute is the real socket's.
+    """
+
+    def __init__(self, websocket: Any) -> None:
+        self._websocket = websocket
+        self.frames: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._websocket, name)
+
+    def iter_text(self) -> AsyncIterator[str]:
+        async def _tapped() -> AsyncIterator[str]:
+            async for frame in self._websocket.iter_text():
+                self.frames.append(frame)
+                yield frame
+
+        return _tapped()
+
+    def media_format(self) -> MediaFormat | None:
+        """`start.mediaFormat` from the first `start` frame read, or `None`."""
+        for frame in self.frames:
+            try:
+                message = json.loads(frame)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(message, dict) and message.get("event") == "start":
+                start = message.get("start")
+                return MediaFormat.from_start(start) if isinstance(start, Mapping) else None
+        return None
+
+
+async def read_handshake(
+    websocket: Any,
+    *,
+    claim: ControlPlaneClaim | None = None,
+    default_carrier: str = DEFAULT_CARRIER,
+) -> CarrierHandshake:
     """The first two messages off a carrier socket, as OUR handshake — or a refusal.
 
-    **THE CARRIER IS NOW CLAIMED AND THEN CHECKED, RATHER THAN SNIFFED FOR (issue 3).**
-    `claim.carrier` is what our own control plane minted the answer URL for; the detection
-    still runs, and the two must agree or the call is refused
-    (`CarrierClaimMismatchError`). With no claim, the expected carrier falls back to this
-    deployment's constant, which is what every caller did before.
+    **THE CARRIER IS CLAIMED AND THEN CHECKED, NEVER SNIFFED FOR.** `claim.carrier` is what
+    our control plane minted the stream URL for; without one, `default_carrier` (the
+    worker's `CARRIER` setting) is expected. Pipecat's detection must then name that
+    carrier's wire family (`wire_family_of`) or the call is refused: a mismatch against a
+    claim is `CarrierClaimMismatchError`, against the configured default a plain
+    `UnroutableCallError`. Serialising one protocol as another is a connected call with
+    silence on it.
 
-    **WHAT STILL DEPENDS ON THE DETECTION, so that nobody deletes it as redundant.** It is
-    the ONLY source of `start.streamId` and `start.callId` — without them
-    `PlivoFrameSerializer` cannot hang the leg up (`serializers/plivo.py:80-92`). It is the
-    only source of a calling party on the three carriers whose `from` the pinned client
-    reads (`CALLER_IDENTITY_PARSE`). And it is what VALIDATES the claim: a claim nothing
-    checks is a claim an attacker writes.
-
-    **IT REFUSES A CARRIER THAT IS NOT OURS RATHER THAN GUESSING WHAT IT MEANT.**
-    `parse_telephony_websocket` auto-detects across four providers and will happily hand
-    back `twilio`, `telnyx`, `exotel` or `unknown` (`runner/utils.py:62-110`), and each of
-    those carries different field names on a `CallData` whose every field is optional. A
-    mount that passed any of them to `build_plivo_transport` would build a serializer for
-    the wrong protocol — a connected call with silence on it. One deployment, one carrier,
-    and the check is here so the next entrypoint inherits it.
-
-    Using Pipecat's own parser rather than reading the socket ourselves is the point: the
-    detection rule and the field names are the vendor-shaped part, and they belong to the
-    library that ships them. The parse is cached on the websocket, so a caller may call
-    this and then let the transport read the rest of the stream (`runner/utils.py:172-183`).
+    **THE DETECTION STAYS AND MUST.** It is the only source of `start.streamId` and
+    `start.callId` — without them no stream can be stopped and no Plivo leg hung up — and
+    of a calling party on the carriers whose `from` the pinned client reads. Pipecat's
+    parser is used rather than our own read of the socket because the detection rule and
+    the field names are the vendor-shaped part and belong to the library that ships them.
+    The transport reads the rest of the stream after it.
     """
-    expected = (claim.carrier if claim is not None else None) or PLIVO_TRANSPORT_TYPE
-    transport_type, call_data = await parse_telephony_websocket(websocket)
-    if transport_type != expected:
+    expected = (claim.carrier if claim is not None else None) or default_carrier
+    family = wire_family_of(expected)
+    tap = _HandshakeTap(websocket)
+    transport_type, call_data = await parse_telephony_websocket(cast(Any, tap))
+    if transport_type != family:
         if claim is not None and claim.carrier is not None:
             raise CarrierClaimMismatchError(
-                f"the control plane minted this stream URL for carrier {expected!r} and "
-                f"the socket speaks {transport_type!r}: refusing rather than serialising "
-                "one protocol as the other"
+                f"the control plane minted this stream URL for carrier {expected!r} "
+                f"(wire family {family!r}) and the socket speaks {transport_type!r}: "
+                "refusing rather than serialising one protocol as the other"
             )
         raise UnroutableCallError(
-            f"this socket speaks {transport_type!r}, and this deployment's carrier is {expected!r}"
+            f"this socket speaks {transport_type!r}, and this worker's carrier is "
+            f"{expected!r} (wire family {family!r})"
         )
-    handshake = PlivoHandshake.from_call_data(call_data, transport_type=transport_type)
+    handshake = CarrierHandshake.from_call_data(
+        call_data, carrier=expected, media_format=tap.media_format()
+    )
     claimed = claim.caller if claim is not None else None
     return replace(handshake, caller=fold_caller_identity(claimed, handshake.caller))
 
@@ -710,18 +846,17 @@ async def read_plivo_handshake(
 def route_of(token: str) -> CallRoute:
     """The `(tenant, agent)` a carrier connection names, or a refusal.
 
-    **THE ROUTE IS IN THE URL THE CARRIER CONNECTS TO, NOT IN THE CALL.** The dialed number
-    is absent from the Plivo handshake as Pipecat parses it (module docstring, UNKNOWN 1),
-    so routing on it would mean either reading a field nobody has verified exists or a
-    cross-tenant read of `phone_numbers` — a FORCE-RLS'd tenant table with no exemption,
-    which resolving a number before knowing its tenant would require us to add. Neither is
-    necessary: the ref an `owned_runtime` engine mints for an agent already carries both
-    ids (`calevate_shared.engine.owned_runtime_agent_ref`), it is minted by our own control
+    **THE ROUTE IS IN THE URL THE CARRIER CONNECTS TO, NOT IN THE CALL.** Neither carrier's
+    stream handshake names the dialled number (`CALLER_IDENTITY_PARSE`), so routing on it
+    would mean either reading a field that is not there or a cross-tenant read of
+    `phone_numbers` — a FORCE-RLS'd tenant table with no exemption, which resolving a number
+    before knowing its tenant would require us to add. Neither is necessary: the ref an
+    `owned_runtime` engine mints for an agent already carries both ids
+    (`calevate_shared.engine.owned_runtime_agent_ref`), it is minted by our own control
     plane on publish, and putting it in the stream URL is the shape Pipecat's own runner
     recommends for telephony ("URL path segment: `/ws/<token>`", `runner/run.py:1414`).
-    `carrier_routes.plivo_stream_url` in the voice-runtime is what puts it there, and the
-    number → agent decision is then made where a tenant session exists — on the screen
-    that binds the number — rather than on the call.
+    The voice-runtime's answer route is what puts it there, and the number → agent decision
+    is then made where a tenant session exists — on the screen that binds the number.
 
     **THE TOKEN IS NEVER ECHOED INTO THE REFUSAL.** It is attacker-controlled (anything can
     connect to a WebSocket URL), and a message that quoted it would put an arbitrary string
@@ -737,50 +872,104 @@ def route_of(token: str) -> CallRoute:
     return CallRoute(tenant_id=tenant_id, agent_id=agent_id)
 
 
-def build_plivo_transport(
+def _serializer_for(
+    handshake: CarrierHandshake, plivo_credentials: PlivoCredentials | None
+) -> FrameSerializer:
+    """The serializer for the handshake's carrier, or a refusal naming why.
+
+    **VOBIZ needs no credential.** The call is ended with an in-band `stop`
+    (`vobiz_serializer`), and a start that reports anything but 8 kHz μ-law is refused
+    here, before a byte of audio is decoded. A start the reader never saw a format on is
+    refused too: the vendor documents `mediaFormat` on every `start`
+    (`stream-events.md:58`).
+
+    **PLIVO keeps `auto_hang_up` on.** Its default is True (`serializers/plivo.py:56`) and
+    the hangup swallows every error and never retries (`:204-205`). Turning it off would
+    leave a completed call up and billing; leaving it on makes a failed hangup invisible to
+    us, which is the recoverable failure — the CDR reconciliation (§1.2) surfaces it.
+    """
+    if handshake.carrier == "vobiz":
+        if handshake.media_format is None:
+            raise UnroutableCallError(
+                "the Vobiz stream's start event carried no mediaFormat, so its audio "
+                "encoding is unknown and cannot be decoded"
+            )
+        return VobizFrameSerializer(handshake.stream_id, media_format=handshake.media_format)
+    if handshake.carrier == "plivo":
+        if plivo_credentials is None:
+            raise CarrierCredentialsMissingError(
+                "a Plivo call reached a worker with no PLIVO_AUTH_ID/PLIVO_AUTH_TOKEN, so it "
+                "could not be hung up; set CARRIER=plivo and both variables in the Pipecat "
+                "Cloud secret set, or route the number to Vobiz"
+            )
+        return PlivoFrameSerializer(
+            stream_id=handshake.stream_id,
+            call_id=handshake.carrier_call_id,
+            auth_id=plivo_credentials.auth_id,
+            auth_token=plivo_credentials.auth_token,
+        )
+    raise UnroutableCallError(
+        f"this worker has no serializer for carrier {handshake.carrier!r}; it serves "
+        "vobiz and plivo"
+    )
+
+
+def build_transport(
     websocket: Any,
     *,
-    handshake: PlivoHandshake,
-    credentials: PlivoCredentials,
+    handshake: CarrierHandshake,
+    plivo_credentials: PlivoCredentials | None = None,
 ) -> FastAPIWebsocketTransport:
-    """The carrier transport for one call.
+    """The carrier transport for one call, with the serializer its carrier speaks.
 
     `websocket` is `Any` rather than `fastapi.WebSocket` because this module is imported by
     a process that may never serve HTTP, and `pipecat.transports.websocket.fastapi` already
-    raises a named ImportError when FastAPI is absent. The type that matters is checked by
-    the transport itself.
+    raises a named ImportError when FastAPI is absent.
 
-    **THE THREE DEFAULTS CHANGED HERE, EACH AGAINST THE LINE THAT GAVE US THE DEFAULT.**
+    **THE THREE DEFAULTS CHANGED HERE.**
 
-    * `add_wav_header=False` — the parameter's default is already False
-      (`fastapi.py:83`) and Pipecat's own telephony helper sets it explicitly anyway
-      (`runner/utils.py:505-506`, "Always set add_wav_header to False for telephony"). A
-      WAV header inside a μ-law telephony frame is noise on the line.
-    * `audio_in_sample_rate` / `audio_out_sample_rate` at 8 kHz — the rate the serializer
-      converts to and from (`serializers/plivo.py:54`, `:145-147`). Left unset, the
-      pipeline's own rate would be resampled twice per turn for nothing.
-    * `serializer` — without it the transport sends raw PCM and Plivo hears silence.
-
-    **`auto_hang_up` IS LEFT ON, AND ITS FAILURE MODE IS STATED RATHER THAN FIXED HERE.**
-    The default is True (`serializers/plivo.py:56`) and the hangup swallows every error and
-    never retries (`:204-205`) — §4 of the migration doc names that as a capability
-    declaration, not a footnote. Turning it OFF would mean a completed pipeline leaves the
-    carrier's call up and billing; leaving it on means a failed hangup is invisible to us.
-    The second is the recoverable one, and what makes it visible is the CDR reconciliation
-    (§1.2, step 7) rather than a retry loop in a container that is about to exit.
+    * `add_wav_header=False` — Pipecat's own telephony helper sets it explicitly
+      (`runner/utils.py:505-506`); a WAV header inside a μ-law frame is noise on the line.
+    * `audio_in_sample_rate` / `audio_out_sample_rate` at 8 kHz — the rate both serializers
+      convert to and from. Left unset, every turn would be resampled twice for nothing.
+    * `serializer` — without it the transport sends raw PCM and the carrier hears silence.
     """
     params = FastAPIWebsocketParams(
         add_wav_header=False,
         audio_in_sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
         audio_out_sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
-        serializer=PlivoFrameSerializer(
-            stream_id=handshake.stream_id,
-            call_id=handshake.carrier_call_id,
-            auth_id=credentials.auth_id,
-            auth_token=credentials.auth_token,
-        ),
+        serializer=_serializer_for(handshake, plivo_credentials),
     )
     return FastAPIWebsocketTransport(websocket=websocket, params=params)
+
+
+@dataclass(frozen=True, slots=True)
+class CarrierLeg:
+    """A read handshake and the transport built for it: what `runtime.run_call` needs."""
+
+    handshake: CarrierHandshake
+    transport: FastAPIWebsocketTransport
+
+
+async def open_carrier_leg(
+    websocket: Any,
+    *,
+    claim: ControlPlaneClaim | None,
+    default_carrier: str,
+    plivo_credentials: PlivoCredentials | None = None,
+) -> CarrierLeg:
+    """Read the handshake and build the transport for it. The entrypoint's carrier half.
+
+    Kept apart from call assembly, which has one home (`runtime.WorkerRuntime.run_call`).
+    """
+    handshake = await read_handshake(websocket, claim=claim, default_carrier=default_carrier)
+    transport = build_transport(websocket, handshake=handshake, plivo_credentials=plivo_credentials)
+    logger.info(
+        "carrier leg opened",
+        carrier=handshake.carrier,
+        caller_identity=handshake.caller.state,
+    )
+    return CarrierLeg(handshake=handshake, transport=transport)
 
 
 class CarrierWiringError(RuntimeError):
@@ -859,6 +1048,10 @@ async def start_carrier_call(
     embedder: QueryEmbedder | None = None,
 ) -> AssembledCall:
     """A carrier connection in, a runnable call out. The whole inbound path, in order.
+
+    NOT THE SHIPPED PATH: `bot.py` opens the leg with `open_carrier_leg` and assembles the
+    call in `runtime.WorkerRuntime.run_call`, the one assembly path. This composes
+    `session.start_session` directly and is exercised only by tests.
 
     1. **Route.** The token off the stream URL becomes a tenant and an agent, or the call is
        refused (`route_of`). Nothing is read from the database before this: a connection
@@ -992,11 +1185,9 @@ def fetch_call_detail_record(*_args: Any, **_kwargs: Any) -> CarrierCdr:
 def place_outbound_call(*_args: Any, **_kwargs: Any) -> AssembledCall:
     """REFUSES. The dial is the one carrier operation this module cannot perform.
 
-    Everything else about an outbound call is already built: the same transport, the same
-    serializer, the same pipeline, and `start_carrier_call(direction="outbound")` runs it
-    once a media stream exists. What is missing is the HTTP request that makes the carrier
-    ring a number, and its method, path and body are UNKNOWN here — see
-    `OUTBOUND_DIAL_UNKNOWN`.
+    The worker never dials: the control plane does, and the answered call reaches this
+    container through the same answer route as an inbound one, carrying its direction and
+    our call id in the stream URL's signed call claim (`call_claim_from_stream_url`).
     """
     raise CarrierNotWrittenError(OUTBOUND_DIAL_UNKNOWN)
 
@@ -1010,28 +1201,33 @@ __all__ = [
     "CLIENT_CONNECTED_EVENT",
     "CLIENT_DISCONNECTED_EVENT",
     "OUTBOUND_DIAL_UNKNOWN",
-    "PLIVO_TRANSPORT_TYPE",
     "UNAUTHENTICATED_CLAIM_GROUND",
     "CallRoute",
     "CallerIdentity",
     "CallerIdentityState",
     "CarrierCdr",
     "CarrierClaimMismatchError",
+    "CarrierCredentialsMissingError",
+    "CarrierHandshake",
     "CarrierIdentityParse",
+    "CarrierLeg",
     "CarrierNotWrittenError",
     "CarrierWiringError",
+    "ClaimedCall",
     "ControlPlaneClaim",
     "PlivoCredentials",
-    "PlivoHandshake",
     "UnroutableCallError",
     "arm_first_turn",
-    "build_plivo_transport",
+    "build_transport",
+    "call_claim_from_stream_url",
     "caller_identity_of",
     "claim_from_stream_url",
     "fetch_call_detail_record",
     "fold_caller_identity",
+    "open_carrier_leg",
     "place_outbound_call",
-    "read_plivo_handshake",
+    "read_handshake",
     "route_of",
     "start_carrier_call",
+    "wire_family_of",
 ]

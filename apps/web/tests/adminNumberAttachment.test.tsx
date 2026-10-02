@@ -249,6 +249,9 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
 describe("recording a number is on the numbers screen, not on a campaign screen", () => {
   it("is the screen's primary surface and defaults the series to standard, not a DLT class", async () => {
     await render(healthy([]));
+    // Recording opens in a drawer from the page's action since D-661; the form, its one
+    // large button and its default are unchanged.
+    fireEvent.click((await screen.findAllByRole("button", { name: "Record a number" }))[0]!);
 
     const submit = (await screen.findByRole("button", {
       name: "Record this number",
@@ -279,6 +282,9 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
       },
     });
 
+    // Recording opens in a drawer from the page's action since D-661; the form, its one
+    // large button and its default are unchanged.
+    fireEvent.click((await screen.findAllByRole("button", { name: "Record a number" }))[0]!);
     fireEvent.change(
       await screen.findByLabelText("The number, with its country code"),
       { target: { value: "+918041234567" } },

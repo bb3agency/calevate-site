@@ -5,12 +5,12 @@ import { useState } from "react";
 import {
   Card,
   DANGER_BUTTON,
-  EmptyState,
   FIELD_LABEL,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
 } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { useAdminAccess } from "@/app/admin/access";
 import {
   useKbDecision,
@@ -62,7 +62,11 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
     <>
         {decide.error && <ProblemNotice error={decide.error} />}
 
-        <Card title="Knowledge awaiting approval">
+        <Card
+          title="Knowledge awaiting approval"
+          density="compact"
+          info="Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own (D-658). Approving does not make a source live; Publish does."
+        >
           <RestrictionNote reason={kbWrite.reason} />
           {queue.error ? (
             /* Never an empty queue on a failed read: "nothing is waiting" is a claim about
@@ -80,9 +84,9 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
               onRetry={() => queue.refetch()}
             />
           ) : queue.data.length ? (
-            <ul className="space-y-2">
+            <ul className="divide-y divide-line">
               {queue.data.map((source) => (
-                <li key={source.id} className="rounded-card border border-line p-3">
+                <li key={source.id} className="py-3 first:pt-1 last:pb-0">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-ink">
@@ -124,7 +128,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                   </div>
                   {rejecting === source.id && (
                     <form
-                      className="mt-3 space-y-2 rounded-card border border-rose-200 bg-rose-50/40 p-3 dark:border-rose-900 dark:bg-rose-950/20"
+                      className="mt-3 space-y-2 rounded-card border border-danger-line bg-danger-soft p-3"
                       noValidate
                       onSubmit={(event) => {
                         event.preventDefault();
@@ -139,7 +143,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         );
                       }}
                     >
-                      <p className="text-xs text-rose-900 dark:text-rose-200">
+                      <p className="text-xs text-danger">
                         Rejecting <span className="font-semibold">{source.name}</span> v
                         {source.version}. It stays out of the agent&apos;s answers, and the
                         reason below is recorded on the document permanently — a repeat
@@ -174,7 +178,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                           {decide.isPending ? "Rejecting…" : "Reject this document"}
                         </button>
                         {rejectReason.trim().length < 3 && (
-                          <span className="text-xs text-rose-800 dark:text-rose-300">
+                          <span className="text-xs text-danger">
                             Write the reason in your own words first — it goes on the record.
                           </span>
                         )}
@@ -212,10 +216,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
               ))}
             </ul>
           ) : (
-            <EmptyState
-              title="Nothing awaiting approval"
-              hint="Approved sources still need publishing before the agent knows them."
-            />
+            <EmptyState message="Nothing awaiting approval" />
           )}
         </Card>
 
@@ -238,7 +239,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
             nothing — the approval card above already carries the sentence that explains
             what publishing is for. */}
         {publishQueue.isLoading ? (
-          <Card title="Approved, awaiting publish">
+          <Card title="Approved, awaiting publish" density="compact">
             <Skeleton rows={2} />
           </Card>
         ) : publishQueue.error || !publishQueue.data ? (
@@ -247,15 +248,15 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
              browser is offline is neither — `isLoading === false`, `error === null` — so
              `awaitingPublish` was `[]` and the panel rendered `null`, which on this screen
              reads as "nothing is waiting to be published". */
-          <Card title="Approved, awaiting publish">
+          <Card title="Approved, awaiting publish" density="compact">
             <ProblemNotice
               error={publishQueue.error ?? new Error("The publish queue did not load.")}
               onRetry={() => publishQueue.refetch()}
             />
           </Card>
         ) : awaitingPublish.length > 0 ? (
-          <Card title="Approved, awaiting publish" bodyClassName="px-4 pb-4 sm:px-6">
-            <p className="pt-2 text-xs text-ink-muted">
+          <Card title="Approved, awaiting publish" density="compact">
+            <p className="text-xs text-ink-muted">
               The agent does not know these until they are published.
             </p>
             <RestrictionNote reason={kbWrite.reason} />

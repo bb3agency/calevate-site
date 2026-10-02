@@ -4,7 +4,6 @@ import { useState } from "react";
 import { CheckCircle2, Gift, Info } from "lucide-react";
 
 import {
-  Card,
   FIELD,
   NoticeBox,
   PRIMARY_BUTTON,
@@ -105,8 +104,8 @@ export function GrantPanel({
   const ready = write.allowed && amountReady && confirmed && reasonReady && !grant.isPending;
 
   return (
-    <Card title="Give this client credit">
-      <p className="-mt-2 text-xs text-ink-muted">
+    <div>
+      <p className="text-xs text-ink-muted">
         Credit with <span className="font-semibold">no payment behind it</span> — an
         apology, a pilot, a gesture. It is not a top-up and it is not a correction: it
         lands under its own ledger reason and every statement reports it separately from
@@ -236,7 +235,7 @@ export function GrantPanel({
 
       {grant.error != null && <ProblemNotice error={grant.error} />}
       {grant.data && <Granted result={grant.data} clientName={clientName} />}
-    </Card>
+    </div>
   );
 }
 

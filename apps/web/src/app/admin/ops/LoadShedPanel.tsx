@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Gauge, Lock, TriangleAlert } from "lucide-react";
+import { Gauge, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
@@ -261,6 +261,15 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
             </p>
           )}
         </form>
+
+        <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />
+          <span>
+            Never shed, in any mode: health checks, engine webhooks (a dropped callback is a
+            call whose lead never appears), and this operations console, so an operator
+            cannot lock themselves out.
+          </span>
+        </p>
       </div>
     </Card>
   );

@@ -43,10 +43,10 @@ import hmac
 import math
 from datetime import datetime
 from decimal import Decimal
-from typing import Final, Literal, get_args
+from typing import Annotated, Final, Literal, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from calevate_shared.engine import AgentConfig, CallLatency, ModelConfig
 from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
@@ -241,6 +241,14 @@ class WorkerSessionOut(BaseModel):
     max_call_duration_s: int = DEFAULT_CALL_CAP_S
 
 
+#: A carrier's id for one call. Vobiz and Plivo both issue a UUID (`CallUUID`); the bound
+#: and the character set refuse anything that is not an identifier before it reaches a
+#: column an erasure request to the carrier will quote.
+CarrierCallId = Annotated[
+    str, StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")
+]
+
+
 class ObservationBatch(BaseModel):
     """What the container witnessed since the last batch: statuses and spoken turns.
 
@@ -300,6 +308,10 @@ class ObservationBatch(BaseModel):
     #: what an agent may tell a caller who has just asked not to be called again.
     from_e164: str | None = None
     to_e164: str | None = None
+    #: The carrier's own id for the call (Vobiz/Plivo `start.callId`), stored once as
+    #: `calls.carrier_call_id`: the join key for the carrier's hangup webhook, its CDR and
+    #: a transfer. `None` where no carrier leg exists.
+    carrier_call_id: CarrierCallId | None = None
     events: list[CallEvent] = Field(default_factory=list, max_length=MAX_EVENTS_PER_BATCH)
     turns: list[TranscriptTurn] = Field(default_factory=list, max_length=MAX_TURNS_PER_BATCH)
     #: WHETHER THIS CALL HAD ITS KNOWLEDGE, SENT ONCE AND THEN NOT AGAIN.
@@ -497,6 +509,9 @@ class SettlementRequest(BaseModel):
     #: nothing else will supply them. Same nullability and same gate as the batch's pair.
     from_e164: str | None = None
     to_e164: str | None = None
+    #: Carried here too for the same reason as the parties: a call that ends before its
+    #: first flush has its row minted by the settlement. Same meaning as the batch's field.
+    carrier_call_id: CarrierCallId | None = None
     refusals: list[SettlementRefusal] = Field(default_factory=list, max_length=MAX_REFUSALS)
     quantities: list[MeteredQuantity] = Field(default_factory=list, max_length=MAX_QUANTITIES)
     #: The pipeline's own per-turn timings for this call, in the normalized shape every
@@ -927,8 +942,86 @@ def verify_caller_claim(
     return hmac.compare_digest(mac.encode(), expected.encode())
 
 
+# --- the signed call claim on the stream URL (outbound dials) --------------------------
+#
+# An outbound call reaches the worker through the same answer route as an inbound one, so
+# the worker cannot read the direction or OUR call id off the socket. The answer leg mints
+# both onto the stream URL under the same key as the caller claim, with its own domain
+# string so a caller MAC can never verify as a call MAC. Without a valid one the worker
+# treats the call as inbound and mints its own id, exactly as before.
+
+#: Query parameters carrying our call id, its direction, the MAC and its expiry.
+CALL_ID_PARAM: Final = "call"
+CALL_DIRECTION_PARAM: Final = "dir"
+CALL_CLAIM_MAC_PARAM: Final = "call_mac"
+CALL_CLAIM_EXPIRES_PARAM: Final = "call_exp"
+
+_CALL_CLAIM_DOMAIN: Final = b"calevate-call-claim-v1"
+
+
+def _call_claim_message(*, ref: str, call_id: str, direction: str, expires_at: int) -> bytes:
+    return b"\x00".join(
+        (
+            _CALL_CLAIM_DOMAIN,
+            ref.encode(),
+            call_id.encode(),
+            direction.encode(),
+            str(expires_at).encode(),
+        )
+    )
+
+
+def call_claim_mac(
+    key: bytes, *, ref: str, call_id: str, direction: CallDirection, expires_at: int
+) -> str:
+    """The MAC the answer leg puts on the stream URL for one dialled call of one agent."""
+    message = _call_claim_message(
+        ref=ref, call_id=call_id, direction=direction, expires_at=expires_at
+    )
+    return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+
+def verify_call_claim(
+    key: bytes | None,
+    *,
+    ref: str,
+    call_id: str | None,
+    direction: str | None,
+    expires_at: str | None,
+    mac: str | None,
+    now: float,
+) -> bool:
+    """Is this (call id, direction) what our answer leg minted for this ref, still in time?
+
+    False on every failure, and the worker then falls back to an inbound call with a
+    freshly minted id. A direction outside `CallDirection` is refused before the MAC.
+    """
+    if key is None or not mac or not expires_at or not call_id or not ref:
+        return False
+    if direction not in ("inbound", "outbound"):
+        return False
+    try:
+        expiry = int(expires_at)
+    except ValueError:
+        return False
+    if expiry < now or expiry > now + _CLAIM_MAX_FUTURE_S:
+        return False
+    expected = call_claim_mac(
+        key,
+        ref=ref,
+        call_id=call_id,
+        direction=direction,  # type: ignore[arg-type]
+        expires_at=expiry,
+    )
+    return hmac.compare_digest(mac.encode(), expected.encode())
+
+
 __all__ = [
     "CALLER_CLAIM_TTL_S",
+    "CALL_CLAIM_EXPIRES_PARAM",
+    "CALL_CLAIM_MAC_PARAM",
+    "CALL_DIRECTION_PARAM",
+    "CALL_ID_PARAM",
     "CLAIM_EXPIRES_PARAM",
     "CLAIM_MAC_PARAM",
     "DEFAULT_CALL_CAP_S",
@@ -960,6 +1053,7 @@ __all__ = [
     "CallerIdentityState",
     "CallerMemoryIn",
     "CallerMemoryOut",
+    "CarrierCallId",
     "HandoffOutcome",
     "HandoffToolIn",
     "HandoffToolOut",
@@ -980,7 +1074,9 @@ __all__ = [
     "SpeakingStateIn",
     "SpeakingStateOut",
     "WorkerSessionOut",
+    "call_claim_mac",
     "caller_claim_mac",
     "usable_caller_claim_key",
+    "verify_call_claim",
     "verify_caller_claim",
 ]

@@ -1,7 +1,9 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
+// The opt-in panel moved from the client overview to People (D-661), so the operator half
+// renders the People page; nothing it asserts changed.
+import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import {
   WHATSAPP_ALERTS_PATH,
@@ -300,6 +302,9 @@ function tenantRoutes(state: unknown, over: Routes = {}): Routes {
     "/v1/billing/caps": problem(404, { title: "none" }),
     "/v1/kb/delivery": KB_ALL_DELIVERED,
     [TENANT_ALERTS]: state,
+    // The People page's other two lists (D-661).
+    "/v1/admin/tenants/t1/members": [],
+    "/v1/admin/tenants/t1/invitations": [],
     ...over,
   };
 }
@@ -307,7 +312,7 @@ function tenantRoutes(state: unknown, over: Routes = {}): Routes {
 describe("the operator's record of a client's opt-in", () => {
   it("shows a WITHDRAWAL before an operator can record an older agreement over it", async () => {
     const { container } = await renderAdminRoute(
-      <TenantDetailPage params={routeParams({ tenantId: "t1" })} />,
+      <TenantMembersPage params={routeParams({ tenantId: "t1" })} />,
       tenantRoutes(
         optIn({
           status: "withdrawn",
@@ -332,7 +337,7 @@ describe("the operator's record of a client's opt-in", () => {
 
   it("will not record a grant without the document it rests on", async () => {
     const { calls, container } = await renderAdminRoute(
-      <TenantDetailPage params={routeParams({ tenantId: "t1" })} />,
+      <TenantMembersPage params={routeParams({ tenantId: "t1" })} />,
       tenantRoutes(optIn()),
     );
 
@@ -377,7 +382,7 @@ describe("the operator's record of a client's opt-in", () => {
     // Nobody has to prove that somebody asked to stop, and demanding evidence for it
     // would be a reason to delay stopping.
     const { calls } = await renderAdminRoute(
-      <TenantDetailPage params={routeParams({ tenantId: "t1" })} />,
+      <TenantMembersPage params={routeParams({ tenantId: "t1" })} />,
       tenantRoutes(optIn({ status: "granted", messageable: true })),
     );
 
@@ -400,7 +405,7 @@ describe("the operator's record of a client's opt-in", () => {
 
   it("refuses rather than reporting that nobody has agreed, when the read fails", async () => {
     const { container } = await renderAdminRoute(
-      <TenantDetailPage params={routeParams({ tenantId: "t1" })} />,
+      <TenantMembersPage params={routeParams({ tenantId: "t1" })} />,
       tenantRoutes(
         problem(422, {
           kind: "validation",

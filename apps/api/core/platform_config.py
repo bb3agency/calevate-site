@@ -568,6 +568,20 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # call the carrier fetches an answer document for, with no restart of the
     # latency-critical service.
     "pipecat_stream_base_url": AppliesRule(LIVE),
+    # The carrier switch (D-662). Read per dial and per number binding, but a number
+    # already bound at the other carrier keeps answering there until it is rebound.
+    "carrier": AppliesRule(
+        NEEDS_REPUBLISH,
+        "new calls are dialled on the new carrier at once, but every number already bound "
+        "to the other carrier keeps answering there until it is bound again from the "
+        "number's screen",
+    ),
+    # The next four are read per request or per dial through `get_settings()`.
+    "vobiz_api_base_url": AppliesRule(LIVE),
+    "vobiz_signature_required": AppliesRule(LIVE),
+    "vobiz_callback_ips": AppliesRule(LIVE),
+    "carrier_cps": AppliesRule(LIVE),
+    "carrier_transfer_enabled": AppliesRule(LIVE),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
     # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,

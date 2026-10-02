@@ -135,9 +135,19 @@ function render(routes: Partial<Routes> = {}) {
   );
 }
 
+/**
+ * The terms form opens in a drawer over the agreement it would supersede (D-661), from the
+ * page's "Agree new terms". Its own submit is still "Record new terms".
+ */
+async function renderWithTerms(routes: Partial<Routes> = {}) {
+  const rendered = await render(routes);
+  fireEvent.click(await screen.findByRole("button", { name: "Agree new terms" }));
+  return rendered;
+}
+
 describe("the commercials screen", () => {
   it("withholds the form entirely when the current agreement could not be read", async () => {
-    const { container } = await render({
+    await render({
       [TERMS_PATH]: problem(503, {
         title: "Upstream unavailable",
         detail: "We could not read this client's commercial terms.",
@@ -149,31 +159,31 @@ describe("the commercials screen", () => {
       "Cannot record terms while the current agreement is unreadable",
     );
     expect(
-      screen.queryByRole("button", { name: /Record new terms/ }),
+      screen.queryByRole("button", { name: /Agree new terms|Record new terms/ }),
     ).toBeNull();
     // The one sentence that must NOT appear over a failed read: it is also a real state.
-    expect(container.textContent).not.toContain("No commercial terms set");
-    expect(container.textContent).not.toContain("₹0");
+    expect(document.body.textContent).not.toContain("No commercial terms set");
+    expect(document.body.textContent).not.toContain("₹0");
   });
 
   it("states the absence of terms as a state to resolve, not as a zero", async () => {
-    const { container } = await render({
+    await render({
       [TERMS_PATH]: terms({ state: "none", in_effect: null, history: [] }),
     });
 
     await screen.findByText("No commercial terms set");
-    expect(container.textContent).toContain("invoiced nothing");
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain("invoiced nothing");
+    expect(document.body.textContent).toContain(
       "no spend ceiling stops their dialling",
     );
     // The form is still offered — this is the screen that fixes it.
     expect(
-      screen.getByRole("button", { name: /Record new terms/ }),
+      screen.getByRole("button", { name: /Agree new terms/ }),
     ).toBeDefined();
   });
 
   it("prints a lapsed window as a misconfiguration rather than as no terms", async () => {
-    const { container } = await render({
+    await render({
       [TERMS_PATH]: terms({
         state: "lapsed",
         in_effect: null,
@@ -182,22 +192,22 @@ describe("the commercials screen", () => {
     });
 
     await screen.findByText("Terms have lapsed");
-    expect(container.textContent).toContain(
+    expect(document.body.textContent).toContain(
       "end date was set with no successor",
     );
   });
 
   it("formats a fee and leaves a rate unrounded", async () => {
-    const { container } = await render();
+    await render();
 
     await screen.findByText("In effect now");
-    expect(container.textContent).toContain("₹9,999.00");
+    expect(document.body.textContent).toContain("₹9,999.00");
     // The invoice multiplies by this number; ₹7.12 would break `qty x unit = amount`.
-    expect(container.textContent).toContain("₹7.1250");
+    expect(document.body.textContent).toContain("₹7.1250");
   });
 
   it("offers no default for the value-tier rate", async () => {
-    await render();
+    await renderWithTerms();
 
     // "Second overage rate", not "Value-tier rate": the field is `overage_rate_value`, a
     // second agreed rate on the plan, and the old label both used excluded rung vocabulary
@@ -211,7 +221,7 @@ describe("the commercials screen", () => {
   it("refuses a minute figure it cannot read instead of recording it as none", async () => {
     // `Number("1,000")` is NaN, which JSON sends as null: "1,000 minutes included" was
     // recorded as NO allowance, and a first minute ceiling of "1,000" as no ceiling at all.
-    const { calls } = await render({ [TERMS_PATH]: terms({ in_effect: null, state: "none" }) });
+    const { calls } = await renderWithTerms({ [TERMS_PATH]: terms({ in_effect: null, state: "none" }) });
 
     fireEvent.change(await screen.findByLabelText(/Included minutes/), {
       target: { value: "1,000" },
@@ -225,7 +235,7 @@ describe("the commercials screen", () => {
   });
 
   it("records a tightened ceiling with no confirmation header", async () => {
-    const { calls } = await render({
+    const { calls } = await renderWithTerms({
       [`POST ${TERMS_PATH}`]: {
         plan_id: "p",
         changed: true,
@@ -255,7 +265,7 @@ describe("the commercials screen", () => {
   });
 
   it("warns before a raise and sends the confirmation bound to THIS tenant", async () => {
-    const { calls, container } = await render({
+    const { calls } = await renderWithTerms({
       [`POST ${TERMS_PATH}`]: {
         plan_id: "p",
         changed: true,
@@ -270,9 +280,9 @@ describe("the commercials screen", () => {
     fireEvent.change(cap, { target: { value: "90000.00" } });
 
     await waitFor(() => {
-      expect(container.textContent).toContain("superadmin action");
+      expect(document.body.textContent).toContain("superadmin action");
     });
-    expect(container.textContent).toContain("spend ceiling");
+    expect(document.body.textContent).toContain("spend ceiling");
 
     fireEvent.click(screen.getByRole("button", { name: /Record new terms/ }));
     await waitFor(() => {
@@ -292,7 +302,7 @@ describe("the commercials screen", () => {
   });
 
   it("treats REMOVING a ceiling as the same dangerous direction as raising it", async () => {
-    const { container } = await render();
+    await renderWithTerms();
 
     const cap = (await screen.findByLabelText(
       /Spend ceiling/,
@@ -300,12 +310,12 @@ describe("the commercials screen", () => {
     fireEvent.change(cap, { target: { value: "" } });
 
     await waitFor(() => {
-      expect(container.textContent).toContain("superadmin action");
+      expect(document.body.textContent).toContain("superadmin action");
     });
   });
 
   it("reports an unchanged write as unchanged instead of claiming a new agreement", async () => {
-    const { container } = await render({
+    await renderWithTerms({
       [`POST ${TERMS_PATH}`]: {
         plan_id: "p",
         changed: false,
@@ -319,9 +329,9 @@ describe("the commercials screen", () => {
     );
 
     await waitFor(() => {
-      expect(container.textContent).toContain("already the terms in effect");
+      expect(document.body.textContent).toContain("already the terms in effect");
     });
-    expect(container.textContent).toContain("no audit row was added");
+    expect(document.body.textContent).toContain("no audit row was added");
   });
 
   /**
@@ -348,7 +358,7 @@ describe("the commercials screen", () => {
         // this the second zone's `getByLabelText` sees two of every field.
         cleanup();
         process.env.TZ = zone;
-        const { calls } = await render({
+        const { calls } = await renderWithTerms({
           [`POST ${TERMS_PATH}`]: {
             plan_id: "p",
             changed: true,
@@ -391,17 +401,17 @@ describe("the commercials screen", () => {
   });
 
   it("says on the label that the window is IST, since the field cannot carry a zone", async () => {
-    const { container } = await render();
+    await renderWithTerms();
     await screen.findByLabelText(/In effect from \(IST\)/);
     await screen.findByLabelText(/Until \(IST\)/);
     // The doctrine in `components/ui.tsx` is explicit that the label is part of the
     // contract: a field quietly meaning something other than the machine's clock, with
     // nothing on screen saying so, is worse than the bug it fixes.
-    expect(container.textContent).toContain("Indian Standard Time");
+    expect(document.body.textContent).toContain("Indian Standard Time");
   });
 
   it("disables the write, with its reason, for a session that may not make it", async () => {
-    await render({
+    await renderWithTerms({
       [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] },
     });
 

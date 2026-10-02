@@ -5,7 +5,8 @@
 once — rather than letting the container come up and discover the hole on the first call.
 
 **WHY THE REFUSAL IS THE POINT AND NOT THE ERGONOMICS.** Every piece of configuration
-below is reached on a path a caller is already waiting on. `PlivoFrameSerializer` raises
+below is reached on a path a caller is already waiting on. On the Plivo leg
+(`CARRIER=plivo`), `PlivoFrameSerializer` raises
 `ValueError("auto_hang_up is enabled but missing required parameters: auth_id, auth_token")`
 at CONSTRUCTION, which is inside the first session
 (`pipecat/serializers/plivo.py:79-92`, `pipecat-ai==1.10.0` as installed, read
@@ -58,16 +59,18 @@ import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
+from calevate_shared.carrier import CARRIERS, DEFAULT_CARRIER, CarrierName, is_carrier
 from calevate_shared.events import CallDirection
 from calevate_shared.worker_api import MIN_CALLER_CLAIM_KEY_BYTES, usable_caller_claim_key
 from loguru import logger
 
 from voice_worker.api_client import WorkerApiClient
 from voice_worker.call_tools import CallToolApiClient
+from voice_worker.carrier import PlivoCredentials
 from voice_worker.embedding import EMBED_BUDGET_S, build_gemini_embedder
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
@@ -143,10 +146,16 @@ LLM_KEY_ENV_BY_PROVIDER: Final[Mapping[str, str]] = {
     GOOGLE_LLM_PROVIDER: "GEMINI_API_KEY",
 }
 
-#: Read by PIPECAT, not by us: `runner.utils._create_telephony_transport` builds
-#: `PlivoFrameSerializer(auth_id=os.getenv("PLIVO_AUTH_ID", ""), ...)`
-#: (`pipecat/runner/utils.py:532-539`). We check them so the failure is a boot refusal
-#: instead of a live call that cannot be hung up — see this module's docstring.
+#: Which carrier a socket is when the stream URL carries no `carrier=` claim, and which
+#: carrier's credentials the boot gate demands. Spelled as `Settings.carrier` is, so the
+#: control plane and this container read one name; `calevate_shared.carrier` holds the values.
+CARRIER_ENV: Final[str] = "CARRIER"
+
+#: The Plivo leg's hangup credentials, passed to `PlivoFrameSerializer` by
+#: `carrier.build_transport`. REQUIRED ONLY WHEN `CARRIER=plivo`: the Vobiz leg ends a call
+#: with an in-band `stop` and needs no carrier credential in this container at all, and
+#: NO `VOBIZ_*` credential may ever be put here — the account token can place calls, buy
+#: numbers and read every CDR, and this is a container a vendor operates.
 #:
 #: BOTH ARE `Settings` FIELDS (`plivo_auth_id` / `plivo_auth_token`, D-614) AND NEITHER IS
 #: READ THROUGH ONE, here or anywhere. The field exists so the credential has a row in the
@@ -241,6 +250,10 @@ class WorkerConfig:
     gnani_api_key: str | None
     #: The caller-claim signing key (see `CLAIM_KEY_ENV`), or `None`.
     carrier_claim_secret: str | None
+    #: The carrier an unclaimed socket is taken to be (see `CARRIER_ENV`).
+    carrier: CarrierName
+    #: Present exactly when `carrier == "plivo"`; a Vobiz worker holds no carrier secret.
+    plivo_credentials: PlivoCredentials | None
     drain_grace_s: float
     ready_file: str | None
     #: The buffered-turn bounds (D-620). See `sink.DEFAULT_TURN_BATCH_SIZE`.
@@ -391,6 +404,19 @@ def _refuse_cleartext_api(base_url: str | None, failures: list[str]) -> None:
     )
 
 
+def _carrier(env: Mapping[str, str], failures: list[str]) -> CarrierName:
+    """`CARRIER`, defaulting to `DEFAULT_CARRIER`. A value naming no carrier is refused
+    rather than defaulted: a typo would otherwise run Vobiz on a Plivo deployment."""
+    raw = _present(env, CARRIER_ENV)
+    if raw is None:
+        return DEFAULT_CARRIER
+    value = raw.lower()
+    if not is_carrier(value):
+        failures.append(f"{CARRIER_ENV} must be one of {', '.join(CARRIERS)}")
+        return DEFAULT_CARRIER
+    return cast(CarrierName, value)
+
+
 def _drain_grace(env: Mapping[str, str], failures: list[str]) -> float:
     raw = _present(env, DRAIN_GRACE_ENV)
     if raw is None:
@@ -429,9 +455,11 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         AWS_KEY_ENV: _present(source, AWS_KEY_ENV),
         AWS_SECRET_ENV: _present(source, AWS_SECRET_ENV),
         SARVAM_KEY_ENV: _present(source, SARVAM_KEY_ENV),
-        PLIVO_AUTH_ID_ENV: _present(source, PLIVO_AUTH_ID_ENV),
-        PLIVO_AUTH_TOKEN_ENV: _present(source, PLIVO_AUTH_TOKEN_ENV),
     }
+    carrier = _carrier(source, failures)
+    if carrier == "plivo":
+        required[PLIVO_AUTH_ID_ENV] = _present(source, PLIVO_AUTH_ID_ENV)
+        required[PLIVO_AUTH_TOKEN_ENV] = _present(source, PLIVO_AUTH_TOKEN_ENV)
     failures.extend(
         f"{name} is not set" for name, value in sorted(required.items()) if value is None
     )
@@ -475,6 +503,15 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         cartesia_api_key=_present(source, CARTESIA_KEY_ENV),
         gnani_api_key=_present(source, GNANI_KEY_ENV),
         carrier_claim_secret=claim_key,
+        carrier=carrier,
+        plivo_credentials=(
+            PlivoCredentials(
+                auth_id=required[PLIVO_AUTH_ID_ENV] or "",
+                auth_token=required[PLIVO_AUTH_TOKEN_ENV] or "",
+            )
+            if carrier == "plivo"
+            else None
+        ),
         drain_grace_s=grace,
         ready_file=_present(source, READY_FILE_ENV),
         turn_batch_size=turn_batch,
@@ -668,6 +705,7 @@ __all__ = [
     "API_TOKEN_ENV",
     "AWS_KEY_ENV",
     "AWS_SECRET_ENV",
+    "CARRIER_ENV",
     "CARTESIA_KEY_ENV",
     "DEFAULT_DRAIN_GRACE_S",
     "DRAIN_GRACE_ENV",

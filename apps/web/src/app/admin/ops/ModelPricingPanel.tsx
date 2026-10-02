@@ -148,14 +148,20 @@ export function ModelPricingPanel({
   }
 
   return (
-    <Card title="Model prices">
+    <Card
+      title="Model prices"
+      info={
+        <p>
+          Enter what your own vendor invoice or dashboard says — that figure is the only one
+          that&apos;s true for your account.
+        </p>
+      }
+    >
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          The price per million tokens that billing charges for each model, in
-          US dollars. Enter what your own vendor invoice or dashboard says —
-          that figure is the only one that&apos;s true for your account. A model
-          becomes available to customers only once its vendor key is installed
-          and its price is confirmed.
+          The price per million tokens that billing charges for each model, in US dollars. A
+          model becomes available to customers only once its vendor key is installed and its
+          price is confirmed.
         </p>
 
         {query.error && (

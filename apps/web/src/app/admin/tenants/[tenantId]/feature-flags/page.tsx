@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
 
+import { EmptyState } from "@/components/console/emptyState";
+import { InfoTip } from "@/components/console/infoTip";
+import { PageHeader } from "@/components/console/pageHeader";
 import {
-  Card,
-  EmptyState,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  MonoValue,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
@@ -32,6 +34,9 @@ import { noFill } from "@/lib/copilot/types";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { Term } from "@/lib/glossary";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+
+import { StatePill } from "../statePill";
 
 /**
  * Per-tenant feature flags (SURFACES §1) — read them, and flip one.
@@ -139,47 +144,23 @@ export default function FeatureFlagsPage({
     apply: noFill,
   });
 
-  if (tenantQuery.isLoading) return <Skeleton rows={6} />;
-  if (tenantQuery.error)
-    return <ProblemNotice error={tenantQuery.error} onRetry={() => tenantQuery.refetch()} />;
-  if (!tenant) return <EmptyState title="Client not found" />;
+  // The layout resolves the tenant before this page mounts; a render without it (a test
+  // that mounts the page alone) paints nothing rather than a guess.
+  if (!tenant) return null;
 
   return (
     <div className="max-w-3xl space-y-5">
-      <div>
-        <Link
-          href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-brand-strong hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          {tenant.name}
-        </Link>
-        {/* `admin/layout.tsx` prints no page title (unlike the client shell), so this
-            heading is the only name this screen has. Delete it if a title lands there. */}
-        <h1 className="mt-1 text-xl font-semibold text-ink">Feature flags</h1>
-        <p className="text-sm text-ink-muted">
-          Beta features and debug views, switched on for this client alone. Each flag
-          starts at a platform default set in code; an override here moves this client off
-          it and takes effect on their next request.
-        </p>
-      </div>
+      <PageHeader
+        title="Feature flags"
+        description="Betas and debug views, for this client only. A change applies on their next request."
+      />
 
-      <NoticeBox tone="neutral" icon={<Info className="h-5 w-5" />} title="What these are not">
-        <ul className="mt-1 space-y-1 text-xs opacity-90">
-          <li>
-            Not the platform switches. Halting outbound calling, the load-shed mode and our
-            own <Term id="tm" term="telemarketer" audience="operator" /> registration are global
-            and live on{" "}
-            <Link href="/admin/ops" className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-              the operations screen
-            </Link>
-            .
-          </li>
-          <li>
-            Not what this client pays for. Plan, included minutes and spend ceilings are a
-            dated commercial agreement, on Commercials.
-          </li>
-          <li>
+      {/* VISIBLE AND VERBATIM: the person most likely to look for such a switch is the
+          person on a support call being asked for one. The two other "what these are not"
+          notes are explanation, so they sit behind the ⓘ. */}
+      <NoticeBox tone="neutral" icon={<Info className="h-5 w-5" />}>
+        <div className="flex items-start gap-1 text-xs">
+          <p>
             <span className="font-medium">Never a compliance control.</span> Nothing here
             can switch off the{" "}
             <Term id="dnc" audience="operator" />, calling hours, the
@@ -187,8 +168,23 @@ export default function FeatureFlagsPage({
             <Term id="kyc" audience="operator" />{" "}
             for a client. If someone asks for that, the answer is no and the reason is that
             those checks are the law, not a preference.
-          </li>
-        </ul>
+          </p>
+          <InfoTip label="What these flags are not">
+            <p>
+              Not the platform switches. Halting outbound calling, the load-shed mode and our
+              own <Term id="tm" term="telemarketer" audience="operator" /> registration are
+              global and live on{" "}
+              <Link href="/admin/ops" className="font-medium underline">
+                the operations screen
+              </Link>
+              .
+            </p>
+            <p>
+              Not what this client pays for. Plan, included minutes and spend ceilings are a
+              dated commercial agreement, on Commercials.
+            </p>
+          </InfoTip>
+        </div>
       </NoticeBox>
 
       {flags.error && <ProblemNotice error={flags.error} onRetry={() => flags.refetch()} />}
@@ -196,10 +192,9 @@ export default function FeatureFlagsPage({
       {flags.isLoading ? (
         <Skeleton rows={4} />
       ) : !flags.data ? (
-        /* The controls are WITHHELD rather than merely disabled, and the reason belongs
-           on screen. A write here replaces whatever is on file, so acting while the
-           current state is unreadable can silently reverse a colleague's change — and on
-           a flag, unlike a compliance decision, nothing downstream would refuse it. */
+        /* The controls are WITHHELD rather than merely disabled: a write here replaces
+           whatever is on file, so acting while the current state is unreadable can
+           silently reverse a colleague's change — and nothing downstream would refuse it. */
         <NoticeBox
           tone="warn"
           icon={<AlertTriangle className="h-5 w-5" />}
@@ -212,18 +207,14 @@ export default function FeatureFlagsPage({
           </p>
         </NoticeBox>
       ) : flags.data.items.length === 0 ? (
-        <EmptyState
-          title="This build has no feature flags"
-          hint="No feature flags are defined yet, so there is nothing to configure here."
-        />
+        <EmptyState message="This build has no feature flags, so there is nothing to configure here." />
       ) : (
-        <div className="space-y-4">
+        <ul className="divide-y divide-line rounded-card border border-line bg-surface">
           {flags.data.items.map((flag) => (
             <FlagRow
               // Remounted only when the STORED position changes — an equal refetch keeps
               // the key, so a poll or a sibling write cannot wipe a reason an operator is
-              // halfway through typing. Resetting state via `key` rather than an effect is
-              // React's own answer (react.dev/learn/you-might-not-need-an-effect).
+              // halfway through typing (react.dev/learn/you-might-not-need-an-effect).
               key={`${flag.flag}|${flag.override}|${flag.reason}`}
               flag={flag}
               tenantName={tenant.name}
@@ -231,13 +222,18 @@ export default function FeatureFlagsPage({
               write={write}
             />
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
 }
 
-/** The three facts behind one answer, plus the control that moves it. */
+/**
+ * One flag: what it does, the three facts behind its answer, and the control that moves
+ * it. The reason and Save sit on the row because every write here — in either direction —
+ * is audited with the operator's reason; the projection is one line and the audit detail
+ * is behind an ⓘ.
+ */
 function FlagRow({
   flag,
   tenantName,
@@ -258,44 +254,41 @@ function FlagRow({
   const blocked = flagBlockReason(draft, flag);
   const projected = projectedState(draft, flag);
   const result = set.data?.flag === flag.flag ? set.data : null;
+  const dirty = position !== flag.override || reason !== "";
+  useUnsavedGuard(dirty);
+  const reasonId = `${flag.flag}-reason`;
 
   return (
-    <Card title={flag.flag}>
-      <p className="-mt-2 text-sm text-ink-muted">
-        {flag.description ??
-          "This build no longer declares this flag, so nothing describes it and nothing reads it."}
-      </p>
-
-      {!flag.declared && (
-        <NoticeBox
-          tone="neutral"
-          icon={<Wrench className="h-5 w-5" />}
-          title="Left over from an older release"
-          className="mt-3"
-        >
-          <p className="mt-1 text-xs opacity-90">
-            This row is stored but no code reads it, so it changes nothing. Clearing it is
-            safe and is how these are tidied up.
+    <li className="space-y-3 px-4 py-4 sm:px-5">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1 basis-64">
+          <h3 className="flex flex-wrap items-center gap-2">
+            <MonoValue className="text-[14px] font-semibold text-ink">{flag.flag}</MonoValue>
+            {!flag.declared && <StatePill>Left over from an older release</StatePill>}
+            {flag.declared && flag.consumed_by === null && (
+              <StatePill tone="warn">Nothing reads this flag yet</StatePill>
+            )}
+          </h3>
+          <p className="mt-1 text-sm text-ink-muted">
+            {flag.description ??
+              "This build no longer declares this flag, so nothing describes it and nothing reads it."}
           </p>
-        </NoticeBox>
-      )}
+          {!flag.declared && (
+            <p className="mt-1 text-xs text-ink-muted">
+              This row is stored but no code reads it, so it changes nothing. Clearing it is
+              safe and is how these are tidied up.
+            </p>
+          )}
+          {flag.declared && flag.consumed_by === null && (
+            <p className="mt-1 text-xs text-warn">
+              The switch is real and the setting is stored, but no code consults it in this
+              build — so turning it on changes nothing a client would notice.
+            </p>
+          )}
+        </div>
+      </div>
 
-      {flag.declared && flag.consumed_by === null && (
-        <NoticeBox
-          tone="warn"
-          icon={<AlertTriangle className="h-5 w-5" />}
-          title="Nothing reads this flag yet"
-          className="mt-3"
-        >
-          <p className="mt-1 text-xs opacity-90">
-            The switch is real and the setting is stored, but no code consults it in this
-            build — so turning it on changes nothing a client would notice. It is declared
-            ahead of the feature it will gate.
-          </p>
-        </NoticeBox>
-      )}
-
-      <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
+      <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-3">
         <div>
           <dt className="text-ink-faint">Platform default</dt>
           <dd className="mt-0.5 font-medium text-ink">
@@ -322,124 +315,84 @@ function FlagRow({
           </dd>
         </div>
         {flag.override !== null && (
-          <>
-            <div className="sm:col-span-2">
-              <dt className="text-ink-faint">Why</dt>
-              <dd className="mt-0.5 whitespace-pre-wrap font-medium text-ink">
-                {flag.reason ?? "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-ink-faint">Set</dt>
-              <dd className="mt-0.5 font-medium text-ink">
-                {flag.set_at ? `${formatIST(flag.set_at)} IST` : "—"}
-              </dd>
-            </div>
-          </>
+          <div className="sm:col-span-3">
+            <dt className="text-ink-faint">Why</dt>
+            <dd className="mt-0.5 whitespace-pre-wrap text-ink">
+              {flag.reason ?? "—"}
+              {flag.set_at && (
+                <span className="ml-1 text-ink-muted">· set {formatIST(flag.set_at)} IST</span>
+              )}
+            </dd>
+          </div>
         )}
       </dl>
 
       <form
-        className="mt-5 space-y-4 border-t border-line pt-4"
-        // These forms carry no rule the browser can refuse — only `maxLength`, which
-        // it enforces by not accepting the keystroke — and their own refusals are
-        // already written in our words beside each control. `noValidate` so a rule
-        // added here later cannot quietly be answered in the browser's language.
+        className="space-y-3"
+        // No rule the browser can refuse here (only `maxLength`), and every refusal is
+        // already written in our words beside the control.
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
           if (blocked === null) set.mutate({ flag: flag.flag, ...draft });
         }}
       >
-        {/* The permission the route requires, answered before the click. */}
         <RestrictionNote reason={write.reason} />
 
         <fieldset>
-          <legend className={FIELD_LABEL}>This client&apos;s position</legend>
-          <div className="mt-2 space-y-2">
-            {POSITIONS.map((option) => (
-              <label
-                key={String(option.value)}
-                className="flex cursor-pointer gap-2 rounded-card border border-line p-3 text-xs hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <input
-                  type="radio"
-                  name={`${flag.flag}-position`}
-                  checked={position === option.value}
-                  disabled={!write.allowed}
-                  onChange={() => {
-                    setPosition(option.value);
-                    set.reset();
-                  }}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="font-medium text-ink">{option.label}</span>
-                  <span className="mt-0.5 block text-ink-muted">{option.effect}</span>
-                </span>
-              </label>
-            ))}
+          <legend className="sr-only">This client&apos;s position</legend>
+          <div className="grid gap-1 rounded-lg border border-line bg-app p-1 sm:inline-grid sm:grid-cols-3">
+            {POSITIONS.map((option) => {
+              const on = position === option.value;
+              return (
+                <label
+                  key={String(option.value)}
+                  title={option.effect}
+                  className={`press flex cursor-pointer items-center justify-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-medium touch:min-h-11 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand ${
+                    on ? "bg-surface text-ink shadow-card" : "text-ink-muted hover:text-ink"
+                  } ${!write.allowed ? "cursor-not-allowed opacity-60" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name={`${flag.flag}-position`}
+                    checked={on}
+                    disabled={!write.allowed}
+                    onChange={() => {
+                      setPosition(option.value);
+                      set.reset();
+                    }}
+                    className="sr-only"
+                  />
+                  {option.label}
+                </label>
+              );
+            })}
           </div>
+          <p className="mt-1.5 text-xs text-ink-muted">
+            {POSITIONS.find((option) => option.value === position)?.effect}
+          </p>
         </fieldset>
 
-        <div>
-          {/* A persistent visible label, not a placeholder: the hint below explains the
-              field, the label names it, and neither disappears when typing starts. */}
-          <label htmlFor={`${flag.flag}-reason`} className={FIELD_LABEL}>
-            Why (recorded)
-          </label>
-          <textarea
-            id={`${flag.flag}-reason`}
-            rows={2}
-            maxLength={REASON_MAX}
-            value={reason}
-            disabled={!write.allowed}
-            onChange={(event) => {
-              setReason(event.target.value);
-              set.reset();
-            }}
-            className={FIELD}
-          />
-          <span className={FIELD_HINT}>
-            Goes into the audit entry, and into the row for as long as the override stands.
-            Required in both directions — &ldquo;why did we put them back on the
-            default&rdquo; is asked just as often. Keep it to notes about the change only:
-            no phone numbers and no transcript text.
-          </span>
-        </div>
-
-        <div className="rounded-card border border-line bg-app p-3 text-xs text-ink-muted">
-          <p className="font-medium text-ink">This will record, against {tenantName}:</p>
-          <ul className="mt-1.5 space-y-1">
-            <li>
-              <span className="text-ink-faint">In effect afterwards</span> —{" "}
-              {projected.enabled === null
-                ? "nothing; this flag is not declared by this build."
-                : `${projected.enabled ? "on" : "off"}, ${
-                    projected.source === "tenant_override"
-                      ? "from this client's own override."
-                      : "from the platform default, because the override is being cleared."
-                  }`}
-            </li>
-            <li>
-              <span className="text-ink-faint">When</span> — on this client&apos;s next
-              request. There is no cache to wait out.
-            </li>
-            <li>
-              <span className="text-ink-faint">Audit</span> — one entry, and only if
-              something actually changes. Restating what is already on file writes nothing.
-            </li>
-            <li>
-              <span className="text-ink-faint">Set by</span> — the admin account sending
-              this request. Taken from your session, not from this form.
-            </li>
-          </ul>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Shared primary CTA: the "Save this flag" label stays mounted (no name
-              flicker to "Saving…"), the spinner rides `loading`, and the two non-pending
-              disable reasons are unchanged — ActionButton folds `loading` in on top. */}
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 basis-64">
+            <label htmlFor={reasonId} className={FIELD_LABEL}>
+              Why (recorded)
+            </label>
+            <input
+              id={reasonId}
+              maxLength={REASON_MAX}
+              value={reason}
+              disabled={!write.allowed}
+              onChange={(event) => {
+                setReason(event.target.value);
+                set.reset();
+              }}
+              placeholder="e.g. Beta trial, ticket 4471"
+              className={FIELD}
+            />
+          </div>
+          {/* Shared primary CTA: the "Save this flag" name stays mounted (no flicker to
+              "Saving…"), and the spinner rides `loading`. */}
           <ActionButton
             type="submit"
             loading={set.isPending}
@@ -447,13 +400,37 @@ function FlagRow({
           >
             Save this flag
           </ActionButton>
-          {blocked && <span className="text-xs text-amber-700 dark:text-amber-400">{blocked}</span>}
         </div>
+        <div className={`${FIELD_HINT} flex items-start gap-1`}>
+          <span>
+            Required in both directions. No phone numbers and no transcript text.
+            {dirty && projected.enabled !== null && (
+              <>
+                {" "}
+                Afterwards: <span className="font-medium text-ink">{projected.enabled ? "on" : "off"}</span>,{" "}
+                {projected.source === "tenant_override"
+                  ? "from this client's own override."
+                  : "from the platform default."}
+              </>
+            )}
+          </span>
+          <InfoTip label="What saving records">
+            <p>Recorded against {tenantName}, from your session rather than this form.</p>
+            <p>It applies on this client&apos;s next request; there is no cache to wait out.</p>
+            <p>
+              One audit entry, and only if something actually changes. Restating what is
+              already on file writes nothing.
+            </p>
+          </InfoTip>
+        </div>
+        {blocked && <p className="text-xs text-warn">{blocked}</p>}
       </form>
 
-      {set.error != null && <ProblemNotice error={set.error} />}
+      {set.error != null && result === null && set.variables?.flag === flag.flag && (
+        <ProblemNotice error={set.error} />
+      )}
       {result && (
-        <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />} className="mt-4">
+        <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
           <p className="text-xs">
             {result.changed ? (
               <>
@@ -470,10 +447,9 @@ function FlagRow({
           </p>
         </NoticeBox>
       )}
-    </Card>
+    </li>
   );
 }
-
 /**
  * The three positions, in the operator's words.
  *

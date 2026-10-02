@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import FleetSpendPage from "@/app/admin/spend/page";
 import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
 import type { Me } from "@/lib/api/client";
@@ -307,6 +308,24 @@ const HUB_CAPS = {
 const tenantPage = (
   <TenantSpendPage params={Promise.resolve({ tenantId: "t1" })} />
 );
+
+/**
+ * The other reads the tenant Spend page makes: the spend-cap panel moved here from the
+ * client's overview (D-661 Money › Spend), and it reads the cap state through a view-as
+ * session and gates its recompute on the admin session's own permissions.
+ */
+const SPEND_PAGE_ME: AdminMe = {
+  realm: "admin",
+  user_id: "0192f0aa-7777-7000-8000-0000000000cc",
+  role: "superadmin",
+  permissions: ["org:read", "billing:read", "admin:tenants", "ops:manage"],
+};
+const TENANT_PAGE_READS = {
+  // The page names the client it is about, from the directory read.
+  "/v1/admin/tenants/t1": tenantSummary(),
+  [ADMIN_ME_PATH]: SPEND_PAGE_ME,
+  "/v1/billing/caps": HUB_CAPS,
+};
 
 const CLIENT_ROUTE = `/v1/billing/spend?month=${IST_MONTH}`;
 const TENANT_ROUTE = `/v1/admin/tenants/t1/spend?month=${IST_MONTH}`;
@@ -707,8 +726,7 @@ describe("the client's spend screen", () => {
 describe("the operator's half", () => {
   it("shows both directions for one client and marks the assumed cost currency", async () => {
     const { container } = await renderAdminRoute(tenantPage, {
-      // The page names the client it is about, from the directory read.
-      "/v1/admin/tenants/t1": tenantSummary(),
+      ...TENANT_PAGE_READS,
       [TENANT_ROUTE]: TENANT_SPEND,
     });
     await screen.findByText("₹7,20,899.00");
@@ -726,8 +744,7 @@ describe("the operator's half", () => {
     // published on its own line, and it is marked as absorbed — not billed to the client
     // and not in the revenue/cost/margin above.
     const { container } = await renderAdminRoute(tenantPage, {
-      // The page names the client it is about, from the directory read.
-      "/v1/admin/tenants/t1": tenantSummary(),
+      ...TENANT_PAGE_READS,
       [TENANT_ROUTE]: TENANT_SPEND,
     });
     await screen.findByText("AI assistant — cost we absorb");
@@ -740,8 +757,7 @@ describe("the operator's half", () => {
   it("says nothing about AI when the month generated none", async () => {
     // Null, not ₹0.00 — the same "different facts" the margin-% tile draws.
     const { container } = await renderAdminRoute(tenantPage, {
-      // The page names the client it is about, from the directory read.
-      "/v1/admin/tenants/t1": tenantSummary(),
+      ...TENANT_PAGE_READS,
       [TENANT_ROUTE]: { ...TENANT_SPEND, ai_assist: null },
     });
     await screen.findByText("₹7,20,899.00");
@@ -753,8 +769,7 @@ describe("the operator's half", () => {
   it("says 'not billed yet' rather than 0% when nothing has been billed", async () => {
     // Two different facts, and an operator acts differently on each.
     const { container } = await renderAdminRoute(tenantPage, {
-      // The page names the client it is about, from the directory read.
-      "/v1/admin/tenants/t1": tenantSummary(),
+      ...TENANT_PAGE_READS,
       [TENANT_ROUTE]: { ...TENANT_SPEND, margin_pct: null },
     });
     await screen.findByText("not billed yet");

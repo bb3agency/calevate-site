@@ -67,6 +67,7 @@ export function SettingsLayout({
   sections,
   renderSection,
   param = SECTION_PARAM,
+  menu = "column",
   className = "",
 }: {
   /** Names the section menu: "Agent settings". */
@@ -74,11 +75,18 @@ export function SettingsLayout({
   sections: SettingsSection[];
   renderSection: (id: string) => ReactNode;
   param?: string;
+  /**
+   * "column" (default): a sticky left column from `lg`, a scrolling row of pills below it.
+   * "row": the scrolling row at every width — for a layout nested inside another page's
+   * own section column, where a second column would leave the content too narrow.
+   */
+  menu?: "column" | "row";
   className?: string;
 }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const active = useActiveSection(sections, param);
+  const row = menu === "row";
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const picked = useRef(false);
@@ -110,15 +118,15 @@ export function SettingsLayout({
   const current = sections.find((s) => s.id === active);
 
   return (
-    <div className={`gap-8 lg:grid lg:grid-cols-[200px_minmax(0,1fr)] ${className}`}>
+    <div className={`${row ? "" : "gap-8 lg:grid lg:grid-cols-[200px_minmax(0,1fr)]"} ${className}`}>
       {/* ONE list of links in both shapes — a scrolling row of pills on a phone, a sticky
           column from `lg` — so each section has exactly one link in the document. */}
-      <nav aria-label={label} className="mb-5 lg:sticky lg:top-2 lg:mb-0 lg:self-start">
+      <nav aria-label={label} className={row ? "mb-5" : "mb-5 lg:sticky lg:top-2 lg:mb-0 lg:self-start"}>
         <ScrollRegion
           label={label}
-          className="-mx-1 px-1 pb-1 lg:mx-0 lg:overflow-visible lg:p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className={`-mx-1 px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${row ? "" : "lg:mx-0 lg:overflow-visible lg:p-0"}`}
         >
-          <ul className="flex w-max gap-1 lg:w-auto lg:flex-col lg:gap-0.5">
+          <ul className={row ? "flex w-max gap-1" : "flex w-max gap-1 lg:w-auto lg:flex-col lg:gap-0.5"}>
             {sections.map((section) => {
               const on = section.id === active;
               return (
@@ -136,16 +144,20 @@ export function SettingsLayout({
                       }
                       picked.current = true;
                     }}
-                    className={`press flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px] ${
+                    className={`press flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${row ? "" : "lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px]"} ${
                       on
-                        ? "bg-ink text-surface lg:bg-ink/[0.06] lg:text-ink"
-                        : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink lg:font-normal"
+                        ? row
+                          ? "bg-ink text-surface"
+                          : "bg-ink text-surface lg:bg-ink/[0.06] lg:text-ink"
+                        : row
+                          ? "text-ink-muted hover:bg-ink/[0.05] hover:text-ink"
+                          : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink lg:font-normal"
                     }`}
                   >
                     <span className="truncate">{section.label}</span>
                     {section.badge !== undefined && (
                       <span
-                        className={`text-[12px] tabular-nums ${on ? "text-surface/80 lg:text-ink-faint" : "text-ink-faint"}`}
+                        className={`text-[12px] tabular-nums ${on ? (row ? "text-surface/80" : "text-surface/80 lg:text-ink-faint") : "text-ink-faint"}`}
                       >
                         {section.badge}
                       </span>

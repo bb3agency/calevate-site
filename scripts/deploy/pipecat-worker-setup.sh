@@ -230,6 +230,15 @@ prefill_key() {
 # which no per-row flag can express — `secrets_cmd` enforces that separately, and the three
 # rows are marked `llm`.
 #
+# `CARRIER` (row class `carrier`) is vobiz or plivo, default vobiz. The `PLIVO_*` rows
+# (class `plivo`) are required when it is plivo and are not asked for otherwise: the Vobiz
+# leg hangs up in-band and needs no carrier credential in the worker.
+#
+# ⚠ NO `VOBIZ_*` VARIABLE EVER GOES IN THIS SECRET SET. The Vobiz auth id and token are the
+# ACCOUNT credential: they place calls, buy numbers and read every CDR, and only the VPS
+# (apps/api, apps/voice-runtime) uses them. `secrets_cmd` writes only the rows below, and
+# no row here names one.
+#
 # ══════════════════════════════════════════════════════════════════════════════════════
 # ⚠ WHAT GOES IN THIS SECRET SET LEAVES OUR CONTROL. IT IS A THIRD PARTY'S CONTAINER.
 # ══════════════════════════════════════════════════════════════════════════════════════
@@ -274,8 +283,9 @@ readonly ENV_CONTRACT=(
   "AWS_ACCESS_KEY_ID|yes|the KNOWLEDGE-PACK-ONLY R2 access key id (ops console name: KB_PACK_READONLY_ACCESS_KEY_ID). NOT this host's R2 key: that one reads and writes recordings/, kb-uploads/ and engine-payloads/ for every tenant, and this container only ever does get_object on knowledge-packs/. botocore resolves it from this spelling, which is why the NAME here is the vendor's and the CREDENTIAL is a new one"
   "AWS_SECRET_ACCESS_KEY|yes|its secret half (ops console name: KB_PACK_READONLY_SECRET_ACCESS_KEY). Same Cloudflare token as the id above — read-only, scoped as narrowly as R2 allows (DEPLOYMENT §12.5 gate 10)"
   "SARVAM_API_KEY|yes|STT on every call"
-  "PLIVO_AUTH_ID|yes|the auth id of a carrier credential ISSUED FOR THIS WORKER (ops console name: PLIVO_WORKER_AUTH_ID), used to hang a leg up — a leg nobody hung up goes on billing. NOT the account-level credential the VPS uses: that one can also originate calls, buy numbers and read every CDR (DEPLOYMENT §12.5 gate 11)"
-  "PLIVO_AUTH_TOKEN|yes|its token half (ops console name: PLIVO_WORKER_AUTH_TOKEN). Same credential as the id above"
+  "CARRIER|carrier|vobiz or plivo (default vobiz): which carrier a stream is taken to be when its URL carries no carrier= claim, and whether the PLIVO_* pair is required. The SAME value as this host's CARRIER"
+  "PLIVO_AUTH_ID|plivo|the auth id of a carrier credential ISSUED FOR THIS WORKER (ops console name: PLIVO_WORKER_AUTH_ID), used to hang a leg up — a leg nobody hung up goes on billing. NOT the account-level credential the VPS uses: that one can also originate calls, buy numbers and read every CDR (DEPLOYMENT §12.5 gate 11)"
+  "PLIVO_AUTH_TOKEN|plivo|its token half (ops console name: PLIVO_WORKER_AUTH_TOKEN). Same credential as the id above"
   "AZURE_OPENAI_API_KEY|llm|in-call LLM, Azure leg"
   "OPENAI_API_KEY|llm|in-call LLM, OpenAI direct leg"
   "GEMINI_API_KEY|llm|in-call LLM, Google leg"
@@ -584,15 +594,24 @@ secrets_cmd() {
   say "Press ENTER to skip any optional variable, or to keep it unset."
   rule
 
-  local llm_given=0 row name required what value
+  local llm_given=0 row name required what value carrier=vobiz
   : >"$envfile"
   for row in "${ENV_CONTRACT[@]}"; do
     IFS='|' read -r name required what <<<"$row"
+    if [[ "$required" == plivo ]]; then
+      if [[ "$carrier" != plivo ]]; then
+        say ""
+        say "  $name [skipped: CARRIER=$carrier needs no carrier credential in the worker]"
+        continue
+      fi
+      required=yes
+    fi
     local label="  $name"
     case "$required" in
       yes) label="$label [required]" ;;
       llm) label="$label [one LLM key required overall]" ;;
       no)  label="$label [optional]" ;;
+      carrier) label="$label [optional, default vobiz]" ;;
     esac
     say ""
     say "$label"
@@ -611,6 +630,13 @@ secrets_cmd() {
     if [[ -z "$value" && -n "$prefill" ]]; then
       value=$prefill
       say "    using the value from $ENV_FILE"
+    fi
+    if [[ "$required" == carrier ]]; then
+      value=${value,,}
+      case "${value:-vobiz}" in
+        vobiz|plivo) carrier=${value:-vobiz} ;;
+        *) die "$name must be vobiz or plivo (voice_worker/boot.py refuses anything else)" ;;
+      esac
     fi
     if [[ -z "$value" ]]; then
       if [[ "$required" == yes ]]; then
@@ -703,11 +729,16 @@ sources_cmd() {
      the worker calls instead of opening a database connection (D-621). The origin your
      own console is served from, with no trailing path." ;;
         PLIVO_*)
-          warn "$name  — NOT on this host, and NOT the account-level credential the VPS
-     uses. A carrier credential issued for this worker, held here as $source_name; the
-     worker needs it only to hang a leg up, while the account-level token can also
-     originate calls, buy numbers and read every CDR. Plivo dashboard; this secret set is
-     its only home. DEPLOYMENT §12.5 gate 11 says what the founder must check there." ;;
+          warn "$name  — ONLY WHEN CARRIER=plivo. NOT on this host, and NOT the
+     account-level credential the VPS uses. A carrier credential issued for this worker,
+     held here as $source_name; the worker needs it only to hang a leg up, while the
+     account-level token can also originate calls, buy numbers and read every CDR. Plivo
+     dashboard; this secret set is its only home. DEPLOYMENT §12.5 gate 11 says what the
+     founder must check there. The Vobiz leg needs no credential here, and VOBIZ_* must
+     never be put in this secret set." ;;
+        CARRIER)
+          warn "$name  — not a secret: vobiz or plivo, default vobiz. Normally the same
+     value as this host's CARRIER." ;;
         GNANI_API_KEY)
           warn "$name  — NOT on this host. Gnani account; this secret set is its only home." ;;
         SARVAM_API_KEY|CARTESIA_API_KEY|AZURE_OPENAI_API_KEY|OPENAI_API_KEY|GEMINI_API_KEY)

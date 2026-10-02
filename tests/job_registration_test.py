@@ -205,7 +205,7 @@ def test_an_unresolvable_job_name_fails_unless_acknowledged(tmp_path) -> None:  
     assert len(offenders) == 1 and "cannot be checked against the registry" in offenders[0]
 
 
-def test_the_one_dynamic_site_is_the_outbox_drain_and_it_is_still_there() -> None:
+def test_the_dynamic_sites_are_the_two_named_drains_and_both_are_still_there() -> None:
     """The exemption, and the anti-rubber-stamp half: it must still match a real site.
 
     An entry that no longer matches anything is a hole with a comment on it
@@ -215,7 +215,9 @@ def test_the_one_dynamic_site_is_the_outbox_drain_and_it_is_still_there() -> Non
     assert check_job_wiring.unresolvable_enqueue_sites(sites) == []
     assert check_job_wiring.stale_exemptions(sites) == []
     assert set(check_job_wiring.DYNAMIC_ENQUEUE_SITES) == {
-        "apps/workers/dispatcher.py::message.job"
+        "apps/workers/dispatcher.py::message.job",
+        # D-662: the shared inbox claim behind the engine and carrier receivers.
+        "apps/voice-runtime/webhook_routes.py::work.job",
     }
     offenders = check_job_wiring.stale_exemptions(
         [site for site in sites if site.key != "apps/workers/dispatcher.py::message.job"]

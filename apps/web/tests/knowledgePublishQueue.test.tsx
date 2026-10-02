@@ -216,7 +216,7 @@ describe("the publish queue, in the three states a read can be in", () => {
     const { container } = await renderWithPendingApprovedQueue();
 
     // The rest of the screen has loaded — this is a real paint, not a pre-mount snapshot.
-    await screen.findByText("Sri Traders");
+    await screen.findByText("Live agents");
 
     expect(
       container.textContent,

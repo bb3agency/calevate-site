@@ -20,6 +20,7 @@ from pydantic_settings.sources import DotEnvSettingsSource
 # what an Azure resource name may look like are facts about the leg an engine runs, and a
 # second spelling of either in this file is the drift that lets the console accept a value
 # the endpoint builder then refuses.
+from calevate_shared.carrier import DEFAULT_CARRIER, CarrierName
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_RESOURCE_PATTERN,
@@ -493,6 +494,41 @@ class Settings(BaseSettings):
     # is plainly not a credential.
     plivo_auth_id: str | None = Field(default=None, max_length=128)
     plivo_auth_token: str | None = Field(default=None, max_length=256)
+
+    # ── THE CARRIER SWITCH (D-662) ──────────────────────────────────────────────────
+    #
+    # Which carrier the platform DIALS on and binds numbers to. Both carriers' answer and
+    # events routes stay served whatever this says, so a number pointed at the other one
+    # keeps answering until it is rebound. `calevate_shared.carrier` holds the names.
+    carrier: CarrierName = DEFAULT_CARRIER
+    #: The Vobiz account id and token (`X-Auth-ID` / `X-Auth-Token`,
+    #: `vobiz-findings/mirror/pages/api-reference/authentication.md:9-16`). ENV-ONLY: the
+    #: token is also the callback signing key, and voice-runtime, which verifies callbacks,
+    #: never opens the credential store. Never in the Pipecat worker's secret set: the
+    #: worker ends a call with the stream's `stop` message and needs no credential.
+    vobiz_auth_id: str | None = Field(default=None, max_length=64)
+    vobiz_auth_token: str | None = Field(default=None, max_length=256)
+    #: The REST base. Configurable so a test double can stand in; the vendor's value is
+    #: `https://api.vobiz.ai/api/v1` (`applications/create-application.md:10`).
+    vobiz_api_base_url: str = Field(
+        default="https://api.vobiz.ai/api/v1", max_length=255, pattern=r"^https?://[^\s]+$"
+    )
+    #: Refuse a Vobiz callback that carries no valid `X-Vobiz-Signature-V3`. Off until the
+    #: console shows how signing is switched on: Vobiz sends no signature headers unless the
+    #: callback URL has auth credentials configured
+    #: (`concepts/validating-callbacks.md:56-64`), so turning this on first refuses every
+    #: call. OPERATIONS §2 gate 55.
+    vobiz_signature_required: bool = False
+    #: Comma-separated override of Vobiz's published callback source addresses
+    #: (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`). Unset uses the published list.
+    vobiz_callback_ips: str | None = Field(default=None, max_length=1024)
+    #: Outbound calls started per second, at most. The account's CPS limit is in its
+    #: account object (`account/account-object.md:41-46`); 1 is the floor any account has.
+    carrier_cps: int = Field(default=1, ge=1, le=50)
+    #: Whether a live caller may be transferred to a human through the carrier. Off by
+    #: default: Vobiz itself calls the accept-by-keypress step "currently unverified"
+    #: (`xml/dial.md:55-57`). Off means the in-call handoff answers `not_available`.
+    carrier_transfer_enabled: bool = False
     # USD→INR for every cost a vendor quotes in dollars (number rentals, the console's
     # margin figures), stamped with its source wherever it reaches a ledger row (hard
     # rule 7).

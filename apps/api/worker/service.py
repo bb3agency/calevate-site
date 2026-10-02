@@ -204,9 +204,9 @@ _AGENT_VISIBLE_SQL: Final = "SELECT 1 FROM agents WHERE id = :aid"
 _UPSERT_CALL_SQL: Final = """
 INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status,
                    started_at, ended_at, duration_s, from_e164, to_e164, knowledge_state,
-                   created_at, updated_at)
+                   carrier_call_id, created_at, updated_at)
 VALUES (:id, :tid, :aid, :ecid, :dir, :status, :started, :ended, :dur, :from_e, :to_e,
-        :kstate, now(), now())
+        :kstate, :ccid, now(), now())
 ON CONFLICT (engine_call_id) DO UPDATE SET
   status = EXCLUDED.status,
   started_at = COALESCE(calls.started_at, EXCLUDED.started_at),
@@ -236,9 +236,27 @@ ON CONFLICT (engine_call_id) DO UPDATE SET
   -- A re-delivered batch restates the same word, so "the last one wins" and "the first
   -- one wins" differ nowhere a real client can reach.
   knowledge_state = COALESCE(EXCLUDED.knowledge_state, calls.knowledge_state),
+  -- The carrier's id names the carrier's record of THIS call, so like the parties the
+  -- first value stored wins: the dial path may already have stamped it from the carrier's
+  -- call-create response, and a later body cannot re-point the row at another call.
+  carrier_call_id = COALESCE(calls.carrier_call_id, EXCLUDED.carrier_call_id),
   updated_at = now()
 WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed'
 RETURNING id, from_e164, to_e164, agent_id
+"""
+
+#: AN OUTBOUND CALL'S ROW ALREADY EXISTS, written by `agents.service.dispatch_call` before
+#: the dial under an id we minted, and the worker addresses it by that id (the answer leg
+#: signs it onto the stream URL). Its `engine_call_id` is whatever the dial stamped, so the
+#: upsert's `ON CONFLICT (engine_call_id)` would miss it and mint a second row for one
+#: call. This re-keys the dialled row to the worker's ref first, so the upsert converges on
+#: it. Scoped to an `outbound` row of this tenant (RLS), and a no-op when the ref already
+#: matches or another row holds it; the upsert's agent check still refuses a row minted
+#: for a different agent, rolling this back with it.
+_ADOPT_DIALLED_CALL_SQL: Final = """
+UPDATE calls SET engine_call_id = :ecid, updated_at = now()
+WHERE id = :cid AND direction = 'outbound' AND engine_call_id <> :ecid
+  AND NOT EXISTS (SELECT 1 FROM calls o WHERE o.engine_call_id = :ecid)
 """
 
 #: One turn. `ON CONFLICT (call_id, idx) DO NOTHING` — the contract's own choice for the
@@ -683,6 +701,7 @@ async def record_observations(engine_call_id: str, batch: ObservationBatch) -> O
                 # call and NULL on the rest, which is why the upsert lets the incoming
                 # value win rather than the stored one.
                 knowledge_state=None if batch.knowledge is None else batch.knowledge.state,
+                carrier_call_id=batch.carrier_call_id,
             )
         ).id
         for turn in batch.turns:
@@ -959,6 +978,7 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
             ended_at=None,
             from_e164=request.from_e164,
             to_e164=request.to_e164,
+            carrier_call_id=request.carrier_call_id,
         )
         call_row_id = call.id
         message_id = await enqueue_outbox_once(
@@ -1825,6 +1845,7 @@ async def _upsert_call(
     from_e164: str | None,
     to_e164: str | None,
     knowledge_state: str | None = None,
+    carrier_call_id: str | None = None,
 ) -> _CallRow:
     """Write the call row and answer it. Status only ever moves forward.
 
@@ -1843,6 +1864,8 @@ async def _upsert_call(
     knowingly. This function's job is to make sure that when a producer DOES exist, nothing
     between the wire and the column has to change.
     """
+    if direction == "outbound":
+        await _adopt_dialled_call(session, engine_call_id)
     row = (
         await session.execute(
             text(_UPSERT_CALL_SQL),
@@ -1859,6 +1882,7 @@ async def _upsert_call(
                 "from_e": from_e164,
                 "to_e": to_e164,
                 "kstate": knowledge_state,
+                "ccid": carrier_call_id,
                 "terminal": sorted(TERMINAL_STATUSES),
             },
         )
@@ -1881,6 +1905,21 @@ async def _upsert_call(
         # call that belongs to a different agent's configuration. Raising rolls back.
         raise _refuse_identity("agent")
     return _CallRow(id=UUID(str(row[0])), from_e164=row[1], to_e164=row[2])
+
+
+async def _adopt_dialled_call(session: AsyncSession, engine_call_id: str) -> None:
+    """Point the dialled intent row at the worker's ref, when the ref names one. See
+    `_ADOPT_DIALLED_CALL_SQL`. A call id that is not a uuid cannot be a `calls.id`."""
+    call_part = call_of_pipecat_ref(engine_call_id)
+    try:
+        call_row_id = UUID(call_part) if call_part else None
+    except ValueError:
+        call_row_id = None
+    if call_row_id is None:
+        return
+    await session.execute(
+        text(_ADOPT_DIALLED_CALL_SQL), {"ecid": engine_call_id, "cid": call_row_id}
+    )
 
 
 def _duration_s(started_at: datetime | None, ended_at: datetime | None) -> int | None:

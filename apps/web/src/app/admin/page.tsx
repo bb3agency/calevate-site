@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Eye, Plus, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
+import { EmptyState } from "@/components/console/emptyState";
+import { PageHeader } from "@/components/console/pageHeader";
+import { RowMenu } from "@/components/console/rowMenu";
 import {
-  Card,
-  EmptyState,
   FIELD_INLINE,
   FIELD_INLINE_ICON,
   FilterChip,
   NOTICE_TONES,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -25,6 +27,7 @@ import {
   useTenants,
   type DirectorySort,
   type TenantDirectoryQuery,
+  type TenantSummary,
 } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -252,233 +255,146 @@ export default function AdminClientsPage() {
   });
 
   return (
-    <div className="space-y-4 pb-12">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <p className="text-sm text-ink-muted">
-          Every client account, and anything currently holding one up.
-          {/* Only from a page that ARRIVED, and it is the MATCHING total rather than the
-              number of rows on screen: a count is the most trusted thing on a directory
-              and the cheapest thing to get wrong. */}
-          {page &&
-            ` ${formatCount(page.total)} ${page.total === 1 ? "account" : "accounts"}${
-              narrowed ? " match" : ""
-            }.`}
-        </p>
-        {/* Gated on `admin:tenants` — the permission the route behind it requires — from
-            the console's own identity read (see `createAccess`). A dead control rather
-            than a link to a form that will refuse the submission: the wasted work is the
-            form, not the click. */}
-        {create.allowed ? (
-          <Link
-            href="/admin/new"
-            className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
-          >
-            <Plus className="h-4 w-4" />
-            New client
-          </Link>
-        ) : (
-          <span
-            aria-disabled
-            className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink-faint touch:min-h-11"
-          >
-            <Plus className="h-4 w-4" />
-            New client
-          </span>
-        )}
-      </div>
+    <div className="space-y-5 pb-12">
+      <PageHeader
+        // Only from a page that ARRIVED, and the MATCHING total rather than the rows on
+        // screen: a count is the most trusted thing on a directory and the cheapest to get
+        // wrong. Nothing while loading or after a failed read — "0 accounts" is a claim.
+        description={
+          page
+            ? `${formatCount(page.total)} ${page.total === 1 ? "account" : "accounts"}${narrowed ? " match" : ""}.`
+            : undefined
+        }
+        actions={
+          // Gated on `admin:tenants` from the identity read (see `createAccess`): a dead
+          // control rather than a link to a form that will refuse the submission.
+          create.allowed ? (
+            <Link href="/admin/new" className={PRIMARY_BUTTON}>
+              <Plus aria-hidden className="h-4 w-4" />
+              New client
+            </Link>
+          ) : (
+            <span aria-disabled className={`${PRIMARY_BUTTON} cursor-not-allowed opacity-50`}>
+              <Plus aria-hidden className="h-4 w-4" />
+              New client
+            </span>
+          )
+        }
+      />
 
-      {/* Beside the dead control, not instead of it: the reason is what turns a greyed-out
-          button from a bug into an answer. Renders nothing while we do not yet know. */}
       <RestrictionNote reason={create.reason} />
 
-      {/* THE SEARCH AND THE FILTERS ARE THE SERVER'S. Every control here changes the
-          request, never a list held in the browser: the roster is paged, so a filter
-          applied to the loaded page would narrow 25 accounts and quietly claim to have
-          searched the platform. */}
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="relative flex-1 sm:min-w-[220px]">
-          <span className="sr-only">Search clients by name or slug</span>
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
-          />
-          <input
-            type="search"
-            value={q}
-            onChange={(event) => narrow(() => setQ(event.target.value))}
-            placeholder="Search by business name or slug"
-            className={`${FIELD_INLINE_ICON} w-full`}
-          />
-        </label>
-        <label className="flex items-center gap-2 text-xs text-ink-muted">
-          <span>Sort</span>
-          <select
-            value={sort}
-            onChange={(event) => setSort(event.target.value as DirectorySort)}
-            className={FIELD_INLINE}
-          >
-            {(Object.keys(SORT_LABELS) as DirectorySort[]).map((value) => (
-              <option key={value} value={value}>
-                {SORT_LABELS[value]}
-              </option>
+      {/* THE SEARCH AND THE FILTERS ARE THE SERVER'S: the roster is paged, so a filter over
+          the loaded page would narrow 25 accounts and claim to have searched the platform. */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative min-w-0 flex-1 basis-60">
+            <span className="sr-only">Search clients by name or slug</span>
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
+            />
+            <input
+              type="search"
+              value={q}
+              onChange={(event) => narrow(() => setQ(event.target.value))}
+              placeholder="Search by name or slug"
+              className={`${FIELD_INLINE_ICON} w-full`}
+            />
+          </label>
+          <label className="min-w-0">
+            <span className="sr-only">Billing</span>
+            <select
+              value={planTier}
+              onChange={(event) => narrow(() => setPlanTier(event.target.value))}
+              className={FIELD_INLINE}
+            >
+              <option value="">Any billing</option>
+              {PLAN_FILTERS.map((value) => (
+                <option key={value} value={value}>
+                  {value.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="min-w-0">
+            <span className="sr-only">Sort</span>
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value as DirectorySort)}
+              className={FIELD_INLINE}
+            >
+              {(Object.keys(SORT_LABELS) as DirectorySort[]).map((value) => (
+                <option key={value} value={value}>
+                  {SORT_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <ScrollRegion label="Filter by state" className="-mx-1 px-1 [scrollbar-width:none]">
+          <div className="flex w-max items-center gap-1.5">
+            <FilterChip label="any" active={!status} onClick={() => narrow(() => setStatus(""))} />
+            {STATUS_FILTERS.map((value) => (
+              <FilterChip
+                key={value}
+                label={value}
+                active={status === value}
+                onClick={() => narrow(() => setStatus(status === value ? "" : value))}
+              />
             ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-ink-faint">State</span>
-        <FilterChip label="any" active={!status} onClick={() => narrow(() => setStatus(""))} />
-        {STATUS_FILTERS.map((value) => (
-          <FilterChip
-            key={value}
-            label={value}
-            active={status === value}
-            onClick={() => narrow(() => setStatus(status === value ? "" : value))}
-          />
-        ))}
-        <span className="ml-4 text-xs font-medium text-ink-faint">Billing</span>
-        <FilterChip label="any" active={!planTier} onClick={() => narrow(() => setPlanTier(""))} />
-        {PLAN_FILTERS.map((value) => (
-          <FilterChip
-            key={value}
-            label={value.replace(/_/g, " ")}
-            active={planTier === value}
-            onClick={() => narrow(() => setPlanTier(planTier === value ? "" : value))}
-          />
-        ))}
+          </div>
+        </ScrollRegion>
       </div>
 
       {tenants.error && <ProblemNotice error={tenants.error} onRetry={() => void tenants.refetch()} />}
 
-      <Card bodyClassName="p-0">
+      <div className="rounded-card border border-line bg-surface shadow-card">
         {tenants.isLoading ? (
           <div className="p-6">
             <Skeleton rows={5} />
           </div>
-        ) : tenants.error ? (
-          /* Deliberately NOT the empty state, and deliberately not an empty table either:
-             both of those read as "there are no clients", which is a claim about the world
-             that a failed read is not evidence for. */
-          <div className="p-6 text-sm text-ink-muted">
+        ) : tenants.error || !rows ? (
+          /* Deliberately NOT the empty state: "there are no clients" is a claim about the
+             world that a failed (or parked) read is not evidence for. */
+          <p className="p-6 text-sm text-ink-muted">
             The client directory could not be read, so this is not a list of your clients.
-          </div>
-        ) : !rows?.length ? (
-          /* TWO EMPTY STATES, because they are two different facts about the world.
-             "Nothing matched" is about the search the operator just typed and is fixed by
-             changing it; "no clients yet" is about the platform. Rendering the second when
-             a filter is on tells an operator with 300 clients that they have none. */
+          </p>
+        ) : rows.length === 0 ? (
+          /* Two empty states, two facts: "nothing matched" is about the search; "no
+             clients yet" is about the platform. */
           narrowed ? (
-            <EmptyState
-              title="No account matches this search"
-              hint="Clear the search box or the filters above to see the rest of the directory."
-            />
+            <EmptyState message="No account matches this search. Clear the search or the filters." />
           ) : (
-            <EmptyState
-              title="No clients yet"
-              hint="Create the first one and it appears here, along with anything left to finish setting it up."
-            />
+            <EmptyState message="No clients yet." />
           )
         ) : (
-          <ScrollRegion label="Client directory">
-            <table className="w-full min-w-[880px] text-sm">
-              <thead>
-                <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
-                  <th className="px-6 py-3 font-semibold">Client</th>
-                  <th className="px-6 py-3 font-semibold">Status</th>
-                  <th className="px-6 py-3 font-semibold">Business type</th>
-                  <th className="px-6 py-3 font-semibold">Live agents</th>
-                  <th className="px-6 py-3 font-semibold">Calls 7d</th>
-                  <th className="px-6 py-3 font-semibold">Leads</th>
-                  <th className="px-6 py-3 font-semibold">Last call</th>
-                  <th className="px-6 py-3 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {rows.map((tenant) => (
-                  <tr key={tenant.id} className="align-top hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
-                    <td className="px-6 py-3">
-                      <Link
-                        href={`/admin/tenants/${tenant.id}`}
-                        className="rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-                      >
-                        {tenant.name}
-                      </Link>
-                      <div className="text-xs text-ink-faint">/c/{tenant.slug}</div>
-                    </td>
-                    <td className="px-6 py-3">
-                      <div className="flex flex-wrap items-center gap-1">
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-xs font-medium capitalize ${
-                            lookup(TENANT_STATUS_TONES, tenant.status) ?? NOTICE_TONES.neutral
-                          }`}
-                        >
-                          {tenant.status}
-                        </span>
-                        {/* A capped tenant's outbound is refused pre-dispatch (TRD §9), so
-                            it belongs here rather than being discovered in support. */}
-                        {tenant.capped && (
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-xs font-medium ${NOTICE_TONES.stop}`}
-                          >
-                            capped
-                          </span>
-                        )}
-                        {/* The same two R-11 gates the work list is built from, on the
-                            screen an operator already reads. `TenantSummary.holds` comes
-                            from `read_tenant_holds` — the blockers themselves — so this
-                            flag and the queue cannot disagree about who is stuck. The
-                            label is the rule's operator name where we know it and the
-                            gate's own name where we do not; either way it links to the
-                            queue, which is where the remedy lives. */}
-                        {tenant.holds.map((rule) => (
-                          <Link
-                            key={rule}
-                            href="/admin/holds"
-                            className={`rounded-full border px-2 py-0.5 text-xs font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${NOTICE_TONES.warn}`}
-                            title="Held for a human decision — see the work list"
-                          >
-                            {holdRule(rule)?.label ?? rule}
-                          </Link>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-6 py-3 text-ink-muted">
-                      {tenant.vertical_template?.replace(/_/g, " ") ?? "—"}
-                    </td>
-                    <td className="px-6 py-3 tabular-nums text-ink">
-                      {formatCount(tenant.live_agents)}
-                    </td>
-                    <td className="px-6 py-3 tabular-nums text-ink">{formatCount(tenant.calls_7d)}</td>
-                    <td className="px-6 py-3 tabular-nums text-ink">{formatCount(tenant.leads)}</td>
-                    <td className="px-6 py-3 text-xs text-ink-muted">
-                      {formatIST(tenant.last_call_at)}
-                    </td>
-                    <td className="px-6 py-3">
-                      {/* The marker tells the client shell to build the impersonating
-                          session (admin token + X-Impersonate-Org). See
-                          lib/api/session.tsx — it selects a credential, it grants none. */}
-                      <Link
-                        href={viewAsHref(tenant.slug)}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
-                        title="Open this client's console as an operator — every view and every change is logged against you"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        View as
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollRegion>
+          <>
+            {/* Column labels for a sighted reader on a wide screen. Each cell below names
+                itself (visibly on a phone, to a screen reader always), so this row is
+                decoration and is hidden from assistive technology. */}
+            <div
+              aria-hidden
+              className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_4.5rem_4.5rem_8.5rem_2.75rem] gap-4 border-b border-line px-5 py-2.5 text-[12px] font-medium text-ink-faint md:grid"
+            >
+              <span>Client</span>
+              <span>State</span>
+              <span className="text-right">Calls 7d</span>
+              <span className="text-right">Leads</span>
+              <span>Last call</span>
+              <span />
+            </div>
+            <ul aria-label="Clients" className="divide-y divide-line">
+              {rows.map((tenant) => (
+                <ClientRow key={tenant.id} tenant={tenant} />
+              ))}
+            </ul>
+          </>
         )}
-      </Card>
+      </div>
 
-      {/* The pager renders only when there is a page to go to, and it says WHICH rows are
-          on screen rather than a page number: "26-50 of 312" is the sentence an operator
-          reads back on a support call, and it cannot be wrong by an off-by-one the way a
-          derived page index can. */}
+      {/* Says WHICH rows are on screen: "26-50 of 312" is what an operator reads back on a
+          support call, and it cannot be off by one the way a derived page index can. */}
       {page && page.total > page.rows.length && (
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-ink-muted">
           <span aria-live="polite">
@@ -492,7 +408,7 @@ export default function AdminClientsPage() {
               disabled={page.offset === 0}
               onClick={() => setOffset(Math.max(0, page.offset - DIRECTORY_PAGE_SIZE))}
             >
-              <ChevronLeft className="h-3.5 w-3.5" />
+              <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
               Previous
             </button>
             <button
@@ -502,11 +418,86 @@ export default function AdminClientsPage() {
               onClick={() => setOffset(page.offset + DIRECTORY_PAGE_SIZE)}
             >
               Next
-              <ChevronRight className="h-3.5 w-3.5" />
+              <ChevronRight aria-hidden className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+const PILL = "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium";
+
+/**
+ * One client. Hard rule 6: a cross-tenant screen carries accounts only — a name, a slug,
+ * counts and the gates holding them; nothing that identifies a person.
+ */
+function ClientRow({ tenant }: { tenant: TenantSummary }) {
+  return (
+    <li className="grid grid-cols-[minmax(0,1fr)_2.75rem] items-start gap-x-4 gap-y-1.5 px-5 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_4.5rem_4.5rem_8.5rem_2.75rem] md:items-center">
+      <div className="min-w-0">
+        <Link
+          href={`/admin/tenants/${tenant.id}`}
+          className="block truncate rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+        >
+          {tenant.name}
+        </Link>
+        <div className="truncate text-xs text-ink-faint">
+          /c/{tenant.slug}
+          {tenant.vertical_template ? ` · ${tenant.vertical_template.replace(/_/g, " ")}` : ""}
+        </div>
+      </div>
+      <div className="col-start-2 row-start-1 md:col-start-6">
+        <RowMenu
+          label={tenant.name}
+          items={[
+            { id: "open", label: "Open", href: `/admin/tenants/${tenant.id}` },
+            {
+              // The marker selects the impersonating credential and grants nothing
+              // (lib/api/session.tsx); everything viewed and changed is logged.
+              id: "view-as",
+              label: "View as client (logged)",
+              href: viewAsHref(tenant.slug),
+            },
+          ]}
+        />
+      </div>
+      <div className="col-span-2 flex flex-wrap items-center gap-1 md:col-span-1 md:col-start-2 md:row-start-1">
+        <span
+          className={`${PILL} capitalize ${lookup(TENANT_STATUS_TONES, tenant.status) ?? NOTICE_TONES.neutral}`}
+        >
+          {tenant.status}
+        </span>
+        {/* Outbound is refused pre-dispatch at the ceiling (TRD §9). */}
+        {tenant.capped && <span className={`${PILL} ${NOTICE_TONES.stop}`}>capped</span>}
+        {/* The R-11 gates from `read_tenant_holds` — the same list the hold queue is built
+            from — linking to that queue, where the remedy lives. */}
+        {tenant.holds.map((rule) => (
+          <Link
+            key={rule}
+            href="/admin/holds"
+            title="Held for a human decision — see the work list"
+            className={`${PILL} hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${NOTICE_TONES.warn}`}
+          >
+            {holdRule(rule)?.label ?? rule}
+          </Link>
+        ))}
+      </div>
+      <div className="col-span-2 flex flex-wrap gap-x-4 text-xs text-ink-muted md:contents">
+        <span className="tabular-nums md:text-right md:text-sm md:text-ink">
+          {formatCount(tenant.calls_7d)}
+          <span className="md:sr-only"> calls in 7 days</span>
+        </span>
+        <span className="tabular-nums md:text-right md:text-sm md:text-ink">
+          {formatCount(tenant.leads)}
+          <span className="md:sr-only"> leads</span>
+        </span>
+        <span className="md:text-xs">
+          <span className="md:sr-only">Last call </span>
+          {formatIST(tenant.last_call_at)}
+        </span>
+      </div>
+    </li>
   );
 }

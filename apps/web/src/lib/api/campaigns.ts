@@ -131,7 +131,8 @@ export function useCreateCampaign(session: Session) {
 export function useAddContacts(session: Session, campaignId: string | null) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (contacts: { phone: string; name?: string | null }[]) =>
+    // `custom` is the per-contact variables `ContactIn` stores and renders into the prompt.
+    mutationFn: (contacts: { phone: string; name?: string | null; custom?: Record<string, string> }[]) =>
       apiRequest<AddContactsResult>(session, `/v1/campaigns/${campaignId}/contacts`, {
         method: "POST",
         body: { contacts },
@@ -273,37 +274,6 @@ export function usePauseCampaign(session: Session, campaignId: string | null) {
       // client who pauses a campaign and sees the badge stay put learns to disbelieve it.
       void client.invalidateQueries({ queryKey: attentionKey(session.orgSlug) });
     },
-  });
-}
-
-/**
- * CSV → contacts, parsed in the browser so the client sees the row count before
- * committing. Deliberately forgiving about the header row and column order, and
- * deliberately NOT forgiving about the numbers themselves: the API normalizes and
- * counts what it cannot parse rather than guessing a country code.
- */
-export function parseContactCsv(text: string): { phone: string; name?: string }[] {
-  const rows = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (rows.length === 0) return [];
-
-  const first = rows[0].toLowerCase();
-  const hasHeader = first.includes("phone") || first.includes("number") || first.includes("mobile");
-  const header = hasHeader ? rows[0].split(",").map((c) => c.trim().toLowerCase()) : [];
-  const phoneIdx = hasHeader
-    ? Math.max(
-        0,
-        header.findIndex((c) => c.includes("phone") || c.includes("number") || c.includes("mobile")),
-      )
-    : 0;
-  const nameIdx = hasHeader ? header.findIndex((c) => c.includes("name")) : 1;
-
-  return rows.slice(hasHeader ? 1 : 0).map((line) => {
-    const cells = line.split(",").map((c) => c.trim());
-    const name = nameIdx >= 0 ? cells[nameIdx] : undefined;
-    return { phone: cells[phoneIdx] ?? "", ...(name ? { name } : {}) };
   });
 }
 

@@ -4,7 +4,6 @@ import { useState } from "react";
 import { CheckCircle2, Clock, Info, TriangleAlert } from "lucide-react";
 
 import {
-  Card,
   FIELD,
   NoticeBox,
   PRIMARY_BUTTON,
@@ -76,15 +75,18 @@ export function RefundPanel({
   wallet,
   tenantId,
   session,
+  initialPaymentRef,
 }: {
   clientName: string;
   wallet: Credits;
   tenantId: string;
   session: Parameters<typeof useIssueRefund>[0];
+  /** Pre-selected from a payment row's menu. Still visible and changeable in the select. */
+  initialPaymentRef?: string;
 }) {
   const refund = useIssueRefund(session, tenantId);
   const write = useAdminAccess("admin:tenants", "refund a payment");
-  const [paymentRef, setPaymentRef] = useState("");
+  const [paymentRef, setPaymentRef] = useState(initialPaymentRef ?? "");
   const [amountInr, setAmountInr] = useState("");
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -96,7 +98,7 @@ export function RefundPanel({
     // form over none reads as though a refund were something one invents — the same call
     // the restatement panel makes, for the same reason.
     return (
-      <Card title="Refund a payment">
+      <div>
         <p className="text-sm text-ink-muted">
           {/* Deliberately NOT the restatement panel's opening clause, which says the same
               thing about the same wallet: two cards leading with one identical sentence
@@ -105,7 +107,7 @@ export function RefundPanel({
           always names a payment we already hold; it cannot create one. Credit given as a
           gesture is taken back with a compensating adjustment instead.
         </p>
-      </Card>
+      </div>
     );
   }
 
@@ -117,8 +119,8 @@ export function RefundPanel({
     write.allowed && draft !== null && blocked === null && confirmed && !refund.isPending;
 
   return (
-    <Card title="Refund a payment">
-      <p className="-mt-2 text-xs text-ink-muted">
+    <div>
+      <p className="text-xs text-ink-muted">
         Sends money back to {clientName} at the payment provider AND records the matching
         entry on this wallet, so the ledger and the bank keep agreeing.{" "}
         <span className="font-semibold">This cannot be undone</span> — the money leaves,
@@ -274,7 +276,7 @@ export function RefundPanel({
 
       {refund.error != null && <ProblemNotice error={refund.error} />}
       {refund.data && <Refunded result={refund.data} clientName={clientName} />}
-    </Card>
+    </div>
   );
 }
 

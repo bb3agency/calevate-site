@@ -128,7 +128,7 @@ export function SpendCapPanel({
 
           {/* MONEY AS STRINGS. Every rupee field here is an exact decimal the API sent as
               text (hard rule 7); `formatINR` groups the digits and never parses them. */}
-          <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 xl:grid-cols-4">
             <CapFact
               label={`Spent · ${data.month}`}
               value={formatINR(data.spend_used_inr)}
@@ -281,9 +281,11 @@ function CapFact({
   edit?: { href: string; label: string };
 }) {
   return (
-    <div className="rounded-card border border-line bg-surface p-4">
-      <dt className="text-xs uppercase tracking-wide text-ink-faint">{label}</dt>
-      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-ink">{value}</dd>
+    // Sentence-case label over the figure, like the console's `Metric`, and no box inside
+    // the panel's own card.
+    <div className="min-w-0">
+      <dt className="text-[13px] font-medium text-ink-muted">{label}</dt>
+      <dd className="mt-1 text-lg font-semibold tabular-nums text-ink">{value}</dd>
       <dd className="mt-0.5 text-xs text-ink-muted">{note}</dd>
       {edit && (
         <dd className="mt-1.5">

@@ -74,6 +74,21 @@ const ADMIN_ROUTES: Routes = {
   [ADMIN_ME_PATH]: ADMIN_ME,
   [HOLDS_PATH]: [],
   "/v1/admin/tenants": [],
+  // The breadcrumb's read on a client's pages (the tenant layout shares it).
+  "/v1/admin/tenants/018f3c00-0000-7000-8000-000000000003": {
+    id: "018f3c00-0000-7000-8000-000000000003",
+    name: "Sri Traders",
+    slug: "sri-traders",
+    status: "active",
+    plan_tier: "prepaid",
+    vertical_template: null,
+    live_agents: 0,
+    calls_7d: 0,
+    leads: 0,
+    last_call_at: null,
+    holds: [],
+    capped: false,
+  },
 };
 
 /**
@@ -229,6 +244,15 @@ describe("where am I", () => {
       const link = currentLink(container);
       expect(link, `no aria-current anywhere on ${route}`).toBeTruthy();
       const heading = container.querySelector("h1");
+      if (route.startsWith("/admin/tenants/")) {
+        // D-661: a client's pages are titled by the tenant layout, whose h1 is the
+        // client's name (adminTenantLayout.test.tsx). The shell prints a breadcrumb back
+        // to the section it marked, and no heading of its own to compete with that one.
+        expect(heading).toBeNull();
+        const crumb = container.querySelector('nav[aria-label="Breadcrumb"] a');
+        expect(crumb?.textContent?.trim()).toBe(link!.textContent?.trim());
+        return;
+      }
       expect(heading?.textContent?.trim()).toBe(link!.textContent?.trim());
     },
   );

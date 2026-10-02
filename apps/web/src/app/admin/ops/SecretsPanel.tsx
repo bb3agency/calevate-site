@@ -585,7 +585,7 @@ export function KeyManagementPanel({
                 {/* A key ID (a short code identifying the key without revealing it), NOT a
                     counter (D-96). Shown as an ID, because "#1633907231" invites an operator
                     to read it as a version number and conclude a rotation went badly wrong. */}
-                <dt className="text-xs uppercase tracking-wide text-ink-faint">
+                <dt className="text-xs font-medium text-ink-faint">
                   Active master key ID
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink">
@@ -593,7 +593,7 @@ export function KeyManagementPanel({
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-faint">
+                <dt className="text-xs font-medium text-ink-faint">
                   Locked with it
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink">
@@ -601,7 +601,7 @@ export function KeyManagementPanel({
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-ink-faint">
+                <dt className="text-xs font-medium text-ink-faint">
                   Previous master key set
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink">

@@ -920,8 +920,11 @@ Calevate adaptations:
    logs see real caller IPs, not CF edge IPs. (Their config lacks this; the survey
    flagged it.)
 4. **Rate zones** (ours): `auth` 20r/m · `admin_api` 180r/m · `client_api` 120r/m ·
-   `webhooks` 600r/m (engine events burst on campaign completion) · `health` 60r/m ·
-   `browser` 600r/m. App-layer limits stay authoritative; nginx is edge defense.
+   `webhooks` 600r/m (engine events burst on campaign completion) · `carrier` 600r/m
+   (the hooks vhost's `/carrier/v1/` location, burst 100: answer documents a ringing call
+   waits on, status callbacks and transfer documents, kept apart so a webhook flood cannot
+   spend their budget; D-662) · `health` 60r/m · `browser` 600r/m. App-layer limits stay
+   authoritative; nginx is edge defense.
 
    `browser` was `default` at 90r/m, and it was refusing honest traffic: the origin's
    error log shows one operator loading one console screen filling the burst and queueing
@@ -1732,9 +1735,10 @@ container. Nothing fetches one from the other.
 | `SARVAM_API_KEY` | yes | ops console (`sarvam_api_key`) | STT on every call, and today's TTS |
 | `CARTESIA_API_KEY` | no | ops console (`cartesia_api_key`) | the Studio voice tier only |
 | `GNANI_API_KEY` | no | **Gnani account, into THIS secret set only** | the Gnani TTS leg (D-618), used by an agent whose `ModelConfig.tts_provider` names it; a container without it refuses that call by name and serves every other one. It is a `Settings` field so the ops console can LIST it under *Set outside this console* with `held_by` naming this secret set — and it REFUSES to store it, because `PLATFORM_KEK` is not in this image and, unlike `CARTESIA_API_KEY`, nothing in `apps/api` holds a Gnani client to give a stored value to. ⚠ No Gnani voice is offerable until somebody also attests what a Gnani minute costs (hard rule 7, OPERATIONS §2 gate 56), so installing this key alone changes nothing a client can see. |
-| `CARRIER_CLAIM_SECRET` | no | **a random string of at least 32 bytes you generate; the SAME value in the VPS `.env` (voice-runtime reads it) and in THIS secret set** | signs the caller number voice-runtime puts on the stream URL, and the worker believes that number only when the signature verifies for the agent the call was routed to and has not expired (`calevate_shared.worker_api.caller_claim_mac`, 120 s). A `Settings` field classified `ENV_ONLY`: voice-runtime never opens the credential store and this container cannot. Unset on either side ⇒ no caller number is believed, so the in-call opt-out, call-back and caller memory answer that the caller cannot be identified. Set but shorter than 32 bytes ⇒ this container refuses to boot. Never reuse `PIPECAT_WORKER_API_TOKEN` for it. |
+| `CARRIER_CLAIM_SECRET` | no | **a random string of at least 32 bytes you generate; the SAME value in the VPS `.env` (voice-runtime reads it) and in THIS secret set** | signs the caller number voice-runtime puts on the stream URL, and the worker believes that number only when the signature verifies for the agent the call was routed to and has not expired (`calevate_shared.worker_api.caller_claim_mac`, 120 s). The same key signs the call claim on an outbound dial's stream URL (our call id and its direction, `worker_api.call_claim_mac`), and on the VPS it is also the root of the sealed transfer token (`apps/api/core/carrier_token.py`, a derived key, so neither use can verify as the other). A `Settings` field classified `ENV_ONLY`: voice-runtime never opens the credential store and this container cannot. Unset on either side ⇒ no caller number is believed, so the in-call opt-out, call-back and caller memory answer that the caller cannot be identified. Set but shorter than 32 bytes ⇒ this container refuses to boot. Never reuse `PIPECAT_WORKER_API_TOKEN` for it. |
 | `AZURE_OPENAI_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | **at least one** | ops console | the in-call LLM. WHICH one a call needs is decided per agent by `ModelConfig.llm_provider`, so the gate demands one and a call for a provider this container has no key for is refused by name rather than run on another vendor's credential. |
-| `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | yes | **a credential issued for THIS WORKER** (`PLIVO_WORKER_AUTH_ID` / `PLIVO_WORKER_AUTH_TOKEN` — §12.5 gate 11), Plivo account (BLOCKER-1), into THIS secret set only | read by PIPECAT, not by us. ⚠ **NOT THE ACCOUNT-LEVEL CREDENTIAL THE VPS USES, AND THE SETUP SCRIPT REFUSES IT**: the worker needs to hang a leg up, while that one can also originate calls, buy numbers and read every CDR. What Plivo offers as the narrowest such credential is UNKNOWN from here and is gate 11's question. Without them the serializer cannot hang the call up at `EndFrame`, and a leg nobody hung up is a leg the carrier goes on billing. Since D-614 both are `Settings` fields, so the ops console LISTS them under *Set outside this console* with the reason and with `held_by` naming this secret set — and refuses to store them, because `PLATFORM_KEK` is not in this image and a stored value would be one nothing here could ever read. |
+| `CARRIER` | no | default `vobiz`; the same value as the VPS's `CARRIER` | the carrier this container assumes for a socket whose stream URL names none (D-662). voice-runtime's answer document names the carrier on the stream URL (`carrier=`), and that claim decides per call; Pipecat's own detection reads both carriers' `start` frame as `plivo` (`calevate_shared.carrier.WIRE_FAMILY`), so it can only check the claim, never choose. `vobiz` uses our own `VobizFrameSerializer`, which ends a call by sending the stream `stop` message and needs no carrier credential; `plivo` uses Pipecat's Plivo serializer. |
+| `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | **only when `CARRIER=plivo`** | **a credential issued for THIS WORKER** (`PLIVO_WORKER_AUTH_ID` / `PLIVO_WORKER_AUTH_TOKEN`, §12.5 gate 11), into THIS secret set only | read by Pipecat's Plivo serializer, which hangs a leg up over Plivo's REST API at `EndFrame`. Not the account-level credential the VPS would use, and the setup script refuses that one: the worker needs to hang a leg up, while the account credential can also originate calls, buy numbers and read every CDR. With `CARRIER=vobiz` (the default) the boot gate does not ask for them and they should not be in the secret set; a call whose stream URL claims Plivo then reaches a container without them and is refused by name (`voice_worker/carrier.py`, `CarrierCredentialsMissingError`). Since D-614 both are `Settings` fields, listed by the ops console under *Set outside this console* with `held_by` naming this secret set, and never stored there. |
 | `PIPECAT_WORKER_TURN_BATCH_SIZE` | no | default 8 | how many spoken turns wait in memory before one batched write (D-620). `1` restores a write per turn. |
 | `PIPECAT_WORKER_TURN_FLUSH_SECONDS` | no | default 10.0 | how long the oldest buffered turn may wait. **This is the bound on what a crash costs** — a size-only rule never flushes a conversation that has gone quiet, which is exactly when a container is replaced. Refuses zero; set the BATCH to 1 instead. |
 | `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` | no | default 20.0 | §12.4 |
@@ -1789,10 +1793,13 @@ call is true. The order in `SessionRegistry.drain` is the whole of it:
 1. **Readiness goes false first**, before anything is asked to stop, so no session is
    admitted into a container on its way out.
 2. **Every live session is ended the graceful way** — `stop_when_done()` queues an
-   `EndFrame`, which drains what is in flight and lets the transport close. On the Plivo
-   leg that close is also the HANG-UP (`PlivoFrameSerializer` answers `EndFrame` with
-   `DELETE /v1/Account/{auth_id}/Call/{call_id}/`), which is why the boot gate refuses to
-   start without those credentials.
+   `EndFrame`, which drains what is in flight and lets the transport close. That close is
+   also the HANG-UP. On Vobiz (the default, D-662) `VobizFrameSerializer` answers `EndFrame`
+   with the stream `stop` message and Vobiz ends the call (cause 4010,
+   `vobiz-findings/mirror/pages/xml/stream/stream-events.md:226-236`), so no credential is
+   involved. On Plivo, Pipecat's `PlivoFrameSerializer` answers it with
+   `DELETE /v1/Account/{auth_id}/Call/{call_id}/`, which is why the boot gate requires the
+   Plivo credential when `CARRIER=plivo`.
 3. **A session that drains inside the grace ends the way every call ends**: the pipeline's
    own handler emits `completed`, which by its definition means "our pipeline drained" and
    never "the call connected and lasted N seconds" — §1.2 gives the billable facts to the
@@ -2023,19 +2030,14 @@ on every exit path including a signal.
    socket and the column has to be designed under pressure. What does not exist is anything
    to send them:
 
-   * **Plivo's handshake parses neither party.** `parse_telephony_websocket` populates
-     `from`/`to` for Telnyx and Exotel and leaves both `None` for Plivo
-     (`runner/utils.py:250-262`), which is why `voice_worker/carrier.PlivoHandshake` models
-     two fields and not four.
-   * **The outbound dial is unbuilt** — `carrier.OUTBOUND_DIAL_UNKNOWN`.
-   * **The CDR read that would supply them is not written**, and is deliberately paused
-     until the carrier is chosen (17 Sep 2026): writing a REST client against a vendor API
-     nobody in this repository can read is the D-417 defect, and the carrier may change.
-
-   **THE NEXT CARRIER MAY SIMPLY HAND THEM OVER.** Pipecat's Exotel handshake populates
-   both (`ExotelCallData`, `runner/utils.py:283`). That is one of the things the carrier
-   decision now turns on, and it is in Appendix A/B/C of
-   `docs/evidence/carrier-plivo-vs-exotel-2026-09-16.md` as a question to each vendor.
+   **On Vobiz (D-662) the producer is designed and waits on a live call.** The WebSocket
+   `start` frame carries no party numbers (`vobiz-findings/mirror/pages/xml/stream/
+   stream-events.md:78-107`), but the answer-URL request does: `From` is the calling party
+   and `To` the called party (`xml/request.md:30-31`). voice-runtime reads `From` and passes
+   it to the worker on the stream URL under the D-649 caller claim; an outbound dial knows
+   both numbers when it places the call. Whether the claim survives the trip to Pipecat
+   Cloud is OPERATIONS §2 gate V-3. On Plivo, the alternate carrier, Pipecat's handshake
+   parses neither party (`runner/utils.py:250-262`) and nothing else supplies them.
 
    *Pass condition*: a real call leaves a `calls` row whose `from_e164` is the caller's
    number, and the post-call pipeline files a lead from it. Until then the column is NULL
@@ -2088,8 +2090,11 @@ on every exit path including a signal.
     VPS `.env` (compare `last_four`), a `get_object` on a `knowledge-packs/` key succeeds
     from the deployed container (`bot.py --preflight` plus one real session with a
     published pack), and a `put_object` with the same credential is REFUSED.
-11. **Issue the voice worker its own Plivo credential, not the account's.** ⚠ **OPENED
-    18 Sep 2026, SAME SHAPE AS GATE 10 AND ALSO A CONSOLE ACTION.**
+11. **Issue the voice worker its own Plivo credential, not the account's — only if
+    `CARRIER=plivo`.** Opened 18 Sep 2026. Since D-662 the default carrier is Vobiz, the
+    worker ends a Vobiz call with the stream `stop` message, and the secret set holds no
+    carrier credential at all; that is a stronger answer to this gate's question than any
+    scoped credential. The gate below applies unchanged the day Plivo is switched on.
 
     The worker needs the carrier credential for one thing: hanging a leg up at `EndFrame`
     (§12.2, read by Pipecat's `PlivoFrameSerializer`, `voice_worker/boot.py:133,143`). The
@@ -2133,6 +2138,54 @@ and lose the conversation. The second item this paragraph used to name — the r
 tenant and an agent — is BUILT (D-610): `bot.resolve_call_identity` reads the agent ref off
 the path of the socket the carrier connected to, which `apps/voice-runtime/carrier_routes.py`
 put there in the answer document. It still refuses by name when that path carries no ref.
+
+### 12.6 The carrier (D-662): what each deployable needs, and the order to turn it on
+
+The carrier is Vobiz by default and Plivo behind the switch. Vendor facts are in
+`docs/evidence/vobiz-api-contract.md`; the first live call is
+`runbooks/vobiz-first-live-call.md`. The worker's half is in the §12.2 table (`CARRIER`,
+and `PLIVO_*` only when `CARRIER=plivo`). Everything below is on the VPS.
+
+| Variable | Read by | Where it comes from | What it is for |
+|---|---|---|---|
+| `VOBIZ_AUTH_ID` / `VOBIZ_AUTH_TOKEN` | api, workers, voice-runtime | the Vobiz console (Auth ID `MA_…` and its token), into the VPS `.env` only | `X-Auth-ID` / `X-Auth-Token` on every REST call (call create, hangup, transfer, CDR, Application and number binding, the `GET /api/v1/auth/me` probe), and the token is the key Vobiz signs callbacks with, which is why voice-runtime needs it. `ENV_ONLY` (`apps/api/core/settings.py`, `ENV_ONLY_REASONS`): voice-runtime never opens the credential store. **Never in the Pipecat worker's secret set.** Regenerating the token in the Vobiz console invalidates the old one at once (`vobiz-findings/mirror/pages/api-reference/authentication.md:54`), so a rotation is: new token into `.env`, then restart api, workers and voice-runtime together. |
+| `CARRIER` | api, workers, voice-runtime | ops console (needs republish) or `.env`; default `vobiz` | which carrier new dials go out on and new number bindings are made at. A number already bound at the other carrier keeps answering there until it is bound again from its screen. Keep the worker's `CARRIER` the same. |
+| `VOBIZ_API_BASE_URL` | api, workers | default `https://api.vobiz.ai/api/v1` | the REST base; changed only to point at a test double. |
+| `VOBIZ_SIGNATURE_REQUIRED` | voice-runtime | ops console, applies live; default false | refuse a Vobiz callback without a valid `X-Vobiz-Signature-V3`. Turn on only after OPERATIONS §2 gate 55 (b) passes, or every call is refused. |
+| `VOBIZ_CALLBACK_IPS` | voice-runtime | ops console, applies live; unset means Vobiz's published list (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`) | comma-separated source addresses a Vobiz callback must come from. Gate V-1. |
+| `CARRIER_CPS` | workers | ops console, applies live; default 1 | outbound dials started per second, at most. Set to the account's `cps_limit` (gate V-5). |
+| `CARRIER_TRANSFER_ENABLED` | api | ops console, applies live; default false | whether an in-call handoff may transfer the caller through the carrier. Off means the handoff tool answers `not_available`. |
+| `CARRIER_CLAIM_SECRET` | api, voice-runtime (and the worker, §12.2) | unchanged | signs the caller and call claims on the stream URL and keys the sealed transfer token. |
+| `PIPECAT_STREAM_BASE_URL`, `WEBHOOK_BASE_URL` | voice-runtime, api | unchanged | the worker's WebSocket base the answer document points at, and the public hooks origin. The signature is checked against the URL rebuilt from `WEBHOOK_BASE_URL` plus the request path, so it must be the exact scheme and host Vobiz calls. |
+
+**Order of a first carrier deploy.** Each step is one that can be checked before the next.
+
+1. **Migrate.** Migration `d4a7b2c91e30` adds `phone_numbers.carrier_binding_id` and
+   admits `vobiz` in the `carrier_compliance_applications` CHECK; both are additive (hard
+   rule 8, nothing dropped), so the normal migrate-then-swap of §4a applies.
+2. **Put `VOBIZ_AUTH_ID` and `VOBIZ_AUTH_TOKEN` in the VPS `.env`** and deploy with
+   `scripts/vps-deploy.sh`. The change touches `packages/shared/` and `apps/api/core/`, so
+   §4c deploys api, workers and voice-runtime together. *Pass condition*: the ops console's
+   Vobiz credential probe is green.
+3. **nginx.** The hooks vhost gains a `/carrier/v1/` location with its own rate zone, so
+   a burst of status callbacks cannot starve the answer requests a ringing call waits on.
+   Re-render and reload as §9.5 describes. *Pass condition*: `nginx -t` passes and a
+   request to `/carrier/v1/vobiz/answer/x` from outside Vobiz's addresses is refused by
+   voice-runtime, not by nginx (the address check lives in the application, because Vobiz
+   says its addresses change).
+4. **The Pipecat worker.** Re-run `scripts/deploy/pipecat-worker-setup.sh secrets` with
+   `CARRIER=vobiz` and no `PLIVO_*` values, then `deploy`. *Pass condition*:
+   `bot.py --preflight` prints OK inside the deployed container.
+5. **Ops console.** Leave `VOBIZ_SIGNATURE_REQUIRED` and `CARRIER_TRANSFER_ENABLED` off;
+   set `CARRIER_CPS` from gate V-5.
+6. **Bind one test number** from the admin number screen (this creates the Vobiz
+   Application and attaches the number), then run `runbooks/vobiz-first-live-call.md`.
+
+**Rollback.** Moving `CARRIER` to `plivo` stops new dials and new bindings on Vobiz at
+once; numbers already bound on Vobiz keep answering through Vobiz until rebound, because
+both carriers' routes stay served. To stop a Vobiz number answering, detach it in the
+Vobiz console. There is no Plivo account, so `plivo` today means "dial nothing": Plivo's
+side refuses by name.
 
 
 Cross-references: TRD §1 (deployables) · OPERATIONS §5–6 (SLOs, drills) ·

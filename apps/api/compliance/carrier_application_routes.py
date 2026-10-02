@@ -51,7 +51,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin.service import tenant_exists
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.carrier_application import (
-    CARRIER,
     CARRIER_MAX_DOCUMENT_BYTES,
     OPERATOR_DECISIONS,
     CarrierApplicationRecord,
@@ -62,6 +61,7 @@ from apps.api.compliance.carrier_application import (
     assert_first_application_is_signed,
     assert_submittable,
     classify_document,
+    current_carrier,
     ensure_application_row,
     our_status_for_carrier_status,
     read_carrier_application,
@@ -470,7 +470,7 @@ async def record_decision(
             # carrier itself asks us to evidence. The client's filename is deliberately not
             # copied — it adds nothing an auditor needs and the audit log is read cross-tenant.
             summary={
-                "carrier": CARRIER,
+                "carrier": current_carrier(),
                 "status": status,
                 "carrier_application_id": payload.carrier_application_id,
                 "changed": changed,

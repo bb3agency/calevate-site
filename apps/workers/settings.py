@@ -106,6 +106,12 @@ from apps.workers.caller_memory_distil import (
     distil_caller_memories,
 )
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
+from apps.workers.carrier_events import (
+    CDR_SWEEP_MINUTES,
+    ingest_carrier_event,
+    read_carrier_cdr,
+    reconcile_carrier_cdrs,
+)
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
@@ -196,6 +202,10 @@ FUNCTIONS: list[Any] = [
     for fn in (
         ingest_engine_event,
         run_post_call_pipeline,
+        # The carrier's status/hangup callbacks (enqueued by voice-runtime under
+        # `calevate_shared.carrier.CARRIER_EVENT_JOB`) and the CDR read a hangup queues.
+        ingest_carrier_event,
+        read_carrier_cdr,
         notify_hot_lead,
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.
@@ -533,6 +543,15 @@ CRON_JOBS = [
         traced_job(reconcile_outstanding_calls),
         walk=fleet_wide("one tenant_session per callable tenant, plus vendor reads"),
         minute={15, 45},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # The carrier's CDR for every metered call that still has no carrier cost: the hangup
+    # callback enqueues the read, and this is what recovers a callback that never arrived or
+    # a read that ran out of retries. Minutes no other fleet-wide walk uses.
+    _cron(
+        traced_job(reconcile_carrier_cdrs),
+        walk=fleet_wide("one tenant_session per callable tenant, then keyed enqueues"),
+        minute=set(CDR_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # The DPDP §12 equivalent of the line above, and the reason it exists is that there

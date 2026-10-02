@@ -3,7 +3,9 @@ name = "calevate"
 version = "0.1.0"
 description = "Calevate — multi-tenant AI voice-agent SaaS for Indian SMBs (workspace root)"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "uuid-utils>=0.17.0",
+]
 
 # Virtual root: the repo root is not itself an installable package, it only
 # owns the workspace, the lockfile and the shared tool config.
@@ -40,6 +42,7 @@ dev = [
     # against a real parser rather than against our own writer. TEST-ONLY: nothing in
     # `apps/` imports it. Pure Python, no build hooks, no dependencies of its own.
     "pypdf>=6.16",
+    "alembic>=1.18.5",
 ]
 
 # ERROR REPORTING, and it is a GROUP rather than a runtime dependency (P5.10).
@@ -155,6 +158,10 @@ forbidden_modules = [
     # apart, and it is an equality assertion, so landing the module fails the suite until
     # that entry is deleted.
     "apps.api.engine.pipecat",
+    # The carrier adapters (D-662). Business code reaches a carrier through
+    # `apps.api.engine.carrier`, whose `CARRIER_ADAPTER_MODULES` names these two.
+    "apps.api.engine.vobiz",
+    "apps.api.engine.plivo_carrier",
 ]
 # DIRECT imports only. The factory in `apps.api.engine` obviously imports the adapters —
 # that is what a factory does — and forbidding the transitive chain would forbid having
@@ -197,7 +204,10 @@ src = ["apps", "packages"]
 # real file finds differences our formatter introduced, and cannot tell those from the
 # vendor having changed. `docs/evidence/` holds no Python of its own (checked — zero `.py`
 # files), so nothing is lost by excluding it and the verbatim quotes stay verbatim.
-extend-exclude = ["alembic/versions", "bolna-findings", "docs/evidence"]
+#
+# `vobiz-findings` is the carrier's documentation mirror, hash-pinned the same way
+# (`vobiz-findings/mirror/MANIFEST.json`) and excluded for the same reason.
+extend-exclude = ["alembic/versions", "bolna-findings", "docs/evidence", "vobiz-findings"]
 # `extend-exclude` alone is NOT enough, and the difference is the whole defect. Ruff
 # honours exclusions during directory traversal but IGNORES them for paths handed to it
 # explicitly on the command line — and `.pre-commit-config.yaml` runs `ruff-format` as a

@@ -160,7 +160,10 @@ the first-campaign hold, which really are about a stranger signing up, still app
 - **Business KYC**: gated; calling stays disabled until verification clears. **We do not
   supply numbers** — Model B (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9): the client takes the
   connection on their own Exotel/Plivo/Vobiz account, passes that operator's KYC, stays
-  the subscriber of record and issues us revocable credentials.
+  the subscriber of record and issues us revocable credentials. For the testing phase only
+  (D-662), the founder's own Vobiz account holds the test numbers and pays Vobiz; no client
+  traffic runs on it until OPERATIONS §2 gate V-10 passes, and nothing client-facing here
+  changes.
   **SHIPPED** (migration `a3f6b1e02d95`, `kyc_records`). Two gates, and they answer the
   plan-tier question differently on purpose — the argument is in
   `apps/api/compliance/kyc.py`, with the DoT/TRAI sources it rests on. **Dialling** is
@@ -183,7 +186,11 @@ the first-campaign hold, which really are about a stranger signing up, still app
   names the three carriers and asks for the number plus revocable API credentials.
   `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False` is the greppable constant and
   flipping it is adopting Model A, not writing an adapter. An operator RECORDS the number
-  the client bought with `POST /v1/admin/tenants/{tenant_id}/numbers`. **No identity
+  the client bought with `POST /v1/admin/tenants/{tenant_id}/numbers`. Binding a recorded
+  number to an agent happens at the carrier chosen by `Settings.carrier` (D-662): on Vobiz
+  it creates an Application whose answer URL is the agent's `/carrier/v1/vobiz/answer/…`
+  route and attaches the number to it, and the Application id is stored on the
+  `phone_numbers` row. **No identity
   document is stored anywhere**: `kyc_records` keeps a public business-registry
   identifier and a reference to where the pack is filed, and a CHECK constraint refuses
   a value shaped like an Aadhaar.
@@ -677,6 +684,19 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
    is declined, not pending (SECURITY-COMPLIANCE §5); payloads are
    hints — truth comes from the authenticated Get Execution fetch. Unexpected
    source ⇒ 401 + alert (treat as attack until proven config drift — runbook).
+   **The carrier (D-662)** calls voice-runtime's `/carrier/v1/{carrier}/answer/…` and
+   `/carrier/v1/{carrier}/events/…` routes. A Vobiz request is checked against Vobiz's
+   published callback addresses (overridable live by `vobiz_callback_ips`) and against
+   `X-Vobiz-Signature-V3`, recomputed over the public URL rebuilt from `webhook_base_url`
+   (never nginx's view of the URL). The signature covers the path and a nonce, never the
+   body, so anything we must trust travels in the path we minted (the agent ref and, on an
+   outbound dial, our call id); `From` and every other form field stay claims. A signature
+   that fails to verify is always refused; a missing one only when
+   `vobiz_signature_required` is on, which waits on OPERATIONS §2 gate 55. Events then follow steps 2–4 below: the inbox row, which also
+   absorbs Vobiz's own retries (up to 3 on a non-200), an ack well inside Vobiz's
+   3-second window, and the `ingest_carrier_event` job. The carrier's CDR, read after the call ends, supplies the
+   carrier's charge for the call, and a sweep re-reads any call the hangup event missed
+   (step 6's role).
 2. **Dedupe**: replay-cache on the event key (Redis SETNX, 24h TTL; for Bolna:
    execution_id + status) AND idempotency keys on processing — dedupe at the door and
    at every side effect. **Bolna's delivery guarantee is UNSETTLED, not "at-most-once"**

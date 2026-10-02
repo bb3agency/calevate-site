@@ -299,3 +299,66 @@ def test_the_formatter_will_not_touch_the_evidence_tree() -> None:
         "`bolna-findings` in [tool.ruff] extend-exclude AND keep `force-exclude = true`. "
         f"ruff said (rc={result.returncode}): {combined[:400]}"
     )
+
+
+# --- the Vobiz mirror (D-662) -----------------------------------------------------------
+#
+# Same property as the Bolna mirror above, with a simpler manifest: `vobiz-findings/mirror/
+# MANIFEST.json` records every fetched file (pages, both `llms` files, the sitemap and the
+# OpenAPI spec) under `pages`, with paths relative to the mirror root.
+
+VOBIZ_MIRROR: Final = REPO_ROOT / "vobiz-findings" / "mirror"
+VOBIZ_MANIFEST: Final = VOBIZ_MIRROR / "MANIFEST.json"
+
+
+def _vobiz_manifest() -> dict[str, str]:
+    raw = json.loads(VOBIZ_MANIFEST.read_text(encoding="utf-8"))
+    return {record["path"]: record["sha256"] for record in raw["pages"]}
+
+
+def test_the_vobiz_manifest_describes_the_tree_on_disk() -> None:
+    recorded = _vobiz_manifest()
+    assert len(recorded) > 400, f"manifest describes only {len(recorded)} files"
+    missing = sorted(rel for rel in recorded if not (VOBIZ_MIRROR / rel).is_file())
+    assert missing == [], f"manifest names files that are not on disk: {missing[:5]}"
+
+
+def test_no_vobiz_file_has_drifted_from_its_manifest_hash() -> None:
+    drifted = sorted(
+        rel
+        for rel, want in _vobiz_manifest().items()
+        if hashlib.sha256((VOBIZ_MIRROR / rel).read_bytes()).hexdigest() != want
+    )
+    assert drifted == [], (
+        f"Vobiz evidence was modified in place: {drifted[:10]}. Every Vobiz finding cites "
+        "these bytes. Restore them from git; never regenerate the manifest to match."
+    )
+
+
+def test_the_formatter_will_not_touch_the_vobiz_mirror() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--check", str(VOBIZ_MIRROR)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = result.stdout + result.stderr
+    assert "No Python files found" in combined and result.returncode == 0, (
+        "ruff can reach the Vobiz mirror; keep `vobiz-findings` in [tool.ruff] "
+        f"extend-exclude with force-exclude. ruff said (rc={result.returncode}): "
+        f"{combined[:400]}"
+    )
+
+
+def test_git_does_not_rewrite_the_vobiz_mirror_line_endings() -> None:
+    # `core.autocrlf=true` (the Windows default) would rewrite LF to CRLF on checkout and
+    # break every hash without changing a word.
+    attributes = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert "vobiz-findings/mirror/** -text" in attributes
+
+
+def test_neither_mirror_is_shipped_in_an_image() -> None:
+    ignored = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert "bolna-findings" in ignored
+    assert "vobiz-findings" in ignored

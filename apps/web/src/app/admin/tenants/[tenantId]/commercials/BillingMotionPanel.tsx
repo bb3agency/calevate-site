@@ -13,6 +13,7 @@ import {
   RestrictionNote,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
+import { InfoTip } from "@/components/console/infoTip";
 import { useAdminAccess } from "@/app/admin/access";
 import { useSetPlanTier, type SettablePlanTier } from "@/lib/api/admin";
 
@@ -100,11 +101,13 @@ export function BillingMotionPanel({
   const current = isSettable(currentTier) ? MOTION[currentTier].label : currentTier;
 
   return (
-    <Card title="Billing motion">
-      <p className="text-xs text-ink-muted">
-        Currently <span className="font-medium text-ink">{current}</span>. This is not a
-        price — the dated agreements below are — it is which way the money moves, and it
-        takes effect at the next dial rather than at the next invoice.
+    <Card
+      title="Billing motion"
+      density="compact"
+      info="Not a price — the dated agreements are — but which way the money moves. It takes effect at the next dial rather than at the next invoice."
+    >
+      <p className="text-sm text-ink-muted">
+        Currently <span className="font-medium text-ink">{current}</span>.
       </p>
 
       <form
@@ -163,9 +166,11 @@ export function BillingMotionPanel({
             />
           </div>
           <span className={FIELD_HINT}>
-            Required in both directions, and recorded verbatim in the audit log. The
-            plan tier column keeps no history, so that row is the only record of why a
-            business is invoiced rather than credit-gated.
+            Required in both directions, and recorded verbatim in the audit log.{" "}
+            <InfoTip label="About the audit record">
+              The plan tier column keeps no history, so that audit row is the only record of
+              why a business is invoiced rather than credit-gated.
+            </InfoTip>
           </span>
         </div>
 
@@ -174,7 +179,7 @@ export function BillingMotionPanel({
             Change billing motion
           </ActionButton>
           {blocked && (
-            <span className="text-xs text-amber-700 dark:text-amber-400">
+            <span className="text-xs text-warn">
               A reason is required before this can be applied.
             </span>
           )}

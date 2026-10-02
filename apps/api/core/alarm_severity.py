@@ -644,6 +644,20 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Rows of caller data that a DPDP erasure structurally CANNOT reach. An erasure that
     # reports success and leaves personal data behind is the worst shape a §12 failure has.
     "caller_subject_key_unreachable": "page",
+    # The carrier leg (D-662). A refused carrier request is an edge or a vendor renumber,
+    # read on the board; a callback naming another agent's call is a mis-binding or a
+    # spoofed path and pages; the rest lose a status or a cost row, which the CDR sweep
+    # recovers.
+    "carrier_source_rejected": "attention",
+    "carrier_event_ingest_abandoned": "page",
+    "carrier_event_call_unresolved": "attention",
+    "carrier_event_call_mismatch": "page",
+    "carrier_cdr_missing": "attention",
+    "carrier_cdr_cost_unpriced": "attention",
+    "carrier_cdr_read_abandoned": "attention",
+    "carrier_cdr_sweep_incomplete": "attention",
+    "carrier_dial_precondition_failed": "attention",
+    "carrier_application_listing_too_long": "attention",
 }
 
 

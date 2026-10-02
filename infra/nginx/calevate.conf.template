@@ -679,6 +679,28 @@ server {
     # by this — voice-runtime still serves the route on the loopback interface.
     location ^~ /healthz { return 404; }
 
+    # The carrier's HTTP leg: answer and transfer documents and status callbacks
+    # (`apps/voice-runtime/carrier_routes.py`, `carrier_events.py`). Its own `carrier` zone
+    # so an engine-webhook flood cannot starve an answer document a ringing call waits on.
+    # `^~` so a regex location added later cannot take these paths from it.
+    #
+    # BUFFERED, unlike the catch-all below: these bodies are small form posts, and nginx
+    # holding the whole body before proxying means a sender that dribbles costs nginx a
+    # buffer rather than costing the app a held request. The carrier's source-IP allowlist
+    # stays in the APP, not as `allow`/`deny` here: the vendor says its addresses "are
+    # subject to change", and an nginx deny would turn a renumbering into an outage with no
+    # log line in our code (`docs/evidence/vobiz-integration-plan.md` §13).
+    #
+    # `proxy_pass` with no URI part forwards the request path exactly as received, which the
+    # app relies on: Vobiz signs the URL it requested, and the app rebuilds that URL from the
+    # configured public origin plus this path.
+    location ^~ /carrier/v1/ {
+        limit_req zone=carrier burst=100 nodelay;
+        proxy_pass http://calevate_hooks;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+        proxy_request_buffering on;
+    }
+
     location / {
         # `burst=200 nodelay` on top of 600r/m: the average is a campaign's worth of
         # traffic, the burst is 250 calls hanging up in the same second (D-32). Without

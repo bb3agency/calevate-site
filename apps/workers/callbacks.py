@@ -30,6 +30,7 @@ from apps.api.core.alerting import record_compliance_block
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
+from apps.workers.carrier_pacing import PACING_RULE, DialPacingTimeoutError, await_dial_slot
 
 # The ingest job's retry ladder, its transience verdict and its tenant resolution, used
 # rather than restated — `optout.py` imports the identical three for the identical reason
@@ -56,6 +57,9 @@ UNCONFIRMED_REASON = (
 #: ...and when the engine refused before dialling. One attempt, not a ladder: the promise
 #: has a time on it, and the tick will come back inside the grace window anyway.
 DIAL_FAILED_REASON = "The phone system would not place this call."
+
+#: ...and when the carrier's calls-per-second limit left no slot for it this tick.
+PACING_DEFERRED_REASON = "The phone line was busy starting other calls; we will try again shortly."
 
 #: What the caller hears about, in the ledger sense, when they call their own callback off.
 CANCELLED_BY_CALLER_REASON = "The caller asked us not to ring them back."
@@ -140,6 +144,16 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         "promised_for": promised_for(callback.requested_at),
                     },
                 )
+                continue
+
+            # After the gate, so a refused call-back never spends one of the account's slots.
+            try:
+                await await_dial_slot()
+            except DialPacingTimeoutError:
+                await callbacks.defer(
+                    session, callback.id, rule=PACING_RULE, reason=PACING_DEFERRED_REASON
+                )
+                blocked += 1
                 continue
 
             try:

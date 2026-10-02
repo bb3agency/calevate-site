@@ -140,6 +140,7 @@ from apps.api.integrations import service as integrations
 # tick's line budget.
 from apps.workers.callbacks import MAX_PER_TICK as MAX_CALLBACKS_PER_TICK
 from apps.workers.callbacks import dispatch_due_callbacks
+from apps.workers.carrier_pacing import PACING_RULE, DialPacingTimeoutError, await_dial_slot
 
 log = get_logger(__name__)
 
@@ -1075,6 +1076,14 @@ async def _dispatch_for_campaign(
             )
             if not decision.allowed:
                 await _refuse_contact(session, contact_id, rule=decision.rule or "unknown")
+                blocked += 1
+                continue
+
+            # After the gate, so a refused contact never spends one of the account's slots.
+            try:
+                await await_dial_slot()
+            except DialPacingTimeoutError:
+                await _refuse_contact(session, contact_id, rule=PACING_RULE)
                 blocked += 1
                 continue
 

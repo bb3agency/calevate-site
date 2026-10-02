@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { ArrowRight, HeartPulse, TriangleAlert } from "lucide-react";
 
+import { EmptyState } from "@/components/console/emptyState";
+import { InfoTip } from "@/components/console/infoTip";
+import { PageHeader } from "@/components/console/pageHeader";
 import {
-  Card,
-  EmptyState,
   NOTICE_TONES,
   NoticeBox,
   ProblemNotice,
-  ScrollRegion,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatINR,
   formatIST,
@@ -123,52 +124,59 @@ export default function ClientHealthPage() {
     apply: noFill,
   });
 
+  const answered = !board.isLoading && !board.error && board.data !== undefined;
+
   return (
-    <div className="space-y-4 pb-12">
-      <p className="text-sm text-ink-muted">
-        Accounts with something wrong this week, most broken first. Clients with nothing
-        wrong are not listed — the full roster is on Clients.
-      </p>
+    <div className="space-y-5 pb-12">
+      <PageHeader
+        description={
+          <>
+            Most broken first. Healthy clients are not listed.{" "}
+            <InfoTip label="how this board works">
+              <p>
+                Every signal is derived from the same rules that refuse the client&apos;s dial,
+                meter their spend and gate their knowledge, so this board cannot say an
+                account is fine while the client is looking at a refusal.
+              </p>
+              <p>A row leaves the list when the thing behind it is fixed. The full roster is on Clients.</p>
+            </InfoTip>
+          </>
+        }
+        // The number an operator carries away is "how many, and how bad" — and only from
+        // a board that ARRIVED: over a failed read there is no headline at all.
+        status={
+          answered && rows.length > 0 ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink">
+                <HeartPulse aria-hidden className="h-4 w-4 text-ink-faint" />
+                {rows.length} {rows.length === 1 ? "account" : "accounts"} need attention
+              </span>
+              {breaking.length > 0 && (
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${NOTICE_TONES.stop}`}
+                >
+                  <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
+                  {breaking.length} broken now
+                </span>
+              )}
+            </>
+          ) : undefined
+        }
+      />
 
       {board.error && <ProblemNotice error={board.error} onRetry={() => void board.refetch()} />}
 
-      {/* Above the table, not in it: the number an operator carries away is "how many, and
-          how bad", and a number that only exists as a row you scroll to is a number nobody
-          has. */}
-      {!board.isLoading && !board.error && rows.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="inline-flex items-center gap-2 font-semibold text-ink">
-            <HeartPulse className="h-4 w-4 text-ink-faint" />
-            {rows.length} {rows.length === 1 ? "account" : "accounts"} need attention
-          </span>
-          {breaking.length > 0 && (
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${NOTICE_TONES.stop}`}
-            >
-              <TriangleAlert className="h-3.5 w-3.5" />
-              {breaking.length} broken now
-            </span>
-          )}
-        </div>
-      )}
-
-      <Card bodyClassName="p-0">
+      <div className="rounded-card border border-line bg-surface shadow-card">
         {board.isLoading ? (
           <div className="p-6">
             <Skeleton rows={4} />
           </div>
         ) : board.error || !board.data ? (
-          /* Deliberately NOT the empty state. "Every client is fine" is a claim about the
-             world, and a failed read is not evidence for it — an operator told the board
-             was clear because a token expired would stop looking. `NoticeBox` rather than a
-             hand-built box, so this refusal is painted by the same tone table as every
-             other verdict in both realms.
-             `|| !board.data` because a failed read is not the only way to have no answer:
-             a query TanStack has PAUSED because the browser is offline reports
-             `isLoading === false` and `error === null` with no data, so this arm used to
-             be skipped and the empty state below claimed a healthy estate off a request
-             that was never made. */
-          <div className="p-6">
+          /* Deliberately NOT the empty state: "every client is fine" is a claim about the
+             world, and a failed read is not evidence for it. `|| !board.data` because a
+             query PAUSED offline reports no error and no data, and used to fall through to
+             the empty state. */
+          <div className="p-4 sm:p-6">
             <NoticeBox
               tone="warn"
               icon={<TriangleAlert className="h-5 w-5" />}
@@ -182,36 +190,33 @@ export default function ClientHealthPage() {
           </div>
         ) : rows.length === 0 ? (
           <EmptyState
-            title="Every client looks healthy"
-            hint="No account is silent, blocked, near its cap, failing deliveries, or waiting on us to approve knowledge. This list fills up on its own."
+            message={
+              <>
+                <span className="block font-medium text-ink">Every client looks healthy</span>
+                No account is silent, blocked, near its cap, failing deliveries, or waiting on
+                us to approve knowledge. This list fills up on its own.
+              </>
+            }
           />
         ) : (
-          <ScrollRegion label="Client health board">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead>
-                <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
-                  <th className="px-6 py-3 font-semibold">Client</th>
-                  <th className="px-6 py-3 font-semibold">Calls (7d vs prior)</th>
-                  <th className="px-6 py-3 font-semibold">What is wrong</th>
-                  <th className="px-6 py-3 font-semibold">Next step</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {rows.map((row) => (
-                  <HealthRow key={row.tenant_id} row={row} />
-                ))}
-              </tbody>
-            </table>
-          </ScrollRegion>
+          <>
+            <div
+              aria-hidden
+              className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)] gap-5 border-b border-line px-5 py-2.5 text-[12px] font-medium text-ink-faint lg:grid"
+            >
+              <span>Client</span>
+              <span>What is wrong</span>
+              <span>Calls, 7d vs prior</span>
+              <span>Next step</span>
+            </div>
+            <ul aria-label="Client health board" className="divide-y divide-line">
+              {rows.map((row) => (
+                <HealthRow key={row.tenant_id} row={row} />
+              ))}
+            </ul>
+          </>
         )}
-      </Card>
-
-      <p className="text-xs text-ink-faint">
-        Read-only. Every signal is derived from the same rules that refuse the
-        client&apos;s dial, meter their spend and gate their knowledge, so this board cannot
-        say an account is fine while the client is looking at a refusal. A row leaves the
-        list when the thing behind it is fixed.
-      </p>
+      </div>
     </div>
   );
 }
@@ -220,75 +225,66 @@ function HealthRow({ row }: { row: ClientHealth }) {
   const trend = trendClaim(row);
 
   return (
-    <tr className="align-top hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
-      <td className="px-6 py-3">
+    <li className="grid gap-x-5 gap-y-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)]">
+      <div className="min-w-0">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+          className="block truncate rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {row.name}
         </Link>
-        <div className="text-xs text-ink-faint">/c/{row.slug}</div>
+        <div className="truncate text-xs text-ink-faint">/c/{row.slug}</div>
         <span
-          className={`mt-1 inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+          className={`mt-1.5 inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${
             NOTICE_TONES[severityTone(row.severity)]
           }`}
         >
           {row.severity === "stop" ? "broken now" : "will break"}
         </span>
-      </td>
-      <td className="px-6 py-3">
-        {/* The whole `after_hours_basis` argument, rendered. An unearned basis prints the
-            REASON we cannot say, never a dash and never a 0% that reads as measured. */}
+      </div>
+      <ul className="min-w-0 space-y-2">
+        {row.signals.map((signal) => (
+          <SignalCell key={signal.rule} signal={signal} row={row} />
+        ))}
+      </ul>
+      <div className="text-xs">
+        <span className="font-medium text-ink-faint lg:sr-only">Calls, 7 days vs prior: </span>
+        {/* An unearned basis prints the REASON we cannot say, never a dash and never a 0%
+            that reads as measured. */}
         {trend.kind === "measured" ? (
           <>
-            <div className="tabular-nums font-medium text-ink">
+            <span className="tabular-nums text-sm font-medium text-ink">
               {trend.to} <span className="text-ink-faint">vs {trend.from}</span>
-            </div>
-            <div className="text-xs text-ink-muted">
-              {trend.droppedPct > 0
-                ? `down ${trend.droppedPct}%`
-                : `up ${Math.abs(trend.droppedPct)}%`}
-            </div>
+            </span>
+            <span className="ml-1.5 text-ink-muted lg:ml-0 lg:block">
+              {trend.droppedPct > 0 ? `down ${trend.droppedPct}%` : `up ${Math.abs(trend.droppedPct)}%`}
+            </span>
           </>
         ) : (
-          <div className="text-xs text-ink-muted">{trend.why}</div>
+          <span className="text-ink-muted lg:block">{trend.why}</span>
         )}
-        <div className="mt-1 text-xs text-ink-faint">Last call {formatIST(row.last_call_at)}</div>
-      </td>
-      <td className="px-6 py-3">
-        <ul className="space-y-2">
-          {row.signals.map((signal) => (
-            <SignalCell key={signal.rule} signal={signal} row={row} />
-          ))}
-        </ul>
-      </td>
-      <td className="px-6 py-3">
-        <div className="flex flex-col items-start gap-1">
-          {[...remedies(row)].map(([href, cta]) => (
-            <Link
-              key={href}
-              href={href}
-              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
-            >
-              {cta}
-              <ArrowRight className="h-3 w-3" />
-            </Link>
-          ))}
-        </div>
-      </td>
-    </tr>
+        <span className="mt-0.5 block text-ink-faint">Last call {formatIST(row.last_call_at)}</span>
+      </div>
+      <div className="flex flex-wrap items-start gap-1.5 lg:flex-col">
+        {[...remedies(row)].map(([href, cta]) => (
+          <Link
+            key={href}
+            href={href}
+            className={`${SECONDARY_BUTTON_SM} max-w-full`}
+          >
+            <span className="truncate">{cta}</span>
+            <ArrowRight aria-hidden className="h-3 w-3 shrink-0" />
+          </Link>
+        ))}
+      </div>
+    </li>
   );
 }
 
 /**
- * The destinations this row offers, deduped by href.
- *
- * Several signals legitimately share one screen (the account's own page carries the DLT
- * registration, the caps and the knowledge queue), and an operator does not need to be
- * offered the same page three times on one row. A signal this build cannot name still
- * contributes its account link rather than nothing — see `signalCopy`, which fails
- * visible.
+ * The destinations this row offers, deduped by href: several signals share one screen,
+ * and an operator does not need the same page offered three times on one row. A signal
+ * this build cannot name still contributes its account link (see `signalCopy`).
  */
 function remedies(row: ClientHealth): Map<string, string> {
   const found = new Map<string, string>();
@@ -299,10 +295,8 @@ function remedies(row: ClientHealth): Map<string, string> {
     } else {
       found.set(`/admin/tenants/${row.tenant_id}`, "Open the account");
     }
-    // A blocked account's causes go to the desk that clears each one. For the two R-11
-    // gates that desk is the screen `HOLD_RULES` names — the KYC record, the first-campaign
-    // release — so the board offers the hold queue's OWN call to action rather than a
-    // second wording for the same work.
+    // A blocked account's causes go to the desk that clears each one; for the two R-11
+    // gates that is the hold queue's OWN screen and call to action (`HOLD_RULES`).
     for (const cause of signal.causes) {
       found.set(causeHref(cause, row.tenant_id), causeCta(cause));
     }
@@ -311,22 +305,9 @@ function remedies(row: ClientHealth): Map<string, string> {
 }
 
 /**
- * The spend behind a `spend_cap_near`, in rupees, or null when there is no ceiling to be
- * near.
- *
- * The percentage is the SERVER's integer, computed from `Decimal`s — this adds the two
- * amounts it was computed from so an operator can act on it ("raise it by how much?")
- * without opening the account. Both are printed through `formatINR`, which formats the
- * DIGITS of the string the API sent and never parses them: `Number("10159.0000")` is how
- * ₹10,159.00 becomes ₹10,158.999999999998 on the screen an operator quotes to a client
- * (hard rule 7, and `UsagePanelOut`'s docstring).
- *
- * This is a rupee AMOUNT, not a rate, so two decimals is the right precision — the
- * distinction `/c/[slug]/usage` draws with its own `rupeeRate`, where `overage_rate_inr`
- * is NUMERIC(12,4) and rounding it to paise would misquote the published price.
- *
- * `spend_cap_inr` is nullable: an account with no ceiling cannot be near one, so the whole
- * line is absent rather than rendering "₹900.50 of —", which reads like a missing figure.
+ * The spend behind a `spend_cap_near`, or null with no ceiling to be near. Both amounts go
+ * through `formatINR`, which formats the DIGITS the API sent and never parses them
+ * (hard rule 7).
  */
 function spendLine(row: ClientHealth): string | null {
   if (row.spend_cap_inr === null) return null;
@@ -340,32 +321,35 @@ function SignalCell({ signal, row }: { signal: HealthSignal; row: ClientHealth }
 
   return (
     <li className="text-xs">
-      <span
-        className={`inline-block rounded-full border px-2.5 py-0.5 font-medium ${
-          NOTICE_TONES[severityTone(signal.severity)]
-        }`}
-      >
-        {/* A signal added after this build shipped keeps its row and prints as itself. An
-            operator who can read the unfamiliar name can go and find out what it is;
-            dropping it would hide an account that is genuinely in trouble. */}
-        {copy?.label ?? signal.rule}
-      </span>
-      {count && <span className="ml-2 text-ink-muted">{count}</span>}
-      <div className="mt-0.5 text-ink-muted">
-        {copy?.meaning ??
-          "This console does not know this signal. The account is flagged by it all the same — open the account."}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span
+          className={`inline-block rounded-full border px-2.5 py-0.5 font-medium ${
+            NOTICE_TONES[severityTone(signal.severity)]
+          }`}
+        >
+          {/* A signal added after this build keeps its row and prints as itself. */}
+          {copy?.label ?? signal.rule}
+        </span>
+        {count && <span className="text-ink-muted">{count}</span>}
+        {copy && (
+          <InfoTip label={copy.label} align="start">
+            {copy.meaning}
+          </InfoTip>
+        )}
       </div>
+      {/* The unknown signal's sentence stays visible: it is the instruction, not help. */}
+      {!copy && (
+        <p className="mt-0.5 text-ink-muted">
+          This console does not know this signal. The account is flagged by it all the same —
+          open the account.
+        </p>
+      )}
       {spend && <div className="mt-0.5 tabular-nums text-ink-faint">{spend}</div>}
       {signal.causes.length > 0 && (
         <ul className="mt-1 space-y-0.5">
           {signal.causes.map((cause) => (
-            <li key={cause}>
-              <Link
-                href={causeHref(cause, row.tenant_id)}
-                className="rounded-sm text-ink-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-              >
-                {causeLabel(cause)}
-              </Link>
+            <li key={cause} className="text-ink-muted">
+              {causeLabel(cause)}
             </li>
           ))}
         </ul>

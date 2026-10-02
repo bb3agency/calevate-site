@@ -162,6 +162,15 @@ function render(routes: Partial<Routes> = {}) {
   });
 }
 
+/**
+ * Every write on the credits screen opens in a drawer over the wallet, one at a time
+ * (D-661); refund and grant are chosen from "Fix or adjust".
+ */
+async function openAct(title: string) {
+  fireEvent.click(await screen.findByRole("button", { name: "Fix or adjust" }));
+  fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${title}`) }));
+}
+
 const REFUND_SUBMIT = { name: /Refund this payment/ };
 const GRANT_SUBMIT = { name: /Give this credit/ };
 
@@ -177,6 +186,7 @@ function button(query: { name: RegExp }): HTMLButtonElement {
  * that settles would pass for a reason unrelated to the rule under test.
  */
 async function fillRefund(over: { amount?: string; confirm?: string } = {}) {
+  await openAct("Refund a payment");
   fireEvent.change(await screen.findByLabelText("Payment to refund"), {
     target: { value: REF },
   });
@@ -193,6 +203,7 @@ async function fillRefund(over: { amount?: string; confirm?: string } = {}) {
 }
 
 async function fillGrant(amount = "5000", confirm?: string) {
+  await openAct("Give this client credit");
   fireEvent.change(await screen.findByLabelText("How much to give"), {
     target: { value: amount },
   });
@@ -246,7 +257,7 @@ describe("refunding a payment", () => {
   });
 
   it("reads an in-flight refund as ACCEPTED, never as a failure", async () => {
-    const { container } = await render({
+    await render({
       // `recorded: false` = the provider took it and the ledger entry lands on the
       // `refund.processed` webhook. THE defect this panel exists to prevent is rendering
       // this as "did not work" and having the operator refund a second time.
@@ -257,28 +268,28 @@ describe("refunding a payment", () => {
     fireEvent.click(button(REFUND_SUBMIT));
 
     await waitFor(() => {
-      expect(container.textContent).toContain("accepted by the provider");
+      expect(document.body.textContent).toContain("accepted by the provider");
     });
-    expect(container.textContent).toContain("Do not issue it again");
-    expect(container.textContent).toContain("has not settled yet");
-    expect(container.textContent).not.toContain("did not");
+    expect(document.body.textContent).toContain("Do not issue it again");
+    expect(document.body.textContent).toContain("has not settled yet");
+    expect(document.body.textContent).not.toContain("did not");
   });
 
   it("reads a processed refund as credited, with the balance after it", async () => {
-    const { container } = await render({ [`POST ${REFUND_PATH}`]: refundResult() });
+    await render({ [`POST ${REFUND_PATH}`]: refundResult() });
 
     await fillRefund();
     fireEvent.click(button(REFUND_SUBMIT));
 
     await waitFor(() => {
-      expect(container.textContent).toContain("refunded to Sri Traders");
+      expect(document.body.textContent).toContain("refunded to Sri Traders");
     });
-    expect(container.textContent).toContain("matching entry is on this wallet");
-    expect(container.textContent).toContain("rfnd_QK9xLm77");
+    expect(document.body.textContent).toContain("matching entry is on this wallet");
+    expect(document.body.textContent).toContain("rfnd_QK9xLm77");
   });
 
   it("states the absence when the answer carried no balance, rather than printing ₹0.00", async () => {
-    const { container } = await render({
+    await render({
       // Processed, so the entry was written — but the route answered without a balance.
       // "We could not derive it" is a different fact from "the wallet is empty".
       [`POST ${REFUND_PATH}`]: refundResult({ balance_inr: null }),
@@ -288,10 +299,10 @@ describe("refunding a payment", () => {
     fireEvent.click(button(REFUND_SUBMIT));
 
     await waitFor(() => {
-      expect(container.textContent).toContain("refunded to Sri Traders");
+      expect(document.body.textContent).toContain("refunded to Sri Traders");
     });
-    expect(container.textContent).toContain("balance was not reported with this answer");
-    expect(container.textContent).not.toContain("Balance is now ₹0.00");
+    expect(document.body.textContent).toContain("balance was not reported with this answer");
+    expect(document.body.textContent).not.toContain("Balance is now ₹0.00");
   });
 
   it("will not issue a refund until the payment reference is re-keyed", async () => {
@@ -308,7 +319,7 @@ describe("refunding a payment", () => {
   });
 
   it("refuses an amount larger than the payment, before the round trip", async () => {
-    const { calls, container } = await render({ [`POST ${REFUND_PATH}`]: refundResult() });
+    const { calls } = await render({ [`POST ${REFUND_PATH}`]: refundResult() });
 
     await fillRefund();
     fireEvent.change(screen.getByLabelText(/How much to refund/), {
@@ -318,19 +329,20 @@ describe("refunding a payment", () => {
     expect(button(REFUND_SUBMIT).disabled).toBe(true);
     fireEvent.click(button(REFUND_SUBMIT));
     expect(calls.some((c) => c.method === "POST" && c.path === REFUND_PATH)).toBe(false);
-    expect(container.textContent).toContain("more than the ₹2500.00 this payment credited");
+    expect(document.body.textContent).toContain("more than the ₹2500.00 this payment credited");
   });
 
   it("says which payments it cannot move, rather than letting the provider say it", async () => {
-    const { container } = await render();
+    await render();
 
+    await openAct("Refund a payment");
     await screen.findByText("Only a payment the provider captured");
-    expect(container.textContent).toContain("has never seen");
-    expect(container.textContent).toContain("compensating adjustment");
+    expect(document.body.textContent).toContain("has never seen");
+    expect(document.body.textContent).toContain("compensating adjustment");
   });
 
   it("renders the provider's own refusal when the refund is rejected", async () => {
-    const { container } = await render({
+    await render({
       [`POST ${REFUND_PATH}`]: problem(502, {
         title: "The payment provider refused this refund",
         detail: "We could not refund that payment.",
@@ -341,18 +353,19 @@ describe("refunding a payment", () => {
     fireEvent.click(button(REFUND_SUBMIT));
 
     await waitFor(() => {
-      expect(container.textContent).toContain("We could not refund that payment.");
+      expect(document.body.textContent).toContain("We could not refund that payment.");
     });
   });
 
   it("offers no form when there is no payment to refund", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: credits({ payments: [], entries: [] }),
     });
 
+    await openAct("Refund a payment");
     await screen.findByText(/There is nothing here to refund/);
     expect(screen.queryByLabelText("Payment to refund")).toBeNull();
-    expect(container.textContent).toContain("it cannot create one");
+    expect(document.body.textContent).toContain("it cannot create one");
   });
 });
 
@@ -397,7 +410,7 @@ describe("granting credit out of nothing", () => {
   });
 
   it("tells an operator a figure is impossible before asking about the ceremony", async () => {
-    const { calls, container } = await render({ [`POST ${GRANT_PATH}`]: grantResult() });
+    const { calls } = await render({ [`POST ${GRANT_PATH}`]: grantResult() });
 
     await fillGrant();
     fireEvent.change(screen.getByLabelText("How much to give"), {
@@ -405,31 +418,32 @@ describe("granting credit out of nothing", () => {
     });
 
     await waitFor(() => {
-      expect(container.textContent).toContain("A grant is between ₹1.00 and ₹50000.00");
+      expect(document.body.textContent).toContain("A grant is between ₹1.00 and ₹50000.00");
     });
     // The route's own ordering: the ceiling first, so a typo is not sent to fix a header
     // and re-submitted unchanged.
-    expect(container.textContent).toContain("grant it in parts");
+    expect(document.body.textContent).toContain("grant it in parts");
     expect(button(GRANT_SUBMIT).disabled).toBe(true);
     fireEvent.click(button(GRANT_SUBMIT));
     expect(calls.some((c) => c.method === "POST" && c.path === GRANT_PATH)).toBe(false);
   });
 
   it("shows what the wallet has been PAID for beside what it has been GIVEN", async () => {
-    const { container } = await render({
+    await render({
       [CREDITS_READ]: credits({ paid_inr: "2500.00", granted_inr: "15000.00" }),
     });
 
+    await openAct("Give this client credit");
     await screen.findByText("Give this client credit");
     // The founder's guardrail: the two never blur, and the running total is in front of
     // the operator at the moment they add to it — not on a screen they might not open.
-    expect(container.textContent).toContain("Paid for, lifetime");
-    expect(container.textContent).toContain("Given, lifetime");
-    expect(container.textContent).toContain("₹15,000.00");
+    expect(document.body.textContent).toContain("Paid for, lifetime");
+    expect(document.body.textContent).toContain("Given, lifetime");
+    expect(document.body.textContent).toContain("₹15,000.00");
   });
 
   it("reports a replayed grant as having moved nothing", async () => {
-    const { container } = await render({
+    await render({
       [`POST ${GRANT_PATH}`]: grantResult({ recorded: false }),
     });
 
@@ -437,17 +451,18 @@ describe("granting credit out of nothing", () => {
     fireEvent.click(button(GRANT_SUBMIT));
 
     await waitFor(() => {
-      expect(container.textContent).toContain("already on this wallet");
+      expect(document.body.textContent).toContain("already on this wallet");
     });
-    expect(container.textContent).toContain("has not been credited a second time");
+    expect(document.body.textContent).toContain("has not been credited a second time");
   });
 
   it("says a grant is not a payment, on the panel itself", async () => {
-    const { container } = await render();
+    await render();
 
+    await openAct("Give this client credit");
     await screen.findByText("Give this client credit");
-    expect(container.textContent).toContain("no payment behind it");
-    expect(container.textContent).toContain("reports it separately");
+    expect(document.body.textContent).toContain("no payment behind it");
+    expect(document.body.textContent).toContain("reports it separately");
   });
 
   it("disables both controls, with their reasons, for a session that may not write", async () => {
@@ -457,11 +472,14 @@ describe("granting credit out of nothing", () => {
       [`POST ${REFUND_PATH}`]: refundResult(),
     });
 
+    // One drawer at a time (D-661): each control is checked in its own.
+    await openAct("Refund a payment");
     await screen.findByText(/refund a payment/);
-    expect(screen.getByText(/give a client credit/)).toBeDefined();
     expect(button(REFUND_SUBMIT).disabled).toBe(true);
-    expect(button(GRANT_SUBMIT).disabled).toBe(true);
     fireEvent.click(button(REFUND_SUBMIT));
+    await openAct("Give this client credit");
+    expect(await screen.findByText(/give a client credit/)).toBeDefined();
+    expect(button(GRANT_SUBMIT).disabled).toBe(true);
     fireEvent.click(button(GRANT_SUBMIT));
     expect(
       calls.some(
@@ -481,13 +499,18 @@ describe("granting credit out of nothing", () => {
  */
 describe("the two new panels' accessibility", () => {
   it("has no axe violations with a payment chosen for refund", async () => {
-    const { container } = await render({ [`POST ${REFUND_PATH}`]: refundResult() });
+    await render({ [`POST ${REFUND_PATH}`]: refundResult() });
 
+    // One drawer at a time (D-661), so each filled form is scanned in its own dialog.
     await fillRefund();
+    await expectNoA11yViolations(
+      screen.getByRole("dialog"),
+      "admin/tenants/[tenantId]/credits (refund open)",
+    );
     await fillGrant();
     await expectNoA11yViolations(
-      container,
-      "admin/tenants/[tenantId]/credits (refund + grant open)",
+      screen.getByRole("dialog"),
+      "admin/tenants/[tenantId]/credits (grant open)",
     );
   });
 });

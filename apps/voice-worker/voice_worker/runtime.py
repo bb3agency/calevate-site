@@ -218,6 +218,7 @@ class WorkerRuntime:
         credentials_for: Callable[[str | None], VendorCredentials],
         transport: BaseTransport,
         caller: CallerIdentityLike | None = None,
+        carrier_call_id: str | None = None,
         carrier: CarrierCdr | None = None,
         runtime_usage: RuntimeUsage | None = None,
         greeting: Literal["required", "skip"] = "required",
@@ -245,6 +246,10 @@ class WorkerRuntime:
         `metered_rows` is reached only after `runner.run()` has returned, which is after
         Pipecat has awaited every one of those tasks.
 
+        `carrier_call_id` is the carrier's own id for the call (the handshake's
+        `start.callId`), persisted on the `calls` row as the join key for the carrier's
+        hangup webhook, its CDR and a transfer. `None` where no carrier leg exists.
+
         `carrier` and `runtime_usage` are arguments and not something this method goes and
         fetches. §1.2 gives the connected minute and its charge to the CARRIER, whose CDR is
         not retrievable from this container, and §7 P-1 leaves what a Pipecat "active
@@ -268,6 +273,7 @@ class WorkerRuntime:
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction=direction,
+            carrier_call_id=carrier_call_id,
             turn_batch_size=self._turn_batch_size,
             turn_flush_seconds=self._turn_flush_seconds,
         )

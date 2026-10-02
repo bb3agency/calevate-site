@@ -3,7 +3,17 @@
 import { useState } from "react";
 import { BookOpenCheck } from "lucide-react";
 
-import { MonoValue, NoticeBox, ProblemNotice, istDateToInstant } from "@/components/ui";
+import {
+  Card,
+  FIELD,
+  FIELD_HINT,
+  FIELD_LABEL,
+  MonoValue,
+  NoticeBox,
+  PRIMARY_BUTTON_SM,
+  ProblemNotice,
+  istDateToInstant,
+} from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import {
   useRecordDltRegistration,
@@ -12,7 +22,6 @@ import {
 } from "@/lib/api/admin";
 import { Term } from "@/lib/glossary";
 
-import { FIELD, PrimaryButton } from "./controls";
 
 const PE_STATUSES: { value: PeStatus; label: string }[] = [
   { value: "not_started", label: "Not started — no application filed" },
@@ -58,24 +67,20 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
   const [registeredAt, setRegisteredAt] = useState("");
 
   return (
-    <div className="min-w-0 space-y-3 lg:col-span-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-        Entity registration with the{" "}
-        <Term id="dlt" /> (
-        <Term id="pe" term="PE" audience="operator" />)
-      </h3>
-      <p className="text-xs text-ink-muted">
-        The registrar issues three separate registrations and none implies another: this
-        one is the client&apos;s own entity, the number header is its own, the voice
-        template is a third. The campaign launch check asks for all three by name.
+    <Card title="Entity registration">
+      <p className="-mt-1 mb-3 text-sm text-ink-muted">
+        The client&apos;s own registration with the <Term id="dlt" /> registrar as a
+        principal entity (<Term id="pe" term="PE" audience="operator" />), and their link to
+        us. The registrar issues three separate registrations and none implies another: this
+        one is the client&apos;s own entity, the number header is its own, the voice template
+        is a third. The campaign launch check asks for all three by name.
       </p>
 
       {record.error && <ProblemNotice error={record.error} />}
       {record.data && (
         /* The API has no GET for this, so the panel can only show what THIS screen just
-           wrote — never the stored state on load. Saying "recorded" and echoing the
-           values back is the honest version; claiming to display current state we did
-           not read would be worse than showing nothing. */
+           wrote — never the stored state on load. Echoing what was recorded is the honest
+           version; claiming to display a current state we did not read would be worse. */
         <NoticeBox tone="ok" icon={<BookOpenCheck className="h-4 w-4" />}>
           <p className="text-xs">
             Recorded: entity registration{" "}
@@ -94,7 +99,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
       )}
 
       <form
-        className="space-y-2"
+        className="mt-3 max-w-xl space-y-3"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
@@ -103,82 +108,100 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
             tm_link_status: tmLink,
             pe_id: peId.trim() || null,
             entity_name: entityName.trim() || null,
-            // `<input type="date">` read as MIDNIGHT IST, not UTC and not the browser's.
-            // UTC midnight is 05:30 IST, so "today" would be a moment that has not
-            // happened yet and the server refuses a future registration date. The
-            // browser's own midnight avoided that and introduced a worse one: this is the
-            // date on an Indian registrar's letter, it is read back with `formatIST`, and
-            // from a machine east of IST local midnight lands on the previous IST day —
-            // so the same digits filed a different date depending on who typed them.
-            // `istDateToInstant` (components/ui.tsx) is the one spelling of this.
+            // The date on an Indian registrar's letter, read as MIDNIGHT IST whatever zone
+            // the operator is in: UTC midnight is a future moment in IST (refused), and the
+            // browser's midnight files a different day east of IST. `istDateToInstant` is
+            // the one spelling of this.
             registered_at: istDateToInstant(registeredAt),
           });
         }}
       >
-        <div className="flex flex-wrap gap-2">
-          <select
-            aria-label="Entity registration status"
-            value={status}
-            disabled={!write.allowed}
-            onChange={(e) => setStatus(e.target.value as PeStatus)}
-            className={FIELD}
-          >
-            {PE_STATUSES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Telemarketer link status"
-            value={tmLink}
-            disabled={!write.allowed}
-            onChange={(e) => setTmLink(e.target.value as TmLinkStatus)}
-            className={FIELD}
-          >
-            {TM_LINK_STATUSES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor="dlt-pe-status" className={FIELD_LABEL}>
+              Entity registration status
+            </label>
+            <select
+              id="dlt-pe-status"
+              value={status}
+              disabled={!write.allowed}
+              onChange={(e) => setStatus(e.target.value as PeStatus)}
+              className={FIELD}
+            >
+              {PE_STATUSES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="dlt-tm-link" className={FIELD_LABEL}>
+              Telemarketer link status
+            </label>
+            <select
+              id="dlt-tm-link"
+              value={tmLink}
+              disabled={!write.allowed}
+              onChange={(e) => setTmLink(e.target.value as TmLinkStatus)}
+              className={FIELD}
+            >
+              {TM_LINK_STATUSES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="dlt-pe-id" className={FIELD_LABEL}>
+              PE id from the registrar (optional)
+            </label>
+            <input
+              id="dlt-pe-id"
+              value={peId}
+              disabled={!write.allowed}
+              onChange={(e) => setPeId(e.target.value)}
+              className={`${FIELD} font-mono`}
+            />
+          </div>
+          <div>
+            <label htmlFor="dlt-entity-name" className={FIELD_LABEL}>
+              Registered entity name (optional)
+            </label>
+            <input
+              id="dlt-entity-name"
+              value={entityName}
+              disabled={!write.allowed}
+              onChange={(e) => setEntityName(e.target.value)}
+              className={FIELD}
+            />
+          </div>
+          <div>
+            {/* The zone is in the label: a `type="date"` carries none, and this is the
+                date on an Indian registrar's letter wherever the operator sits. */}
+            <label htmlFor="dlt-registered-at" className={FIELD_LABEL}>
+              Registered on (IST)
+            </label>
+            <input
+              id="dlt-registered-at"
+              type="date"
+              value={registeredAt}
+              disabled={!write.allowed}
+              onChange={(e) => setRegisteredAt(e.target.value)}
+              className={FIELD}
+            />
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={peId}
-            disabled={!write.allowed}
-            onChange={(e) => setPeId(e.target.value)}
-            placeholder="PE id from the registrar (optional)"
-            className={`flex-1 font-mono ${FIELD}`}
-          />
-          <input
-            value={entityName}
-            disabled={!write.allowed}
-            onChange={(e) => setEntityName(e.target.value)}
-            placeholder="Registered entity name (optional)"
-            className={`flex-1 ${FIELD}`}
-          />
-          <input
-            type="date"
-            // THE ZONE IS ON SCREEN, for `/admin/ops`'s reason, said there in full: a
-            // `type="date"` carries no zone, so an unlabelled one reads as this machine's
-            // calendar — and this field holds the date printed on an Indian registrar's
-            // letter, which is IST wherever the operator is sitting. The two screens
-            // record the same fact and now say the same thing about it.
-            aria-label="Registered on (IST)"
-            value={registeredAt}
-            disabled={!write.allowed}
-            onChange={(e) => setRegisteredAt(e.target.value)}
-            className={FIELD}
-          />
-        </div>
-        <p className="text-xs text-ink-muted">
-          Re-recording is normal — it updates what is on file.
-        </p>
-        <PrimaryButton type="submit" disabled={record.isPending || !write.allowed}>
+        <span className={FIELD_HINT}>Re-recording is normal — it updates what is on file.</span>
+        <button
+          type="submit"
+          className={PRIMARY_BUTTON_SM}
+          disabled={record.isPending || !write.allowed}
+        >
           {record.isPending ? "Recording…" : "Record registration"}
-        </PrimaryButton>
+        </button>
       </form>
-    </div>
+    </Card>
   );
 }

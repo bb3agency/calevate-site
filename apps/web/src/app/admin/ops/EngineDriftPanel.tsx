@@ -2,7 +2,8 @@
 
 import { CheckCircle2, CircleHelp, TriangleAlert } from "lucide-react";
 
-import { Card, NoticeBox, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
+import { NoticeBox, Skeleton, formatCount, formatIST } from "@/components/ui";
 
 import type { EngineDriftState } from "./opsSurfaceState";
 
@@ -66,13 +67,20 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
   const swept = read !== null && read.oldest_checked_at !== null;
 
   return (
-    <Card title="What the voice platform is running">
-      <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
-          Every half hour a sweep reads live agents back off the voice platform and
-          compares them with what we published. It only ever reads &mdash; whatever a live
-          agent is running now, it is still running after the sweep.
-        </p>
+    <section aria-labelledby="engine-drift-heading" className="space-y-3">
+      <div className="flex items-center gap-1">
+        <h3 id="engine-drift-heading" className="text-sm font-semibold text-ink">
+          Configuration
+        </h3>
+        <InfoTip label="Configuration drift">
+          <p>
+            Every half hour a sweep reads live agents back off the voice platform and
+            compares them with what we published. It only ever reads &mdash; whatever a live
+            agent is running now, it is still running after the sweep.
+          </p>
+        </InfoTip>
+      </div>
+      <div className="space-y-3">
 
         {drift.status === "loading" && <Skeleton rows={2} />}
 
@@ -139,6 +147,7 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
 
         {read !== null && (
           <table className="w-full text-left text-xs">
+            <caption className="sr-only">Live agents by configuration check</caption>
             <tbody>
               <tr>
                 <td className="py-0.5 text-ink-muted">Live agents</td>
@@ -178,6 +187,6 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
           </table>
         )}
       </div>
-    </Card>
+    </section>
   );
 }

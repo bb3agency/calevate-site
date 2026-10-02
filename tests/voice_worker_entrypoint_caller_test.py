@@ -91,12 +91,16 @@ def test_run_call_accepts_a_caller_and_forwards_it() -> None:
 
 
 def test_the_entrypoint_passes_the_verdict_to_run_call() -> None:
-    """The joint itself, asserted on the call site: `bot.run` must hand `run_call` the
-    claim rather than letting it default to None."""
-    source = inspect.getsource(bot)
-    assert "caller=claim_from_stream_url(" in source, (
+    """The joint itself, asserted on the call site: `bot.bot` reads the claim, folds it into
+    the handshake (`carrier.read_handshake`), and hands `run_call` that verdict rather than
+    letting it default to None."""
+    source = inspect.getsource(bot.bot)
+    assert "claim = claim_from_stream_url(" in source
+    assert "claim=claim" in source, "the claim no longer reaches the handshake reader"
+    assert "caller=leg.handshake.caller" in source, (
         "the entrypoint is assembling calls with no caller verdict again"
     )
+    assert "carrier_call_id=leg.handshake.carrier_call_id" in source
 
 
 def cast_args(args: _Args) -> Any:
