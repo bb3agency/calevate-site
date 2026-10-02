@@ -47,10 +47,10 @@ ENGINE_LABEL: Final = "vobiz"
 BALANCE_TOO_LOW: Final = 402
 DIAL_REFUSED_STATUSES: Final = frozenset({BALANCE_TOO_LOW})
 
-#: `app_name` admits letters, digits, `-` and `_` only (`applications/create-application.md:28`).
+#: `app_name` admits letters, digits, `-` and `_` only (`applications/create-application.md:29`).
 _APP_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 APP_NAME_PREFIX: Final = "calevate-"
-#: `limit` is at most 100 (`applications/list-all-applications.md:24`). The page bound
+#: `limit` is at most 100 (`applications/list-all-applications.md:27`). The page bound
 #: keeps a runaway listing from holding a publish open; an account with more applications
 #: than this is refused by name rather than given a duplicate.
 _APPLICATION_PAGE: Final = 100
@@ -414,10 +414,10 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
     if event == "Ring":
         return build("ringing", "ringing")
     if event == "StartApp":
-        # Delivered to the answer URL when the called party answers (`:74-75`).
+        # Delivered to the answer URL when the called party answers (`:76`).
         return build("answered", "in_progress")
     if event == "Hangup":
-        # The authoritative end of the call (`:76`); its status comes from the cause.
+        # The authoritative end of the call (`:77`); its status comes from the cause.
         cause = (fields.get("HangupCause") or "").strip() or None
         return build("hangup", _HANGUP_STATUS.get(cause or "", "failed"), cause)
     if event == "MachineDetection":

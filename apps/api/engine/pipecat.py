@@ -1613,8 +1613,8 @@ class PipecatEngine:
             require_capability("caller_id", engine=self)
         dialler = self._ready_carrier("place outbound calls")
         if not ctx.from_e164:
-            # Vobiz dials only from a number the account rents: "Outbound caller ID must be
-            # a Vobiz-rented Indian number" (`compliance/india/calling-regulations.md:35`).
+            # Vobiz dials only from a number the account rents: "Caller ID | Must use
+            # Vobiz-rented Indian phone number" (`compliance/india/calling-regulations.md:35`).
             raise ProblemError(
                 kind="dependency",
                 code="engine_caller_id_not_configured",
