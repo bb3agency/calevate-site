@@ -6,13 +6,12 @@ import { ShieldCheck, TriangleAlert, UserPlus } from "lucide-react";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { Drawer } from "@/components/console/drawer";
 import { useFormValidation } from "@/components/formValidation";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   PRIMARY_BUTTON,
-  TypedConfirmation,
-  confirmationMatches,
 } from "@/components/ui";
 import {
   ADMIN_ROLES,
@@ -52,10 +51,12 @@ export function AddOperatorDrawer({
   // The address and the reason are answered at their own controls; what stays on the
   // button is the typed phrase, which is a gate on the act rather than an answer.
   const ready = confirmationMatches(typed, confirmPhrase);
-  useUnsavedGuard(email !== "" || name !== "" || reason !== "" || typed !== "");
+  const dirty = email !== "" || name !== "" || reason !== "" || typed !== "";
+  useUnsavedGuard(dirty);
 
   return (
     <Drawer
+      dirty={dirty}
       open
       onClose={onClose}
       title="Add an admin"
@@ -177,7 +178,7 @@ export function AddOperatorDrawer({
 
         <TypedConfirmation
           phrase={confirmPhrase}
-          binding="Naming the tier is the confirmation: change the tier and this phrase changes with it, so a phrase typed to add an admin cannot add a super admin."
+          hint="Naming the tier is the confirmation: change the tier and this phrase changes with it, so a phrase typed to add an admin cannot add a super admin."
           value={typed}
           onChange={(next) => {
             setTyped(next);

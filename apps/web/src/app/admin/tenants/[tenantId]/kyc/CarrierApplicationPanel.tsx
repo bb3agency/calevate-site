@@ -37,6 +37,8 @@ import { FactList, SubHeading } from "./FactList";
  * whether a state is good enough for a number.
  */
 export function CarrierPill({ application }: { application: CarrierApplication }) {
+  // The current carrier needs no per-client application (Vobiz, D-666), so no gate reads it.
+  if (!application.required) return <TonePill tone="neutral">Carrier: not required</TonePill>;
   if (!application.recorded) return <TonePill tone="neutral">Carrier: nothing sent</TonePill>;
   const status = asCarrierStatus(application.status);
   const tone = application.is_accepted ? "ok" : status ? CARRIER_STATUS_COPY[status].tone : "warn";
@@ -88,8 +90,9 @@ export function CarrierApplicationPanel({
       }
     >
       <p className="-mt-1 text-sm text-ink-muted">
-        Until it says accepted, no number can be provisioned for this client however their
-        identity verification above stands.
+        {application.data && !application.data.required
+          ? "The current carrier does not approve client businesses separately, so nothing here gates this client's numbers or calls. A decision recorded here applies only if the carrier is switched back to Plivo."
+          : "Until it says accepted, no number can be provisioned for this client however their identity verification above stands."}
       </p>
 
       <div className="mt-4 space-y-5">

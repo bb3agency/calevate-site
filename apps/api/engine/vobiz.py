@@ -21,6 +21,7 @@ Hard rule 6: no phone number and no vendor body reaches a log line from this mod
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final
@@ -149,11 +150,24 @@ class VobizCarrier:
             timeout=REQUEST_TIMEOUT_S,
         )
 
-    def _account(self, suffix: str) -> str:
-        return f"/Account/{quote(self._auth_id or '', safe='')}/{suffix}"
+    def _path(self, route: str, segments: Mapping[str, str]) -> str:
+        """`route` with `{auth_id}` and each named segment filled in, every one URL-encoded."""
+        values = {name: _segment(value) for name, value in segments.items()}
+        return route.format(auth_id=_segment(self._auth_id or ""), **values)
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def _request(
+        self,
+        method: str,
+        route: str,
+        segments: Mapping[str, str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """One request, refused before it is built when the credentials are absent.
+
+        `route` is a template (`/Account/{auth_id}/numbers/{number}/application`) and is what
+        the shared ladder logs; the concrete path is built here from `segments` and never
+        leaves this method, because on the binding routes it carries a phone number and on
+        every account route it carries the auth id (hard rule 6).
 
         On the injected client, or on one opened and closed for this request rather than
         held: `engine/carrier.get_carrier` builds a carrier per operation from the live
@@ -163,10 +177,15 @@ class VobizCarrier:
         refusal = self.unavailable("reach its carrier")
         if refusal is not None:
             raise refusal
+        path = self._path(route, segments or {})
         if self._client is not None:
-            return await vendor_request(self._client, method, path, engine=ENGINE_LABEL, **kwargs)
+            return await vendor_request(
+                self._client, method, path, engine=ENGINE_LABEL, route=route, **kwargs
+            )
         async with self._new_client() as client:
-            return await vendor_request(client, method, path, engine=ENGINE_LABEL, **kwargs)
+            return await vendor_request(
+                client, method, path, engine=ENGINE_LABEL, route=route, **kwargs
+            )
 
     # --- calls ----------------------------------------------------------------------
 
@@ -191,7 +210,7 @@ class VobizCarrier:
         """
         payload = await self._request(
             "POST",
-            self._account("Call/"),
+            "/Account/{auth_id}/Call/",
             json={
                 "from": from_e164,
                 "to": to_e164,
@@ -228,7 +247,9 @@ class VobizCarrier:
         never existed)" (`call/transfer-call.md:126`).
         """
         try:
-            await self._request("DELETE", self._account(f"Call/{_segment(carrier_call_id)}/"))
+            await self._request(
+                "DELETE", "/Account/{auth_id}/Call/{call_uuid}/", {"call_uuid": carrier_call_id}
+            )
         except EngineRejectedError as exc:
             if exc.vendor_status == 404:
                 return False
@@ -243,7 +264,8 @@ class VobizCarrier:
         """
         await self._request(
             "POST",
-            self._account(f"Call/{_segment(carrier_call_id)}/"),
+            "/Account/{auth_id}/Call/{call_uuid}/",
+            {"call_uuid": carrier_call_id},
             json={"legs": "aleg", "aleg_url": redirect_url, "aleg_method": "POST"},
         )
 
@@ -256,7 +278,8 @@ class VobizCarrier:
         try:
             payload = await self._request(
                 "GET",
-                self._account(f"cdr/{_segment(carrier_call_id)}"),
+                "/Account/{auth_id}/cdr/{call_uuid}",
+                {"call_uuid": carrier_call_id},
                 parse_float=Decimal,
             )
         except EngineRejectedError as exc:
@@ -307,17 +330,21 @@ class VobizCarrier:
             app_id = await self._find_application(app_name)
         if app_id is None:
             created = await self._request(
-                "POST", self._account("Application/"), json={"app_name": app_name, **settings}
+                "POST", "/Account/{auth_id}/Application/", json={"app_name": app_name, **settings}
             )
             app_id = _string_field(created, "app_id")
         else:
             # Partial update (`applications/update-application.md:9-14`).
             await self._request(
-                "POST", self._account(f"Application/{_segment(app_id)}/"), json=settings
+                "POST",
+                "/Account/{auth_id}/Application/{app_id}/",
+                {"app_id": app_id},
+                json=settings,
             )
         await self._request(
             "POST",
-            self._account(f"numbers/{_segment(e164)}/application"),
+            "/Account/{auth_id}/numbers/{number}/application",
+            {"number": e164},
             json={"application_id": app_id},
         )
         return app_id
@@ -331,7 +358,9 @@ class VobizCarrier:
         every number still attached to it.
         """
         try:
-            found = await self._request("GET", self._account(f"Application/{_segment(app_id)}/"))
+            found = await self._request(
+                "GET", "/Account/{auth_id}/Application/{app_id}/", {"app_id": app_id}
+            )
         except EngineRejectedError as exc:
             if exc.vendor_status == 404:
                 return None
@@ -346,7 +375,7 @@ class VobizCarrier:
         for page in range(_APPLICATION_MAX_PAGES):
             listing = await self._request(
                 "GET",
-                self._account("Application/"),
+                "/Account/{auth_id}/Application/",
                 params={"limit": _APPLICATION_PAGE, "offset": page * _APPLICATION_PAGE},
             )
             objects = listing.get("objects")
@@ -373,7 +402,8 @@ class VobizCarrier:
         the state an unbind wants, so it is success."""
         await self._request(
             "DELETE",
-            self._account(f"numbers/{_segment(e164)}/application"),
+            "/Account/{auth_id}/numbers/{number}/application",
+            {"number": e164},
             absent_is_success=True,
         )
 
@@ -390,7 +420,9 @@ class VobizCarrier:
         Application is then still answering that number.
         """
         try:
-            await self._request("DELETE", self._account(f"Application/{_segment(binding_id)}/"))
+            await self._request(
+                "DELETE", "/Account/{auth_id}/Application/{app_id}/", {"app_id": binding_id}
+            )
         except EngineRejectedError as exc:
             if exc.vendor_status == 404:
                 return False
@@ -409,7 +441,7 @@ class VobizCarrier:
         for page in range(1, _NUMBER_MAX_PAGES + 1):
             listing = await self._request(
                 "GET",
-                self._account("numbers"),
+                "/Account/{auth_id}/numbers",
                 params={"page": page, "per_page": _NUMBER_PAGE},
             )
             items = listing.get("items")

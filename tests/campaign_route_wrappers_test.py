@@ -495,3 +495,80 @@ async def test_a_neighbours_campaign_id_arms_nothing() -> None:
             )
         ).one()
     assert row[0] is None and row[1] == 0, "the neighbour's campaign was untouched"
+
+
+# --- create ---------------------------------------------------------------------------
+
+
+async def test_a_consent_declaration_made_at_create_is_audited() -> None:
+    """The new-campaign flow answers the provenance question in the create request, so
+    that is where most declarations arrive. `declare_consent_provenance` audits the same
+    statement; create did not, which left the usual path with no attributable record."""
+    tenant_id, agent_id, slug = await _tenant()
+    number_id, template_id, _e164 = await _number_and_template(tenant_id, agent_id)
+    collected = datetime.now(UTC) - timedelta(days=3)
+    async with _client() as http:
+        headers = await _headers(tenant_id, slug)
+        declared = await http.post(
+            CAMPAIGNS,
+            headers=headers,
+            json={
+                "agent_id": str(agent_id),
+                "name": "Declared at create",
+                "classification": "promotional",
+                "number_id": str(number_id),
+                "dlt_template_id": str(template_id),
+                "consent_provenance": {
+                    "source": "existing_customer",
+                    "collected_at": collected.isoformat(),
+                },
+            },
+        )
+        silent = await http.post(
+            CAMPAIGNS,
+            headers=headers,
+            json={
+                "agent_id": str(agent_id),
+                "name": "Nothing declared",
+                "classification": "promotional",
+            },
+        )
+    assert declared.status_code == 201, declared.text
+    assert silent.status_code == 201, silent.text
+    assert await _audit(tenant_id, "campaign.consent_provenance_declared") == [
+        ("campaign", declared.json()["id"], "127.0.0.1")
+    ], "one row, for the campaign that declared; none for the draft that said nothing"
+
+
+async def test_a_variable_named_phone_cannot_replace_the_contacts_number() -> None:
+    """`custom` is spread first and the validated fields written over it, so a variable
+    called `phone` or `name` cannot change who is dialled or what they are called."""
+    tenant_id, agent_id, slug = await _tenant()
+    campaign_id = await _campaign(tenant_id, agent_id)
+    async with _client() as http:
+        response = await http.post(
+            CONTACTS.format(campaign_id=campaign_id),
+            headers=await _headers(tenant_id, slug),
+            json={
+                "contacts": [
+                    {
+                        "phone": "9876510101",
+                        "name": "Asha",
+                        "custom": {"phone": "9876510999", "name": "Mallory", "model": "Nexon"},
+                    }
+                ]
+            },
+        )
+    assert response.status_code == 200, response.text
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT phone_e164, name, custom FROM campaign_contacts WHERE campaign_id = :c"
+                ),
+                {"c": campaign_id},
+            )
+        ).one()
+    assert row[0] == "+919876510101"
+    assert row[1] == "Asha"
+    assert row[2] == {"model": "Nexon"}

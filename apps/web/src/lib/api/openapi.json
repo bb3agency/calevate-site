@@ -8014,6 +8014,11 @@
             "title": "Calls Inr",
             "type": "string"
           },
+          "number_rental_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Number Rental Inr",
+            "type": "string"
+          },
           "refunded_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Refunded Inr",
@@ -8029,6 +8034,7 @@
           "calls_inr",
           "ai_assist_inr",
           "adjustments_inr",
+          "number_rental_inr",
           "spent_inr",
           "added_inr",
           "refunded_inr"
@@ -12328,6 +12334,18 @@
             "title": "Pending",
             "type": "integer"
           },
+          "tenant_credentials": {
+            "title": "Tenant Credentials",
+            "type": "integer"
+          },
+          "tenant_credentials_complete": {
+            "title": "Tenant Credentials Complete",
+            "type": "boolean"
+          },
+          "tenant_credentials_pending": {
+            "title": "Tenant Credentials Pending",
+            "type": "integer"
+          },
           "versions": {
             "title": "Versions",
             "type": "integer"
@@ -12338,7 +12356,10 @@
           "has_retired_kek",
           "versions",
           "current",
-          "pending"
+          "pending",
+          "tenant_credentials",
+          "tenant_credentials_pending",
+          "tenant_credentials_complete"
         ],
         "title": "KekOut",
         "type": "object"
@@ -19557,6 +19578,25 @@
             "title": "Rewrapped",
             "type": "integer"
           },
+          "tenant_credentials_complete": {
+            "title": "Tenant Credentials Complete",
+            "type": "boolean"
+          },
+          "tenant_credentials_examined": {
+            "title": "Tenant Credentials Examined",
+            "type": "integer"
+          },
+          "tenant_credentials_rewrapped": {
+            "title": "Tenant Credentials Rewrapped",
+            "type": "integer"
+          },
+          "tenant_credentials_unreadable": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tenant Credentials Unreadable",
+            "type": "array"
+          },
           "unreadable": {
             "items": {
               "type": "string"
@@ -19569,7 +19609,11 @@
           "examined",
           "rewrapped",
           "unreadable",
-          "active_kek_id"
+          "active_kek_id",
+          "tenant_credentials_examined",
+          "tenant_credentials_rewrapped",
+          "tenant_credentials_unreadable",
+          "tenant_credentials_complete"
         ],
         "title": "RewrapOut",
         "type": "object"
@@ -21251,6 +21295,10 @@
             "title": "Date",
             "type": "string"
           },
+          "number_rental_inr": {
+            "title": "Number Rental Inr",
+            "type": "string"
+          },
           "spent_inr": {
             "title": "Spent Inr",
             "type": "string"
@@ -21261,6 +21309,7 @@
           "calls_inr",
           "ai_assist_inr",
           "adjustments_inr",
+          "number_rental_inr",
           "spent_inr"
         ],
         "title": "SpendDayOut",
@@ -21399,6 +21448,10 @@
             "title": "From Date",
             "type": "string"
           },
+          "number_rental_inr": {
+            "title": "Number Rental Inr",
+            "type": "string"
+          },
           "spent_inr": {
             "title": "Spent Inr",
             "type": "string"
@@ -21422,6 +21475,7 @@
           "calls_inr",
           "ai_assist_inr",
           "adjustments_inr",
+          "number_rental_inr",
           "spent_inr",
           "by_agent"
         ],
@@ -24835,6 +24889,42 @@
         "title": "TtsPlanFeeOut",
         "type": "object"
       },
+      "TtsPlanFeeSlotOut": {
+        "additionalProperties": false,
+        "description": "One plan-billed voice vendor for one month: what is attested, and the pre-fill.",
+        "properties": {
+          "attested": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TtsPlanFeeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reference_plan_inr": {
+            "title": "Reference Plan Inr",
+            "type": "string"
+          },
+          "tier_label": {
+            "title": "Tier Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "tier_label",
+          "reference_plan_inr",
+          "attested"
+        ],
+        "title": "TtsPlanFeeSlotOut",
+        "type": "object"
+      },
       "TtsPlanFeeWriteOut": {
         "additionalProperties": false,
         "description": "The fee as it now stands, plus the instant the write was made at.",
@@ -24852,6 +24942,34 @@
           "as_of"
         ],
         "title": "TtsPlanFeeWriteOut",
+        "type": "object"
+      },
+      "TtsPlanFeesOut": {
+        "additionalProperties": false,
+        "description": "Every plan-billed voice vendor's fee for one IST month, as the spend board reads it.",
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "fees": {
+            "items": {
+              "$ref": "#/components/schemas/TtsPlanFeeSlotOut"
+            },
+            "title": "Fees",
+            "type": "array"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "fees",
+          "as_of"
+        ],
+        "title": "TtsPlanFeesOut",
         "type": "object"
       },
       "TtsPlanSpendOut": {
@@ -26363,6 +26481,17 @@
             "title": "Id",
             "type": "string"
           },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
           "lots": {
             "items": {
               "additionalProperties": {
@@ -26413,7 +26542,8 @@
           "balance_after_inr",
           "occurred_at",
           "payment_ref",
-          "lots"
+          "lots",
+          "label"
         ],
         "title": "WalletEntryOut",
         "type": "object"
@@ -32010,7 +32140,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/numbers": {
       "post": {
-        "description": "Records a telephone connection the CLIENT has already taken in their own name with an Indian operator, so the campaign launch gate can match its series against a campaign's classification. Calevate does not supply, buy or resell the number: the client is the subscriber of record and issues Calevate revocable API credentials for it. `dlt_status` starts `pending` and is a separate, deliberate step.",
+        "description": "Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step.",
         "operationId": "provision_number_v1_admin_tenants__tenant_id__numbers_post",
         "parameters": [
           {
@@ -32052,7 +32182,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Record a calling number the client holds \u2014 the series is the compliance-bearing field",
+        "summary": "Record a calling number for the client \u2014 the series is the compliance-bearing field",
         "tags": [
           "admin"
         ],
@@ -36590,6 +36720,7 @@
         "x-calevate-permission": "leads:read"
       },
       "post": {
+        "description": "Create a draft, recording a consent declaration made with it.\n\nThe new-campaign flow asks where the list came from in the same step as the list, so\nthis is where most declarations now arrive. It writes the same audit row as\n`declare_consent_provenance`, because the attributability that route argues for does\nnot depend on which request carried the answer.",
         "operationId": "create_campaign_v1_campaigns_post",
         "requestBody": {
           "content": {
@@ -43128,6 +43259,54 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/tts-prices/plan-fees": {
+      "get": {
+        "description": "For one IST billing month (`month=YYYY-MM`, default the current month), lists every voice vendor billed as a monthly plan with the attestation live now for that month, or null when none is recorded, and this tree's own reference figure for the form's pre-fill. It resolves exactly as the spend board does: the month selects the subject and the attestation live now is the one shown.",
+        "operationId": "list_voice_plan_fees_v1_ops_tts_prices_plan_fees_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 7,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TtsPlanFeesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The monthly plan fee attested for each plan-billed voice vendor, for one month",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
       }
     },
     "/v1/ops/tts-prices/{provider}": {

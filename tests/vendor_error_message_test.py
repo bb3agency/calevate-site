@@ -61,7 +61,7 @@ def _client(response: httpx.Response) -> httpx.AsyncClient:
 
 async def _refuse(response: httpx.Response, *, route: str = "/v2/agent") -> EngineRejectedError:
     with pytest.raises(EngineRejectedError) as raised:
-        await vendor_request(_client(response), "POST", route, engine="bolna")
+        await vendor_request(_client(response), "POST", route, engine="bolna", route=route)
     return raised.value
 
 

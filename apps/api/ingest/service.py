@@ -5,7 +5,9 @@ of operations is compliance-first on purpose: a fast call to a number on the DNC
 is not a feature, it is a violation with a timestamp. So the lead row ALWAYS lands —
 data first — and the dial happens only if the gate says yes. A blocked dispatch leaves
 the lead in `new` with a timeline entry saying exactly which rule blocked it, which is
-what the "needs attention" queue (SURFACES §2b) will read in M2.
+what the "needs attention" queue (SURFACES §2b) will read in M2. A refusal that only
+means "not yet" (busy lines, outside calling hours, a maintenance drain, the platform halt)
+books the call as a call-back for the next allowed time instead (D-666).
 
 Mapping: the `mapping` JSONB on `inbound_webhooks` translates the sender's field names
 into ours ({"phone": "phone_number", "name": "full_name", …}). Vendors rename fields
@@ -36,20 +38,28 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from calevate_shared.calling_window import IST, ist_wall_clock, next_window_opening
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.agents.write_guard import assert_agent_writable
+from apps.api.callbacks.service import RETRY_AFTER, cancel_for_phones
 from apps.api.callbacks.service import book as book_callback
-from apps.api.callbacks.service import cancel_for_phones
+from apps.api.compliance import service as compliance_service
 from apps.api.compliance.models import (
     CALLBACK_CONSENT_WITHDRAWN_REASON,
     INQUIRY_CONSENT_WINDOW_DAYS,
 )
-from apps.api.compliance.service import check_dispatch
+from apps.api.compliance.service import (
+    BIG_RED_SWITCH_RULE,
+    CALLING_HOURS_RULE,
+    MAINTENANCE_DRAIN_RULE,
+    check_dispatch,
+)
 from apps.api.core.alerting import record_speed_to_lead
 from apps.api.core.errors import ProblemError
+from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
@@ -63,8 +73,16 @@ log = get_logger(__name__)
 #: lead may not be called: the call is booked as a call-back instead of being lost.
 LINE_REFUSALS: frozenset[str] = frozenset({LINES_BUSY_RULE, PACING_RULE})
 
-#: `scheduled_callbacks.source_execution_id` of a call-back booked because ingest found
-#: every line busy. Not an engine execution; namespaced so it can never collide with one.
+#: Gate refusals about the CLOCK or the whole PLATFORM, never about this person: outside
+#: 09:00-21:00 IST, a maintenance drain, the platform halt. The call is booked as a
+#: call-back for the next moment it may be placed (D-666), and `check_dispatch` runs again
+#: when it fires, so DNC, consent and the halt are all re-asked then (hard rule 5).
+WINDOW_REFUSALS: frozenset[str] = frozenset(
+    {CALLING_HOURS_RULE, MAINTENANCE_DRAIN_RULE, BIG_RED_SWITCH_RULE}
+)
+
+#: `scheduled_callbacks.source_execution_id` of a call-back booked because ingest could not
+#: dial yet. Not an engine execution; namespaced so it can never collide with one.
 INGEST_CALLBACK_PREFIX = "lead-ingest:"
 
 # E.164-ish: our market is India, but a webhook may carry 10 digits with no prefix.
@@ -536,6 +554,24 @@ async def ingest_lead(
         session, tenant_id=config.tenant_id, agent_id=config.agent_id, phone_e164=phone
     )
     if not decision.allowed:
+        window_rule = decision.rule if decision.rule in WINDOW_REFUSALS else None
+        if window_rule is not None:
+            # The gate's own clock, so the slot is computed from the instant it refused on.
+            due = await next_allowed_dial(window_rule, now=compliance_service.ist_now() - IST)
+            return await _defer_to_callback(
+                session,
+                config=config,
+                agent_id=config.agent_id,
+                lead_id=resolved_lead,
+                phone=phone,
+                rule=window_rule,
+                due=due,
+                # Keyed on the lead and the slot, so a person who submits twice overnight
+                # is rung once at 09:00, while a lead arriving on another night gets its
+                # own promise.
+                execution_key=f"{resolved_lead}:{due.isoformat()}",
+                received_at=received_at,
+            )
         await _timeline(
             session, config.tenant_id, resolved_lead, "blocked", {"rule": decision.rule}
         )
@@ -584,36 +620,19 @@ async def ingest_lead(
         # person is no less owed a call than a moment ago. Raising would roll the lead back
         # with it, so the call is booked as a call-back due now, which the dispatch tick
         # dials as soon as a line frees (inside `callbacks.service.GRACE`).
-        now = datetime.now(UTC)
-        booked = await book_callback(
+        return await _defer_to_callback(
             session,
-            callback_id=uuid7(),
-            tenant_id=config.tenant_id,
+            config=config,
             agent_id=config.agent_id,
-            source_call_id=None,
-            # Unique per delivery: the upsert key is (tenant, execution), and a lead that
-            # arrives again later is a new promise, not a move of this one.
-            source_execution_id=f"{INGEST_CALLBACK_PREFIX}{uuid7()}",
             lead_id=resolved_lead,
-            phone_e164=phone,
-            requested_at=now,
-            booked_at=now,
-            note=f"Enquiry via {config.source}",
-            language=None,
+            phone=phone,
+            rule=refused.code,
+            due=datetime.now(UTC),
+            # Unique per delivery: a lead that arrives again later is a new promise, not
+            # a move of this one.
+            execution_key=str(uuid7()),
+            received_at=received_at,
         )
-        await _timeline(
-            session,
-            config.tenant_id,
-            resolved_lead,
-            "call_deferred",
-            {"rule": refused.code, "callback_id": str(booked[0]) if booked else None},
-        )
-        record_speed_to_lead(time.time() - received_at, outcome=f"deferred_{refused.code}")
-        log.info(
-            "lead_callback_deferred",
-            extra={"lead_id": str(resolved_lead), "rule": refused.code},
-        )
-        return {"lead_id": resolved_lead, "dispatched": False, "blocked": refused.code}
     await _timeline(session, config.tenant_id, resolved_lead, "call", {"engine_call_id": handle})
     elapsed = time.time() - received_at
     record_speed_to_lead(elapsed, outcome="dispatched")
@@ -622,6 +641,82 @@ async def ingest_lead(
         extra={"lead_id": str(resolved_lead), "speed_to_lead_s": round(elapsed, 2)},
     )
     return {"lead_id": resolved_lead, "dispatched": True, "call_handle": handle}
+
+
+async def next_allowed_dial(rule: str, *, now: datetime) -> datetime:
+    """The first instant (UTC) a call refused under `rule`, one of `WINDOW_REFUSALS`, may
+    be tried again.
+
+    * outside calling hours: the window's next opening in IST;
+    * a maintenance drain: the window's announced end, or one `callbacks.service.RETRY_AFTER`
+      re-check when no future end is known;
+    * the halt: one `RETRY_AFTER` re-check, because a halt announces no end. The call-back
+      tick then re-defers by `RETRY_AFTER` while the halt holds, and settles it `missed`
+      after `callbacks.service.GRACE`, so a long halt cannot ring somebody the next day.
+
+    Every answer is then moved into the calling window, because a drain that ends at 23:00
+    does not make 23:00 a lawful time to ring anybody.
+    """
+    earliest = now
+    if rule == MAINTENANCE_DRAIN_RULE:
+        ends_at = (await get_platform_status()).maintenance_ends_at
+        earliest = ends_at if ends_at is not None and ends_at > now else now + RETRY_AFTER
+    elif rule == BIG_RED_SWITCH_RULE:
+        earliest = now + RETRY_AFTER
+    return next_window_opening(ist_wall_clock(earliest)) - IST
+
+
+async def _defer_to_callback(
+    session: AsyncSession,
+    *,
+    config: IngestConfig,
+    agent_id: UUID,
+    lead_id: UUID,
+    phone: str,
+    rule: str,
+    due: datetime,
+    execution_key: str,
+    received_at: float,
+) -> dict[str, Any]:
+    """Book the lead's call as a call-back due at `due`, and say so on its timeline.
+
+    The lead is kept and nothing rang. The call-back tick dials it through `check_dispatch`
+    and `dispatch_call` like every other call-back, so this books a time and bypasses
+    nothing.
+    """
+    booked = await book_callback(
+        session,
+        callback_id=uuid7(),
+        tenant_id=config.tenant_id,
+        agent_id=agent_id,
+        source_call_id=None,
+        source_execution_id=f"{INGEST_CALLBACK_PREFIX}{execution_key}",
+        lead_id=lead_id,
+        phone_e164=phone,
+        requested_at=due,
+        booked_at=datetime.now(UTC),
+        note=f"Enquiry via {config.source}",
+        language=None,
+    )
+    await _timeline(
+        session,
+        config.tenant_id,
+        lead_id,
+        "call_deferred",
+        {
+            "rule": rule,
+            "callback_id": str(booked[0]) if booked else None,
+            "callback_at": booked[1].isoformat() if booked else None,
+        },
+    )
+    record_speed_to_lead(time.time() - received_at, outcome=f"deferred_{rule}")
+    log.info("lead_callback_deferred", extra={"lead_id": str(lead_id), "rule": rule})
+    return {
+        "lead_id": lead_id,
+        "dispatched": False,
+        "blocked": rule,
+        "callback_at": booked[1] if booked else None,
+    }
 
 
 async def _record_dial_consent_granted(

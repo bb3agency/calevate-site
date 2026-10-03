@@ -4,14 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MailCheck, UserCog, UserMinus } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   DANGER_BUTTON,
   FIELD,
   FIELD_LABEL,
   PRIMARY_BUTTON_SM,
   SECONDARY_BUTTON,
-  TypedConfirmation,
-  confirmationMatches,
 } from "@/components/ui";
 import {
   ROLE_COPY,
@@ -118,7 +117,7 @@ function ConfirmBlock({
           id-bound string (hard rule 6 keeps mailboxes out of headers). */}
       <TypedConfirmation
         phrase={confirmPhrase}
-        binding="This names the account you are acting on, so a phrase typed for somebody else cannot be used here."
+        hint="This names the account you are acting on, so a phrase typed for somebody else cannot be used here."
         value={typed}
         onChange={setTyped}
       />

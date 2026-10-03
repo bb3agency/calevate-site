@@ -29,11 +29,10 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import {
   MonoValue,
-  TypeToConfirm,
-  confirmMatches,
 } from "@/app/admin/ops/opsLanguage";
 import {
   useAttestTtsPrice,
@@ -397,7 +396,7 @@ function AttestForm({
   // which one is missing. A button that goes dead because a box three rows up is empty is
   // a refusal with no words in it. What stays is the typed confirmation — a gate, not an
   // answer on the form.
-  const ready = confirmMatches(confirm, word);
+  const ready = confirmationMatches(confirm, word, "exact");
 
   return (
     <form
@@ -476,9 +475,10 @@ function AttestForm({
         </span>
       </label>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`confirm-price-${price.model}`}
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
         hint="A correction is added as a new entry — nothing is overwritten — so a re-issued invoice can always resolve the price that was live in its month."
@@ -705,7 +705,7 @@ function EmbeddingAttestForm({
   const save = useAttestEmbeddingPrice();
   const word = "CONFIRM";
   const valid = useFormValidation();
-  const ready = confirmMatches(confirm, word);
+  const ready = confirmationMatches(confirm, word, "exact");
 
   return (
     <form
@@ -766,9 +766,10 @@ function EmbeddingAttestForm({
         </span>
       </label>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`confirm-embedding-price-${price.model}`}
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
         hint="A correction is added as a new entry — nothing is overwritten. Confirming a price here also rebuilds every published knowledge pack once, so the agents start answering out of the new index."
@@ -990,7 +991,7 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
   const save = useAttestTtsPrice();
   const word = "CONFIRM";
   const valid = useFormValidation();
-  const ready = confirmMatches(confirm, word);
+  const ready = confirmationMatches(confirm, word, "exact");
 
   return (
     <form
@@ -1044,9 +1045,10 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
         {valid.error("ttsSourceNote")}
       </label>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`confirm-tts-price-${price.provider}`}
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
         hint="A correction is added as a new entry — nothing is overwritten — so a past month still resolves the price that was live in it."

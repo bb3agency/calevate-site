@@ -472,7 +472,9 @@ class Plan(PKMixin, TimestampMixin, Base):
 
 
 class OneTimeCharge(PKMixin, Base):
-    """Charges that are billed ONCE and are not usage — today only `plans.setup_fee`.
+    """Invoice charges that are not usage: `plans.setup_fee`, and (D-665) one row per rental
+    period of a number held by an invoiced account (`billing/number_rental.py`). Each is
+    billed ONCE under its own `ref`; the rental's ref names the number and the period.
 
     Append-only (hard rule 4), and it is a LEDGER rather than a flag column for the
     reason `credit_ledger` is: an invoice here is a DERIVED statement
@@ -505,7 +507,7 @@ class OneTimeCharge(PKMixin, Base):
 
     __tablename__ = "one_time_charges"
     __table_args__ = (
-        CheckConstraint("kind IN ('setup_fee')", name="kind_enum"),
+        CheckConstraint("kind IN ('setup_fee', 'number_rental')", name="kind_enum"),
         # ONCE, enforced by the database rather than by a reader's `if`.
         Index("ux_one_time_charges_tenant_kind_ref", "tenant_id", "kind", "ref", unique=True),
         # The invoice's read: this tenant's charges for one billing month.

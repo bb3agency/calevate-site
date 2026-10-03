@@ -2,7 +2,8 @@
 
 import { Eye, ShieldCheck, User } from "lucide-react";
 
-import { Card, EmptyState, NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { Card, NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
@@ -159,7 +160,7 @@ export function TranscriptCard({
           </ol>
         ) : (
           <EmptyState
-            title="No transcript yet"
+            message="No transcript yet"
             hint="Transcripts arrive a couple of minutes after the call ends."
           />
         )}

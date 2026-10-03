@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { barPercent, toPaise } from "@/app/c/[slug]/billing/SpendChart";
+import { walletStatementCsv } from "@/app/c/[slug]/billing/statementCsv";
 import { formatBillingMonth } from "@/lib/billingMonth";
 
 import {
@@ -34,11 +35,12 @@ const SERIES = {
   from_date: "2026-09-29",
   to_date: "2026-10-01",
   days: [
-    { date: "2026-09-29", calls_inr: "10159.00", ai_assist_inr: "0.00", adjustments_inr: "0.00", spent_inr: "10159.00" },
-    { date: "2026-09-30", calls_inr: "0.00", ai_assist_inr: "0.00", adjustments_inr: "0.00", spent_inr: "0.00" },
-    { date: "2026-10-01", calls_inr: "5079.50", ai_assist_inr: "0.00", adjustments_inr: "0.00", spent_inr: "5079.50" },
+    { date: "2026-09-29", calls_inr: "10159.00", number_rental_inr: "0.00", ai_assist_inr: "0.00", adjustments_inr: "0.00", spent_inr: "10159.00" },
+    { date: "2026-09-30", calls_inr: "0.00", number_rental_inr: "0.00", ai_assist_inr: "0.00", adjustments_inr: "0.00", spent_inr: "0.00" },
+    { date: "2026-10-01", calls_inr: "5079.50", number_rental_inr: "0.00", ai_assist_inr: "0.00", adjustments_inr: "0.00", spent_inr: "5079.50" },
   ],
   calls_inr: "15238.50",
+  number_rental_inr: "0.00",
   ai_assist_inr: "0.00",
   adjustments_inr: "0.00",
   spent_inr: "15238.50",
@@ -80,6 +82,22 @@ describe("drawing spend in paise, never floats", () => {
     const bars = [...container.querySelectorAll<HTMLElement>("[title$='₹10,159.00'] > div, [title$='₹5,079.50'] > div")];
     expect(bars.map((bar) => bar.style.height)).toEqual(["max(100%, 2px)", "max(50%, 2px)"]);
     await screen.findByText("Front desk");
+    // A zero rental is not a metric.
+    expect(container.textContent).not.toContain("Phone number rental");
+  });
+
+  it("shows phone number rental as its own figure when the window has one (D-665)", async () => {
+    const withRental = {
+      ...SERIES,
+      days: SERIES.days.map((day, index) =>
+        index === 0 ? { ...day, number_rental_inr: "499.00", spent_inr: "10658.00" } : day,
+      ),
+      number_rental_inr: "499.00",
+      spent_inr: "15737.50",
+    };
+    await renderBillingHub(routes({ [HUB_SPEND_SERIES_ROUTE]: withRental }));
+    const label = await screen.findByText("Phone number rental");
+    expect(label.parentElement?.textContent).toContain("₹499.00");
   });
 });
 
@@ -133,5 +151,28 @@ describe("the statement list", () => {
       screen.getByRole("button", { name: "Open the statement for September 2026" }),
     );
     expect(await screen.findByRole("dialog", { name: "Statement for September 2026" })).toBeTruthy();
+  });
+});
+
+describe("the statement CSV", () => {
+  it("names a rental row by the server's label, and a plain row by its reason", () => {
+    const entry = {
+      id: "e1",
+      delta_inr: "-499.00",
+      reason: "usage",
+      ref: null,
+      balance_after_inr: "2901.00",
+      lots: [],
+      occurred_at: "2026-09-01T09:00:00Z",
+      payment_ref: null,
+    };
+    const csv = walletStatementCsv([
+      { ...entry, label: "Phone number rental" },
+      { ...entry, id: "e2", label: null },
+    ]);
+    const [, rental, call] = csv.split("\r\n");
+    expect(rental).toContain('"Phone number rental"');
+    expect(call).toContain('"Calls"');
+    expect(rental).toContain('"-499.00"');
   });
 });

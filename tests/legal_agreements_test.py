@@ -1138,3 +1138,68 @@ async def test_campaigns_with_no_current_scrub_are_counted_and_pluralised() -> N
                 )
         row = next(r for r in rows if r.rule == "national_dnd_scrub_missing")
         assert noun.strip() in row.reason and verb in row.reason
+
+
+async def test_a_missing_carrier_approval_is_named_once_a_supplied_number_is_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On Plivo the dial gate refuses every outbound call from a number we supplied until
+    the carrier has accepted this business (`carrier_application_blocker`). The screen has
+    to say so, in the gate's own words; an account dialling only from its own connection
+    must not be shown a carrier item at all, because the carrier's rule is not about it; and
+    on Vobiz there is no per-client application, so no row (D-666)."""
+    from apps.api.compliance.carrier_application import CARRIER_APPLICATION_MISSING_REASON
+    from apps.api.core.settings import get_settings
+
+    def _carrier(name: str) -> None:
+        monkeypatch.setenv("CARRIER", name)
+        get_settings.cache_clear()
+
+    _carrier("plivo")
+    org = await _org("carrier")
+
+    async def _rules() -> dict[str, Any]:
+        async with tenant_session(org["tenant_id"]) as session:
+            rows = await readiness.readiness_rows(
+                session,
+                tenant_id=org["tenant_id"],
+                platform=SimpleNamespace(outbound_halted=False),
+            )
+        return {row.rule: row for row in rows}
+
+    assert "carrier_application_missing" not in await _rules()
+
+    async with tenant_session(org["tenant_id"]) as session:
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+                "engine_owned, monthly_rental_usd, created_at, updated_at) VALUES "
+                "(:id, :tid, :aid, :e, '160', 'registered', true, 1.50, now(), now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": org["tenant_id"],
+                "aid": org["agent_id"],
+                "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
+            },
+        )
+
+    try:
+        row = (await _rules())["carrier_application_missing"]
+        assert row.reason == CARRIER_APPLICATION_MISSING_REASON
+        assert row.actor == "calevate", "the client has no screen to send the application from"
+
+        _carrier("vobiz")
+        rules = await _rules()
+        assert "carrier_application_missing" not in rules
+        assert "carrier_application_not_accepted" not in rules
+    finally:
+        get_settings.cache_clear()
+
+
+def test_a_suspended_account_has_its_own_row_copy() -> None:
+    """`account_suspended` is a rule the dial gate emits; without copy it rendered as the
+    unknown-rule fallback, "Something else is blocking outgoing calls"."""
+    row = readiness._row("account_suspended", "Suspended.")
+    assert row.title == "This account is suspended"
+    assert row.actor == "calevate"

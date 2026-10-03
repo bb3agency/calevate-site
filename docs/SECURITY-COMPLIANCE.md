@@ -272,7 +272,11 @@ cite the same string:
   agent that holds a number **we supplied** — a client's own connection on their own
   operator account is not rented under our reseller relationship and the carrier has no rule
   about it. Asked once, in `compliance.carrier_application_blocker`, by both the per-dial
-  gate and this launch preview. Inbound answering is never gated (D-38).
+  gate and this launch preview. Inbound answering is never gated (D-38). **Plivo only
+  (D-666):** the rule is Plivo's, so every one of these gates and the readiness row stand
+  aside when `Settings.carrier` is `vobiz`, where the numbers sit on Calevate's own Vobiz
+  account under Calevate's own KYC (`carrier_application.carrier_application_required`).
+  That does not open client traffic on Vobiz, which OPERATIONS §2 gate V-10 still blocks.
 - **The account's first campaign has been reviewed by a human** — `first_campaign_review_pending`
   (nobody has looked yet) or `first_campaign_review_rejected` (a reviewer looked and said
   no, and the refusal carries their words). D-51, and R-11's last mitigation. Same scope

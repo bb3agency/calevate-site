@@ -447,6 +447,8 @@ function routes(extra: Routes = {}): Routes {
     [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
     [OPS_FX_RATE_PATH]: FX_RATE,
     [NUMBER_PRICING_PATH]: NUMBER_PRICE,
+    // The voice plan-fee panel shares the billing section.
+    "/v1/ops/tts-prices/plan-fees": { month: "2026-10", as_of: "2026-10-02T06:30:00Z", fees: [{ provider: "cartesia", tier_label: "Studio", reference_plan_inr: "440.00", attested: null }] },
     [OPS_SECRETS_PATH]: SECRETS,
     [`${OPS_SECRETS_PATH}/kek`]: KEK,
   };

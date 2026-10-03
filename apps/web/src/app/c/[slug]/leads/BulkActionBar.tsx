@@ -12,6 +12,7 @@ import {
   SECONDARY_BUTTON_SM,
   formatCount,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 import type {
   LeadBulkAction,
   LeadBulkBody,
@@ -332,16 +333,14 @@ export function BulkActionBar({
               alone and reported separately.
             </p>
             {needsTyping && (
-              <label className="mt-2 block">
-                <span className={FIELD_LABEL}>Type {count} to confirm</span>
-                <input
-                  aria-label={`Type ${count} to confirm`}
+              <div className="mt-2">
+                <TypedConfirmation
+                  phrase={String(count)}
                   value={typed}
-                  onChange={(e) => setTyped(e.target.value)}
+                  onChange={setTyped}
                   inputMode="numeric"
-                  className={FIELD}
                 />
-              </label>
+              </div>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
               <button

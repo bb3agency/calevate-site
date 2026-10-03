@@ -294,7 +294,7 @@ function Board({ report }: { report: AlertReport }) {
             columns={columns}
             getRowId={episodeId}
             label={`Every alarm raised in the last ${windowLabel(report.window_days)}, still happening first and loudest first`}
-            partialNote={report.complete ? undefined : PARTIAL_NOTE}
+            partialNote={report.complete ? undefined : "Sorted within the alarms on this page only."}
           />
         </Card>
       )}

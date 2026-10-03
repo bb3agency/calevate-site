@@ -43,6 +43,7 @@ from .gst import (
     split_tax,
     supplier_identity,
 )
+from .number_rental import rental_statement_lines
 from .service import (
     BASE_OVERAGE_RUNG,
     SECOND_OVERAGE_RUNG,
@@ -367,7 +368,8 @@ async def build_invoice(
     the id.
 
     Line items: the plan fee whenever the tenant has a plan (with a fee), the tenant's
-    one-time charges for this month (the onboarding setup fee — `billing/charges.py`),
+    one-time charges for this month (the onboarding setup fee — `billing/charges.py`), the
+    phone number rental debited from the wallet this month (`billing/number_rental.py`),
     an overage line only when overage actually cost something, and — since D-455 — an
     AI MODEL UPGRADE line only when the client's own model choice was surcharged. A ₹0.00
     line on an invoice invites a dispute about nothing, so zero-amount overage (under the
@@ -436,6 +438,9 @@ async def build_invoice(
     # concurrent generations (see `billing/charges.py` for the whole argument). A tenant
     # with no such charge gets NO line, which is the same rule the overage follows.
     line_items.extend(await one_time_charge_lines(session, tenant_id=tenant_id, month=period))
+    # PHONE NUMBER RENTAL (D-665), read from the wallet debits dated in this month, so it
+    # lands on the statement of the month it was charged rather than the month it covers.
+    line_items.extend(await rental_statement_lines(session, tenant_id=tenant_id, month=period))
 
     overage_minutes: Decimal = usage["overage_minutes"]
     overage_cost: Decimal = usage["overage_cost_inr"]

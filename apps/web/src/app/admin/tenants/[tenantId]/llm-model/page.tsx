@@ -5,8 +5,6 @@ import { AlertTriangle, CheckCircle2, Wrench } from "lucide-react";
 
 import {
   Card,
-  FIELD,
-  FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
@@ -15,6 +13,7 @@ import {
   Skeleton,
   formatRupeeRate,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useTenant } from "@/lib/api/admin";
@@ -635,35 +634,28 @@ function ChoiceForm({
           </ul>
         </div>
 
-        <div>
-          {/* A persistent visible label, not a placeholder: the hint below explains the
-              field, the label names it, and neither disappears when typing starts. */}
-          <label htmlFor="llm-default-confirm" className={FIELD_LABEL}>
-            {confirmation === null
-              ? "Confirm"
-              : `Type ${confirmation} to confirm`}
-          </label>
-          <input
-            id="llm-default-confirm"
-            value={typed}
-            disabled={!write.allowed || confirmation === null}
-            placeholder={confirmation ?? undefined}
-            onChange={(event) => {
-              setTyped(event.target.value);
-              set.reset();
-            }}
-            className={`${FIELD} font-mono`}
-          />
-          <div className={`${FIELD_HINT} flex items-start gap-1`}>
-            <span>Type the model they end up on.</span>
-            <InfoTip label="Why type it">
-              The model this client ends up on — not the option you clicked, which is the
-              same thing only when you are setting one explicitly. Typing it is what
-              separates &ldquo;I meant this client, on this model&rdquo; from a mis-click on
-              a row.
-            </InfoTip>
-          </div>
-        </div>
+        <TypedConfirmation
+          id="llm-default-confirm"
+          phrase={confirmation ?? ""}
+          label={confirmation === null ? "Confirm" : undefined}
+          value={typed}
+          disabled={!write.allowed || confirmation === null}
+          onChange={(next) => {
+            setTyped(next);
+            set.reset();
+          }}
+          hint={
+            <span className="flex items-start gap-1">
+              <span>Type the model they end up on.</span>
+              <InfoTip label="Why type it">
+                The model this client ends up on — not the option you clicked, which is the
+                same thing only when you are setting one explicitly. Typing it is what
+                separates &ldquo;I meant this client, on this model&rdquo; from a mis-click on
+                a row.
+              </InfoTip>
+            </span>
+          }
+        />
 
         <div className="flex flex-wrap items-center gap-3">
           <button

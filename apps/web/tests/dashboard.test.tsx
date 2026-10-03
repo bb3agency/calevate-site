@@ -204,6 +204,7 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
     drawdown: {
       calls_inr: "8400.00",
       ai_assist_inr: "0.00",
+      number_rental_inr: "0.00",
       adjustments_inr: "0.00",
       spent_inr: "8400.00",
       added_inr: "12100.00",

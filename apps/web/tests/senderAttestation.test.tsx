@@ -6,6 +6,7 @@ import type { Me } from "@/lib/api/client";
 import type { SenderAttestation } from "@/lib/api/senderAttestation";
 
 import { expectNoA11yViolations } from "./a11y";
+import { readInfoTip } from "./infoTip";
 import { problem, renderClientPage, type Routes } from "./harness";
 import { KYC_NOT_STARTED, agentRow, prepaidWallet } from "./fixtures/sharedReads";
 
@@ -98,12 +99,27 @@ function routes(series: string, attestation: unknown, extra: Routes = {}): Route
       title: "A phone number cannot be bought from this screen.",
       detail:
         "A phone number cannot be bought from this screen. Numbers are arranged with your account manager as part of setting your agent up.",
+      // A mirror of `self_serve_purchase_refused()`'s remediation, kept equal to the
+      // replacement handed to the API owner: the number is Calevate's, on Vobiz.
       remediation:
-        "Talk to us and we will arrange the number, or bring one you already hold: take the connection in your own name with an Indian operator, pass their KYC, and send us the number and credentials you can withdraw at any time.",
+        "Talk to us and your account manager will arrange the number. Calevate provides it on our own carrier account with Vobiz, so there is no operator account for you to open.",
     }),
     ...extra,
   };
 }
+
+describe("where a recorded number comes from", () => {
+  it("says Calevate provides it on Vobiz, not that the client holds it with an operator", async () => {
+    // Was "Numbers you hold yourself … connections in your own name with your own
+    // operator", which the founder's decision of 2 Oct 2026 made untrue.
+    await renderClientPage(<PhoneNumberPage />, routes("standard", state()));
+
+    expect(await screen.findByRole("heading", { name: /numbers your agents call out from/i })).toBeTruthy();
+    const tip = await readInfoTip("Where these numbers come from");
+    expect(tip).toMatch(/Vobiz/);
+    expect(tip).not.toMatch(/your own operator|account holder/i);
+  });
+});
 
 describe("the confirmation is only asked where TRAI's exception is open", () => {
   it("is not offered on a registered 160-series header", async () => {

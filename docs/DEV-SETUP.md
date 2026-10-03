@@ -70,8 +70,9 @@ make up                               # = docker compose up -d: postgres:16+pgve
                                       # (minio is compiled from source on the first run:
                                       # no anonymous MinIO image exists; infra/minio/Dockerfile)
 uv sync --all-packages                # --all-packages, not bare `uv sync`: the bare form
-                                      # installs the root only and leaves calevate_shared
-                                      # uninstalled (matches ci.yml:63)
+                                      # installs only the server image's set (D-667) and
+                                      # leaves the voice worker's pipecat tree out (matches
+                                      # ci.yml's `backend` "Install dependencies" step)
 uv run alembic upgrade head
 uv run python -m scripts.seed         # reserved slugs, vertical templates, retention defaults
 uv run python -m scripts.seed_dev     # LOCAL ONLY: demo accounts + a tenant with calls in it

@@ -55,6 +55,7 @@ from sqlalchemy import text
 
 from apps.api.billing.gst import GST_STATUS_SENTENCE, supplier_identity
 from apps.api.billing.lots import read_open_lots
+from apps.api.billing.number_rental import RENTAL_CHARGE_LABEL, RENTAL_CHARGE_META_KIND
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import (
     LOW_BALANCE_INR,
@@ -155,8 +156,12 @@ class DrawdownOut(Strict):
     #: Operator corrections that took credit BACK. A correction that PUT credit back is
     #: money added and is counted in `added_inr`, where a client will look for it.
     adjustments_inr: Decimal
-    #: The three above, summed in SQL — so the total on screen is by construction the sum
-    #: of the rows beneath it.
+    #: Phone number rental debited in the window (D-665), its own line rather than part of
+    #: `calls_inr`: a month with no calls still has it, and a client reading "Calls" for it
+    #: would be told something false.
+    number_rental_inr: Decimal
+    #: The four outgoing buckets, summed — so the total on screen is by construction the
+    #: sum of the rows beneath it.
     spent_inr: Decimal
     added_inr: Decimal
     refunded_inr: Decimal
@@ -284,6 +289,11 @@ class WalletEntryOut(Strict):
     #: free to drift from the writer, and its optional fields would serialise as nulls —
     #: which is the one thing the reader must not receive.
     lots: list[dict[str, str]]
+    #: THE CLIENT-SAFE NAME OF WHAT THIS ROW IS, when `reason` alone would mislabel it, or
+    #: null when it would not. A rental debit is a `usage` row like a call, so without this
+    #: it reads as "Calls"; with it, "Phone number rental" (D-665). Never carries a cost,
+    #: a carrier or a number.
+    label: str | None
 
 
 class WalletPaymentOut(Strict):
@@ -452,6 +462,7 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
             calls_inr=to_paise(summary.drawdown.calls_inr),
             ai_assist_inr=to_paise(summary.drawdown.ai_assist_inr),
             adjustments_inr=to_paise(summary.drawdown.adjustments_inr),
+            number_rental_inr=to_paise(summary.drawdown.number_rental_inr),
             spent_inr=to_paise(summary.drawdown.spent_inr),
             added_inr=to_paise(summary.drawdown.added_inr),
             refunded_inr=to_paise(summary.drawdown.refunded_inr),
@@ -498,6 +509,17 @@ def _splits_of(raw: object) -> list[dict[str, str]]:
     return splits
 
 
+def _entry_label(*, reason: str, kind: object) -> str | None:
+    """The client-safe name for a row whose `reason` would mislabel it, else None.
+
+    Keyed on the writer's own `meta.kind` constant, so a label exists only for a kind
+    some writer actually stamps.
+    """
+    if reason == "usage" and kind == RENTAL_CHARGE_META_KIND:
+        return RENTAL_CHARGE_LABEL
+    return None
+
+
 @router.get(
     "/ledger",
     response_model=LedgerOut,
@@ -533,7 +555,7 @@ async def read_wallet_ledger(
                     # records), and because it makes the answer depend on the argument
                     # rather than on which session it was handed.
                     "SELECT id, delta, reason, ref, balance_after, occurred_at, "
-                    f"{PAYMENT_REF_SQL}, meta->'lots' "
+                    f"{PAYMENT_REF_SQL}, meta->'lots', meta->>'kind' "
                     "FROM credit_ledger WHERE tenant_id = :tid "
                     "ORDER BY occurred_at DESC, id DESC LIMIT :limit"
                 ),
@@ -561,6 +583,7 @@ async def read_wallet_ledger(
                 occurred_at=row[5],
                 payment_ref=str(row[6]) if row[6] is not None else None,
                 lots=_splits_of(row[7]),
+                label=_entry_label(reason=str(row[2]), kind=row[8]),
             )
             for row in rows
         ],

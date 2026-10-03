@@ -5,13 +5,12 @@ import { AlertTriangle, CheckCircle2, UserMinus } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { Drawer } from "@/components/console/drawer";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   FIELD_INLINE,
   NoticeBox,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
-  TypedConfirmation,
-  confirmationMatches,
   formatIST,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -182,7 +181,7 @@ export function MemberRow({
               </p>
               <TypedConfirmation
                 phrase="REMOVE"
-                binding={`Bound to ${who}. Nobody else on this list is affected.`}
+                hint={`Bound to ${who}. Nobody else on this list is affected.`}
                 value={typed}
                 onChange={setTyped}
                 disabled={!write.allowed}

@@ -313,7 +313,7 @@ and it is the half a test can drive without a render.
 `StatTile`, `Avatar`, `StatusBadge`, `MonoValue`, `TermGloss` (via `lib/glossary`'s
 `Term`), `ProblemNotice`,
 `RestrictionNote`, `NoticeBox`, `NOTICE_TONES`, `ScrollRegion`, `SkipLink`,
-`MAIN_CONTENT_ID`, `EmptyState`, `Skeleton`, `FilterChip`; the class constants `FIELD`,
+`MAIN_CONTENT_ID`, `Skeleton`, `FilterChip`; the class constants `FIELD`,
 `FIELD_LABEL`, `FIELD_HINT`, `PRIMARY_BUTTON_LG`, `PRIMARY_BUTTON`, `PRIMARY_BUTTON_SM`,
 `SECONDARY_BUTTON`, `SECONDARY_BUTTON_SM`, `DANGER_BUTTON`; and the formatters
 `formatINR`, `formatRupeeRate`, `formatIST`, `formatISTInput`, `istInputToInstant`,
@@ -325,7 +325,9 @@ rendered component: `Tabs`, `Dropdown`, `Pagination`, `LoadMore`, `ShowMore`,
 `FloatingLabelInput`, `LoadingButton`, `ProgressBar`, `SkeletonSwap`, `StreamingText`,
 `LiveActivity`, `NewItemsPill`, `ToastProvider`/`useToast`.
 
-Also shared, and equally binding: `components/llmModelPicker.tsx` for any model choice,
+Also shared, and equally binding: `components/console/emptyState` for every empty list,
+`components/typedConfirmation.tsx` for every type-to-confirm step,
+`components/llmModelPicker.tsx` for any model choice,
 `components/actionButton.tsx`, `components/navDrawer.tsx`, `lib/lookup.ts`
 (`lookup`/`hasKey`) for **every** map keyed by a wire string.
 

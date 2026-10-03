@@ -63,36 +63,32 @@ WORKDIR /app
 # member, so this layer is invalidated ONLY by uv.lock or a pyproject — not by app code,
 # which is what makes a code-only deploy a sub-minute build instead of a full resolve.
 #
-# `--all-packages` IS NOT OPTIONAL, AND ITS ABSENCE SHIPPED AN EMPTY VIRTUALENV (D-188).
-# This is a uv WORKSPACE whose root is `package = false` with `dependencies = []`. uv
-# syncs the ROOT project by default, so a bare `uv sync` here resolved the root's empty
-# dependency list, installed nothing, and exited 0 — the image's `/app/.venv` contained
-# three files and not one third-party package. Every service, `alembic upgrade head` and
-# every `scripts.*` module the deploy runs through `compose run` would have died on the
-# first import. It went unseen because the whole deploy path is unverified (§4d) and
-# because a successful `uv sync` that installs nothing looks exactly like a cache hit.
-# The repository already knew: README.md's command table, `.github/workflows/ci.yml` and
-# DEPLOYMENT §3/§8 all say `--all-packages`; this file was the one place that did not.
-# Verified by building both ways and counting `site-packages` (3 entries vs 150+).
+# THE SYNC TARGET IS THE WORKSPACE ROOT, WHOSE `dependencies` ARE EXACTLY THE THREE
+# MEMBERS THIS IMAGE RUNS (D-667). Not `--all-packages`: that also installs
+# `calevate-pipecat-worker`, whose pipecat-ai/onnxruntime/numpy/sympy/sarvamai tree (41
+# distributions, 111 against 70) nothing here imports, on the hosts that hold
+# PLATFORM_KEK. Not a repeated `--package`: uv only accepts that on sync from 0.9.8, and
+# the binary above is 0.8.17. Root `pyproject.toml` carries the full argument.
 #
-# `--group errors` installs `sentry-sdk`, and it belongs in the IMAGE rather than on the
-# host. DEPLOYMENT §8 prescribed `uv sync --all-packages --group errors` "on the api and
-# worker host" — an instruction from before this Dockerfile existed and which the shipped
-# architecture cannot obey: §2 puts no Python on the host, and the venv lives inside an
-# image layer owned by a non-root user. So there was no reachable command that could turn
-# error reporting on, `core/observability.py`'s `except ImportError` branch was again the
-# only one reachable, and a host with `SENTRY_DSN` set would fail
-# `check_observability_ready` forever. Installing it costs voice-runtime nothing at import
-# time — `init_observability` imports the SDK only when a DSN is set — so the boot graph
-# hard rule 3 protects is unchanged. The opt-in is now `SENTRY_DSN`, which is the only
-# switch an operator ever actually had.
+# D-188 is the failure this line must never return to: the root once declared no
+# dependencies, a bare `uv sync` installed nothing and exited 0, and the image shipped an
+# empty venv. `tests/server_image_dependency_set_test.py` reads `uv.lock` and fails if
+# the root stops reaching api, voice-runtime and workers, or starts reaching the voice
+# worker's tree.
+#
+# `--group errors` installs `sentry-sdk` IN THE IMAGE, because §2 puts no Python on the
+# host and the venv lives in a layer owned by a non-root user, so there is no host-side
+# command that could add it. It is a ROOT group, which is the other reason the target is
+# the root: `--package <member> --group errors` refuses. Installing it costs voice-runtime
+# nothing at import time — `init_observability` imports the SDK only when a DSN is set —
+# so the operator's switch is `SENTRY_DSN`.
 COPY pyproject.toml uv.lock ./
 COPY apps/api/pyproject.toml apps/api/pyproject.toml
 COPY apps/voice-runtime/pyproject.toml apps/voice-runtime/pyproject.toml
 COPY apps/workers/pyproject.toml apps/workers/pyproject.toml
 COPY packages/shared/pyproject.toml packages/shared/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --all-packages --group errors --no-install-workspace
+    uv sync --frozen --no-dev --group errors --no-install-workspace
 
 # Phase 2: the workspace. `calevate-shared` is the only DISTRIBUTION here (hatchling build
 # backend); apps/* are `package = false` virtual members, which is why PYTHONPATH below is
@@ -133,7 +129,7 @@ COPY alembic.ini alembic.ini
 # AFTER the sync, deliberately: neither is a workspace member, so copying them first would
 # invalidate the install layer on every edit to a shell script for nothing.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --all-packages --group errors
+    uv sync --frozen --no-dev --group errors
 COPY scripts scripts
 COPY .env.example .env.example
 # THE OPERATOR RUNBOOKS, because the admin copilot answers out of them (D-499,

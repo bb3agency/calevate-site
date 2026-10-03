@@ -4,13 +4,13 @@ import { AlertTriangle, CheckCircle2, Clock, FileQuestion } from "lucide-react";
 
 import { Panel } from "@/components/console/panel";
 import {
-  EmptyState,
   MonoValue,
   NOTICE_TONES,
   ProblemNotice,
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { useKbDelivery, type AgentDelivery, type DeliveryState } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -92,7 +92,7 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
       </p>
       {items.length === 0 ? (
         <EmptyState
-          title="No agents yet"
+          message="No agents yet"
           hint="Once you have an agent, this is where you will see whether the knowledge you published has reached it."
         />
       ) : (

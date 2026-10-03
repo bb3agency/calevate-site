@@ -1,12 +1,11 @@
 """The in-house adapter — a REAL adapter over a contract we own, not a mock.
 
 Same role `engine/fake.py` plays for the voice engine and `kyc_providers/fake.py` for the
-verification seam, and it exists here for the sharper of the two reasons: NO carrier's
-transfer contract is readable from this environment (see `plivo.py`), so without this
-adapter the whole handover path — the capability ladder, the caller-ID rule, the whisper,
-the attempt row, the four unsuccessful endings and the degradation to a call-back — would
-be code nothing has ever executed, on a product where no real call has ever been placed
-(BLOCKER-1).
+verification seam: without it the whole handover path — the capability ladder, the
+caller-ID rule, the whisper, the attempt row, the four unsuccessful endings and the
+degradation to a call-back — would run only against a live carrier. The carrier transfer
+that exists (`engine/vobiz.py::transfer`, D-662) is off by default
+(`carrier_transfer_enabled`).
 
 ITS CONTRACT IS OURS AND IS THEREFORE ENFORCEABLE
 ---------------------------------------------------

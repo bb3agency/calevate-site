@@ -386,7 +386,7 @@ vCPU**), and re-measure `T` on the new host before quoting any concurrency numbe
 ## 3. CI/CD (raghava model, adapted)
 
 **CI workflow** (`.github/workflows/ci.yml`, ubuntu-latest): services postgres:16
-(pgvector image) + redis:7 with healthchecks → `uv sync --all-packages` →
+(pgvector image) + redis:7 with healthchecks → `uv sync --all-packages --group errors` →
 `make check` (ruff, mypy strict, pytest incl. RLS zero-rows + engine conformance,
 web typecheck) → alembic upgrade head against the service DB → smoke test.
 
@@ -1265,16 +1265,21 @@ configuration that used to sit beside it was removed rather than wired (D-49).
 > stayed off with one warning in a log nobody was reading yet — the fallback branch was
 > the only reachable one.
 >
-> **It is now installable and is still OPT-IN: `uv sync --all-packages --group errors`
-> on the api and worker host.** It is a `[dependency-groups]` entry rather than a runtime dependency of
-> `apps/api`/`apps/workers` because `uv sync` builds ONE venv for the whole workspace and
-> voice-runtime shares it — hard rule 3 makes that boot graph a thing to keep deliberately
-> small, so the opt-in is per host rather than per package. `--all-packages` is not
-> optional in that command: this is a uv WORKSPACE, and a bare `uv sync --group errors`
-> drops every workspace member — measured, on a real environment, by running it. **A host
-> that has not run that command has no error reporting**, whatever the DSN says, and the boot line still names
-> it. What notices a failure either way is OPERATIONS §4's alerts and the health endpoints
-> below.
+> **It is now installed in the server image, and the switch is `SENTRY_DSN`.** The root
+> `Dockerfile` runs `uv sync --frozen --no-dev --group errors` (D-667): the sync target is
+> the workspace ROOT, whose `dependencies` are exactly `calevate-api`,
+> `calevate-voice-runtime` and `calevate-workers`, and `errors` is a root
+> `[dependency-groups]` entry holding `sentry-sdk`. Not `--all-packages`, which also
+> installs the voice worker's pipecat/onnxruntime/numpy tree (111 distributions against
+> 70, none of the difference imported by these three services); not `--package`, because
+> a member target refuses a root group and a repeated `--package` needs uv 0.9.8 while the
+> image pins 0.8.17. It stays a group rather than a member's runtime dependency so that no
+> member's list carries it and voice-runtime's boot graph (hard rule 3) is unchanged —
+> `init_observability` imports the SDK only when a DSN is set. Development and CI install
+> the same group with `uv sync --all-packages --group errors`. There is no host-side
+> install: §2 puts no Python on the host. A deployment without `SENTRY_DSN` has no error
+> reporting and the boot line names it; what notices a failure either way is OPERATIONS
+> §4's alerts and the health endpoints below.
 
 Operator
 alerts leave the VPS by whichever transport `EMAIL_PROVIDER` names — `resend` (the

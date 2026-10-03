@@ -5,11 +5,11 @@ same one: what the agent is allowed to say next. A seam that placed no leg and l
 agent say "putting you through" would pass a status-code test and fail the only rule that
 matters (hard rule 5).
 
-WHAT IS DELIBERATELY PROVEN AGAINST THE IN-HOUSE ADAPTER. No carrier's transfer contract
-is readable from this environment (`agents/transfer_providers/plivo.py`), so without
-`FakeTransfers` the whole ladder — the fail-closed order, the caller-ID rule, the whisper,
-the attempt row, the four unsuccessful endings and the degradation to a call-back — would
-be code nothing has ever executed, on a product where no real call has ever been placed.
+WHAT IS DELIBERATELY PROVEN AGAINST THE IN-HOUSE ADAPTER. Without `FakeTransfers` the whole
+ladder — the fail-closed order, the caller-ID rule, the whisper, the attempt row, the four
+unsuccessful endings and the degradation to a call-back — would run only against a live
+carrier, and the carrier transfer that exists (`engine/vobiz.py::transfer`, D-662) is off by
+default.
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here, every assertion is scoped
 to ids this module created, and nothing counts rows globally.

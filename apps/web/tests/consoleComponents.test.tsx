@@ -195,6 +195,9 @@ describe("DataTable", () => {
     const firstCells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
     expect(firstCells[0]).toContain("Ravi");
     expect(screen.getByText("Sorted within the 2 calls loaded.")).toBeTruthy();
+    // Announced with the order, not only printed: the caveat is what stops "descending"
+    // being heard as "the longest call of all".
+    expect(screen.getByText(/Sorted by Length, descending. Sorted within the 2 calls loaded./)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Length/ }));
     expect(header.getAttribute("aria-sort")).toBe("ascending");
     fireEvent.click(screen.getByRole("button", { name: /Length/ }));

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Metric } from "@/components/console/metric";
 import { Panel } from "@/components/console/panel";
 import {
-  EmptyState,
   NOTICE_TONES,
   ProblemNotice,
   ScrollRegion,
@@ -14,6 +13,7 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { useClientRealm } from "@/lib/api/session";
 import {
   CHARGE_BASIS_COPY,
@@ -142,7 +142,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
         {data.by_agent.length === 0 ? (
           <div className="p-6">
             <EmptyState
-              title="No calls to attribute this month"
+              message="No calls to attribute this month"
               hint="Once your agents start taking and making calls, each one's share of the charge appears here."
             />
           </div>
@@ -186,7 +186,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
         {data.top_calls.length === 0 ? (
           <div className="p-6">
             <EmptyState
-              title="No calls this month"
+              message="No calls this month"
               hint="Calls appear here as soon as they are metered, most expensive first."
             />
           </div>

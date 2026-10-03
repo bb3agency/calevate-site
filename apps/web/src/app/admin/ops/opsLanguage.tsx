@@ -533,69 +533,7 @@ export function KeyField({
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 10. TYPE-TO-CONFIRM
- *
- * The last gate before a consequential write. The operator types an exact word to arm the
- * action. This is one component, not a copy per form, so the phrasing ("Type STOP to
- * confirm"), the monospace field and the exact-match logic are identical on every lever —
- * the pattern GitHub uses for repository deletion.
- *
- * `word` is the literal to type (usually a short verb like STOP / HALT / REWRAP). The
- * parent decides whether the typed value matches; this component only renders the field
- * and reports what was typed, so the parent's existing `ready` logic stays the source of
- * truth.
- */
-export function TypeToConfirm({
-  id,
-  word,
-  value,
-  onChange,
-  hint,
-  disabled,
-}: {
-  id: string;
-  word: string;
-  value: string;
-  onChange: (value: string) => void;
-  hint?: ReactNode;
-  disabled?: boolean;
-}) {
-  const hintId = hint ? `${id}-hint` : undefined;
-  return (
-    <div>
-      <label htmlFor={id} className={FIELD_LABEL}>
-        Type <MonoValue className="font-semibold">{word}</MonoValue> to confirm
-      </label>
-      <input
-        id={id}
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={word}
-        disabled={disabled}
-        aria-describedby={hintId}
-        autoComplete="off"
-        autoCapitalize="characters"
-        autoCorrect="off"
-        spellCheck={false}
-        className={clsx(FIELD, "font-mono")}
-      />
-      {hint ? (
-        <span id={hintId} className={FIELD_HINT}>
-          {hint}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-/** True when what the operator typed exactly matches the confirm word. */
-export function confirmMatches(typed: string, word: string): boolean {
-  return typed === word;
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * 11. DANGER ZONE
+ * 10. DANGER ZONE
  *
  * The wrapper for a lever that changes platform state for every customer at once. A rose
  * border and a plain "This affects every customer" heading, following GitHub's own
@@ -622,7 +560,7 @@ export function DangerZone({
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 12. COPY-TO-CLIPBOARD  (for IDs the operator needs to quote — never for secrets)
+ * 11. COPY-TO-CLIPBOARD  (for IDs the operator needs to quote — never for secrets)
  *
  * A small affordance beside an ID or reference the operator may need to paste into a
  * support ticket. Deliberately NOT offered for any secret value: there is no secret value

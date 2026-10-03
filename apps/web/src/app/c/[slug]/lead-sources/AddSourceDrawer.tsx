@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 
-import { Drawer } from "@/components/console/drawer";
+import { Drawer, DrawerSubmit } from "@/components/console/drawer";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import {
@@ -93,6 +93,7 @@ export function AddSourceDrawer({
 
   return (
     <Drawer
+      formId={formId}
       open={open}
       onClose={close}
       title={issued ? "Lead source added" : "Add a lead source"}
@@ -109,14 +110,12 @@ export function AddSourceDrawer({
             {/* Blocked while the agent list is unreadable: the form would otherwise POST
                 with no agent and make exactly the silent never-dialling source the
                 sentence beside the picker promises to prevent. */}
-            <button
-              type="submit"
-              form={formId}
+            <DrawerSubmit
               disabled={!canWrite || create.isPending || agentsUnread}
               className={PRIMARY_BUTTON}
             >
               {create.isPending ? "Adding…" : "Add lead source"}
-            </button>
+            </DrawerSubmit>
           </>
         )
       }

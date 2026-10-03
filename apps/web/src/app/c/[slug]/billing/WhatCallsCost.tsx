@@ -73,7 +73,9 @@ import {
  *    NOT THE ONLY DRAWDOWN, and a claim that they are is contradicted two cards below on
  *    this same screen: a block of extra dashboard AI a person accepts is a `usage` debit on
  *    this wallet (`apps/api/billing/ai_quota.py`, one row, `ref = ai_assist:<YYYY-MM>`) and
- *    `WhereItWent` renders it as "Extra AI help", with a "Corrections" row beside it.
+ *    `WhereItWent` renders it as "Extra AI help", with a "Corrections" row beside it. A
+ *    phone number's monthly rental is another debit (`billing/number_rental.py`, D-665),
+ *    rendered as "Phone number rental".
  *
  * 6. **The GST position, stated as a benefit AND as a warning.** The sentence is the
  *    shared `GST_STATUS_SENTENCE` (D-659): a sole proprietorship below the registration
@@ -224,8 +226,9 @@ export function WhatCallsCost({
               a correction we post is another (`WhereItWent`&rsquo;s "Corrections" row), and
               that panel is two cards below this one. The claim this fact may make is only
               that nothing EXPIRES and nothing is swept. */}
-          Your calls run it down, and so does a block of extra dashboard AI if
-          you accept one — nothing else does. It never expires and is never
+          Your calls run it down, and so do the monthly rent for your phone
+          numbers and a block of extra dashboard AI if you accept one — nothing
+          else does. It never expires and is never
           swept, so a large pack bought in a quiet month is still there in a
           busy one. If we ever billed you wrongly, the correction is posted here
           too, where you can see it.

@@ -211,8 +211,8 @@ ALERT_CLEAR_AFTER_S = 3600.0
 # — while leaving `record` and `attention` on the same bucket had a real cost this file
 # already names: `webhook_source_rejected` and `razorpay_webhook_bad_signature` fire from
 # anywhere on the internet with no credential, so a stranger could empty the burst at a
-# moment of their choosing and, now that the bucket also gates RECORDING, would have been
-# able to delete a `page` from the console as well as from the inbox. Both are `record`
+# moment of their choosing. The bucket gates the MAIL only: a `page` it refuses is still
+# recorded on the console (`AlertNotice.mail_allowed`). Both are `record`
 # today, and both are now bounded by the per-fingerprint window alone — one notice per
 # code per fifteen minutes, 224 codes, which is a hard ceiling the queue can absorb.
 ALERT_BURST = 6
@@ -248,7 +248,14 @@ class AlertNotice:
     #: (code, occurrences) for what the bucket refused since the last delivery, most
     #: frequent first. A tuple because this crosses a thread boundary frozen.
     rate_limited_codes: tuple[tuple[str, int], ...] = ()
+    #: False when the token bucket refused this `page`: the notice is RECORDED on the
+    #: console and not mailed. Its code is named in the next mail's `dropped:` line.
+    mail_allowed: bool = True
 
+
+#: Bound on `_mail_refused`, for `ALERT_DROPPED_CODES_MAX`'s reason: it is a module global
+#: filled by a storm. Past it a refused fingerprint simply waits out its window.
+_MAIL_REFUSED_MAX = 1024
 
 _service = "api"
 _state_lock = threading.Lock()
@@ -256,6 +263,8 @@ _last_sent: dict[str, float] = {}
 _suppressed: dict[str, int] = {}
 _rate_limited = 0
 _rate_limited_codes: dict[str, int] = {}
+#: Fingerprints recorded inside their window WITHOUT a mail because the bucket was empty.
+_mail_refused: set[str] = set()
 _tokens = float(ALERT_BURST)
 _tokens_refilled_at = 0.0
 _queue: queue.Queue[AlertNotice | None] = queue.Queue(maxsize=ALERT_QUEUE_MAX)
@@ -309,7 +318,7 @@ def _dispatch(
     verdict = _admit(f"{stage}:{code}", code, severity)
     if verdict is None:
         return
-    suppressed, rate_limited, rate_limited_codes = verdict
+    suppressed, rate_limited, rate_limited_codes, mail_allowed = verdict
     notice = AlertNotice(
         stage=stage,
         code=code,
@@ -319,6 +328,7 @@ def _dispatch(
         suppressed=suppressed,
         rate_limited=rate_limited,
         rate_limited_codes=rate_limited_codes,
+        mail_allowed=mail_allowed,
     )
     try:
         _queue.put_nowait(notice)
@@ -340,8 +350,9 @@ def _warn_unconfigured_once() -> None:
 
 def _admit(
     fingerprint: str, code: str, severity: Severity
-) -> tuple[int, int, tuple[tuple[str, int], ...]] | None:
-    """The two bounds. Returns (suppressed, rate_limited, dropped_codes), or None to drop.
+) -> tuple[int, int, tuple[tuple[str, int], ...], bool] | None:
+    """The two bounds. Returns (suppressed, rate_limited, dropped_codes, mail_allowed), or
+    None when there is nothing new to record.
 
     THE TOKEN BUCKET IS ASKED ONLY OF CODES THAT CAN MAIL (D-591) — see `ALERT_BURST`.
     The per-fingerprint window is asked of everything, because it is what keeps the
@@ -358,13 +369,18 @@ def _admit(
     """
     global _rate_limited
     if not _state_lock.acquire(blocking=False):
-        return (0, 0, ())
+        return (0, 0, (), True)
     try:
         now = _now()
         last = _last_sent.get(fingerprint)
-        if last is not None and now - last < ALERT_REPEAT_INTERVAL_S:
+        in_window = last is not None and now - last < ALERT_REPEAT_INTERVAL_S
+        # A fingerprint the bucket refused keeps asking for a token on each occurrence,
+        # so a page that was recorded-but-not-mailed mails as soon as a token returns
+        # rather than a whole window later.
+        if in_window and fingerprint not in _mail_refused:
             _suppressed[fingerprint] = _suppressed.get(fingerprint, 0) + 1
             return None
+        mail_allowed = True
         if is_emailed(severity) and not _take_token(now):
             _rate_limited += 1
             # Named, not just counted — and only up to the cap, so a storm of distinct
@@ -372,13 +388,31 @@ def _admit(
             # already-named codes keep counting; the total above covers the rest.
             if code in _rate_limited_codes or len(_rate_limited_codes) < ALERT_DROPPED_CODES_MAX:
                 _rate_limited_codes[code] = _rate_limited_codes.get(code, 0) + 1
-            return None
+            if in_window:
+                # Already recorded this window. Counted for the row as well as for the
+                # dropped-codes report, so `platform_alerts.occurrences` stays whole.
+                _suppressed[fingerprint] = _suppressed.get(fingerprint, 0) + 1
+                return None
+            # THE BUCKET GATES THE MAIL, NEVER THE RECORD. Dropping the notice here would
+            # leave a `page` that lost the race for a token off `/admin/ops/alerts` too, so
+            # in a storm the console would show the six codes that mailed and nothing of
+            # the rest — "every alarm is a row" (D-591) broken exactly when it matters.
+            mail_allowed = False
+            if len(_mail_refused) < _MAIL_REFUSED_MAX:
+                _mail_refused.add(fingerprint)
+        else:
+            _mail_refused.discard(fingerprint)
         _last_sent[fingerprint] = now
         suppressed = _suppressed.pop(fingerprint, 0)
+        if not mail_allowed or not is_emailed(severity):
+            # The dropped-codes report rides a notice that WILL be mailed, because the
+            # mail body is the only place it is printed; a record-only notice would
+            # consume it and print it nowhere.
+            return (suppressed, 0, (), mail_allowed)
         rate_limited, _rate_limited = _rate_limited, 0
         dropped = tuple(sorted(_rate_limited_codes.items(), key=lambda item: (-item[1], item[0])))
         _rate_limited_codes.clear()
-        return (suppressed, rate_limited, dropped)
+        return (suppressed, rate_limited, dropped, True)
     finally:
         _state_lock.release()
 
@@ -512,6 +546,9 @@ def _handle(notice: AlertNotice) -> None:
     """
     outcome = _record_alert(notice)
     if not is_emailed(notice.severity):
+        return
+    if not notice.mail_allowed:
+        log.info("alert_email_rate_limited", extra={"code": notice.code})
         return
     if outcome is not None and not outcome.opened and outcome.already_emailed:
         # The condition is already open AND somebody has already been told. This is the
@@ -687,6 +724,7 @@ def reset_alerts() -> None:
         _last_sent.clear()
         _suppressed.clear()
         _rate_limited_codes.clear()
+        _mail_refused.clear()
         _rate_limited = 0
         _tokens = float(ALERT_BURST)
         _tokens_refilled_at = 0.0

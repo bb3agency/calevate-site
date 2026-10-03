@@ -5,13 +5,12 @@ import { AlertTriangle, Rocket } from "lucide-react";
 
 import {
   DANGER_BUTTON,
-  FIELD,
-  FIELD_LABEL,
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   formatCount,
   formatPhone,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 
 /**
  * The gate in front of the one client action that dials real phone numbers.
@@ -194,16 +193,14 @@ export function LaunchConfirm({
             made yet.
           </li>
         </ul>
-        <label className="mt-3 block">
-          <span className={FIELD_LABEL}>Type {contacts} to confirm</span>
-          <input
-            aria-label={`Type ${contacts} to confirm`}
+        <div className="mt-3">
+          <TypedConfirmation
+            phrase={String(contacts)}
             value={typed}
-            onChange={(event) => setTyped(event.target.value)}
+            onChange={setTyped}
             inputMode="numeric"
-            className={FIELD}
           />
-        </label>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">

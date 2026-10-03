@@ -3,8 +3,8 @@
 **You were paged because an erasure worked and is still not finished.**
 
 Our Postgres rows are gone. Our object-storage bytes are gone. The certificate was issued.
-And the voice platform that carried the calls still holds its own copy of the recording and
-the transcript, in the US, because it publishes no way for us to delete one person's calls.
+And a vendor that handled the calls still holds its own copy, because it publishes no way
+for us to delete one person's records.
 
 This runbook is the manual half of that obligation. It is short on purpose: the work is
 one email and one command, and the reason it needs a runbook at all is that an obligation
@@ -14,22 +14,19 @@ discharged by a human with no record is one that gets believed rather than done.
 
 ## 1. What is actually true right now (read this before you write to anyone)
 
-`docs/evidence/subprocessor-erasure-reach.md` is the full evidence file. The three
-sentences you need:
+Each task names a processor by ROLE. What each role holds, and what to ask for:
 
-* Every `DELETE` route the vendor documents was enumerated across all 335 mirrored pages.
-  **Ten routes. Nine delete configuration objects.** The Executions surface is four GETs
-  and the Calling surface is one POST — nothing deletes an execution, a recording or a
-  transcript.
-* The tenth, `DELETE /v2/agent/{agent_id}`, deletes an agent *and* "ALL agent data
-  including all batches, all executions". That is the right instrument for a **tenant**
-  erasure and the wrong one for a **subject** erasure, where it would destroy every other
-  caller's records and take the client's live receptionist off the air.
-* The vendor states **no retention period** for those copies — their own documentation says
-  "contact support for retention policy". So the copy does not age out on any clock we know.
+| Processor | Vendor | Holds | The ids quoted |
+| --- | --- | --- | --- |
+| `telephony` | Vobiz (Plivo if a deployment was switched to it) | The caller's and the called number, its call detail records, and the call audio, which streams through it in both directions. Its API reference documents reading and exporting call records and recordings and **no delete route** (`vobiz-findings/mirror/pages/cdr/*.md`, `recording.md:65-73`); its console shows recordings for the last 30 days. | The carrier's own call ids (`calls.carrier_call_id`, the `CallUUID`). |
+| `voice_engine` | A third-party engine a deployment ran calls on (`ENGINE=cartesia`). Never opened for Pipecat calls: our own runtime's record is in our database and the erasure already reached it. | The vendor's execution record of each call. | The vendor's execution ids; for a tenant task, its agent ids and knowledge-base handles. |
+| `speech`, `llm` | Sarvam; Azure OpenAI / OpenAI / Google | Audio and transcript (speech), conversation turns (language). Opened on TENANT erasures only — a per-subject task could never be closed, since neither keys its records on an id we hold. | None. The request is "delete what you hold for this customer of ours". |
 
-**Do not tell a data principal the vendor's copies are gone until the task says
-`confirmed`.** That is the whole reason this record exists.
+`docs/evidence/subprocessor-erasure-reach.md` is the evidence file for the speech and language
+rows; it was written when the engine was Bolna (deleted by D-639), so its engine sections are
+history.
+
+**Do not tell a data principal a vendor's copy is gone until its task says `confirmed`.** That is the whole reason this record exists.
 
 ---
 
@@ -60,13 +57,13 @@ vendor on behalf of a compliance obligation is a blast radius rather than a cont
 the wording is yours. A minimal sufficient message:
 
 > Under our data processing arrangement, please permanently delete all data associated with
-> the following execution ids, including call recording audio, transcripts and any derived
-> or extracted fields, and confirm in writing with the date of completion.
+> the following call ids, including call recording audio, call detail records, transcripts and
+> any derived or extracted fields, and confirm in writing with the date of completion.
 > `<ids from the list command>`
 
-For a **tenant** task the refs are agent ids, and the request is different — ask them to
-delete the agents, which their own documentation says removes all batches and executions
-with them. That one they can actually do today.
+For a **tenant** task the request is "everything you hold for this customer of ours": quote
+the ids the task carries (a carrier's call ids, a third-party engine's agent ids and
+knowledge-base handles), or, for `speech`/`llm`, the account and the date range.
 
 **Record that you sent it:**
 

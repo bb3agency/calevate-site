@@ -4,11 +4,17 @@
 references. `kb/orphans.py` carries the full argument for why that residue matters and why
 nothing may be deleted on the strength of it; this module is the tick that goes and looks.
 
-ONE VENDOR CALL PER DAY, AND THAT IS THE WHOLE COST
+WHICH ENGINE REACHES IT. Every engine declaring `knowledge_base`: Pipecat, whose
+`list_account_kb` reads `pipecat_kb_objects` — the rows `attach_kb` writes BEFORE
+`kb/service.publish_source` records its claim, so a crash between the two leaves exactly
+the unclaimed object this reports — and Cartesia, whose listing is a vendor read. It is not
+a Bolna leftover: D-639 removed that adapter and this sweep kept its only consumers.
+
+ONE ACCOUNT READ PER DAY, AND THAT IS THE WHOLE COST
 ---------------------------------------------------
-`list_account_kb` is an account-wide listing, walked to the end of its pages — the dearest
-single read in this adapter and the one the KB drift sweep was deliberately sized to
-avoid making per agent. So it is made ONCE, daily, rather than hourly: the residue this
+`list_account_kb` is an account-wide listing — on a vendor engine, walked to the end of its
+pages, the dearest single read in that adapter; on Pipecat, one query over one table. Either
+way it is made ONCE, daily, rather than hourly: the residue this
 finds is created by crashes and by hand, both of which are rare, and none of the three
 verdicts becomes more actionable for being eight hours fresher. An operator acting on an
 unclaimed object has to talk to a client first anyway.

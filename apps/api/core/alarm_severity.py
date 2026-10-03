@@ -94,9 +94,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # `PIPECAT_STREAM_BASE_URL` is unset — so the answer document cannot be built and EVERY
     # inbound call on the owned runtime fails, with a real person on the line hearing
     # nothing. The fix is one operator action (set the variable), which is exactly what a
-    # page is for. It cannot fire before BLOCKER-1 lands, because nothing dials us yet; the
-    # classification is here now so that the first day it CAN fire is not also the first day
-    # anybody decides what it means.
+    # page is for.
     "carrier_stream_base_not_configured": "page",
     # voice-runtime's own refusals. `attention`: the ack path shed a webhook, which the
     # poller reconciles (TRD §5 makes the poller the truth and the webhook
@@ -282,6 +280,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "number_rental_price_missing": "attention",
     "number_rentals_incomplete": "attention",
     "number_purchase_month_unmetered": "attention",
+    "number_rental_renewals_unrecorded": "attention",
     "engine_agent_unmapped": "attention",
     # The call has NO ROW: no lead, no transcript, no usage event. Unrecoverable.
     "engine_ingest_abandoned": "page",

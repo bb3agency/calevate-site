@@ -5,6 +5,7 @@ import { FxRatePanel } from "@/app/admin/ops/FxRatePanel";
 import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
 import { NumberPricePanel } from "@/app/admin/ops/NumberPricePanel";
 import { RateCardPanel } from "@/app/admin/ops/RateCardPanel";
+import { TtsPlanFeePanel } from "@/app/admin/ops/TtsPlanFeePanel";
 import { WithheldPanel } from "@/app/admin/withheld";
 import { SettingRows } from "@/components/console/settingRow";
 import { Card, ProblemNotice, Skeleton } from "@/components/ui";
@@ -39,6 +40,7 @@ export function ConfigSectionBody({ id, access }: { id: ConfigSectionId; access:
       {id === "billing" && <FxRatePanel />}
       {/* Client number purchases are refused until this price is attested. */}
       {id === "billing" && <NumberPricePanel />}
+      {id === "billing" && <TtsPlanFeePanel access={access} />}
       {/* A model becomes available on a confirmed price, so the prices sit with the models
           they unlock rather than with the rate card clients pay. */}
       {id === "voices-models" && (

@@ -212,8 +212,11 @@ export function NumberPricePanel() {
             <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">
               <Phone aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
               <p className="text-ink-muted">
-                Every client who buys a number from now on is charged this each month. Numbers
-                already bought keep the price they were sold at.
+                Every client who buys a number from now on is charged this on the day they buy
+                it and again on each monthly renewal date: from credit on a prepaid account, on
+                the invoice for a managed one. Nothing is charged while an account is in its
+                trial or after it is closed. Numbers already bought keep the price they were
+                sold at.
               </p>
             </div>
 

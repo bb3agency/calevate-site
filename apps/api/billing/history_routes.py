@@ -72,6 +72,7 @@ class SpendDayOut(Strict):
     calls_inr: str
     ai_assist_inr: str
     adjustments_inr: str
+    number_rental_inr: str
     spent_inr: str
 
 
@@ -97,6 +98,7 @@ class SpendSeriesOut(Strict):
     calls_inr: str
     ai_assist_inr: str
     adjustments_inr: str
+    number_rental_inr: str
     spent_inr: str
     by_agent: list[AgentDailySpendOut]
 
@@ -174,6 +176,7 @@ async def daily_spend(
                 calls_inr=str(day.calls_inr),
                 ai_assist_inr=str(day.ai_assist_inr),
                 adjustments_inr=str(day.adjustments_inr),
+                number_rental_inr=str(day.number_rental_inr),
                 spent_inr=str(day.spent_inr),
             )
             for day in series.days
@@ -181,6 +184,7 @@ async def daily_spend(
         calls_inr=str(series.calls_inr),
         ai_assist_inr=str(series.ai_assist_inr),
         adjustments_inr=str(series.adjustments_inr),
+        number_rental_inr=str(series.number_rental_inr),
         spent_inr=str(series.spent_inr),
         by_agent=[
             AgentDailySpendOut(

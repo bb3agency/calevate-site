@@ -45,8 +45,10 @@ const REFUSAL =
   "A phone number cannot be bought from this screen. Numbers are arranged with your " +
   "account manager as part of setting your agent up.";
 
+/** The replacement handed to the API owner with this change (the number is ours, on Vobiz). */
 const REMEDIATION =
-  "Talk to us and we will arrange the number, or bring one you already hold.";
+  "Talk to us and your account manager will arrange the number. Calevate provides it on " +
+  "our own carrier account with Vobiz, so there is no operator account for you to open.";
 
 const STATEMENT = "I confirm that my business is the sender of these calls.";
 
@@ -135,6 +137,17 @@ describe("a deployment that may not supply a number says so", () => {
     expect(await screen.findByText(REFUSAL)).toBeTruthy();
     expect(screen.getByText(REMEDIATION)).toBeTruthy();
     await expectNoA11yViolations(container, "phone-number: cannot supply");
+  });
+
+  it("never tells the client to open an operator account of their own", async () => {
+    // The founder's decision (2 Oct 2026): Calevate provides the calling number on its own
+    // carrier account with Vobiz. The old sentence offered a connection "you already hold
+    // with an Indian operator", which no client is asked to have any more.
+    const { container } = await renderClientPage(<PhoneNumberPage />, closed);
+
+    await screen.findByText(REFUSAL);
+    expect(container.textContent).not.toMatch(/account holder|withdraw our access|connection you already hold/i);
+    expect(screen.getByText(/arranges your number with you/i).textContent).toMatch(/Vobiz/);
   });
 
   it("offers no way to buy and asks for no registrant details", async () => {
@@ -487,7 +500,7 @@ describe("choosing what a number is used for", () => {
     expect(select.selectedOptions[0]?.textContent).toMatch(/not in your agent list/i);
   });
 
-  it("does not report a binding the voice platform refused", async () => {
+  it("does not report a binding the carrier refused", async () => {
     await renderClientPage(
       <PhoneNumberPage />,
       routes({
@@ -507,8 +520,10 @@ describe("choosing what a number is used for", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
+    // There is no rented "voice platform" any more (D-639); the binding is ours, on the
+    // carrier, so the sentence says what failed without naming a layer the client cannot see.
     expect(
-      await screen.findByText(/did not accept that, so this number is not on an agent/i),
+      await screen.findByText(/could not connect this number to that agent, so it is not on an agent/i),
     ).toBeTruthy();
   });
 });

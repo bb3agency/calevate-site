@@ -87,6 +87,7 @@ from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
 from apps.api.compliance.carrier_application import (
     CARRIER_APPLICATION_MISSING_REASON,
     carrier_application_not_accepted_reason,
+    carrier_application_required,
     read_carrier_application,
 )
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
@@ -186,6 +187,10 @@ MAINTENANCE_DRAIN_REASON = (
     "right now. Calls already in progress are finishing normally, your campaign keeps "
     "its place, and dialling resumes by itself when the window closes."
 )
+
+#: The refusal outside 09:00-21:00 IST. Named because ingest books the refused call for
+#: the window's next opening, and a literal spelled in two places drifts.
+CALLING_HOURS_RULE = "calling_hours"
 
 #: The refusals that are facts about the PERSON, not about the account, the agent, the
 #: paperwork or the clock — the ones that do not become false by waiting.
@@ -394,7 +399,12 @@ async def account_stopped_blocker(
     reason = _STOPPED_STATUSES.get(status)
     if reason is None:
         return None
-    return ("account_suspended" if status == "suspended" else "account_closed", reason)
+    # Two literal pairs rather than one conditional: `scripts/check_docs_drift.
+    # emitted_rule_names` reads rule names off string-first tuples, and a conditional
+    # expression hid `account_suspended` from it.
+    if status == "suspended":
+        return ("account_suspended", reason)
+    return ("account_closed", reason)
 
 
 async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
@@ -602,7 +612,13 @@ async def carrier_application_blocker(
     Returns the PAIR rather than a bool for `kyc_blocker`'s reason — "nothing filed" and
     "filed and not accepted" are different facts with different next actions, and the dial
     gate and the launch preview must name them identically.
+
+    None on a carrier that needs no per-client application (Vobiz, D-666). The dial uses
+    the switch's carrier (`resolve_caller_id` presents only numbers on it), so the switch is
+    the carrier this asks about.
     """
+    if not carrier_application_required():
+        return None
     supplied = (
         await session.execute(
             text(
@@ -981,7 +997,7 @@ async def check_dispatch(
     if not within_calling_hours():
         return DispatchDecision(
             allowed=False,
-            rule="calling_hours",
+            rule=CALLING_HOURS_RULE,
             reason="Outbound calls are only placed between 9:00 and 21:00 IST.",
         )
 
@@ -1282,6 +1298,7 @@ __all__ = [
     "ACCOUNT_SUSPENDED_REASON",
     "BIG_RED_SWITCH_REASON",
     "BIG_RED_SWITCH_RULE",
+    "CALLING_HOURS_RULE",
     "DEFAULT_WINDOW",
     "DESTINATION_NOT_INDIA_REASON",
     "DIAL_REFUSING_CONSENT_STATUSES",

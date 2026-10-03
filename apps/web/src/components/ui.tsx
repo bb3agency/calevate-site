@@ -968,81 +968,6 @@ export const NOTICE_TONES: Record<NoticeTone, string> = {
  * `min-h-*`, never `h-*`: these controls wrap onto two lines with long Telugu or Hindi
  * labels, and a fixed height would clip the second line rather than grow.
  */
-/**
- * "Type X to confirm" — the human half of a step-up confirmation.
- *
- * ## What a typed confirmation is for, and what it is NOT
- *
- * It exists so a consequential action cannot be sent by a reflex click. That works only
- * while the phrase NAMES THE THING BEING DONE: a fixed word like "CONFIRM" becomes muscle
- * memory by the third use, and muscle memory is exactly the reflex the control was added
- * to interrupt. So the phrase is always specific — a tier, an address, a name — and it
- * changes when the target changes.
- *
- * ## Why it is not the API's header string
- *
- * It used to be. The screen asked an operator to hand-type `add_operator:operator`, and
- * for the row actions `revoke_operator:0192f0aa-e954-7d43-92b9-e91f2b38ef30` — a UUID.
- * Nobody types a UUID; they copy it, which is a click with extra steps and confirms
- * nothing. Meanwhile the wire value is a WIRE value and has its own constraints: it
- * travels in `X-Confirm-Action`, so it may never carry an email address, because headers
- * land in access logs (hard rule 6).
- *
- * The two were never the same requirement. The header stays exactly what the API builds
- * and validates; this is what a person reads and types. `apps/api/core/stepup` still
- * refuses anything but its own string, so nothing here can weaken the server's check —
- * the worst a bug in this file could do is refuse a legitimate operator.
- *
- * ## Case-insensitive, and trimmed
- *
- * The phrase is a proof of attention, not a spelling test. An address typed with a
- * capital letter, or with a space picked up from a copy, is the same intent — and a
- * confirmation that rejects it teaches people to paste instead of read.
- */
-export function confirmationMatches(typed: string, phrase: string): boolean {
-  return typed.trim().toLowerCase() === phrase.trim().toLowerCase();
-}
-
-export interface TypedConfirmationProps {
-  /** What the person must type. Human words, specific to this target. */
-  phrase: string;
-  /** One line on WHY this phrase — what it is bound to, so the binding is visible. */
-  binding: string;
-  value: string;
-  onChange: (next: string) => void;
-  disabled?: boolean;
-}
-
-export function TypedConfirmation({
-  phrase,
-  binding,
-  value,
-  onChange,
-  disabled,
-}: TypedConfirmationProps) {
-  const matched = value.trim() !== "" && confirmationMatches(value, phrase);
-  return (
-    <label className="block">
-      <span className={FIELD_LABEL}>
-        To confirm, type{" "}
-        <span className="font-semibold text-ink">{phrase}</span>
-      </span>
-      <input
-        value={value}
-        disabled={disabled}
-        autoComplete="off"
-        spellCheck={false}
-        // `aria-label` carries the phrase, because the visible label's emphasis span is
-        // not something a screen reader conveys as emphasis.
-        aria-label={`Type ${phrase} to confirm`}
-        onChange={(event) => onChange(event.target.value)}
-        className={`${FIELD} ${matched ? "border-brand" : ""}`}
-      />
-      <span className={FIELD_HINT}>{binding}</span>
-    </label>
-  );
-}
-
 export const FIELD =
   "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand aria-[invalid=true]:border-rose-500";
 /**
@@ -1275,31 +1200,6 @@ export function SkipLink() {
     >
       Skip to main content
     </a>
-  );
-}
-
-export function EmptyState({
-  title,
-  hint,
-  action,
-}: {
-  title: string;
-  hint?: string;
-  /**
-   * The next meaningful action, when one exists — a Link or button that creates the
-   * first item or opens the screen that does. Without this slot every empty state in
-   * the product was structurally a dead end: the sentence could name an action and the
-   * screen could not offer it (ux-audit entry-auth F-18). Optional on purpose — an
-   * empty state that is the GOOD state (an empty holds queue) rightly offers nothing.
-   */
-  action?: ReactNode;
-}) {
-  return (
-    <div className="py-10 text-center">
-      <p className="text-sm font-medium text-ink">{title}</p>
-      {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
-      {action && <div className="mt-4 flex justify-center">{action}</div>}
-    </div>
   );
 }
 

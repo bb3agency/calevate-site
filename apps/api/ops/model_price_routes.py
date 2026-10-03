@@ -48,7 +48,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Final, cast
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from apps.api.agents.voice_offer import cartesia_credential_installed, default_t
 from apps.api.agents.voices import VoiceProvider, tts_models_for_provider
 from apps.api.billing.plans import parse_billing_month
 from apps.api.billing.rates import voice_tier_label
+from apps.api.billing.service import current_billing_month
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -65,6 +66,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import ENV_ONLY_FOREIGN_ENV
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
+    PLAN_BILLED_TTS_PROVIDERS,
     TTS_PROVIDERS,
     AttestedModelPrice,
     EmbeddingOfferability,
@@ -76,6 +78,7 @@ from apps.api.ops.model_pricing import (
     attest_tts_plan_fee,
     attest_tts_price,
     attested_model_prices,
+    attested_tts_plan_fees,
     attested_tts_prices,
     embedding_offerability,
     model_offerability,
@@ -380,8 +383,8 @@ class TtsPriceOut(BaseModel):
     #: True when the credential for this provider is held in ANOTHER deployment's
     #: environment, so `credential_installed` is structurally False here and says nothing
     #: (D-618, `core/settings.ENV_ONLY_FOREIGN_ENV`). Gnani's key lives in the
-    #: `calevate-pipecat-worker` secret set; this process holds no Gnani client to give one
-    #: to. Without this the panel would tell an operator who HAS attested a Gnani price
+    #: `calevate-pipecat-worker-secrets` secret set; this process holds no Gnani client to
+    #: give one to. Without this the panel would tell an operator who HAS attested a Gnani price
     #: that the tier is still not offerable, and point them at a box that can never fill.
     credential_held_elsewhere: bool = False
 
@@ -681,6 +684,30 @@ class TtsPlanFeeWriteOut(BaseModel):
     as_of: str
 
 
+class TtsPlanFeeSlotOut(BaseModel):
+    """One plan-billed voice vendor for one month: what is attested, and the pre-fill."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    tier_label: str
+    #: This tree's own figure, for the form's greyed pre-fill only (`TtsPlanFeeOut`'s note).
+    reference_plan_inr: str
+    #: The attestation live now for the month, or None when nobody has recorded one. The
+    #: spend board renders no plan row for a None, never ₹0.
+    attested: TtsPlanFeeOut | None
+
+
+class TtsPlanFeesOut(BaseModel):
+    """Every plan-billed voice vendor's fee for one IST month, as the spend board reads it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    month: str
+    fees: list[TtsPlanFeeSlotOut]
+    as_of: str
+
+
 def _plan_fee_row(attested: TtsPlanFeeAttestation) -> TtsPlanFeeOut:
     return TtsPlanFeeOut(
         provider=attested.provider,
@@ -817,7 +844,7 @@ def _tts_credential_held_elsewhere(provider: str) -> bool:
     """Does this provider's key live in a DIFFERENT deployment's environment? (D-618)
 
     Derived from `core/settings.ENV_ONLY_FOREIGN_ENV` — the same mapping the config panel
-    renders "held by the Pipecat Cloud secret set for `calevate-pipecat-worker`" from — so
+    renders "the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`" from — so
     the two screens cannot come to disagree about where a credential lives. Keyed on the
     `Settings` field name rather than on the provider, because that mapping is the
     authority and a second `provider == "gnani"` here would be the copy that drifts.
@@ -1207,6 +1234,40 @@ async def attest_voice_price(
         ),
         as_of=at.isoformat(),
     )
+
+
+@tts_router.get(
+    "/plan-fees",
+    response_model=TtsPlanFeesOut,
+    openapi_extra=permission_meta("platform:config"),
+    summary="The monthly plan fee attested for each plan-billed voice vendor, for one month",
+    description=(
+        "For one IST billing month (`month=YYYY-MM`, default the current month), lists every "
+        "voice vendor billed as a monthly plan with the attestation live now for that month, "
+        "or null when none is recorded, and this tree's own reference figure for the form's "
+        "pre-fill. It resolves exactly as the spend board does: the month selects the "
+        "subject and the attestation live now is the one shown."
+    ),
+)
+async def list_voice_plan_fees(
+    session: GlobalSession,
+    _: PriceOperator,
+    month: Annotated[str | None, Query(max_length=7)] = None,
+) -> TtsPlanFeesOut:
+    period = month or current_billing_month()
+    parse_billing_month(period)
+    at = datetime.now(UTC)
+    attested = await attested_tts_plan_fees(session, month=period, at=at)
+    fees = [
+        TtsPlanFeeSlotOut(
+            provider=provider,
+            tier_label=voice_tier_label(cast("VoiceProvider", provider)),
+            reference_plan_inr=str(reference_tts_plan_fee(provider)),
+            attested=_plan_fee_row(attested[provider]) if provider in attested else None,
+        )
+        for provider in sorted(PLAN_BILLED_TTS_PROVIDERS)
+    ]
+    return TtsPlanFeesOut(month=period, fees=fees, as_of=at.isoformat())
 
 
 @tts_router.post(

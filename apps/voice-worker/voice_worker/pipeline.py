@@ -241,6 +241,9 @@ class SessionConfig:
     #: BCP-47, e.g. `te-IN`. `None` means let Sarvam auto-detect, which is what
     #: `ModelConfig.stt_autodetect` asks for and the only path that model leaves us.
     language: str | None = None
+    #: The other languages the agent may answer in (D-666). Non-empty makes `_build_stt`
+    #: auto-detect instead of pinning `language`; the TTS legs keep `language`.
+    languages_extra: tuple[str, ...] = ()
     #: Whether the agent speaks first. Queued as an `LLMRunFrame` from the transport's
     #: connect event — the shipped pattern (`examples/voice/voice-cartesia.py:112-119`).
     greet_first: bool = True
@@ -671,9 +674,16 @@ def _build_stt(config: SessionConfig, credentials: VendorCredentials) -> FramePr
     # unsupported fields to None (e.g. language=None if the service auto-detects
     # language)" (`pipecat/services/settings.py:381-383`). That is exactly what
     # `ModelConfig.stt_autodetect` asks for, so it is passed through rather than dropped.
+    #
+    # An agent with extra languages is not pinned either: pinned to its primary, a Hindi
+    # caller would be transcribed as Telugu. With no language the service sends Sarvam its
+    # model's `default_language`, `"unknown"`, which is Sarvam's auto-detect code, for
+    # both `saaras:v3` and `saaras:v4` (pipecat-ai 1.10.0, `services/sarvam/stt.py:112-125,
+    # 370-377,567-570`), and each transcript then carries the language Sarvam detected
+    # (`:688-702`).
     settings = SarvamSTTService.Settings(
         model=config.models.stt_model or STT_MODEL,
-        language=_language(config),
+        language=None if config.languages_extra else _language(config),
     )
     return SarvamSTTService(
         api_key=credentials.sarvam_api_key,

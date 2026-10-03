@@ -221,6 +221,7 @@ def test_the_published_webhook_url_is_a_route_voice_runtime_serves() -> None:
         "name": "Reception",
         "direction": "inbound",
         "language_primary": "te",
+        "languages_extra": None,
         "prompt": "You answer the clinic's phone.",
         "ai_disclosure_line": "This is an AI assistant.",
         "ai_disclosure_enabled": True,

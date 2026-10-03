@@ -2,7 +2,6 @@
 
 import {
   Card,
-  EmptyState,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -10,6 +9,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { useDeliveries, useDeliveryPayload } from "@/lib/api/integrations";
 import { lookup } from "@/lib/lookup";
@@ -144,7 +144,7 @@ export function DeliveryLog({
         </ScrollRegion>
       ) : (
         <EmptyState
-          title="Nothing sent yet"
+          message="Nothing sent yet"
           hint="Deliveries appear here as they happen — including the ones your endpoint rejected."
         />
       )}

@@ -823,6 +823,75 @@ async def test_the_written_request_names_the_clients_knowledge_bases_too() -> No
     )
 
 
+@pytest.mark.anyio
+async def test_a_pipecat_tenant_erasure_completes_and_files_the_carrier_request() -> None:
+    """THE BLOCKER AND THE GAP, on the engine that runs calls.
+
+    The blocker: every `engine_agent_routes` ref was quoted into a vendor task, and a
+    Pipecat ref is `pipecat:<tenant>:<agent>` — not id-shaped — so the task INSERT raised
+    and the whole tenant erasure rolled back. Those refs name rows in our own database.
+
+    The gap: nothing opened a `telephony` task, so the carrier's records of every call it
+    connected were named on no operator's list. And speech and language were opened only
+    when a third-party engine ref existed, which on Pipecat is never — although every
+    Pipecat call sends audio and turns to both.
+    """
+    from calevate_shared.engine import pipecat_call_ref
+
+    tenant_id, agent_id, _ = await _tenant()
+    call_id = uuid.uuid4()
+    carrier_call_id = str(uuid.uuid4())
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                "agent_id, active, created_at, updated_at) "
+                "VALUES ('pipecat', :ref, :t, :a, true, now(), now())"
+            ),
+            {"ref": f"pipecat:{tenant_id}:{agent_id}", "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, carrier_call_id, "
+                "carrier, direction, status, started_at, created_at, updated_at) "
+                "VALUES (:id, :t, :a, :e, :c, 'vobiz', 'inbound', 'completed', now(), now(), "
+                "now())"
+            ),
+            {
+                "id": call_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "e": pipecat_call_ref(tenant_id, call_id),
+                "c": carrier_call_id,
+            },
+        )
+    await _churn(tenant_id)
+    token = await _admin()
+    filed = await _post(token, tenant_id, confirm=_confirm(tenant_id))
+    assert filed.status_code == 201, filed.text
+
+    await _run_worker(tenant_id, filed.json()["request_id"])
+
+    async with tenant_session(tenant_id) as session:
+        tasks = dict(
+            (
+                await session.execute(
+                    text(
+                        "SELECT processor, vendor_refs FROM processor_erasure_tasks "
+                        "WHERE tenant_id = :t"
+                    ),
+                    {"t": tenant_id},
+                )
+            )
+            .tuples()
+            .all()
+        )
+    assert "voice_engine" not in tasks, "a ref our own runtime minted went to a vendor"
+    assert tasks.get("telephony") == [carrier_call_id]
+    assert tasks.get("speech") == []
+    assert tasks.get("llm") == []
+
+
 def test_the_knowledge_limitation_names_the_copies_that_exist_and_no_others() -> None:
     """A register that names a store we do not run, and omits one we do, is worse than a
     short one: it is a compliance document a client is invited to act on.

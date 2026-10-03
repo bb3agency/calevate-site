@@ -55,7 +55,9 @@ async def _call(handler: Any, method: str = "GET") -> dict[str, Any]:
     async with httpx.AsyncClient(
         base_url=BASE_URL, transport=httpx.MockTransport(handler)
     ) as client:
-        return await vendor_request(client, method, "/agent/agent_1", engine="test")
+        return await vendor_request(
+            client, method, "/agent/agent_1", engine="test", route="/agent/{agent_id}"
+        )
 
 
 # ============================================================================

@@ -1,16 +1,18 @@
 "use client";
 
 import { Panel } from "@/components/console/panel";
-import { BadgeIndianRupee, PhoneCall, Sparkles, SlidersHorizontal } from "lucide-react";
+import { BadgeIndianRupee, Phone, PhoneCall, Sparkles, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { EmptyState, formatINR, hasNonZeroDigit } from "@/components/ui";
+import { formatINR, hasNonZeroDigit } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import type { Drawdown } from "@/lib/api/wallet";
 
 /**
  * Where the money went — so a spike is explained on the same screen it appears on.
  *
- * **THERE ARE EXACTLY THREE OUTGOING ROWS AND MESSAGING IS NOT ONE.** Nothing on this
+ * **THERE ARE EXACTLY FOUR OUTGOING ROWS AND MESSAGING IS NOT ONE.** Calls, phone number
+ * rental (D-665), extra AI help and corrections are what debit the wallet. Nothing on this
  * platform debits the wallet for a WhatsApp message or an SMS, so a "Messaging ₹0.00" row
  * would be a category invented to look complete — and a client who saw it would reasonably
  * conclude they are being charged for messages. The screen says which things draw the
@@ -42,6 +44,13 @@ export function WhereItWent({
       hint: "Outgoing and incoming calls your agents handled",
     },
     {
+      key: "number_rental",
+      label: "Phone number rental",
+      value: drawdown.number_rental_inr,
+      icon: <Phone className="h-4 w-4" aria-hidden />,
+      hint: "The monthly rent for your phone numbers",
+    },
+    {
       key: "ai",
       label: "Extra AI help",
       value: drawdown.ai_assist_inr,
@@ -64,7 +73,7 @@ export function WhereItWent({
     <Panel title={`Where your credit went in the last ${windowDays} days`}>
       {rows.length === 0 && !added && !refunded ? (
         <EmptyState
-          title="Nothing has moved on your credit yet"
+          message="Nothing has moved on your credit yet"
           hint="Once your agents start taking and making calls, this is where you will see what each part costs."
         />
       ) : (

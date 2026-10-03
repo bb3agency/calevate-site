@@ -5,9 +5,10 @@ and until this change the post-call metering stage skipped the call because the 
 snapshot carried no `cost`: no wallet debit, no `spend_state` movement, no `telephony_s`
 row — so no minutes on the usage panel or the invoice, and no cap could ever arm.
 
-The billable duration is the worker's measured connected time (founder decision; BLOCKER-1:
-there is no carrier CDR reader). These tests drive the real settlement route, read the call
-back through `PipecatEngine.execution` and run the real metering stage over it.
+The billable duration is the worker's measured connected time (D-648, founder decision); the
+carrier's CDR sets only our cost, as a separate compensating row (D-662). These tests drive
+the real settlement route, read the call back through `PipecatEngine.execution` and run the
+real metering stage over it.
 """
 
 from __future__ import annotations

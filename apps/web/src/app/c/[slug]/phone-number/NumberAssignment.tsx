@@ -171,7 +171,7 @@ export function NumberAssignment({
           <NoticeBox tone={result.failed > 0 ? "stop" : "ok"}>
             {result.failed > 0 ? (
               <p>
-                The voice platform did not accept that, so this number is not on an agent.
+                We could not connect this number to that agent, so it is not on an agent.
                 Try again, and tell us if it keeps happening.
               </p>
             ) : result.agent_id === null ? (

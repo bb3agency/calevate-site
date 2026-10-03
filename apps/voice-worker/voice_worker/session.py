@@ -25,15 +25,11 @@ network, no loop and no object store), so the ONE awaitable on this path has to 
 before it, by somebody. That somebody is here, and the wall clock it spends is the ring —
 nobody is waiting on it yet.
 
-**WHO CALLS THIS, AND WHAT IS STILL MISSING — WHICH IS NOW ONE THING AND NOT TWO.**
-`runtime.WorkerRuntime.run_call` is the production caller: it owns the container's database
-client, builds the `sink.HttpEventSink` from the same four ids it passes here, and runs
-what comes back. This paragraph used to say the sink *"is the next wave"* and that nothing
-called `start_session` at all; the sink now exists, so what remains outside this repository
-is exactly one thing — **the carrier transport, which needs a Plivo account in the India
-data region (BLOCKER-1, §6 step 6)**. It stays an ARGUMENT for the reason it always was: the
-same assembly runs against a fake in tests and against `FastAPIWebsocketTransport` the day
-that account exists, and nothing here has to change when it does.
+**WHO CALLS THIS.** `runtime.WorkerRuntime.run_call` is the production caller: it owns the
+container's database client, builds the `sink.HttpEventSink` from the same four ids it
+passes here, and runs what comes back. `bot.py` hands it the carrier transport, with the
+serializer chosen by carrier (Vobiz's is `vobiz_serializer.py`, D-662). The transport stays
+an ARGUMENT so the same assembly runs against a fake in tests.
 """
 
 from __future__ import annotations
@@ -178,9 +174,9 @@ async def load_caller_memory(
        run gets — is a deployment that has not been wired to the API, and a deployment with
        no reader recalls nothing rather than guessing (`embedder`'s shape, for `embedder`'s
        reason: the absence of a dependency is a complete state, not a degraded one).
-    3. **We know who is calling.** The carrier leg is step 6 (BLOCKER-1), so today
-       `caller_e164` is `None` on every path; an unknown number is a caller we cannot have
-       met, which is the same outcome as a first-time caller.
+    3. **We know who is calling.** `run_call` passes `caller_e164` only when the carrier's
+       caller verdict is `known`; an unknown number is a caller we cannot have met, which
+       is the same outcome as a first-time caller.
 
     A missing `engine_agent_ref` joins the same list: it is the handle the endpoint resolves
     to a tenant and an agent, and without it there is no request to make.

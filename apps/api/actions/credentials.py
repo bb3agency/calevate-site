@@ -23,12 +23,10 @@ NOT append-only, and the trade is deliberate: append-only versioning (as `platfo
 does) would need every tool to resolve "latest version", which is a second lookup on the
 in-call path for no benefit a client asked for.
 
-⚠ KEK ROTATION: these rows are re-sealed only when a credential is next written, so a
-credential written under a KEK that is later RETIRED stays readable (`unseal` tries the whole
-ring) until that KEK is REMOVED. `ops/secret_service.rewrap_all` re-wraps `platform_secrets`
-but not this table; extending the rewrap job to tenant credentials is the follow-up that
-closes the window, and it needs the KEK-rotation runbook (PLATFORM-CONFIG §13) to say so.
-Stated here rather than discovered during a rotation.
+KEK ROTATION: `ops/secret_service.rewrap_tenant_credentials` re-wraps this table's DEKs in
+the same console run that re-wraps `platform_secrets` (`POST /v1/ops/secrets/kek/rewrap`),
+and `GET /v1/ops/secrets/kek` counts both, so the retired KEK is not removed while a client
+credential still needs it.
 """
 
 from __future__ import annotations

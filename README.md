@@ -53,7 +53,7 @@ remain authoritative on intent.
 | Topic | Note |
 |---|---|
 | Host ports | Postgres is on **5433** and Redis on **6380** — 5432/6379 are held by another project on this machine. Container-internal ports are unchanged. |
-| `uv sync` | Must be `uv sync --all-packages`. A bare `uv sync` installs only the virtual root's dev group, not the workspace members. |
+| `uv sync` | Must be `uv sync --all-packages`. A bare `uv sync` installs the virtual root, whose dependencies are the server image's three members (D-667), and leaves out the voice worker and its pipecat tree. |
 | Nested workspace | `create-next-app` drops a `pnpm-workspace.yaml` **and** a `pnpm-lock.yaml` inside `apps/web`. Both were deleted: the nested file marks `apps/web` as a second workspace root with `ignoredBuiltDependencies`, which breaks `pnpm -C apps/web <script>`. Delete them again if a scaffold or upgrade recreates them. |
 | voice-runtime | Started with `--app-dir apps/voice-runtime` because the directory is hyphenated and therefore not importable as `apps.voice_runtime`. |
 | Platform | Windows 11 native. Postgres/Redis/MinIO run in Docker, so Linux parity holds where it matters. |

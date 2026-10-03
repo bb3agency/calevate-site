@@ -107,6 +107,7 @@ function application(over: Partial<CarrierApplication> = {}): CarrierApplication
     submitted_at: "2026-09-10T06:30:00Z",
     decided_at: null,
     is_accepted: false,
+    required: true,
     ...over,
   };
 }
@@ -226,6 +227,16 @@ describe("the carrier compliance application panel", () => {
 
     await screen.findByText("Application on file");
     expect(container.textContent).toContain("numbers closed");
+  });
+
+  it("says the application gates nothing when the carrier needs none (D-666)", async () => {
+    const { container } = await render({
+      [CARRIER_PATH]: application({ carrier: "vobiz", recorded: false, status: null, required: false }),
+    });
+
+    await screen.findByText(/does not approve client businesses separately/);
+    expect(container.textContent).toContain("Carrier: not required");
+    expect(container.textContent).not.toContain("numbers closed");
   });
 
   it("reports an already-in-this-state answer as nothing moved", async () => {

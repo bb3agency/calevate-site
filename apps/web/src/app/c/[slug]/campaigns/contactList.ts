@@ -8,7 +8,8 @@
  * - `ContactIn.phone` is 8–20 characters and `name` at most 120 (`routes.py:118-119`);
  * - `custom` holds at most 10 variables, names up to 128 and values up to 200 characters
  *   (`routes.py:112-114`); `phone` and `name` cannot be variable names, because the route
- *   spreads `custom` over them (`routes.py:585`);
+ *   writes the row's own phone and name over any variable of that name
+ *   (`campaigns/routes.py::add_contacts`);
  * - a request body is at most 2 MiB (`apps/api/core/middleware.py:71`).
  *
  * The phone rules mirror `apps/api/ingest/service.py::normalize_phone`, which the upload

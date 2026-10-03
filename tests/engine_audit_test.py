@@ -1301,12 +1301,21 @@ class _Scripted:
     async def dial(self) -> dict[str, Any]:
         """A POST that DIALS A HUMAN — the call whose retry policy matters most."""
         return await vendor_http.vendor_request(
-            self._client, "POST", "/call", engine="test", json={"to": "+919876543210"}
+            self._client,
+            "POST",
+            "/call",
+            engine="test",
+            route="/call",
+            json={"to": "+919876543210"},
         )
 
     async def read(self) -> dict[str, Any]:
         return await vendor_http.vendor_request(
-            self._client, "GET", "/executions/exec_abc123", engine="test"
+            self._client,
+            "GET",
+            "/executions/exec_abc123",
+            engine="test",
+            route="/executions/{execution_id}",
         )
 
 

@@ -132,8 +132,9 @@ services), and nothing has been deployed — `infra/` is templates nobody has ap
 ```
 docker compose up -d          # pg16+pgvector, redis, minio
 uv sync --all-packages        # python deps (uv only; no pip/poetry). --all-packages is
-                              # required: plain `uv sync` skips the workspace members and
-                              # `calevate_shared` then will not import. Every `uv sync`
+                              # required: plain `uv sync` installs only the server image's
+                              # set (D-667) and skips the voice worker, whose tests then
+                              # will not collect. Every `uv sync`
                               # in `.github/workflows/ci.yml` uses this form (`backend`
                               # "Install dependencies", `types`, audit), and
                               # `tests/guardrail_audit_test.py` requires it of each.

@@ -37,7 +37,7 @@ from typing import Any, Final, Literal, NoReturn, cast
 from uuid import UUID
 
 from arq import Retry
-from calevate_shared.engine import ExecutionSnapshot
+from calevate_shared.engine import ExecutionSnapshot, owned_runtime_agent_ref
 from calevate_shared.events import TERMINAL_STATUSES
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
@@ -2186,15 +2186,23 @@ async def settled_voice_tier(session: AsyncSession, *, call_id: UUID) -> VoiceTi
     ).scalar_one_or_none()
     if parked is not None:
         return _tier_of_provider(parked)
+    # The agent's OWN published row, found by its ref: every experiment arm is another
+    # `pipecat_agents` row under the same `agent_id`, so a join on `agent_id` could pick an
+    # arm's voice, or find several rows and raise.
+    # `one()`: this stage runs for a call row that exists, and `calls.agent_id` is NOT NULL.
+    tenant_id, agent_id = (
+        await session.execute(
+            text("SELECT tenant_id, agent_id FROM calls WHERE id = :cid"), {"cid": call_id}
+        )
+    ).one()
     published = (
         await session.execute(
             text(
-                "SELECT v.model_config->>'tts_provider' FROM calls AS c "
-                "JOIN pipecat_agents AS p ON p.agent_id = c.agent_id "
+                "SELECT v.model_config->>'tts_provider' FROM pipecat_agents AS p "
                 "JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id "
-                "WHERE c.id = :cid"
+                "WHERE p.engine_agent_ref = :ref"
             ),
-            {"cid": call_id},
+            {"ref": owned_runtime_agent_ref(str(tenant_id), str(agent_id))},
         )
     ).scalar_one_or_none()
     return _tier_of_provider(published)

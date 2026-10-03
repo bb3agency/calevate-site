@@ -15,7 +15,8 @@ import {
   formatWholeCount,
   istInputToInstant,
 } from "@/components/ui";
-import { MonoValue, TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
+import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
   MAX_BLOCKED_NUMBERS,
@@ -34,7 +35,7 @@ import type { CampaignSummary } from "@/lib/api/campaigns";
  * nothing a human did. A reference differs every time, so re-keying it cannot become muscle
  * memory, and it is the only check that catches a transcription error before a write that
  * `preference_scrub_runs` being INSERT-only makes permanent. The match is EXACT
- * (`confirmMatches`), because a reference is a string to copy, not a word to agree with.
+ * (`confirmationMatches(..., "exact")`), because a reference is a string to copy, not a word to agree with.
  */
 export function ScrubForm({
   campaign,
@@ -63,7 +64,7 @@ export function ScrubForm({
   const instant = istInputToInstant(draft.scrubbedAtInput);
   const blocked = scrubBlockReason(draft, instant);
   const pasted = splitBlockedNumbers(draft.blockedNumbers);
-  const confirmed = confirmMatches(confirmation, draft.scrubRef.trim());
+  const confirmed = confirmationMatches(confirmation, draft.scrubRef.trim(), "exact");
 
   return (
     <Card title={`Record a scrub of “${campaign.name}”`}>
@@ -177,9 +178,10 @@ export function ScrubForm({
           </span>
         </div>
 
-        <TypeToConfirm
+        <TypedConfirmation
+          match="exact"
           id="scrub-confirm"
-          word={draft.scrubRef.trim()}
+          phrase={draft.scrubRef.trim()}
           value={confirmation}
           onChange={setConfirmation}
           disabled={!write.allowed || draft.scrubRef.trim() === ""}

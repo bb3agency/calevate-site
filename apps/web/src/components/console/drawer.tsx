@@ -9,11 +9,23 @@
 // phone; and it uses the repo's CSS entry convention (`scrim-enter` + an `@starting-style`
 // panel) rather than a spring, like every other modal here.
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
+import { DANGER_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import { useFocusTrap, type InitialFocus } from "@/lib/focusTrap";
+import { UnsavedRegistry, type UnsavedRegistryValue } from "@/lib/useUnsavedGuard";
 
 const WIDTHS = {
   sm: "sm:w-[min(24rem,calc(100vw-2rem))]",
@@ -33,6 +45,22 @@ const WIDTHS = {
  *
  * Use a page or a `StepFlow` instead when the thing has its own URL-worthy state or more
  * than a short form; a drawer is for a look or a quick edit.
+ *
+ * ## A form in the body, its submit button in the footer
+ *
+ * The footer is a sibling of the body, not inside it, so a `type="submit"` button there
+ * submits nothing unless it names the form — and a forgotten `form=` attribute is a button
+ * that looks right and silently does nothing. Pass the body form's id as `formId` and use
+ * `DrawerSubmit` in the footer: it takes the id from the drawer, so the binding cannot be
+ * left off.
+ *
+ * ## Closing over unsaved typing
+ *
+ * Escape, the scrim and ✕ are one keystroke or one stray tap from discarding a half-typed
+ * form. While the drawer holds unsaved edits — `dirty`, or any `useUnsavedGuard` call
+ * inside it — those three ask first, in the drawer's own footer, rather than closing. A
+ * second modal would fight this one's focus trap for Escape. A Cancel button the caller
+ * renders is an explicit choice and is not intercepted.
  */
 export function Drawer({
   open,
@@ -44,6 +72,8 @@ export function Drawer({
   width = "md",
   initialFocus = "first-tabbable",
   closeLabel = "Close",
+  formId,
+  dirty = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -56,6 +86,10 @@ export function Drawer({
   width?: keyof typeof WIDTHS;
   initialFocus?: InitialFocus;
   closeLabel?: string;
+  /** The id of the `<form>` in the body that the footer's `DrawerSubmit` submits. */
+  formId?: string;
+  /** Unsaved edits the caller tracks itself; Escape, the scrim and ✕ then ask first. */
+  dirty?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -69,6 +103,8 @@ export function Drawer({
       width={width}
       initialFocus={initialFocus}
       closeLabel={closeLabel}
+      formId={formId}
+      dirty={dirty}
     >
       {children}
     </DrawerPanel>,
@@ -85,6 +121,8 @@ function DrawerPanel({
   width,
   initialFocus,
   closeLabel,
+  formId,
+  dirty,
 }: {
   onClose: () => void;
   title: string;
@@ -94,11 +132,44 @@ function DrawerPanel({
   width: keyof typeof WIDTHS;
   initialFocus: InitialFocus;
   closeLabel: string;
+  formId?: string;
+  dirty: boolean;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const keepEditing = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const descriptionId = useId();
-  useFocusTrap(panel, true, onClose, initialFocus);
+  const [asking, setAsking] = useState(false);
+
+  // Drafts reported by `useUnsavedGuard` inside the body. Forwarded to an enclosing
+  // registry (a `SettingsLayout` section) too, so a draft in a drawer still stops a
+  // section switch behind it.
+  const parent = useContext(UnsavedRegistry);
+  const drafts = useRef(new Set<string>());
+  const registry = useMemo<UnsavedRegistryValue>(
+    () => ({
+      report: (id, isDirty) => {
+        if (isDirty) drafts.current.add(id);
+        else drafts.current.delete(id);
+        parent?.report(id, isDirty);
+      },
+    }),
+    [parent],
+  );
+
+  const requestClose = () => {
+    if (asking) {
+      setAsking(false);
+      return;
+    }
+    if (dirty || drafts.current.size > 0) setAsking(true);
+    else onClose();
+  };
+  useFocusTrap(panel, true, requestClose, initialFocus);
+
+  useEffect(() => {
+    if (asking) keepEditing.current?.focus();
+  }, [asking]);
 
   return (
     <div className="fixed inset-0 z-50">
@@ -109,7 +180,7 @@ function DrawerPanel({
         type="button"
         aria-label={closeLabel}
         tabIndex={-1}
-        onClick={onClose}
+        onClick={requestClose}
         className="scrim-enter absolute inset-0 bg-ink/40"
       />
       <div
@@ -134,20 +205,55 @@ function DrawerPanel({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label={closeLabel}
             className="press -mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
           >
             <X aria-hidden className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">{children}</div>
-        {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:px-5 sm:pb-3">
-            {footer}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+          <UnsavedRegistry.Provider value={registry}>{children}</UnsavedRegistry.Provider>
+        </div>
+        {asking ? (
+          <div
+            role="group"
+            aria-label="Unsaved changes"
+            className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:px-5 sm:pb-3"
+          >
+            <p role="alert" className="mr-auto text-[13px] text-ink">
+              Close without saving? What you typed here will be lost.
+            </p>
+            <button ref={keepEditing} type="button" onClick={() => setAsking(false)} className={SECONDARY_BUTTON}>
+              Keep editing
+            </button>
+            <button type="button" onClick={onClose} className={DANGER_BUTTON}>
+              Discard changes
+            </button>
           </div>
+        ) : (
+          footer && (
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:px-5 sm:pb-3">
+              <DrawerForm.Provider value={formId}>{footer}</DrawerForm.Provider>
+            </div>
+          )
         )}
       </div>
     </div>
   );
+}
+
+const DrawerForm = createContext<string | undefined>(undefined);
+
+/**
+ * The footer's submit button, bound to the drawer's `formId`. Rendered outside a drawer
+ * that names its form it would submit nothing, so that is refused at render rather than
+ * discovered by a person pressing a dead button.
+ */
+export function DrawerSubmit(props: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "form">) {
+  const form = useContext(DrawerForm);
+  if (form === undefined) {
+    throw new Error("DrawerSubmit must be in the footer of a Drawer given a formId.");
+  }
+  return <button {...props} type="submit" form={form} />;
 }

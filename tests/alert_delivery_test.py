@@ -297,6 +297,59 @@ def test_the_bucket_names_the_alarms_it_ate(
     assert body.index("postcall_pipeline_stalled") < body.index("outbox_dead_letter")
 
 
+def test_a_page_the_bucket_refuses_is_still_recorded_on_the_console(
+    transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bucket bounds MAIL, not the record (D-591: every alarm is a row). It used to drop
+    the notice outright, so in a storm `/admin/ops/alerts` showed the six codes that mailed
+    and nothing of the rest. A refused `page` is now queued record-only, mailed as soon as
+    a token returns, and its later occurrences are counted onto the same row."""
+    clock = _freeze_clock(monkeypatch)
+    recorded: list[alerting.AlertNotice] = []
+    monkeypatch.setattr(alerting, "_record_alert", lambda notice: recorded.append(notice))
+
+    for index in range(alerting.ALERT_BURST):
+        _fire(code=f"burst_{index}")
+    alerting.alert("WORKER_STALL", "postcall_pipeline_stalled", detail="no jobs in 10m")
+    alerting.alert("WORKER_STALL", "postcall_pipeline_stalled", detail="no jobs in 11m")
+    assert alerting.flush_alerts(timeout=5.0)
+
+    assert len(transport.sent) == alerting.ALERT_BURST
+    stalled = [n for n in recorded if n.code == "postcall_pipeline_stalled"]
+    assert len(stalled) == 1, "a page the bucket refused never reached the console"
+    assert stalled[0].mail_allowed is False
+
+    # A token returns: the next occurrence MAILS, inside the same window, and carries the
+    # occurrence that was counted while it waited.
+    clock["t"] += 3600.0 / alerting.ALERT_BUDGET_PER_HOUR + 1
+    alerting.alert("WORKER_STALL", "postcall_pipeline_stalled", detail="no jobs in 15m")
+    assert alerting.flush_alerts(timeout=5.0)
+    assert transport.sent[-1]["subject"].endswith("postcall_pipeline_stalled")
+    assert "1 further occurrence" in transport.sent[-1]["body"]
+    assert "postcall_pipeline_stalled x2" in transport.sent[-1]["body"]
+
+
+def test_a_record_only_notice_does_not_swallow_the_dropped_codes_report(
+    transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The dropped-codes line is printed only in a mail, so it must ride a notice that WILL
+    be mailed. A `record` code flushed between the drop and the next page used to take the
+    counters with it, and the operator never learned which alarm the bucket ate."""
+    clock = _freeze_clock(monkeypatch)
+    monkeypatch.setattr(alerting, "_record_alert", lambda notice: None)
+
+    for index in range(alerting.ALERT_BURST):
+        _fire(code=f"burst_{index}")
+    alerting.alert("WORKER_STALL", "postcall_pipeline_stalled", detail="dropped")
+    alerting.alert("ROUTE_HANDLER", "csp_violation", detail="a record-rung code")
+    assert alerting.flush_alerts(timeout=5.0)
+
+    clock["t"] += 3600.0 / alerting.ALERT_BUDGET_PER_HOUR + 1
+    _fire(code="the_next_page")
+    assert alerting.flush_alerts(timeout=5.0)
+    assert "postcall_pipeline_stalled x1" in transport.sent[-1]["body"]
+
+
 def test_the_named_dropped_codes_are_bounded(
     transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
 ) -> None:

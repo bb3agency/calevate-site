@@ -288,6 +288,16 @@ def test_stt_is_the_only_sarvam_class_that_can_run_our_declared_model() -> None:
     assert legs.stt._settings.language == "te-IN"
 
 
+def test_an_agent_with_extra_languages_lets_the_transcriber_detect() -> None:
+    """D-666. Pinned to Telugu, a Hindi caller would be transcribed as Telugu. With extras the STT
+    is not pinned (Sarvam's `unknown`, its auto-detect), and the voice keeps the primary."""
+    legs = pipeline.build_vendor_legs(make_config(languages_extra=("hi-IN", "en-IN")), CREDENTIALS)
+    assert isinstance(legs.stt, SarvamSTTService)
+    assert legs.stt._settings.language is None
+    assert legs.stt._get_language_string() == "unknown"
+    assert legs.tts._settings.language is not None, "the voice stays on the primary"
+
+
 def test_sarvam_keeps_local_smart_turn_because_vad_signals_is_left_unset() -> None:
     """`vad_signals` on would hand turn ownership to Sarvam and disable smart turn."""
     legs = pipeline.build_vendor_legs(make_config(), CREDENTIALS)

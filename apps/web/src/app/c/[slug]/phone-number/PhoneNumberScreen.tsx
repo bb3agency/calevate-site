@@ -15,9 +15,12 @@ import { SenderAttestation } from "./SenderAttestation";
  *
  * PRIMARY JOB: see each number, what it is doing, and put it on an agent.
  *
- * Two kinds of number, told apart by the server's own `supplied_by_us`: one WE supplied is
- * one to forward TO; one the client brought is already published and must not be
- * forwarded anywhere. Those are opposite instructions, so they are separate sections.
+ * Two kinds of number, told apart by the server's own `supplied_by_us`: one bought for
+ * this account is one to forward TO; one the account manager recorded is what the agents
+ * call out from and must not be forwarded anywhere. Those are opposite instructions, so
+ * they are separate sections. Both are Calevate's to provide, on our carrier account with
+ * Vobiz (the founder's decision of 2 Oct 2026, as the verification page says): neither
+ * section may tell a client they hold a connection with an operator of their own.
  *
  * Each number's agent choice and its sender confirmation sit open on the page, never in a
  * drawer: the confirmation is a TRAI-facing compliance control, and UX-DOCTRINE §8.7 keeps
@@ -93,10 +96,11 @@ export function PhoneNumberScreen() {
           {theirs.length > 0 && (
             <section className="space-y-3">
               <h2 className="flex items-center gap-1 text-[15px] font-semibold text-ink">
-                Numbers you hold yourself
-                <InfoTip label="Numbers you hold yourself">
-                  These are connections in your own name with your own operator. You stay the
-                  account holder and can withdraw our access at any time.
+                Numbers your agents call out from
+                <InfoTip label="Where these numbers come from">
+                  Your account manager set these numbers up for you. Calevate provides them on
+                  our own carrier account with Vobiz, so there is no operator account for you
+                  to open or manage.
                 </InfoTip>
               </h2>
               <p className="text-sm text-ink-muted">

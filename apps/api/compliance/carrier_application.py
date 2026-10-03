@@ -13,6 +13,11 @@ gating, human-signature-bearing stage between "client signs up" and "client has 
 and before this module none of it existed.
 Source: `docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2.
 
+**THE RULE IS PLIVO'S AND BINDS ONLY WHEN PLIVO IS THE CARRIER (D-666).** On Vobiz,
+Calevate holds the numbers on its own account under its own KYC, so every gate below asks
+`carrier_application_required()` first and stands aside on Vobiz. The table, the routes and
+the state machine stay, because Plivo is still the switchable fallback.
+
 ⚠ EVIDENCE CLASS — READ THIS BEFORE TREATING ANY NUMBER BELOW AS A FACT
 -----------------------------------------------------------------------
 Everything we believe about the carrier's requirements is
@@ -121,6 +126,23 @@ def current_carrier() -> str:
     application must be with. Stored on every row rather than assumed, because an
     application identifier is meaningless without knowing whose it is."""
     return get_settings().carrier
+
+
+#: The carriers whose terms make Calevate a reseller needing one accepted application per
+#: client business. Plivo only (D-666): on Vobiz the numbers sit on Calevate's own account
+#: under Calevate's own KYC, so there is no per-client application to hold. Whether a
+#: client's traffic may run on Calevate's Vobiz account at all is a different question,
+#: answered by OPERATIONS §2 gate V-10 (written resale consent), and nothing here answers it.
+CARRIERS_REQUIRING_APPLICATION: Final[frozenset[str]] = frozenset({"plivo"})
+
+
+def carrier_application_required(carrier: str | None = None) -> bool:
+    """Does the carrier named (default: the switch) need a per-client application?
+
+    The ONE predicate every gate and the readiness screen ask, so the acquisition gate, the
+    dial gate and the screen cannot disagree about which carrier the rule binds.
+    """
+    return (carrier or current_carrier()) in CARRIERS_REQUIRING_APPLICATION
 
 
 #: The largest single document the carrier is reported to accept (~5 MB per file). We
@@ -735,7 +757,12 @@ async def assert_carrier_application_accepted(
     person reading that list wants the two states apart. `assert_kyc_verified_for_
     provisioning` makes exactly this trade, and this follows it deliberately rather than
     inventing a third convention.
+
+    A no-op on a carrier that needs no per-client application (`carrier_application_
+    required`), which is Vobiz.
     """
+    if not carrier_application_required(carrier):
+        return
     record = await read_carrier_application(session, tenant_id=tenant_id, carrier=carrier)
     if record.is_accepted:
         return
@@ -796,6 +823,7 @@ async def ensure_application_row(
 
 __all__ = [
     "CARRIER",
+    "CARRIERS_REQUIRING_APPLICATION",
     "CARRIER_APPLICATION_MISSING_REASON",
     "CARRIER_APPLICATION_TRANSITIONS",
     "CARRIER_DOCUMENT_CONTENT_TYPES",
@@ -815,6 +843,7 @@ __all__ = [
     "assert_first_application_is_signed",
     "assert_submittable",
     "carrier_application_not_accepted_reason",
+    "carrier_application_required",
     "classify_document",
     "ensure_application_row",
     "our_status_for_carrier_status",

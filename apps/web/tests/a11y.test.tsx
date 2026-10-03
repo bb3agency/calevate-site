@@ -1504,6 +1504,7 @@ const TENANT_ROUTES: Routes = {
     submitted_at: "2026-09-10T06:30:00Z",
     decided_at: null,
     is_accepted: false,
+    required: true,
   },
   "/v1/admin/tenants/t1": TENANT_SUMMARY,
   "/v1/admin/tenants/t1/margin": {
@@ -3186,6 +3187,7 @@ const ADMIN_SCREENS: Screen[] = [
         source: "carrier order form, 1 Oct 2026",
         attested_at: "2026-10-01T06:30:00Z",
       },
+      "/v1/ops/tts-prices/plan-fees": { month: "2026-10", as_of: "2026-10-02T06:30:00Z", fees: [{ provider: "cartesia", tier_label: "Studio", reference_plan_inr: "440.00", attested: null }] },
       "/v1/ops/model-prices": OPS_MODEL_PRICES,
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,

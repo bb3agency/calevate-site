@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Undo2 } from "lucide-react";
 
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   Card,
   DANGER_BUTTON,
@@ -13,8 +14,6 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  TypedConfirmation,
-  confirmationMatches,
   formatIST,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
@@ -338,7 +337,7 @@ function CloseForm({
 
         <TypedConfirmation
           phrase="CLOSE"
-          binding={`Bound to ${tenantName}. Closing sets the date their records are destroyed; it is undoable until that date and not after it.`}
+          hint={`Bound to ${tenantName}. Closing sets the date their records are destroyed; it is undoable until that date and not after it.`}
           value={typed}
           onChange={(value) => {
             setTyped(value);

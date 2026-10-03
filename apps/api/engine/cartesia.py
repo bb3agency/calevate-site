@@ -555,7 +555,13 @@ class CartesiaEngine:
         return self._client
 
     async def _request(
-        self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
+        self,
+        method: str,
+        path: str,
+        *,
+        route: str,
+        absent_is_success: bool = False,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """One round trip. `absent_is_success` is `delete_agent`'s and nothing else's —
         see `vendor_http.vendor_request`, which carries the argument for why it is opt-in
@@ -568,6 +574,7 @@ class CartesiaEngine:
             method,
             path,
             engine=self.name,
+            route=route,
             absent_is_success=absent_is_success,
             **kwargs,
         )
@@ -688,7 +695,9 @@ class CartesiaEngine:
         MEASURED BY: OPERATIONS §2 gate 2's `delete_agent` sub-check, run against whichever
         vendor the deployment is configured for.
         """
-        await self._request("DELETE", f"/agents/{ref}", absent_is_success=True)
+        await self._request(
+            "DELETE", f"/agents/{ref}", route="/agents/{ref}", absent_is_success=True
+        )
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """**THE PROMPT READ-BACK, AND IT REFUSES BY NAME** (D-270 found it, D-281 acts).
@@ -813,6 +822,7 @@ class CartesiaEngine:
         data = await self._request(
             "POST",
             "/agents/calls",
+            route="/agents/calls",
             json={
                 "agent_id": ref,
                 "from_number_id": self._from_number_id,
@@ -858,7 +868,9 @@ class CartesiaEngine:
         the strength of an endpoint nobody has confirmed exists. Gate 19(b) is what would
         change this, not a code change.
         """
-        await self._request("POST", f"/agents/calls/{call_id}/end")
+        await self._request(
+            "POST", f"/agents/calls/{call_id}/end", route="/agents/calls/{call_id}/end"
+        )
         return RecallOutcome.UNKNOWN
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
@@ -1012,6 +1024,7 @@ class CartesiaEngine:
         data = await self._request(
             "POST",
             f"/agents/{ref}/documents",
+            route="/agents/{ref}/documents",
             json={"title": source.title, "content": source.text, "language": source.language},
         )
         handle = _first_str(data, ("id", "document_id"))
@@ -1032,11 +1045,15 @@ class CartesiaEngine:
         """No swallowing of a 404: an id we cannot delete is an id we cannot prove is
         gone, and the caller's next act is to publish a replacement."""
         require_capability("knowledge_base", engine=self)
-        await self._request("DELETE", f"/agents/{ref}/documents/{kb}")
+        await self._request(
+            "DELETE", f"/agents/{ref}/documents/{kb}", route="/agents/{ref}/documents/{kb}"
+        )
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         require_capability("knowledge_base", engine=self)
-        data = await self._request("GET", f"/agents/{ref}/documents")
+        data = await self._request(
+            "GET", f"/agents/{ref}/documents", route="/agents/{ref}/documents"
+        )
         rows = data.get("documents") or data.get("data")
         if not isinstance(rows, list):
             return []
@@ -1236,7 +1253,9 @@ class CartesiaEngine:
         only — `list_executions` builds no document per row: the archive is per call, and a
         listing is a reconciliation walk, not a capture.
         """
-        payload = await self._request("GET", f"/agents/calls/{call_id}")
+        payload = await self._request(
+            "GET", f"/agents/calls/{call_id}", route="/agents/calls/{call_id}"
+        )
         return self._snapshot(payload).model_copy(
             update={"raw_document": engine_document(payload, engine=self.name)}
         )
@@ -1265,7 +1284,7 @@ class CartesiaEngine:
         the one place in this file where "the generator emitted no cursor" is taken as
         "there is no cursor".
         """
-        payload = await self._request("GET", "/agents")
+        payload = await self._request("GET", "/agents", route="/agents")
         summaries = payload.get("summaries")
         rows = summaries if isinstance(summaries, list) else self._listing_rows(payload)
         return [ref for row in rows if isinstance(row, dict) if (ref := _first_str(row, ("id",)))]
@@ -1336,7 +1355,9 @@ class CartesiaEngine:
                 }
                 if cursor is not None:
                     params["starting_after"] = cursor
-                payload = await self._request("GET", "/agents/calls", params=params)
+                payload = await self._request(
+                    "GET", "/agents/calls", route="/agents/calls", params=params
+                )
                 pages += 1
                 rows = self._listing_rows(payload)
                 new_rows = 0

@@ -41,10 +41,11 @@ comparison a second time — the defect `SELF_SERVE_TIERS` was extracted to end.
    the WALLET: what a client wants explained is why the balance moved, and the ledger is
    the only place that is authoritative.
 
-   **THERE ARE EXACTLY THREE OUTGOING BUCKETS, AND MESSAGING IS NOT ONE.** Calls
+   **THERE ARE EXACTLY FOUR OUTGOING BUCKETS, AND MESSAGING IS NOT ONE.** Calls
    (`reason='usage'` with no meta kind — `service.charge_for_call`), AI assistance
    (`reason='usage'` with `meta->>'kind' = ai_quota.OVERAGE_META_KIND` — a block of extra
-   dashboard-AI allowance the owner chose to buy), and operator adjustments. Messaging is
+   dashboard-AI allowance the owner chose to buy), operator adjustments, and phone number
+   rental (`meta->>'kind' = number_rental.RENTAL_CHARGE_META_KIND`, D-665). Messaging is
    NOT billed to the wallet on this platform — no writer anywhere debits credits for a
    WhatsApp message or an SMS — so a "Messaging" row reading ₹0.00 would be a category
    invented to look complete, and a client who saw it would reasonably conclude they are
@@ -70,6 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import OVERAGE_META_KIND
 from apps.api.billing.lots import runway as lot_runway
+from apps.api.billing.number_rental import RENTAL_CHARGE_META_KIND
 from apps.api.billing.rates import VOICE_TIERS, VoiceTier, voice_tier_label
 from apps.api.billing.service import (
     Balance,
@@ -126,23 +128,30 @@ ATTEMPT_LIMIT: Final = 10
 PENDING_GRACE_HOURS: Final = 24
 
 
-#: THE THREE OUTGOING BUCKETS, as SQL select-list expressions over `credit_ledger`'s own
-#: `delta`, `reason` and `meta` — calls, dashboard-AI blocks, operator corrections, in that
-#: order. ONE spelling, read by the trailing-window drawdown below and by the daily spend
-#: series (`billing/history.py`), so "what left the wallet" has one definition and the
-#: series sums to the drawdown for the same window by construction rather than by care.
+#: THE FOUR OUTGOING BUCKETS, as SQL select-list expressions over `credit_ledger`'s own
+#: `delta`, `reason` and `meta` — calls, dashboard-AI blocks, operator corrections and
+#: phone number rental, in that order (the rental is LAST so every reader that predates it
+#: keeps its column positions). ONE spelling, read by the trailing-window drawdown below
+#: and by the daily spend series (`billing/history.py`), so "what left the wallet" has one
+#: definition and the series sums to the drawdown for the same window by construction.
 #:
-#: The AI bucket is separated by `meta->>'kind'` rather than by a sixth ledger `reason`,
-#: because that is how the writer distinguishes them (`ai_quota.purchase_extra` writes
-#: `reason='usage'` with `kind = 'ai_assist_overage'`). Binds `:ai_kind`.
+#: The AI and rental buckets are separated by `meta->>'kind'` rather than by another
+#: ledger `reason`, because that is how their writers distinguish them
+#: (`ai_quota.purchase_ai_overage`, `number_rental.charge_number_rental`); the calls bucket
+#: is every other `usage` row. Binds `:ai_kind`; the rental kind is a module constant.
+_RENTAL_KIND_SQL: Final = f"'{RENTAL_CHARGE_META_KIND}'"
 DRAWDOWN_BUCKETS_SQL: Final = (
     "COALESCE(SUM(-delta) FILTER ("
     "  WHERE delta < 0 AND reason = 'usage'"
-    "  AND (meta->>'kind') IS DISTINCT FROM :ai_kind), 0), "
+    "  AND (meta->>'kind') IS DISTINCT FROM :ai_kind"
+    f"  AND (meta->>'kind') IS DISTINCT FROM {_RENTAL_KIND_SQL}), 0), "
     "COALESCE(SUM(-delta) FILTER ("
     "  WHERE delta < 0 AND reason = 'usage'"
     "  AND (meta->>'kind') = :ai_kind), 0), "
-    "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'), 0)"
+    "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'), 0), "
+    "COALESCE(SUM(-delta) FILTER ("
+    "  WHERE delta < 0 AND reason = 'usage'"
+    f"  AND (meta->>'kind') = {_RENTAL_KIND_SQL}), 0)"
 )
 
 #: Credit that LANDED: payments, pack bonuses, positive adjustments and goodwill grants
@@ -189,7 +198,7 @@ class Drawdown:
 
     Every figure is positive and its DIRECTION is in the field name, not in a sign — a
     screen that had to decide whether `-340.00` meant a debit or a correction of one is a
-    screen that will eventually decide wrong. `spent_inr` is the sum of the three outgoing
+    screen that will eventually decide wrong. `spent_inr` is the sum of the four outgoing
     buckets exactly, computed here so no browser subtracts rupee strings to find it.
     """
 
@@ -203,6 +212,8 @@ class Drawdown:
     added_inr: Decimal
     #: Money returned to the client's own card or bank in the window.
     refunded_inr: Decimal
+    #: Phone number rental debited in the window (D-665).
+    number_rental_inr: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,19 +339,20 @@ async def read_runway(
     # other NUMERIC read in this tree keeps (`service._newest_balance` argues it): the day
     # a driver hands back a float, `Decimal(340.10)` carries the binary error into a figure
     # a client checks against their own books.
-    sums = tuple(Decimal(str(value)) for value in row) if row is not None else (Decimal("0"),) * 5
-    calls, ai_assist, adjustments, added, refunded = sums
+    sums = tuple(Decimal(str(value)) for value in row) if row is not None else (Decimal("0"),) * 6
+    calls, ai_assist, adjustments, rental, added, refunded = sums
     drawdown = Drawdown(
         calls_inr=calls,
         ai_assist_inr=ai_assist,
         adjustments_inr=adjustments,
-        # Summed HERE, from the three buckets that were just measured, so the total on the
+        # Summed HERE, from the four buckets that were just measured, so the total on the
         # screen is by construction the sum of the rows beneath it — the identity
         # `usage_summary` keeps for the same reason, rather than a second aggregate that
         # can round differently from its own parts.
-        spent_inr=calls + ai_assist + adjustments,
+        spent_inr=calls + ai_assist + adjustments + rental,
         added_inr=added,
         refunded_inr=refunded,
+        number_rental_inr=rental,
     )
 
     # HOW LONG WE HAVE BEEN WATCHING. The first entry on the wallet, floored to whole days

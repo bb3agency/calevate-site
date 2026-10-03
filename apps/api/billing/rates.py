@@ -1899,8 +1899,12 @@ SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = clear_cost_floor_at(
 #: as the one that moves when they diverge. D-592 moved the cost model to ₹95; this did not
 #: move, because it is the rate a READING was struck at and that reading did not change.
 #:
-#: ⚠ **SO A CARTESIA FLOOR NOW CONVERTS ITS ENGINE LEG AT 95 AND ITS TTS LEG AT 88**, which
-#: is the thing the alias existed to prevent. It is deliberate and it is BOUNDED rather than
+#: ⚠ **SO THE STUDIO FLOOR IS STRUCK WHOLLY AT 88 WHILE THE CLEAR FLOOR'S ENGINE LEG IS AT 95.**
+#: `CARTESIA_COST_FLOOR_INR_PER_MIN` passes this rate to `cartesia_cost_floor_inr_per_min_at`,
+#: which converts BOTH the dollar engine fee (`ex_tts_cost_inr_per_min_at`) and the Cartesia
+#: overage at it; `clear_cost_floor_inr_per_min_at` converts the same engine fee at
+#: `COST_MODEL_USD_INR`. The two floors therefore disagree on one shared leg, which is the
+#: thing the alias existed to prevent. It is deliberate and it is BOUNDED rather than
 #: tolerated: `tests/cost_floor_test.py::test_the_cartesia_floor_holds_at_the_llm_cards_
 #: conversion_too` already computes the whole floor at a single higher rate and shows the
 #: card clears that too, which is the property the single-rate alias was protecting. The
@@ -2145,13 +2149,13 @@ def ex_tts_cost_inr_per_min_at(usd_inr: Decimal) -> Decimal:
     """The three legs both voices share, at a NAMED USD→INR rate. EXACT, unquantized.
 
     ⚠ **ONLY THE ENGINE FEE MOVES WITH THE RATE, AND THE OTHER TWO ARE NOT AN OVERSIGHT.**
-    The engine's platform fee is published in dollars ($0.02/min) and is genuinely
+    The engine's platform fee is published in dollars ($0.01/min) and is genuinely
     FX-sensitive. Sarvam STT is priced in rupees, so there is nothing to convert. The LLM
     leg is dollars — and it is struck at `LIST_PRICE_USD_INR`, a DIFFERENT card with its own
     frozen conversion, deliberately frozen because `BASE_RATE_LLM_MODEL` is the model our
     plan rate is struck against and re-striking it would move fifteen cost points in
     TRD §10 and reprice accounts. Moving it here to make one screen tidier would be a
-    pricing change smuggled in as a display fix. It is ₹0.2411 of a ₹5.59 floor; the
+    pricing change smuggled in as a display fix. It is ₹0.2411 of either floor; the
     exposure is named rather than silently absorbed, and closing it is a pricing decision
     with its own decision-log row, not this one.
     """

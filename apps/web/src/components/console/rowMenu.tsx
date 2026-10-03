@@ -36,8 +36,17 @@ export type RowMenuItem = {
   /** A destructive action: red text. Still confirm it where it is irreversible. */
   tone?: "danger";
   disabled?: boolean;
-  /** Why it is disabled, or a short qualifier, shown on the right. */
+  /**
+   * Why it is disabled, or a short qualifier, shown on the right. It DESCRIBES the item
+   * rather than naming it, so a screen reader hears "Release" and then why, instead of one
+   * run-on name.
+   */
   hint?: string;
+  /**
+   * The item's accessible name, when the visible label leans on what is around it — a
+   * short "Remove" beside a person's name reads as "Remove" alone in the menu.
+   */
+  ariaLabel?: string;
   icon?: ReactNode;
 };
 
@@ -181,13 +190,19 @@ export function RowMenu({
                   <>
                     {item.icon && <span aria-hidden className="shrink-0 text-ink-faint">{item.icon}</span>}
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    {item.hint && <span className="shrink-0 text-[12px] text-ink-faint">{item.hint}</span>}
+                    {item.hint && (
+                      <span id={`${menuId}-${item.id}-hint`} className="shrink-0 text-[12px] text-ink-faint">
+                        {item.hint}
+                      </span>
+                    )}
                   </>
                 );
                 const common = {
                   role: "menuitem" as const,
                   tabIndex: -1,
                   "aria-disabled": item.disabled || undefined,
+                  "aria-label": item.ariaLabel ?? (item.hint ? item.label : undefined),
+                  "aria-describedby": item.hint ? `${menuId}-${item.id}-hint` : undefined,
                   className: itemClass(item),
                 };
                 return item.href && !item.disabled ? (

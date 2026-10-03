@@ -109,6 +109,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents import handoff as handoff_module
+from apps.api.agents.languages import published_extra_languages
 from apps.api.agents.llm_models import (
     ResolvedLlmModel,
     deployment_for,
@@ -337,6 +338,9 @@ class AgentRow(TypedDict):
     name: str
     direction: AgentDirection
     language_primary: str
+    #: The OTHER languages the agent may answer in, as the intake stored them (NULL is
+    #: none). `languages.published_extra_languages` narrows them at publish.
+    languages_extra: list[str] | None
     #: The legacy bundled sentence (D-163). Still read for the drift comparison; never
     #: composed into a new `opening_line`.
     disclosure_line: str | None
@@ -436,7 +440,7 @@ async def _load_agent(
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
                 # a published config whose two halves came from different moments.
-                "o.default_llm_model "
+                "o.default_llm_model, a.languages_extra "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -500,6 +504,7 @@ async def _load_agent(
         "handoff_trigger": row[22],
         "business_hours": row[23],
         "organization_llm_model": row[24],
+        "languages_extra": row[25],
     }
 
 
@@ -980,6 +985,11 @@ def _to_config(
         # unchecked hop back in the one place it mattered.
         direction=agent["direction"],
         language_primary=str(agent["language_primary"]),
+        # The prompt names them and the worker's transcriber stops pinning the primary, so
+        # a caller in one of them is heard and answered in it (D-666).
+        languages_extra=published_extra_languages(
+            str(agent["language_primary"]), agent["languages_extra"]
+        ),
         system_prompt=_assert_has_a_script(agent),
         # WHAT THE AGENT VOLUNTEERS FIRST, composed from this agent's two toggles by the
         # one composer (D-163). Empty is a legitimate answer — both notices switched off
@@ -3402,7 +3412,8 @@ async def provision_number(
         # THE RESELLER STAGE (evidence doc 2026-09-13 §5.2). Our carrier approves each
         # client business separately before a number may be rented for it, and the purchase
         # carries that application's identifier. So a number that is OURS may only be
-        # recorded against a tenant whose application the carrier has accepted.
+        # recorded against a tenant whose application the carrier has accepted. Plivo's rule
+        # only: on Vobiz the call returns at once (D-666).
         #
         # Conditioned on `engine_owned` and not applied to every row, because the other
         # kind of row is a client's own connection on their own operator account (Model B,

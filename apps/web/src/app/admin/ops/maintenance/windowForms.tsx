@@ -88,6 +88,7 @@ export function AmendWindowDrawer({
   return (
     <Drawer
       open
+      dirty={dirty}
       onClose={onClose}
       title="Change window"
       description="Only the fields you change are sent."
@@ -178,11 +179,13 @@ export function ScheduleWindowDrawer({
   const start = istInputToInstant(startsAt);
   const finish = istInputToInstant(endsAt);
   const ready = start !== null && finish !== null && reason.trim().length >= 10;
-  useUnsavedGuard(startsAt !== "" || endsAt !== "" || reason !== "" || drain !== DEFAULT_DRAIN);
+  const dirty = startsAt !== "" || endsAt !== "" || reason !== "" || drain !== DEFAULT_DRAIN;
+  useUnsavedGuard(dirty);
 
   return (
     <Drawer
       open
+      dirty={dirty}
       onClose={onClose}
       title="Schedule a window"
       description="It drains first, then closes the client portals until it ends."

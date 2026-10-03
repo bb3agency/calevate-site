@@ -30,11 +30,10 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import {
   MonoValue,
-  TypeToConfirm,
-  confirmMatches,
 } from "@/app/admin/ops/opsLanguage";
 import {
   useAttestDashboardDataUse,
@@ -338,7 +337,7 @@ function AttestForm({
   // waiting on. They are `required` on the controls now and answered by
   // `useFormValidation`, so a press produces a sentence beside the box. What is left in
   // `ready` is the typed confirmation, which is a gate rather than an answer on the form.
-  const ready = confirmMatches(confirm, word);
+  const ready = confirmationMatches(confirm, word, "exact");
 
   return (
     <form
@@ -437,9 +436,10 @@ function AttestForm({
         </span>
       </label>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`confirm-data-use-${leg.provider}`}
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
         hint="A correction is added as a new dated entry — nothing is overwritten — so what was believed when a client's content reached this vendor stays answerable."

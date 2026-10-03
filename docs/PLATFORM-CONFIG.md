@@ -315,7 +315,8 @@ All under the existing admin realm. Permission `platform:config` for §1's left 
 | `GET /v1/ops/secrets` | `platform:secrets` | key, `last_four`, version, who, when, `kek_version`. **No plaintext, ever, on any route.** |
 | `PUT /v1/ops/secrets/{key}` | `platform:secrets` | new version; step-up `X-Confirm-Action: set_secret:<key>` |
 | `POST /v1/ops/secrets/{key}/test` | `platform:secrets` | **dry-run against the vendor** before the value goes live — see below |
-| `POST /v1/ops/kek/rewrap` | superadmin | KEK rotation: re-wrap every DEK under the new KEK |
+| `GET /v1/ops/secrets/kek` | `platform:secrets` | active KEK, and how many DEKs are still under another one — `platform_secrets` AND clients' `integration_credentials` (walked per tenant, `tenant_credentials_complete` false when the walk ran out of time) |
+| `POST /v1/ops/secrets/kek/rewrap` | `platform:secrets` | KEK rotation: re-wrap every DEK in both stores under the new KEK; step-up `X-Confirm-Action: rewrap_platform_keks` |
 | `GET /v1/ops/model-prices` | `platform:config` | every catalogue model: provider, reference price (greyed pre-fill), attested price if any, and offerability (credential installed? price billable?) |
 | `POST /v1/ops/model-prices/{model}` | `platform:config` | attest a price as a NEW effective-dated row; step-up `X-Confirm-Action: attest_model_price:<model>`; money sent as a decimal STRING, never a float |
 

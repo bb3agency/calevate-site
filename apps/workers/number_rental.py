@@ -1,7 +1,9 @@
-"""The two jobs that keep a bought phone number from costing money nobody can see (D-537).
+"""The jobs that keep a bought phone number from costing money nobody can see (D-537),
+and the one that collects its rental from the client (D-665).
 
     meter_number_rentals      once a month, on the 1st, IST — records what each number cost
     reconcile_engine_numbers  daily — finds a rental nothing here knows about
+    renew_number_rentals      daily — collects each client-priced number's current period
 
 **WHY A CRON AT ALL, WHEN EVERY OTHER COST IN THIS SYSTEM IS EVENT-DRIVEN.** A call
 produces a webhook, and the webhook produces a ledger row; a phone number produces
@@ -59,17 +61,27 @@ HARD RULE 6: ids and counts in every log line and every alarm. No E.164 anywhere
 
 from __future__ import annotations
 
+import json
+from collections import Counter
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from arq import Retry
 from sqlalchemy import text
 
-from apps.api.billing.number_rental import record_number_rental
+from apps.api.billing.number_rental import (
+    collect_number_rental,
+    ist_date,
+    record_number_rental,
+    rental_period_start,
+    today_ist,
+)
 from apps.api.billing.service import current_billing_month
 from apps.api.campaigns.provisioning import number_provisioning_capability
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine import get_engine
 
@@ -237,4 +249,78 @@ async def reconcile_engine_numbers(ctx: dict[str, Any]) -> str:
     return str(summary)
 
 
-__all__ = ["meter_number_rentals", "reconcile_engine_numbers"]
+#: A tenant's numbers that renew: priced for the client and not given back. Read inside
+#: the tenant's own session, so the policy answers it. `created_at` is the anchor the
+#: purchase collected its first month on (`number_catalog.purchase_number`).
+_RENEWING = (
+    "SELECT id, created_at, client_inr_per_month, rental_charged_from FROM phone_numbers "
+    "WHERE client_inr_per_month IS NOT NULL AND released_at IS NULL ORDER BY created_at, id"
+)
+
+_RENEWAL_RETRY_AFTER_S = (60, 600)
+
+
+async def renew_number_rentals(ctx: dict[str, Any]) -> str:
+    """Daily. Collect each live client-priced number's CURRENT rental period, if not yet.
+
+    Daily rather than on each number's renewal date because renewal dates differ per
+    number and a missed tick must not skip a month: every tick asks "is the period that
+    contains today collected?", and collection is idempotent on (number, period), so the
+    answer lands on the renewal date or on the first tick after it, and never twice.
+
+    `collect_number_rental` decides the route and the exemptions: a prepaid account is
+    debited, an invoiced one gets a statement line, and a closed account, a period that
+    began in a trial and a period before `rental_charged_from` are collected from nobody.
+    The directory excludes erased tenants (`_ALL_TENANTS`) and a released number drops out
+    of `_RENEWING`. Each number is collected in its own transaction, so one failure costs
+    nobody else theirs. Failures retry the whole tick (free, by the key), then alarm.
+    """
+    attempt = int(ctx.get("job_try", 1))
+    today = today_ist()
+    async with admin_session() as directory:
+        tenants = [UUID(str(t)) for t in (await directory.execute(text(_ALL_TENANTS))).scalars()]
+    counts: Counter[str] = Counter()
+    failed = 0
+    for tenant_id in tenants:
+        async with tenant_session(tenant_id) as scoped:
+            numbers = (await scoped.execute(text(_RENEWING))).all()
+        for number_id, created_at, inr_per_month, charged_from in numbers:
+            try:
+                async with tenant_session(tenant_id) as scoped:
+                    outcome = await collect_number_rental(
+                        scoped,
+                        tenant_id=tenant_id,
+                        number_id=UUID(str(number_id)),
+                        recorded_at=created_at,
+                        charged_from=charged_from,
+                        period_start=rental_period_start(ist_date(created_at), today),
+                        inr_per_month=Decimal(str(inr_per_month)),
+                    )
+                counts[outcome] += 1
+            except Exception as exc:
+                failed += 1
+                log.error(
+                    "number_rental_renewal_failed",
+                    extra={"number_id": str(number_id), "error": exc.__class__.__name__},
+                )
+    summary: dict[str, Any] = {"day": today.isoformat(), **dict(sorted(counts.items()))}
+    summary["failed"] = failed
+    log.info("number_rentals_renewed", extra=summary)
+    if failed:
+        if attempt < WORKER_MAX_TRIES:
+            raise Retry(defer=_RENEWAL_RETRY_AFTER_S[min(attempt, len(_RENEWAL_RETRY_AFTER_S)) - 1])
+        alert(
+            "WORKER_TERMINAL",
+            "number_rental_renewals_unrecorded",
+            detail=(
+                f"{failed} phone number rental renewal(s) for {today.isoformat()} could not "
+                f"be charged after {attempt} attempt(s). Those clients have not been "
+                "charged for a number that is still renewing at the carrier."
+            ),
+            day=today.isoformat(),
+        )
+        raise RuntimeError(f"{failed} number rental renewal(s) could not be charged")
+    return json.dumps(summary)
+
+
+__all__ = ["meter_number_rentals", "reconcile_engine_numbers", "renew_number_rentals"]

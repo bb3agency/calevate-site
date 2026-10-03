@@ -12,6 +12,7 @@ import {
   SECONDARY_BUTTON_SM,
   formatCount,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import { useFileErasure, useSubjectExport } from "@/lib/api/dataRights";
 import { useActAccess } from "@/lib/api/hooks";
@@ -189,16 +190,14 @@ export function Erasure({
           </div>
         )}
 
-        <Field id="erasure-confirmation" label={`Type ${ERASE_CONFIRMATION} to confirm`}>
-          <input
-            id="erasure-confirmation"
-            value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
-            autoComplete="off"
-            disabled={!access.allowed}
-            className={`${FIELD} font-mono`}
-          />
-        </Field>
+        <TypedConfirmation
+          id="erasure-confirmation"
+          match="exact"
+          phrase={ERASE_CONFIRMATION}
+          value={confirmation}
+          onChange={setConfirmation}
+          disabled={!access.allowed}
+        />
 
         <button
           type="submit"

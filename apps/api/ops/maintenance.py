@@ -18,9 +18,9 @@ out of one clause of it:
   the campaign tick claims no contacts, and inbound agents start answering with the
   maintenance message instead of doing business (`workers/maintenance.py`). Calls that
   were already up stay up; jobs already queued still run; their webhooks still land,
-  because `/hooks` is in `loadshed.ALWAYS_ALLOWED_PREFIXES` and voice-runtime mounts no
-  shed middleware at all. **The portal is still open in `draining`** — the client sees the
-  banner, not the door.
+  because `/hooks` and the Pipecat worker's `/v1/worker` are in
+  `loadshed.ALWAYS_ALLOWED_PREFIXES` and voice-runtime mounts no shed middleware at all.
+  **The portal is still open in `draining`** — the client sees the banner, not the door.
 * **`active` is reached ONLY when in-flight work is zero**, which is the founder's "ONLY
   when", or when the drain deadline passes (below). Entering it writes
   `platform_state.load_shed_mode = 'maintenance'`, which is what actually shuts the client

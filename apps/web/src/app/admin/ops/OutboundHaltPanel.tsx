@@ -12,6 +12,7 @@ import {
   NoticeBox,
   PRIMARY_BUTTON,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import { useSetPlatformState, type PlatformState } from "@/lib/api/admin";
 
@@ -165,16 +166,13 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
             </span>
           </label>
 
-          <label className="block">
-            <span className={FIELD_LABEL}>Type {confirmWord} to confirm</span>
-            <input
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              disabled={!access.allowed}
-              placeholder={confirmWord}
-              className={`${FIELD} font-mono`}
-            />
-          </label>
+          <TypedConfirmation
+            match="exact"
+            phrase={confirmWord}
+            value={confirm}
+            onChange={setConfirm}
+            disabled={!access.allowed}
+          />
 
           <button
             type="submit"

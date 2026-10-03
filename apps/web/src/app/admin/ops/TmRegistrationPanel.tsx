@@ -18,6 +18,7 @@ import {
   formatISTInput,
   istInputToInstant,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import {
   useSetTmRegistration,
@@ -271,16 +272,13 @@ export function TmRegistrationPanel({
             <span className={FIELD_HINT}>Recorded in the activity log with this change.</span>
           </label>
 
-          <label className="block">
-            <span className={FIELD_LABEL}>Type {confirmWord} to confirm</span>
-            <input
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              disabled={!access.allowed}
-              placeholder={confirmWord}
-              className={`${FIELD} font-mono`}
-            />
-          </label>
+          <TypedConfirmation
+            match="exact"
+            phrase={confirmWord}
+            value={confirm}
+            onChange={setConfirm}
+            disabled={!access.allowed}
+          />
 
           {/* What this write does to every tenant, before it is sent. */}
           <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">

@@ -152,7 +152,11 @@ from apps.workers.maintenance import (
     notify_maintenance,
 )
 from apps.workers.notifications import notify_hot_lead
-from apps.workers.number_rental import meter_number_rentals, reconcile_engine_numbers
+from apps.workers.number_rental import (
+    meter_number_rentals,
+    reconcile_engine_numbers,
+    renew_number_rentals,
+)
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pack_gc import PACK_GC_HOUR, PACK_GC_MINUTE, sweep_knowledge_packs
 from apps.workers.pipeline import (
@@ -688,6 +692,17 @@ CRON_JOBS = [
         walk=bounded("one vendor listing against one untenanted read"),
         hour={2},
         minute={35},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE CLIENT'S HALF (D-665): debit each client-priced number's current rental period.
+    # Daily so a missed tick costs a day, not a month; which period is due is computed in
+    # IST from the number's own anchor, never from this host-local schedule. :46 shares
+    # its minute with no other fleet walk.
+    _cron(
+        traced_job(renew_number_rentals),
+        walk=fleet_wide("one tenant_session per organization, then one per client-priced number"),
+        hour={2},
+        minute={46},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE WEEKLY QA SPOT-CHECK (SURFACES §1): 5% of every client's calls, drawn so the

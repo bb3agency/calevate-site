@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 
-import { Drawer } from "@/components/console/drawer";
+import { Drawer, DrawerSubmit } from "@/components/console/drawer";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import { FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
@@ -49,6 +49,7 @@ export function RotateDrawer({
 
   return (
     <Drawer
+      formId={formId}
       open={source !== null}
       onClose={close}
       title={issued ? "New secret issued" : "Issue a new secret"}
@@ -63,9 +64,9 @@ export function RotateDrawer({
             <button type="button" onClick={close} className={SECONDARY_BUTTON}>
               Cancel
             </button>
-            <button type="submit" form={formId} disabled={rotate.isPending} className={PRIMARY_BUTTON}>
+            <DrawerSubmit disabled={rotate.isPending} className={PRIMARY_BUTTON}>
               {rotate.isPending ? "Issuing…" : "Issue new secret"}
-            </button>
+            </DrawerSubmit>
           </>
         )
       }

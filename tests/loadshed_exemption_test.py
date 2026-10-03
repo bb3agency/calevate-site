@@ -72,6 +72,13 @@ EXEMPT_PREFIX_REASONS: dict[str, tuple[str, str]] = {
         "D-177). A dropped engine webhook is a call whose lead never appears, and the "
         "sender's retry window does not wait for our maintenance to end",
     ),
+    "/v1/worker": (
+        "callback",
+        "the Pipecat voice worker calling back into this API (D-592): the session a ringing "
+        "call loads, the in-call opt-out, the settlement that bills a finished call. It is "
+        "the engine's live-call path, bearer-token gated, and shedding it breaks calls "
+        "already in progress rather than reducing load",
+    ),
     "/v1/ops": (
         "operator",
         "the platform switches, including the one that ENDS the shed. A load-shed mode "
@@ -376,3 +383,22 @@ def test_normal_mode_sheds_nothing_at_all() -> None:
         ("/v1/agents", "GET"),
     ):
         assert not is_shed(normal, path=path, method=method), f"{method} {path} was shed"
+
+
+@pytest.mark.parametrize("mode", ["reduced", "emergency", "maintenance"])
+def test_a_live_call_keeps_its_worker_path_in_every_shed_mode(mode: LoadShedMode) -> None:
+    """The Pipecat worker's calls into this API are the live-call path (D-592), not
+    customer traffic. Shedding them broke calls that were already ringing: in `reduced`
+    an in-call opt-out was refused (a caller's "do not call me" lost), and in
+    `maintenance` the session GET was refused, so the maintenance script the window
+    publishes could never be loaded and spoken. Paths are the live route table's."""
+    live = _live_paths()
+    status = PlatformStatus(mode=mode, outbound_halted=True)
+    for path, method in (
+        ("/v1/worker/session/{engine_agent_ref}", "GET"),
+        ("/v1/worker/calls/{engine_call_id}/tools/opt-out", "POST"),
+        ("/v1/worker/calls/{engine_call_id}/settlement", "POST"),
+        ("/v1/worker/calls/{engine_call_id}/speaking", "POST"),
+    ):
+        assert path in live, f"{path} is no longer a route; update this census"
+        assert not is_shed(status, path=path, method=method), f"{method} {path} shed in {mode!r}"

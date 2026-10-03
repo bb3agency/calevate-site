@@ -4,7 +4,7 @@ import { useState } from "react";
 import { RotateCcw, Save, TriangleAlert, Users } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
-import { MonoValue, TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
+import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { useFormValidation } from "@/components/formValidation";
 import {
   FIELD,
@@ -14,6 +14,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "@/components/ui";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { cardRefusalSentences } from "@/lib/api/opsRateCard";
 import {
   isLostUpdate,
@@ -77,7 +78,7 @@ export function ConfigForm({
   // moved — the safe reading, and the one that stops the write.
   const conflicted = (etagOf(field) ?? "") !== basisTag || refused;
   const valid = useFormValidation();
-  const ready = confirmMatches(confirm, word) && !conflicted;
+  const ready = confirmationMatches(confirm, word, "exact") && !conflicted;
   const verdict = appliesVerdict(field);
   // `null` for every other failure, which keeps `WriteFailure` the ONE renderer for those.
   const cardRefusals = cardRefusalSentences(save.error);
@@ -209,9 +210,10 @@ export function ConfigForm({
         <span className={FIELD_HINT}>Saved with the change and in the audit log.</span>
       </label>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`confirm-config-${field.key}`}
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
         hint="This confirms your change and is tied to this setting, so it can't be used to change a different one."
@@ -230,7 +232,7 @@ export function ConfigForm({
         {field.source === "db" && field.has_default && (
           <button
             type="button"
-            disabled={!confirmMatches(confirm, word) || conflicted || revert.isPending}
+            disabled={!confirmationMatches(confirm, word, "exact") || conflicted || revert.isPending}
             onClick={() =>
               revert.mutate(
                 { key: field.key, ifMatch: basisTag },
@@ -260,7 +262,7 @@ export function ConfigForm({
           against a value that has already changed.
         </p>
       ) : (
-        !confirmMatches(confirm, word) &&
+        !confirmationMatches(confirm, word, "exact") &&
         field.source === "db" &&
         field.has_default && (
           <p className="text-xs text-ink-muted">

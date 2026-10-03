@@ -168,12 +168,12 @@ class Call(PKMixin, TimestampMixin, Base):
     #: THEIR id. Without this the request names a number and a date range — wider than the
     #: request should be and slower for the vendor to answer.
     #:
-    #: NOTHING WRITES IT YET, and that is said here rather than left to be discovered: the
-    #: producer is the voice-worker seam. Nullable for that reason and because every call
-    #: already in this table has no such id and never will — a backfill would be inventing
-    #: identifiers. It is deliberately NOT cleared by any erasure arm: it names a row in
-    #: somebody else's system rather than describing a person, and destroying the only
-    #: handle on a copy we are obliged to have erased is the failure
+    #: Written by the worker's settlement and the dial path (`worker/service._UPSERT_CALL_SQL`,
+    #: first value wins), and read by both erasures, which quote it in the `telephony` task.
+    #: Nullable because calls that predate the carrier leg have no such id and never will — a
+    #: backfill would be inventing identifiers. It is deliberately NOT cleared by any erasure
+    #: arm: it names a row in somebody else's system rather than describing a person, and
+    #: destroying the only handle on a copy we are obliged to have erased is the failure
     #: `recording_erasure_holds` exists to prevent.
     carrier_call_id: Mapped[str | None] = mapped_column(Text)
     #: The carrier holding this call's leg (migration f5c2a8e41d07): stamped by the dial gate

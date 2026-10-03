@@ -43,7 +43,8 @@ export function AddVoiceDrawer({
   const [voiceId, setVoiceId] = useState("");
   const [label, setLabel] = useState("");
   const [languages, setLanguages] = useState<string[]>(form.languages.slice(0, 1));
-  useUnsavedGuard(voiceId !== "" || label !== "");
+  const dirty = voiceId !== "" || label !== "";
+  useUnsavedGuard(dirty);
 
   // The model belongs to the provider, so a different provider moves it — in the handler,
   // because it is a consequence of a click, not of a render.
@@ -55,7 +56,7 @@ export function AddVoiceDrawer({
   const complete = provider && model && voiceId.trim() && label.trim() && languages.length > 0;
 
   return (
-    <Drawer open onClose={onClose} title="Add a voice" description={CLONE_FIRST} width="lg">
+    <Drawer open dirty={dirty} onClose={onClose} title="Add a voice" description={CLONE_FIRST} width="lg">
       <form
         noValidate
         className="space-y-5"

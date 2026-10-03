@@ -57,6 +57,7 @@ from calevate_shared.engine import (
     ModelConfig,
     call_of_pipecat_ref,
     carries_truthful_answer_floor,
+    owned_runtime_agent_ref,
     parse_owned_runtime_agent_ref,
     tenant_of_pipecat_ref,
 )
@@ -158,7 +159,8 @@ REMETERABLE_CODES: Final[frozenset[str]] = frozenset({"meter_rate_refused"})
 #: trips would let a publish land between them and produce a session whose prompt came from
 #: one version and whose knowledge pack came from the next.
 _SESSION_SQL: Final = """
-SELECT p.agent_config_version_id,
+SELECT p.agent_id,
+       p.agent_config_version_id,
        p.resolved_config,
        v.composed_prompt,
        v.prompt_sha256,
@@ -169,8 +171,16 @@ SELECT p.agent_config_version_id,
 FROM pipecat_agents AS p
 JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
 JOIN agents AS a ON a.id = p.agent_id
-WHERE p.agent_id = :aid AND p.tenant_id = :tid AND a.status = 'live'
+WHERE p.engine_agent_ref = :ref AND p.tenant_id = :tid AND a.status = 'live'
 """
+
+#: Keyed on the REF, never on the agent the ref parses to. An experiment arm is published as
+#: its own runtime row under its real agent (migration `d9a6e2c85b41`), with a ref minted from
+#: the VARIANT's id: parsing that ref yields an id no `agents` row has, and matching on
+#: `p.agent_id` then found nothing for an arm and up to one row per arm for the agent itself.
+#: `engine_agent_ref` is UNIQUE, so the ref names exactly one row; `p.agent_id` is the real
+#: agent every later write (observations, settlement, attestation) is filed against.
+_RUNTIME_AGENT_SQL: Final = "SELECT agent_id FROM pipecat_agents WHERE engine_agent_ref = :ref"
 
 #: ⚠ **`a.status = 'live'` IS A COMPLIANCE PREDICATE, NOT A TIDINESS ONE (18 Sep 2026).**
 #: Pausing or archiving an agent is supposed to stop it answering, and on the rented engine
@@ -474,14 +484,15 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
     parsed = parse_owned_runtime_agent_ref(engine_agent_ref)
     if parsed is None:
         raise _refuse_unknown_agent()
-    tenant_id, agent_id = parsed
+    tenant_id, _named = parsed
     async with tenant_session(tenant_id) as session:
         row = (
-            await session.execute(text(_SESSION_SQL), {"aid": agent_id, "tid": tenant_id})
+            await session.execute(text(_SESSION_SQL), {"ref": engine_agent_ref, "tid": tenant_id})
         ).first()
     if row is None:
         raise _refuse_unknown_agent()
     (
+        agent_id,
         version_id,
         resolved_config,
         composed_prompt,
@@ -527,6 +538,7 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         models=models,
         engine_agent_ref=None if stored_ref is None else str(stored_ref),
         language=_session_language(published, models),
+        languages_extra=list(published.languages_extra),
         # EVERY AGENT SPEAKS FIRST, ON BOTH LEGS, AND NO COLUMN DECIDES IT TODAY (D-163).
         # `voice_worker/config.py` argued this when it held the read; the value moved with
         # the read rather than the argument being restated in two places.
@@ -559,8 +571,9 @@ async def recall_caller_memory(engine_agent_ref: str, request: CallerMemoryIn) -
     parsed = parse_owned_runtime_agent_ref(engine_agent_ref)
     if parsed is None:
         raise _refuse_unknown_agent()
-    tenant_id, agent_id = parsed
+    tenant_id, named = parsed
     async with tenant_session(tenant_id) as session:
+        agent_id = await _runtime_agent(session, engine_agent_ref, named=named)
         facts = await recall(session, tenant_id, agent_id=agent_id, phone_e164=request.caller_e164)
     # A count, never a fact and never the number (hard rule 6).
     log.info(
@@ -568,6 +581,15 @@ async def recall_caller_memory(engine_agent_ref: str, request: CallerMemoryIn) -
         extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "facts": len(facts)},
     )
     return CallerMemoryOut(facts=list(facts))
+
+
+async def _runtime_agent(session: AsyncSession, engine_agent_ref: str, *, named: UUID) -> UUID:
+    """The real agent behind a ref: its runtime row's `agent_id`, or the parsed id when the
+    ref has no row. See `_RUNTIME_AGENT_SQL` for why an arm's ref does not parse to it."""
+    found = (
+        await session.execute(text(_RUNTIME_AGENT_SQL), {"ref": engine_agent_ref})
+    ).scalar_one_or_none()
+    return named if found is None else UUID(str(found))
 
 
 def _refuse_unknown_agent() -> ProblemError:
@@ -635,10 +657,11 @@ async def record_prompt_attestation(
     parsed = parse_owned_runtime_agent_ref(engine_agent_ref)
     if parsed is None:
         raise _refuse_unknown_agent()
-    tenant_id, agent_id = parsed
-    if request.agent_id != agent_id:
-        raise _refuse_identity("agent")
+    tenant_id, named = parsed
     async with tenant_session(tenant_id) as session:
+        agent_id = await _runtime_agent(session, engine_agent_ref, named=named)
+        if request.agent_id != agent_id:
+            raise _refuse_identity("agent")
         attestation = await record_attestation(
             session,
             tenant_id,
@@ -974,7 +997,10 @@ async def settle_call(engine_call_id: str, request: SettlementRequest) -> Settle
     async with tenant_session(tenant_id) as session:
         await _require_visible_agent(session, request.agent_id)
         models = await _published_models(
-            session, agent_id=request.agent_id, version_id=request.agent_config_version_id
+            session,
+            tenant_id=tenant_id,
+            agent_id=request.agent_id,
+            version_id=request.agent_config_version_id,
         )
         call = await _upsert_call(
             session,
@@ -1233,7 +1259,8 @@ def _check_settlement(request: SettlementRequest) -> None:
 
     ⚠ **THIS USED TO BE "A REFUSAL OR QUANTITIES, NEVER BOTH" (D-625).** That exclusivity
     mirrored an all-or-nothing meter, and between them they made this engine settle nothing
-    at all: no production call has a carrier CDR (BLOCKER-1), so every call arrived as one
+    at all: the worker never holds the carrier's CDR at settlement (it is read afterwards,
+    by `apps/workers/carrier_events`), so every call arrived as one
     refusal and the STT seconds, TTS characters and LLM tokens the worker really measured
     were discarded into an append-only ledger that can never take them later. The rejected
     alternative IS the old rule, and it was rejected because "nobody witnessed the connected
@@ -1297,15 +1324,19 @@ class _Models:
 _VERSION_MODELS_SQL: Final = (
     "SELECT model_config FROM agent_config_versions WHERE id = :vid AND agent_id = :aid"
 )
+#: Keyed on the agent's OWN ref, for `_RUNTIME_AGENT_SQL`'s reason: each experiment arm is a
+#: `pipecat_agents` row under the same `agent_id`, so `p.agent_id` could return an arm's
+#: model config and price the call at the arm's rates. The ref is UNIQUE and names exactly
+#: the agent's own published row.
 _PUBLISHED_MODELS_SQL: Final = """
 SELECT v.model_config FROM pipecat_agents AS p
 JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
-WHERE p.agent_id = :aid
+WHERE p.engine_agent_ref = :ref
 """
 
 
 async def _published_models(
-    session: AsyncSession, *, agent_id: UUID, version_id: UUID | None
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, version_id: UUID | None
 ) -> _Models:
     """What the call ran, from OUR record of the configuration version it was served.
 
@@ -1320,7 +1351,8 @@ async def _published_models(
         if row is None:
             raise _refuse_identity("configuration version")
     else:
-        row = (await session.execute(text(_PUBLISHED_MODELS_SQL), {"aid": agent_id})).first()
+        own_ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
+        row = (await session.execute(text(_PUBLISHED_MODELS_SQL), {"ref": own_ref})).first()
         if row is None:
             return _Models(llm_model=None, tts_provider=None)
     models = ModelConfig.model_validate(row[0])
@@ -1929,11 +1961,10 @@ async def _upsert_call(
     carries it rather than leaving it to be picked out of whichever event arrived first.
 
     `from_e164`/`to_e164` are OPTIONAL and are learned once: see the SQL's own comment for
-    why the stored value wins on conflict. Today no carrier leg supplies them (DEPLOYMENT
-    §12.5 gate 9), so in practice they arrive `None` and the column stays NULL — which is
-    what `leads`, caller memory and the erasure subject all already handle, badly but
-    knowingly. This function's job is to make sure that when a producer DOES exist, nothing
-    between the wire and the column has to change.
+    why the stored value wins on conflict. The worker supplies them when the stream
+    handshake gave it a known caller identity (`voice_worker/pipeline.py::_event`); when it
+    did not they arrive `None`, the column stays NULL, and `leads`, caller memory and the
+    erasure subject all treat that as "no number witnessed".
     """
     if direction == "outbound":
         await _adopt_dialled_call(session, engine_call_id)
@@ -1984,11 +2015,10 @@ async def _adopt_dialled_call(session: AsyncSession, engine_call_id: str) -> Non
 def _duration_s(started_at: datetime | None, ended_at: datetime | None) -> int | None:
     """Our own wall clock across the session, or `None`.
 
-    It is also the CLIENT's billable duration on this engine: with no carrier CDR reader
-    (BLOCKER-1) the founder chose the worker's measured connected time, which the post-call
-    metering stage bills through `charge_for_call` like every engine. It is still not our
-    carrier COST — that stays unpriced until a CDR is read, and a carrier reading that
-    disagrees reconciles by compensating entry, never by UPDATE.
+    It is also the CLIENT's billable duration on this engine (D-648, founder decision), which
+    the post-call metering stage bills through `charge_for_call` like every engine. It is
+    not our carrier COST: `apps/workers/carrier_events` reads the carrier's CDR after the
+    call and records that cost as one compensating row (D-662), never by UPDATE.
     """
     if started_at is None or ended_at is None:
         return None

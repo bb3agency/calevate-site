@@ -939,14 +939,15 @@ or environment variable can move the model to a third country"*) and
 language leg to a third country"*) saying it in their own words. Three surfaces, one
 claim, and this repository contradicts it in two places of its own:
 
-- `packages/shared/src/calevate_shared/config.py:425` — *"Azure hides the region inside
+- `packages/shared/src/calevate_shared/config.py:664` — *"Azure hides the region inside
   the resource rather than in the URL, which makes `azure_openai_resource` **the value
   that decides residency in practice** … note that **no code here can check it**"*;
 - `apps/api/core/platform_config.py:418` — the field's own `AppliesRule` reason: *"a
   resource in the wrong region is **a residency change no code here can detect**"*. It is
   not env-only and not name-sealed as a secret, so `managed_fields()` offers it, and
-  `apps/web/src/app/admin/ops/ConfigPanel.tsx` renders it under a group literally titled
-  *Language model*. It is a text box.
+  the ops console's platform configuration screen (`apps/web/src/app/admin/ops/config/`)
+  renders it in the *Voices and models* section, where `configSections.ts` places every
+  `azure_openai_` key. It is a text box.
 
 **Why the guard is not the answer and never was.** `scripts/check_model_residency.py`
 proves four things about the SOURCE — one spelling of `AZURE_LOCATION`, no `Settings`

@@ -222,6 +222,10 @@ class WorkerSessionOut(BaseModel):
     models: ModelConfig
     engine_agent_ref: str | None = None
     language: str | None = None
+    #: The other languages the agent may answer in (`AgentConfig.languages_extra`, D-666).
+    #: Non-empty means the worker lets the transcriber detect the caller's language
+    #: instead of pinning `language`, which stays the primary the voice is configured for.
+    languages_extra: list[str] = Field(default_factory=list, max_length=8)
     greet_first: bool = True
     knowledge_pack_sha256: str | None = None
     #: Hard rule 5's sentence, carried so the worker can prove it is in the prompt it runs.
@@ -483,8 +487,9 @@ class SettlementRequest(BaseModel):
     """The terminal write, and the one that carries D-607.
 
     **A REFUSAL NAMES A LEG; QUANTITIES NAME OTHER LEGS (D-625).** The rejected alternative
-    is "a refusal OR quantities, never both": under it, no production call having a CDR
-    (BLOCKER-1) means every call settles as one carrier refusal and the STT seconds, TTS
+    is "a refusal OR quantities, never both": under it, the worker never holding the
+    carrier's CDR at settlement (it is read afterwards) means every call settles as one
+    carrier refusal and the STT seconds, TTS
     characters and LLM tokens the worker genuinely measured are discarded — unrecoverably,
     because an append-only ledger cannot be corrected once the settlement has answered. "We
     could not witness the connected minute" is not a reason to disown the three legs we DID

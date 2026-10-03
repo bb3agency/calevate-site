@@ -1,14 +1,11 @@
 """The record of an erasure obligation we cannot discharge in code (D-433).
 
 **The hole this fills.** `execute_deletion_request` erases a data principal from our
-Postgres and our object storage and writes a certificate. The voice platform that carried
-the calls keeps its own copy of the recording and the transcript, in the US, and
-`docs/evidence/subprocessor-erasure-reach.md` §1 enumerates — across all 335 mirrored
-vendor pages — every `DELETE` route that platform documents. Ten routes. Nine delete
-configuration objects. The tenth deletes an agent together with *"ALL agent data including
-all batches, all executions"*, which is the wrong granularity for a request about one
-person: using it would destroy every other caller's records and take the client's live
-receptionist off the air.
+Postgres and our object storage and writes a certificate. Vendors that handled the call
+keep copies this system cannot delete: the telephone carrier (Vobiz) documents no route that
+deletes a call record or a recording, and the speech and language vendors publish no
+per-subject deletion either. (The rented voice platform this module was first written
+against, Bolna, documented only an agent-wide delete; D-639 removed it from the product.)
 
 So for a per-subject erasure there is no API to call, and the obligation does not go away
 because there is no API to call. What is left is a written request to the vendor — a thing
@@ -57,11 +54,13 @@ makes the rule enforceable rather than aspirational.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.engine import tenant_of_pipecat_ref
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,11 +68,13 @@ from apps.api.db.base import uuid7
 
 __all__ = [
     "OVERDUE_AFTER_DAYS",
+    "OWN_RUNTIME_ENGINES",
     "PROCESSORS",
     "STATUSES",
     "ProcessorErasureTask",
     "VendorRefRejectedError",
     "assert_vendor_refs_are_id_shaped",
+    "engine_held_call_refs",
     "open_tasks_for_request",
     "overdue_tasks",
     "record_answer",
@@ -95,12 +96,23 @@ __all__ = [
 #: `telephony` is the carrier (Vobiz, D-662), where the call's audio terminates:
 #: `voice_worker/carrier.py` reads 8 kHz mu-law media frames off the carrier socket in both
 #: directions, so the carrier holds the numbers, its call records and the sound of the
-#: call. The database accepts it (`processor_is_known`, migration `e3a7c05b91d4`), but no
-#: erasure path opens a `telephony` task yet (`apps/workers/retention.py` passes
-#: `voice_engine` and, for a tenant, `speech`/`llm`). Until one does, the "telephone
-#: carrier" entry in `deletion.ERASURE_EXCEPTIONS` carries the truth: Vobiz's API documents
-#: no deletion route, removal is a written request, and none is recorded as made.
+#: call. Both erasures open a `telephony` task naming the carrier's own call ids
+#: (`calls.carrier_call_id`) whenever the erased calls carry one; the "telephone carrier"
+#: entry in `deletion.ERASURE_EXCEPTIONS` is the certificate's side of the same obligation.
+#:
+#: `voice_engine` is a third-party platform that ran the call and holds its own execution
+#: record. On an engine whose conversation runs in OUR program (`OWN_RUNTIME_ENGINES`) there
+#: is no such record to ask for: the call row, the turns and the outcome are ours and the
+#: erasure has already reached them.
 PROCESSORS: Final = ("voice_engine", "speech", "llm", "telephony")
+
+#: Engines that run the conversation in our own program, so the refs they mint
+#: (`pipecat:<tenant>:<id>`, `pckb_<digest>`) name rows in OUR database rather than objects
+#: at a vendor. Quoting them in a vendor request would ask a vendor to delete something it
+#: never held — and the `pipecat:` refs are not id-shaped, so the task INSERT would raise and
+#: take the whole erasure down with it. `tests/processor_erasure_test.py` pins this to
+#: `apps/api/worker/service.ENGINE_NAME`.
+OWN_RUNTIME_ENGINES: Final = frozenset({"pipecat"})
 
 #: `open` — the erasure ran, this processor holds a copy, nobody has asked yet.
 #: `requested` — a human sent the written request; `requested_at` says when.
@@ -164,6 +176,16 @@ def assert_vendor_refs_are_id_shaped(refs: list[str]) -> None:
                 "all-digit ids, it is indistinguishable from a number here and needs a "
                 "prefix before it can be stored."
             )
+
+
+def engine_held_call_refs(engine_call_ids: Iterable[str]) -> list[str]:
+    """The `calls.engine_call_id` values that name an execution at a third-party engine.
+
+    `calls` carries no engine column, so the ref's own shape is the discriminator: an id our
+    runtime minted parses to a tenant (`calevate_shared.engine.tenant_of_pipecat_ref`) and
+    is dropped. Order is preserved so the task lists calls the way the erasure read them.
+    """
+    return [ref for ref in engine_call_ids if tenant_of_pipecat_ref(ref) is None]
 
 
 @dataclass(frozen=True, slots=True)

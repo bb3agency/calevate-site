@@ -90,6 +90,7 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
     drawdown: {
       calls_inr: "8400.00",
       ai_assist_inr: "300.00",
+      number_rental_inr: "0.00",
       adjustments_inr: "0.00",
       spent_inr: "8700.00",
       added_inr: "12100.00",
@@ -105,6 +106,7 @@ const LEDGER_ROWS: WalletLedger = {
       id: "11111111-1111-4111-8111-111111111111",
       delta_inr: "-42.50",
       reason: "usage",
+      label: null,
       ref: "call:9",
       balance_after_inr: "3400.00",
       lots: [],
@@ -115,6 +117,7 @@ const LEDGER_ROWS: WalletLedger = {
       id: "22222222-2222-4222-8222-222222222222",
       delta_inr: "2500.00",
       reason: "topup",
+      label: null,
       ref: "pay_a1b2c3",
       balance_after_inr: "3442.50",
       lots: [],
@@ -449,6 +452,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           drawdown: {
             calls_inr: "0.00",
             ai_assist_inr: "0.00",
+            number_rental_inr: "0.00",
             adjustments_inr: "0.00",
             spent_inr: "0.00",
             added_inr: "0.00",
@@ -783,7 +787,7 @@ describe("the credit itself: what is left, and at which rates", () => {
 });
 
 describe("where the money went", () => {
-  it("names the three things that draw the wallet down and never invents a fourth", async () => {
+  it("names the things that draw the wallet down and never invents another", async () => {
     const { container } = await renderBillingHub(routes());
 
     // SCOPED TO THE CARD. "Calls" is also a ledger row's label now that this realm words
@@ -803,6 +807,33 @@ describe("where the money went", () => {
     expect(screen.queryByText("Corrections")).toBeNull();
   });
 
+  it("names a phone number rental as its own row (D-665)", async () => {
+    await renderBillingHub(
+      routes({
+        [WALLET]: wallet({
+          drawdown: {
+            calls_inr: "8400.00",
+            ai_assist_inr: "0.00",
+            number_rental_inr: "499.00",
+            adjustments_inr: "0.00",
+            spent_inr: "8899.00",
+            added_inr: "12100.00",
+            refunded_inr: "0.00",
+          },
+        }),
+      }),
+    );
+    const card = (
+      await screen.findByText(/Where your credit went in the last 30 days/)
+    ).closest("section") as HTMLElement;
+    const row = within(card).getByText("Phone number rental").closest("div")
+      ?.parentElement?.parentElement as HTMLElement;
+    expect(row.textContent).toContain("₹499.00");
+    within(card).getByText("₹8,899.00");
+    // A zero bucket stays hidden, rental included.
+    expect(within(card).queryByText("Extra AI help")).toBeNull();
+  });
+
   it("designs the day-one empty state rather than showing headers over nothing", async () => {
     await renderBillingHub(
       routes({
@@ -810,6 +841,7 @@ describe("where the money went", () => {
           drawdown: {
             calls_inr: "0.00",
             ai_assist_inr: "0.00",
+            number_rental_inr: "0.00",
             adjustments_inr: "0.00",
             spent_inr: "0.00",
             added_inr: "0.00",
@@ -874,6 +906,7 @@ describe("the ledger and its receipts", () => {
               id: "77777777-7777-4777-8777-777777777777",
               delta_inr: "-60.00",
               reason: "usage",
+              label: null,
               ref: "call:12",
               balance_after_inr: "3400.00",
               occurred_at: "2026-08-30T09:00:00Z",
@@ -901,6 +934,7 @@ describe("the ledger and its receipts", () => {
               id: "88888888-8888-4888-8888-888888888888",
               delta_inr: "-12.00",
               reason: "adjustment",
+              label: null,
               ref: "ai:9",
               balance_after_inr: "3460.00",
               occurred_at: "2026-08-29T09:00:00Z",
@@ -961,6 +995,51 @@ describe("the ledger and its receipts", () => {
     expect(assistDetail?.textContent).not.toContain("/min");
   });
 
+  it("names a rental debit by the server's label, never as calls or AI help (D-665)", async () => {
+    // A rental is `reason = usage` and its splits are `ai_assist` on the wire; only the
+    // entry's `label` says what it is.
+    await renderBillingHub(
+      routes({
+        [LEDGER]: {
+          entries: [
+            {
+              id: "99999999-9999-4999-8999-999999999999",
+              delta_inr: "-499.00",
+              reason: "usage",
+              label: "Phone number rental",
+              ref: "number_rental:aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa:2026-09",
+              balance_after_inr: "2901.00",
+              occurred_at: "2026-09-01T09:00:00Z",
+              payment_ref: null,
+              lots: [
+                {
+                  kind: "ai_assist",
+                  lot_id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+                  credits: "499.00",
+                },
+              ],
+            },
+          ],
+          payments: [],
+        },
+      }),
+      "Transactions",
+    );
+    const table = await screen.findByRole("table", { name: /credit history/i });
+    const rental = within(table).getByRole("button", {
+      name: /Phone number rental \(1 purchase\)/,
+    });
+    expect(within(table).queryByText(/^Calls/)).toBeNull();
+    fireEvent.click(rental);
+    const detail = document.getElementById(
+      rental.getAttribute("aria-controls") ?? "",
+    );
+    await waitFor(() =>
+      expect(detail?.textContent).toContain("₹499.00 from credit bought earlier"),
+    );
+    expect(detail?.textContent).not.toContain("AI help");
+  });
+
   it("leaves a row unexpandable when the server publishes no splits for it", async () => {
     // The state of every API build that has not shipped `WalletEntryOut.lots`, and of every
     // row that is not a wallet debit. The history is still complete and still true; there
@@ -980,6 +1059,7 @@ describe("the ledger and its receipts", () => {
           drawdown: {
             calls_inr: "8400.00",
             ai_assist_inr: "0.00",
+            number_rental_inr: "0.00",
             adjustments_inr: "0.00",
             spent_inr: "8400.00",
             added_inr: "12100.00",
@@ -992,6 +1072,7 @@ describe("the ledger and its receipts", () => {
               id: "55555555-5555-4555-8555-555555555555",
               delta_inr: "-500.00",
               reason: "refund",
+              label: null,
               ref: "pay_a1b2c3",
               balance_after_inr: "2900.00",
               lots: [],
@@ -1002,6 +1083,7 @@ describe("the ledger and its receipts", () => {
               id: "66666666-6666-4666-8666-666666666666",
               delta_inr: "-25.00",
               reason: "adjustment",
+              label: null,
               ref: "adj:1",
               balance_after_inr: "3400.00",
               lots: [],
@@ -1219,6 +1301,8 @@ describe("the explainer's claims about the money", () => {
       /Nothing runs it down except your own calls/,
     );
     expect(explainer.textContent).toMatch(/extra dashboard AI/i);
+    // D-665: the monthly rental is a debit too, so "nothing else does" must name it.
+    expect(explainer.textContent).toMatch(/monthly rent for your phone\s+numbers/i);
     // The panel it used to contradict is on the same screen, saying the same thing.
     const spend = (
       await screen.findByText(/Where your credit went in the last 30 days/)

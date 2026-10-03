@@ -23,6 +23,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 import { useReplayOutbox } from "@/lib/api/admin";
 
 import type { OpsAccess } from "./opsAccess";
@@ -376,16 +377,13 @@ export function OutboxReplayPanel({
             </div>
           </div>
 
-          <label className="block">
-            <span className={FIELD_LABEL}>Type REPLAY to confirm</span>
-            <input
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              disabled={!access.allowed}
-              placeholder="REPLAY"
-              className={`${FIELD} font-mono`}
-            />
-          </label>
+          <TypedConfirmation
+            match="exact"
+            phrase="REPLAY"
+            value={confirm}
+            onChange={setConfirm}
+            disabled={!access.allowed}
+          />
 
           <button
             type="submit"

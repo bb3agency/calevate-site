@@ -6,7 +6,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Checklist } from "@/components/console/checklist";
-import { Drawer } from "@/components/console/drawer";
+import { Drawer, DrawerSubmit } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/console/rowMenu";
@@ -71,6 +71,12 @@ describe("EmptyState", () => {
     render(<EmptyState message="No campaigns yet" action={<button type="button">New campaign</button>} />);
     expect(screen.getByText("No campaigns yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: "New campaign" })).toBeTruthy();
+  });
+
+  it("carries the second line the retired ui.tsx empty state had, for lists nobody can fill", () => {
+    render(<EmptyState message="No transcript yet" hint="Transcripts arrive a couple of minutes after the call ends." />);
+    expect(screen.getByText("No transcript yet")).toBeTruthy();
+    expect(screen.getByText("Transcripts arrive a couple of minutes after the call ends.")).toBeTruthy();
   });
 });
 
@@ -330,6 +336,24 @@ describe("RowMenu", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("names an item by its label and describes it by its hint, not one run-on name", async () => {
+    render(
+      <RowMenu
+        label="Priya"
+        items={[
+          { id: "remove", label: "Remove", ariaLabel: "Remove Priya", onSelect: vi.fn() },
+          { id: "rename", label: "Rename", disabled: true, hint: "Owner only" },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Priya" }));
+    expect(await screen.findByRole("menuitem", { name: "Remove Priya" })).toBeTruthy();
+    const rename = screen.getByRole("menuitem", { name: "Rename" });
+    const described = rename.getAttribute("aria-describedby");
+    expect(described).toBeTruthy();
+    expect(document.getElementById(described!)?.textContent).toBe("Owner only");
+  });
+
   it("runs the chosen action and closes", async () => {
     const onArchive = vi.fn();
     render(<Menu onArchive={onArchive} />);
@@ -367,6 +391,80 @@ describe("Drawer", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+});
+
+describe("Drawer: a form in the body, submitted from the footer", () => {
+  it("binds the footer's submit to the drawer's form, so the button cannot be dead", () => {
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+    render(
+      <Drawer open onClose={vi.fn()} title="Invite" formId="invite-form" footer={<DrawerSubmit>Send invite</DrawerSubmit>}>
+        <form id="invite-form" onSubmit={onSubmit}>
+          <input aria-label="Email" />
+        </form>
+      </Drawer>,
+    );
+    const button = screen.getByRole("button", { name: "Send invite" });
+    expect(button.getAttribute("type")).toBe("submit");
+    expect(button.getAttribute("form")).toBe("invite-form");
+    fireEvent.click(button);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a footer submit in a drawer that names no form", () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() =>
+      render(
+        <Drawer open onClose={vi.fn()} title="Invite" footer={<DrawerSubmit>Send invite</DrawerSubmit>}>
+          <p>Body</p>
+        </Drawer>,
+      ),
+    ).toThrow(/formId/);
+    quiet.mockRestore();
+  });
+});
+
+describe("Drawer: closing over unsaved typing", () => {
+  function Host({ guarded }: { guarded: "prop" | "hook" }) {
+    const [open, setOpen] = useState(true);
+    const [note, setNote] = useState("");
+    function Body() {
+      useUnsavedGuard(note !== "");
+      return null;
+    }
+    return open ? (
+      <Drawer open onClose={() => setOpen(false)} title="Lead" dirty={guarded === "prop" && note !== ""}>
+        <input aria-label="Note" value={note} onChange={(event) => setNote(event.target.value)} />
+        {guarded === "hook" && <Body />}
+      </Drawer>
+    ) : (
+      <p>closed</p>
+    );
+  }
+
+  for (const guarded of ["prop", "hook"] as const) {
+    it(`asks before Escape discards a draft (${guarded}), and Escape again keeps editing`, async () => {
+      render(<Host guarded={guarded} />);
+      fireEvent.change(screen.getByLabelText("Note"), { target: { value: "call back Tuesday" } });
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.getByRole("dialog", { name: "Lead" })).toBeTruthy();
+      const keep = screen.getByRole("button", { name: "Keep editing" });
+      await waitFor(() => expect(document.activeElement).toBe(keep));
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("button", { name: "Keep editing" })).toBeNull();
+      expect((screen.getByLabelText("Note") as HTMLInputElement).value).toBe("call back Tuesday");
+      // The panel's ✕ (the scrim is the other control named "Close").
+      const closers = screen.getAllByRole("button", { name: "Close" });
+      fireEvent.click(closers[closers.length - 1]);
+      fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+      expect(screen.getByText("closed")).toBeTruthy();
+    });
+  }
+
+  it("closes at once when nothing was typed", () => {
+    render(<Host guarded="prop" />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByText("closed")).toBeTruthy();
   });
 });
 

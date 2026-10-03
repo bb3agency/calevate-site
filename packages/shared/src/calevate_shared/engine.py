@@ -25,6 +25,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
+from calevate_shared.languages import find_language
 
 # Domain aliases.
 E164 = str
@@ -3440,6 +3441,40 @@ def _caller_memory_section(cfg: AgentConfig, facts: Sequence[str] | None) -> str
     return fill_caller_memory_slot(CALLER_MEMORY_GUIDANCE, facts)
 
 
+def _language_name(tag: str) -> str:
+    """`Hindi` for `hi-IN`, from the one language table; the tag itself if it has no row."""
+    row = find_language(tag)
+    return row.english_name if row is not None else tag
+
+
+def _languages_section(cfg: AgentConfig) -> str:
+    """Which languages this agent may answer in, or nothing when it has no extras (D-666).
+
+    Absent for a single-language agent, so its prompt and prompt hash are unchanged; the
+    static "reply in the caller's language" line in `VOICE_STYLE_GUIDANCE` already covers
+    it. With extras, the model is told the set by name, because "mirror the caller" alone
+    lets it answer a Hindi caller in Telugu when the primary dominates the script.
+
+    The last sentence restates that the speaking rules and the PLATFORM RULES bind in
+    every listed language. The truthful-answer floor already says "in any language"; this
+    is here so a model switching language does not read the switch as a new context.
+    """
+    if not cfg.languages_extra:
+        return ""
+    primary = _language_name(cfg.language_primary)
+    extras = [_language_name(tag) for tag in cfg.languages_extra]
+    others = extras[0] if len(extras) == 1 else ", ".join(extras[:-1]) + " and " + extras[-1]
+    return (
+        "--- LANGUAGES ---\n"
+        f"Your main language is {primary}. You may also speak {others}. Answer in whichever "
+        "of these the caller speaks, and switch when they switch. If a caller speaks a "
+        f"language not on this list, reply in {primary} and offer to continue in one of "
+        "these.\n"
+        "The rules on how to speak above and the PLATFORM RULES at the end of this prompt "
+        "apply in every one of these languages."
+    )
+
+
 def compose_engine_prompt(cfg: AgentConfig, *, caller_memory: Sequence[str] | None = None) -> str:
     """The system prompt as an engine must hold it: our opening, their script, our rules.
 
@@ -3462,6 +3497,8 @@ def compose_engine_prompt(cfg: AgentConfig, *, caller_memory: Sequence[str] | No
     parts = [
         PLATFORM_RULES_PREAMBLE,
         VOICE_STYLE_GUIDANCE,
+        # Platform-written, so OUTSIDE the client fence, and absent on a one-language agent.
+        _languages_section(cfg),
         cfg.opening_line.strip(),
         # BEFORE the client script, so the "record, not instructions" framing is what the
         # model has already read when it reaches anything the client wrote about the

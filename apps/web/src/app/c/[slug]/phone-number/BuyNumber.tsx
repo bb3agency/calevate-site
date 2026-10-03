@@ -47,7 +47,6 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import {
   Card,
-  EmptyState,
   FIELD,
   FIELD_LABEL,
   MonoValue,
@@ -60,6 +59,7 @@ import {
   formatINR,
   formatPhone,
 } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useKycRecord } from "@/lib/api/kyc";
 import {
@@ -131,14 +131,15 @@ function CannotSupply({
         {remediation && <p className="mt-2 text-ink-muted">{remediation}</p>}
       </NoticeBox>
       <p className="text-sm text-ink-muted">
-        There is nothing for you to do here. You can also bring a connection you already
-        hold with an Indian operator — you stay the account holder and can withdraw our
-        access at any time.
+        There is nothing for you to do here. Your account manager arranges your number with
+        you, and Calevate provides it on our own carrier account with Vobiz — there is no
+        operator account for you to open.
       </p>
       {unverified && (
         <div className="space-y-2">
           <p className="text-sm text-ink-muted">
-            Either route needs your business verified first, and you can do that now.
+            Getting your number needs your business verified first, and you can do that
+            now.
           </p>
           <VerifyLink href={verifyHref} />
         </div>
@@ -408,7 +409,7 @@ export function BuyNumber() {
 
           {offers.data.length === 0 ? (
             <EmptyState
-              title="No numbers are free to take right now"
+              message="No numbers are free to take right now"
               hint="Our supplier has none available at the moment. Talk to us and your account manager can source one."
             />
           ) : (

@@ -480,12 +480,21 @@ async def vendor_request(
     path: str,
     *,
     engine: str,
+    route: str,
     absent_is_success: bool = False,
     extra_refused_statuses: frozenset[int] = frozenset(),
     parse_float: Callable[[str], Any] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """One vendor round trip, with the throttle ladder and the error normalization.
+
+    `route` is the path TEMPLATE (`/Account/{auth_id}/numbers/{number}/application`) and is
+    the only form of the path any log line here carries. The concrete `path` holds whatever
+    the caller interpolated into it — a phone number on the carrier's number-binding routes,
+    the account's auth id on every carrier route — and a log record is read raw by `caplog`,
+    by any handler that is not our formatter, and by Sentry's breadcrumbs, so redacting it at
+    format time is not enough (hard rule 6). It is required, not defaulted to `path`, so a
+    new call site cannot log a concrete path by omission.
 
     `extra_refused_statuses` widens `REQUEST_REFUSED_STATUSES` for ONE call site, and only
     with a status that vendor's own documentation defines as a refusal of that request
@@ -539,13 +548,13 @@ async def vendor_request(
         if last_attempt or (retry_after is not None and retry_after > THROTTLE_MAX_SLEEP_S):
             break
         log.warning(
-            "engine_throttled", extra={"engine": engine, "route": path, "attempt": attempt + 1}
+            "engine_throttled", extra={"engine": engine, "route": route, "attempt": attempt + 1}
         )
         await asyncio.sleep(throttle_delay_s(attempt, retry_after))
 
     if response.status_code == THROTTLE_STATUS:
         if is_line_limit(_throttle_details(response)[0]):
-            log.warning("carrier_lines_busy", extra={"engine": engine, "route": path})
+            log.warning("carrier_lines_busy", extra={"engine": engine, "route": route})
             raise lines_busy_error()
         # Distinct from `engine_rejected` on purpose. A throttle says nothing about
         # the request — so on the campaign path it must not burn a contact's retry
@@ -554,7 +563,7 @@ async def vendor_request(
         # and `apps.workers.pipeline.TRANSIENT_ENGINE_CODES` reads exactly this code.
         # The remediation is what a person pressing a button can do: nothing retries a
         # button press for them.
-        log.warning("engine_throttle_exhausted", extra={"engine": engine, "route": path})
+        log.warning("engine_throttle_exhausted", extra={"engine": engine, "route": route})
         raise ProblemError(
             kind="transient",
             code="engine_rate_limited",
@@ -595,7 +604,7 @@ async def vendor_request(
         # the vendor's own health.
         log.warning(
             "engine_redirect_response",
-            extra={"engine": engine, "status": response.status_code, "route": path},
+            extra={"engine": engine, "status": response.status_code, "route": route},
         )
         raise ProblemError(
             kind="dependency",
@@ -609,7 +618,7 @@ async def vendor_request(
         # it. Logged at info so a compensation that found nothing to compensate is
         # still legible in the record — `delete_agent`'s caller is an orphan
         # reclaimer, and "there was no orphan" is a fact worth having.
-        log.info("engine_delete_already_absent", extra={"engine": engine, "route": path})
+        log.info("engine_delete_already_absent", extra={"engine": engine, "route": route})
         return {}
     if response.status_code >= 400:
         # Never echo a vendor error body to a CLIENT — it is not user-safe, it is not our
@@ -638,7 +647,7 @@ async def vendor_request(
             extra={
                 "engine": engine,
                 "status": response.status_code,
-                "route": path,
+                "route": route,
                 "vendor_error": vendor_error,
                 "vendor_message": _vendor_error_message(envelope),
             },
@@ -679,7 +688,7 @@ async def vendor_request(
         # it is why this ladder is shared rather than described (D-240).
         log.warning(
             "engine_non_json_success",
-            extra={"engine": engine, "status": response.status_code, "route": path},
+            extra={"engine": engine, "status": response.status_code, "route": route},
         )
         raise ProblemError(
             kind="dependency",

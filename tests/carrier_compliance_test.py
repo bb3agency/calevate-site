@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import io
 import uuid
+from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -46,6 +48,27 @@ pytestmark = [pytest.mark.rls]
 PATH = "/v1/compliance/carrier-application"
 # A plausible carrier reference. Opaque to us by design: we carry it, we never parse it.
 CARRIER_REF = "CA-4471-TS"
+
+
+@pytest.fixture
+def on_plivo(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The carrier switch on Plivo, the one carrier whose rule this module enforces (D-666).
+
+    The default switch is Vobiz, where every gate here stands aside, so a test of the gate
+    itself has to select the carrier it binds.
+    """
+    monkeypatch.setenv("CARRIER", "plivo")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def on_vobiz(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setenv("CARRIER", "vobiz")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def _client() -> AsyncClient:
@@ -706,7 +729,7 @@ async def test_ops_reads_one_clients_application_and_the_read_is_recorded(s3: An
 
 
 async def test_a_number_we_supply_cannot_be_recorded_without_an_accepted_application(
-    s3: Any,
+    s3: Any, on_plivo: None
 ) -> None:
     """The acquisition gate. `engine_owned` is the column that means "we rented this on
     our carrier account", which is exactly the set the carrier's rule is about."""
@@ -772,7 +795,7 @@ async def test_a_clients_own_connection_is_not_gated_on_our_carriers_opinion() -
 
 
 async def test_the_dial_gate_refuses_a_tenant_without_an_accepted_application(
-    monkeypatch: pytest.MonkeyPatch, s3: Any
+    monkeypatch: pytest.MonkeyPatch, s3: Any, on_plivo: None
 ) -> None:
     """The dial-time half. It exists because acceptance can stop being true AFTER the
     number is in hand — a carrier suspends an application over unresolved UCC complaints,
@@ -837,7 +860,7 @@ async def test_a_tenant_dialling_from_its_own_connection_is_not_refused(
 
 
 async def test_an_expired_approval_stops_the_dial_again(
-    monkeypatch: pytest.MonkeyPatch, s3: Any
+    monkeypatch: pytest.MonkeyPatch, s3: Any, on_plivo: None
 ) -> None:
     """The reason this gate is asked per dial at all: an approval that lapses or is
     suspended must close the line it opened."""
@@ -863,7 +886,7 @@ async def test_an_expired_approval_stops_the_dial_again(
 
 
 async def test_the_launch_preview_names_the_same_blocker_before_the_client_hits_it(
-    s3: Any,
+    s3: Any, on_plivo: None
 ) -> None:
     """SURFACES §2b wants a blocker a client can SEE. A campaign that launches "ready" and
     is then refused on every dial is the worst outcome available."""
@@ -896,6 +919,112 @@ async def test_the_launch_preview_names_the_same_blocker_before_the_client_hits_
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
     assert "carrier_application_missing" in {blocker.rule for blocker in blockers}
+
+
+# ----------------------------------------------- the gate stands aside on Vobiz (D-666)
+
+
+def test_only_plivo_needs_a_per_client_application(on_vobiz: None) -> None:
+    """The one predicate every gate asks. The switch decides when no carrier is named."""
+    from apps.api.compliance.carrier_application import (
+        CARRIERS_REQUIRING_APPLICATION,
+        carrier_application_required,
+    )
+
+    assert frozenset({"plivo"}) == CARRIERS_REQUIRING_APPLICATION
+    assert carrier_application_required("plivo") is True
+    assert carrier_application_required("vobiz") is False
+    assert carrier_application_required() is False
+
+
+async def test_on_vobiz_a_number_we_supply_is_recorded_with_nothing_on_file(
+    on_vobiz: None,
+) -> None:
+    """Calevate's own Vobiz KYC covers the numbers on its own account, so the acquisition
+    gate stands aside and asks for no application."""
+    from apps.api.agents.service import provision_number
+
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    async with tenant_session(tenant_id) as session:
+        number_id = await provision_number(
+            session,
+            tenant_id=tenant_id,
+            e164=_unique_e164(),
+            series="standard",
+            agent_id=None,
+            provider="vobiz",
+            purpose="inbound",
+            engine_owned=True,
+            monthly_rental_usd=Decimal("1.50"),
+        )
+    assert number_id is not None
+
+
+async def test_on_vobiz_the_dial_and_the_launch_preview_name_no_carrier_blocker(
+    monkeypatch: pytest.MonkeyPatch, on_vobiz: None
+) -> None:
+    """The dial-time half and the launch preview, on the same fixture that refuses on Plivo
+    above: a supplied number and no application on file."""
+    from apps.api.campaigns import service as campaigns
+    from apps.api.compliance.service import carrier_application_blocker, check_dispatch
+
+    monkeypatch.setattr("apps.api.compliance.service.within_calling_hours", lambda *a, **k: True)
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    agent_id = await _agent(tenant_id)
+    await arm_agent_for_outbound(tenant_id, agent_id)
+    await _mark_numbers_carrier_supplied(tenant_id, agent_id)
+
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await carrier_application_blocker(session, tenant_id=tenant_id, agent_id=agent_id)
+            is None
+        )
+        decision = await check_dispatch(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919000000014"
+        )
+        number_id = (
+            await session.execute(
+                text("SELECT id FROM phone_numbers WHERE agent_id = :aid LIMIT 1"),
+                {"aid": agent_id},
+            )
+        ).scalar_one()
+        campaign_id = await campaigns.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Carrier gate preview on Vobiz",
+            classification="promotional",
+            number_id=number_id,
+            dlt_template_id=None,
+            concurrency=1,
+        )
+        blockers = await campaigns.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    assert decision.rule not in {"carrier_application_missing", "carrier_application_not_accepted"}
+    rules = {blocker.rule for blocker in blockers}
+    assert "carrier_application_missing" not in rules
+    assert "carrier_application_not_accepted" not in rules
+
+
+async def test_the_read_says_whether_the_current_carrier_needs_the_application(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`required` is the server's answer, so the console never decides which carrier the
+    rule binds."""
+    org = await _tenant()
+    for carrier, required in (("vobiz", False), ("plivo", True)):
+        monkeypatch.setenv("CARRIER", carrier)
+        get_settings.cache_clear()
+        try:
+            async with _client() as http:
+                response = await http.get(PATH, headers=await _headers(org))
+        finally:
+            get_settings.cache_clear()
+        assert response.status_code == 200, response.text
+        assert response.json()["required"] is required
 
 
 # ------------------------------------------------------------------------ hard rule 1

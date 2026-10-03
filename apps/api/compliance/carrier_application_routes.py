@@ -60,6 +60,7 @@ from apps.api.compliance.carrier_application import (
     assert_document_within_limits,
     assert_first_application_is_signed,
     assert_submittable,
+    carrier_application_required,
     classify_document,
     current_carrier,
     ensure_application_row,
@@ -127,6 +128,10 @@ class CarrierApplicationOut(BaseModel):
     submitted_at: datetime | None
     decided_at: datetime | None
     is_accepted: bool
+    # Whether the CURRENT carrier needs this application at all (D-666: Plivo yes, Vobiz no).
+    # Server-side for `is_accepted`'s reason: the console must not decide which carrier the
+    # rule binds.
+    required: bool
 
 
 class CarrierDecisionIn(BaseModel):
@@ -173,6 +178,7 @@ def _out(record: CarrierApplicationRecord) -> CarrierApplicationOut:
         submitted_at=record.submitted_at,
         decided_at=record.decided_at,
         is_accepted=record.is_accepted,
+        required=carrier_application_required(),
     )
 
 

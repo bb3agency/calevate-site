@@ -11,6 +11,23 @@ import { ContactEditor } from "./ContactEditor";
 import type { CampaignFormState, ScheduleFormState } from "./campaignForm";
 import { BasicsStep, ReviewSummary, WhenStep, type ListQuery } from "./NewCampaignSteps";
 
+/** The platform calling window, IST. `campaigns/service.py::_validated_window` refuses a
+ * campaign window that starts before or ends after it, or that ends before it starts. */
+export const PLATFORM_WINDOW = { start: "09:00", end: "21:00" } as const;
+
+/**
+ * Why this narrowed window would be refused at create, or `null`. Mirrors the server so the
+ * refusal lands on the step that set the window rather than on "Create campaign" three
+ * steps later. Zero-padded HH:MM strings compare correctly as text.
+ */
+export function windowRefusal(start: string, end: string): string | null {
+  if (start >= end) return "The calling window has to start before it ends.";
+  if (start < PLATFORM_WINDOW.start || end > PLATFORM_WINDOW.end) {
+    return "Calls can only go out between 9am and 9pm IST. Choose a window inside those hours.";
+  }
+  return null;
+}
+
 /**
  * NEW CAMPAIGN, one subject per step: the basics, who to call, when, then review.
  *
@@ -124,7 +141,9 @@ export function NewCampaignFlow({
               ? "Choose between 1 and 10 calls at the same time."
               : form.restrictHours && (!form.windowStart || !form.windowEnd)
                 ? "Choose both a start and an end time."
-                : schedule.startMode === "later" && !schedule.startIso
+                : form.restrictHours && windowRefusal(form.windowStart, form.windowEnd)
+                  ? windowRefusal(form.windowStart, form.windowEnd)
+                  : schedule.startMode === "later" && !schedule.startIso
                   ? "Choose the date and time it should start."
                   : schedule.startMode === "weekly" && schedule.repeatDays.length === 0
                     ? "Choose at least one day for this campaign to repeat on."

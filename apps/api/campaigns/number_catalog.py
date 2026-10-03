@@ -49,8 +49,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import NUMBER_DIRECTIONS, series_for_e164
 from apps.api.agents.service import InboundRouting
-from apps.api.billing.rates import PREPAID_TIERS
+from apps.api.billing.number_rental import collect_number_rental, is_prepaid, ist_date
 from apps.api.billing.service import get_balance
+from apps.api.billing.trials import trial_billing_active
 from apps.api.campaigns import number_supply
 from apps.api.campaigns.number_holder import HolderIdentity, require_holder
 from apps.api.campaigns.number_pricing import AttestedNumberPrice, require_attested_price_inr
@@ -183,26 +184,24 @@ async def _vendor_quote_for(
     )
 
 
-_TIER_SQL = "SELECT plan_tier FROM organizations LIMIT 1"
-
-
 async def _assert_can_afford(session: AsyncSession, *, tenant_id: UUID, amount: Decimal) -> None:
     """Refuse a purchase the wallet cannot cover, BEFORE the vendor is called.
 
     ONLY FOR A PREPAID ACCOUNT. A managed client is invoiced against a retainer and has no
     wallet, so a balance test would refuse them for a number they are not paying from —
     the reasoning `wallet.read_wallet` gives for taking `prepaid` as an argument rather
-    than deriving it. `PREPAID_TIERS` rather than the literal tiers, because that tuple is
-    the one place the motion is named.
+    than deriving it.
 
-    It is a PRE-CHECK, not a hold. The wallet is not debited here: a number's rental is
-    metered monthly by `billing/number_rental.py`, so there is nothing to reserve and a
-    reservation would be a second money path for one charge. What this prevents is the
-    part-completed purchase — a vendor charged, a rental started, and a client with no
-    credit to meet the first month of it.
+    It is a PRE-CHECK, not a hold. The first month is debited after the carrier purchase,
+    in the transaction that records the number (`collect_number_rental`); checking here
+    rather than debiting here is what stops a part-completed purchase — a carrier charged
+    and a client with no credit to meet the first month of it — without a reservation
+    that would be a second money path for one charge. Skipped in a trial, where the first
+    month is not debited at all.
     """
-    tier = (await session.execute(text(_TIER_SQL))).scalar()
-    if str(tier) not in PREPAID_TIERS:
+    if not await is_prepaid(session, tenant_id=tenant_id):
+        return
+    if await trial_billing_active(session, tenant_id=tenant_id):
         return
     balance = await get_balance(session, tenant_id=tenant_id)
     if balance.amount_inr >= amount:
@@ -241,7 +240,9 @@ async def purchase_number(
 
     The row is then completed in the SAME transaction as the INSERT, so a number cannot
     exist with no direction and no price: `agents/service.provision_number` writes the row
-    and does not know about either column.
+    and does not know about either column. The first month is collected in that same
+    transaction too (D-665): from a prepaid wallet, onto a managed invoice, or not at all
+    in a trial.
     """
     assert_number_supply_authorized()
     price = await require_attested_price_inr(session)
@@ -267,18 +268,32 @@ async def purchase_number(
         agent_id=None,
         purpose=None,
     )
-    await session.execute(
-        text(
-            "UPDATE phone_numbers SET direction = :dir, client_inr_per_month = :inr, "
-            "activated_at = CASE WHEN :verified THEN now() ELSE NULL END, "
-            "updated_at = now() WHERE id = :id"
-        ),
-        {
-            "dir": direction,
-            "inr": price.inr_per_month,
-            "verified": verified,
-            "id": bought.number_id,
-        },
+    recorded_at = (
+        await session.execute(
+            text(
+                "UPDATE phone_numbers SET direction = :dir, client_inr_per_month = :inr, "
+                "activated_at = CASE WHEN :verified THEN now() ELSE NULL END, "
+                "updated_at = now() WHERE id = :id RETURNING created_at"
+            ),
+            {
+                "dir": direction,
+                "inr": price.inr_per_month,
+                "verified": verified,
+                "id": bought.number_id,
+            },
+        )
+    ).scalar_one()
+    # THE FIRST MONTH, in this transaction (D-665): debited, invoiced, or free in a trial,
+    # as `collect_number_rental` decides. The renewal job anchors on the same `created_at`,
+    # so the period it computes for today is this one and it never collects it twice.
+    await collect_number_rental(
+        session,
+        tenant_id=tenant_id,
+        number_id=bought.number_id,
+        recorded_at=recorded_at,
+        charged_from=None,
+        period_start=ist_date(recorded_at),
+        inr_per_month=price.inr_per_month,
     )
     log.info(
         "client_number_purchased",

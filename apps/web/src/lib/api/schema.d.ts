@@ -1821,8 +1821,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Record a calling number the client holds — the series is the compliance-bearing field
-         * @description Records a telephone connection the CLIENT has already taken in their own name with an Indian operator, so the campaign launch gate can match its series against a campaign's classification. Calevate does not supply, buy or resell the number: the client is the subscriber of record and issues Calevate revocable API credentials for it. `dlt_status` starts `pending` and is a separate, deliberate step.
+         * Record a calling number for the client — the series is the compliance-bearing field
+         * @description Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step.
          */
         post: operations["provision_number_v1_admin_tenants__tenant_id__numbers_post"];
         delete?: never;
@@ -3926,7 +3926,15 @@ export interface paths {
         /** Every campaign, newest first — a launched campaign must be findable later */
         get: operations["list_campaigns_v1_campaigns_get"];
         put?: never;
-        /** Create Campaign */
+        /**
+         * Create Campaign
+         * @description Create a draft, recording a consent declaration made with it.
+         *
+         *     The new-campaign flow asks where the list came from in the same step as the list, so
+         *     this is where most declarations now arrive. It writes the same audit row as
+         *     `declare_consent_provenance`, because the attributability that route argues for does
+         *     not depend on which request carried the answer.
+         */
         post: operations["create_campaign_v1_campaigns_post"];
         delete?: never;
         options?: never;
@@ -6724,6 +6732,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/tts-prices/plan-fees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The monthly plan fee attested for each plan-billed voice vendor, for one month
+         * @description For one IST billing month (`month=YYYY-MM`, default the current month), lists every voice vendor billed as a monthly plan with the attestation live now for that month, or null when none is recorded, and this tree's own reference figure for the form's pre-fill. It resolves exactly as the spend board does: the month selects the subject and the attestation live now is the one shown.
+         */
+        get: operations["list_voice_plan_fees_v1_ops_tts_prices_plan_fees_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/tts-prices/{provider}": {
         parameters: {
             query?: never;
@@ -8637,6 +8665,8 @@ export interface components {
             is_accepted: boolean;
             /** Recorded */
             recorded: boolean;
+            /** Required */
+            required: boolean;
             /** Rejection Reason */
             rejection_reason: string | null;
             /** Signed Application On File */
@@ -10425,6 +10455,8 @@ export interface components {
             ai_assist_inr: string;
             /** Calls Inr */
             calls_inr: string;
+            /** Number Rental Inr */
+            number_rental_inr: string;
             /** Refunded Inr */
             refunded_inr: string;
             /** Spent Inr */
@@ -12331,6 +12363,12 @@ export interface components {
             has_retired_kek: boolean;
             /** Pending */
             pending: number;
+            /** Tenant Credentials */
+            tenant_credentials: number;
+            /** Tenant Credentials Complete */
+            tenant_credentials_complete: boolean;
+            /** Tenant Credentials Pending */
+            tenant_credentials_pending: number;
             /** Versions */
             versions: number;
         };
@@ -15440,6 +15478,14 @@ export interface components {
             examined: number;
             /** Rewrapped */
             rewrapped: number;
+            /** Tenant Credentials Complete */
+            tenant_credentials_complete: boolean;
+            /** Tenant Credentials Examined */
+            tenant_credentials_examined: number;
+            /** Tenant Credentials Rewrapped */
+            tenant_credentials_rewrapped: number;
+            /** Tenant Credentials Unreadable */
+            tenant_credentials_unreadable: string[];
             /** Unreadable */
             unreadable: string[];
         };
@@ -16238,6 +16284,8 @@ export interface components {
             calls_inr: string;
             /** Date */
             date: string;
+            /** Number Rental Inr */
+            number_rental_inr: string;
             /** Spent Inr */
             spent_inr: string;
         };
@@ -16297,6 +16345,8 @@ export interface components {
             days: components["schemas"]["SpendDayOut"][];
             /** From Date */
             from_date: string;
+            /** Number Rental Inr */
+            number_rental_inr: string;
             /** Spent Inr */
             spent_inr: string;
             /**
@@ -17765,6 +17815,19 @@ export interface components {
             tier_label: string;
         };
         /**
+         * TtsPlanFeeSlotOut
+         * @description One plan-billed voice vendor for one month: what is attested, and the pre-fill.
+         */
+        TtsPlanFeeSlotOut: {
+            attested: components["schemas"]["TtsPlanFeeOut"] | null;
+            /** Provider */
+            provider: string;
+            /** Reference Plan Inr */
+            reference_plan_inr: string;
+            /** Tier Label */
+            tier_label: string;
+        };
+        /**
          * TtsPlanFeeWriteOut
          * @description The fee as it now stands, plus the instant the write was made at.
          */
@@ -17772,6 +17835,18 @@ export interface components {
             /** As Of */
             as_of: string;
             plan_fee: components["schemas"]["TtsPlanFeeOut"];
+        };
+        /**
+         * TtsPlanFeesOut
+         * @description Every plan-billed voice vendor's fee for one IST month, as the spend board reads it.
+         */
+        TtsPlanFeesOut: {
+            /** As Of */
+            as_of: string;
+            /** Fees */
+            fees: components["schemas"]["TtsPlanFeeSlotOut"][];
+            /** Month */
+            month: string;
         };
         /**
          * TtsPlanSpendOut
@@ -18494,6 +18569,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Label */
+            label: string | null;
             /** Lots */
             lots: {
                 [key: string]: string;
@@ -29995,6 +30072,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpendCapRecomputeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_voice_plan_fees_v1_ops_tts_prices_plan_fees_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TtsPlanFeesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

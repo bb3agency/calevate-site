@@ -37,7 +37,7 @@ reason the shared module carries `comprehension_only` as a separate field.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Final, Literal, get_args
 
 from calevate_shared.languages import (
@@ -53,6 +53,7 @@ __all__ = [
     "Language",
     "OfferedLanguage",
     "language_refusal",
+    "published_extra_languages",
 ]
 
 #: THE THREE THE PRODUCT SELLS, as the wire and `agents.language_primary` spell them.
@@ -137,3 +138,18 @@ def _offered(value: object) -> object:
 #: already bounds, and a validator on the way OUT would turn a schema fault into a
 #: five-hundred with a sentence addressed to a caller who did not send it.
 OfferedLanguage = Annotated[Language, BeforeValidator(_offered)]
+
+
+def published_extra_languages(primary: str, stored: Sequence[str] | None) -> list[str]:
+    """The extra languages an agent is published with, from `agents.languages_extra`.
+
+    Offered tags only, never the primary, each once, in the order stored. The intake form
+    offers only these tags, so the filter is a backstop for a row written another way: a
+    language we do not sell has no disclosure sentences, and one the voices cannot speak
+    would leave a caller answered with silence.
+    """
+    extra: list[str] = []
+    for tag in stored or ():
+        if tag in PRODUCT_LANGUAGES and tag != primary and tag not in extra:
+            extra.append(tag)
+    return extra

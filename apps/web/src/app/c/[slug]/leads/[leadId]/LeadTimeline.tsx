@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { Bell, CircleDot, PhoneCall, StickyNote, UserCheck } from "lucide-react";
 
-import { Card, EmptyState, ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { Card, ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { LoadMore } from "@/components/interior/load-more";
 import type { LeadTimelineEvent, useLeadTimeline } from "@/lib/api/leads";
 import { lookup } from "@/lib/lookup";
@@ -116,7 +117,7 @@ export function LeadTimeline({
                 request never gets this far, which is the whole point of the branch
                 order above. */}
             <EmptyState
-              title="Nothing has happened yet"
+              message="Nothing has happened yet"
               hint="Calls, status changes, alerts and blocked dials all appear here."
             />
           </Card>

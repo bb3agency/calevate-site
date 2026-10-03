@@ -88,7 +88,9 @@ const PE_ACTIVE: PeRegistration = {
   calevate_tm_active: true,
 };
 
-const SCREEN = /Indian telecom rules/;
+// The page header, which is on screen whatever the records say. Anchored to the header
+// sentence: the number card says "Indian telecom rules require …" too.
+const SCREEN = /Indian telecom rules ask two things/;
 
 describe("the verification gate under failure", () => {
   it("refuses to answer at all when the record could not be read", async () => {

@@ -18,7 +18,7 @@ import { takesCreditAway } from "@/lib/api/credits";
 import {
   WALLET_LEDGER_LIMIT,
   useWalletLedger,
-  walletReasonLabel,
+  walletEntryLabel,
   type WalletEntry,
 } from "@/lib/api/wallet";
 import type { Session } from "@/lib/api/client";
@@ -180,7 +180,7 @@ function LedgerRow({
         </td>
         <td className="py-3 pr-3 text-ink">
           {splits === undefined ? (
-            walletReasonLabel(entry.reason)
+            walletEntryLabel(entry)
           ) : (
             /* A DISCLOSURE, not a link and not a second row always open: the splits are
                the answer to "why is this figure what it is", which most readers never ask
@@ -195,7 +195,7 @@ function LedgerRow({
               aria-controls={detailId}
               className="rounded-sm text-left underline decoration-dotted underline-offset-4 outline-none hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
-              {walletReasonLabel(entry.reason)}{" "}
+              {walletEntryLabel(entry)}{" "}
               <span className="text-ink-muted">
                 ({splits.length === 1 ? "1 purchase" : `${splits.length} purchases`})
               </span>
@@ -238,7 +238,7 @@ function LedgerRow({
             <ul className="space-y-1 text-xs text-ink-muted">
               {splits.map((split, index) => (
                 <li key={`${split.lot_id}-${index}`} className="tabular-nums">
-                  {splitSentence(split, labels)}
+                  {splitSentence(split, labels, entry.label !== null)}
                 </li>
               ))}
             </ul>
@@ -260,7 +260,16 @@ function LedgerRow({
  * The quality is named only when the server told us its name: an unnamed rate is still a
  * true and useful sentence, and the vendor's word is never a fallback.
  */
-function splitSentence(split: LotSplit, labels: TierLabels | undefined): string {
+function splitSentence(
+  split: LotSplit,
+  labels: TierLabels | undefined,
+  labelled: boolean,
+): string {
+  // A phone number rental draws rupees the way an AI block does, so its splits are
+  // `ai_assist` on the wire; the entry's own label is what tells the two apart (D-665).
+  if (split.kind === "ai_assist" && labelled) {
+    return `${formatINR(split.credits)} from credit bought earlier`;
+  }
   if (split.kind === "ai_assist") {
     return `${formatINR(split.credits)} of extra AI help, from credit bought earlier`;
   }

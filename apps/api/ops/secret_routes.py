@@ -77,7 +77,14 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.config_service import propagate
 from apps.api.ops.secret_probes import ProbeOutcome, probe_configured_carrier, probe_credential
-from apps.api.ops.secret_service import SecretRecord, read_secrets, rewrap_all, set_secret
+from apps.api.ops.secret_service import (
+    SecretRecord,
+    count_tenant_credential_keks,
+    read_secrets,
+    rewrap_all,
+    rewrap_tenant_credentials,
+    set_secret,
+)
 
 router = APIRouter(prefix="/v1/ops/secrets", tags=["ops"])
 #: The carrier pair is env-only, so it has no `{key}` on the router above to test under.
@@ -463,6 +470,13 @@ class KekOut(BaseModel):
     #: Versions still wrapped under something else. Zero means the rotation is complete
     #: and the retired key can be removed from the environment.
     pending: int
+    #: Clients' saved integration credentials (`integration_credentials`), the second
+    #: store sealed under the same KEK. The retired key may be removed only when BOTH
+    #: `pending` and this pending are zero AND `tenant_credentials_complete` is true.
+    tenant_credentials: int
+    tenant_credentials_pending: int
+    #: False when the per-tenant walk ran out of time, so the pending figure is a floor.
+    tenant_credentials_complete: bool
 
 
 class RewrapOut(BaseModel):
@@ -474,6 +488,14 @@ class RewrapOut(BaseModel):
     #: the retired key is removed, so they are reported rather than counted away.
     unreadable: list[str]
     active_kek_id: int
+    #: The same three figures for clients' saved integration credentials, which are
+    #: re-wrapped in the same run. `tenant_credentials_unreadable` entries are
+    #: `<tenant_id>:<credential_id>`.
+    tenant_credentials_examined: int
+    tenant_credentials_rewrapped: int
+    tenant_credentials_unreadable: list[str]
+    #: False when the walk ran out of time: run the rewrap again until it reads true.
+    tenant_credentials_complete: bool
 
 
 REWRAP_CONFIRMATION = "rewrap_platform_keks"
@@ -498,12 +520,16 @@ async def read_kek(session: GlobalSession, _: SecretOperator) -> KekOut:
     ).first()
     versions = int(row[0]) if row else 0
     current = int(row[1]) if row else 0
+    tenant = await count_tenant_credential_keks(ring=ring)
     return KekOut(
         active_kek_id=ring.active.kek_id,
         has_retired_kek=bool(ring.retired),
         versions=versions,
         current=current,
         pending=versions - current,
+        tenant_credentials=tenant.total,
+        tenant_credentials_pending=tenant.pending,
+        tenant_credentials_complete=tenant.complete,
     )
 
 
@@ -538,6 +564,9 @@ async def rewrap_keks(
     """
     step_up.require(x_confirm_action, REWRAP_CONFIRMATION)
     result = await rewrap_all(session)
+    # Its own per-tenant transactions, not this session: `integration_credentials` is
+    # FORCE-RLS'd and this global session sees none of it (hard rule 1).
+    tenant = await rewrap_tenant_credentials()
     await write_audit(
         session,
         action="platform.kek_rewrapped",
@@ -549,6 +578,10 @@ async def rewrap_keks(
             "rewrapped": result.rewrapped,
             "unreadable": list(result.unreadable),
             "kek_id": result.kek_id,
+            "tenant_credentials_examined": tenant.examined,
+            "tenant_credentials_rewrapped": tenant.rewrapped,
+            "tenant_credentials_unreadable": list(tenant.unreadable),
+            "tenant_credentials_complete": tenant.complete,
         },
     )
     return RewrapOut(
@@ -556,6 +589,10 @@ async def rewrap_keks(
         rewrapped=result.rewrapped,
         unreadable=list(result.unreadable),
         active_kek_id=result.kek_id,
+        tenant_credentials_examined=tenant.examined,
+        tenant_credentials_rewrapped=tenant.rewrapped,
+        tenant_credentials_unreadable=list(tenant.unreadable),
+        tenant_credentials_complete=tenant.complete,
     )
 
 

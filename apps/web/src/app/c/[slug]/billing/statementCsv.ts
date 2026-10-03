@@ -1,5 +1,5 @@
 import { formatIST } from "@/components/ui";
-import { walletReasonLabel, type WalletEntry } from "@/lib/api/wallet";
+import { walletEntryLabel, type WalletEntry } from "@/lib/api/wallet";
 
 /**
  * The transactions a client can take away — a CSV of the wallet history on screen.
@@ -61,7 +61,7 @@ const HEADERS = ["Date (IST)", "What", "Reference", "Amount (INR)", "Balance aft
 export function walletStatementCsv(entries: WalletEntry[]): string {
   const rows = entries.map((entry) => [
     cell(formatIST(entry.occurred_at), { guardFormulas: true }),
-    cell(walletReasonLabel(entry.reason), { guardFormulas: true }),
+    cell(walletEntryLabel(entry),{ guardFormulas: true }),
     cell(entry.ref ?? "", { guardFormulas: true }),
     // Money: the server's own digits, never guarded and never grouped. See the header.
     cell(entry.delta_inr, { guardFormulas: false }),

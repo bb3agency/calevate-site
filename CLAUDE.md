@@ -282,9 +282,10 @@ human must do before any of it is real — `terraform validate` has never been r
 ```
 uv sync --all-packages           # install python deps (never pip install directly).
                                  # --all-packages IS REQUIRED: plain `uv sync` installs the
-                                 # root only and leaves every workspace member out, so
-                                 # `import calevate_shared` fails and the suite cannot
-                                 # collect. Every `uv sync` in
+                                 # root, whose dependencies are the SERVER IMAGE's set
+                                 # (api, voice-runtime, workers — D-667), and leaves the
+                                 # voice worker's pipecat tree out, so every test that
+                                 # imports `voice_worker` fails at collection. Every `uv sync` in
                                  # `.github/workflows/ci.yml` uses this exact form —
                                  # the `backend` job's "Install dependencies" step and
                                  # the `types` and audit jobs — and

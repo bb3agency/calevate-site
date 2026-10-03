@@ -60,10 +60,11 @@ category of its own — see `DERIVED_COPIES`, which records why and what each on
 instead: the uploaded list on the client's own CRM clock, the call-back on the clock of
 the conversation it was promised in.
 
-Engine-side copies are the open edge, honestly marked: Bolna's deletion API is
-undocumented (pilot gate), so `engine_deletion` is recorded as `unconfirmed` in the
-proof rather than asserted. A proof that overclaims is worse than one that says what it
-does not know.
+Vendor-side copies are the open edge, honestly marked: no vendor that handles a call
+offers a deletion we can perform, so `engine_deletion` is recorded as `unconfirmed` in the
+proof rather than asserted, and each erasure opens `processor_erasure_tasks` rows naming
+the vendor ids a written request must quote. A proof that overclaims is worse than one
+that says what it does not know.
 
 THE SWEEP'S COST SHAPE (see `_due_tenants` and `sweep_tenant`): the tick costs one
 probe per tenant that CAN hold call data, not one session per organization on the
@@ -103,6 +104,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.processor_erasure import (
+    OWN_RUNTIME_ENGINES,
+    engine_held_call_refs,
     open_tasks_for_request,
 )
 from apps.api.core.alerting import alert
@@ -2890,10 +2893,9 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             # somebody may be holding, and hard rule 4 forbids back-filling those; what
             # it MEANS is now settled rather than open, and the register in
             # `compliance/deletion.py` (ENGINE_OUTCOME) carries the settled version to
-            # the reader. In short: the vendor documents no subject-granular deletion,
-            # so this erasure genuinely cannot reach their copy, and the obligation is
-            # carried by the `processor_erasure_tasks` rows opened just below rather
-            # than by a hope that an API appears.
+            # the reader. In short: this erasure cannot reach a vendor's copy, and the
+            # obligation is carried by the `processor_erasure_tasks` rows opened just
+            # below rather than by a hope that an API appears.
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }
 
@@ -2909,49 +2911,56 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # matter — `engine_call_id` is not one of the columns an erasure clears, since
         # it names no person — and they are the whole point of the row: without them an
         # operator can only ask the vendor to delete "some calls".
-        engine_call_ids = [
-            str(ref)
-            for ref in (
-                await session.execute(
-                    text(
-                        "SELECT engine_call_id FROM calls WHERE id = ANY(:ids) "
-                        "AND engine_call_id IS NOT NULL ORDER BY engine_call_id"
-                    ),
-                    {"ids": list(calls)},
-                )
+        vendor_call_ids = (
+            await session.execute(
+                text(
+                    "SELECT engine_call_id, carrier_call_id FROM calls WHERE id = ANY(:ids) "
+                    "ORDER BY engine_call_id"
+                ),
+                {"ids": list(calls)},
             )
-            .scalars()
-            .all()
-        ]
-        # THE VOICE PLATFORM ONLY, and the omission of the other two is the design.
+        ).all()
+        # Only a third-party engine's ids: one our own runtime minted names a row this
+        # erasure has already reached, and is not id-shaped either (`OWN_RUNTIME_ENGINES`).
+        engine_call_ids = engine_held_call_refs(
+            str(row[0]) for row in vendor_call_ids if row[0] is not None
+        )
+        carrier_call_ids = sorted({str(row[1]) for row in vendor_call_ids if row[1] is not None})
+        # THE ENGINE AND THE CARRIER ONLY, and leaving out speech and language is the design.
         #
-        # A task exists to be CLOSED by a person. The voice platform's copy can be: it
-        # holds per-execution records, we hold the execution ids, and a written request
-        # naming them is something a support desk can act on. The speech and language
-        # processors are different in kind — neither exposes a per-subject handle we
-        # could even quote, so a task against them could never move past `open` and
-        # would page every 30 days forever. An alarm that cannot be resolved by any
-        # action is one people learn to close without reading, which would cost us the
-        # voice-platform task sitting next to it.
+        # A task exists to be CLOSED by a person. These two copies can be: each vendor
+        # keys its records on an id we hold, and a written request naming them is
+        # something a support desk can act on. The speech and language processors are
+        # different in kind — neither exposes a per-subject handle we could even quote, so
+        # a task against them could never move past `open` and would page every 30 days
+        # forever. An alarm that cannot be resolved by any action is one people learn to
+        # close without reading, which would cost us the tasks sitting next to it.
         #
         # Their gap is real and is NOT dropped: it is a standing structural fact rather
         # than a per-erasure errand, so it lives in the certificate's register
         # (`deletion.PROCESSOR_OUTCOME`, which names both) and in OPERATIONS §2 gate 36,
         # where the remedy actually is — a processing term for Sarvam, and Microsoft's
         # modified-abuse-monitoring approval for Azure, which removes the copy by never
-        # creating it. A tenant erasure DOES open all three, because ending an
-        # engagement is the one moment a "delete everything you hold for this customer"
-        # letter to each vendor is both meaningful and answerable.
-        if engine_call_ids:
-            await open_tasks_for_request(
-                session,
-                tenant_id=tenant_id,
-                request_ref=request_id,
-                request_kind="subject",
-                subject_ref=subject_handle,
-                vendor_refs=engine_call_ids,
-                processors=("voice_engine",),
-            )
+        # creating it. A tenant erasure DOES open both, because ending an engagement is
+        # the one moment a "delete everything you hold for this customer" letter to each
+        # vendor is both meaningful and answerable.
+        #
+        # One call per processor because each task quotes ITS vendor's ids: the carrier
+        # cannot act on an engine's execution id, nor the engine on a carrier's call id.
+        for processor, refs in (
+            ("voice_engine", engine_call_ids),
+            ("telephony", carrier_call_ids),
+        ):
+            if refs:
+                await open_tasks_for_request(
+                    session,
+                    tenant_id=tenant_id,
+                    request_ref=request_id,
+                    request_kind="subject",
+                    subject_ref=subject_handle,
+                    vendor_refs=refs,
+                    processors=(processor,),
+                )
         # The number goes in the SAME write that records the proof. Until this statement
         # the row is the worker's only handle on the subject; after it, the row would
         # otherwise be the last surviving copy of a number we just certified as erased,
@@ -3564,84 +3573,93 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }
 
-        # THE OBLIGATION, RECORDED (D-433) — and on THIS path the vendor genuinely can
-        # perform it, which is the difference from the per-subject erasure above.
-        #
-        # `DELETE /v2/agent/{agent_id}` removes an agent together with "ALL agent data
-        # including all batches, all executions" (the vendor's own warning,
-        # `bolna-findings/mirror/pages/api-reference/agent/v2/delete.md:10`). That
-        # granularity is useless for one data principal — it would destroy every other
-        # caller's records — but a TENANT erasure is abandoning these agents anyway, so
-        # here it is exactly the right instrument.
-        #
-        # WHY THE CALL IS STILL NOT MADE FROM HERE. `_WITHDRAW_ROUTES_SQL` already
-        # records the reason and it is sound: a third-party round trip inside the one
+        # THE OBLIGATIONS, RECORDED (D-433). No vendor call is made from here:
+        # `_WITHDRAW_ROUTES_SQL` records why — a third-party round trip inside the one
         # transaction that must not half-commit would let a slow vendor roll back an
-        # erasure. What did NOT follow from it, and was the defect, is the conclusion
-        # that the deletion is therefore unreachable. A task row is how an obligation
-        # survives a transaction boundary it must not cross, and the refs below are what
-        # make it actionable rather than a reminder.
-        agent_refs = [
+        # erasure. A task row is how an obligation survives a transaction boundary it must
+        # not cross, and the ids each one quotes are what make it actionable rather than a
+        # reminder.
+        #
+        # THE ENGINE: the agents and knowledge bases a THIRD-PARTY engine holds for this
+        # client. A tenant erasure abandons those agents, so an agent-wide delete at that
+        # vendor is the right instrument here even where it is useless for one data
+        # principal. The knowledge bases are quoted beside the agents (D-519) because an
+        # engine may hold them as account-level objects an agent delete does not reach,
+        # and their handles are the only thing that can find this client's documents in a
+        # shared account. Both are read from the route tables, which are globally readable
+        # and OUTLIVE our own rows, so this works for a tenant whose sources a retention
+        # sweep has already deleted. Rows our own runtime wrote are left out: they name
+        # rows in this database, which the arms above have already reached.
+        own_engines = sorted(OWN_RUNTIME_ENGINES)
+        engine_refs = [
             str(ref)
             for ref in (
                 await session.execute(
                     text(
-                        "SELECT DISTINCT engine_agent_ref FROM engine_agent_routes "
+                        "SELECT engine_agent_ref FROM engine_agent_routes "
                         "WHERE tenant_id = :tid AND engine_agent_ref IS NOT NULL "
-                        "ORDER BY engine_agent_ref"
+                        "  AND engine <> ALL(:own) "
+                        "UNION "
+                        "SELECT engine_kb_ref FROM engine_kb_routes "
+                        "WHERE tenant_id = :tid AND engine <> ALL(:own) "
+                        "ORDER BY 1"
                     ),
-                    {"tid": tenant_id},
+                    {"tid": tenant_id, "own": own_engines},
                 )
             )
             .scalars()
             .all()
         ]
-        # THE KNOWLEDGE BASES GO IN THE SAME REQUEST, AND LEAVING THEM OUT WAS THE GAP
-        # (D-519). The vendor's knowledge base is an ACCOUNT-level object with no owner
-        # field — `POST /knowledgebase` takes no agent id and a listing row carries none
-        # (`bolna-findings/mirror/pages/api-reference/knowledgebase/
-        # get_knowledgebases.md:63-121`) — so it is NOT covered by the agent ids above
-        # unless deleting an agent also deletes the knowledge bases it referenced, and
-        # THE VENDOR DOES NOT SAY. Their delete page enumerates "batches, executions,
-        # configurations" (`.../agent/v2/delete.md:7,10`) and never mentions a knowledge
-        # base; OPERATIONS §2 gate 43f is the live-account probe that settles it.
-        #
-        # Quoting the handles is correct under BOTH answers, which is why it does not
-        # wait for the gate: if the delete cascades, the operator's request names objects
-        # that are already gone and the vendor confirms it; if it orphans, these ids are
-        # the ONLY thing that can find a client's uploaded document again — the account
-        # is shared, the objects are interleaved, and nothing at the vendor says whose
-        # they are.
-        #
-        # `engine_kb_routes` is read here rather than `kb_sources` for the reason it
-        # exists: it is globally readable and it OUTLIVES our own rows, so this works
-        # for a tenant whose sources a retention sweep has already deleted.
-        kb_refs = [
-            str(ref)
-            for ref in (
-                await session.execute(
-                    text(
-                        "SELECT DISTINCT engine_kb_ref FROM engine_kb_routes "
-                        "WHERE tenant_id = :tid ORDER BY engine_kb_ref"
-                    ),
-                    {"tid": tenant_id},
-                )
-            )
-            .scalars()
-            .all()
-        ]
-        if agent_refs or kb_refs:
+        if engine_refs:
             await open_tasks_for_request(
                 session,
                 tenant_id=tenant_id,
                 request_ref=request_id,
                 request_kind="tenant",
                 subject_ref=None,
-                vendor_refs=[*agent_refs, *kb_refs],
-                # A tenant erasure ends the engagement, so the speech and model
-                # processors' copies are in scope too — they are not reachable by any
-                # API of ours either, and the certificate now says so.
-                processors=("voice_engine", "speech", "llm"),
+                vendor_refs=engine_refs,
+                processors=("voice_engine",),
+            )
+        # THE CARRIER: every call it connected for this client, by the carrier's own id.
+        # `carrier_call_id` is never cleared by an erasure arm, so it is still here.
+        carrier_call_ids = [
+            str(ref)
+            for ref in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT carrier_call_id FROM calls "
+                        "WHERE tenant_id = :tid AND carrier_call_id IS NOT NULL ORDER BY 1"
+                    ),
+                    {"tid": tenant_id},
+                )
+            )
+            .scalars()
+            .all()
+        ]
+        if carrier_call_ids:
+            await open_tasks_for_request(
+                session,
+                tenant_id=tenant_id,
+                request_ref=request_id,
+                request_kind="tenant",
+                subject_ref=None,
+                vendor_refs=carrier_call_ids,
+                processors=("telephony",),
+            )
+        # SPEECH AND LANGUAGE: whenever this client had a call at all, whichever engine
+        # ran it — our own runtime sends the same audio and turns to the same two vendors.
+        # They quote nothing: neither keys its records on an id we hold, and the request
+        # is "delete what you hold for this customer of ours". Ending an engagement is the
+        # one moment that letter is both meaningful and answerable.
+        if engine_refs or carrier_call_ids or counts["calls_erased"]:
+            await open_tasks_for_request(
+                session,
+                tenant_id=tenant_id,
+                request_ref=request_id,
+                request_kind="tenant",
+                subject_ref=None,
+                vendor_refs=[],
+                processors=("speech", "llm"),
             )
 
         await session.execute(

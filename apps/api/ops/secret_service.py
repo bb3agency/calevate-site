@@ -21,6 +21,7 @@ every credential through one screenshot or one compromised session.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from calevate_shared.config import Settings
@@ -467,14 +468,191 @@ async def rewrap_all(session: AsyncSession, *, ring: KekRing | None = None) -> R
     )
 
 
+# --- Tenant integration credentials ------------------------------------------------
+#
+# `integration_credentials` is the second store sealed under PLATFORM_KEK
+# (`actions/credentials.py`), and until this section existed a rotation moved only
+# `platform_secrets`. The console's `pending` then read 0 while every client's saved
+# AiSensy key or Meta token was still wrapped under the outgoing key — and removing
+# `PLATFORM_KEK_RETIRED` on the strength of that 0 makes those credentials unreadable for
+# good. So both the count and the rewrap cover both stores.
+#
+# The table is tenant-scoped under FORCE RLS (hard rule 1), so it is reached one tenant at
+# a time through `tenant_session`, with the directory read under `admin_session` — the only
+# session that can enumerate `organizations`. Soft-deleted tenants are INCLUDED: their
+# rows exist until erasure removes them, and a rotation that skipped them would strand
+# exactly the credentials nobody is watching.
+
+#: Wall-clock bound on one walk. The walk is per-tenant, so it grows with the client list;
+#: past this the result says `complete=False` rather than reporting a subset as the whole,
+#: and re-running continues to make progress because already-moved rows are cheap.
+TENANT_WALK_BUDGET_S = 20.0
+
+_TENANT_DIRECTORY = "SELECT id FROM organizations ORDER BY id"
+
+
+@dataclass(frozen=True, slots=True)
+class TenantCredentialKekCounts:
+    """How many tenant credentials exist, and how many are under another KEK."""
+
+    total: int
+    pending: int
+    #: False when the walk ran out of `TENANT_WALK_BUDGET_S`: `pending` is then a floor.
+    complete: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TenantCredentialRewrap:
+    examined: int
+    rewrapped: int
+    #: `<tenant_id>:<credential_id>` for rows no configured KEK opens. Ids only (hard rule 6).
+    unreadable: tuple[str, ...]
+    complete: bool
+
+
+async def _tenant_directory() -> list[uuid.UUID]:
+    from apps.api.db.session import admin_session
+
+    async with admin_session() as directory:
+        rows = (await directory.execute(text(_TENANT_DIRECTORY))).all()
+    return [uuid.UUID(str(row[0])) for row in rows]
+
+
+async def count_tenant_credential_keks(
+    *,
+    ring: KekRing | None = None,
+    budget_s: float = TENANT_WALK_BUDGET_S,
+    tenant_ids: Sequence[uuid.UUID] | None = None,
+) -> TenantCredentialKekCounts:
+    """Per-tenant `count(*)` of saved credentials and of those not under the active KEK.
+
+    Counts by the `kek_version` LABEL, the same reporting field `/kek` already counts
+    `platform_secrets` by. The rewrap itself never trusts the label (`rewrap_all`'s D-96
+    argument); this count is the console's progress figure, not the work list.
+    """
+    import time
+
+    from apps.api.db.session import tenant_session
+
+    active = (kek_ring() if ring is None else ring).active.kek_id
+    deadline = time.monotonic() + budget_s
+    total = pending = 0
+    complete = True
+    directory = list(tenant_ids) if tenant_ids is not None else await _tenant_directory()
+    for tenant_id in directory:
+        if time.monotonic() > deadline:
+            complete = False
+            break
+        async with tenant_session(tenant_id) as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT count(*), count(*) FILTER (WHERE kek_version <> :active) "
+                        "FROM integration_credentials"
+                    ),
+                    {"active": active},
+                )
+            ).first()
+        if row is not None:
+            total += int(row[0])
+            pending += int(row[1])
+    return TenantCredentialKekCounts(total=total, pending=pending, complete=complete)
+
+
+async def rewrap_tenant_credentials(
+    *,
+    ring: KekRing | None = None,
+    budget_s: float = TENANT_WALK_BUDGET_S,
+    tenant_ids: Sequence[uuid.UUID] | None = None,
+) -> TenantCredentialRewrap:
+    """Re-wrap every tenant credential's DEK under the active KEK. `rewrap_all`'s twin.
+
+    Same rules as `rewrap_all`, for the same reasons: every row every time (never filtered
+    on `kek_version`), the payload copied through unread, and each UPDATE a CAS on the
+    wrapping it read so a concurrent `rotate_credential` wins its row rather than being
+    overwritten. One transaction per tenant, so a failure in one tenant leaves the others
+    moved and the next run picks up what is left.
+    """
+    import time
+
+    from apps.api.actions.credentials import credential_context
+    from apps.api.db.session import tenant_session
+
+    keys = kek_ring() if ring is None else ring
+    active = keys.active
+    deadline = time.monotonic() + budget_s
+    examined = rewrapped = 0
+    unreadable: list[str] = []
+    complete = True
+    directory = list(tenant_ids) if tenant_ids is not None else await _tenant_directory()
+    for tenant_id in directory:
+        if time.monotonic() > deadline:
+            complete = False
+            break
+        async with tenant_session(tenant_id) as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT id, dek_wrapped, dek_nonce FROM integration_credentials ORDER BY id"
+                    )
+                )
+            ).all()
+            for credential_id, dek_wrapped, dek_nonce in rows:
+                examined += 1
+                try:
+                    fresh = rewrap(
+                        Envelope(
+                            ciphertext=b"",
+                            nonce=b"",
+                            dek_wrapped=bytes(dek_wrapped),
+                            dek_nonce=bytes(dek_nonce),
+                            kek_id=0,
+                        ),
+                        context=credential_context(tenant_id, credential_id),
+                        ring=keys,
+                    )
+                except ProblemError:
+                    log.error(
+                        "integration_credential_rewrap_unreadable",
+                        extra={"tenant_id": str(tenant_id), "credential_id": str(credential_id)},
+                    )
+                    unreadable.append(f"{tenant_id}:{credential_id}")
+                    continue
+                result = await session.execute(
+                    text(
+                        "UPDATE integration_credentials SET dek_wrapped = :dw, dek_nonce = :dn, "
+                        "kek_version = :kek WHERE id = :id AND dek_wrapped = :old"
+                    ),
+                    {
+                        "dw": fresh.dek_wrapped,
+                        "dn": fresh.dek_nonce,
+                        "kek": active.kek_id,
+                        "id": credential_id,
+                        "old": bytes(dek_wrapped),
+                    },
+                )
+                rewrapped += rowcount_of(result)
+    return TenantCredentialRewrap(
+        examined=examined,
+        rewrapped=rewrapped,
+        unreadable=tuple(unreadable),
+        complete=complete,
+    )
+
+
 __all__ = [
+    "TENANT_WALK_BUDGET_S",
     "ResolvedSecrets",
     "RewrapResult",
     "SecretRecord",
+    "TenantCredentialKekCounts",
+    "TenantCredentialRewrap",
+    "count_tenant_credential_keks",
     "manageable_secret_keys",
     "read_secrets",
     "resolve_secrets",
     "rewrap_all",
+    "rewrap_tenant_credentials",
     "secret_context",
     "set_secret",
 ]

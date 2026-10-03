@@ -103,6 +103,10 @@ class IngestAckOut(BaseModel):
     # …) — OUR authored rule name, never an exception's message. Null when nothing
     # refused it.
     blocked: str | None = None
+    # When the refusal only meant "not yet" (busy lines, outside 09:00-21:00 IST, a
+    # maintenance drain, the platform halt), the instant the call was booked for as a
+    # call-back. The gate runs again then. Null when no call-back was booked.
+    callback_at: datetime | None = None
 
 
 class MetaLeadgenAckOut(BaseModel):
@@ -184,6 +188,7 @@ async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
         lead_id=result["lead_id"],
         dispatched=result["dispatched"],
         blocked=result.get("blocked"),
+        callback_at=result.get("callback_at"),
     )
 
 

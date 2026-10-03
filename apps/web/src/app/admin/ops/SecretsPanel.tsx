@@ -18,7 +18,6 @@ import {
   Card,
   DANGER_BUTTON,
   FIELD,
-  FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON_SM,
@@ -28,13 +27,12 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import {
   KeyField,
   MonoValue,
   TestOutcome,
-  TypeToConfirm,
-  confirmMatches,
 } from "@/app/admin/ops/opsLanguage";
 import {
   useKekState,
@@ -44,6 +42,7 @@ import {
   useTestSecret,
   type KekState,
   type PlatformSecret,
+  type RewrapResult,
   type SecretsList,
 } from "@/lib/api/opsSecrets";
 
@@ -354,7 +353,7 @@ function SecretForm({
   // The key and the reason are answered AT their controls now, so an operator who presses
   // Install with an empty box is told which box. The typed confirmation stays here: it is
   // a gate on the act, not an answer on the form.
-  const ready = confirmMatches(confirm, word);
+  const ready = confirmationMatches(confirm, word, "exact");
 
   return (
     <form
@@ -432,9 +431,10 @@ function SecretForm({
         {valid.error("reason")}
       </label>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`secret-confirm-${secret.key}`}
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
       />
@@ -512,6 +512,34 @@ function SecretForm({
  */
 const REWRAP_WORD = "REWRAP";
 
+/**
+ * Both stores the master key protects, as one figure: the platform's own vendor keys and
+ * clients' saved integration credentials. The retired key is safe to remove only when
+ * BOTH are moved, so the panel never shows the first alone. The `??` defaults cover an
+ * API that predates the tenant half; they read as "nothing there", which is what such an
+ * API would have meant.
+ */
+function kekTotals(kek: KekState) {
+  const tenantTotal = kek.tenant_credentials ?? 0;
+  const tenantPending = kek.tenant_credentials_pending ?? 0;
+  return {
+    total: kek.versions + tenantTotal,
+    current: kek.current + (tenantTotal - tenantPending),
+    pending: kek.pending + tenantPending,
+    complete: kek.tenant_credentials_complete ?? true,
+  };
+}
+
+function rewrapTotals(result: RewrapResult) {
+  const unreadable = [...result.unreadable, ...(result.tenant_credentials_unreadable ?? [])];
+  return {
+    examined: result.examined + (result.tenant_credentials_examined ?? 0),
+    rewrapped: result.rewrapped + (result.tenant_credentials_rewrapped ?? 0),
+    unreadable,
+    complete: result.tenant_credentials_complete ?? true,
+  };
+}
+
 export function KeyManagementPanel({
   access,
 }: {
@@ -523,6 +551,8 @@ export function KeyManagementPanel({
   /** One rewrap in flight at a time — see the submit handler for why state cannot do it. */
   const firing = useRef(false);
   const kek: KekState | null = query.error ? null : (query.data ?? null);
+  const totals = kek ? kekTotals(kek) : null;
+  const relocked = rewrap.data ? rewrapTotals(rewrap.data) : null;
 
   // `/v1/ops/secrets/kek` carries `platform:secrets` like every other route on that
   // router, so the refusal reaches this panel through the same door as the credential
@@ -578,7 +608,7 @@ export function KeyManagementPanel({
           </NoticeBox>
         )}
 
-        {kek && (
+        {kek && totals && (
           <>
             <dl className="grid gap-3 sm:grid-cols-3">
               <div>
@@ -597,7 +627,7 @@ export function KeyManagementPanel({
                   Locked with it
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink">
-                  {formatCount(kek.current)} of {formatCount(kek.versions)}
+                  {formatCount(totals.current)} of {formatCount(totals.total)}
                 </dd>
               </div>
               <div>
@@ -610,11 +640,28 @@ export function KeyManagementPanel({
               </div>
             </dl>
 
-            {kek.pending > 0 ? (
+            {!totals.complete ? (
+              <NoticeBox
+                tone="warn"
+                icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+                title="We could not count every client's saved keys in time"
+              >
+                <p className="mt-1">
+                  At least {formatCount(totals.pending)} stored keys are still locked with a
+                  previous master key, and there may be more.{" "}
+                  <span className="font-semibold">
+                    Do not remove the previous master key (
+                    <MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) from the server yet.
+                  </span>{" "}
+                  Run the re-lock below until it reports every client counted, then check
+                  this number again.
+                </p>
+              </NoticeBox>
+            ) : totals.pending > 0 ? (
               <NoticeBox
                 tone="warn"
                 icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
-                title={`${formatCount(kek.pending)} stored keys are still locked with a previous master key`}
+                title={`${formatCount(totals.pending)} stored keys are still locked with a previous master key`}
               >
                 <p className="mt-1">
                   <span className="font-semibold">
@@ -643,16 +690,16 @@ export function KeyManagementPanel({
         )}
 
         {rewrap.error && <WriteFailure error={rewrap.error} actionLabel="Re-lock every key" />}
-        {rewrap.data && (
+        {rewrap.data && relocked && (
           <NoticeBox
-            tone={rewrap.data.unreadable.length > 0 ? "stop" : "ok"}
+            tone={relocked.unreadable.length > 0 ? "stop" : "ok"}
             icon={<RefreshCw aria-hidden className="h-5 w-5" />}
-            title={`${formatCount(rewrap.data.rewrapped)} of ${formatCount(rewrap.data.examined)} stored keys re-locked`}
+            title={`${formatCount(relocked.rewrapped)} of ${formatCount(relocked.examined)} stored keys re-locked`}
           >
-            {rewrap.data.unreadable.length > 0 ? (
+            {relocked.unreadable.length > 0 ? (
               <>
                 <p className="mt-1 font-semibold">
-                  {formatCount(rewrap.data.unreadable.length)} could NOT be unlocked by any
+                  {formatCount(relocked.unreadable.length)} could NOT be unlocked by any
                   master key the server has.
                 </p>
                 <p className="mt-1">
@@ -662,7 +709,7 @@ export function KeyManagementPanel({
                   doing anything else.
                 </p>
                 <ul className="mt-2 space-y-0.5 text-xs">
-                  {rewrap.data.unreadable.map((entry) => (
+                  {relocked.unreadable.map((entry) => (
                     <li key={entry}>
                       <MonoValue>{entry}</MonoValue>
                     </li>
@@ -674,6 +721,12 @@ export function KeyManagementPanel({
                 Every stored key the server can unlock is now locked with the master key
                 whose ID is <MonoValue>{rewrap.data.active_kek_id}</MonoValue>. No vendor key
                 was unlocked to do it.
+              </p>
+            )}
+            {!relocked.complete && (
+              <p className="mt-1 font-semibold">
+                It ran out of time before reaching every client&apos;s saved keys. Run it
+                again until this message no longer appears.
               </p>
             )}
           </NoticeBox>
@@ -707,27 +760,16 @@ export function KeyManagementPanel({
             });
           }}
         >
-          {/* A custom confirm field rather than the shared TypeToConfirm, because this one
-              must DISABLE while a re-lock is running or the session cannot run it — a state
-              the shared control does not expose. The typed word (REWRAP) is unchanged: it
-              is a local gate, and NOT the API's confirmation string (`rewrap_platform_keks`,
-              in opsSecrets.ts). */}
-          <label className="block">
-            <span className={FIELD_LABEL}>
-              Type <MonoValue>{REWRAP_WORD}</MonoValue> to confirm
-            </span>
-            <input
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              disabled={!access.allowed || rewrap.isPending}
-              placeholder={REWRAP_WORD}
-              className={`${FIELD} font-mono`}
-            />
-            <span className={FIELD_HINT}>
-              Re-locks every stored key, including old versions. It never unlocks or reads a
-              vendor key — it only changes which master key protects them.
-            </span>
-          </label>
+          {/* REWRAP is a local gate, NOT the API confirmation string
+              (`rewrap_platform_keks`, in opsSecrets.ts). */}
+          <TypedConfirmation
+            match="exact"
+            phrase={REWRAP_WORD}
+            value={confirm}
+            onChange={setConfirm}
+            disabled={!access.allowed || rewrap.isPending}
+            hint="Re-locks every stored key, including old versions. It never unlocks or reads a vendor key — it only changes which master key protects them."
+          />
           <button
             type="submit"
             title={access.reason ?? undefined}

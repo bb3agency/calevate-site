@@ -163,7 +163,8 @@ async def buy_number(
     # THE RESELLER STAGE, AND THE LAST THING ASKED BEFORE A RUPEE IS SPENT (evidence doc
     # 2026-09-13 §5.2). Our carrier approves each client business separately, a number may
     # only be purchased once that application reads accepted, and the purchase carries its
-    # identifier. Asked here rather than only in `provision_number` because the failure mode
+    # identifier. Plivo's rule only: on Vobiz the call returns at once (D-666).
+    # Asked here rather than only in `provision_number` because the failure mode
     # of the other ordering is the one this module already has an alarm for: money committed
     # at the vendor with nothing on our side able to accept the result.
     #

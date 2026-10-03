@@ -2203,14 +2203,12 @@ class DltRegistrationOut(BaseModel):
     response_model=NumberCreatedOut,
     status_code=201,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Record a calling number the client holds — the series is the compliance-bearing field",
+    summary="Record a calling number for the client — the series is the compliance-bearing field",
     description=(
-        "Records a telephone connection the CLIENT has already taken in their own name "
-        "with an Indian operator, so the campaign launch gate can match its series "
-        "against a campaign's classification. Calevate does not supply, buy or resell "
-        "the number: the client is the subscriber of record and issues Calevate "
-        "revocable API credentials for it. `dlt_status` starts `pending` and is a "
-        "separate, deliberate step."
+        "Records a telephone number Calevate provides for this client on its own carrier "
+        "account (Vobiz), so the campaign launch gate can match its series against a "
+        "campaign's classification. The client opens no operator account and issues no "
+        "credentials. `dlt_status` starts `pending` and is a separate, deliberate step."
     ),
 )
 async def provision_number(

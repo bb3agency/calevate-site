@@ -14,6 +14,7 @@ import {
   formatIST,
   formatRupeeRate,
 } from "@/components/ui";
+import { TypedConfirmation } from "@/components/typedConfirmation";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
   useApplyLotOverride,
@@ -179,20 +180,16 @@ export function OverrideForm({
         </span>
       </label>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>Type the lot id to confirm</span>
-        <input
-          value={draft.confirm}
-          onChange={(e) => setDraft((was) => ({ ...was, confirm: e.target.value }))}
-          className={`${FIELD} font-mono`}
-          placeholder={chosen ? chosen.lot_id : "choose a lot first"}
-          disabled={chosen === null}
-        />
-        <span className={FIELD_HINT}>
-          The id of the lot above, typed out. It is different every time, so it cannot become
-          muscle memory the way a fixed word would.
-        </span>
-      </label>
+      <TypedConfirmation
+        match="exact"
+        label="Type the lot id to confirm"
+        phrase={chosen?.lot_id ?? ""}
+        value={draft.confirm}
+        onChange={(next) => setDraft((was) => ({ ...was, confirm: next }))}
+        placeholder={chosen ? chosen.lot_id : "choose a lot first"}
+        disabled={chosen === null}
+        hint="The id of the lot above, typed out. It is different every time, so it cannot become muscle memory the way a fixed word would."
+      />
 
       {!write.allowed && <RestrictionNote reason={write.reason} />}
 

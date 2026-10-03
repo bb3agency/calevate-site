@@ -312,34 +312,29 @@ UNIDENTIFIED_COUNT_KEY: Final = "calls_without_an_identifiable_party"
 #: request can locate at all.
 UNIDENTIFIED_OUTCOME: Final = "unidentified_caller_not_matchable"
 
-#: What an erasure can and cannot do at a sub-processor, as the certificate words it.
+#: THE PLATFORM THAT HOSTS THE CALL PROGRAM. Since D-592 the conversation is our own
+#: program (`apps/voice-worker`) and D-639 deleted the rented Bolna engine this entry was
+#: written about, so its old content — an agent-wide `DELETE` that "deletes ALL agent data"
+#: — described a vendor the product no longer uses. What is true now:
 #:
-#: `unconfirmed_pending_vendor_api` — the value the PROOF still carries on the wire — was
-#: named when nobody here had read the vendor's API reference, and it asserts something
-#: that is now known to be false: that a subject-granular deletion API might exist and we
-#: are waiting on it. `docs/evidence/subprocessor-erasure-reach.md` §1 enumerates every
-#: `DELETE` route Bolna documents across all 335 mirrored pages. There are ten. Nine
-#: delete configuration objects; the tenth, `DELETE /v2/agent/{agent_id}`, deletes an
-#: agent and — the vendor's own warning — "ALL agent data including all batches, all
-#: executions" (`bolna-findings/mirror/pages/api-reference/agent/v2/delete.md:10`).
+#: * the program's record of the call (call row, turns, outcome) is in our database and the
+#:   erasure reaches it;
+#: * it records no audio (`engine/pipecat.PIPECAT_CAPABILITIES.records_audio` is False and
+#:   nothing in `apps/voice-worker` captures audio);
+#: * it runs in a container on Pipecat Cloud, which the audio and the transcript pass
+#:   through, and what that platform retains is UNKNOWN — its documentation hosts are
+#:   egress-blocked here and no processing term is signed (`subprocessors.ts`, the Pipecat
+#:   Cloud row). The entry says so rather than borrowing Bolna's answer.
 #:
-#: So the question is CLOSED, and it closed with two different answers depending on who is
-#: asking:
+#: A deployment set to a third-party engine (`ENGINE=cartesia`) still has a vendor-held
+#: execution record; `retention.execute_deletion_request` opens a `voice_engine` task naming
+#: those ids, and the entry's last sentence covers it.
 #:
-#: * **A DPDP §12 request names one person.** No route is granular to a person. Using the
-#:   agent route would destroy every OTHER caller's records and take the client's live
-#:   receptionist off the air, so it is not an instrument this path can use. For a
-#:   per-subject erasure the vendor's copy survives and only a written request removes it.
-#: * **A tenant erasure abandons the agents anyway**, so the agent route IS the right
-#:   instrument there — see `docs/evidence/subprocessor-erasure-reach.md` §2.
-#:
-#: The wire token is deliberately NOT renamed. It is written into durable proof rows that
-#: have already been rendered into certificates someone may be holding, and hard rule 4
-#: forbids back-filling those; a second vocabulary for the same field would make two
-#: documents disagree about one erasure. What changes is the REGISTER, which is the half a
-#: data principal actually reads, and which now states the enumerated fact instead of
-#: "undocumented".
-ENGINE_OUTCOME: Final = "no_subject_granular_api"
+#: The PROOF's `engine_deletion: "unconfirmed_pending_vendor_api"` is a separate, durable
+#: wire token and is not renamed (hard rule 4 forbids back-filling proofs already issued).
+#: This value is the REGISTER's, rendered fresh on every read, so changing it changes
+#: `limitations_version` and nothing stored.
+ENGINE_OUTCOME: Final = "not_reached_retention_unestablished"
 
 #: The speech and language processors, which the register did not name at all until D-433.
 #: Sarvam receives the call audio and the RAW transcript (the first post-call extraction
@@ -478,15 +473,17 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "on their own schedule whether or not an erasure is requested.",
     "Call rows survive with their personal fields cleared rather than being deleted, so "
     "the minutes that were billed stay countable.",
-    "The voice platform that carried these calls keeps its own copy of the recording "
-    "and the transcript, and this request does not reach it. That platform publishes no "
-    "way to delete one person's calls: its published interface can delete a whole agent "
-    "and everything that agent ever recorded, but nothing narrower, so deleting this "
-    "person there is not something this system can do without destroying every other "
-    "caller's records at the same time. The platform also states no retention period "
-    "for those copies. Removing them is a written request to that platform, and the "
-    "certificate reports the outcome of that request rather than assuming it: until it "
-    "is answered, the honest position is that a copy exists.",
+    "The program that holds the conversation is Calevate's own, and its record of each "
+    "call — the call itself, the transcript and the outcome — is in Calevate's database "
+    "and is erased by this request. That call program does not record the audio. It runs "
+    "in a container on a hosting platform, and the live audio and the transcript pass "
+    "through that platform for the length of the call. What the hosting platform keeps of "
+    "what passed through it has not been established: no retention period and no way of "
+    "deleting from it can be stated, and none is assumed. If it holds anything, removing "
+    "it is a written request to that platform. Where a call instead ran on a third-party "
+    "voice platform, that platform keeps its own record of the call; this request does "
+    "not reach it, removing it is a written request naming those calls, and until that "
+    "request is answered the honest position is that a copy exists.",
     "Two further processors handle what is said on a call and are not reached by this "
     "request either: the speech service that turns the call audio into text, and the "
     "language model that produces the agent's replies. Neither publishes a way for us "
@@ -498,12 +495,12 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "does not reach, and it holds more of the call than any of the three above: the "
     "caller's number, the number dialled, the carrier's own call records, and the live "
     "sound of the call in both directions, which passes through the carrier for the whole "
-    "conversation. No carrier is chosen yet and no account is open with any of the "
-    "candidates, so nobody here has established what a carrier keeps, for how long, or "
-    "whether it can remove one person's records at all. That is stated as the gap it is "
-    "rather than filled in with a likely answer. When a carrier is chosen, removing this "
-    "person's records there is a written request to that carrier, and the limitation is "
-    "narrowed only once that carrier's own published position has actually been read.",
+    "conversation. Calevate's carrier is Vobiz. Its published interface reads and exports "
+    "its call records and offers no way to delete one, nothing it publishes that we have "
+    "read says how long it keeps them, and its console shows call recordings for the last "
+    "30 days. Removing this person's records there is a written request to Vobiz naming "
+    "the calls by Vobiz's own identifiers, and this certificate does not record that "
+    "request as made: until Vobiz confirms a deletion in writing, a copy exists.",
     "This request record holds the number only until the erasure runs — the queued "
     "worker has to be able to find the subject — and it is cleared in the same write "
     "that records the proof. What remains afterwards is a one-way reference, which "
@@ -518,9 +515,10 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "details — are content they wrote rather than a record of a caller, so this request "
     "reads them for the number and reports how many documents mention it, and stops "
     "there: removing a line from a live price list would change what the agent says on "
-    "the next call, and the voice platform holds its own copy of the same source. So if "
-    "the count below is not zero, removing this person from that content is a manual "
-    "step on both copies. Superseded versions of the documents themselves are no longer "
+    "the next call, and where an agent runs on a third-party voice platform, that "
+    "platform holds its own copy of the same source. So if the count below is not zero, "
+    "removing this person from that content is a manual step on every copy. Superseded "
+    "versions of the documents themselves are no longer "
     "kept for ever — every version this client has replaced or had rejected is deleted "
     "once it passes their knowledge-base retention period — but the version currently "
     "live is kept for as long as it is live. One copy outlives even that, and it is "
@@ -716,33 +714,33 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         ),
     ),
     ErasureLimitation(
-        what="Copies held by the voice platform that carried these calls.",
-        keyword="voice platform",
+        what="Anything kept by the platform that hosts the program running these calls.",
+        keyword="hosting platform",
         outcome=ENGINE_OUTCOME,
         why=(
-            "The calls ran on a third-party voice platform, which keeps its own copy of "
-            "the recording and the transcript. This request does not reach that copy, "
-            "and the reason is specific rather than a shrug: that platform's published "
-            "interface has no way to delete one person's calls. It can delete an entire "
-            "agent together with every call that agent has ever taken, and nothing "
-            "narrower — so removing this one person there would mean destroying every "
-            "other caller's records and taking the service off the air. The platform "
-            "also publishes no retention period for those copies. Removing them is "
-            "therefore a written request to that platform. Do not tell the data "
-            "principal those copies are gone until that request has been answered: the "
-            "answer is recorded against this erasure and the certificate reports it."
+            "The program that holds the conversation is Calevate's own, and its record of "
+            "each call — the call itself, the transcript and the outcome — is in "
+            "Calevate's database and was erased by this request. It does not record the "
+            "audio. It runs in a container on a hosting platform, and the live audio and "
+            "the transcript pass through that platform for the length of the call. What "
+            "that platform keeps of what passed through it has not been established, so "
+            "no retention period and no deletion route is stated for it here and none is "
+            "assumed; if it holds anything, removing it is a written request to that "
+            "platform. Where a call instead ran on a third-party voice platform, that "
+            "platform keeps its own record of the call, this request does not reach it, "
+            "and removing it is a written request naming those calls. Do not tell the "
+            "data principal such a copy is gone until that request has been answered."
         ),
-        # Our enumeration is `docs/evidence/subprocessor-erasure-reach.md` §1-2, read
-        # against the hash-pinned vendor mirror; the contractual fix is OPERATIONS §2
-        # gate 12(f) and gate 36.
+        # The hosting platform is Pipecat Cloud; its row in
+        # `apps/web/src/lib/legal/subprocessors.ts` is the client-facing copy this entry
+        # must agree with. OPERATIONS §2 gate 36 is the contractual fix.
         authority=(
-            "The voice platform's own published API documentation: its executions "
-            "surface only reads, and its calling surface only places calls, so no route "
-            "there deletes one execution, one recording or one transcript — while its "
-            "agent-delete route removes an agent together with 'ALL agent data "
-            "including all batches, all executions'. The durable fix is a deletion term "
-            "in our contract with that platform: a signed commercial agreement, not "
-            "something this system can supply."
+            "DPDP §8(7) storage limitation and §12(3) erasure, read against what has "
+            "actually been established about the hosting platform: nothing yet. Its "
+            "published documentation could not be retrieved from the environment this "
+            "system runs in, and no data-processing term with it has been signed. The "
+            "durable fix is a deletion term in our contract with that platform — a "
+            "signed commercial agreement, not something this system can supply."
         ),
     ),
     ErasureLimitation(
@@ -848,9 +846,10 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "FAQs, price lists, staff and contact details — rather than a record of a "
             "caller. This request SEARCHES it for the number and reports what it found; "
             "it does not change it. Editing a live knowledge document would change what "
-            "the agent says on the next call, and the voice platform holds its own copy "
-            "of the same source, so a removal has to be made on both by a person who can "
-            "see what the sentence is for. Versions the client has replaced or had "
+            "the agent says on the next call, and where an agent runs on a third-party "
+            "voice platform, that platform holds its own copy of the same source, so a "
+            "removal has to be made on every copy by a person who can see what the "
+            "sentence is for. Versions the client has replaced or had "
             "rejected are no longer kept indefinitely: they are deleted once they pass "
             "this account's knowledge-base retention period. The live version is kept "
             "while it is live. A THIRD COPY IS NAMED BECAUSE THAT CLOCK DOES NOT REACH "

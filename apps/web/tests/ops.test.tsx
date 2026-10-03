@@ -196,6 +196,8 @@ function configRoutes(
     // The exchange-rate panel shares this screen too, and is stubbed for the same reason.
     [OPS_FX_RATE_PATH]: fxRate(),
     [NUMBER_PRICING_PATH]: NUMBER_PRICE,
+    // The voice plan-fee panel shares the billing section.
+    "/v1/ops/tts-prices/plan-fees": { month: "2026-10", as_of: "2026-10-02T06:30:00Z", fees: [{ provider: "cartesia", tier_label: "Studio", reference_plan_inr: "440.00", attested: null }] },
     // The dashboard AI data-use panel shares this screen too, and is stubbed for the same
     // reason: an unrouted read paints a `ProblemNotice` over a screen these cases assert the
     // exact controls of.
@@ -383,6 +385,9 @@ const KEK_FIXTURE: KekState = {
   versions: 2,
   current: 2,
   pending: 0,
+  tenant_credentials: 0,
+  tenant_credentials_pending: 0,
+  tenant_credentials_complete: true,
 };
 
 /** One managed setting, as `GET /v1/ops/config` returns it. */
@@ -2818,6 +2823,79 @@ describe("the key-management panel", () => {
     expect(container.textContent).toContain(
       "Do not remove the previous master key",
     );
+  });
+
+  it("counts clients' saved credentials as pending too, not only the platform's keys", async () => {
+    // The platform store is fully moved; one client's integration credential is not.
+    // Showing "every stored key is locked with the current master key" here is the
+    // sentence that gets PLATFORM_KEK_RETIRED removed and that credential lost.
+    const { container } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [`${OPS_SECRETS_PATH}/kek`]: kekState({
+          has_retired_kek: true,
+          versions: 2,
+          current: 2,
+          pending: 0,
+          tenant_credentials: 3,
+          tenant_credentials_pending: 1,
+        }),
+      }),
+    );
+    await screen.findByText(
+      "1 stored keys are still locked with a previous master key",
+    );
+    expect(container.textContent).toContain("4 of 5");
+    expect(container.textContent).not.toContain(
+      "Every stored key is locked with the current master key",
+    );
+  });
+
+  it("refuses to call a rotation finished when the client walk did not complete", async () => {
+    const { container } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [`${OPS_SECRETS_PATH}/kek`]: kekState({
+          has_retired_kek: true,
+          tenant_credentials_complete: false,
+        }),
+      }),
+    );
+    await screen.findByText(
+      "We could not count every client's saved keys in time",
+    );
+    expect(container.textContent).toContain("Do not remove the previous master key");
+    expect(container.textContent).not.toContain(
+      "Every stored key is locked with the current master key",
+    );
+  });
+
+  it("names a client credential a rewrap could not open beside the platform's", async () => {
+    const { container } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [`POST ${OPS_SECRETS_PATH}/kek/rewrap`]: {
+          examined: 2,
+          rewrapped: 2,
+          unreadable: [],
+          active_kek_id: 1633907231,
+          tenant_credentials_examined: 2,
+          tenant_credentials_rewrapped: 1,
+          tenant_credentials_unreadable: ["t-1:c-1"],
+          tenant_credentials_complete: true,
+        },
+      }),
+    );
+    await screen.findByText(
+      "Every stored key is locked with the current master key",
+    );
+    fireEvent.change(screen.getByPlaceholderText("REWRAP"), {
+      target: { value: "REWRAP" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Re-lock every key/ }));
+
+    await screen.findByText("3 of 4 stored keys re-locked");
+    expect(container.textContent).toContain("t-1:c-1");
   });
 
   it("names the versions a rewrap could not open rather than counting them away", async () => {

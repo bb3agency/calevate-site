@@ -498,8 +498,16 @@ async def list_templates(
 async def create_campaign(
     payload: CreateCampaignIn,
     session: Session,
+    request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> CreateCampaignOut:
+    """Create a draft, recording a consent declaration made with it.
+
+    The new-campaign flow asks where the list came from in the same step as the list, so
+    this is where most declarations now arrive. It writes the same audit row as
+    `declare_consent_provenance`, because the attributability that route argues for does
+    not depend on which request carried the answer.
+    """
     assert principal.tenant_id is not None
     campaign_id = await service.create_campaign(
         session,
@@ -516,6 +524,21 @@ async def create_campaign(
             payload.consent_provenance.collected_at if payload.consent_provenance else None
         ),
     )
+    if payload.consent_provenance is not None:
+        provenance = payload.consent_provenance
+        await write_audit(
+            session,
+            action="campaign.consent_provenance_declared",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={
+                "source": provenance.source,
+                "collected_at": provenance.collected_at.isoformat(),
+            },
+        )
     return CreateCampaignOut(id=campaign_id, status="draft")
 
 
@@ -586,7 +609,9 @@ async def add_contacts(
         session,
         tenant_id=principal.tenant_id,
         campaign_id=campaign_id,
-        contacts=[{"phone": c.phone, "name": c.name, **c.custom} for c in payload.contacts],
+        # `custom` first, so a variable named `phone` or `name` cannot replace the
+        # validated fields; the service keeps neither name as a variable.
+        contacts=[{**c.custom, "phone": c.phone, "name": c.name} for c in payload.contacts],
     )
     return AddContactsOut.model_validate(result)
 

@@ -288,6 +288,11 @@ export function BillingScreen({ slug }: { slug: string }) {
             },
             { key: "calls_inr", label: "Of that, calls (INR)", value: wallet.data.drawdown.calls_inr },
             {
+              key: "number_rental_inr",
+              label: "Of that, phone number rental (INR)",
+              value: wallet.data.drawdown.number_rental_inr,
+            },
+            {
               key: "ai_assist_inr",
               label: "Of that, extra AI help (INR)",
               value: wallet.data.drawdown.ai_assist_inr,

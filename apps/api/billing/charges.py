@@ -95,6 +95,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 
+from .number_rental import INVOICED_RENTAL_KIND
 from .plans import ist_billing_month, month_pricing_instant, plan_in_effect_sql
 from .service import to_paise
 
@@ -210,13 +211,15 @@ async def one_time_charge_lines(
             # `tenant_id` in the predicate as well as in RLS, for the reason
             # `usage_summary` names it: the answer should depend on the argument, not on
             # which session it was handed. Ordered so a reversal always prints under the
-            # charge it reverses.
+            # charge it reverses. An invoiced number rental is printed by
+            # `number_rental.rental_statement_lines`, grouped by price as a prepaid
+            # client's is, so it is left out here rather than printed twice.
             text(
                 "SELECT description, amount FROM one_time_charges "
-                "WHERE tenant_id = :tid AND billing_month = :month "
+                "WHERE tenant_id = :tid AND billing_month = :month AND kind <> :rental "
                 "ORDER BY occurred_at, id"
             ),
-            {"tid": tenant_id, "month": month},
+            {"tid": tenant_id, "month": month, "rental": INVOICED_RENTAL_KIND},
         )
     ).all()
 

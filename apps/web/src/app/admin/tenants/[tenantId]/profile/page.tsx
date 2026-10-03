@@ -5,18 +5,17 @@ import { CheckCircle2, Lock } from "lucide-react";
 
 import { PageHeader } from "@/components/console/pageHeader";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   Card,
-  EmptyState,
   FIELD_INLINE,
   MonoValue,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  TypedConfirmation,
-  confirmationMatches,
 } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import { ActionButton } from "@/components/actionButton";
 import {
   EDIT_FIELD_COPY,
@@ -122,7 +121,7 @@ export default function TenantProfilePage({
   // real value. A refusal, never a blank field that looks like an empty one.
   if (profile.error)
     return <ProblemNotice error={profile.error} onRetry={() => profile.refetch()} />;
-  if (!profile.data) return <EmptyState title="Client not found" />;
+  if (!profile.data) return <EmptyState message="Client not found" />;
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -310,7 +309,7 @@ function EditForm({
         {emailChanged && (
           <TypedConfirmation
             phrase="CHANGE ADDRESS"
-            binding={`Bound to ${profile.name}. Every notice this account is owed — the invoice, the hot-lead alert, the closure notice and its erasure date — is addressed from this field, and the address being replaced is told that it changed.`}
+            hint={`Bound to ${profile.name}. Every notice this account is owed — the invoice, the hot-lead alert, the closure notice and its erasure date — is addressed from this field, and the address being replaced is told that it changed.`}
             value={typed}
             onChange={(value) => {
               setTyped(value);

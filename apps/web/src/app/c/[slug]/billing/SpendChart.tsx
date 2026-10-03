@@ -99,8 +99,8 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
       title="Spending"
       info={
         <p>
-          What left your calling credit each day, in Indian Standard Time: calls, extra AI
-          help you accepted, and any correction we made. Money you added is not spending, so
+          What left your calling credit each day, in Indian Standard Time: calls, phone
+          number rental, extra AI help you accepted, and any correction we made. Money you added is not spending, so
           it is not drawn here.
         </p>
       }
@@ -124,6 +124,9 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
             <Metric label="Spent" value={formatINR(data.spent_inr)} />
             <Metric label="Calls" value={formatINR(data.calls_inr)} />
+            {hasNonZeroDigit(data.number_rental_inr) && (
+              <Metric label="Phone number rental" value={formatINR(data.number_rental_inr)} />
+            )}
             {hasNonZeroDigit(data.ai_assist_inr) && (
               <Metric label="Extra AI help" value={formatINR(data.ai_assist_inr)} />
             )}

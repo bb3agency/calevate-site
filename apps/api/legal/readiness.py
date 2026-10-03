@@ -41,16 +41,19 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import tenant_registered_numbers
 from apps.api.compliance.autodialer import autodialer_notice_blocker
+from apps.api.compliance.carrier_application import carrier_application_required
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
 from apps.api.compliance.registration import outbound_entity_blockers
 from apps.api.compliance.service import (
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
     account_stopped_blocker,
+    carrier_application_blocker,
     credits_exhausted,
     first_campaign_hold_blocker,
     kyc_blocker,
@@ -126,6 +129,14 @@ ROW_COPY: dict[str, _Copy] = {
         actor="calevate",
         next_step="Talk to us before doing anything else — nothing on this screen will help.",
     ),
+    "account_suspended": _Copy(
+        title="This account is suspended",
+        actor="calevate",
+        next_step=(
+            "Talk to your account manager; outgoing calls stay stopped until we lift the "
+            "suspension. Calls coming in are still answered."
+        ),
+    ),
     "account_missing": _Copy(
         title="We could not confirm this account",
         actor="calevate",
@@ -146,6 +157,25 @@ ROW_COPY: dict[str, _Copy] = {
         next_step=(
             "The Verification screen says which state it is in and whether we owe you a "
             "review or you owe us a correction."
+        ),
+    ),
+    # Actor is OURS for both carrier rules: the client has no screen to send the
+    # application from, so the account manager is the next step whichever state it is in.
+    "carrier_application_missing": _Copy(
+        title="Carrier approval for your calling number",
+        actor="calevate",
+        next_step=(
+            "Our carrier approves each business before a number we supply can be used. "
+            "Your account manager will ask for the documents it needs. Calls coming in "
+            "are unaffected."
+        ),
+    ),
+    "carrier_application_not_accepted": _Copy(
+        title="Carrier approval not in place",
+        actor="calevate",
+        next_step=(
+            "The reason beside this item names where the application stands. Your account "
+            "manager will tell you if the carrier needs anything more from you."
         ),
     ),
     "autodialer_notice_missing": _Copy(
@@ -330,6 +360,10 @@ async def readiness_rows(
     if blocked_on_kyc is not None:
         rows.append(_row(*blocked_on_kyc))
 
+    carrier = await _carrier_application_row(session, tenant_id=tenant_id)
+    if carrier is not None:
+        rows.append(carrier)
+
     rows.extend(
         _row(*pair) for pair in await outbound_entity_blockers(session, tenant_id=tenant_id)
     )
@@ -371,6 +405,39 @@ async def readiness_rows(
         )
 
     return rows
+
+
+#: One agent of this account that dials from a number we supplied, or none. The gate
+#: (`carrier_application_blocker`) is asked per agent because it is about the numbers that
+#: agent presents; the application itself is one per account, so any such agent gives the
+#: account's answer.
+_SUPPLIED_NUMBER_AGENT_SQL = (
+    "SELECT agent_id FROM phone_numbers WHERE agent_id IS NOT NULL AND engine_owned "
+    "AND released_at IS NULL LIMIT 1"
+)
+
+
+async def _carrier_application_row(
+    session: AsyncSession, *, tenant_id: UUID
+) -> ReadinessRow | None:
+    """The carrier-approval refusal every dial from a supplied number gets, if it applies.
+
+    Through the dial gate's own predicate so the sentence matches the refusal word for
+    word. Without this row an account whose application lapsed has its outbound refused
+    on every path while this screen reports nothing in the way.
+
+    Shown only when the carrier is one that needs a per-client application (Plivo,
+    D-666); on Vobiz there is nothing to file, so no row and no query.
+    """
+    if not carrier_application_required():
+        return None
+    agent_id = (await session.execute(text(_SUPPLIED_NUMBER_AGENT_SQL))).scalar()
+    if agent_id is None:
+        return None
+    blocked = await carrier_application_blocker(
+        session, tenant_id=tenant_id, agent_id=UUID(str(agent_id))
+    )
+    return None if blocked is None else _row(*blocked)
 
 
 __all__ = ["ROW_COPY", "Actor", "ReadinessRow", "readiness_rows"]

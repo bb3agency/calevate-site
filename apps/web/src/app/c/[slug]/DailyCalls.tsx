@@ -1,6 +1,6 @@
 "use client";
 
-import { EmptyState } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
 import type { Dashboard } from "@/lib/api/client";
 
 /**
@@ -36,7 +36,7 @@ export function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
   if (!days.length) {
     return (
       <EmptyState
-        title="No call history yet"
+        message="No call history yet"
         hint="Each day appears here as it happens."
       />
     );

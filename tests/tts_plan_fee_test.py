@@ -792,3 +792,59 @@ async def test_the_speaking_rate_card_prices_both_vendors_even_unmeasured() -> N
             assert row["inr_per_1k_chars"] is None
         if row["inr_per_1k_chars"] is None or body["pooled"] is None:
             assert row["pooled_inr_per_minute"] is None
+
+
+# ------------------------------------------------------------------ the console's read
+
+
+async def test_the_read_lists_every_plan_billed_vendor_with_nothing_attested() -> None:
+    """A month nobody attested answers a slot per vendor with `attested` null, never ₹0."""
+    _, token = await _admin_token()
+    month = _unique_month()
+    async with _client() as http:
+        response = await http.get(
+            "/v1/ops/tts-prices/plan-fees",
+            params={"month": month},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["month"] == month
+    assert [slot["provider"] for slot in body["fees"]] == sorted(PLAN_BILLED_TTS_PROVIDERS)
+    slot = body["fees"][0]
+    assert slot["attested"] is None
+    assert slot["reference_plan_inr"] == str(CARTESIA_PRO_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR))
+
+
+async def test_the_read_returns_what_the_write_recorded() -> None:
+    _, token = await _admin_token()
+    month = _unique_month()
+    async with _client() as http:
+        written = await http.post(
+            "/v1/ops/tts-prices/cartesia/plan-fee",
+            headers=_headers(token, month),
+            json={"month": month, "plan_inr": "440.00", "source_note": "Pro plan invoice"},
+        )
+        assert written.status_code == 200, written.text
+        response = await http.get(
+            "/v1/ops/tts-prices/plan-fees",
+            params={"month": month},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200, response.text
+    attested = response.json()["fees"][0]["attested"]
+    assert attested["plan_inr"] == "440.00"
+    assert attested["month"] == month
+    assert attested["source_note"] == "Pro plan invoice"
+
+
+async def test_the_read_refuses_a_month_that_is_not_a_billing_month() -> None:
+    _, token = await _admin_token()
+    async with _client() as http:
+        response = await http.get(
+            "/v1/ops/tts-prices/plan-fees",
+            params={"month": "2026-9"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("/invalid_billing_month")

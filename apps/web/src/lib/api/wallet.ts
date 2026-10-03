@@ -279,6 +279,15 @@ export function walletReasonLabel(reason: string): string {
 }
 
 /**
+ * The name a client reads for one wallet row: the server's `label` when it sent one, else
+ * the reason's word. A rental debit is `reason = usage` (the ledger's reason enum is
+ * fixed), so without the label it would read "Calls" (D-665).
+ */
+export function walletEntryLabel(entry: Pick<WalletEntry, "label" | "reason">): string {
+  return entry.label ?? walletReasonLabel(entry.reason);
+}
+
+/**
  * What the wallet is DOING to this account right now, as one of four states.
  *
  * Derived here rather than in the page so the hero, the banner and the assistant's

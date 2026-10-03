@@ -11,7 +11,7 @@ import {
   Undo2,
 } from "lucide-react";
 
-import { MonoValue, TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
+import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { VOICE_TIERS, unpricedTier, type VoiceTier } from "@/lib/api/rateCard";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
@@ -28,6 +28,7 @@ import {
   formatWholeCount,
   formatRupeeRate,
 } from "@/components/ui";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   cardInstant,
   cardRefusal,
@@ -703,7 +704,7 @@ function WithdrawForm({ pending, onDone }: { pending: PendingCard; onDone: () =>
   const withdraw = useCancelRateCard();
   const valid = useFormValidation();
   const word = "WITHDRAW";
-  const ready = confirmMatches(confirm, word);
+  const ready = confirmationMatches(confirm, word, "exact");
   // The earliest date is not part of a withdrawal's refusals, so nothing is passed for it.
   const refusal = cardRefusal(withdraw.error, null);
 
@@ -745,9 +746,10 @@ function WithdrawForm({ pending, onDone }: { pending: PendingCard; onDone: () =>
         </span>
       </label>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`withdraw-card-${pending.effective_from}`}
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
         hint="Clients who were told about this change are not told again automatically. If it has already been announced, tell them yourself."
@@ -882,7 +884,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
   const save = useRecordRateCard();
   const valid = useFormValidation();
   const word = "RECORD";
-  const ready = confirmMatches(confirm, word);
+  const ready = confirmationMatches(confirm, word, "exact");
 
   const earliestDay = earliestPickableDate(card.earliest_effective_from);
   const days = noticeDays(card);
@@ -1053,9 +1055,10 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
         </p>
       </NoticeBox>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id="record-rate-card"
-        word={word}
+        phrase={word}
         value={confirm}
         onChange={setConfirm}
         hint="Rate history is append-only. A recorded card can be withdrawn before its date, but it cannot be edited, and the email goes out straight away."

@@ -315,7 +315,8 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   of everything withheld), not the email cadence, which is the episode rule above — plus a
   global token bucket at 20/hour with a burst of 6 **asked only of codes that can mail**,
   so an unauthenticated stranger firing `webhook_source_rejected` can no longer empty the
-  burst and delete somebody else's alarm. Both count
+  burst and delete somebody else's alarm. The bucket gates the MAIL only: a `page` it refuses
+  is still recorded on `/admin/ops/alerts` and mails as soon as a token returns. Both count
   what they drop and report the count in the next delivered body, so "still broken, 199
   times" never reads as "happened once". A FAILED delivery clears the suppression stamp —
   the window means "a human was told".

@@ -798,3 +798,37 @@ def _gst_registered_supplier(monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+async def test_a_carrier_charge_for_an_unanswered_dial_is_not_a_call_on_the_usage_panel() -> None:
+    """The carrier's CDR lands as an `other` row (`apps/workers/carrier_events`), including
+    for a busy or unanswered dial it charged us for. That is our cost and was never metered
+    for the client, so it must not add a call to the client's count."""
+    tenant_id, agent_id = await _tenant("managed")
+    await _seed_usage(tenant_id, agent_id, minutes=2)
+    busy_call = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+                "status, created_at, updated_at) VALUES (:i, :t, :a, :e, 'outbound', "
+                "'+919876500002', 'busy', now(), now())"
+            ),
+            {"i": busy_call, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                "unit_cost_paid, occurred_at, meta, created_at) VALUES (:i, :t, :c, 'other', 1, "
+                "0.3500, now(), CAST(:meta AS jsonb), now())"
+            ),
+            {
+                "i": uuid7(),
+                "t": tenant_id,
+                "c": busy_call,
+                "meta": '{"kind": "carrier_cdr"}',
+            },
+        )
+        summary = await billing.usage_summary(session, tenant_id=tenant_id)
+
+    assert summary["calls"] == 1

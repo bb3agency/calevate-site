@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { UserPlus } from "lucide-react";
 
-import { Drawer } from "@/components/console/drawer";
+import { Drawer, DrawerSubmit } from "@/components/console/drawer";
 import {
   FIELD,
   FIELD_LABEL,
@@ -60,6 +60,7 @@ export function InviteDrawer({
 
   return (
     <Drawer
+      formId={formId}
       open={open}
       onClose={close}
       title="Invite a colleague"
@@ -70,15 +71,13 @@ export function InviteDrawer({
           <button type="button" onClick={close} className={SECONDARY_BUTTON}>
             {issued ? "Done" : "Cancel"}
           </button>
-          <button
-            type="submit"
-            form={formId}
+          <DrawerSubmit
             disabled={invite.isPending || email.trim().length < 3}
             className={PRIMARY_BUTTON}
           >
             <UserPlus aria-hidden className="h-4 w-4" />
             {invite.isPending ? "Sending…" : "Send invite"}
-          </button>
+          </DrawerSubmit>
         </>
       }
     >

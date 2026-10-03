@@ -223,7 +223,7 @@ def tts_credential_installed(provider: VoiceProvider) -> bool:
     ⚠ **A PROVIDER WHOSE KEY LIVES IN ANOTHER DEPLOYMENT'S ENVIRONMENT ANSWERS `True`, AND
     THAT IS NOT A LIE — IT IS THE ONLY HONEST ANSWER THIS PROCESS CAN GIVE.** `gnani_api_key`
     is ENV-ONLY (`core/settings.ENV_ONLY_FOREIGN_ENV`): it is read by the Pipecat Cloud
-    worker's own synthesis leg, from the `calevate-pipecat-worker` secret set, and
+    worker's own synthesis leg, from the `calevate-pipecat-worker-secrets` secret set, and
     `apps/api` holds no Gnani client to give one to and cannot see whether the box is
     filled. Answering `False` would mean refusing the voice forever with a sentence
     pointing an operator at a field that can never fill on this host — the exact failure

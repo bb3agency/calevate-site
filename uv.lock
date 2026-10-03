@@ -237,6 +237,9 @@ name = "calevate"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "calevate-api" },
+    { name = "calevate-voice-runtime" },
+    { name = "calevate-workers" },
     { name = "uuid-utils" },
 ]
 
@@ -258,7 +261,12 @@ errors = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "uuid-utils", specifier = ">=0.17.0" }]
+requires-dist = [
+    { name = "calevate-api", virtual = "apps/api" },
+    { name = "calevate-voice-runtime", virtual = "apps/voice-runtime" },
+    { name = "calevate-workers", virtual = "apps/workers" },
+    { name = "uuid-utils", specifier = ">=0.17.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [

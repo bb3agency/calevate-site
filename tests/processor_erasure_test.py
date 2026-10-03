@@ -1,9 +1,8 @@
 """The erasure obligations that leave this building, and the claim we must not make (D-433).
 
-An erasure deletes our rows and our bytes and issues a certificate. The voice platform
-keeps its own copy of the recording and the transcript, and
-`docs/evidence/subprocessor-erasure-reach.md` §1 enumerates every `DELETE` route that
-platform documents: none reaches an execution at subject granularity.
+An erasure deletes our rows and our bytes and issues a certificate. Vendors that handled
+the call keep copies we cannot delete — the carrier's call records, a third-party engine's
+execution record, the speech and language vendors' copies — and each is a written request.
 
 These tests hold three lines:
 
@@ -135,19 +134,62 @@ def test_the_register_no_longer_calls_the_vendor_api_undocumented() -> None:
     )
 
 
-def test_the_engine_entry_states_the_granularity_and_not_just_a_shrug() -> None:
-    """An operator has to know WHY there is no deletion, because the reason decides what
-    they do next: the vendor can delete a whole agent, so a TENANT erasure has a remedy a
-    subject erasure does not."""
+def test_the_engine_entry_describes_the_runtime_we_run_and_not_the_one_d639_deleted() -> None:
+    """D-639 removed Bolna, and this entry used to describe Bolna's agent-wide `DELETE`
+    ("ALL agent data including all batches, all executions") to a data principal as the
+    platform that carried their calls. The call program is ours now: its record is in our
+    database and IS erased, it records no audio, and what its hosting platform keeps is
+    unestablished. The entry must say that, and must not borrow the old vendor's answer."""
     entry = next(e for e in deletion.ERASURE_EXCEPTIONS if e.outcome == deletion.ENGINE_OUTCOME)
-    assert "agent" in entry.why.lower()
-    # The REMEDY, not the gate number. `authority` is rendered on the client's own
-    # data-rights screen and reaches a data principal and a regulator through them, so it
-    # cites what that reader can open — the vendor's published documentation and the
-    # contractual fix — while `OPERATIONS §2` gate 12(f)/36 stays in the source comment
-    # above the entry, where the person who closes it reads.
+    said = f"{entry.what} {entry.why} {entry.authority}"
+    assert deletion.ENGINE_OUTCOME != "no_subject_granular_api"
+    assert "ALL agent data" not in said
+    assert "hosting platform" in entry.why
+    assert "not been established" in entry.why
+    assert "does not record the audio" in entry.why
+    # A deployment on a third-party engine still has a vendor-held record, and the entry
+    # still names the remedy for it.
+    assert "third-party voice platform" in entry.why
+    assert "written request" in entry.why
+    # The REMEDY, not the gate number: `authority` reaches a data principal through the
+    # client's data-rights screen, so it names the contractual fix and no internal file.
     assert "contract" in entry.authority.lower()
-    assert "published" in entry.authority.lower()
+    prose = " ".join(deletion.ERASURE_LIMITATIONS)
+    assert "ALL agent data" not in prose
+    assert "can delete a whole agent" not in prose
+
+
+def test_the_carrier_prose_no_longer_says_no_carrier_is_chosen() -> None:
+    """The structured entry named Vobiz while the prose a client reads still said "No
+    carrier is chosen yet" — two halves of one register disagreeing about one vendor."""
+    prose = " ".join(deletion.ERASURE_LIMITATIONS)
+    assert "No carrier is chosen" not in prose
+    assert "Vobiz" in prose
+    assert "written request" in prose
+
+
+def test_own_runtime_refs_never_reach_a_vendor_task() -> None:
+    """THE BLOCKER: a DPDP erasure on the live engine raised and never completed.
+
+    `execute_deletion_request` quoted every `calls.engine_call_id` into a `voice_engine`
+    task. On Pipecat that value is `pipecat:<tenant>:<call>` — a ref WE mint, naming a row
+    in our own database — and its colons fail the id-shape rule, so
+    `assert_vendor_refs_are_id_shaped` raised inside the erasure's transaction and every
+    erasure of a caller who had ever spoken to a Pipecat agent rolled back.
+    """
+    from apps.api.compliance.processor_erasure import (
+        OWN_RUNTIME_ENGINES,
+        engine_held_call_refs,
+    )
+    from apps.api.worker.service import ENGINE_NAME
+    from calevate_shared.engine import pipecat_call_ref
+
+    ours = pipecat_call_ref(uuid.uuid4(), uuid.uuid4())
+    with pytest.raises(VendorRefRejectedError):
+        assert_vendor_refs_are_id_shaped([ours])
+    assert engine_held_call_refs([ours, _REAL_EXECUTION_ID]) == [_REAL_EXECUTION_ID]
+    # The route-table filter keys on the engine NAME the runtime writes there.
+    assert ENGINE_NAME in OWN_RUNTIME_ENGINES
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +502,83 @@ async def test_a_real_erasure_opens_a_voice_platform_task_naming_the_executions(
     # The vendor's OWN execution id, which is what makes the request actionable rather
     # than a letter asking them to find "some calls".
     assert rows[0].vendor_refs == [execution_id]
+
+
+@asyncio_test
+async def test_a_pipecat_call_erases_and_opens_a_carrier_task_naming_its_call_ids() -> None:
+    """END TO END on the engine that actually runs calls: a Pipecat `engine_call_id` and a
+    Vobiz `carrier_call_id`.
+
+    Two things are pinned. The erasure COMPLETES — before the fix the `pipecat:` ref was
+    quoted into a vendor task, failed the id-shape rule and rolled the erasure back. And
+    the carrier, which the certificate tells the data principal holds their number and
+    their audio, gets a task naming ITS ids rather than only a sentence on a certificate.
+    """
+    from apps.workers.retention import execute_deletion_request
+    from calevate_shared.engine import pipecat_call_ref
+
+    tenant_id = await _tenant()
+    phone = f"+9198{uuid.uuid4().int % 100000000:08d}"
+    call_id = uuid.uuid4()
+    carrier_call_id = str(uuid.uuid4())
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(
+                text("SELECT id FROM agents WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, carrier_call_id, "
+                " carrier, direction, status, from_e164, to_e164, started_at, created_at, "
+                " updated_at) "
+                "VALUES (:id, :t, :a, :e, :c, 'vobiz', 'inbound', 'completed', :p, :p, "
+                " now(), now(), now())"
+            ),
+            {
+                "id": call_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "e": pipecat_call_ref(tenant_id, call_id),
+                "c": carrier_call_id,
+                "p": phone,
+            },
+        )
+        request_id = (
+            await session.execute(
+                text(
+                    "INSERT INTO deletion_requests (id, tenant_id, phone_e164, subject_ref, "
+                    " scope, requested_at, created_at) "
+                    "VALUES (gen_random_uuid(), :t, :p, :r, 'all', now(), now()) "
+                    "RETURNING id"
+                ),
+                {"t": tenant_id, "p": phone, "r": "deadbeef"},
+            )
+        ).scalar()
+
+    await execute_deletion_request({}, {"tenant_id": str(tenant_id), "request_id": str(request_id)})
+
+    async with tenant_session(tenant_id) as session:
+        completed = (
+            await session.execute(
+                text("SELECT completed_at FROM deletion_requests WHERE id = :r"),
+                {"r": request_id},
+            )
+        ).scalar()
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT processor, status, vendor_refs FROM processor_erasure_tasks "
+                    "WHERE request_ref = :r ORDER BY processor"
+                ),
+                {"r": request_id},
+            )
+        ).all()
+    assert completed is not None, "the erasure did not complete"
+    # No `voice_engine` task: the Pipecat ref names our own row, which the erasure reached.
+    assert [r.processor for r in rows] == ["telephony"]
+    assert rows[0].status == "open"
+    assert rows[0].vendor_refs == [carrier_call_id]
 
 
 @asyncio_test

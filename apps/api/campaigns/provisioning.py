@@ -257,25 +257,19 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
                 "authorisation from a licensed Indian operator, and that is not in place "
                 "yet. Nothing has been bought and nothing has been charged."
             ),
-            remediation=(
-                "Record the written reseller authorisation before buying any number. "
-                "Until it is in place, a client's calling number is a connection they "
-                "take in their own name with an Indian operator and we connect it."
-            ),
+            remediation="Record the written reseller authorisation before buying any number.",
         )
     return ProblemError(
         kind="dependency",
         code="number_provisioning_not_configured",
         title="This deployment cannot buy a phone number",
         detail=(
-            "The voice platform this deployment runs on does not sell telephone numbers, "
-            "so none can be bought here."
+            "Calevate's own voice runtime has no number-buying connection to a carrier, "
+            "so a number cannot be bought from here."
         ),
         remediation=(
-            "Connect a number the client already holds instead: they take it in their own "
-            "name with an Indian operator — Exotel, Plivo or Vobiz — pass that operator's "
-            "KYC and stay the subscriber of record, then send us the number and "
-            "credentials they can withdraw at any time."
+            "Record a number on Calevate's own carrier account with Vobiz for this client "
+            "instead: the client opens no operator account and issues us no credentials."
         ),
     )
 
@@ -290,9 +284,9 @@ def self_serve_purchase_refused() -> ProblemError:
     TRUE, and a refusal that is not true teaches a client something they will repeat to
     their carrier.
 
-    It names both routes forward, because both are real: their own connection, or ours
-    arranged through their account manager. It promises no price and no timeline — neither
-    is a fact this repository holds.
+    It names the one route forward: a number Calevate provides on its own Vobiz carrier
+    account, arranged through their account manager. It promises no price and no timeline
+    — neither is a fact this repository holds.
     """
     return ProblemError.business_rule(
         "number_purchase_is_operator_led",
@@ -301,9 +295,9 @@ def self_serve_purchase_refused() -> ProblemError:
             "your account manager as part of setting your agent up."
         ),
         remediation=(
-            "Talk to us and we will arrange the number, or bring one you already hold: "
-            "take the connection in your own name with an Indian operator, pass their "
-            "KYC, and send us the number and credentials you can withdraw at any time."
+            "Talk to us and your account manager will arrange the number. Calevate "
+            "provides it on our own carrier account with Vobiz, so there is no operator "
+            "account for you to open."
         ),
     )
 

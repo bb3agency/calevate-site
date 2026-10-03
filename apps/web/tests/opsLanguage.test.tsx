@@ -6,8 +6,6 @@ import {
   KeyField,
   MonoValue,
   TimingBadge,
-  TypeToConfirm,
-  confirmMatches,
   dncSourceCopy,
   loadShedModeCopy,
   provenanceCopy,
@@ -15,6 +13,7 @@ import {
   timingCopy,
   tmStatusCopy,
 } from "@/app/admin/ops/opsLanguage";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 
 /**
  * The plain-language layer is the one place the operations console decides how it speaks
@@ -89,10 +88,15 @@ describe("ops plain-language maps", () => {
     expect(dncSourceCopy("platform_block").label).not.toContain("_");
   });
 
-  it("matches a confirm word only on an exact equal", () => {
-    expect(confirmMatches("STOP", "STOP")).toBe(true);
-    expect(confirmMatches("stop", "STOP")).toBe(false);
-    expect(confirmMatches(" STOP", "STOP")).toBe(false);
+  it("matches a confirm word only on an exact equal when asked for exact", () => {
+    expect(confirmationMatches("STOP", "STOP", "exact")).toBe(true);
+    expect(confirmationMatches("stop", "STOP", "exact")).toBe(false);
+    expect(confirmationMatches(" STOP", "STOP", "exact")).toBe(false);
+  });
+
+  it("forgives case and stray spaces by default, because the phrase proves attention", () => {
+    expect(confirmationMatches(" remove ", "REMOVE")).toBe(true);
+    expect(confirmationMatches("REMOVED", "REMOVE")).toBe(false);
   });
 });
 
@@ -139,10 +143,12 @@ describe("KeyField", () => {
   });
 });
 
-describe("TypeToConfirm", () => {
+describe("TypedConfirmation", () => {
   function Harness() {
     const [v, setV] = useState("");
-    return <TypeToConfirm id="c" word="STOP" value={v} onChange={setV} />;
+    return (
+      <TypedConfirmation id="c" phrase="STOP" match="exact" value={v} onChange={setV} hint="Stops everything." />
+    );
   }
 
   it("labels the field with the exact word to type", () => {
@@ -152,6 +158,21 @@ describe("TypeToConfirm", () => {
     const input = screen.getByLabelText(/Type/) as HTMLInputElement;
     expect(input.placeholder).toBe("STOP");
     expect(input.className).toContain("font-mono");
+  });
+
+  it("is named by the phrase and described by its hint", () => {
+    render(<Harness />);
+    const input = screen.getByLabelText("Type STOP to confirm");
+    expect(screen.getByText("Stops everything.").id).toBe(input.getAttribute("aria-describedby"));
+  });
+
+  it("marks the field once what was typed matches", () => {
+    render(<Harness />);
+    const input = screen.getByLabelText("Type STOP to confirm") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "stop" } });
+    expect(input.className.split(" ")).not.toContain("border-brand");
+    fireEvent.change(input, { target: { value: "STOP" } });
+    expect(input.className.split(" ")).toContain("border-brand");
   });
 });
 

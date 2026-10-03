@@ -120,7 +120,7 @@ async def test_a_429_over_the_line_limit_is_refused_at_once_as_lines_busy(
         base_url="https://carrier.test", transport=httpx.MockTransport(handler)
     ) as client:
         with pytest.raises(ProblemError) as raised:
-            await vendor_request(client, "POST", "/Call/", engine="vobiz", json={})
+            await vendor_request(client, "POST", "/Call/", engine="vobiz", route="/Call/", json={})
     assert raised.value.code == LINES_BUSY_RULE
     assert dial_was_not_placed(raised.value) is True
     assert len(sent) == 1
@@ -136,7 +136,9 @@ async def test_a_429_over_the_per_second_limit_is_retried(monkeypatch: pytest.Mo
     async with httpx.AsyncClient(
         base_url="https://carrier.test", transport=httpx.MockTransport(lambda _: answers.pop(0))
     ) as client:
-        body = await vendor_request(client, "POST", "/Call/", engine="vobiz", json={})
+        body = await vendor_request(
+            client, "POST", "/Call/", engine="vobiz", route="/Call/", json={}
+        )
     assert body == {"request_uuid": "vz-1"}
 
 

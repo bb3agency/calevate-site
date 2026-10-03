@@ -4,7 +4,7 @@ Circular FKs (agents.system_prompt_id → prompt_versions, prompt_versions.agent
 agents) use use_alter so Alembic emits them as separate ALTERs after both tables exist.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, get_args
 from uuid import UUID
@@ -15,6 +15,7 @@ from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -851,6 +852,10 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     # Given back to the vendor at this instant. The row SURVIVES a release — it is what a
     # closed month's cost query still needs — and this is what stops the meter.
     released_at: Mapped[datetime | None]
+    #: The first rental period the CLIENT is charged for (D-665). NULL means from the
+    #: purchase; set only on numbers recorded before D-665 shipped, to their first renewal
+    #: date after it, so the period already under way then was never charged.
+    rental_charged_from: Mapped[date | None] = mapped_column(Date)
 
 
 class AgentHandoffMember(PKMixin, TimestampMixin, Base):

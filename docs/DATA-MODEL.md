@@ -1097,7 +1097,8 @@ carrier_compliance_applications(id, tenant_id → organizations ON DELETE RESTRI
   -- a client's own connection is not rented under our reseller relationship) and by
   -- `carrier_application.assert_carrier_application_accepted` (the ACQUISITION gate, tier-
   -- and supply-blind, asked by `number_supply.buy_number` before it spends and by
-  -- `agents.service.provision_number` for an `engine_owned` row). One mutable row per
+  -- `agents.service.provision_number` for an `engine_owned` row). Both gates bind only
+  -- while the carrier is Plivo (D-666); on Vobiz no row is read. One mutable row per
   -- tenant per carrier, absent from APPEND_ONLY_TABLES for `kyc_records`' reason: this is
   -- current state — an approval lapses, or is suspended after unresolved UCC complaints —
   -- and `audit_log` holds who changed it.

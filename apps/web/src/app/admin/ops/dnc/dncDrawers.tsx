@@ -7,8 +7,6 @@ import type { useAdminAccess } from "@/app/admin/access";
 import {
   DANGER_BUTTON,
   MonoValue,
-  TypeToConfirm,
-  confirmMatches,
   dncSourceCopy,
 } from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -25,6 +23,7 @@ import {
   formatCount,
   formatPhone,
 } from "@/components/ui";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { MAX_NUMBERS_PER_ADD, parsePastedNumbers } from "@/lib/api/dnc";
 import type {
   GlobalDncEntry,
@@ -72,7 +71,7 @@ export function SuppressForm({
   const valid = useFormValidation();
   // The reason's rule lives on the control, so an empty reason SAYS so on submit. These are
   // the gates that are not answers on a control.
-  const ready = parsed.length > 0 && !tooMany && confirmMatches(confirm, "SUPPRESS");
+  const ready = parsed.length > 0 && !tooMany && confirmationMatches(confirm, "SUPPRESS", "exact");
 
   return (
     <div className="space-y-4">
@@ -198,9 +197,10 @@ export function SuppressForm({
           </p>
         </div>
 
-        <TypeToConfirm
+        <TypedConfirmation
+          match="exact"
           id="global-dnc-suppress-confirm"
-          word="SUPPRESS"
+          phrase="SUPPRESS"
           value={confirm}
           onChange={setConfirm}
           hint="This confirms you mean the platform-wide list, not one client's."
@@ -298,9 +298,10 @@ export function ReleaseConfirm({
         </div>
       </div>
 
-      <TypeToConfirm
+      <TypedConfirmation
+        match="exact"
         id={`global-dnc-release-confirm-${entry.id}`}
-        word="RELEASE"
+        phrase="RELEASE"
         value={confirm}
         onChange={setConfirm}
         hint={
@@ -316,7 +317,7 @@ export function ReleaseConfirm({
         </button>
         <button
           type="button"
-          disabled={!confirmMatches(confirm, "RELEASE") || releasing}
+          disabled={!confirmationMatches(confirm, "RELEASE", "exact") || releasing}
           onClick={() =>
             mutation.mutate(entry.id, {
               onSuccess: () => {

@@ -274,13 +274,20 @@ export function DataTable<T>({
           </tbody>
         </table>
       </ScrollRegion>
+      {/* The partial note is part of the announcement, not only the visible line: a
+          screen-reader user told "sorted by length, descending" over a page of a log would
+          otherwise believe they had the longest call of all of them. */}
       <p aria-live="polite" className="sr-only">
         {sort && sortedColumn
-          ? `Sorted by ${sortedColumn.header}, ${sort.direction === "asc" ? "ascending" : "descending"}`
+          ? `Sorted by ${sortedColumn.header}, ${sort.direction === "asc" ? "ascending" : "descending"}.${
+              partialNote ? ` ${partialNote}` : ""
+            }`
           : ""}
       </p>
       {sort && partialNote && (
-        <p className="px-3 pb-1 pt-2 text-[12px] text-ink-faint">{partialNote}</p>
+        <p aria-hidden className="px-3 pb-1 pt-2 text-[12px] text-ink-faint">
+          {partialNote}
+        </p>
       )}
     </div>
   );

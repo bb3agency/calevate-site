@@ -2649,9 +2649,17 @@ async def usage_summary(
             # Deliberately NOT filtered to call rows: a dashboard-assist row carries no
             # `call_id` and `COUNT(DISTINCT)` ignores NULLs, so the AI ledger cannot
             # inflate a client's call count and does not need a predicate to say so.
+            #
+            # `unit_type <> 'other'` IS needed: the carrier's CDR lands as an `other` row
+            # (`apps/workers/carrier_events`) and is written for a busy or unanswered dial
+            # the carrier charged us for, which the client was never metered for. Counting
+            # it would show the client a call that has no minutes. A correction row
+            # (`billing/cost_unit.py`) is also `other` and always sits beside a metered row
+            # of its own call, so excluding the type drops nothing else.
             text(
                 "SELECT COUNT(DISTINCT call_id) "
-                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW}"
+                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
+                "AND unit_type <> 'other'"
             ),
             {"tid": tenant_id, **_month_bounds(period, since=epoch)},
         )

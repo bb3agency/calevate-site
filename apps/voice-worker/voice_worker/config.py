@@ -152,6 +152,7 @@ async def load_session_config(
         # The server is what answers `greet_first` now; the argument moved with it rather
         # than being restated in two places.
         language=answer.language,
+        languages_extra=tuple(answer.languages_extra),
         greet_first=answer.greet_first,
         opening_line=answer.opening_line,
         knowledge_pack_sha256=answer.knowledge_pack_sha256,

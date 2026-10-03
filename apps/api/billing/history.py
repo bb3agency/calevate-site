@@ -6,7 +6,7 @@ Two reads the billing screens were missing (D-660). Neither is a new computation
   row's `total_inr` IS the statement it links to, plus the month's credit added and wallet
   spend summed with the wallet screen's own SQL (`wallet.CREDIT_ADDED_SQL`,
   `wallet.DRAWDOWN_BUCKETS_SQL`);
-- **the daily spend series** is the wallet drawdown (`wallet.read_runway`'s three outgoing
+- **the daily spend series** is the wallet drawdown (`wallet.read_runway`'s four outgoing
   buckets) grouped by IST day, so a window's days sum to the drawdown over the same window
   exactly.
 
@@ -101,6 +101,7 @@ class SpendDay:
     calls_inr: Decimal
     ai_assist_inr: Decimal
     adjustments_inr: Decimal
+    number_rental_inr: Decimal
     spent_inr: Decimal
 
 
@@ -122,6 +123,7 @@ class SpendSeries:
     calls_inr: Decimal
     ai_assist_inr: Decimal
     adjustments_inr: Decimal
+    number_rental_inr: Decimal
     spent_inr: Decimal
     by_agent: tuple[AgentSpend, ...]
 
@@ -198,9 +200,9 @@ async def spend_series(
         )
     ).all()
 
-    raw_days: dict[date, tuple[Decimal, Decimal, Decimal]] = {}
+    raw_days: dict[date, tuple[Decimal, Decimal, Decimal, Decimal]] = {}
     raw_agents: list[tuple[UUID | None, str | None, Decimal]] = []
-    for per_agent, day, agent_id, agent_name, calls, ai, adjustments in rows:
+    for per_agent, day, agent_id, agent_name, calls, ai, adjustments, rental in rows:
         if per_agent:
             if _dec(calls) > 0:
                 raw_agents.append(
@@ -211,26 +213,29 @@ async def spend_series(
                     )
                 )
         else:
-            raw_days[day] = (_dec(calls), _dec(ai), _dec(adjustments))
+            raw_days[day] = (_dec(calls), _dec(ai), _dec(adjustments), _dec(rental))
 
     calendar = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
-    zero = (_ZERO, _ZERO, _ZERO)
+    zero = (_ZERO, _ZERO, _ZERO, _ZERO)
     raw = [raw_days.get(day, zero) for day in calendar]
     raw_calls = [r[0] for r in raw]
     raw_ai = [r[1] for r in raw]
     raw_adj = [r[2] for r in raw]
-    raw_spent = [r[0] + r[1] + r[2] for r in raw]
+    raw_rental = [r[3] for r in raw]
+    raw_spent = [r[0] + r[1] + r[2] + r[3] for r in raw]
 
     total_calls = to_paise(sum(raw_calls, _ZERO))
     total_ai = to_paise(sum(raw_ai, _ZERO))
     total_adj = to_paise(sum(raw_adj, _ZERO))
+    total_rental = to_paise(sum(raw_rental, _ZERO))
     # The SAME rounding `wallet_routes.read_wallet_summary` applies to `spent_inr`: the raw
-    # sum, quantized once — not the sum of three rounded buckets.
+    # sum, quantized once — not the sum of four rounded buckets.
     total_spent = to_paise(sum(raw_spent, _ZERO))
 
     calls_days = allocate_paise(raw_calls, total_calls)
     ai_days = allocate_paise(raw_ai, total_ai)
     adj_days = allocate_paise(raw_adj, total_adj)
+    rental_days = allocate_paise(raw_rental, total_rental)
     spent_days = allocate_paise(raw_spent, total_spent)
 
     # Agents sorted by spend, largest first, then by name for a stable order; the
@@ -247,6 +252,7 @@ async def spend_series(
                 calls_inr=calls_days[i],
                 ai_assist_inr=ai_days[i],
                 adjustments_inr=adj_days[i],
+                number_rental_inr=rental_days[i],
                 spent_inr=spent_days[i],
             )
             for i, day in enumerate(calendar)
@@ -254,6 +260,7 @@ async def spend_series(
         calls_inr=total_calls,
         ai_assist_inr=total_ai,
         adjustments_inr=total_adj,
+        number_rental_inr=total_rental,
         spent_inr=total_spent,
         by_agent=tuple(
             AgentSpend(agent_id=agent[0], agent_name=agent[1], calls_inr=amount)
@@ -335,7 +342,7 @@ async def statement_page(
         )
     ).all()
     totals = {
-        str(row[0]): (_dec(row[1]), _dec(row[2]) + _dec(row[3]) + _dec(row[4]))
+        str(row[0]): (_dec(row[1]), _dec(row[2]) + _dec(row[3]) + _dec(row[4]) + _dec(row[5]))
         for row in totals_rows
     }
 

@@ -737,16 +737,20 @@ class SqlControlPlane:
           different and false claim (`ExecutionSnapshot.latency`).
         * `raw_document` — `None`. There is no vendor document: the rows below ARE the
           record, and `_archive_engine_document` answers `none_offered`.
-        * `recording_url` — whatever the row holds, which is `NULL` until something records
-          audio. The worker does not (BLOCKER-1: the carrier leg is not built).
-        * `from_e164`/`to_e164` — read from the row rather than assumed absent. The worker
-          leaves them `NULL` because §1.2 gives the party numbers to the carrier's CDR, so
-          today they are `None` and `_upsert_lead` correctly declines to file a lead under
-          a number nobody witnessed; the day the reconciliation fills those columns this
-          method starts returning them with no edit.
-        * `billable_ready` — `False` unless the CDR has been reconciled, which nothing does
-          yet. §1.2 again: *"the billable quantity is now witnessed by the party that
-          charges for it"*, and nothing here may stand in for that.
+        * `recording_url` — whatever the row holds, which is `NULL`: neither the worker nor
+          the carrier leg (D-662) records audio.
+        * `from_e164`/`to_e164` — read from the row. An outbound dial writes `to_e164` on
+          its intent row (`agents.service.dispatch_call`) and `record_dial` stamps the
+          caller id it presented. On an inbound call the worker sends the caller's number
+          in its observation events and settlement when the stream handshake gave a known
+          caller identity (`voice_worker/carrier.CallerIdentity`), and
+          `worker/service._upsert_call` writes it to `from_e164` the first time it is
+          known. A call with no known caller identity carries no number, the column stays
+          NULL, and `_upsert_lead` files no lead under it.
+        * `billable_ready` — always `False`. The carrier's CDR is read after the call
+          (`carrier_events.read_carrier_cdr`), but it sets OUR cost only; the client's
+          billable seconds are the worker's measured duration (D-648), and this snapshot
+          does not claim the carrier witnessed them.
 
         Hard rule 6: this returns transcript TEXT, which is what the extraction stage
         consumes and what `transcript_turns.text` already holds. It is never logged — the
@@ -975,32 +979,16 @@ class SqlControlPlane:
         the tautology D-31 warns of. It stays empty until the runtime keeps a record of its
         own that is independent of `calls`.
 
-        ⚠ **THIS USED TO CONTINUE "or, more likely, until §1.2's other half lands and the
-        reconciliation reads the CARRIER's CDR, which is a genuinely independent authority
-        and is the one this engine is entitled to". THE CDR IS STILL THE RIGHT AUTHORITY AND
-        WE ARE NOT ENTITLED TO IT** (verified 19 Sep 2026, on a founder audit asking for
-        exactly that poller). It is not deferred work; it is work this product cannot do, and
-        the difference matters because a plan may not wait for it:
-
-        * **Model B (D-474, `docs/ROADMAP.md:716`)** — *"the client buys the connection on
-          their own Exotel/Plivo/Vobiz account, passes that carrier's KYC, remains the
-          subscriber of record and issues us revocable API credentials."* A CDR is a record
-          inside THE CLIENT'S OWN carrier account, and reading it needs a key against that
-          account.
-        * **There is no per-tenant carrier-credential store in this tree.** The only carrier
-          secrets that exist are `Settings.plivo_auth_id` / `plivo_auth_token` — ONE
-          deployment-wide pair in the `calevate-pipecat-worker` secret set, whose stated
-          purpose is hanging the leg up at `EndFrame` (`apps/api/core/settings.py:255-268`,
-          `voice_worker/boot.py:132-144`). One pair cannot authenticate a lookup against N
-          clients' accounts, and `campaigns/provisioning.PROVISIONING_IMPLEMENTED` is False
-          because the capability is REFUSED rather than unbuilt — flipping it is adopting
-          Model A, a legal decision and not a config change (`agents/handoff.py:17-21` states
-          the same fact for the whisper).
-        * **The API shape is UNKNOWN from here in any case.** `www.plivo.com/docs/` and
-          `api.plivo.com` both answer `curl: (56) CONNECT tunnel failed, response 403` →
-          HTTP 000, re-measured from this container 19 Sep 2026. Our pinned Pipecat contains
-          exactly one Plivo REST endpoint (the hangup), so every other method, path and body
-          would be invented — which hard rule 11 forbids more firmly than it forbids a gap.
+        The carrier's CDR is the independent authority, and on Vobiz it is read — but per
+        call, not as a listing. `apps/workers/carrier_events.read_carrier_cdr` fetches the
+        record of a call we already hold, by its carrier call id (`VobizCarrier.fetch_cdr`),
+        and records our cost for it (D-662), so it cannot discover a call we never heard of.
+        Discovery would read the carrier's CDR list (`vobiz-findings/mirror/pages/cdr/
+        list-cdrs.md`), which no `CarrierClient` method wraps, so this stays empty. Either
+        reading needs credentials for the account that carried the call: the founder's own
+        Vobiz account holds them for the testing phase (D-662); under Model B (D-474) the
+        CDR is in the client's own carrier account, and there is no per-tenant carrier
+        credential store.
 
         **THE RECONCILIATION THAT IS OURS IS A DIFFERENT ONE, AND IT IS WIRED.** Noticing
         that a call started and never settled needs no independent authority:
@@ -1575,11 +1563,10 @@ class PipecatEngine:
 
         §1.2 SPLITS THE GUARANTEE AND THIS IS THE "CONTENT" HALF: the transcript, the turns
         and the outcome are ours because nobody else ever had them. The FACTS half — did it
-        connect, how long, what did it cost — belongs to the carrier's CDR, which is not
-        retrievable from here (see the module docstring), and `billable_ready` is therefore
-        the field to watch: it may never be honestly True on this engine until a CDR can be
-        read, because *"the billable quantity is now witnessed by the party that charges for
-        it"* and nothing else may stand in for that.
+        connect, how long, what did it cost — belongs to the carrier's CDR, which
+        `carrier_events.read_carrier_cdr` reads after the call and records as our cost only.
+        `billable_ready` therefore stays False here: the client's minutes are the worker's
+        measured duration (D-648), not a quantity the carrier witnessed.
         """
         found = await self._store.execution(call_id)
         if found is None:
