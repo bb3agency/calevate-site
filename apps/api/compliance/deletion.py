@@ -106,7 +106,7 @@ not standing on an open question.
 An earlier version of this notice told the data principal the audio was "removed by the
 object-store lifecycle rule, which is floored at 90 days". That sentence described a
 mechanism nobody has built. SEC-COMP §4 now records what `infra/object-lifecycle/`
-actually is: a bucket-wide growth CEILING (`recordings/` expire at 2555 days), static and
+actually is: a bucket-wide backstop (`recordings/` expire at 120 days, D-668), static and
 prefix-scoped, which *cannot* follow a per-tenant `retention_policies` row — "no
 per-tenant mechanism deletes recording bytes". A certificate that hands someone a
 deletion date derived from a rule that does not delete on that clock is exactly the
@@ -319,8 +319,8 @@ UNIDENTIFIED_OUTCOME: Final = "unidentified_caller_not_matchable"
 #:
 #: * the program's record of the call (call row, turns, outcome) is in our database and the
 #:   erasure reaches it;
-#: * it records no audio (`engine/pipecat.PIPECAT_CAPABILITIES.records_audio` is False and
-#:   nothing in `apps/voice-worker` captures audio);
+#: * it records no audio itself — nothing in `apps/voice-worker` captures any; on Vobiz the
+#:   CARRIER records the call (D-668), and that copy is the telephone carrier entry's;
 #: * it runs in a container on Pipecat Cloud, which the audio and the transcript pass
 #:   through, and what that platform retains is UNKNOWN — its documentation hosts are
 #:   egress-blocked here and no processing term is signed (`subprocessors.ts`, the Pipecat
@@ -360,11 +360,16 @@ BACKUP_OUTCOME: Final = "expires_with_backup"
 #: Its own word rather than `PROCESSOR_OUTCOME`, which is the speech and language vendors'
 #: single entry; the carrier is a separate vendor with its own documented surface. Its API
 #: reference documents reading, searching and exporting call records and no route that
-#: deletes one (VERIFIED-VENDOR-DOCS: `vobiz-findings/mirror/pages/cdr/*.md`), and its
-#: recording reference lists retrieve, list, download and export but no delete operation
-#: (`vobiz-findings/mirror/pages/recording.md:65-73`). Its console shows recordings "for
-#: the last 30 days" (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). How
-#: long it keeps call records is not stated anywhere read, so removal is a written request.
+#: deletes one (VERIFIED-VENDOR-DOCS: `vobiz-findings/mirror/pages/cdr/*.md`), so removing
+#: those is a written request. Since D-668 the carrier also RECORDS the call, and its
+#: recordings DO have a documented delete (`DELETE /Account/{auth_id}/Recording/{id}/`,
+#: `vobiz-findings/mirror/root-site/openapi.json:8459-8484`,
+#: `pages/recording/recording-object.md:152,155`): an erasure asks for it through that route
+#: (`workers/carrier_recordings.delete_carrier_recordings`) and quotes the recording ids in
+#: the same telephony task, so a delete that fails is still covered by the written request.
+#: Vobiz keeps a recording 30 days by its Recordings page and 3 by that page's screenshot
+#: (`pages/platform/voice/recordings.md:18,21`, UNRESOLVED). The word stays "not reached"
+#: because the call records still are not.
 TELEPHONY_OUTCOME: Final = "not_reached_no_carrier_api"
 
 
@@ -495,12 +500,15 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "does not reach, and it holds more of the call than any of the three above: the "
     "caller's number, the number dialled, the carrier's own call records, and the live "
     "sound of the call in both directions, which passes through the carrier for the whole "
-    "conversation. Calevate's carrier is Vobiz. Its published interface reads and exports "
-    "its call records and offers no way to delete one, nothing it publishes that we have "
-    "read says how long it keeps them, and its console shows call recordings for the last "
-    "30 days. Removing this person's records there is a written request to Vobiz naming "
-    "the calls by Vobiz's own identifiers, and this certificate does not record that "
-    "request as made: until Vobiz confirms a deletion in writing, a copy exists.",
+    "conversation. Calevate's carrier is Vobiz, and where Vobiz recorded a call it "
+    "keeps the recording for a period it states as up to 30 days. When this erasure runs, "
+    "Calevate asks Vobiz to delete its recordings of these calls through the deletion "
+    "Vobiz publishes for recordings. Vobiz's published interface offers no way to delete "
+    "its call records, and nothing it publishes that we have read says how long it keeps "
+    "them. Removing those records, and any recording the deletion did not reach, is a "
+    "written request to Vobiz naming the calls and recordings by Vobiz's own identifiers, "
+    "and this certificate does not record that request as made: until Vobiz confirms a "
+    "deletion in writing, a copy exists.",
     "This request record holds the number only until the erasure runs — the queued "
     "worker has to be able to find the subject — and it is cleared in the same write "
     "that records the proof. What remains afterwards is a one-way reference, which "
@@ -783,13 +791,17 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "program that holds the conversation, so the carrier handles the caller's "
             "number, the number dialled, its own record of the call, and the sound of "
             "the call in both directions for its whole length. Calevate's carrier is "
-            "Vobiz, and this request does not reach what Vobiz holds. Its published "
-            "interface lets us read and export its call records and offers no way to "
-            "delete one, and nothing it publishes that we have read says how long it "
-            "keeps them; its console shows call recordings for the last 30 days. "
-            "Removing this person's records there takes a written request to Vobiz, "
-            "and this certificate does not record one as made: until Vobiz confirms a "
-            "deletion in writing, the honest statement is that this copy exists."
+            "Vobiz, and where Vobiz recorded a call it keeps the recording for a "
+            "period it states as up to 30 days. When this erasure runs, Calevate asks "
+            "Vobiz to delete its recordings of these calls through the deletion Vobiz "
+            "publishes for recordings; this certificate is issued before Vobiz answers, "
+            "so it does not say the deletion succeeded. Vobiz's published interface "
+            "lets us read and export its call records and offers no way to delete one, "
+            "and nothing it publishes that we have read says how long it keeps them. "
+            "Removing those records, and any recording the deletion did not reach, takes "
+            "a written request to Vobiz, and this certificate does not record one as "
+            "made: until Vobiz confirms a deletion in writing, the honest statement is "
+            "that this copy exists."
         ),
         # The register's Vobiz row (`apps/web/src/lib/legal/subprocessors.ts`) is the
         # client-facing copy this entry must agree with; the vendor citations are in the
@@ -797,10 +809,11 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         authority=(
             "DPDP §8(7) storage limitation and §12(3) erasure, read against Vobiz's "
             "published API documentation: its call-record interface only lists, reads "
-            "and exports, and its recording interface only lists, reads, downloads and "
-            "exports, so no route there deletes one person's records. The durable fix "
-            "is a deletion term in our contract with Vobiz, which is a signed commercial "
-            "term rather than something this system can supply."
+            "and exports, so no route there deletes one person's call records, while its "
+            "recording interface documents a deletion of a single recording, which this "
+            "erasure uses. The durable fix for the call records is a deletion term in our "
+            "contract with Vobiz, which is a signed commercial term rather than something "
+            "this system can supply."
         ),
     ),
     ErasureLimitation(

@@ -37,7 +37,13 @@ from pydantic import ValidationError
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.engine.capabilities import engine_not_configured
-from apps.api.engine.carrier import CarrierCallEvent, CarrierCdr, PlacedCall
+from apps.api.engine.carrier import (
+    CarrierCallEvent,
+    CarrierCdr,
+    CarrierRecording,
+    CarrierRecordingSource,
+    PlacedCall,
+)
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
 
 log = get_logger(__name__)
@@ -92,6 +98,17 @@ _HANGUP_CODE_STATUS: Final[dict[int, CallStatus]] = {
 _STREAM_EVENTS: Final = frozenset(
     {"StartStream", "PlayedStream", "ClearedAudio", "DegradedStream", "DroppedStream", "StopStream"}
 )
+
+
+#: Where a recording download may carry our credential. The file's host varies across
+#: `media.vobiz.ai`, `recordings.vobiz.ai` and `storage.vobiz.ai`
+#: (`recording/download-recording.md:43`), so the registrable domain is named and a host
+#: matches it or any subdomain of it (`storage._carries_auth`). A redirect elsewhere is
+#: followed without the headers.
+RECORDING_AUTH_HOSTS: Final = frozenset({"vobiz.ai"})
+
+#: `RecordingEndReason` when the recording ran to the end of the call (`xml/record.md:57-62`).
+RECORDING_ENDED_WITH_CALL: Final = "HungUp"
 
 
 def application_name(label: str) -> str:
@@ -475,6 +492,86 @@ class VobizCarrier:
     def parse_event(self, fields: dict[str, str]) -> CarrierCallEvent | None:
         return parse_event(fields)
 
+    # --- recordings -----------------------------------------------------------------
+
+    async def recording_source(
+        self, recording_id: str, *, carrier_call_id: str
+    ) -> CarrierRecordingSource | None:
+        """`GET /Account/{auth_id}/Recording/{recording_id}/` -> a FLAT recording object
+        (`recording/retrieve-recording.md:9-59`); 404 "Recording not found" (`:61-66`) is a
+        recording deleted or expired (`recording/download-recording.md:66`).
+
+        The file is fetched from the object's own `recording_url`, never a constructed path
+        and never the callback's `RecordUrl`: the host varies (`download-recording.md:43`),
+        and the API's answer is the one our credentials vouch for. The download needs the
+        same two headers (`:39-41`, `recording/recording-object.md:22`).
+        """
+        try:
+            found = await self._request(
+                "GET",
+                "/Account/{auth_id}/Recording/{recording_id}/",
+                {"recording_id": recording_id},
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status == 404:
+                return None
+            raise
+        if str(found.get("call_uuid") or "") != carrier_call_id:
+            # The call id is the whole proof this audio is the call we are filing it under;
+            # `request_uuid` and `call_uuid` are the same id (`call/make-call.md:120-123`).
+            raise ProblemError(
+                kind="dependency",
+                code="carrier_recording_call_mismatch",
+                title="The recording belongs to a different call",
+                detail="The telephony carrier attributes this recording to another call.",
+                failure_stage="CORE_LOGIC",
+            )
+        url = found.get("recording_url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise _unreadable("The telephony carrier's recording did not name an https file.")
+        return CarrierRecordingSource(
+            url=url,
+            auth_headers={
+                "X-Auth-ID": self._auth_id or "",
+                "X-Auth-Token": self._auth_token or "",
+            },
+            auth_hosts=RECORDING_AUTH_HOSTS,
+        )
+
+    async def find_recording(self, carrier_call_id: str) -> str | None:
+        """`GET /Account/{auth_id}/Recording/?call_uuid=` (`recording/list-all-recordings.md:
+        41`); no match is `200` with `objects: []` (`:165`). The newest is taken."""
+        listing = await self._request(
+            "GET",
+            "/Account/{auth_id}/Recording/",
+            params={"call_uuid": carrier_call_id, "limit": 20},
+        )
+        objects = listing.get("objects")
+        if not isinstance(objects, list):
+            raise _unreadable("The telephony carrier's recording list was not readable.")
+        for item in objects:
+            if isinstance(item, dict) and str(item.get("call_uuid") or "") == carrier_call_id:
+                recording_id = item.get("recording_id")
+                if isinstance(recording_id, str) and recording_id:
+                    return recording_id
+        return None
+
+    async def delete_recording(self, recording_id: str) -> bool:
+        """`DELETE /Account/{auth_id}/Recording/{recording_id}/` -> 204, "Permanently delete
+        a recording from the account" (`vobiz-findings/mirror/root-site/openapi.json:
+        8459-8484`; `recording/recording-object.md:152,155`). 404 is already gone."""
+        try:
+            await self._request(
+                "DELETE",
+                "/Account/{auth_id}/Recording/{recording_id}/",
+                {"recording_id": recording_id},
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status == 404:
+                return False
+            raise
+        return True
+
     async def aclose(self) -> None:
         if self._client is not None:
             await self._client.aclose()
@@ -537,7 +634,9 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
         else None
     )
 
-    def build(kind: Any, status: CallStatus | None) -> CarrierCallEvent:
+    def build(
+        kind: Any, status: CallStatus | None, recording: CarrierRecording | None = None
+    ) -> CarrierCallEvent:
         return CarrierCallEvent(
             carrier="vobiz",
             carrier_call_id=call_id,
@@ -547,8 +646,28 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
             direction=direction,
             hangup_cause=cause if kind == "hangup" else None,
             hangup_cause_code=code if kind == "hangup" else None,
+            recording=recording,
         )
 
+    if event == "RecordStop":
+        # The finished recording (`xml/record/stream-with-record.md:54-78`). Never a call
+        # status: it arrives after the hangup and says nothing about how the call ended.
+        recording_id = (fields.get("RecordingID") or "").strip()
+        if not recording_id:
+            return build("other", None)
+        reason = (fields.get("RecordingEndReason") or "").strip() or None
+        return build(
+            "recording",
+            None,
+            CarrierRecording(
+                recording_id=recording_id,
+                duration_s=_int_field(fields.get("RecordingDuration")),
+                end_reason=reason,
+                # Absent is not evidence of an early stop: the stream-with-record table
+                # lists no `RecordingEndReason` at all (`:58-78`).
+                ended_with_call=reason in (None, RECORDING_ENDED_WITH_CALL),
+            ),
+        )
     if event == "Ring":
         return build("ringing", "ringing")
     if event == "StartApp":
@@ -653,6 +772,8 @@ __all__ = [
     "BALANCE_TOO_LOW",
     "DIAL_REFUSED_STATUSES",
     "ENGINE_LABEL",
+    "RECORDING_AUTH_HOSTS",
+    "RECORDING_ENDED_WITH_CALL",
     "VobizCarrier",
     "application_name",
     "parse_cdr",

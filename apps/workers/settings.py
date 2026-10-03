@@ -113,6 +113,12 @@ from apps.workers.carrier_events import (
     read_carrier_cdr,
     reconcile_carrier_cdrs,
 )
+from apps.workers.carrier_recordings import (
+    RECORDING_SWEEP_MINUTES,
+    copy_carrier_recording,
+    delete_carrier_recordings,
+    reconcile_carrier_recordings,
+)
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
@@ -211,6 +217,10 @@ FUNCTIONS: list[Any] = [
         # `calevate_shared.carrier.CARRIER_EVENT_JOB`) and the CDR read a hangup queues.
         ingest_carrier_event,
         read_carrier_cdr,
+        # The carrier's recording of a call (D-668): copied into `recordings/` on its
+        # `RecordStop`, and deleted at the carrier when an erasure names it.
+        copy_carrier_recording,
+        delete_carrier_recordings,
         # The settlement backstop a hangup defers for an answered call. Unregistered, a
         # worker killed mid-call would leave its call with no lead and no billed minute
         # while the deferred job sat in Redis under a name nothing runs.
@@ -561,6 +571,16 @@ CRON_JOBS = [
         traced_job(reconcile_carrier_cdrs),
         walk=fleet_wide("one tenant_session per callable tenant, then keyed enqueues"),
         minute=set(CDR_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # The carrier's recordings (D-668): re-queue every copy not yet ours, look up a
+    # recording whose callback never came, and page one still not ours past six hours —
+    # the carrier's retention may be three days (`carrier_recordings` docstring). Every
+    # twenty minutes, on minutes no other walk uses.
+    _cron(
+        traced_job(reconcile_carrier_recordings),
+        walk=fleet_wide("one tenant_session per callable tenant, keyed enqueues, vendor reads"),
+        minute=set(RECORDING_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # The DPDP §12 equivalent of the line above, and the reason it exists is that there

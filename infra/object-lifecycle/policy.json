@@ -7,7 +7,7 @@
         "Prefix": "recordings/"
       },
       "Expiration": {
-        "Days": 2555
+        "Days": 120
       }
     },
     {

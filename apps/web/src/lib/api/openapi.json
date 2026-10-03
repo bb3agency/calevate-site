@@ -3961,6 +3961,10 @@
             ],
             "title": "Rejection Reason"
           },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
           "signed_application_on_file": {
             "title": "Signed Application On File",
             "type": "boolean"
@@ -4008,7 +4012,8 @@
           "rejection_reason",
           "submitted_at",
           "decided_at",
-          "is_accepted"
+          "is_accepted",
+          "required"
         ],
         "title": "CarrierApplicationOut",
         "type": "object"
@@ -11056,6 +11061,18 @@
               }
             ],
             "title": "Blocked"
+          },
+          "callback_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback At"
           },
           "dispatched": {
             "anyOf": [

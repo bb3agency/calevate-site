@@ -27,7 +27,7 @@ import hashlib
 import json
 import os
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -300,7 +300,40 @@ def payload_call_prefix(*, tenant_id: UUID, call_id: UUID) -> str:
     return f"{ENGINE_PAYLOAD_PREFIX}/{tenant_id}/{call_id}/"
 
 
-async def _fetch_recording(source_url: str) -> bytes:
+def _carries_auth(url: str, auth_hosts: frozenset[str]) -> bool:
+    """May a request to `url` carry the source's credential? Only over https, and only to
+    a host that is one of `auth_hosts` or a subdomain of one."""
+    parsed = httpx.URL(url)
+    if parsed.scheme != "https":
+        return False
+    host = parsed.host.lower().rstrip(".")
+    return any(host == base or host.endswith(f".{base}") for base in auth_hosts)
+
+
+#: Audio containers by their leading bytes. Vobiz says a recording's container may not
+#: match its extension, its content type or its `recording_format`, and that an MP3 frame
+#: sync is 11 bits — `0xFF` then the top three bits set — so `0xFF 0xE3` (MPEG-2.5 Layer
+#: III) is valid (`vobiz-findings/mirror/pages/recording.md:24-37`).
+def sniff_audio_content_type(head: bytes) -> str:
+    """The content type the stored object is served with, decided from its bytes.
+
+    Unknown bytes keep `audio/wav`, the type every recording was stored with before.
+    """
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return "audio/wav"
+    if head[:3] == b"ID3":
+        return "audio/mpeg"
+    if len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
+        return "audio/mpeg"
+    return "audio/wav"
+
+
+async def _fetch_recording(
+    source_url: str,
+    *,
+    auth_headers: Mapping[str, str] | None = None,
+    auth_hosts: frozenset[str] = frozenset(),
+) -> bytes:
     """The audio at `source_url`, vetting every hop and refusing an oversized body.
 
     Split out of `copy_recording` so the deadline can wrap the WHOLE fetch — hops
@@ -318,8 +351,15 @@ async def _fetch_recording(source_url: str) -> bytes:
         url = source_url
         for _hop in range(RECORDING_REDIRECT_LIMIT + 1):
             vetted = await assert_public_http_url(url, field="recording_url")
+            # Per hop: a carrier credential goes only to the carrier's own hosts, so a
+            # redirect to a presigned link elsewhere is followed without it.
+            headers = (
+                dict(auth_headers)
+                if auth_headers and _carries_auth(vetted.url, auth_hosts)
+                else None
+            )
             # `vetted.url`, not `url`: what was judged is what is requested.
-            async with client.stream("GET", vetted.url) as response:
+            async with client.stream("GET", vetted.url, headers=headers) as response:
                 if response.is_redirect and response.has_redirect_location:
                     url = str(response.next_request.url) if response.next_request else ""
                     continue
@@ -347,7 +387,13 @@ async def _fetch_recording(source_url: str) -> bytes:
 
 
 async def copy_recording(
-    *, source_url: str, tenant_id: UUID, call_id: UUID, leg: RecordingLeg = "call"
+    *,
+    source_url: str,
+    tenant_id: UUID,
+    call_id: UUID,
+    leg: RecordingLeg = "call",
+    auth_headers: Mapping[str, str] | None = None,
+    auth_hosts: frozenset[str] = frozenset(),
 ) -> str:
     """Stream the engine's recording into our bucket. Returns the object key.
 
@@ -384,6 +430,12 @@ async def copy_recording(
     `EgressRefusedError` is a `ProblemError`, and this is a worker, so it is converted to
     `StorageUnavailableError` — the failure the pipeline already knows how to record
     against the call rather than a 422 nobody is listening for.
+
+    `auth_headers` are for a source that is not a public link (a carrier recording,
+    `engine/carrier.CarrierRecordingSource`); they go only to hops `_carries_auth` admits.
+    The key keeps its `.wav` suffix whatever the container, because the key is a pure
+    function of (tenant, call) and every erasure and sweep derives it; the CONTENT TYPE is
+    decided from the bytes (`sniff_audio_content_type`), which is what a player reads.
     """
     settings = get_settings()
     key = (
@@ -397,7 +449,9 @@ async def copy_recording(
         # a sender that never stops sending, and never pauses long enough to trip a read
         # timeout, holds the job until arq cancels the entire pipeline.
         async with asyncio.timeout(RECORDING_FETCH_DEADLINE_S):
-            audio = await _fetch_recording(source_url)
+            audio = await _fetch_recording(
+                source_url, auth_headers=auth_headers, auth_hosts=auth_hosts
+            )
     except TimeoutError as exc:
         raise StorageUnavailableError(
             f"recording fetch exceeded {RECORDING_FETCH_DEADLINE_S:.0f}s"
@@ -416,7 +470,7 @@ async def copy_recording(
             Bucket=settings.object_store_bucket,
             Key=key,
             Body=audio,
-            ContentType="audio/wav",
+            ContentType=sniff_audio_content_type(audio[:16]),
             # SSE at rest (TRD §2). The bucket also enforces it; belt and braces.
             ServerSideEncryption="AES256",
         )
@@ -1204,6 +1258,7 @@ __all__ = [
     "presigned_url",
     "read_delivery_body",
     "recording_key",
+    "sniff_audio_content_type",
     "store_delivery_body",
     "transfer_recording_key",
 ]

@@ -655,12 +655,27 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "carrier_cdr_cost_unpriced": "attention",
     "carrier_cdr_read_abandoned": "attention",
     "carrier_cdr_sweep_incomplete": "attention",
+    # The carrier's recording of a call (D-668). A recording the carrier no longer holds
+    # and we never copied is audio gone for good, and one still uncopied past six hours may
+    # be about to be (the carrier's retention may be three days): both page. The rest are
+    # one call or one retryable leg the sweep or the erasure's written request covers.
+    "carrier_recording_lost": "page",
+    "carrier_recording_copy_overdue": "page",
+    "carrier_recording_copy_failed": "attention",
+    "carrier_recording_unresolved": "attention",
+    "carrier_recording_ended_early": "attention",
+    "carrier_recording_callback_unset": "attention",
+    "carrier_recording_sweep_incomplete": "attention",
+    "carrier_recording_delete_failed": "attention",
     "carrier_dial_precondition_failed": "attention",
     "carrier_application_listing_too_long": "attention",
     "carrier_number_listing_too_long": "attention",
     # Both refuse a dial before it leaves, so nothing is lost and the contact keeps its
     # place; sustained `carrier_lines_busy` means the account's line count is too small.
     "carrier_lines_busy": "attention",
+    # A recording Vobiz files under another call is refused rather than stored against
+    # this one, so no other caller's audio lands on this call.
+    "carrier_recording_call_mismatch": "attention",
     "carrier_pacing": "record",
     # A mis-set CARRIER_CLAIM_SECRET breaks EVERY call we dial, not one: refused at the
     # answer when voice-runtime has no usable key, settled on the wrong row when the worker's

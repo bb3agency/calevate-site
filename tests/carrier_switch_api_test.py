@@ -13,6 +13,7 @@ from apps.api.engine.carrier import CARRIER_ADAPTER_MODULES, build_carrier, get_
 from apps.api.engine.pipecat import (
     PIPECAT_CAPABILITIES,
     PIPECAT_VOBIZ_CAPABILITIES,
+    PIPECAT_VOBIZ_RECORDED_CAPABILITIES,
     PipecatEngine,
     capabilities_for_carrier,
 )
@@ -45,7 +46,7 @@ def test_the_switch_picks_the_carrier(carrier_env: pytest.MonkeyPatch) -> None:
     _select(carrier_env, "vobiz")
     assert isinstance(get_carrier(), VobizCarrier)
     assert current_carrier() == "vobiz"
-    assert PipecatEngine(store=object()).capabilities == PIPECAT_VOBIZ_CAPABILITIES  # type: ignore[arg-type]
+    assert PipecatEngine(store=object()).capabilities == PIPECAT_VOBIZ_RECORDED_CAPABILITIES  # type: ignore[arg-type]
 
     _select(carrier_env, "plivo")
     assert isinstance(get_carrier(), PlivoCarrier)
@@ -60,12 +61,29 @@ def test_a_named_carrier_overrides_the_switch(carrier_env: pytest.MonkeyPatch) -
 
 def test_the_two_profiles_differ_only_in_the_carrier_half() -> None:
     assert capabilities_for_carrier("plivo") == PIPECAT_CAPABILITIES
-    vobiz = capabilities_for_carrier("vobiz")
+    assert capabilities_for_carrier("plivo", recording_enabled=True) == PIPECAT_CAPABILITIES
+    vobiz = capabilities_for_carrier("vobiz", recording_enabled=False)
+    assert vobiz == PIPECAT_VOBIZ_CAPABILITIES
     assert vobiz.caller_id and vobiz.inbound_binding
     assert not PIPECAT_CAPABILITIES.caller_id and not PIPECAT_CAPABILITIES.inbound_binding
     assert vobiz.model_copy(update={"caller_id": False, "inbound_binding": False}) == (
         PIPECAT_CAPABILITIES
     )
+
+
+def test_vobiz_records_exactly_when_the_switch_says_so(carrier_env: pytest.MonkeyPatch) -> None:
+    """D-668: the CARRIER records on Vobiz, so `records_audio` — what a publish composes the
+    opening notice and the truthful answer from — follows `carrier_recording_enabled`, and
+    nothing else about the profile moves."""
+    recorded = capabilities_for_carrier("vobiz", recording_enabled=True)
+    assert recorded == PIPECAT_VOBIZ_RECORDED_CAPABILITIES
+    assert recorded.records_audio is True
+    assert recorded.model_copy(update={"records_audio": False}) == PIPECAT_VOBIZ_CAPABILITIES
+    assert PIPECAT_VOBIZ_CAPABILITIES.records_audio is False
+    assert capabilities_for_carrier("vobiz") == recorded, "default ON"
+    carrier_env.setenv("CARRIER_RECORDING_ENABLED", "false")
+    get_settings.cache_clear()
+    assert capabilities_for_carrier("vobiz").records_audio is False
 
 
 async def test_every_plivo_operation_refuses_with_the_unread_evidence() -> None:
@@ -104,7 +122,7 @@ def test_one_engine_instance_follows_the_switch_without_a_restart(
     `core/platform_config` says a moved switch dials on the new carrier at once."""
     _select(carrier_env, "vobiz")
     engine = PipecatEngine(store=object())  # type: ignore[arg-type]
-    assert engine.capabilities == PIPECAT_VOBIZ_CAPABILITIES
+    assert engine.capabilities == PIPECAT_VOBIZ_RECORDED_CAPABILITIES
     assert isinstance(engine._carrier, VobizCarrier)
 
     _select(carrier_env, "plivo")
@@ -119,7 +137,7 @@ def test_an_injected_carrier_and_a_set_descriptor_stay_pinned(
     pinned = VobizCarrier(auth_id=None, auth_token=None, base_url="https://api.example/api/v1")
     engine = PipecatEngine(store=object(), carrier=pinned)  # type: ignore[arg-type]
     assert engine._carrier is pinned
-    assert engine.capabilities == PIPECAT_VOBIZ_CAPABILITIES
+    assert engine.capabilities == PIPECAT_VOBIZ_RECORDED_CAPABILITIES
 
     engine.capabilities = PIPECAT_CAPABILITIES
     assert engine.capabilities == PIPECAT_CAPABILITIES

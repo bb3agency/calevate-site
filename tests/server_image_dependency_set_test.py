@@ -104,7 +104,7 @@ def test_the_image_set_holds_nothing_only_the_voice_worker_needs() -> None:
 
 def test_the_named_audit_packages_are_really_voice_worker_only() -> None:
     lock = _lock()
-    assert NAMED_VOICE_WORKER_ONLY <= _voice_worker_only(lock)
+    assert _voice_worker_only(lock) >= NAMED_VOICE_WORKER_ONLY
     assert NAMED_VOICE_WORKER_ONLY.isdisjoint(_server_image_set(lock))
 
 
@@ -114,7 +114,7 @@ def test_a_root_that_reaches_the_voice_worker_is_caught() -> None:
     root = dict(lock[ROOT_PROJECT])
     root["dependencies"] = [*root.get("dependencies", []), {"name": VOICE_WORKER}]
     lock[ROOT_PROJECT] = root
-    assert NAMED_VOICE_WORKER_ONLY <= _server_image_set(lock) & _voice_worker_only(lock)
+    assert _server_image_set(lock) & _voice_worker_only(lock) >= NAMED_VOICE_WORKER_ONLY
 
 
 def test_a_root_with_no_dependencies_is_caught() -> None:
@@ -142,8 +142,7 @@ def test_the_root_dockerfile_syncs_the_root_target_with_the_errors_group() -> No
         assert "--frozen" in flags and "--no-dev" in flags, command
         assert "--group" in flags and flags[flags.index("--group") + 1] == "errors", command
         assert "--all-packages" not in flags, (
-            "`--all-packages` installs the voice worker's tree into the server image: "
-            + command
+            "`--all-packages` installs the voice worker's tree into the server image: " + command
         )
         assert "--package" not in flags, (
             "a `--package` target cannot take the ROOT `errors` group, and a repeated one "

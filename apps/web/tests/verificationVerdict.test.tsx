@@ -31,7 +31,8 @@ import { DLT_NOT_RECORDED } from "./fixtures/sharedReads";
  * Anchoring on it rather than on a heading: the app shell renders the page title from
  * the nav list, so the screen deliberately has no `<h1>` of its own to wait for.
  */
-const SCREEN = /Indian telecom rules/;
+// Anchored to the header sentence: the number card says "Indian telecom rules require …" too.
+const SCREEN = /Indian telecom rules ask two things/;
 
 function record(over: Partial<KycRecord> = {}): KycRecord {
   return {

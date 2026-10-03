@@ -68,6 +68,7 @@ const SETTING_LABELS: Record<string, string> = {
   carrier_cps: "Outbound calls started per second",
   carrier_concurrency: "Simultaneous calls the carrier account allows",
   carrier_transfer_enabled: "Transfer callers to a human",
+  carrier_recording_enabled: "Record calls with Vobiz",
   vobiz_signature_required: "Require Vobiz request signatures",
   vobiz_callback_ips: "Vobiz callback addresses (override)",
   azure_openai_resource: "Azure OpenAI resource",

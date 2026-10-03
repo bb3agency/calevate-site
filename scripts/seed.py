@@ -78,6 +78,10 @@ RESERVED_SLUGS: tuple[str, ...] = (
 # Retention: SEC-COMP §1. The DB enforces a 90-day floor on `recording`
 # (CheckConstraint recording_ttl_floor) — do not lower it here, it will fail.
 DEFAULT_RETENTION_POLICIES: tuple[dict[str, Any], ...] = (
+    # OUR copies of call recordings are kept 90 days (founder, 3 Oct 2026, D-668), which is
+    # also the TRAI floor the DB CHECK and `workers/retention.RECORDING_FLOOR_DAYS` hold, so
+    # the default can be neither lower nor, without a decision, higher. The `recordings/`
+    # bucket rule sits at 120 days behind it (`infra/object-lifecycle/policy.json`).
     {"data_category": "recording", "ttl_days": 90, "action": "delete"},
     # This clock also carries `scheduled_callbacks` — a promised call-back's number and
     # the model's note of what the caller wanted — because that note is one sentence about

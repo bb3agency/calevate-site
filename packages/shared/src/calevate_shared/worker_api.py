@@ -221,6 +221,9 @@ class WorkerSessionOut(BaseModel):
     prompt_sha256: str
     models: ModelConfig
     engine_agent_ref: str | None = None
+    #: The agent's primary language, always served: the voice speaks it and a turn with no
+    #: detected language is stamped with it. NOT a transcriber switch — the worker detects
+    #: when `models.stt_autodetect` is on or `languages_extra` is non-empty.
     language: str | None = None
     #: The other languages the agent may answer in (`AgentConfig.languages_extra`, D-666).
     #: Non-empty means the worker lets the transcriber detect the caller's language

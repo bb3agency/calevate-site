@@ -1,7 +1,7 @@
 # Vobiz API contract — what the vendor's own documentation says
 
-**Status:** research, Phase A of the Vobiz carrier decision (founder, 2 Oct 2026). No product
-code depends on this file yet.
+**Status:** research, Phase A of the Vobiz carrier decision (founder, 2 Oct 2026); product
+code now cites it throughout (`engine/vobiz.py`, `apps/voice-runtime/carrier_routes.py`).
 **Evidence class:** every row marked **VDOCS** is VERIFIED-VENDOR-DOCS and is cited as
 `<page>:<line>`, where `<page>` is relative to `vobiz-findings/mirror/pages/` (a hash-pinned
 snapshot fetched 2 Oct 2026; see `vobiz-findings/mirror/README.md` and `MANIFEST.json`).
@@ -351,9 +351,69 @@ for Vobiz, and answer fact 3 with the vendor's own caveat.
   reading. Not shown is not absent, so the default stays UNKNOWN.
 - Delete: the recordings overview's operation table has no delete row
   (`recording.md:65-73`), but the vendor's OpenAPI specification declares
-  `DELETE /api/v1/Account/{auth_id}/Recording/{recording_id}/`
-  (`vobiz-findings/mirror/root-site/openapi.json:8328`), and a live recording can be
-  stopped with `DELETE …/Call/{call_uuid}/Record/`.
+  `DELETE /api/v1/Account/{auth_id}/Recording/{recording_id}/` -> `204 Recording deleted`,
+  "Permanently delete a recording from the account"
+  (`vobiz-findings/mirror/root-site/openapi.json:8459-8484`, under the path at `:8328`), and
+  the recording object page lists the same route with `204 No Content` and says deleting is
+  permanent (`recording/recording-object.md:152,155`). A live recording can be stopped with
+  `DELETE …/Call/{call_uuid}/Record/` (`call/record-calls/stop-recording.md:10`).
+
+### 9a. Recording alongside the bidirectional stream (D-668, read 3 Oct 2026)
+
+The founder decided on 3 Oct 2026 that Vobiz records the calls (its ₹0.10/min add-on,
+section 16). What the build rests on, every row VDOCS:
+
+| Fact | Source |
+| - | - |
+| `<Record>` and `<Stream>` can run together: "simultaneously record a call and stream its audio to a WebSocket in real-time" | `xml/record/stream-with-record.md:9` |
+| The shape: `<Record/>` self-closing, a SIBLING placed BEFORE `<Stream>`, `recordSession="true"` so it continues while later elements run, `redirect="false"` so the recording callback does not interrupt the stream | `xml/record/stream-with-record.md:11`; example with `<Stream bidirectional="true" keepCallAlive="true">` at `:15-25` |
+| Vobiz's own Pipecat guide serves exactly `<Record recordSession="true" .../>` + `<Stream bidirectional="true" audioTrack="inbound" ...>` | `integrations/pipecat.md:569-581` |
+| `recordSession="true"`: records the entire session; ends when the call hangs up, final callback reports `RecordingEndReason=HungUp` | `xml/record.md:23,94-112` |
+| `maxLength` default **60 s**, `timeout` (silence) default **60 s**, `finishOnKey` default **every key**, `playBeep` default true, `fileFormat` `mp3`/`wav` default `mp3` | `xml/record.md:17-22` |
+| `callbackUrl` receives `RecordStop`; a `recordSession` flow may use `callbackUrl` without `action` | `xml/record.md:15,28,43-62,145` |
+| `RecordStop` fields: `RecordingID`, `RecordFile`, `RecordUrl`, `RecordingDuration`, `RecordingDurationMs`, `RecordingStartMs`, `RecordingEndMs`, `RecordingEndReason`, plus `CallUUID`, `From`, `To`, `Direction`, `BillRate`, `CallStatus`, `ALegUUID`, `ALegRequestUUID`, `RequestUUID`, `SessionStart`, `ParentAuthID` | `xml/record/stream-with-record.md:54-78`; `xml/record.md:43-55,130-140`; `concepts/callbacks.md:78` ("`RecordStop` carries the recording identity and URL") |
+| `RecordingEndReason` values: `RecordingTimeout`, `maxLength`, `FinishedOnKey`, `HungUp` | `xml/record.md:57-62` |
+| Retrieve one: `GET /Account/{auth_id}/Recording/{recording_id}/` returns a FLAT object with `call_uuid`, `recording_url`, `recording_format`; 404 "Recording not found" | `recording/retrieve-recording.md:9-66` |
+| List by call: `GET /Account/{auth_id}/Recording/?call_uuid=…`; no match is `200` with `objects: []` | `recording/list-all-recordings.md:41,165` |
+| The download needs `X-Auth-ID` and `X-Auth-Token`; use the exact `recording_url` the retrieve returns; host varies over `media.vobiz.ai`, `recordings.vobiz.ai`, `storage.vobiz.ai`; follow redirects | `recording/download-recording.md:39-58`; `recording.md:39-40`; `recording/recording-object.md:22` |
+| The container may not match the extension, content type or `recording_format`; detect from magic bytes; an MP3 sync is 11 bits (`0xFF 0xE3` valid) | `recording.md:24-37` |
+| `call_uuid` and `request_uuid` are the same id | `call/make-call.md:120-123` |
+| Storage is billed per 60 s, recordings under 60 s round up | `recording.md:75-77` |
+
+**Both legs, and the format.** The Pipecat guide reports the recorded file as "a RIFF/WAVE
+container (8 kHz, 16-bit, stereo)" when `fileFormat="wav"` (`integrations/pipecat.md:811`),
+while the console page says WAV is "8 kHz mono PCM by default" and MP3 is "CBR 64 kbps"
+(`platform/voice/recordings.md:61`). The REST start-recording call has a `record_channel_type`
+mono/stereo switch (`call/record-calls/start-recording.md:36`); the `<Record>` element
+documents none (`xml/record.md:13-29`). **No page states in words that a `recordSession`
+recording beside a bidirectional stream contains the audio we stream BACK** (the agent's
+voice). UNKNOWN until the first live call (OPERATIONS §2 gate V-11(a)).
+
+**Retention — UNRESOLVED, and built to the shorter reading.** The Recordings page says "the
+last 30 days" and "older recordings are deleted automatically" (`platform/voice/recordings.md:
+9,21`), and "Export critical recordings within 30 days. The retention window is hard"
+(`:82`). The same page's screenshot shows a recording with "Storage Life of 3 days" (`:18`,
+the image's alt text), and the page defines Storage Life as "Days remaining before automatic
+deletion. The clock starts at recording creation" (`:63`). Three days REMAINING is consistent
+with a 30-day window on a 27-day-old recording and with a 3-day window; the page does not say
+which. The API adds only "Recording URLs may be temporary" (`recording/recording-object.md:139`)
+and `recording_storage_duration` "Number of days since the recording was created" (`:49`). So
+the copy runs on the callback, retries in minutes, and pages at six hours
+(`apps/workers/carrier_recordings.COPY_OVERDUE_AFTER`).
+
+**Undocumented here, and therefore gated (V-11):** whether `finishOnKey` applies to a
+`recordSession` recording (a caller's keypress would then end it); whether the CDR's
+`total_cost` includes the recording add-on (`cdr.md:277-279` names streaming only, and no CDR
+field names recording); whether `RecordStop` is signed like the hangup callback (the
+signature page covers "callbacks" generally, `concepts/validating-callbacks.md:15-52`).
+
+**What we send** (`apps/voice-runtime/carrier_routes.record_element`):
+`<Record recordSession="true" redirect="false" fileFormat="mp3" maxLength="14400"
+timeout="14400" playBeep="true" callbackUrl="{WEBHOOK_BASE_URL}/carrier/v1/vobiz/events/{ref}
+[/outbound/{call_id}]" callbackMethod="POST"/>` before the `<Stream>`. The two limits are
+Vobiz's own default call `time_limit` (`call/make-call.md:71`), because both 60 s defaults
+would cut a conversation's recording short. No `action`, and `finishOnKey` is not set (no
+"none" value is documented).
 
 ## 10. DTMF
 
@@ -549,6 +609,14 @@ an authenticated trial console (₹0.38/min, +₹0.06 streaming, 60 s round-up,
    the window were zero.
 8. **Signed base URL.** The Python validator keeps userinfo in the signed URL, the Node,
    Go and Ruby ones drop it (section 6).
+9. **Recording retention: 30 days vs 3.** `platform/voice/recordings.md:9,21,82` say 30
+   days; the same page's screenshot shows "Storage Life of 3 days" (`:18`), defined as days
+   REMAINING (`:63`). UNRESOLVED (section 9a); built to the shorter reading.
+10. **Recording channels.** "8 kHz mono PCM by default" (`platform/voice/recordings.md:61`)
+    vs a stereo 8 kHz WAV from the Pipecat guide's `<Record>` (`integrations/pipecat.md:811`).
+11. **Recording delete.** Absent from the overview's operation table (`recording.md:65-73`),
+    present in the OpenAPI (`root-site/openapi.json:8459-8484`) and the object page
+    (`recording/recording-object.md:152`). Built against the OpenAPI.
 
 ## 18. What the docs do not answer
 

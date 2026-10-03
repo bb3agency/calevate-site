@@ -60,15 +60,27 @@ def _segment(value: str) -> str:
     return quote(value, safe="")
 
 
-def answer_path(carrier: CarrierName, ref: str, *, call_id: str | None = None) -> str:
+#: The last path segment of an answer URL whose agent was PUBLISHED announcing a recording
+#: (`AgentConfig.call_is_recorded`). voice-runtime records a call only when its answer URL
+#: carries it, so a call is never recorded for an agent whose opening and truthful answer
+#: say it is not (hard rule 5), and the route needs no database read to know (hard rule 3).
+RECORDED_SEGMENT: Final = "recorded"
+
+
+def answer_path(
+    carrier: CarrierName, ref: str, *, call_id: str | None = None, recorded: bool = False
+) -> str:
     """Path of the answer document for one agent; outbound dials add OUR call id.
 
-    The call id is a PATH segment, never a query parameter, because Vobiz signs the
-    callback URL with its query stripped (`concepts/validating-callbacks.md:35-52`): a
-    query value would ride the request unauthenticated.
+    The call id and the recorded flag are PATH segments, never query parameters, because
+    Vobiz signs the callback URL with its query stripped
+    (`concepts/validating-callbacks.md:35-52`): a query value would ride the request
+    unauthenticated.
     """
     path = f"{CARRIER_PATH_PREFIX}/{carrier}/answer/{_segment(ref)}"
-    return f"{path}/outbound/{_segment(call_id)}" if call_id else path
+    if call_id:
+        path = f"{path}/outbound/{_segment(call_id)}"
+    return f"{path}/{RECORDED_SEGMENT}" if recorded else path
 
 
 def events_path(carrier: CarrierName, ref: str, *, call_id: str | None = None) -> str:
@@ -87,6 +99,7 @@ __all__ = [
     "CARRIER_EVENT_JOB",
     "CARRIER_PATH_PREFIX",
     "DEFAULT_CARRIER",
+    "RECORDED_SEGMENT",
     "VOBIZ_CALLBACK_IPS",
     "WIRE_FAMILY",
     "CarrierName",

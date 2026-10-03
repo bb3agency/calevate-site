@@ -85,8 +85,24 @@ _KEPT_FIELDS: Final = frozenset(
         "DialBLegBillDuration",
         "DialBLegHangupCause",
         "MachineDetection",
+        # `RecordStop` (`xml/record/stream-with-record.md:54-78`, `xml/record.md:43-62`).
+        # Ids, durations, epoch milliseconds and a reason word: an epoch in ms is thirteen
+        # digits and a uuid can hold a seven-digit run, so the value test below would drop
+        # exactly the fields the recording copy needs. The file URLs (`RecordUrl`,
+        # `RecordFile`) are deliberately NOT kept: the worker asks the carrier's API for
+        # the recording by id, so nothing downstream trusts a URL off the wire.
+        "RecordingID",
+        "RecordingDuration",
+        "RecordingDurationMs",
+        "RecordingStartMs",
+        "RecordingEndMs",
+        "RecordingEndReason",
     }
 )
+
+#: Fields no worker reads and nothing should hold: a recording's file URL, which the worker
+#: re-resolves from the carrier's API by `RecordingID` instead of trusting the wire.
+_NEVER_FORWARDED: Final = frozenset({"RecordUrl", "RecordFile"})
 
 #: A field NAME with one of these words in it may hold a number; dropped unread.
 _PARTY_WORDS: Final = frozenset(
@@ -125,7 +141,7 @@ def event_fields(params: Mapping[str, str]) -> dict[str, str]:
             break
         if len(name) > _MAX_VALUE_CHARS or len(value) > _MAX_VALUE_CHARS:
             continue
-        if _may_name_a_party(name, value):
+        if name in _NEVER_FORWARDED or _may_name_a_party(name, value):
             continue
         kept[name] = value
     return kept

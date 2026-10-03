@@ -8665,10 +8665,10 @@ export interface components {
             is_accepted: boolean;
             /** Recorded */
             recorded: boolean;
-            /** Required */
-            required: boolean;
             /** Rejection Reason */
             rejection_reason: string | null;
+            /** Required */
+            required: boolean;
             /** Signed Application On File */
             signed_application_on_file: boolean;
             /** Status */
@@ -11799,6 +11799,8 @@ export interface components {
         IngestAckOut: {
             /** Blocked */
             blocked?: string | null;
+            /** Callback At */
+            callback_at?: string | null;
             /** Dispatched */
             dispatched?: boolean | null;
             /** Lead Id */

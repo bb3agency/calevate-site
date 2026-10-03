@@ -99,6 +99,22 @@ class Call(PKMixin, TimestampMixin, Base):
             name="knowledge_state_enum",
         ),
         CheckConstraint(f"carrier IS NULL OR carrier IN {CARRIERS!r}", name="carrier_enum"),
+        # An opaque carrier id and never a bare digit run (hard rule 6), the rule
+        # `processor_erasure_tasks.vendor_refs` keeps (migration b3e9c4a71f20, D-668).
+        CheckConstraint(
+            "carrier_recording_id IS NULL OR ("
+            "carrier_recording_id ~ '^[A-Za-z0-9_-]{1,128}$' "
+            "AND carrier_recording_id !~ '^[0-9]{7,}$')",
+            name="carrier_recording_id_shape",
+        ),
+        # Recordings the carrier reported and we have not copied yet: the copy sweep's
+        # worklist (`workers/carrier_recordings`), a handful of rows at any moment.
+        Index(
+            "ix_calls_recording_uncopied",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("carrier_recording_id IS NOT NULL AND recording_url IS NULL"),
+        ),
         # The complaint-spike check (`campaigns/complaint_spike.py`, OPERATIONS §4) is
         # the first thing in this repo to filter calls by campaign, and it runs once per
         # running campaign per 30-second dispatch tick. PARTIAL because inbound calls
@@ -196,6 +212,10 @@ class Call(PKMixin, TimestampMixin, Base):
     # same sweep and the same erasure. NULL on every call that never handed over, which is
     # almost all of them.
     transfer_recording_url: Mapped[str | None] = mapped_column(Text)
+    #: The CARRIER's id for its recording of this call (D-668): reported by `RecordStop`,
+    #: resolved to a download by `workers/carrier_recordings`, quoted or deleted at the
+    #: carrier by an erasure. Never a URL; `recording_url` is our copy.
+    carrier_recording_id: Mapped[str | None] = mapped_column(Text)
     disclosure_played: Mapped[bool | None] = mapped_column(Boolean)
     consent_recording: Mapped[str | None] = mapped_column(String)
     outcome_tag: Mapped[str | None] = mapped_column(String)

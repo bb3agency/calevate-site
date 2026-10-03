@@ -295,7 +295,47 @@ def test_an_agent_with_extra_languages_lets_the_transcriber_detect() -> None:
     assert isinstance(legs.stt, SarvamSTTService)
     assert legs.stt._settings.language is None
     assert legs.stt._get_language_string() == "unknown"
-    assert legs.tts._settings.language is not None, "the voice stays on the primary"
+    assert legs.tts._settings.language == _cartesia_code("te-IN"), "the voice stays on the primary"
+
+
+def _cartesia_code(bcp47: str) -> str | None:
+    """Cartesia's own spelling of a language, as its service stores it on construction
+    (`pipecat/services/tts_service.py:275-278`)."""
+    from pipecat.services.cartesia.tts import language_to_cartesia_language
+    from pipecat.transcriptions.language import Language
+
+    return language_to_cartesia_language(Language(bcp47))
+
+
+def _detecting_config(why: str) -> pipeline.SessionConfig:
+    """A session whose transcriber detects, for either of the two reasons it can."""
+    if why == "extra-languages":
+        return make_config(languages_extra=("hi-IN",))
+    base = make_config()
+    return make_config(models=base.models.model_copy(update={"stt_autodetect": True}))
+
+
+@pytest.mark.parametrize("why", ["extra-languages", "platform-autodetect"])
+def test_cartesia_speaks_the_primary_while_the_transcriber_detects(why: str) -> None:
+    """The STT language and the voice language are separate settings. Detection on the
+    transcriber must never reach the voice, which would otherwise be sent no language."""
+    config = _detecting_config(why)
+    assert config.stt_detects_language
+    assert config.language == "te-IN"
+
+    legs = pipeline.build_vendor_legs(config, CREDENTIALS)
+
+    assert isinstance(legs.stt, SarvamSTTService)
+    assert legs.stt._settings.language is None
+    assert legs.tts._settings.language == _cartesia_code("te-IN")
+
+
+def test_a_session_with_no_primary_detects_rather_than_pinning_nothing() -> None:
+    """A control plane that predates the split served `None` for "detect"."""
+    config = make_config(language=None)
+    assert config.stt_detects_language
+    legs = pipeline.build_vendor_legs(config, CREDENTIALS)
+    assert legs.stt._settings.language is None
 
 
 def test_sarvam_keeps_local_smart_turn_because_vad_signals_is_left_unset() -> None:
@@ -429,9 +469,10 @@ def test_pipeline_is_the_shipped_ordering() -> None:
     assert middle == [
         transport.input(),
         call.pipeline._processors[2],  # stt
+        call.boundary.language_tap,
         call.aggregators.user(),
         llm,
-        call.pipeline._processors[5],  # tts
+        call.pipeline._processors[6],  # tts
         transport.output(),
         call.aggregators.assistant(),
     ]
@@ -641,6 +682,96 @@ async def test_boundary_converts_the_frameworks_turn_messages_to_our_models() ->
     assert [(turn.idx, turn.speaker) for turn in sink.turns] == [(0, "caller"), (1, "agent")]
     assert [event.status for event in sink.events] == ["in_progress", "completed"]
     assert all(turn.start_ms is not None and turn.end_ms is not None for turn in sink.turns)
+
+
+def _caller_turn(content: str) -> UserTurnStoppedMessage:
+    return UserTurnStoppedMessage(content=content, timestamp="2026-09-13T00:00:00.000+00:00")
+
+
+async def test_a_caller_turn_carries_the_language_the_transcriber_reported() -> None:
+    """D-666. A Hindi turn on a Telugu-primary agent is stamped Hindi, not the primary.
+    The agent's own turn keeps the primary: nothing detects the language of its words."""
+    from pipecat.transcriptions.language import Language
+
+    sink = RecordingSink()
+    tap = pipeline.TranscriptLanguageTap()
+    boundary = pipeline.NormalizedEventBoundary(
+        config=make_config(languages_extra=("hi-IN",)), sink=sink, language_tap=tap
+    )
+    await boundary.call_started()
+    frame = TranscriptionFrame("मुझे अपॉइंटमेंट चाहिए", "caller", "t", Language.HI_IN)
+    tap.record(frame.language, frame.text)
+    await boundary.user_turn(_caller_turn(frame.text))
+    await boundary.assistant_turn(
+        AssistantTurnStoppedMessage(
+            content="ठीक है", interrupted=False, timestamp="2026-09-13T00:00:01.000+00:00"
+        )
+    )
+
+    assert [(turn.speaker, turn.lang) for turn in sink.turns] == [
+        ("caller", "hi-IN"),
+        ("agent", "te-IN"),
+    ]
+
+
+async def test_a_caller_turn_with_no_reported_language_falls_back_to_the_primary() -> None:
+    """Sarvam leaves the frame's language `None` for its own `unknown` and for a code it
+    does not map (`pipecat/services/sarvam/stt.py:729-760`)."""
+    sink = RecordingSink()
+    tap = pipeline.TranscriptLanguageTap()
+    boundary = pipeline.NormalizedEventBoundary(config=make_config(), sink=sink, language_tap=tap)
+    await boundary.call_started()
+    tap.record(None, "హలో")
+    await boundary.user_turn(_caller_turn("హలో"))
+    # And with no tap at all, which is a replay or a test with no transcriber.
+    bare = pipeline.NormalizedEventBoundary(config=make_config(), sink=sink)
+    await bare.user_turn(_caller_turn("హలో"))
+
+    assert [turn.lang for turn in sink.turns] == ["te-IN", "te-IN"]
+
+
+async def test_a_mixed_turn_takes_its_dominant_language_and_does_not_leak_into_the_next() -> None:
+    from pipecat.transcriptions.language import Language
+
+    sink = RecordingSink()
+    tap = pipeline.TranscriptLanguageTap()
+    boundary = pipeline.NormalizedEventBoundary(
+        config=make_config(languages_extra=("hi-IN", "en-IN")), sink=sink, language_tap=tap
+    )
+    await boundary.call_started()
+    tap.record(Language.TE_IN, "నాకు రేపు ఉదయం అపాయింట్‌మెంట్ కావాలి")
+    tap.record(Language.EN_IN, "okay")
+    await boundary.user_turn(_caller_turn("నాకు రేపు ఉదయం అపాయింట్‌మెంట్ కావాలి okay"))
+    # An empty turn still consumes what the tap heard, so it cannot relabel the next one.
+    tap.record(Language.HI_IN, "हाँ")
+    await boundary.user_turn(UserTurnStoppedMessage(content=None, timestamp="t"))
+    await boundary.user_turn(_caller_turn("yes please"))
+
+    assert [turn.lang for turn in sink.turns] == ["te-IN", "te-IN"]
+
+
+async def test_the_tap_forwards_every_frame_and_records_only_final_transcripts() -> None:
+    """The user aggregator downstream must still receive the transcript it consumes."""
+    from pipecat.frames.frames import InterimTranscriptionFrame
+    from pipecat.transcriptions.language import Language
+
+    tap = pipeline.TranscriptLanguageTap()
+    pushed: list[Frame] = []
+
+    async def _capture(frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM) -> None:
+        pushed.append(frame)
+
+    # The base `process_frame` touches only lifecycle frames and an observer it does not
+    # have before setup (`pipecat/processors/frame_processor.py:820-847`), so a bare tap
+    # can be driven directly with its push captured.
+    tap.push_frame = _capture  # type: ignore[method-assign]
+    interim = InterimTranscriptionFrame("నమ", "caller", "t", Language.TE_IN)
+    final = TranscriptionFrame("नमस्ते", "caller", "t", Language.HI_IN)
+    for frame in (interim, final):
+        await tap.process_frame(frame, FrameDirection.DOWNSTREAM)
+
+    assert pushed == [interim, final]
+    assert tap.take_turn_language() == "hi-IN"
 
 
 # --------------------------------------------------------------------------------------

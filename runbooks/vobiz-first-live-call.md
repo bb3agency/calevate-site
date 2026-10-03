@@ -51,8 +51,9 @@ is noted; re-read anything the recharge below could change.
       §14). Outbound caller ID must be a number rented from Vobiz. Read 2 Oct 2026: one
       number ending 4620, Karnataka, mobile, TRIAL, Active, attached to no application.
 - [ ] **No automatic recording** at account, number or application level (gate V-2).
-      None was shown on 2 Oct 2026. That is not proof there is none, so §8's
-      after-the-call check stays.
+      None was shown on 2 Oct 2026. Since D-668 we DO ask Vobiz to record calls to agents
+      published while `CARRIER_RECORDING_ENABLED` is on (§8a); this check is now about
+      recording we did NOT ask for.
 - [ ] **The console timezone**, as shown (gate V-6). Read 2 Oct 2026: Asia/Kolkata.
 - [ ] **Concurrency and CPS limits**, as shown on the account (gate V-5). Read
       2 Oct 2026: CPS 1, concurrent 3, none purchased. Vobiz refuses a 4th simultaneous
@@ -72,11 +73,17 @@ DEPLOYMENT §12.6 is the full table and the deploy order. For this sitting:
 - [ ] In the ops console: `CARRIER` is `vobiz`; `VOBIZ_SIGNATURE_REQUIRED` is **off**;
       `CARRIER_TRANSFER_ENABLED` is **off**; `CARRIER_CPS` is the account's CPS limit (1 on
       2 Oct 2026, which is the default);
-      `VOBIZ_CALLBACK_IPS` is unset (the published list is used).
+      `VOBIZ_CALLBACK_IPS` is unset (the published list is used);
+      `CARRIER_RECORDING_ENABLED` is **on** (the default, D-668).
 - [ ] The ops console's Vobiz credential probe is green. It calls `GET /api/v1/auth/me`
       (contract §1), which changes nothing at Vobiz.
 - [ ] `bot.py --preflight` printed OK inside the deployed worker (DEPLOYMENT §12.5).
-- [ ] One test agent is published, inbound and outbound, with its AI disclosure line.
+- [ ] One test agent is published, inbound and outbound, with its AI disclosure line and
+      its recording notice switched ON — **published AFTER `CARRIER_RECORDING_ENABLED` was
+      on**. An agent published before that is not recorded and does not announce it: its
+      answer URL carries no `recorded` segment. Check it in the Vobiz console: the agent's
+      Application's answer URL ends `/recorded`, and the binding was redone by the publish
+      (§3).
 
 ## 3. Bind the number to the agent
 
@@ -166,11 +173,13 @@ source-address check is still in force. It runs before the signature check whate
 
 **Inbound.** Only on a number that is no longer tagged TRIAL (§1): a trial number takes no
 inbound calls (`faq/trial-inbound.md:9`), so a failed inbound call on one says nothing
-about our side. From the founder's own mobile, call the bound number. Expect the agent to
-speak first, then:
+about our side. From the founder's own mobile, call the bound number. Expect a beep
+(Vobiz's `playBeep`), then the agent to speak first with the recording notice in its
+opening (§8a), then:
 
 - ask it a question it should answer from its knowledge;
 - ask "am I talking to a bot?" — it must answer truthfully (hard rule 5);
+- ask "is this call being recorded?" — it must answer yes (hard rule 5, D-668);
 - press a keypad digit once (this produces a `dtmf` event, gate V-4);
 - hang up from the phone.
 
@@ -202,6 +211,8 @@ No phone number, transcript text or header value appears in any of these logs by
 | Pipecat Cloud | one line saying a `dtmf` event was ignored, and no other line about the keypad | V-4 |
 | Pipecat Cloud | the stream ended with our `stop` (agent-ended call) or with the socket closing (caller hung up), and the session settled | — |
 | workers | `ingest_carrier_event` moved the call to its final status, and the CDR reader ran | V-7 |
+| voice-runtime | `carrier_answer_served` with `recorded: true` | V-11 |
+| voice-runtime, then workers | a second callback on the events route (`Event=RecordStop`), handed to `ingest_carrier_event`, whose outcome ends `:copy_enqueued`; then `copy_carrier_recording` returned `copied` and logged `carrier_recording_copied` | V-11 |
 
 **Turning on signature enforcement.** If both the answer request and the hangup callback
 showed a verified signature, set `VOBIZ_SIGNATURE_REQUIRED` on in the ops console (it
@@ -257,6 +268,32 @@ What to record:
   (`xml/stream/stream-events.md:262-293`). A "violates media anchoring" hangup cause on either call fails
   gate V-8.
 - `region`.
+- Whether any cost field moved for the recording (₹0.10/min on the card, contract §16):
+  the CDR documents no recording line, so record whether `total_cost` exceeds `cost` +
+  `streaming_cost` by about that much (gate V-11(c)).
+
+## 8a. Verifying the recording (gate V-11, D-668)
+
+Do this for BOTH calls in §5, within the hour.
+
+1. **It arrived.** In the admin console, or by a read-only SELECT on the audited path,
+   the call row has `carrier_recording_id` set (minutes after the hangup) and then
+   `recording_url` set to `recordings/<tenant>/<call>.wav`. No alarm named
+   `carrier_recording_*` is on `/admin/ops/alerts`. If `carrier_recording_id` stays empty
+   for 15 minutes, the `RecordStop` never came: read voice-runtime for a refused events
+   request (`carrier_source_rejected`); the sweep looks the recording up by call id at
+   :11/:31/:51.
+2. **It was copied.** The object exists in the bucket under that key. Its content type is
+   `audio/mpeg` or `audio/wav` according to its bytes, whatever the `.wav` in the key says.
+3. **It plays in the dashboard.** Open the call in the client console and play it. Listen
+   for the whole call: the beep, the agent's opening with the recording notice, BOTH
+   voices, to the hangup. Only the caller's voice is a red on V-11(a) — stop and report it
+   before any client call. A recording that stops early (a `carrier_recording_ended_early`
+   alarm, reason `FinishedOnKey`, after the keypad press in §5) is V-11(b).
+4. **The opening notice was heard** on the phone (§5) and is in the transcript.
+5. **Vobiz's copy.** The Vobiz console's Recordings page lists the call, with its Storage
+   Life. Record the Storage Life shown on day 0 and again the next day: it settles the
+   30-vs-3-day question (gate V-11(d), contract §9a).
 
 ## 9. Rollback
 

@@ -1479,8 +1479,10 @@ VobizUsage = Literal[
 
 #: ₹ per minute, before tax. Our calls are `voice_api_streaming` ("Calls placed or
 #: controlled via Voice APIs and WebSocket media streaming"): we dial over the REST API and
-#: the audio rides a `<Stream>` WebSocket. We buy none of the three add-on rows — recording
-#: and transcription are ours, and the card makes PII redaction depend on both.
+#: the audio rides a `<Stream>` WebSocket. Of the three add-on rows we buy `recording` only
+#: (D-668: Vobiz records the call, `VOBIZ_RECORDING_USAGE`); transcription is ours, and the
+#: card makes PII redaction depend on both. Its cost reaches the ledger only through the
+#: CDR's own `total_cost`, never from this figure (hard rule 7).
 VOBIZ_INR_PER_MIN: Final[Mapping[VobizUsage, Decimal]] = MappingProxyType(
     {
         "sip_trunk": Decimal("0.3800"),
@@ -1493,6 +1495,10 @@ VOBIZ_INR_PER_MIN: Final[Mapping[VobizUsage, Decimal]] = MappingProxyType(
 
 #: The usage row every call this product places or answers is billed on.
 VOBIZ_OUR_CALL_USAGE: Final[VobizUsage] = "voice_api_streaming"
+
+#: The add-on row a recorded call adds on top (D-668). A REFERENCE for the margin model and
+#: for reconciling a CDR, exactly like the row above.
+VOBIZ_RECORDING_USAGE: Final[VobizUsage] = "recording"
 
 #: Whether the card's figures include tax. False is the card's own footnote, held as a value
 #: so a caller adding tax has to do so on purpose.
@@ -3128,6 +3134,7 @@ __all__ = [
     "VOBIZ_CARD_INCLUDES_TAX",
     "VOBIZ_INR_PER_MIN",
     "VOBIZ_OUR_CALL_USAGE",
+    "VOBIZ_RECORDING_USAGE",
     "VOICE_TIERS",
     "VOICE_TIER_LABELS",
     "CartesiaPlan",

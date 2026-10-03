@@ -198,10 +198,11 @@ log = get_logger(__name__)
 #: because nothing external calls us (`PIPECAT-MIGRATION.md` §3D) — see `verify_webhook`,
 #: which records what that costs.
 PIPECAT_CAPABILITIES = EngineCapabilities(
-    # ⚠ **FALSE, AND THIS IS THE FIELD THAT STOPS AN AGENT LYING TO A CALLER.** Nothing in
-    # `apps/voice-worker` captures audio — no recorder, no buffer, no upload — so
-    # `calls.recording_url` is permanently NULL on this leg. Until that changes, clause 2 of
-    # the truthful-answer floor must not say the call is recorded, because it is not.
+    # ⚠ **FALSE ON THIS BASE PROFILE, AND THIS IS THE FIELD THAT STOPS AN AGENT LYING TO A
+    # CALLER.** Nothing in `apps/voice-worker` captures audio, and Plivo's recording
+    # surface is unread, so a call here has no recording and clause 2 of the
+    # truthful-answer floor must say so. On Vobiz the carrier records
+    # (`PIPECAT_VOBIZ_RECORDED_CAPABILITIES`).
     records_audio=False,
     stt="ours",
     tts="ours",
@@ -233,11 +234,30 @@ PIPECAT_VOBIZ_CAPABILITIES = PIPECAT_CAPABILITIES.model_copy(
     update={"caller_id": True, "inbound_binding": True}
 )
 
+#: The Vobiz profile while `carrier_recording_enabled` is on (D-668): the CARRIER records
+#: the call (`<Record recordSession="true"/>` in the answer document,
+#: `apps/voice-runtime/carrier_routes.record_element`) and `apps/workers/carrier_recordings`
+#: copies it into our `recordings/`, so an agent published under it announces the
+#: recording and answers "yes" when asked. The worker still captures nothing itself.
+PIPECAT_VOBIZ_RECORDED_CAPABILITIES = PIPECAT_VOBIZ_CAPABILITIES.model_copy(
+    update={"records_audio": True}
+)
 
-def capabilities_for_carrier(carrier: CarrierName) -> EngineCapabilities:
-    """What this engine can do on `carrier`. One branch, here, for the whole adapter."""
+
+def capabilities_for_carrier(
+    carrier: CarrierName, *, recording_enabled: bool | None = None
+) -> EngineCapabilities:
+    """What this engine can do on `carrier`. One branch, here, for the whole adapter.
+
+    `recording_enabled` defaults to the live `Settings.carrier_recording_enabled`.
+    """
     if carrier == "vobiz":
-        return PIPECAT_VOBIZ_CAPABILITIES
+        recorded = (
+            get_settings().carrier_recording_enabled
+            if recording_enabled is None
+            else recording_enabled
+        )
+        return PIPECAT_VOBIZ_RECORDED_CAPABILITIES if recorded else PIPECAT_VOBIZ_CAPABILITIES
     return PIPECAT_CAPABILITIES
 
 
@@ -737,8 +757,10 @@ class SqlControlPlane:
           different and false claim (`ExecutionSnapshot.latency`).
         * `raw_document` — `None`. There is no vendor document: the rows below ARE the
           record, and `_archive_engine_document` answers `none_offered`.
-        * `recording_url` — whatever the row holds, which is `NULL`: neither the worker nor
-          the carrier leg (D-662) records audio.
+        * `recording_url` — whatever the row holds: NULL, or OUR key once
+          `workers/carrier_recordings` has copied the carrier's recording (D-668), which
+          the pipeline's copy stage then reads as already copied. The carrier reports its
+          recording after the hangup, so the pipeline never fetches it itself.
         * `from_e164`/`to_e164` — read from the row. An outbound dial writes `to_e164` on
           its intent row (`agents.service.dispatch_call`) and `record_dial` stamps the
           caller id it presented. On an inbound call the worker sends the caller's number
@@ -1744,7 +1766,10 @@ class PipecatEngine:
         placed = await carrier.place_call(
             from_e164=ctx.from_e164,
             to_e164=to,
-            answer_url=base_url + answer_path(name, ref, call_id=ctx.call_id),
+            answer_url=base_url
+            + answer_path(
+                name, ref, call_id=ctx.call_id, recorded=_carrier_records(name, agent.config)
+            ),
             hangup_url=base_url + events_path(name, ref, call_id=ctx.call_id),
             ring_url=base_url + events_path(name, ref, call_id=ctx.call_id),
             time_limit_s=min(
@@ -1850,7 +1875,8 @@ class PipecatEngine:
         held = await self._held(ref)
         binding_id = await carrier.bind_number(
             number.e164,
-            answer_url=base_url + answer_path(carrier.name, ref),
+            answer_url=base_url
+            + answer_path(carrier.name, ref, recorded=_carrier_records(carrier.name, held.config)),
             hangup_url=base_url + events_path(carrier.name, ref),
             label=str(held.agent_id),
             known_binding_id=await self._store.number_binding(ref, e164=number.e164),
@@ -1896,6 +1922,16 @@ class PipecatEngine:
         if binding_id is None:
             return False
         return await carrier.delete_binding(binding_id)
+
+
+def _carrier_records(carrier: CarrierName, config: AgentConfig) -> bool:
+    """Should this agent's answer URL ask the carrier to record? Only where the carrier can
+    and the agent was PUBLISHED telling callers it records (`config.call_is_recorded`), so
+    a recording never outruns the disclosure (hard rule 5). The live
+    `carrier_recording_enabled` switch is read again at answer time, by voice-runtime."""
+    return capabilities_for_carrier(carrier, recording_enabled=True).records_audio and (
+        config.call_is_recorded
+    )
 
 
 def _public_callback_base() -> str:
@@ -1982,6 +2018,7 @@ __all__ = [
     "CARRIER_UNVERIFIED_CODE",
     "PIPECAT_CAPABILITIES",
     "PIPECAT_VOBIZ_CAPABILITIES",
+    "PIPECAT_VOBIZ_RECORDED_CAPABILITIES",
     "CarrierCallRecord",
     "PipecatControlPlane",
     "PipecatEngine",

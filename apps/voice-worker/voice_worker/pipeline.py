@@ -68,6 +68,7 @@ from pipecat.frames.frames import (
     EndWorkerFrame,
     Frame,
     LLMRunFrame,
+    TranscriptionFrame,
     TTSSpeakFrame,
 )
 from pipecat.observers.base_observer import BaseObserver
@@ -80,7 +81,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
     UserTurnStoppedMessage,
 )
-from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.openai.llm import OpenAILLMService
@@ -238,8 +239,12 @@ class SessionConfig:
     #: never presents ids. `None` for an agent whose publish predates the
     #: column being read here, which is an agent that recalls nothing rather than an error.
     engine_agent_ref: str | None = None
-    #: BCP-47, e.g. `te-IN`. `None` means let Sarvam auto-detect, which is what
-    #: `ModelConfig.stt_autodetect` asks for and the only path that model leaves us.
+    #: The agent's PRIMARY language, BCP-47 (`te-IN`). It is what the voice speaks, always,
+    #: and what a turn is stamped with when the transcriber reports nothing. It is NOT the
+    #: switch for transcriber detection — `stt_detects_language` is — because a Gnani voice
+    #: refuses a session with no language, so `None` meaning "detect" broke every Gnani
+    #: call the moment detection was on. `None` only from a control plane that predates the
+    #: split, which served `None` for "detect".
     language: str | None = None
     #: The other languages the agent may answer in (D-666). Non-empty makes `_build_stt`
     #: auto-detect instead of pinning `language`; the TTS legs keep `language`.
@@ -279,6 +284,17 @@ class SessionConfig:
     #: console showing a client one cap while the container enforces another. Nothing in
     #: production takes the default — the server always answers the agent's real value.
     max_call_duration_s: int = DEFAULT_CALL_CAP_S
+
+    @property
+    def stt_detects_language(self) -> bool:
+        """Whether the transcriber detects the caller's language instead of being pinned.
+
+        Two reasons, either sufficient: an operator turned detection on platform-wide
+        (`ModelConfig.stt_autodetect`, D-584), or this agent answers in more than one
+        language (D-666), where pinning to the primary would transcribe a Hindi caller as
+        Telugu. A `language` of `None` also means detect, because there is nothing to pin.
+        """
+        return self.models.stt_autodetect or bool(self.languages_extra) or self.language is None
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +392,60 @@ def recompute_prompt_sha256(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
+class TranscriptLanguageTap(FrameProcessor):
+    """Records the language the transcriber reported for each final transcript.
+
+    Sits between the STT and the user aggregator and forwards every frame unchanged. It
+    exists because the aggregator's turn event, which `NormalizedEventBoundary` converts,
+    carries no language — `UserTurnStoppedMessage` is `content`, `timestamp`, `user_id`
+    (`pipecat/processors/aggregators/llm_response_universal.py:284-305`) — while the
+    `TranscriptionFrame`s the aggregator consumed to build that turn do
+    (`pipecat/frames/frames.py:467`). Sarvam fills it from the detected `language_code`
+    and leaves it `None` for an unrecognised code or its own `"unknown"`
+    (`pipecat/services/sarvam/stt.py:688-714,729-760`).
+
+    A turn can be built from several transcripts in different languages (a Telugu
+    sentence, then an English one). The turn takes the language that carried the most
+    characters, the latest winning a tie, rather than the first or last fragment, because
+    a one-word English aside must not relabel a Telugu turn.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(name="transcript-language-tap")
+        self._chars: dict[str, int] = {}
+        self._order: list[str] = []
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        if isinstance(frame, TranscriptionFrame):
+            self.record(frame.language, frame.text)
+        await self.push_frame(frame, direction)
+
+    def record(self, language: Language | str | None, text: str) -> None:
+        """Count one final transcript towards the turn in progress."""
+        if language is None:
+            return
+        code = str(language)
+        self._chars[code] = self._chars.get(code, 0) + len(text.strip())
+        if code in self._order:
+            self._order.remove(code)
+        self._order.append(code)
+
+    def take_turn_language(self) -> str | None:
+        """The turn's dominant reported language, and reset for the next turn.
+
+        `None` when no transcript in the turn reported one; the caller falls back to the
+        agent's primary.
+        """
+        if not self._chars:
+            return None
+        rank = {code: position for position, code in enumerate(self._order)}
+        chosen = max(self._chars, key=lambda code: (self._chars[code], rank[code]))
+        self._chars.clear()
+        self._order.clear()
+        return chosen
+
+
 class NormalizedEventBoundary:
     """**THE** place a Pipecat object becomes a Calevate model. Hard rule 2 lives here.
 
@@ -417,9 +487,13 @@ class NormalizedEventBoundary:
         config: SessionConfig,
         sink: NormalizedEventSink,
         caller: CallerIdentityLike | None = None,
+        language_tap: TranscriptLanguageTap | None = None,
     ) -> None:
         self._config = config
         self._sink = sink
+        #: Where a caller turn's detected language comes from. `None` stamps every turn
+        #: with the primary, which is what a test or a replay with no STT gets.
+        self.language_tap = language_tap
         #: WHO IS ON THE FAR END, OR THE NAMED REASON WE CANNOT SAY. `None` is the same as
         #: `not_read` and is what a local run, a replay or a test gets.
         self._caller = caller
@@ -497,9 +571,13 @@ class NormalizedEventBoundary:
 
     async def user_turn(self, message: UserTurnStoppedMessage) -> None:
         """A caller turn. `content` is `None` in realtime mode, which we do not run."""
+        # Taken even for an empty turn, so its transcripts cannot leak into the next one.
+        detected = self.language_tap.take_turn_language() if self.language_tap else None
         if not message.content:
             return
-        await self._emit_turn("caller", message.content, message.timestamp)
+        await self._emit_turn(
+            "caller", message.content, message.timestamp, lang=detected or self._config.language
+        )
 
     async def assistant_turn(self, message: AssistantTurnStoppedMessage) -> None:
         """An agent turn.
@@ -511,9 +589,16 @@ class NormalizedEventBoundary:
         """
         if not message.content:
             return
-        await self._emit_turn("agent", message.content, message.timestamp)
+        # Nothing detects the language of the agent's own words, so the turn carries the
+        # language its voice was configured for (`_build_tts`: always the primary). An agent
+        # with extra languages may reply in the caller's, which this stamp does not see.
+        await self._emit_turn(
+            "agent", message.content, message.timestamp, lang=self._config.language
+        )
 
-    async def _emit_turn(self, speaker: str, text: str, started_iso: str) -> None:
+    async def _emit_turn(
+        self, speaker: str, text: str, started_iso: str, *, lang: str | None
+    ) -> None:
         idx = self._idx
         self._idx += 1
         await self._sink.on_transcript_turn(
@@ -523,7 +608,7 @@ class NormalizedEventBoundary:
                 speaker="caller" if speaker == "caller" else "agent",
                 text=text,
                 text_redacted=None,
-                lang=self._config.language,
+                lang=lang,
                 start_ms=self._offset_ms(started_iso),
                 end_ms=self._offset_ms(None),
             )
@@ -619,8 +704,8 @@ class NormalizedEventBoundary:
 # ---------------------------------------------------------------------------------------
 
 
-def _language(config: SessionConfig) -> Language | None:
-    """Our BCP-47 string to Pipecat's enum. `None` means auto-detect.
+def _primary_language(config: SessionConfig) -> Language | None:
+    """The agent's primary language as Pipecat's enum: what the voice speaks.
 
     `Language` is a `StrEnum` whose members hold exactly these codes
     (`pipecat/transcriptions/language.py:19`, `TE_IN = "te-IN"` at `:516`), so the lookup
@@ -631,6 +716,18 @@ def _language(config: SessionConfig) -> Language | None:
     if config.language is None:
         return None
     return Language(config.language)
+
+
+def _stt_language(config: SessionConfig) -> Language | None:
+    """The language to pin the transcriber to, or `None` to let it detect.
+
+    Kept apart from `_primary_language` because the two legs answer different questions:
+    the transcriber must hear whatever the caller speaks, and the voice must speak the
+    language it was configured for.
+    """
+    if config.stt_detects_language:
+        return None
+    return _primary_language(config)
 
 
 def _build_stt(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
@@ -672,18 +769,15 @@ def _build_stt(config: SessionConfig, credentials: VendorCredentials) -> FramePr
     """
     # `language=None` is a REAL value on this settings class, not an omission: "set
     # unsupported fields to None (e.g. language=None if the service auto-detects
-    # language)" (`pipecat/services/settings.py:381-383`). That is exactly what
-    # `ModelConfig.stt_autodetect` asks for, so it is passed through rather than dropped.
-    #
-    # An agent with extra languages is not pinned either: pinned to its primary, a Hindi
-    # caller would be transcribed as Telugu. With no language the service sends Sarvam its
-    # model's `default_language`, `"unknown"`, which is Sarvam's auto-detect code, for
-    # both `saaras:v3` and `saaras:v4` (pipecat-ai 1.10.0, `services/sarvam/stt.py:112-125,
-    # 370-377,567-570`), and each transcript then carries the language Sarvam detected
-    # (`:688-702`).
+    # language)" (`pipecat/services/settings.py:381-383`). With no language the service
+    # sends Sarvam its model's `default_language`, `"unknown"`, which is Sarvam's
+    # auto-detect code, for both `saaras:v3` and `saaras:v4` (pipecat-ai 1.10.0,
+    # `services/sarvam/stt.py:112-125,370-377,567-570`), and each `TranscriptionFrame` then
+    # carries the language Sarvam detected (`:688-714`), which `TranscriptLanguageTap`
+    # reads onto the turn.
     settings = SarvamSTTService.Settings(
         model=config.models.stt_model or STT_MODEL,
-        language=None if config.languages_extra else _language(config),
+        language=_stt_language(config),
     )
     return SarvamSTTService(
         api_key=credentials.sarvam_api_key,
@@ -733,7 +827,10 @@ def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FramePr
         # the import graph of every call that does not use it.
         from pipecat.services.cartesia.tts import CartesiaTTSService
 
-        cartesia_settings = CartesiaTTSService.Settings(language=_language(config))
+        # The PRIMARY, never the transcriber's setting: a detecting transcriber is `None`,
+        # and a `None` here overwrites the class default and sends Cartesia no language at
+        # all (`pipecat/services/cartesia/tts.py:538-539`), leaving the vendor to choose.
+        cartesia_settings = CartesiaTTSService.Settings(language=_primary_language(config))
         if config.models.tts_model is not None:
             cartesia_settings.model = config.models.tts_model
         if voice is not None:
@@ -1527,10 +1624,14 @@ def assemble_call(
         user_params=build_user_aggregator_params(stop_secs),
     )
 
+    language_tap = TranscriptLanguageTap()
     pipeline = Pipeline(
         [
             transport.input(),
             legs.stt,
+            # Before the user aggregator, which consumes `TranscriptionFrame` and never
+            # pushes it on (`llm_response_universal.py:824-838`).
+            language_tap,
             aggregators.user(),
             legs.llm,
             legs.tts,
@@ -1576,7 +1677,9 @@ def assemble_call(
         conversation_id=config.call_id,
     )
 
-    boundary = NormalizedEventBoundary(config=config, sink=sink, caller=caller)
+    boundary = NormalizedEventBoundary(
+        config=config, sink=sink, caller=caller, language_tap=language_tap
+    )
     boundary.attach(worker=worker, aggregators=aggregators)
 
     # THE CAP, ARMED BY THE PIPELINE'S OWN START EVENT. Built here rather than in the
@@ -1621,6 +1724,7 @@ __all__ = [
     "NormalizedEventBoundary",
     "NormalizedEventSink",
     "SessionConfig",
+    "TranscriptLanguageTap",
     "VendorCredentials",
     "VendorLegs",
     "assemble_call",

@@ -589,6 +589,18 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # once per dispatch tick for the outbound pool.
     "carrier_concurrency": AppliesRule(LIVE),
     "carrier_transfer_enabled": AppliesRule(LIVE),
+    # Read per request by the answer route (`carrier_routes._records`) and per publish by
+    # `engine/pipecat.capabilities_for_carrier`. Not LIVE in both directions, which is why
+    # it is not classified LIVE: the route records only an agent whose published answer
+    # URL says its disclosure announces a recording, so the ON half waits for a republish
+    # by construction (hard rule 5: never record a caller the agent told otherwise).
+    "carrier_recording_enabled": AppliesRule(
+        NEEDS_REPUBLISH,
+        "turning it off stops recording on the very next call, but agents published while "
+        "it was on keep telling callers the call is recorded until they are published "
+        "again; turning it on records nobody until each agent is published again, because "
+        "an agent only records once its opening and its answers say so",
+    ),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
     # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,

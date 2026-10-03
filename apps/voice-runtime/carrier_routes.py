@@ -37,7 +37,7 @@ import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, cast
 from urllib.parse import parse_qsl, quote, urlencode
 from uuid import UUID
 from xml.etree.ElementTree import Element, tostring
@@ -46,7 +46,13 @@ from apps.api.core.alerting import alert, record_webhook_ack_ms
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from calevate_shared.carrier import VOBIZ_CALLBACK_IPS, is_carrier
+from calevate_shared.carrier import (
+    RECORDED_SEGMENT,
+    VOBIZ_CALLBACK_IPS,
+    CarrierName,
+    events_path,
+    is_carrier,
+)
 from calevate_shared.carrier_token import open_sealed, usable_secret
 from calevate_shared.client_address import client_ip
 from calevate_shared.engine import EngineAgentRef, parse_owned_runtime_agent_ref
@@ -187,6 +193,11 @@ class CarrierAnswerContract:
     status_callbacks: bool = False
     status_callbacks_evidence: str = ""
 
+    #: Whether the answer document can ask the carrier to record the whole call alongside
+    #: a bidirectional stream. Off for a carrier whose recording grammar is unread.
+    session_recording: bool = False
+    session_recording_evidence: str = ""
+
     @property
     def signature_header(self) -> str | None:
         return self.signature_scheme.header if self.signature_scheme is not None else None
@@ -262,8 +273,27 @@ CARRIER_ANSWER_CONTRACT: Final[Mapping[str, CarrierAnswerContract]] = {
         dial_evidence=f"{_MIRROR}xml/dial.md:40-60",
         status_callbacks=True,
         status_callbacks_evidence=f"{_MIRROR}concepts/callbacks.md:70-105",
+        session_recording=True,
+        session_recording_evidence=(
+            f"{_MIRROR}xml/record/stream-with-record.md:9-25,54-78 (a self-closing "
+            '`<Record recordSession="true" redirect="false"/>` before a bidirectional '
+            "`<Stream>`; `RecordStop` to `callbackUrl`); attributes xml/record.md:13-29."
+        ),
     ),
 }
+
+#: `<Record>` limits, in seconds. Both are set to Vobiz's own default call `time_limit`
+#: (`call/make-call.md:71`), the longest call the carrier carries unasked: `maxLength`
+#: defaults to 60 s and `timeout` ends a recording after 60 s of silence
+#: (`xml/record.md:19-20`), and either default would cut a conversation's recording short
+#: while the call went on.
+RECORDING_MAX_LENGTH_S: Final = 14_400
+RECORDING_SILENCE_TIMEOUT_S: Final = 14_400
+
+#: MP3 is the vendor's default and its recommendation (`xml/record.md:17`,
+#: `call/record-calls.md:66`); the container is sniffed from the bytes when it is copied,
+#: because it may not match (`recording.md:24-37`).
+RECORDING_FILE_FORMAT: Final = "mp3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -647,7 +677,43 @@ def stream_url(
     return f"{url}?{urlencode(claim)}" if claim else url
 
 
-def answer_document(stream_url: str) -> str:
+@dataclass(frozen=True, slots=True)
+class SessionRecording:
+    """Record the whole call. `callback_url` is where `RecordStop` goes; None when this
+    deployment has no callback base, in which case the carrier still records and
+    `carrier_recordings.reconcile_carrier_recordings` finds the recording by call id."""
+
+    callback_url: str | None
+
+
+def record_element(recording: SessionRecording) -> Element:
+    """`<Record/>` for a whole-session recording beside a bidirectional stream.
+
+    The shape is the vendor's (`xml/record/stream-with-record.md:11,19-21`): self-closing,
+    BEFORE the `<Stream>`, `recordSession="true"` so it runs while the stream holds the
+    call, `redirect="false"` so the recording event cannot take call control from the
+    stream. No `action`: a `recordSession` flow may use `callbackUrl` alone
+    (`xml/record.md:15,145`), and the initial event carries nothing we keep.
+
+    `playBeep` is the vendor default made explicit (`xml/record.md:21`); the vendor tells
+    callers to be told before recording begins (`:149`), and the beep is the only signal
+    that precedes the agent's own spoken notice.
+    """
+    attributes = {
+        "recordSession": "true",
+        "redirect": "false",
+        "fileFormat": RECORDING_FILE_FORMAT,
+        "maxLength": str(RECORDING_MAX_LENGTH_S),
+        "timeout": str(RECORDING_SILENCE_TIMEOUT_S),
+        "playBeep": "true",
+    }
+    if recording.callback_url is not None:
+        attributes["callbackUrl"] = recording.callback_url
+        attributes["callbackMethod"] = "POST"
+    return Element("Record", attributes)
+
+
+def answer_document(stream_url: str, *, recording: SessionRecording | None = None) -> str:
     """The XML a carrier is served when a call is answered.
 
         <Response><Stream bidirectional="true" keepCallAlive="true"
@@ -656,7 +722,7 @@ def answer_document(stream_url: str) -> str:
     Pipecat's own template (`runner/run.py:1435-1438`), and valid Vobiz grammar: all three
     attributes are in `xml/stream.md:42-50`, and Vobiz's Pipecat guide serves exactly this
     shape (`integrations/pipecat.md:572-590`). Built with a serializer, never an f-string:
-    the URL carries `&` and `%`.
+    the URL carries `&` and `%`. With `recording`, `record_element` goes first.
     """
     stream = Element(
         "Stream",
@@ -668,6 +734,8 @@ def answer_document(stream_url: str) -> str:
     )
     stream.text = stream_url
     response = Element("Response")
+    if recording is not None:
+        response.append(record_element(recording))
     response.append(stream)
     return _xml(response)
 
@@ -736,7 +804,42 @@ def _unsigned_outbound_refusal(carrier: str, *, call_id: str, tenant_id: UUID) -
     )
 
 
-async def _answer(carrier: str, ref: str, call_id: str | None, request: Request) -> Response:
+def session_recording_for(
+    contract: CarrierAnswerContract, ref: str, *, call_id: str | None, recorded: bool
+) -> SessionRecording | None:
+    """Whether to record this call, and where the carrier reports the finished recording.
+
+    All three must hold: the agent was PUBLISHED announcing a recording (`recorded`, a
+    signed path segment the control plane wrote from `AgentConfig.call_is_recorded`), the
+    carrier's recording grammar is read (`session_recording`), and the operator has not
+    switched recording off (`carrier_recording_enabled`, read per request). The first is
+    what keeps hard rule 5 true in the dangerous direction: a call is never recorded for
+    an agent that told the caller it is not.
+
+    The callback is this agent's events route — the hangup's own URL, so `RecordStop`
+    rides the same source and signature checks and the same inbox (`carrier_events`).
+    """
+    settings = get_settings()
+    if not (recorded and contract.session_recording and settings.carrier_recording_enabled):
+        return None
+    base = (settings.webhook_base_url or "").strip().rstrip("/")
+    if not base:
+        # Recorded all the same: the agent has already told the caller it is, and the
+        # sweep finds an un-reported recording by the carrier's call id.
+        alert(
+            "ROUTE_HANDLER",
+            "carrier_recording_callback_unset",
+            detail="WEBHOOK_BASE_URL is unset, so the carrier cannot report the recording",
+            carrier=contract.carrier,
+        )
+        return SessionRecording(callback_url=None)
+    path = events_path(cast(CarrierName, contract.carrier), ref, call_id=call_id)
+    return SessionRecording(callback_url=base + path)
+
+
+async def _answer(
+    carrier: str, ref: str, call_id: str | None, request: Request, *, recorded: bool = False
+) -> Response:
     """Authenticity, then the ref, then the identity read, then the URL.
 
     The order is the security property: an inauthentic or unknown caller is turned away
@@ -755,6 +858,7 @@ async def _answer(carrier: str, ref: str, call_id: str | None, request: Request)
     claim_secret = get_settings().carrier_claim_secret
     if ours is not None and usable_caller_claim_key(claim_secret) is None:
         raise _unsigned_outbound_refusal(carrier, call_id=ours, tenant_id=tenant_id)
+    recording = session_recording_for(contract, ref, call_id=ours, recorded=recorded)
     document = answer_document(
         stream_url(
             _stream_base_url(),
@@ -764,7 +868,8 @@ async def _answer(carrier: str, ref: str, call_id: str | None, request: Request)
             claim_secret=claim_secret,
             call_id=ours,
             direction="outbound" if ours is not None else None,
-        )
+        ),
+        recording=recording,
     )
     log.info(
         "carrier_answer_served",
@@ -777,6 +882,7 @@ async def _answer(carrier: str, ref: str, call_id: str | None, request: Request)
             "auth_method": verdict.method,
             "caller_identity": caller.state,
             "caller_identity_ground": caller.ground,
+            "recorded": recording is not None,
         },
     )
     return _xml_response(document)
@@ -801,6 +907,29 @@ async def carrier_answer_outbound(
     """The answer document for a call WE dialled: our call id is a path segment, because
     Vobiz signs the URL with its query stripped (`concepts/validating-callbacks.md:35-52`)."""
     return await _answer(carrier, ref, call_id, request)
+
+
+@router.api_route(
+    f"/{{carrier}}/answer/{{ref}}/{RECORDED_SEGMENT}",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+)
+async def carrier_answer_recorded(carrier: str, ref: str, request: Request) -> Response:
+    """An inbound call to an agent published announcing a recording (`answer_path(recorded=
+    True)`); recorded when `session_recording_for` agrees."""
+    return await _answer(carrier, ref, None, request, recorded=True)
+
+
+@router.api_route(
+    f"/{{carrier}}/answer/{{ref}}/outbound/{{call_id}}/{RECORDED_SEGMENT}",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+)
+async def carrier_answer_outbound_recorded(
+    carrier: str, ref: str, call_id: str, request: Request
+) -> Response:
+    """A call we dialled for an agent published announcing a recording."""
+    return await _answer(carrier, ref, call_id, request, recorded=True)
 
 
 _E164: Final = re.compile(r"^\+[1-9]\d{6,14}$")
@@ -918,12 +1047,16 @@ __all__ = [
     "CARRIER_ANSWER_CONTRACT",
     "CLAIM_CALLER_STATE_PARAM",
     "CLAIM_CARRIER_PARAM",
+    "RECORDING_FILE_FORMAT",
+    "RECORDING_MAX_LENGTH_S",
+    "RECORDING_SILENCE_TIMEOUT_S",
     "TELEPHONY_SAMPLE_RATE_HZ",
     "AnswerCallerIdentity",
     "AnswerSourceVerdict",
     "CarrierAnswerContract",
     "CarrierAuthVerdict",
     "EvidenceClass",
+    "SessionRecording",
     "TransferOrder",
     "admit",
     "answer_document",
@@ -935,8 +1068,10 @@ __all__ = [
     "parse_call_id",
     "parse_ref",
     "read_params",
+    "record_element",
     "refuse",
     "router",
+    "session_recording_for",
     "stream_url",
     "transfer_order",
     "verify_answer_source",

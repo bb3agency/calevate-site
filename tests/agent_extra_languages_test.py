@@ -140,5 +140,21 @@ async def test_the_worker_session_carries_the_extras() -> None:
     served = await worker_service.load_session(ref)
 
     assert served.languages_extra == ["hi-IN"]
-    assert served.language is not None or served.models.stt_autodetect
+    # The primary is always served: it is what the voice speaks. Whether the transcriber
+    # detects is the worker's call from `languages_extra` and `models.stt_autodetect`.
+    assert served.language == "te-IN"
     assert "--- LANGUAGES ---" in served.system_prompt
+
+
+async def test_the_worker_session_serves_the_primary_when_detection_is_on() -> None:
+    """A `None` here made every Gnani call fail, because that voice needs a language."""
+    tenant_id, agent_id = await _org()
+    cfg = _config(tenant_id, agent_id)
+    cfg = cfg.model_copy(update={"models": cfg.models.model_copy(update={"stt_autodetect": True})})
+    ref = await PipecatEngine().create_agent(cfg)
+    await _make_the_agent_live(tenant_id, agent_id, ref)
+
+    served = await worker_service.load_session(ref)
+
+    assert served.models.stt_autodetect
+    assert served.language == "te-IN"

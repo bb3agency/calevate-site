@@ -13,11 +13,12 @@ variable "max_tenant_recording_ttl_days" {
     The longest `ttl_days` any tenant currently has on a `recording` retention policy.
 
     This is not decoration. `retention_policies.ttl_days` has NO upper bound in the
-    schema (the only CHECK is `data_category != 'recording' OR ttl_days >= 90`), and a
-    BFSI client can lawfully be configured well past the 180-day default — RBI's
-    two-year rule is called out in SECURITY-COMPLIANCE §1. The bucket ceiling below
-    must sit at or above this number, or the lifecycle rule deletes a client's
-    recordings before the regulator's own minimum.
+    schema (the only CHECK is `data_category != 'recording' OR ttl_days >= 90`). The
+    platform's rule is 90 days (founder, 3 Oct 2026, D-668) and every tenant is seeded
+    with it, which is why the `recordings/` ceiling is 120. A tenant raised above 120 —
+    a BFSI client under RBI's two-year rule, SECURITY-COMPLIANCE §1 — makes this guard
+    refuse until the ceiling is raised first, or the lifecycle rule would delete that
+    client's recordings before the regulator's own minimum.
 
     Get it from the database, do not guess — the query is in
     runbooks/object-lifecycle.md. Re-check it whenever a client's policy changes.

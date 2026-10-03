@@ -67,11 +67,14 @@ def _public_hooks(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 class _Store:
     """What `SqlControlPlane` answers for the methods the carrier half uses."""
 
-    def __init__(self, *, cap_s: int = 600, held: bool = True) -> None:
+    def __init__(self, *, cap_s: int = 600, held: bool = True, recorded: bool = False) -> None:
         self.dials: list[dict[str, str]] = []
         self.bindings: dict[str, str] = {}
         self._cap_s = cap_s
         self._held = held
+        # Published NOT announcing a recording unless a test says so: the answer URL then
+        # carries no recorded segment (`answer_path(recorded=...)`, D-668).
+        self._recorded = recorded
 
     async def runtime_agent(self, ref: str) -> RuntimeAgent | None:
         if not self._held:
@@ -86,6 +89,7 @@ class _Store:
             opening_line="Namaskaram.",
             models=ModelConfig(),
             max_call_duration_s=self._cap_s,
+            call_is_recorded=self._recorded,
         )
         return RuntimeAgent(
             engine_agent_ref=ref,

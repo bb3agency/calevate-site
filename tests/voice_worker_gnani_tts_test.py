@@ -429,6 +429,29 @@ def test_an_agent_that_names_gnani_gets_the_gnani_leg() -> None:
     assert service._settings.model == GNANI_TTS_MODEL
 
 
+@pytest.mark.parametrize("why", ["extra-languages", "platform-autodetect"])
+def test_gnani_speaks_the_primary_while_the_transcriber_detects(why: str) -> None:
+    """The defect this closes: detection used to be served as `language=None`, and this leg
+    refuses a session with no language, so every Gnani call failed while detection was on.
+    The transcriber's setting and the voice's are now separate, and only the first moves."""
+    from pipecat.services.sarvam.stt import SarvamSTTService
+    from voice_worker.pipeline import _build_stt, _build_tts
+
+    config = _gnani_config(languages_extra=("hi-IN",))
+    if why == "platform-autodetect":
+        base = _gnani_config()
+        config = _gnani_config(models=base.models.model_copy(update={"stt_autodetect": True}))
+    assert config.stt_detects_language
+
+    service = _build_tts(config, _credentials())
+    stt = _build_stt(config, _credentials())
+
+    assert isinstance(service, CalevateGnaniTTSService)
+    assert plugin_tts._optional_tts_language_code(service._settings) == "te-IN"
+    assert isinstance(stt, SarvamSTTService)
+    assert stt._settings.language is None
+
+
 def test_a_container_with_no_gnani_key_refuses_that_call_by_name() -> None:
     """Not a fallback to Sarvam: a client's caller would hear a voice their agent does not
     name, which is the one thing `credentials_for` already refuses for the LLM leg."""

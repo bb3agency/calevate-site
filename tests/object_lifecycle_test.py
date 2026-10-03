@@ -165,7 +165,10 @@ def test_ceiling_is_above_every_seeded_retention_default(policy: dict) -> None:
     """
     ceiling = applier.recordings_expiration_days(policy)
     assert ceiling is not None, "no rule covers recordings/ — the bytes are deleted by nothing"
-    longest_seeded = max(int(p["ttl_days"]) for p in DEFAULT_RETENTION_POLICIES)
+    # The RECORDING policies only: this rule is scoped to `recordings/`, and measuring it
+    # against `consent_log`'s 2555 days is what kept orphaned audio for seven years
+    # against a 90-day promise (D-668).
+    longest_seeded = _longest_seeded_recording_ttl()
     assert ceiling >= longest_seeded, (
         f"bucket ceiling {ceiling}d is below the longest seeded retention default "
         f"({longest_seeded}d): the lifecycle rule would delete data a tenant's own "
@@ -180,8 +183,24 @@ def test_guard_refuses_a_ceiling_below_a_live_tenant_policy(policy: dict) -> Non
 
 
 def test_the_shipped_policy_passes_its_own_guards(policy: dict) -> None:
-    longest_seeded = max(int(p["ttl_days"]) for p in DEFAULT_RETENTION_POLICIES)
-    applier.check_policy(policy, max_tenant_ttl_days=longest_seeded)
+    applier.check_policy(policy, max_tenant_ttl_days=_longest_seeded_recording_ttl())
+
+
+def _longest_seeded_recording_ttl() -> int:
+    return max(
+        int(p["ttl_days"]) for p in DEFAULT_RETENTION_POLICIES if p["data_category"] == "recording"
+    )
+
+
+def test_the_recordings_rule_is_a_backstop_just_behind_the_90_day_rule(policy: dict) -> None:
+    """Our copies are kept 90 days (founder, 3 Oct 2026, D-668). The sweep deletes them and
+    clears the pointer at 90; the bucket rule sits behind it so the pointer is always
+    cleared first, and close enough that orphaned audio does not outlive the promise by
+    years, which is what the old 2555-day ceiling did."""
+    ceiling = applier.recordings_expiration_days(policy)
+    assert ceiling == 120
+    assert _longest_seeded_recording_ttl() == applier.RECORDING_FLOOR_DAYS == 90
+    assert applier.RECORDING_FLOOR_DAYS < ceiling <= applier.RECORDING_FLOOR_DAYS + 30
 
 
 # --- 3. Prefix drift ----------------------------------------------------------------

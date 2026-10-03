@@ -539,6 +539,18 @@ class Settings(BaseSettings):
     #: transfer registry still offers no handover (`outcome_arrives_late`) until a hand-off
     #: mode exists that tells the caller first.
     carrier_transfer_enabled: bool = False
+    #: Whether Vobiz records the calls it carries (founder decision, 3 Oct 2026, D-668):
+    #: a self-closing `<Record recordSession="true" redirect="false"/>` before the
+    #: `<Stream>` in the answer document (`xml/record/stream-with-record.md:11-25`). It
+    #: decides two things that must agree for hard rule 5: what a PUBLISH composes
+    #: (`engine/pipecat.capabilities_for_carrier` → `records_audio`, so the opening notice
+    #: and the truthful answer say "recorded"), and whether the answer route records at
+    #: all. The route records only an agent whose published answer URL carries the
+    #: recorded segment (`calevate_shared.carrier.answer_path(recorded=True)`), so turning
+    #: this ON records nobody until agents are republished, and turning it OFF stops
+    #: recording on the next call while agents published under ON still say "recorded"
+    #: until they are republished. Ignored on Plivo, whose recording surface is unread.
+    carrier_recording_enabled: bool = True
     # USD→INR for every cost a vendor quotes in dollars (number rentals, the console's
     # margin figures), stamped with its source wherever it reaches a ledger row (hard
     # rule 7).

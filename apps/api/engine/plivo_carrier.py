@@ -22,6 +22,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.engine.carrier import (
     CarrierCallEvent,
     CarrierCdr,
+    CarrierRecordingSource,
     PlacedCall,
     capability_unverified,
 )
@@ -115,6 +116,17 @@ class PlivoCarrier:
 
     def parse_event(self, fields: dict[str, str]) -> CarrierCallEvent | None:
         raise self.unavailable("read a carrier callback")
+
+    async def recording_source(
+        self, recording_id: str, *, carrier_call_id: str
+    ) -> CarrierRecordingSource | None:
+        raise self.unavailable("fetch a call recording")
+
+    async def find_recording(self, carrier_call_id: str) -> str | None:
+        raise self.unavailable("look up a call recording")
+
+    async def delete_recording(self, recording_id: str) -> bool:
+        raise self.unavailable("delete a call recording")
 
     async def aclose(self) -> None:
         """Nothing to release: this adapter opens no connection."""

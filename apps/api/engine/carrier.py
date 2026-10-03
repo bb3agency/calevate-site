@@ -59,7 +59,38 @@ RING_TIMEOUT_S: Final = 60
 CARRIER_DEFAULT_RING_TIMEOUT_S: Final = 120
 
 #: What a carrier callback said happened, in our words.
-CarrierEventKind = Literal["ringing", "answered", "hangup", "machine", "stream", "other"]
+CarrierEventKind = Literal[
+    "ringing", "answered", "hangup", "machine", "stream", "recording", "other"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class CarrierRecording:
+    """A finished carrier-side recording of one call, as its callback reported it.
+
+    `recording_id` is the carrier's opaque id and the only reference we store
+    (`calls.carrier_recording_id`); no URL and no number travels with it (hard rule 6).
+    """
+
+    recording_id: str
+    duration_s: int | None = None
+    #: The carrier's reason the recording stopped. Anything but the call ending means the
+    #: file may be shorter than the conversation.
+    end_reason: str | None = None
+    ended_with_call: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class CarrierRecordingSource:
+    """Where to fetch one recording's bytes, and the headers the fetch must carry.
+
+    `auth_hosts` bounds where `auth_headers` may be sent: a redirect to any other host is
+    followed WITHOUT them, so a carrier credential never reaches a third party.
+    """
+
+    url: str
+    auth_headers: Mapping[str, str]
+    auth_hosts: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +116,8 @@ class CarrierCallEvent:
     hangup_cause: str | None = None
     #: The carrier's numeric hangup code, when the callback carried one.
     hangup_cause_code: int | None = None
+    #: On a `recording` event, the finished recording.
+    recording: CarrierRecording | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +220,24 @@ class CarrierClient(Protocol):
 
     def parse_event(self, fields: dict[str, str]) -> CarrierCallEvent | None:
         """A callback's form fields, normalized; None when it names no call."""
+        ...
+
+    async def recording_source(
+        self, recording_id: str, *, carrier_call_id: str
+    ) -> CarrierRecordingSource | None:
+        """Where the recording's bytes are, after confirming it belongs to that call.
+
+        None when the carrier no longer holds it (deleted or expired). A recording the
+        carrier attributes to a DIFFERENT call is refused, never fetched.
+        """
+        ...
+
+    async def find_recording(self, carrier_call_id: str) -> str | None:
+        """The id of a recording the carrier holds for this call, or None."""
+        ...
+
+    async def delete_recording(self, recording_id: str) -> bool:
+        """Delete the carrier's copy. True when deleted now, False when already gone."""
         ...
 
     async def aclose(self) -> None:
@@ -295,6 +346,8 @@ __all__ = [
     "CarrierCdr",
     "CarrierClient",
     "CarrierEventKind",
+    "CarrierRecording",
+    "CarrierRecordingSource",
     "PlacedCall",
     "RetiresAgentBindings",
     "build_carrier",

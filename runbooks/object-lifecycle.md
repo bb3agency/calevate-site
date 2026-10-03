@@ -37,8 +37,9 @@ FROM retention_policies
 WHERE data_category = 'recording';
 ```
 
-Call that number `MAX_TTL`. If it exceeds the `recordings/` expiration in `policy.json`
-(2555 days at the time of writing), **stop**: raise the ceiling in `policy.json` and open
+Call that number `MAX_TTL`. It should be 90: that is the platform's rule (D-668) and every
+tenant is seeded with it. If it exceeds the `recordings/` expiration in `policy.json`
+(120 days at the time of writing), **stop**: raise the ceiling in `policy.json` and open
 a PR before applying anything. The applier will refuse anyway — that refusal is the
 control working, not an obstacle to route around.
 

@@ -6,6 +6,15 @@
         [inbound hangup, no row after retries] → write the row → read_carrier_cdr
     read_carrier_cdr → fetch the CDR → record OUR cost for the carrier minute
     reconcile_carrier_cdrs (cron) → re-enqueue the CDR read for calls still owing one
+    [RecordStop] → note the carrier's recording id → copy_carrier_recording
+      (`carrier_recordings.py`, D-668)
+
+THE RECORDING COSTS NOTHING ON ITS OWN ROW. Vobiz's recording add-on is ₹0.10/min on its
+card (`billing/rates.VOBIZ_INR_PER_MIN`, a reference), but neither the CDR's field list nor
+`RecordStop` documents a recording charge we could book (`cdr.md:257-285`); whether the
+CDR's `total_cost` includes it is UNKNOWN (OPERATIONS §2 gate V-11). So the one cost row
+below stays the carrier's whole charge, and the card figure never reaches `unit_cost_paid`
+(hard rule 7).
 
 WHAT THE CDR CHANGES ON THE LEDGER, AND WHAT IT DOES NOT. The post-call meter already wrote
 the call's one `telephony_s` row at settlement, from the worker's measured connected time,
@@ -78,6 +87,7 @@ from apps.api.engine.carrier import (
     get_carrier,
 )
 from apps.api.reliability.service import mark_inbox_failed, mark_inbox_processed
+from apps.workers.carrier_recordings import enqueue_copy, note_recording, report_short_recording
 from apps.workers.pipeline import (
     _is_transient,
     _resolve_agent,
@@ -286,6 +296,7 @@ async def _ingest_stages(target: _EventTarget, attempt: int) -> str:
     tenant_id, agent_id = resolved
 
     moved = False
+    noted = False
     async with tenant_session(tenant_id) as session:
         call = await _find_call(session, tenant_id, target.call_id, event.carrier_call_id)
         if call is not None and call.agent_id == agent_id:
@@ -293,6 +304,9 @@ async def _ingest_stages(target: _EventTarget, attempt: int) -> str:
             await _record_carrier(session, tenant_id, call.id, target.carrier)
             if target.call_id is not None:
                 await _record_carrier_call_id(session, tenant_id, call, event.carrier_call_id)
+            noted = event.recording is not None and await note_recording(
+                session, tenant_id=tenant_id, call_id=call.id, recording=event.recording
+            )
 
     if call is None:
         return await _unresolved(target, event, tenant_id, agent_id, attempt)
@@ -309,6 +323,11 @@ async def _ingest_stages(target: _EventTarget, attempt: int) -> str:
         return "call_mismatch"
 
     outcome = f"{event.kind}:{'advanced' if moved else 'unchanged'}"
+    if event.recording is not None and noted:
+        # After the commit above, so the copy job reads the id it is asked to fetch.
+        report_short_recording(tenant_id=tenant_id, call_id=call.id, recording=event.recording)
+        await enqueue_copy(tenant_id=tenant_id, call_id=call.id)
+        outcome += ":copy_enqueued"
     if event.kind == "hangup":
         await enqueue_cdr_read(
             # The row's carrier as it stands after `_record_carrier`: the stored one when
@@ -404,7 +423,21 @@ async def _unresolved(
     if event.kind == "hangup" and target.call_id is None and event.direction != "outbound":
         return await _record_orphan_inbound(target, event, tenant_id, agent_id)
     await _fail_inbox(target.inbox_row_id, "call not resolved")
-    if event.kind == "hangup" or target.call_id is not None:
+    if event.recording is not None:
+        # A recording of a call we hold no row for: nothing will ever copy it, and the
+        # carrier keeps the audio until its own retention runs out. The id is opaque and is
+        # what an operator quotes to delete it there.
+        alert(
+            "WORKER_TERMINAL",
+            "carrier_recording_unresolved",
+            detail=(
+                f"carrier={target.carrier}: a finished recording names a call with no row "
+                f"after {attempt} attempts; recording_id={event.recording.recording_id}"
+            ),
+            tenant_id=str(tenant_id),
+            carrier_call_id=event.carrier_call_id,
+        )
+    elif event.kind == "hangup" or target.call_id is not None:
         alert(
             "WORKER_TERMINAL",
             "carrier_event_call_unresolved",

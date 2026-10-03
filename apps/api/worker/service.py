@@ -537,7 +537,7 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         prompt_sha256=prompt_sha256,
         models=models,
         engine_agent_ref=None if stored_ref is None else str(stored_ref),
-        language=_session_language(published, models),
+        language=_session_language(published),
         languages_extra=list(published.languages_extra),
         # EVERY AGENT SPEAKS FIRST, ON BOTH LEGS, AND NO COLUMN DECIDES IT TODAY (D-163).
         # `voice_worker/config.py` argued this when it held the read; the value moved with
@@ -616,15 +616,15 @@ def _refuse_undisclosed_agent() -> ProblemError:
     )
 
 
-def _session_language(published: AgentConfig, models: ModelConfig) -> str | None:
-    """The BCP-47 code to pin the transcriber to, or `None` to let it detect.
+def _session_language(published: AgentConfig) -> str:
+    """The agent's primary language, served whether or not the transcriber detects.
 
-    `stt_autodetect` WINS, and that is not a preference: D-584 records that no Sarvam model
-    on our declared leg accepts `te-IN` at all, so an operator who turned detection on did
-    it because pinning was refused on the wire.
+    It used to be `None` when `ModelConfig.stt_autodetect` was on, which made one field
+    carry two meanings: the voice's language and the transcriber's pin. The Gnani voice
+    refuses a session with no language, so every Gnani call failed while detection was on.
+    The worker now decides detection itself from `models.stt_autodetect` and
+    `languages_extra` (`voice_worker.pipeline.SessionConfig.stt_detects_language`).
     """
-    if models.stt_autodetect:
-        return None
     return published.language_primary
 
 
