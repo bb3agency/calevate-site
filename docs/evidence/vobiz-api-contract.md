@@ -409,11 +409,14 @@ signature page covers "callbacks" generally, `concepts/validating-callbacks.md:1
 
 **What we send** (`apps/voice-runtime/carrier_routes.record_element`):
 `<Record recordSession="true" redirect="false" fileFormat="mp3" maxLength="14400"
-timeout="14400" playBeep="true" callbackUrl="{WEBHOOK_BASE_URL}/carrier/v1/vobiz/events/{ref}
+timeout="14400" playBeep="false" finishOnKey="*" callbackUrl="{WEBHOOK_BASE_URL}/carrier/v1/vobiz/events/{ref}
 [/outbound/{call_id}]" callbackMethod="POST"/>` before the `<Stream>`. The two limits are
 Vobiz's own default call `time_limit` (`call/make-call.md:71`), because both 60 s defaults
-would cut a conversation's recording short. No `action`, and `finishOnKey` is not set (no
-"none" value is documented).
+would cut a conversation's recording short. No `action`. No beep (founder, D-670).
+`finishOnKey` is `*` alone: no value that disables it is documented (allowed: a digit, `#`,
+`*`, `xml/record.md:22`), so the set is narrowed to the one key callers are not taught to
+press after typing digits (`#` is, `:82,85`). Vobiz's copy is deleted one day after ours is
+stored (D-670, `apps/workers/carrier_recordings.expire_carrier_recording`).
 
 ## 10. DTMF
 

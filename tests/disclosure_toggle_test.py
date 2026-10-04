@@ -89,7 +89,16 @@ HOSTILE_SCRIPT = (
 )
 
 
-async def _tenant(language: str = "te-IN") -> tuple[uuid.UUID, uuid.UUID]:
+async def _tenant(
+    language: str = "te-IN", *, notices_on: bool = True
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """A fresh tenant and its receptionist.
+
+    `notices_on` switches both announcements ON after creation, by a direct column write
+    that models an agent whose owner turned them on: a new agent volunteers neither since
+    D-669, and most tests here prove that switching one OFF moves the opening, the engine
+    and the ledger. `notices_on=False` is the agent exactly as `create_agent` makes it.
+    """
     created = await admin_service.create_organization(
         name="Sunrise Clinic",
         slug=f"disc-{uuid.uuid4().hex[:8]}",
@@ -103,6 +112,15 @@ async def _tenant(language: str = "te-IN") -> tuple[uuid.UUID, uuid.UUID]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    if notices_on:
+        async with tenant_session(created["id"]) as session:
+            await session.execute(
+                text(
+                    "UPDATE agents SET ai_disclosure_enabled = true, "
+                    "recording_notice_enabled = true WHERE id = :a"
+                ),
+                {"a": created["agent_id"]},
+            )
     return created["id"], created["agent_id"]
 
 
@@ -405,13 +423,15 @@ def test_the_composer_answers_all_four_postures() -> None:
     assert opening(False, False) == ""
 
 
-async def test_a_new_agent_is_born_disclosing_everything() -> None:
-    """The default is the posture with no legal exposure, and the legacy bundle is
-    exactly the two halves joined — so step 1 of the two-step cannot drift on day one."""
-    tenant_id, agent_id = await _tenant()
+async def test_a_new_agent_volunteers_nothing_and_has_both_sentences_on_file() -> None:
+    """D-669: a new agent opens with its greeting only. What does NOT move with the
+    default is hard rule 5's floor: both sentences are on file, so switching either
+    announcement on later has something to say, and the legacy bundle is exactly the two
+    halves joined — so step 1 of the two-step cannot drift on day one."""
+    tenant_id, agent_id = await _tenant(notices_on=False)
     ai_on, rec_on, ai_line, rec_line = await _posture(tenant_id, agent_id)
 
-    assert (ai_on, rec_on) == (True, True), "a new agent must default to disclosing"
+    assert (ai_on, rec_on) == (False, False), "a new agent must volunteer neither notice"
     assert ai_line == AI_DISCLOSURE_TEMPLATES["te-IN"].format(business="Sunrise Clinic")
     assert rec_line == RECORDING_NOTICE_TEMPLATES["te-IN"]
     async with tenant_session(tenant_id) as session:
@@ -423,6 +443,79 @@ async def test_a_new_agent_is_born_disclosing_everything() -> None:
     assert bundle == bundled_disclosure_line(
         ai_disclosure_line=ai_line, recording_notice_line=rec_line
     ), "the legacy bundle is not the two halves joined, so step 1 already drifted"
+
+
+async def test_a_new_agent_opens_with_the_greeting_only() -> None:
+    """D-669 end to end: an agent exactly as `create_agent` makes it, once published,
+    holds no opening notice on the engine, so the first thing a caller hears is the
+    script's greeting. The floor is still on the engine's copy of the prompt."""
+    tenant_id, agent_id = await _tenant(notices_on=False)
+    ref, engine = await _published(tenant_id, agent_id)
+
+    assert engine._agents[ref].opening_line == "", "a new agent volunteered a notice"
+    snapshot = await engine.get_agent(ref)
+    assert not (snapshot.greeting or "").strip(), "the engine holds a greeting nobody chose"
+    assert snapshot.carries_prompt_marker(TRUTHFUL_ANSWER_MARKER) is True
+
+
+async def test_a_new_agent_on_a_recording_engine_answers_that_the_call_is_recorded() -> None:
+    """Both notices off and the call recorded: nothing is volunteered, and asked, the
+    agent says it is an AI and that the call is recorded (hard rule 5)."""
+    tenant_id, agent_id = await _tenant(notices_on=False)
+    await _with_script(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        agent = await _load_agent(session, tenant_id, agent_id)
+        config = _to_config(tenant_id, agent, engine=FakeEngine())
+
+    assert (agent["ai_disclosure_enabled"], agent["recording_notice_enabled"]) == (False, False)
+    assert config.opening_line == ""
+    assert config.call_is_recorded is True
+    prompt = compose_engine_prompt(config)
+    assert "say plainly that you are an AI assistant" in prompt
+    assert "yes: this call is recorded" in prompt
+    assert "the audio is not recorded" not in prompt
+    assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
+
+
+async def test_a_new_agent_on_an_engine_that_records_nothing_answers_not_recorded() -> None:
+    """The same agent on a leg with no recorder: the answer follows the engine's fact,
+    not the switches, so it says the audio is not recorded."""
+    tenant_id, agent_id = await _tenant(notices_on=False)
+    await _with_script(tenant_id, agent_id)
+    engine = FakeEngine(capabilities=OWNED_RUNTIME_CAPABILITIES)
+    async with tenant_session(tenant_id) as session:
+        agent = await _load_agent(session, tenant_id, agent_id)
+        config = _to_config(tenant_id, agent, engine=engine)
+
+    assert config.opening_line == ""
+    assert config.call_is_recorded is False
+    prompt = compose_engine_prompt(config)
+    assert "say plainly that you are an AI assistant" in prompt
+    assert "the audio is not recorded" in prompt
+    assert "yes: this call is recorded" not in prompt
+
+
+async def test_a_new_agent_still_has_both_sentences_required_on_file() -> None:
+    """Switching the default off moved what is VOLUNTEERED and nothing else: both
+    sentences stay mandatory on a new agent, and the dial gate does not read the switch."""
+    tenant_id, agent_id = await _tenant(notices_on=False)
+    for column in ("ai_disclosure_line", "recording_notice_line"):
+        with pytest.raises(IntegrityError):
+            async with tenant_session(tenant_id) as session:
+                await session.execute(
+                    text(f"UPDATE agents SET {column} = '   ' WHERE id = :a"), {"a": agent_id}
+                )
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET direction = 'outbound', status = 'live' WHERE id = :a"),
+            {"a": agent_id},
+        )
+    async with tenant_session(tenant_id) as session:
+        decision = await check_dispatch(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919876500012"
+        )
+    assert decision.rule != "disclosure_missing", decision
 
 
 @pytest.mark.parametrize(
@@ -846,6 +939,53 @@ def test_the_migration_goes_down_and_comes_back_up() -> None:
                         )
                     ).scalar_one()
                     assert blank == 0, "the backfill produced a blank compliance sentence"
+            finally:
+                transaction.rollback()
+    finally:
+        sync.dispose()
+
+
+def test_the_default_off_migration_goes_down_and_comes_back_up() -> None:
+    """D-669's revision moves the two column defaults and nothing else, in both
+    directions, and leaves every stored toggle where it was."""
+    revision = _load_revision("a6d2f81c4e3b_new_agents_volunteer_no_opening_notice")
+    url = (get_settings().alembic_database_url or get_settings().database_url).replace(
+        "+asyncpg", "+psycopg"
+    )
+    defaults_sql = text(
+        "SELECT column_name, column_default FROM information_schema.columns "
+        "WHERE table_name = 'agents' AND column_name IN "
+        "('ai_disclosure_enabled', 'recording_notice_enabled') ORDER BY column_name"
+    )
+    stored_sql = text(
+        "SELECT count(*) FILTER (WHERE ai_disclosure_enabled), "
+        "count(*) FILTER (WHERE recording_notice_enabled) FROM agents"
+    )
+    sync = create_sync_engine(url)
+    try:
+        with sync.connect() as connection:
+            transaction = connection.begin()
+            try:
+                context = MigrationContext.configure(connection)
+                at_head = dict(connection.execute(defaults_sql).tuples().all())
+                assert at_head == {
+                    "ai_disclosure_enabled": "false",
+                    "recording_notice_enabled": "false",
+                }, at_head
+                stored = connection.execute(stored_sql).one()
+                with Operations.context(context):
+                    revision.downgrade()
+                    down = dict(connection.execute(defaults_sql).tuples().all())
+                    assert set(down.values()) == {"true"}, down
+                    assert connection.execute(stored_sql).one() == stored, (
+                        "the downgrade rewrote stored toggles"
+                    )
+                    revision.upgrade()
+                    up = dict(connection.execute(defaults_sql).tuples().all())
+                    assert set(up.values()) == {"false"}, up
+                    assert connection.execute(stored_sql).one() == stored, (
+                        "the upgrade rewrote stored toggles; only the default may move"
+                    )
             finally:
                 transaction.rollback()
     finally:

@@ -90,13 +90,15 @@ function created(over: Partial<Agent> = {}): Agent {
       "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic.",
-    ai_disclosure_enabled: true,
+    // What `POST /v1/agents` answers for a NEW agent since D-669: both sentences on file,
+    // both announcements off, so the composed opening is empty and the greeting is the
+    // script's.
+    ai_disclosure_enabled: false,
     recording_notice_line: "This call is being recorded.",
     caller_memory_notice_line: "I keep a short note of what you ask about.",
     caller_memory_enabled: false,
-    recording_notice_enabled: true,
-    opening_line:
-      "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+    recording_notice_enabled: false,
+    opening_line: "",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
     engine: "pipecat",
@@ -240,12 +242,15 @@ describe("what the form promises about the agent it is about to build", () => {
     await next();
     await screen.findByText("Check and build");
     const floor = screen.getByText("What it will say about itself").closest("section");
+    // D-669: a new agent volunteers neither announcement; it opens with its greeting.
+    expect(floor?.textContent).toContain("greeting only");
+    expect(floor?.textContent).not.toContain("starts every call by saying it is an AI");
     expect(floor?.textContent).toContain("it is an AI assistant");
     expect(floor?.textContent).toContain("the call is being recorded");
     // The half that is not switchable by anyone.
     expect(floor?.textContent).toContain("cannot be switched off");
-    // …and it does not promise the notices are permanent: they are per-agent toggles.
-    expect(container.textContent).toContain("switch either announcement off later");
+    // …and the announcements are per-agent toggles, off until the owner switches one on.
+    expect(container.textContent).toContain("switch either announcement on later");
   });
 
   it("says the agent is built switched off, and does not celebrate a phone line that cannot ring", async () => {

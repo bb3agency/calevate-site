@@ -6121,6 +6121,7 @@
                 "lead.created",
                 "lead.updated",
                 "call.completed",
+                "call.recording_ready",
                 "campaign.completed"
               ],
               "type": "string"
@@ -6373,6 +6374,7 @@
                 "lead.created",
                 "lead.updated",
                 "call.completed",
+                "call.recording_ready",
                 "campaign.completed"
               ],
               "type": "string"

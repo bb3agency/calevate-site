@@ -295,6 +295,18 @@ RECORDING_SILENCE_TIMEOUT_S: Final = 14_400
 #: because it may not match (`recording.md:24-37`).
 RECORDING_FILE_FORMAT: Final = "mp3"
 
+#: The one key that ends the carrier's recording (founder, 3 Oct 2026: a keypress must never
+#: stop it). `finishOnKey` admits only digits, `#` and `*` and defaults to all twelve
+#: (`xml/record.md:22`); no page documents a value that disables it, and an undocumented one
+#: (an empty string, "none") risks the carrier refusing the whole answer document, which
+#: would fail every recorded call rather than shorten one recording. So the set is narrowed
+#: to one key, as the vendor itself advises (`:147`), and the key is `*` rather than `#`:
+#: `#` is the conventional end-of-entry key, the one the vendor's own examples have callers
+#: press after typing digits (`xml/record.md:82,85`, `blogs/what-is-multi-level-ivr.md:170`).
+#: Our agents ask for no keypress at all. A caller who presses `*` still ends the recording;
+#: `carrier_recording_ended_early` alarms with `FinishedOnKey`, and gate V-11(b) checks it.
+RECORDING_FINISH_ON_KEY: Final = "*"
+
 
 @dataclass(frozen=True, slots=True)
 class AnswerCallerIdentity:
@@ -695,9 +707,10 @@ def record_element(recording: SessionRecording) -> Element:
     stream. No `action`: a `recordSession` flow may use `callbackUrl` alone
     (`xml/record.md:15,145`), and the initial event carries nothing we keep.
 
-    `playBeep` is the vendor default made explicit (`xml/record.md:21`); the vendor tells
-    callers to be told before recording begins (`:149`), and the beep is the only signal
-    that precedes the agent's own spoken notice.
+    No beep (founder, 3 Oct 2026): `playBeep="false"` overrides the vendor's default of
+    `true` (`xml/record.md:21`), so the agent's spoken recording notice is the only signal a
+    caller gets. `finishOnKey` is `RECORDING_FINISH_ON_KEY`, whose comment says why it is one
+    key rather than none.
     """
     attributes = {
         "recordSession": "true",
@@ -705,7 +718,8 @@ def record_element(recording: SessionRecording) -> Element:
         "fileFormat": RECORDING_FILE_FORMAT,
         "maxLength": str(RECORDING_MAX_LENGTH_S),
         "timeout": str(RECORDING_SILENCE_TIMEOUT_S),
-        "playBeep": "true",
+        "playBeep": "false",
+        "finishOnKey": RECORDING_FINISH_ON_KEY,
     }
     if recording.callback_url is not None:
         attributes["callbackUrl"] = recording.callback_url
@@ -1048,6 +1062,7 @@ __all__ = [
     "CLAIM_CALLER_STATE_PARAM",
     "CLAIM_CARRIER_PARAM",
     "RECORDING_FILE_FORMAT",
+    "RECORDING_FINISH_ON_KEY",
     "RECORDING_MAX_LENGTH_S",
     "RECORDING_SILENCE_TIMEOUT_S",
     "TELEPHONY_SAMPLE_RATE_HZ",

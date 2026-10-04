@@ -12,6 +12,11 @@ What this file catches:
 4. **An erased subject's audio is never re-acquired**, and the carrier's copy is deleted.
 5. **An erasure quotes the recording ids on the telephony task and deletes them at the
    carrier** (`processor_erasure`, `root-site/openapi.json:8459-8484`).
+6. **`call.recording_ready` (D-670)** goes once per (call, endpoint), only to endpoints
+   subscribed AND opted into the recording link, from the run that stored our copy.
+7. **The carrier's copy goes a day after ours (D-670)**: not before, only after a HEAD
+   proves ours is there, 404 counts as done, a store outage retries and deletes nothing,
+   an erased call is left to the erasure, and the sweep pages past 48 hours.
 
 Run: uv run python -m pytest -q tests/carrier_recording_copy_test.py
 """
@@ -30,11 +35,15 @@ from apps.api.engine.vobiz import parse_event as vobiz_parse_event
 from apps.workers import carrier_events, carrier_recordings, retention
 from apps.workers.carrier_events import ingest_carrier_event
 from apps.workers.carrier_recordings import (
+    CARRIER_COPY_KEPT_FOR,
+    CARRIER_DELETE_OVERDUE_AFTER,
     COPY_JOB,
     COPY_OVERDUE_AFTER,
     DELETE_JOB,
+    EXPIRE_JOB,
     copy_carrier_recording,
     delete_carrier_recordings,
+    expire_carrier_recording,
     reconcile_carrier_recordings,
 )
 from apps.workers.storage import StorageUnavailableError
@@ -420,3 +429,264 @@ async def test_the_database_refuses_a_phone_number_as_a_recording_id() -> None:
                 text("UPDATE calls SET carrier_recording_id = '919876500011' WHERE id = :c"),
                 {"c": call_id},
             )
+
+
+# --- 6. call.recording_ready (D-670) -------------------------------------------------------
+
+
+async def _endpoint(
+    tenant_id: uuid.UUID, *, events: tuple[str, ...], include_recording_url: bool
+) -> uuid.UUID:
+    endpoint_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
+                "mapping, active, include_recording_url, created_at, updated_at) VALUES "
+                "(:id, :tid, 'webhook', 'https://crm.example/hook', 'whsec_recording_ready', "
+                ":events, CAST('{}' AS jsonb), true, :inc, now(), now())"
+            ),
+            {
+                "id": endpoint_id,
+                "tid": tenant_id,
+                "events": list(events),
+                "inc": include_recording_url,
+            },
+        )
+    return endpoint_id
+
+
+async def _recording_ready_rows(tenant_id: uuid.UUID) -> list[dict[str, Any]]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT payload, dedupe_key FROM outbox_messages "
+                    "WHERE job = 'deliver_outbound_webhook' AND payload->>'tenant_id' = :tid "
+                    "AND payload->>'event' = 'call.recording_ready' ORDER BY created_at, id"
+                ),
+                {"tid": str(tenant_id)},
+            )
+        ).all()
+    return [{**dict(row[0]), "dedupe_key": row[1]} for row in rows]
+
+
+async def test_the_copy_tells_each_opted_in_endpoint_once_and_stamps_the_copy_time(
+    carrier: _Carrier, seen: Recorder, copies: _Copies
+) -> None:
+    tenant_id, call_id, ref, ccid = await _call()
+    opted = await _endpoint(tenant_id, events=("call.recording_ready",), include_recording_url=True)
+    # Subscribed without the opt-in (a row written before the route refused that): the
+    # event exists to carry the link, so this endpoint is told nothing.
+    await _endpoint(tenant_id, events=("call.recording_ready",), include_recording_url=False)
+    # Opted in but not subscribed.
+    await _endpoint(tenant_id, events=("call.completed",), include_recording_url=True)
+    await ingest_carrier_event({"job_try": 1}, _record_stop(ref, ccid))
+
+    assert await copy_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id)) == "copied"
+    rows = await _recording_ready_rows(tenant_id)
+    assert [r["endpoint_id"] for r in rows] == [str(opted)]
+    assert rows[0]["data"] == {"call_id": str(call_id)}, "no phone, no link at fan-out"
+    assert rows[0]["dedupe_key"] == f"recording-ready:{call_id}:{opted}"
+
+    async with tenant_session(tenant_id) as session:
+        copied_at = (
+            await session.execute(
+                text("SELECT recording_copied_at FROM calls WHERE id = :c"), {"c": call_id}
+            )
+        ).scalar()
+    assert copied_at is not None
+
+    # A second run finds the pointer set and tells nobody again.
+    again = await copy_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    assert again == "already_copied"
+    assert len(await _recording_ready_rows(tenant_id)) == 1
+
+
+async def test_the_outbox_refuses_a_second_recording_ready_for_one_call_and_endpoint() -> None:
+    from apps.api.integrations import service as integrations
+
+    tenant_id, call_id, _ref, _ccid = await _call()
+    await _endpoint(tenant_id, events=("call.recording_ready",), include_recording_url=True)
+    for _ in range(2):
+        async with tenant_session(tenant_id) as session:
+            await integrations.enqueue_event(
+                session,
+                tenant_id=tenant_id,
+                event=integrations.RECORDING_READY_EVENT,
+                data={"call_id": str(call_id)},
+            )
+    assert len(await _recording_ready_rows(tenant_id)) == 1
+
+
+# --- 7. the carrier's copy goes a day after ours (D-670) -----------------------------------
+
+
+@dataclass
+class _Ours:
+    present: bool = True
+    fail: bool = False
+    asked: list[str] = field(default_factory=list)
+
+
+@pytest.fixture
+def ours(monkeypatch: pytest.MonkeyPatch) -> _Ours:
+    state = _Ours()
+
+    async def _exists(key: str) -> bool:
+        state.asked.append(key)
+        if state.fail:
+            raise StorageUnavailableError("object head failed: EndpointConnectionError")
+        return state.present
+
+    monkeypatch.setattr(carrier_recordings.storage, "object_exists", _exists)
+    return state
+
+
+async def _mark_copied(
+    tenant_id: uuid.UUID, call_id: uuid.UUID, *, recording_id: str, copied_ago: timedelta
+) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET carrier = 'vobiz', carrier_recording_id = :r, "
+                "recording_url = :k, recording_copied_at = now() - :ago WHERE id = :c"
+            ),
+            {
+                "r": recording_id,
+                "k": f"recordings/{tenant_id}/{call_id}.wav",
+                "ago": copied_ago,
+                "c": call_id,
+            },
+        )
+
+
+async def _copied(*, copied_ago: timedelta) -> tuple[uuid.UUID, uuid.UUID]:
+    tenant_id, call_id, _ref, _ccid = await _call(ended_ago=copied_ago)
+    await _mark_copied(tenant_id, call_id, recording_id=RECORDING_ID, copied_ago=copied_ago)
+    return tenant_id, call_id
+
+
+async def _deleted_at(tenant_id: uuid.UUID, call_id: uuid.UUID) -> Any:
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(
+                text("SELECT carrier_recording_deleted_at FROM calls WHERE id = :c"),
+                {"c": call_id},
+            )
+        ).scalar()
+
+
+async def test_the_carriers_copy_stays_for_a_day_after_ours(
+    carrier: _Carrier, seen: Recorder, ours: _Ours
+) -> None:
+    tenant_id, call_id = await _copied(copied_ago=timedelta(hours=23))
+    outcome = await expire_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    assert outcome == "not_due"
+    assert carrier.deleted == [] and ours.asked == []
+    assert await _deleted_at(tenant_id, call_id) is None
+
+
+async def test_after_a_day_ours_is_checked_then_the_carriers_is_deleted_once(
+    carrier: _Carrier, seen: Recorder, ours: _Ours
+) -> None:
+    tenant_id, call_id = await _copied(copied_ago=CARRIER_COPY_KEPT_FOR + timedelta(minutes=5))
+    outcome = await expire_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    assert outcome == "deleted"
+    assert ours.asked == [f"recordings/{tenant_id}/{call_id}.wav"], "HEAD before delete"
+    assert carrier.deleted == [RECORDING_ID]
+    assert await _deleted_at(tenant_id, call_id) is not None
+
+    again = await expire_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    assert again == "already_deleted"
+    assert carrier.deleted == [RECORDING_ID]
+
+
+async def test_a_carrier_404_is_already_gone_and_still_stamped(
+    carrier: _Carrier, seen: Recorder, ours: _Ours, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _gone(recording_id: str) -> bool:
+        return False
+
+    monkeypatch.setattr(carrier, "delete_recording", _gone)
+    tenant_id, call_id = await _copied(copied_ago=timedelta(hours=30))
+    outcome = await expire_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    assert outcome == "already_gone"
+    assert await _deleted_at(tenant_id, call_id) is not None
+
+
+async def test_when_ours_is_missing_the_carriers_copy_is_kept_and_it_pages(
+    carrier: _Carrier, seen: Recorder, ours: _Ours
+) -> None:
+    ours.present = False
+    tenant_id, call_id = await _copied(copied_ago=timedelta(hours=30))
+    outcome = await expire_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    assert outcome == "ours_missing"
+    assert carrier.deleted == [], "the carrier's copy is now the only one"
+    assert [(a[0], a[1]) for a in seen.alerts] == [
+        ("WORKER_TERMINAL", "carrier_recording_ours_missing")
+    ]
+    assert await _deleted_at(tenant_id, call_id) is None
+
+
+async def test_a_store_that_does_not_answer_retries_and_never_deletes(
+    carrier: _Carrier, seen: Recorder, ours: _Ours
+) -> None:
+    ours.fail = True
+    tenant_id, call_id = await _copied(copied_ago=timedelta(hours=30))
+    with pytest.raises(Retry):
+        await expire_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    last = await expire_carrier_recording({"job_try": 3}, _copy_job(tenant_id, call_id))
+    assert last == "expiry_failed"
+    assert carrier.deleted == []
+    assert await _deleted_at(tenant_id, call_id) is None
+
+
+async def test_an_erased_call_is_left_to_the_erasure(
+    carrier: _Carrier, seen: Recorder, ours: _Ours
+) -> None:
+    tenant_id, call_id = await _copied(copied_ago=timedelta(hours=30))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET erased_subject_ref = 'deadbeef' WHERE id = :c"),
+            {"c": call_id},
+        )
+    outcome = await expire_carrier_recording({"job_try": 1}, _copy_job(tenant_id, call_id))
+    assert outcome == "erased"
+    assert carrier.deleted == []
+
+
+async def test_the_sweep_queues_due_expiries_and_pages_past_two_days(
+    carrier: _Carrier, seen: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, young = await _copied(copied_ago=timedelta(hours=2))
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(text("SELECT agent_id FROM calls WHERE id = :c"), {"c": young})
+        ).scalar()
+    due: list[uuid.UUID] = []
+    for ago in (timedelta(hours=26), CARRIER_DELETE_OVERDUE_AFTER + timedelta(hours=1)):
+        call_id = await make_call(
+            tenant_id,
+            agent_id,
+            status="completed",
+            direction="inbound",
+            carrier_call_id=str(uuid.uuid4()),
+        )
+        await _mark_copied(
+            tenant_id, call_id, recording_id=f"rec-{uuid.uuid4().hex[:12]}", copied_ago=ago
+        )
+        due.append(call_id)
+    seen.enqueued.clear()
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(carrier_recordings, "callable_tenants", _only_this_tenant)
+    result = await reconcile_carrier_recordings({})
+    assert "expiring=2" in result and "delete_overdue=1" in result
+    queued = sorted((e[1]["call_id"], e[2]) for e in seen.enqueued if e[0] == EXPIRE_JOB)
+    # Keyed per call, and the two-hour-old copy is not queued.
+    assert queued == sorted((str(c), f"{EXPIRE_JOB}:{c}") for c in due)
+    paged = [a for a in seen.alerts if a[1] == "carrier_recording_delete_overdue"]
+    assert paged and paged[0][0] == "WORKER_STALL"

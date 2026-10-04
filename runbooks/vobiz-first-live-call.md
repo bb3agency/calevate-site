@@ -173,14 +173,15 @@ source-address check is still in force. It runs before the signature check whate
 
 **Inbound.** Only on a number that is no longer tagged TRIAL (§1): a trial number takes no
 inbound calls (`faq/trial-inbound.md:9`), so a failed inbound call on one says nothing
-about our side. From the founder's own mobile, call the bound number. Expect a beep
-(Vobiz's `playBeep`), then the agent to speak first with the recording notice in its
+about our side. From the founder's own mobile, call the bound number. Expect NO beep (we
+send `playBeep="false"`, D-670): the agent speaks first, with the recording notice in its
 opening (§8a), then:
 
 - ask it a question it should answer from its knowledge;
 - ask "am I talking to a bot?" — it must answer truthfully (hard rule 5);
 - ask "is this call being recorded?" — it must answer yes (hard rule 5, D-668);
-- press a keypad digit once (this produces a `dtmf` event, gate V-4);
+- press a keypad digit once (this produces a `dtmf` event, gate V-4), then `#` once, and
+  note the time of each press for §8a step 6;
 - hang up from the phone.
 
 **Outbound.** From the client console, use "call this lead" on a test lead whose number is
@@ -286,14 +287,46 @@ Do this for BOTH calls in §5, within the hour.
 2. **It was copied.** The object exists in the bucket under that key. Its content type is
    `audio/mpeg` or `audio/wav` according to its bytes, whatever the `.wav` in the key says.
 3. **It plays in the dashboard.** Open the call in the client console and play it. Listen
-   for the whole call: the beep, the agent's opening with the recording notice, BOTH
-   voices, to the hangup. Only the caller's voice is a red on V-11(a) — stop and report it
+   for the whole call: no beep, the agent's greeting (agents volunteer no notice by default,
+   D-669), BOTH voices, to the hangup. Only the caller's voice is a red on V-11(a) — stop and report it
    before any client call. A recording that stops early (a `carrier_recording_ended_early`
-   alarm, reason `FinishedOnKey`, after the keypad press in §5) is V-11(b).
-4. **The opening notice was heard** on the phone (§5) and is in the transcript.
+   alarm, reason `FinishedOnKey`, after the keypad presses in §5) is V-11(b); see step 6.
+4. **The opening was the greeting only** on the phone (§5) and in the transcript, unless
+   the test agent's notice switches were turned on. Ask the agent "is this call
+   recorded?" once: it must answer yes (hard rule 5).
 5. **Vobiz's copy.** The Vobiz console's Recordings page lists the call, with its Storage
-   Life. Record the Storage Life shown on day 0 and again the next day: it settles the
-   30-vs-3-day question (gate V-11(d), contract §9a).
+   Life. Record the Storage Life shown on day 0 (gate V-11(d), contract §9a). We delete
+   Vobiz's copy one day after ours is stored (D-670): between 24 hours and 24 hours 20
+   minutes after `recording_copied_at`, the call row's `carrier_recording_deleted_at` is
+   set and the Recordings page no longer lists the call. If neither has happened by 48
+   hours, `carrier_recording_delete_overdue` pages.
+6. **A keypress did not stop the recording (gate V-11(b)).** Vobiz documents no way to
+   switch `finishOnKey` off, so we narrowed it to `*` alone
+   (`apps/voice-runtime/carrier_routes.RECORDING_FINISH_ON_KEY`). Play the recording past
+   the digit and the `#` you pressed in §5: the audio must run on to the hangup, with no
+   gap, and no `carrier_recording_ended_early` alarm may name the call. The call itself
+   must have carried on after each press. Do NOT press `*` on these calls; whether `*`
+   ends the recording is the vendor's documented behaviour (`xml/record.md:22,61`) and
+   needs no test. A keypress reaches the worker's stream as a `dtmf` event, which the
+   worker logs and ignores (`voice_worker/vobiz_serializer.py`); nothing here changes
+   that. A red stops client calls until the founder decides (OPERATIONS gate V-11(b)).
+7. **The recording API, as the way to drop the `*` stop (founder, 3 Oct 2026).** Vobiz's
+   REST recording has no stop key (`call/record-calls/start-recording.md:28-36`), but no
+   page says it captures the audio we stream back to the caller. Settle it on the second
+   call in §5: while the call is in progress, start a REST recording from the VPS, then
+   hang up as usual.
+
+   ```bash
+   sudo -u calevate bash -lc 'cd /var/www/calevate && set -a && . ./.env && set +a && curl -sS -X POST "https://api.vobiz.ai/api/v1/Account/$VOBIZ_AUTH_ID/Call/<CallUUID>/Record/" -H "X-Auth-ID: $VOBIZ_AUTH_ID" -H "X-Auth-Token: $VOBIZ_AUTH_TOKEN" -H "Content-Type: application/json" -d "{\"time_limit\":600,\"file_format\":\"wav\",\"record_channel_type\":\"stereo\"}"'
+   ```
+
+   `<CallUUID>` is the call's `carrier_call_id`. The answer carries a `recording_id`
+   and `url` (`:75-89`). Open that recording in the Vobiz console and listen to each
+   channel: the caller on one, the agent on the other, and note whether it beeped. Both
+   voices present means the founder's choice applies: the build moves recording to the
+   REST API and drops `<Record>`, and with it the `*` stop. Record the result under
+   OPERATIONS gate V-11(b). This test recording is not copied by our pipeline; delete it
+   in the Vobiz console afterwards.
 
 ## 9. Rollback
 

@@ -378,24 +378,24 @@ class Agent(PKMixin, TimestampMixin, Base):
     #: `caller_memory_enabled` below is on, so "remembers a caller without saying so" is
     #: not a state this schema can hold. See `calevate_shared.engine.DisclosurePosture`.
     caller_memory_notice_line: Mapped[str] = mapped_column(Text, nullable=False)
-    # Default TRUE on both: an agent nobody has decided about discloses. A default of
-    # false would make an omission — a forgotten column in an INSERT, a row created by a
-    # future importer — silently produce the posture with the legal exposure.
+    # Default FALSE on both (D-669, migration a6d2f81c4e3b): the founder's choice is that a
+    # call opens with the greeting only. The alternative, TRUE, is what D-163 shipped, on
+    # the ground that an omitted column should produce the posture with no legal exposure;
+    # the founder accepted that exposure while testing, to be reviewed before client
+    # traffic. Neither default reaches the truthful answer, which no column carries, nor
+    # the two sentences, which stay NOT NULL and non-blank.
     ai_disclosure_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="true"
+        Boolean, nullable=False, server_default="false"
     )
     recording_notice_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="true"
+        Boolean, nullable=False, server_default="false"
     )
     # MAY THIS AGENT REMEMBER ITS CALLERS ACROSS CALLS? (D-503, migration c6b1f0d47e83.)
     #
-    # DEFAULT FALSE — DELIBERATELY THE OPPOSITE OF THE TWO TOGGLES ABOVE, and by the same
-    # rule rather than in spite of it. Those default TRUE because the posture an omission
-    # must not produce is "does not disclose". Here the posture an omission must not produce
-    # is "remembers": a forgotten column in an INSERT, a future importer, or a restore from
+    # DEFAULT FALSE, because the posture an omission must not produce is "remembers": a
+    # forgotten column in an INSERT, a future importer, or a restore from
     # a dump written before this column existed must all yield an agent that keeps no
-    # cross-call profile of the people who ring it. The safe default is whichever one a
-    # silence should mean, and it is not the same value on every column.
+    # cross-call profile of the people who ring it.
     caller_memory_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )

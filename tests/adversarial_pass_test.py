@@ -403,8 +403,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/leads/{lead_id}/timeline", {}, {}),
     ("PATCH", "/v1/members/{user_id}", {"role": "staff", "expected_role": "owner"}, {}),
     # Added by the D-193 pass: six `{id}` routes the sweep did not drive. All six already
-    # refused correctly — they are here so that stays true, not because they broke.
-    ("PATCH", "/v1/agents/{agent_id}/disclosure", {"ai_disclosure_enabled": False}, {}),
+    # refused correctly — they are here so that stays true, not because they broke. The
+    # disclosure body switches ON because a new agent volunteers neither notice (D-669),
+    # so a write that leaked would move the neighbour's state rather than re-assert it.
+    ("PATCH", "/v1/agents/{agent_id}/disclosure", {"ai_disclosure_enabled": True}, {}),
     # The D-440 lifecycle surface. Every one of these MOVES a neighbour's agent if it
     # resolves, and two of them reach the voice platform, so a miss here is a stranger
     # taking another business's receptionist off its phone line.

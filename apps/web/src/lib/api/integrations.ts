@@ -41,8 +41,16 @@ export const EVENT_LABELS: Record<OutboundEvent, string> = {
   "lead.created": "A new lead arrives",
   "lead.updated": "A lead's details change",
   "call.completed": "A call finishes",
+  "call.recording_ready": "A call recording is ready",
   "campaign.completed": "A campaign finishes",
 };
+
+/**
+ * Events a spreadsheet cannot take. `call.recording_ready` exists to carry a link that
+ * expires within minutes, and a cell holding a dead link is not a delivery; the API refuses
+ * it for a sheet (it has no column layout), so the Sheets form does not offer it.
+ */
+export const WEBHOOK_ONLY_EVENTS: readonly string[] = ["call.recording_ready"];
 
 /**
  * A wire event name, if it is one this build has copy for.

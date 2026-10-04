@@ -120,9 +120,9 @@ const SOLUTIONS: readonly Solution[] = [
       // `AgentDirection` (apps/api/agents/models.py:43) and FLOWS §3's 24/7 default,
       // read by apps/api/agents/business_hours.py.
       "It picks up after you close, on a Sunday and on a festival day — unless you tell it otherwise.",
-      // ai_disclosure_enabled DEFAULT true (D-163); the line itself is NOT NULL and
-      // non-blank (apps/api/agents/models.py:192,304).
-      "It opens by saying it is an AI — that announcement is a switch you own, and the honest ANSWER when a caller asks is not.",
+      // ai_disclosure_enabled DEFAULT false (D-669); the line itself is NOT NULL and
+      // non-blank, and the truthful answer is appended to every prompt (hard rule 5).
+      "It opens with your greeting. Announcing that it is an AI is a switch you own; the honest ANSWER when a caller asks is not.",
       // apps/api/agents/models.py:215 server_default 'te-IN'.
       "It holds the call in Telugu, Hindi or English. Telugu is where a new agent starts.",
       // apps/api/crm/service.py:27 count_after_hours_calls -> after_hours_captured_7d.

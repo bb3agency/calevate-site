@@ -58,7 +58,7 @@ Inbound reception is the lawful launch shape that needs the *least* paper (playb
 | B1 | Client opens Exotel/Plivo/Vobiz, does carrier KYC, buys the DID **in their own name** (Model B) | Client | — | ☐ |
 | B2 | Client hands over per-tenant API credentials + number | Client | Secrets are stored **per tenant**, never one global carrier key (hard rule; engine isolation in `apps/api/engine/`). Envelope-encrypted in Postgres, KEK env-only | ☐ |
 | B3 | Connect Bolna inbound for that tenant | You | VoiceEngine adapter (`engine/bolna.py`) + webhook receiver (source-IP verified, dedupe) + reconciliation poller | ☐ |
-| B4 | Recording + AI disclosure set on the inbound agent | You | `agents.ai_disclosure_line` / `recording_notice_line` NOT NULL; both **enabled default TRUE** (`agents/models.py:252-257`); "answer truthfully if asked" is appended server-side and cannot be withdrawn | ☐ |
+| B4 | Recording + AI disclosure set on the inbound agent | You | `agents.ai_disclosure_line` / `recording_notice_line` NOT NULL; both **enabled default FALSE** since D-669 (a call opens with the greeting only; each is switched on per agent in the console); "answer truthfully if asked" is appended server-side and cannot be withdrawn | ☐ |
 | B5 | Client accepts the **DPA + AUP** | You + client | `/legal/dpa`, `/legal/acceptable-use` (behind the A6 banner until reviewed) | ☐ |
 
 ---

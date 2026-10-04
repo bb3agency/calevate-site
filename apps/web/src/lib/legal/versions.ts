@@ -198,6 +198,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:ee8c4deb6e3f627c35de1c8484c6cd18c5cd72976f7bce5cace63c5074760999",
       },
+      // D-668: Vobiz records the call, our copy is kept 90 days and Vobiz's is deleted a
+      // day after ours is saved. NOT material, the founder's call (3 Oct 2026).
+      {
+        revision: "11",
+        material: false,
+        contentHash:
+          "sha256:7817a076d32b7135ec7e80cab9d8e6245aad79ff74d109e987997718fc54b24c",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -350,6 +358,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:c0995c617c7a9e860c24e207304d0bf00a87c794d4d247488ac0052d314457ed",
       },
+      // D-668: the carrier's recordings are deleted through its published deletion and
+      // call recordings are kept 90 days. NOT material, the founder's call (3 Oct 2026).
+      {
+        revision: "10",
+        material: false,
+        contentHash:
+          "sha256:5caca198d30b5bdd5fc1406a6f4d1e1b6fcdd21d190a7e87702b5ba2ec1e13ea",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -456,6 +472,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:a747f2aa468b503c5c0ac0803abf4f2849c289394a86ab9c895e44cbd36aa45a",
+      },
+      // D-668: the Vobiz row says it records the call and we copy the recording. NOT
+      // material, the founder's call (3 Oct 2026): no new sub-processor is added.
+      {
+        revision: "10",
+        material: false,
+        contentHash:
+          "sha256:30a8cf0b2e2d89e53aa9ac5a32e93cec079e621f4f4169375a179a8ed7bf8d1f",
       },
     ],
     effectiveDate: "2026-09-02",

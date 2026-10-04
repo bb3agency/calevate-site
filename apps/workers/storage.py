@@ -1158,6 +1158,36 @@ async def delete_objects(keys: Sequence[str]) -> int:
     return len(keys)
 
 
+#: The error codes a HEAD answers for an object that is not there. A HEAD has no body, so
+#: botocore reports the bare HTTP status as the code; `NoSuchKey` is the GET-shaped name
+#: some S3-compatible stores send anyway.
+_ABSENT_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
+
+
+async def object_exists(key: str) -> bool:
+    """Whether one object is in the bucket, by a HEAD. RAISES when the store did not answer.
+
+    "Not there" and "could not ask" are kept apart because the caller destroys the only
+    other copy on a True: the carrier's recording is deleted only after ours is seen, so an
+    outage must never read as either answer.
+    """
+    bucket = get_settings().object_store_bucket
+
+    def _head() -> bool:
+        try:
+            _client().head_object(Bucket=bucket, Key=key)
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in _ABSENT_CODES:
+                return False
+            raise
+        return True
+
+    try:
+        return await asyncio.to_thread(_head)
+    except (BotoCoreError, ClientError) as exc:
+        raise StorageUnavailableError(f"object head failed: {type(exc).__name__}") from exc
+
+
 def _chunks(keys: Sequence[str], size: int) -> Iterable[Sequence[str]]:
     for start in range(0, len(keys), size):
         yield keys[start : start + size]
@@ -1253,6 +1283,7 @@ __all__ = [
     "delivery_body_key",
     "delivery_body_subject_prefix",
     "keys_under",
+    "object_exists",
     "payload_call_prefix",
     "payload_key",
     "presigned_url",

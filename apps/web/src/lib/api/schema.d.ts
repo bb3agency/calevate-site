@@ -9586,7 +9586,7 @@ export interface components {
         /** CreateEndpointIn */
         CreateEndpointIn: {
             /** Events */
-            events: ("lead.created" | "lead.updated" | "call.completed" | "campaign.completed")[];
+            events: ("lead.created" | "lead.updated" | "call.completed" | "call.recording_ready" | "campaign.completed")[];
             /**
              * Include Raw Transcript
              * @default false
@@ -9692,7 +9692,7 @@ export interface components {
         /** CreateSheetEndpointIn */
         CreateSheetEndpointIn: {
             /** Events */
-            events: ("lead.created" | "lead.updated" | "call.completed" | "campaign.completed")[];
+            events: ("lead.created" | "lead.updated" | "call.completed" | "call.recording_ready" | "campaign.completed")[];
             /** Spreadsheet */
             spreadsheet: string;
             /** Worksheet */

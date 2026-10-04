@@ -282,16 +282,18 @@ async def test_flipping_a_d163_toggle_does_not_drop_the_memory_sentence() -> Non
     withdrawal of a notice nobody asked to withdraw."""
     tenant_id, agent_id = await _tenant()
     await _remember(tenant_id, agent_id)
+    # A new agent volunteers neither notice since D-669, so the flip that MOVES is
+    # switching the AI notice on.
     result = await publishing.set_disclosure_posture(
         tenant_id=tenant_id,
         agent_id=agent_id,
-        ai_disclosure_enabled=False,
+        ai_disclosure_enabled=True,
         recording_notice_enabled=None,
     )
     assert result.changed == ("ai_disclosure_enabled",)
     assert result.opening_line.endswith(CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"])
     assert not result.opening_line.startswith(CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]), (
-        "the recording notice is still on, so the memory sentence cannot be first"
+        "the AI notice is now on, so the memory sentence cannot be first"
     )
 
 

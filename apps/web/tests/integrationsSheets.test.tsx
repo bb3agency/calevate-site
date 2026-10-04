@@ -207,6 +207,62 @@ describe("the event catalogue", () => {
     expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(5);
   });
 
+  it("holds the recording link on for 'a call recording is ready' and sends it", async () => {
+    // D-670. The server refuses `call.recording_ready` without `include_recording_url`,
+    // because the event exists to carry that link; the form must never send that pairing.
+    const { calls } = await render({
+      [EVENTS_PATH]: options({ events: ["lead.created", "call.recording_ready"] }),
+      "POST /v1/integrations/endpoints": {
+        id: "0192f0aa-4444-7000-8000-000000000001",
+        url: "https://crm.example.com/hook",
+        events: ["call.recording_ready"],
+        include_recording_url: true,
+        include_transcript: false,
+        include_raw_transcript: false,
+        secret: "shown-once",
+      },
+    });
+    const dialog = await choose("webhook");
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /A new lead arrives/ }));
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /A call recording is ready/ }),
+    );
+
+    const link = within(dialog).getByRole("checkbox", { name: /A link to the call recording/ });
+    expect((link as HTMLInputElement).checked).toBe(true);
+    expect((link as HTMLInputElement).disabled).toBe(true);
+    // The transcript opt-ins belong to `call.completed`, which is not chosen.
+    expect(dialog.textContent).not.toContain("The transcript, redacted");
+    expect(dialog.textContent).not.toContain("When a call finishes, also send");
+
+    fireEvent.change(within(dialog).getByLabelText("Where should we send them?"), {
+      target: { value: "https://crm.example.com/hook" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add endpoint" }));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.method === "POST" && c.path === "/v1/integrations/endpoints"),
+      ).toBe(true),
+    );
+    const sent = JSON.parse(
+      calls.find((c) => c.method === "POST" && c.path === "/v1/integrations/endpoints")!.body!,
+    );
+    expect(sent.events).toEqual(["call.recording_ready"]);
+    expect(sent.include_recording_url).toBe(true);
+    expect(sent.include_transcript).toBe(false);
+  });
+
+  it("does not offer 'a call recording is ready' to a spreadsheet", async () => {
+    // Its link expires within minutes; a cell holding it is a dead link, and the API
+    // refuses the event for a sheet.
+    await render({
+      [EVENTS_PATH]: options({ events: ["lead.created", "call.recording_ready"] }),
+    });
+    const dialog = await choose("sheet");
+    expect(dialog.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+    expect(dialog.textContent).not.toContain("call.recording_ready");
+  });
+
   it("names an event it cannot subscribe to instead of faking a checkbox for it", async () => {
     // The request body takes a literal union, so a checkbox for an event outside it could
     // only ever produce a 422; it means our OpenAPI snapshot is behind the deployment.

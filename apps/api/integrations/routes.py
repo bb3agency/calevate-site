@@ -60,7 +60,13 @@ router = APIRouter(prefix="/v1/integrations", tags=["integrations"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 
-EventName = Literal["lead.created", "lead.updated", "call.completed", "campaign.completed"]
+EventName = Literal[
+    "lead.created",
+    "lead.updated",
+    "call.completed",
+    "call.recording_ready",
+    "campaign.completed",
+]
 
 # The two audit actions this module writes. NAMED rather than typed twice: the disable
 # action was a bare literal here and a second bare literal in the test that asserts it,
@@ -118,6 +124,34 @@ def assert_may_opt_into_raw_transcript(payload: CreateEndpointIn, principal: Pri
             "Sending the unredacted transcript to an endpoint needs the same "
             "permission as reading a raw transcript."
         )
+
+
+def assert_recording_ready_has_its_opt_in(payload: CreateEndpointIn) -> None:
+    """Refuse a `call.recording_ready` subscription without the recording opt-in.
+
+    The event exists to carry the link to the recording, and the fan-out sends it only to
+    endpoints that opted into that link (`service.enqueue_events`). Accepting the
+    subscription alone would register an endpoint that is never sent anything.
+    """
+    if service.RECORDING_READY_EVENT not in payload.events or payload.include_recording_url:
+        return
+    raise ProblemError(
+        kind="validation",
+        code="recording_ready_requires_recording_url",
+        title="Recording ready needs the recording link",
+        detail=(
+            "“Recording ready” sends the link to the call recording, so “a link to the "
+            "recording” has to be switched on for this endpoint too."
+        ),
+        remediation="Turn on the recording link as well, or untick “Recording ready”.",
+        fields=[
+            {
+                "field": "include_recording_url",
+                "rule": "requires",
+                "message": "include_recording_url must be true for call.recording_ready",
+            }
+        ],
+    )
 
 
 class Strict(BaseModel):
@@ -416,6 +450,7 @@ async def create_endpoint(
     """
     assert principal.tenant_id is not None
     assert_may_opt_into_raw_transcript(payload, principal)
+    assert_recording_ready_has_its_opt_in(payload)
     destination = await assert_public_http_url(str(payload.url))
 
     endpoint_id = uuid7()

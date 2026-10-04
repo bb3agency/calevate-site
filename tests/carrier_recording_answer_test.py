@@ -5,8 +5,8 @@ What this file catches:
 1. **The document is the vendor's shape.** A self-closing `<Record>` BEFORE the bidirectional
    `<Stream>`, `recordSession="true"`, `redirect="false"`
    (`vobiz-findings/mirror/pages/xml/record/stream-with-record.md:11,19-22`), with both
-   60-second defaults raised (`xml/record.md:19-20`) and `RecordStop` sent to the agent's own
-   events route.
+   60-second defaults raised (`xml/record.md:19-20`), no beep, a single finish key, and
+   `RecordStop` sent to the agent's own events route.
 2. **Hard rule 5, the dangerous direction.** A call is recorded only when its answer URL
    carries the `recorded` segment, which the control plane writes only for an agent
    PUBLISHED announcing a recording. The plain URL never records, whatever the switch says.
@@ -96,6 +96,22 @@ def test_the_record_element_is_the_vendors_whole_session_shape() -> None:
     assert int(element.attrib["maxLength"]) >= 3600
     assert int(element.attrib["timeout"]) >= 3600
     assert element.attrib["fileFormat"] in {"mp3", "wav"}
+
+
+def test_no_beep_and_one_finish_key_the_agent_never_asks_for() -> None:
+    """Founder, 3 Oct 2026: no beep, and a keypress must not stop the recording.
+
+    `playBeep` must be the literal `false`: absent means the vendor default, which is
+    `true` (`xml/record.md:21`). `finishOnKey` must be present and exactly one documented
+    key (digits, `#`, `*`, `:22`): absent means every key, and `#` is the key callers are
+    taught to press after typing digits.
+    """
+    element = carrier_routes.record_element(carrier_routes.SessionRecording(callback_url=None))
+    assert element.attrib["playBeep"] == "false"
+    key = element.attrib["finishOnKey"]
+    assert key == carrier_routes.RECORDING_FINISH_ON_KEY == "*"
+    assert len(key) == 1 and key in "0123456789#*"
+    assert key != "#"
 
 
 def test_record_goes_before_the_stream_and_the_stream_is_unchanged() -> None:

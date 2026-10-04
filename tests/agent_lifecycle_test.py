@@ -208,9 +208,12 @@ async def test_a_created_agent_is_a_draft_that_already_discloses() -> None:
     assert body["inbound_number_count"] == 0
     assert body["ai_disclosure_line"].strip(), "an agent was created with no AI sentence on file"
     assert body["recording_notice_line"].strip()
-    assert body["ai_disclosure_enabled"] is True
-    assert body["recording_notice_enabled"] is True
-    assert body["ai_disclosure_line"] in body["opening_line"]
+    # D-669: born volunteering neither notice, so it opens with its greeting only — and
+    # both sentences are still on file (asserted above), which is what hard rule 5 reads.
+    assert body["ai_disclosure_enabled"] is False
+    assert body["recording_notice_enabled"] is False
+    assert body["opening_line"] == ""
+    assert body["truthful_answer_rule"].strip(), "the answer no toggle reaches went missing"
     assert "Lifecycle Clinic" in body["ai_disclosure_line"], (
         "the AI sentence names a business other than the one that owns the agent"
     )
@@ -1167,10 +1170,15 @@ async def test_both_disclosure_toggles_survive_the_whole_lifecycle_and_stay_inde
         body: dict[str, Any] = response.json()
         return body
 
+    # D-669: born volunteering neither, so the console quotes an empty opening.
     born = await read()
-    assert (born["ai_disclosure_enabled"], born["recording_notice_enabled"]) == (True, True)
-    assert born["ai_disclosure_line"] in born["opening_line"]
-    assert born["recording_notice_line"] in born["opening_line"]
+    assert (born["ai_disclosure_enabled"], born["recording_notice_enabled"]) == (False, False)
+    assert born["opening_line"] == ""
+
+    await flip({"ai_disclosure_enabled": True, "recording_notice_enabled": True})
+    both_on = await read()
+    assert both_on["ai_disclosure_line"] in both_on["opening_line"]
+    assert both_on["recording_notice_line"] in both_on["opening_line"]
 
     # ONE FIELD AT A TIME is what the screen sends — `null` means "leave alone" — so the
     # untouched half must not move. A PATCH that could only send both would make the two

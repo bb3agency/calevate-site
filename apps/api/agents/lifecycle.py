@@ -267,8 +267,8 @@ async def create_agent(
     **CREATION IS NOT A ROUTE AROUND THE FLOOR.** All THREE sentences are written here, from
     the language templates, and never taken from the caller: `ai_disclosure_line`,
     `recording_notice_line` and `caller_memory_notice_line` are NOT NULL with non-empty
-    CHECKs, both D-163 toggles start TRUE, `caller_memory_enabled` starts FALSE (D-506) and
-    the legacy bundle is composed from the first pair by its own function. The memory
+    CHECKs, both D-163 toggles start FALSE (D-669), `caller_memory_enabled` starts FALSE
+    (D-506) and the legacy bundle is composed from the first pair by its own function. The memory
     sentence is on file from the first second of an agent's life even though nothing speaks
     it yet, which is the whole of D-507's argument for a column with no switch: turning
     memory on must never be the moment somebody discovers there is nothing to say. There is no
@@ -321,7 +321,7 @@ async def create_agent(
             "caller_memory_notice_line, "
             "ai_disclosure_enabled, recording_notice_enabled, max_call_duration_s, "
             "status, engine, created_at, updated_at) VALUES (:id, :tid, :name, :dir, :lang, "
-            ":bundle, :ai_line, :rec_line, :mem_line, true, true, :cap, 'draft', :engine, "
+            ":bundle, :ai_line, :rec_line, :mem_line, false, false, :cap, 'draft', :engine, "
             "now(), now())"
         ),
         {
@@ -330,9 +330,10 @@ async def create_agent(
             "name": name,
             "dir": direction,
             "lang": language_primary,
-            # Both toggles TRUE and the bundle written, spelled at the INSERT rather than
-            # left to a `server_default` three files away: a new agent discloses, and that
-            # is a statement worth reading here.
+            # Both toggles FALSE (D-669: a call opens with the greeting only) and the
+            # bundle written, spelled at the INSERT rather than left to a
+            # `server_default` three files away, because what a new agent volunteers is
+            # a statement worth reading here. Both sentences are still on file.
             "bundle": bundled_disclosure_line(
                 ai_disclosure_line=ai_line, recording_notice_line=recording_line
             ),

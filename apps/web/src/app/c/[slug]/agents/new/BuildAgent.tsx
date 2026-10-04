@@ -34,7 +34,7 @@ import { CreatedPanel } from "./CreatedPanel";
  * its closed state). Absent ON PURPOSE:
  *
  * - **No disclosure wording.** `create_agent` writes both sentences from the language
- *   templates with both toggles ON, and nothing here can produce an agent with no AI
+ *   templates with both toggles OFF (D-669), and nothing here can produce an agent with no AI
  *   disclosure on file. The review step states what the agent will be born saying.
  * - **No script.** A new agent is a draft with nothing to say; `publish_agent` refuses it by
  *   name (`agent_has_no_script`) until the builder writes one, which is why "Write its

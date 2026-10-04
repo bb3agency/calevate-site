@@ -3,8 +3,18 @@
     voice-runtime claims `RecordStop` → ingest_carrier_event → note_recording
       → copy_carrier_recording: resolve by id at the carrier → fetch → our bucket
         → `calls.recording_url` = our key (dashboard playback, exports, CRM link)
-    reconcile_carrier_recordings (cron): re-enqueue uncopied, find unreported, page overdue
+        → `call.recording_ready` to the client's opted-in webhooks (D-670)
+    reconcile_carrier_recordings (cron): re-enqueue uncopied, find unreported, page overdue;
+      queue the expiry of every carrier copy whose twin has been ours for a day
+    expire_carrier_recording: HEAD our copy, then delete the carrier's (D-670)
     delete_carrier_recordings: an erasure's deletion of the carrier's copy
+
+WHY THE CARRIER'S COPY GOES AFTER A DAY (founder, 3 Oct 2026). Once ours exists, the
+carrier's is a second store of the caller's voice that we neither need nor control. A day is
+the margin for finding that our copy is bad (a truncated or unplayable file) while the
+carrier's can still be fetched again. The deletion is driven by the 20-minute sweep rather
+than by a job deferred 24 hours: a deferred arq job lives only in Redis, so a flush or a lost
+volume would forget it silently, while the sweep re-derives the work from `calls` every run.
 
 WHY PROMPTLY, AND WHY THE ALARM IS HOURS AWAY RATHER THAN DAYS. Vobiz's recordings pages
 say 30 days (`vobiz-findings/mirror/pages/platform/voice/recordings.md:9,21`), but the same
@@ -43,6 +53,7 @@ from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.carrier import CarrierRecording, carrier_of_record, get_carrier
+from apps.api.integrations import service as integrations
 from apps.workers import storage
 from apps.workers.pipeline import _is_transient, callable_tenants
 
@@ -50,6 +61,14 @@ log = get_logger(__name__)
 
 COPY_JOB: Final = "copy_carrier_recording"
 DELETE_JOB: Final = "delete_carrier_recordings"
+EXPIRE_JOB: Final = "expire_carrier_recording"
+
+#: How long the carrier's copy outlives ours (founder, 3 Oct 2026).
+CARRIER_COPY_KEPT_FOR: Final = timedelta(hours=24)
+
+#: A carrier copy still not deleted this long after ours landed pages. A day of sweeps
+#: (72 runs, each re-queueing the expiry) past the deadline is not a blip.
+CARRIER_DELETE_OVERDUE_AFTER: Final = timedelta(hours=48)
 
 #: Backoff between the copy's own attempts. Minutes, not hours: the carrier's retention is
 #: unresolved and may be as short as three days (module docstring).
@@ -264,13 +283,23 @@ async def _copy(target: _CopyTarget) -> str:
         stored = (
             await session.execute(
                 text(
-                    "UPDATE calls SET recording_url = :key, updated_at = now() "
+                    "UPDATE calls SET recording_url = :key, recording_copied_at = now(), "
+                    "updated_at = now() "
                     "WHERE id = :cid AND tenant_id = :tid AND recording_url IS NULL "
                     "AND erased_subject_ref IS NULL RETURNING id"
                 ),
                 {"key": key, "cid": target.call_id, "tid": target.tenant_id},
             )
         ).first()
+        if stored is not None:
+            # Only the run that set the pointer tells the client's CRM, in the same
+            # transaction, so the event and the pointer it links to commit together.
+            await integrations.enqueue_event(
+                session,
+                tenant_id=target.tenant_id,
+                event=integrations.RECORDING_READY_EVENT,
+                data={"call_id": str(target.call_id)},
+            )
     if stored is None:
         # Erased while the bytes were in flight. The object would name nobody's pointer,
         # which is the one shape no sweep and no erasure can reach, so it goes now.
@@ -330,6 +359,120 @@ async def delete_carrier_recordings(ctx: dict[str, Any], payload: dict[str, Any]
     return f"deleted={deleted} already_gone={gone}"
 
 
+# --- the carrier's copy, one day after ours ---------------------------------------------
+
+_EXPIRY_ROW_SQL: Final = (
+    "SELECT carrier, carrier_recording_id, recording_url, carrier_recording_deleted_at, "
+    "erased_subject_ref, COALESCE(recording_copied_at, updated_at) <= now() - :kept "
+    "FROM calls WHERE id = :cid AND tenant_id = :tid"
+)
+
+
+async def enqueue_expiry(*, tenant_id: UUID, call_id: UUID) -> str | None:
+    """Queue the expiry for one call, keyed per call so overlapping sweeps collapse."""
+    return await enqueue(
+        EXPIRE_JOB,
+        {"tenant_id": str(tenant_id), "call_id": str(call_id)},
+        job_id=job_id_for(EXPIRE_JOB, str(call_id)),
+    )
+
+
+async def expire_carrier_recording(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Delete the carrier's copy of one call's recording, a day after ours was stored.
+
+    Idempotent: `carrier_recording_deleted_at` set means done, and the carrier answering
+    404 is "already gone", stamped the same way. The job re-reads the clock and the call
+    itself, so a stale or early enqueue does nothing. A run that exhausts its tries is
+    logged and left to the sweep, which re-queues it every 20 minutes and pages through
+    `carrier_recording_delete_overdue` at `CARRIER_DELETE_OVERDUE_AFTER`.
+    """
+    attempt = int(ctx.get("job_try", 1))
+    target = _copy_target(payload)
+    try:
+        return await _expire(target)
+    except storage.StorageUnavailableError as exc:
+        # Before `except Retry`, for the reason `copy_carrier_recording` gives.
+        return _retry_or_log_expiry(target, exc, attempt, transient=True)
+    except Retry:
+        raise
+    except Exception as exc:
+        return _retry_or_log_expiry(target, exc, attempt, transient=_is_transient(exc))
+
+
+def _retry_or_log_expiry(
+    target: _CopyTarget, exc: Exception, attempt: int, *, transient: bool
+) -> str:
+    if transient and attempt < WORKER_MAX_TRIES:
+        raise Retry(defer=_ladder(attempt)) from exc
+    log.warning(
+        "carrier_recording_expiry_failed",
+        extra={
+            "call_id": str(target.call_id),
+            "reason": type(exc).__name__,
+            "attempts": attempt,
+            "permanent": not transient,
+        },
+    )
+    return "expiry_failed"
+
+
+async def _expire(target: _CopyTarget) -> str:
+    async with tenant_session(target.tenant_id) as session:
+        row = (
+            await session.execute(
+                text(_EXPIRY_ROW_SQL),
+                {
+                    "kept": CARRIER_COPY_KEPT_FOR,
+                    "cid": target.call_id,
+                    "tid": target.tenant_id,
+                },
+            )
+        ).first()
+    if row is None:
+        return "no_call"
+    carrier_name, recording_id, ours, deleted_at, erased, due = row
+    if deleted_at is not None:
+        return "already_deleted"
+    if erased is not None:
+        # The erasure queued its own deletion of this copy (`enqueue_carrier_deletion`).
+        return "erased"
+    if not recording_id or not ours:
+        return "not_copied"
+    if not due:
+        return "not_due"
+    # The carrier's copy is the only other copy, so ours is proved present first. A pointer
+    # alone is not proof: the object can be gone while the row still names it.
+    if not await storage.object_exists(str(ours)):
+        alert(
+            "WORKER_TERMINAL",
+            "carrier_recording_ours_missing",
+            detail=(
+                "our stored copy of this call's recording is missing from object storage, "
+                "so the carrier's copy was NOT deleted; it is now the only copy"
+            ),
+            tenant_id=str(target.tenant_id),
+            call_id=str(target.call_id),
+        )
+        return "ours_missing"
+    deleted_now = await get_carrier(carrier_of_record(carrier_name)).delete_recording(
+        str(recording_id)
+    )
+    async with tenant_session(target.tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET carrier_recording_deleted_at = now(), updated_at = now() "
+                "WHERE id = :cid AND tenant_id = :tid "
+                "AND carrier_recording_deleted_at IS NULL"
+            ),
+            {"cid": target.call_id, "tid": target.tenant_id},
+        )
+    log.info(
+        "carrier_recording_expired",
+        extra={"call_id": str(target.call_id), "already_gone": not deleted_now},
+    )
+    return "deleted" if deleted_now else "already_gone"
+
+
 # --- the sweep ------------------------------------------------------------------------
 
 _UNCOPIED_SQL: Final = (
@@ -352,18 +495,33 @@ _UNREPORTED_SQL: Final = (
 )
 
 
+#: Copied recordings whose carrier copy is due to go, and whether each is past the alarm.
+#: `updated_at` stands in for `recording_copied_at` on rows copied before that column.
+#: Erased calls are left to the erasure, which deletes the carrier's copy itself.
+_EXPIRY_DUE_SQL: Final = (
+    "SELECT id, COALESCE(recording_copied_at, updated_at) < now() - :overdue FROM calls "
+    "WHERE carrier_recording_id IS NOT NULL AND recording_url IS NOT NULL "
+    "AND carrier_recording_deleted_at IS NULL AND erased_subject_ref IS NULL "
+    "AND COALESCE(recording_copied_at, updated_at) < now() - :kept "
+    "AND created_at > now() - :horizon "
+    "ORDER BY created_at LIMIT :cap"
+)
+
+
 async def reconcile_carrier_recordings(ctx: dict[str, Any]) -> str:
-    """Re-queue every uncopied recording, look up unreported ones, page the overdue.
+    """Re-queue every uncopied recording, look up unreported ones, page the overdue, and
+    queue the expiry of every carrier copy whose twin has been ours for a day.
 
     The guarantee behind the callback, in the shape `carrier_events.reconcile_carrier_cdrs`
     keeps: one tenant's failure is not the sweep's, and every counter rides the return.
     """
     started = time.monotonic()
     enqueued = found = overdue = unreached = 0
+    expiring = delete_overdue = 0
     truncated = False
     lookups = get_settings().carrier_recording_enabled
     for tenant_id in await callable_tenants():
-        if enqueued >= SWEEP_BUDGET:
+        if enqueued + expiring >= SWEEP_BUDGET:
             truncated = True
             break
         try:
@@ -392,6 +550,21 @@ async def reconcile_carrier_recordings(ctx: dict[str, Any]) -> str:
                     if lookups
                     else []
                 )
+                expiries = (
+                    await session.execute(
+                        text(_EXPIRY_DUE_SQL),
+                        {
+                            "kept": CARRIER_COPY_KEPT_FOR,
+                            "overdue": CARRIER_DELETE_OVERDUE_AFTER,
+                            "horizon": CARRIER_RETENTION_HORIZON,
+                            "cap": SWEEP_PER_TENANT,
+                        },
+                    )
+                ).all()
+            for call_id, is_overdue in expiries:
+                delete_overdue += int(bool(is_overdue))
+                await enqueue_expiry(tenant_id=tenant_id, call_id=UUID(str(call_id)))
+                expiring += 1
             for call_id, is_overdue in rows:
                 overdue += int(bool(is_overdue))
                 await enqueue_copy(tenant_id=tenant_id, call_id=UUID(str(call_id)))
@@ -425,6 +598,16 @@ async def reconcile_carrier_recordings(ctx: dict[str, Any]) -> str:
                 "our storage; the carrier's retention may be as short as 3 days"
             ),
         )
+    if delete_overdue:
+        alert(
+            "WORKER_STALL",
+            "carrier_recording_delete_overdue",
+            detail=(
+                f"{delete_overdue} carrier recording(s) are still not deleted more than "
+                f"{int(CARRIER_DELETE_OVERDUE_AFTER.total_seconds() // 3600)}h after our "
+                "copy was stored; the carrier still holds the caller's voice"
+            ),
+        )
     if unreached or truncated:
         alert(
             "WORKER_DELIVERY",
@@ -437,16 +620,20 @@ async def reconcile_carrier_recordings(ctx: dict[str, Any]) -> str:
     elapsed = time.monotonic() - started
     return (
         f"enqueued={enqueued} found={found} overdue={overdue} unreached={unreached} "
-        f"truncated={truncated} took={elapsed:.1f}s"
+        f"expiring={expiring} delete_overdue={delete_overdue} truncated={truncated} "
+        f"took={elapsed:.1f}s"
     )
 
 
 __all__ = [
+    "CARRIER_COPY_KEPT_FOR",
+    "CARRIER_DELETE_OVERDUE_AFTER",
     "CARRIER_RETENTION_HORIZON",
     "COPY_JOB",
     "COPY_OVERDUE_AFTER",
     "COPY_RETRY_BACKOFF_S",
     "DELETE_JOB",
+    "EXPIRE_JOB",
     "RECORDING_SWEEP_MINUTES",
     "UNREPORTED_AFTER",
     "UNREPORTED_BEFORE",
@@ -454,6 +641,8 @@ __all__ = [
     "delete_carrier_recordings",
     "enqueue_carrier_deletion",
     "enqueue_copy",
+    "enqueue_expiry",
+    "expire_carrier_recording",
     "note_recording",
     "reconcile_carrier_recordings",
     "report_short_recording",

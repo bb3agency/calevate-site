@@ -667,6 +667,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "carrier_recording_callback_unset": "attention",
     "carrier_recording_sweep_incomplete": "attention",
     "carrier_recording_delete_failed": "attention",
+    # D-670: our copy gone while the row still names it means the carrier's is now the
+    # only one, and a carrier copy past its one-day deletion is a broken promise to callers.
+    "carrier_recording_ours_missing": "page",
+    "carrier_recording_delete_overdue": "page",
     "carrier_dial_precondition_failed": "attention",
     "carrier_application_listing_too_long": "attention",
     "carrier_number_listing_too_long": "attention",

@@ -273,9 +273,9 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "software can be switched to; we hold no account with it, and nothing reaches " +
       "it unless we make that switch.",
     receives:
-      "Caller and called numbers, call detail records, and the live audio of the call " +
-      "in both directions. Vobiz's console makes call recordings available for the " +
-      "last 30 days.",
+      "Caller and called numbers, call detail records, the live audio of the call in " +
+      "both directions, and a recording of the call, which we copy and keep for 90 " +
+      "days, and which is deleted from Vobiz one day after our copy is saved.",
     location:
       "Not stated by the vendor. Nothing Vobiz publishes that we have read says where " +
       "it processes or stores call data, so we name no country for it.",
@@ -768,8 +768,9 @@ export const SUBPROCESSORS: LegalDocument = {
                 "has established which country that region is in, and section 3.7 lists " +
                 "what else we have not established about it. The sound of the call reaches " +
                 "that program through our telephone carrier, Vobiz, which does not state " +
-                "where it processes or stores call data. So a client should not assume " +
-                "that the live audio of their calls, or the transcript produced from it, " +
+                "where it processes or stores call data. Vobiz also records the call, " +
+                "and we copy the recording into our own storage. So a client should not " +
+                "assume that the live audio of their calls, or the transcript produced from it, " +
                 "stays in India while the call is happening.",
             },
             {

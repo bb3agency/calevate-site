@@ -13,6 +13,7 @@ import { ApiProblem, type Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
 import {
   SHEETS_UNAVAILABLE_CODE,
+  WEBHOOK_ONLY_EVENTS,
   useCreateSheetsEndpoint,
   type OutboundEvent,
 } from "@/lib/api/integrations";
@@ -204,7 +205,7 @@ export function SheetsForm({
           />
         </label>
         <EventChoices
-          catalogue={catalogue}
+          catalogue={catalogue.filter((name) => !WEBHOOK_ONLY_EVENTS.includes(name))}
           selected={events}
           disabled={!write.allowed}
           onToggle={(event, on) =>

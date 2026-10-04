@@ -115,6 +115,17 @@ class Call(PKMixin, TimestampMixin, Base):
             "created_at",
             postgresql_where=text("carrier_recording_id IS NOT NULL AND recording_url IS NULL"),
         ),
+        # Copied recordings whose carrier copy is not yet deleted: the one-day expiry
+        # sweep's worklist (migration c5d82f1a9e47).
+        Index(
+            "ix_calls_carrier_recording_undeleted",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text(
+                "carrier_recording_id IS NOT NULL AND recording_url IS NOT NULL "
+                "AND carrier_recording_deleted_at IS NULL"
+            ),
+        ),
         # The complaint-spike check (`campaigns/complaint_spike.py`, OPERATIONS §4) is
         # the first thing in this repo to filter calls by campaign, and it runs once per
         # running campaign per 30-second dispatch tick. PARTIAL because inbound calls
@@ -216,6 +227,10 @@ class Call(PKMixin, TimestampMixin, Base):
     #: resolved to a download by `workers/carrier_recordings`, quoted or deleted at the
     #: carrier by an erasure. Never a URL; `recording_url` is our copy.
     carrier_recording_id: Mapped[str | None] = mapped_column(Text)
+    #: When our copy of the carrier's recording was stored, and when the carrier confirmed
+    #: its own copy deleted, one day later (migration c5d82f1a9e47).
+    recording_copied_at: Mapped[datetime | None]
+    carrier_recording_deleted_at: Mapped[datetime | None]
     disclosure_played: Mapped[bool | None] = mapped_column(Boolean)
     consent_recording: Mapped[str | None] = mapped_column(String)
     outcome_tag: Mapped[str | None] = mapped_column(String)

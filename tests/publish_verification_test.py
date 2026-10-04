@@ -271,6 +271,16 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # Both notices switched ON: a new agent volunteers neither since D-669, and the
+    # refusals below are about an engine that dropped a greeting the agent does speak.
+    async with tenant_session(created["id"]) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET ai_disclosure_enabled = true, "
+                "recording_notice_enabled = true WHERE id = :a"
+            ),
+            {"a": created["agent_id"]},
+        )
     return created["id"], created["agent_id"]
 
 

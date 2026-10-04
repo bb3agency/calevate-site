@@ -189,9 +189,9 @@ async def _execute_agent_create(
     reaches (`scripts/check_compliance_invariants.AGENT_STATE_WRITERS` registers its writers
     and fails the build on a third), and it is where hard rule 5's floor is written: both
     `ai_disclosure_line` and `recording_notice_line` composed from the language templates,
-    both toggles TRUE, neither takeable from a caller. So an agent the assistant created has
-    an AI disclosure on file for the same reason one a person created does — there is no
-    argument to this call that could produce one without.
+    both toggles FALSE (D-669), neither takeable from a caller. So an agent the assistant
+    created has an AI disclosure on file for the same reason one a person created does —
+    there is no argument to this call that could produce one without.
     """
     parsed = parse_args(_AgentCreateArgs, args)
     agent_id = await lifecycle.create_agent(
@@ -205,7 +205,8 @@ async def _execute_agent_create(
         applied=True,
         detail=(
             f"“{parsed.name}” exists as a draft. It has an AI disclosure and a recording "
-            "notice already written for it. Give it a script, then publish it when you are "
+            "notice already written for it, and volunteers neither until you switch them on. "
+            "Give it a script, then publish it when you are "
             "ready — it takes no calls until then."
         ),
         # Ids and closed-set strings (hard rules 4 and 6). The NAME is a client's own

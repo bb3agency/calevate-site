@@ -117,6 +117,7 @@ from apps.workers.carrier_recordings import (
     RECORDING_SWEEP_MINUTES,
     copy_carrier_recording,
     delete_carrier_recordings,
+    expire_carrier_recording,
     reconcile_carrier_recordings,
 )
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
@@ -218,8 +219,10 @@ FUNCTIONS: list[Any] = [
         ingest_carrier_event,
         read_carrier_cdr,
         # The carrier's recording of a call (D-668): copied into `recordings/` on its
-        # `RecordStop`, and deleted at the carrier when an erasure names it.
+        # `RecordStop`, deleted at the carrier a day after ours is stored (D-670) and when an
+        # erasure names it.
         copy_carrier_recording,
+        expire_carrier_recording,
         delete_carrier_recordings,
         # The settlement backstop a hangup defers for an answered call. Unregistered, a
         # worker killed mid-call would leave its call with no lead and no billed minute
@@ -575,7 +578,8 @@ CRON_JOBS = [
     ),
     # The carrier's recordings (D-668): re-queue every copy not yet ours, look up a
     # recording whose callback never came, and page one still not ours past six hours —
-    # the carrier's retention may be three days (`carrier_recordings` docstring). Every
+    # the carrier's retention may be three days (`carrier_recordings` docstring). It also
+    # queues the deletion of the carrier's copy a day after ours landed (D-670). Every
     # twenty minutes, on minutes no other walk uses.
     _cron(
         traced_job(reconcile_carrier_recordings),

@@ -297,6 +297,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "founder's call (2 Oct 2026): a factual correction of vendor wording, and "
                 "no right or obligation changes. No residency claim is added.",
             ),
+            # The founder's call (3 Oct 2026), D-668.
+            Revision(
+                "11",
+                False,
+                "Call recording wording (D-668): our copies of call recordings are kept "
+                "for 90 days and then deleted; Vobiz records the call, we copy the "
+                "recording into our own storage, and Vobiz's copy is deleted one day after "
+                "ours is saved, never kept beyond its own limit of up to 30 days; an "
+                "erasure deletes the carrier's recordings through its published deletion "
+                "and its call records remain a written request. NON-MATERIAL, the "
+                "founder's call (3 Oct 2026): no right or obligation changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -511,6 +523,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "founder's call (2 Oct 2026): factual vendor wording, and no right or "
                 "obligation changes.",
             ),
+            # The founder's call (3 Oct 2026), D-668.
+            Revision(
+                "10",
+                False,
+                "Call recording wording (D-668): an erasure deletes the carrier's "
+                "recordings through its published deletion and its call records remain a "
+                "written request; clause 8 states call recordings are kept for 90 days. "
+                "NON-MATERIAL, the founder's call (3 Oct 2026): no right or obligation "
+                "changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -623,6 +645,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "production) and section 3.1 now describes the owned runtime. "
                 "NON-MATERIAL, the founder's call (2 Oct 2026): no new sub-processor is "
                 "added and no assurance is withdrawn.",
+            ),
+            # The founder's call (3 Oct 2026), D-668.
+            Revision(
+                "10",
+                False,
+                "The Vobiz row and section 3.1 say Vobiz records the call and we copy the "
+                "recording into our own storage, kept 90 days; Vobiz's copy is deleted one "
+                "day after ours is saved. NON-MATERIAL, the founder's call (3 Oct 2026): "
+                "no new sub-processor is added and no assurance is withdrawn.",
             ),
         ),
         effective_date="2026-09-02",

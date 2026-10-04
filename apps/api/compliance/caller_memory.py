@@ -7,10 +7,8 @@ destroyed by both erasure paths and by the retention clock.
 
 ═══ 1. THE WRITE IS GATED, AND THE GATE IS ON THE WRITE ═══
 
-`agents.caller_memory_enabled` defaults FALSE — the OPPOSITE of `ai_disclosure_enabled`
-and `recording_notice_enabled`, which default TRUE because an omission there must produce
-the safe posture. Here the safe posture is not remembering, so the same principle flips
-the default.
+`agents.caller_memory_enabled` defaults FALSE because an omission must produce the safe
+posture, and here the safe posture is not remembering.
 
 **IT GATES `remember()` AND NOT ONLY `recall()`, AND THAT IS THE WHOLE POINT.** A toggle
 that stops recall while rows keep accumulating is the worst version of this feature: it

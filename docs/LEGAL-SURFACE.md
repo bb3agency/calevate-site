@@ -650,7 +650,7 @@ a *published* commitment:
 
 | Category | SEC-COMP §4 says | `scripts/seed.DEFAULT_RETENTION_POLICIES` installs | What `/legal/privacy` §9 now publishes |
 |---|---|---|---|
-| Recording | 180 days (over a 90-day floor) | **90 days** | 90 days |
+| Recording | 90 days (the TRAI floor; D-668) | **90 days** | 90 days |
 | Transcript | 24 months (730 d) | **365 days** | 365 days |
 | Lead | 24 months (730 d) | **1095 days** | 1095 days |
 | Consent log | — | 2555 days, never expired on a timer | retained |

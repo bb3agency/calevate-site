@@ -288,6 +288,11 @@ def test_an_event_with_no_declared_columns_is_refused_rather_than_guessed() -> N
     """
     assert service.sheet_columns("no.such.event", {}) == ()
     for event in service.EVENT_TYPES:
+        if event in service.WEBHOOK_ONLY_EVENTS:
+            # Its link expires within minutes, so a cell would hold a dead link; the
+            # Sheets route refuses it for want of a layout, deliberately (D-670).
+            assert service.sheet_columns(event, {}) == ()
+            continue
         assert service.sheet_columns(event, {}), f"{event} is subscribable and unwritable"
 
 

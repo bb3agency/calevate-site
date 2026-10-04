@@ -12,8 +12,8 @@ import { CallMock, FieldListMock, LeadRecordMock } from "./mockups/stepMockups";
  * heading and sentence carry the meaning — so the screens are hidden from assistive
  * technology and the step reads as heading, then sentence.
  *
- * "by default" in step 02 is D-163: whether an agent VOLUNTEERS the AI line at the start
- * is a per-agent toggle that ships on. The unswitchable guarantee is about the ANSWER and
+ * Step 02 follows D-669: a new agent VOLUNTEERS neither notice and opens with the greeting;
+ * each is a per-agent toggle (D-163). The unswitchable guarantee is about the ANSWER and
  * lives in the trust chapter.
  */
 
@@ -27,7 +27,7 @@ const STEPS: readonly { step: string; title: string; body: string; figure: React
   {
     step: "02",
     title: "It takes the call",
-    body: "Someone rings, or the agent works through a list you gave it. It opens by saying it is an AI by default, and answers from what you approved.",
+    body: "Someone rings, or the agent works through a list you gave it. It opens with your greeting, says it is an AI whenever a caller asks, and answers from what you approved.",
     figure: <CallMock />,
   },
   {

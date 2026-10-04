@@ -150,8 +150,8 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   -- caller and does not say so" is not a state this schema can hold. The two above are
   -- independently switchable (D-163) because their obligations hold whatever this product
   -- is configured to do; this one exists only because a switch we record is on.
-  ai_disclosure_enabled BOOL NOT NULL DEFAULT true,
-  recording_notice_enabled BOOL NOT NULL DEFAULT true,
+  ai_disclosure_enabled BOOL NOT NULL DEFAULT false,     -- D-669 (migration a6d2f81c4e3b):
+  recording_notice_enabled BOOL NOT NULL DEFAULT false,  -- a call opens with the greeting only
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
     -- toggles say. Still written, no longer read by the publish path — step 1 of a
     -- two-step deprecation (hard rule 8); step 2 drops it (D-163).
@@ -264,6 +264,21 @@ so history is preserved.
 calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e164,
   status ENUM[queued,ringing,in_progress,completed,failed,no_answer,busy,voicemail],
   started_at, ended_at, duration_s INT, recording_url TEXT,     -- OUR storage, not engine's
+  carrier_recording_id TEXT NULL,      -- the carrier's opaque id for the recording it made
+                                       -- (D-668, migration b3e9c4a71f20). The copy job resolves
+                                       -- it and writes OUR key to recording_url; an erasure
+                                       -- deletes or quotes it at the carrier. CHECK
+                                       -- ck_calls_carrier_recording_id_shape: id-shaped, never a
+                                       -- bare digit run (hard rule 6). INDEX
+                                       -- ix_calls_recording_uncopied (tenant_id, created_at)
+                                       -- WHERE carrier_recording_id IS NOT NULL AND
+                                       -- recording_url IS NULL serves the copy sweep.
+  recording_copied_at TIMESTAMPTZ NULL, carrier_recording_deleted_at TIMESTAMPTZ NULL,
+                                       -- (D-670, migration c5d82f1a9e47) when OUR copy was stored,
+                                       -- and when the carrier's copy was deleted one day later.
+                                       -- INDEX ix_calls_carrier_recording_undeleted (tenant_id, created_at) WHERE
+                                       -- carrier_recording_id, recording_url set and the carrier
+                                       -- copy not yet deleted serves the deletion sweep.
   disclosure_played BOOL, consent_recording ENUM[granted,declined,na],
   outcome_tag ENUM[resolved,needs_follow_up,transferred,dropped],
   sentiment ENUM[positive,neutral,negative], summary TEXT,

@@ -299,6 +299,32 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
         log.info("outbound_delivery_duplicate", extra={"delivery_id": str(delivery_id)})
         return "duplicate"
 
+    skip_reason = (
+        service.recording_ready_skip_reason(endpoint=endpoint, data=data)
+        if event == service.RECORDING_READY_EVENT
+        else None
+    )
+    if skip_reason is not None:
+        # Not a failure and not retried: the client withdrew the opt-in, or the recording
+        # is gone (erased, aged out) and there is nothing left to link. Recorded with its
+        # reason so the client's own delivery screen says why nothing arrived.
+        log.info(
+            "outbound_delivery_skipped",
+            extra={"tenant_id": str(tenant_id), "event": event, "reason": skip_reason},
+        )
+        async with tenant_session(tenant_id) as session:
+            await service.record_delivery(
+                session,
+                delivery_id=delivery_id,
+                endpoint_id=endpoint_id,
+                event=event,
+                status="skipped",
+                attempts=attempt,
+                status_code=None,
+                reason=skip_reason,
+            )
+        return f"skipped {skip_reason}"
+
     # ── 2. The third party, with nothing checked out. ──────────────────────────────
     result = await _deliver_to_endpoint(
         endpoint=endpoint,

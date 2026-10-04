@@ -6,8 +6,8 @@ import { Avatar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, type LeadS
  *
  * Telugu because an agent starts as a Telugu agent (`language_primary` defaults to
  * `te-IN`). The agent's first line carries both opening sentences every agent has on file
- * — the AI disclosure and the recording notice — because both are volunteered by default
- * (D-163, hard rule 5).
+ * — the AI disclosure and the recording notice — as an agent whose owner switched both on
+ * (D-163; a new agent volunteers neither, D-669).
  * The Telugu runs carry `lang="te"` so a screen reader switches voice; each has its English
  * underneath so a reader who does not speak Telugu can follow.
  *

@@ -366,10 +366,12 @@ export const DPA: LegalDocument = {
             "countable. A recording younger than the 90-day retention floor is not " +
             "destroyed early: the link to it is cleared at once, a destruction date is " +
             "fixed when the request runs, and the audio is destroyed on that date without a " +
-            "second request. Copies held by the telephone carrier, or by a voice platform a " +
-            "call ran on, are reported as unconfirmed, because the carrier publishes no way " +
-            "to delete one person's call records and we will not certify a deletion we " +
-            "cannot show. Knowledge content you uploaded is SEARCHED for the " +
+            "second request. The telephone carrier's recordings of the calls are deleted " +
+            "through the carrier's published deletion. Its call records, and copies held by " +
+            "a voice platform a call ran on, are reported as unconfirmed, because the " +
+            "carrier publishes no way to delete one person's call records, so removing them " +
+            "is a written request, and we will not certify a deletion we cannot show. " +
+            "Knowledge content you uploaded is SEARCHED for the " +
             "subject's number and the number of matching documents is reported on the " +
             "certificate, but none of it is edited or deleted — this callout said it was " +
             "not searched at all, which was wrong and is corrected rather than dropped; " +
@@ -412,8 +414,8 @@ export const DPA: LegalDocument = {
           text:
             "We retain your callers' personal data for the periods configured on your " +
             "account, and a nightly job enforces them. The defaults and what happens at the " +
-            "end of each period are set out in the Privacy Policy, section 9. A minimum of " +
-            "90 days applies to call recordings; the database refuses a shorter period.",
+            "end of each period are set out in the Privacy Policy, section 9. Call recordings " +
+            "are kept for 90 days; the database refuses a shorter period.",
         },
         {
           kind: "para",

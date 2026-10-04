@@ -368,8 +368,9 @@ BACKUP_OUTCOME: Final = "expires_with_backup"
 #: (`workers/carrier_recordings.delete_carrier_recordings`) and quotes the recording ids in
 #: the same telephony task, so a delete that fails is still covered by the written request.
 #: Vobiz keeps a recording 30 days by its Recordings page and 3 by that page's screenshot
-#: (`pages/platform/voice/recordings.md:18,21`, UNRESOLVED). The word stays "not reached"
-#: because the call records still are not.
+#: (`pages/platform/voice/recordings.md:18,21`, UNRESOLVED); we delete it one day after our
+#: copy lands either way (D-670, `workers/carrier_recordings.expire_carrier_recording`).
+#: The word stays "not reached" because the call records still are not.
 TELEPHONY_OUTCOME: Final = "not_reached_no_carrier_api"
 
 
@@ -500,13 +501,15 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "does not reach, and it holds more of the call than any of the three above: the "
     "caller's number, the number dialled, the carrier's own call records, and the live "
     "sound of the call in both directions, which passes through the carrier for the whole "
-    "conversation. Calevate's carrier is Vobiz, and where Vobiz recorded a call it "
-    "keeps the recording for a period it states as up to 30 days. When this erasure runs, "
-    "Calevate asks Vobiz to delete its recordings of these calls through the deletion "
-    "Vobiz publishes for recordings. Vobiz's published interface offers no way to delete "
-    "its call records, and nothing it publishes that we have read says how long it keeps "
-    "them. Removing those records, and any recording the deletion did not reach, is a "
-    "written request to Vobiz naming the calls and recordings by Vobiz's own identifiers, "
+    "conversation. Calevate's carrier is Vobiz. Where Vobiz recorded a call, Calevate asks "
+    "Vobiz to delete that recording one day after Calevate has stored its own copy, through "
+    "the deletion Vobiz publishes for recordings; Vobiz states it otherwise keeps a "
+    "recording for up to 30 days. When this erasure runs, Calevate also asks Vobiz to "
+    "delete any recording of these calls it still holds. Vobiz's published interface "
+    "offers no way to delete its call records, and nothing it publishes that we have "
+    "read says how long it keeps them. Removing those records, and any recording the "
+    "deletion did not reach, is a written request to Vobiz naming the calls and "
+    "recordings by Vobiz's own identifiers, "
     "and this certificate does not record that request as made: until Vobiz confirms a "
     "deletion in writing, a copy exists.",
     "This request record holds the number only until the erasure runs — the queued "
@@ -791,10 +794,12 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "program that holds the conversation, so the carrier handles the caller's "
             "number, the number dialled, its own record of the call, and the sound of "
             "the call in both directions for its whole length. Calevate's carrier is "
-            "Vobiz, and where Vobiz recorded a call it keeps the recording for a "
-            "period it states as up to 30 days. When this erasure runs, Calevate asks "
-            "Vobiz to delete its recordings of these calls through the deletion Vobiz "
-            "publishes for recordings; this certificate is issued before Vobiz answers, "
+            "Vobiz. Where Vobiz recorded a call, Calevate asks Vobiz to delete that "
+            "recording one day after Calevate has stored its own copy, through the "
+            "deletion Vobiz publishes for recordings; Vobiz states it otherwise keeps a "
+            "recording for up to 30 days. When this erasure runs, Calevate also asks "
+            "Vobiz to delete any recording of these calls it still holds; this "
+            "certificate is issued before Vobiz answers, "
             "so it does not say the deletion succeeded. Vobiz's published interface "
             "lets us read and export its call records and offers no way to delete one, "
             "and nothing it publishes that we have read says how long it keeps them. "

@@ -77,8 +77,9 @@ export function callCapProblem(lanes: ReturnType<typeof useLanes>, value: string
 }
 
 /**
- * What every agent is born saying. Three sentences, word for word, shown before the
- * agent exists so nobody discovers them on a recording.
+ * What every agent is born saying about itself: its greeting only, with both announcements
+ * off (D-669) and the truthful answer always on. Shown before the agent exists so nobody
+ * discovers it on a recording.
  */
 export function ComplianceFloor() {
   return (
@@ -89,11 +90,13 @@ export function ComplianceFloor() {
       </p>
       <ul className="mt-2 space-y-1.5 text-sm text-ink-muted">
         <li>
-          It starts every call by saying it is an AI assistant and that the call is being
-          recorded. Both sentences are written for you in the language you chose.
+          It starts every call with its greeting only. It does not volunteer that it is an
+          AI assistant or that the call is being recorded unless you switch that
+          announcement on. Both sentences are already written for you in the language you
+          chose.
         </li>
         <li>
-          You can switch either announcement off later, per agent, on the agent&apos;s own
+          You can switch either announcement on later, per agent, on the agent&apos;s own
           screen — the two are separate obligations and are separately switchable.
         </li>
         <li>

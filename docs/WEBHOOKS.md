@@ -20,10 +20,11 @@ schema but nothing emits it yet, we say so.
 | -------------------- | -------------------------------------------------------------------------- | ------ |
 | `lead.created`       | A lead lands via your ingest webhook — in the same transaction as the lead row, before any call is attempted. | Live |
 | `call.completed`     | The post-call pipeline finishes for a call whose final status is `completed` (summary and extraction already exist when you hear about it). | Live |
+| `call.recording_ready` | Our copy of a completed call's recording has been stored, usually a few minutes after the hangup and often AFTER `call.completed` (whose `recording_url` is therefore usually absent). Sent only to an endpoint that also opted into `include_recording_url` (§1.7), once per call per endpoint. Not available for a Google Sheet: the link it carries expires within minutes. | Live |
 | `lead.updated`       | A lead's status, name or owner actually changes — one event per lead per edit, and nothing at all for a re-save that moved no field. In the same transaction as the edit. | Live |
 | `campaign.completed` | An outbound campaign has nothing left to dial and reaches its terminal `completed` status — in the same transaction as that status write. A campaign that REPEATS does not fire this at the end of each run: it is not finished, it is waiting for its next occurrence. | Live |
 
-All four fire. `GET /v1/integrations/events` returns the list you may subscribe to.
+All five fire. `GET /v1/integrations/events` returns the list you may subscribe to.
 
 ### 1.2 The envelope
 
@@ -79,6 +80,15 @@ more, and only to the endpoint that asked (§1.7):
 - `raw_transcript` — present only if the endpoint opted into `include_raw_transcript`. The
   **unredacted** transcript, same array shape as `transcript`. This is your customer's
   personal data in the clear, so it is gated harder — see §1.7.
+
+A `call.recording_ready` envelope carries in `data`: `call_id`, `lead_id` (may be null:
+the lead may not be resolved yet when the recording lands; join on `call_id` with the
+`call.completed` you receive for the same call), `duration_s` (the call's, in seconds) and
+`recording_url` — the same signed, short-lived link to our copy as on `call.completed`,
+signed when each delivery is made. No phone number. If the recording is erased, or the
+endpoint's `include_recording_url` is switched off, after the event was queued, the
+delivery is recorded `skipped` with the reason (`recording_unavailable` or
+`recording_opt_in_withdrawn`) and nothing is posted.
 
 A `campaign.completed` envelope carries in `data`: `campaign_id`, `name` (the campaign's,
 not a person's), `contacts_total`, `contacts_reached` and `completed_at`. **It is the one
@@ -168,7 +178,9 @@ Three rules that matter:
   `call.completed` opt-ins (§1.7), all defaulting to `false`:
   `include_recording_url`, `include_transcript`, `include_raw_transcript`. The response and
   `GET /v1/integrations/endpoints` echo all three so you can confirm what an endpoint is
-  set to receive.
+  set to receive. Subscribing to `call.recording_ready` requires
+  `include_recording_url: true` in the same request, or it is refused with
+  `422 recording_ready_requires_recording_url`: the event exists to carry that link.
 
 **Where an endpoint may live.** Your URL must resolve to an address on the public
 internet and listen on port **80 or 443**. We resolve the hostname and refuse anything
@@ -221,7 +233,10 @@ Three rules govern them:
 
 - **The recording link is short-lived and is not the audio.** It points at our own copy
   and expires within minutes. Fetch it as soon as the delivery arrives; do not store the
-  URL. It is omitted entirely for a call that has no recording.
+  URL. It is omitted entirely for a call that has no recording. Because the recording
+  usually lands after `call.completed` is sent, subscribe to `call.recording_ready` as
+  well if you need the link reliably: it is sent once our copy exists, with this same
+  opt-in.
 - **`include_raw_transcript` is a SECOND opt-in on top of `include_transcript`**, not a
   standalone one — the request is refused (`raw_transcript_requires_transcript`) if you
   ask for raw without redacted. The unredacted transcript contains every phone number, ID

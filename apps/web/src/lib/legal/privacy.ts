@@ -1092,7 +1092,8 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "Pipecat Cloud, in a region that vendor calls “ap-south”; nobody " +
                 "here has established which country that is. The sound of the call reaches " +
                 "that program through our telephone carrier, Vobiz, which does not state " +
-                "where it processes or stores call data. So the live audio and the " +
+                "where it processes or stores call data. Vobiz also records the call, and " +
+                "we copy the recording into our own storage. So the live audio and the " +
                 "transcript produced from it should not be assumed to stay in India while " +
                 "the call is happening. Our own copies are the system of record and are " +
                 "held as described above. The sub-processor page carries the detail.",
@@ -1150,8 +1151,10 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "Call recordings carry a minimum of 90 days on top of whatever a client " +
-            "chooses. The database refuses to store a shorter recording period, and the " +
+            "Our copies of call recordings are kept for 90 days and then deleted. Vobiz, " +
+            "our telephone carrier, also records the call; its copy is deleted one day " +
+            "after we have saved ours, and it never keeps a copy longer than its own " +
+            "limit of up to 30 days. The database refuses to store a shorter recording period, and the " +
             "retention job refuses to act on one if it somehow existed. Clients in " +
             "regulated sectors — banking, insurance, securities — may be subject to " +
             "longer minimums set by their own regulator, and are responsible for " +
@@ -1450,10 +1453,12 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "destruction date is fixed at the moment the request runs, and the audio " +
                   "is destroyed automatically on that date without a second request. The " +
                   "certificate states the date.",
-                "Copies held by the telephone carrier, or by a voice platform a call ran " +
-                  "on, are reported as unconfirmed. The carrier publishes no way to " +
-                  "delete one person's call records, so removing them is a written " +
-                  "request, and we will not certify a deletion we cannot show.",
+                "The telephone carrier's recordings of the calls are deleted through " +
+                  "the carrier's published deletion. Its call records, and copies held " +
+                  "by a voice platform a call ran on, are reported as unconfirmed. The " +
+                  "carrier publishes no way to delete one person's call records, so " +
+                  "removing them is a written request, and we will not certify a " +
+                  "deletion we cannot show.",
                 "Knowledge content a client uploaded is SEARCHED for the number, and the " +
                   "number of matching documents is reported on the erasure certificate — " +
                   "but nothing in it is edited or deleted. This list said the content was " +

@@ -101,7 +101,7 @@ from apps.api.core.spreadsheet_safety import disarm_for_sheets
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
-from apps.api.reliability.service import enqueue_outbox
+from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 
 log = get_logger(__name__)
 
@@ -111,6 +111,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "lead.created",
     "lead.updated",
     "call.completed",
+    "call.recording_ready",
     "campaign.completed",
 )
 
@@ -118,6 +119,21 @@ EVENT_TYPES: tuple[str, ...] = (
 #: the branch so the fan-out and the builder cannot disagree about which event is
 #: call-shaped.
 CALL_COMPLETED_EVENT = "call.completed"
+
+#: Our copy of a call's recording has been stored (D-670). `call.completed` usually fires
+#: before the carrier reports the recording, so its link is usually absent; this event is
+#: the one that carries it. Sent only to endpoints with `include_recording_url` on, once
+#: per (call, endpoint) — see `enqueue_events`.
+RECORDING_READY_EVENT = "call.recording_ready"
+
+#: Events a Google Sheet cannot take: the link this one carries expires within minutes,
+#: so a cell holding it is a dead link. They have no `DEFAULT_SHEET_COLUMNS` layout, which
+#: is what makes the Sheets route refuse them.
+WEBHOOK_ONLY_EVENTS: frozenset[str] = frozenset({RECORDING_READY_EVENT})
+
+#: The events whose body carries a link to OUR copy of the recording, signed per delivery
+#: by `with_delivery_time_fields`.
+RECORDING_LINK_EVENTS: frozenset[str] = frozenset({CALL_COMPLETED_EVENT, RECORDING_READY_EVENT})
 
 #: The audit action written when an unredacted transcript is placed on a webhook body.
 #: Read by `scripts/check_redaction_exposure.py`'s sibling audit checks the same way
@@ -387,14 +403,15 @@ async def enqueue_events(
         await session.execute(
             text(
                 "SELECT w.id, w.mapping, w.include_transcript, "
-                "w.include_raw_transcript FROM outbound_webhooks w WHERE "
-                + subscribed_endpoint_sql("w")
+                "w.include_raw_transcript, w.include_recording_url "
+                "FROM outbound_webhooks w WHERE " + subscribed_endpoint_sql("w")
             ),
             {"event": event, "kinds": list(DELIVERABLE_KINDS)},
         )
     ).all()
 
     is_call_completed = event == CALL_COMPLETED_EVENT
+    is_recording_ready = event == RECORDING_READY_EVENT
     # ONE reading of the clock for the whole fan-out. A bulk edit is one transaction and
     # n events, and n endpoints each get the same event: they describe the same instant,
     # and n clock reads would spread one edit over a few milliseconds of `created_at` for
@@ -402,7 +419,12 @@ async def enqueue_events(
     occurred_at = datetime.now(UTC).isoformat()
 
     written = 0
-    for endpoint_id, mapping, inc_transcript, inc_raw_transcript in endpoints:
+    for endpoint_id, mapping, inc_transcript, inc_raw_transcript, inc_recording in endpoints:
+        if is_recording_ready and not inc_recording:
+            # The event exists to carry the recording link, so it goes only where the
+            # client opted into that link. Subscribing without the opt-in is refused at
+            # registration; this covers a row written before that check.
+            continue
         opted_in = bool((mapping or {}).get("include_raw_phone"))
         for data in rows:
             payload_data = lead_payload(data, include_raw_phone=opted_in)
@@ -419,27 +441,45 @@ async def enqueue_events(
                     include_transcript=bool(inc_transcript),
                     include_raw_transcript=bool(inc_raw_transcript),
                 )
-            await enqueue_outbox(
-                session,
-                job=OUTBOUND_WEBHOOK_JOB,
-                payload={
-                    "tenant_id": str(tenant_id),
-                    "endpoint_id": str(endpoint_id),
-                    "event": event,
-                    "data": payload_data,
-                    # Minted HERE, not in the worker: ARQ replays the same payload on
-                    # retry, so a worker-side id would mint a new one per attempt and the
-                    # "one forensic row per delivery" claim would be false — and a
-                    # receiver deduplicating on it would treat every retry as a new event.
-                    "delivery_id": str(uuid7()),
-                    # Stamped here for the SAME reason, one line up: it is when the event
-                    # happened, and a worker-side read of the clock would make it when we
-                    # managed to post it. `build_envelope` carries the argument.
-                    "occurred_at": occurred_at,
-                },
-            )
+            outbox_payload = {
+                "tenant_id": str(tenant_id),
+                "endpoint_id": str(endpoint_id),
+                "event": event,
+                "data": payload_data,
+                # Minted HERE, not in the worker: ARQ replays the same payload on
+                # retry, so a worker-side id would mint a new one per attempt and the
+                # "one forensic row per delivery" claim would be false — and a
+                # receiver deduplicating on it would treat every retry as a new event.
+                "delivery_id": str(uuid7()),
+                # Stamped here for the SAME reason, one line up: it is when the event
+                # happened, and a worker-side read of the clock would make it when we
+                # managed to post it. `build_envelope` carries the argument.
+                "occurred_at": occurred_at,
+            }
+            if is_recording_ready:
+                # At most once per (call, endpoint), decided by the database rather than
+                # by the caller's CAS alone: a re-run copy, a replayed job or a second
+                # producer cannot tell the same CRM twice that one recording is ready.
+                if await enqueue_outbox_once(
+                    session,
+                    job=OUTBOUND_WEBHOOK_JOB,
+                    payload=outbox_payload,
+                    dedupe_key=recording_ready_dedupe_key(
+                        call_id=str(data.get("call_id") or ""), endpoint_id=endpoint_id
+                    ),
+                ):
+                    written += 1
+                continue
+            await enqueue_outbox(session, job=OUTBOUND_WEBHOOK_JOB, payload=outbox_payload)
             written += 1
     return written
+
+
+def recording_ready_dedupe_key(*, call_id: str, endpoint_id: UUID | str) -> str:
+    """The outbox promise "this endpoint hears once that this call's recording is ready"."""
+    if not call_id:
+        raise ValueError(f"{RECORDING_READY_EVENT} needs a call_id")
+    return f"recording-ready:{call_id}:{endpoint_id}"
 
 
 async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, Any] | None:
@@ -481,14 +521,49 @@ async def with_delivery_time_fields(
     is good when the delivery arrives. Read from the endpoint as it is NOW, so an opt-in
     withdrawn after the event was queued is honoured, and from the call as it is now, so a
     recording erased in between is not linked. Never mutates `data`.
+
+    `call.recording_ready` also takes `lead_id` and `duration_s` from the call as it is now:
+    the copy that queues it usually finishes before the post-call pipeline has resolved the
+    lead, so a value read at fan-out would be null where a later one is not.
     """
-    if event != CALL_COMPLETED_EVENT or not endpoint.get("include_recording_url"):
+    if event not in RECORDING_LINK_EVENTS or not endpoint.get("include_recording_url"):
         return data
     call_id = data.get("call_id")
     if not call_id:
         return data
+    widened = dict(data)
+    if event == RECORDING_READY_EVENT:
+        widened.update(await _recording_ready_call_fields(session, UUID(str(call_id))))
     url = await _recording_url(session, UUID(str(call_id)))
-    return data if url is None else {**data, "recording_url": url}
+    if url is not None:
+        widened["recording_url"] = url
+    return widened
+
+
+async def _recording_ready_call_fields(session: AsyncSession, call_id: UUID) -> dict[str, Any]:
+    row = (
+        await session.execute(
+            text("SELECT lead_id, duration_s FROM calls WHERE id = :cid"), {"cid": call_id}
+        )
+    ).first()
+    if row is None:
+        return {}
+    return {"lead_id": str(row[0]) if row[0] else None, "duration_s": row[1]}
+
+
+def recording_ready_skip_reason(*, endpoint: dict[str, Any], data: dict[str, Any]) -> str | None:
+    """Why a `call.recording_ready` delivery must not go out, or None to send it.
+
+    A recording-ready event with no link is a promise of nothing. The opt-in is read from
+    the endpoint as it is NOW, so withdrawing it stops deliveries already queued. A link is
+    missing when the recording was erased or aged out since the event was queued, or when
+    the store could not sign one (`presign_failed` in the log names that cause).
+    """
+    if not endpoint.get("include_recording_url"):
+        return "recording_opt_in_withdrawn"
+    if not data.get("recording_url"):
+        return "recording_unavailable"
+    return None
 
 
 async def deactivate_endpoint(session: AsyncSession, *, endpoint_id: UUID) -> bool:
@@ -1138,11 +1213,14 @@ __all__ = [
     "INBOUND_REFUSAL_ALERTS",
     "MAX_ATTEMPTS",
     "RAW_TRANSCRIPT_INCLUDED_ACTION",
+    "RECORDING_LINK_EVENTS",
+    "RECORDING_READY_EVENT",
     "SHEET_DELIVERY_HEADER",
     "SHEET_KIND",
     "SIGNATURE_HEADER",
     "TIMESTAMP_HEADER",
     "WEBHOOK_KIND",
+    "WEBHOOK_ONLY_EVENTS",
     "DeliveryResult",
     "apply_mapping",
     "body_subject",
@@ -1158,6 +1236,8 @@ __all__ = [
     "load_endpoint",
     "parse_spreadsheet_ref",
     "record_delivery",
+    "recording_ready_dedupe_key",
+    "recording_ready_skip_reason",
     "secret_fingerprint",
     "sheet_columns",
     "sheet_header",

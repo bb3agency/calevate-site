@@ -221,7 +221,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="the publishing lanes, a constant tuple in `agents/publishing.py`."
     ),
     "GET /v1/integrations/events": BoundedByConstruction(
-        by="`integrations.service.EVENT_TYPES`, the four events an endpoint may subscribe to."
+        by="`integrations.service.EVENT_TYPES`, the events an endpoint may subscribe to."
     ),
     "POST /v1/integrations/endpoints": BoundedByConstruction(
         by="`events` of the ONE endpoint just created, a subset of `EVENT_TYPES`."

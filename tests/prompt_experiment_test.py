@@ -96,8 +96,14 @@ async def _agent(direction: str = "outbound") -> tuple[uuid.UUID, uuid.UUID, Fak
     await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     async with tenant_session(tenant_id) as session:
+        # Both notices switched ON: a new agent volunteers neither since D-669, and the
+        # arms below are asserted to carry the AI sentence and the agent's recording
+        # notice in their opening.
         await session.execute(
-            text("UPDATE agents SET direction = :d WHERE id = :a"),
+            text(
+                "UPDATE agents SET direction = :d, ai_disclosure_enabled = true, "
+                "recording_notice_enabled = true WHERE id = :a"
+            ),
             {"d": direction, "a": agent_id},
         )
         await prompts.write_prompt_version(
