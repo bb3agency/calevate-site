@@ -167,12 +167,24 @@ SELECT p.agent_id,
        v.model_config,
        a.knowledge_pack_sha256,
        a.engine_agent_ref,
-       a.ai_disclosure_line
+       a.ai_disclosure_line,
+       (o.closed_at IS NOT NULL OR o.deleted_at IS NOT NULL OR o.status = 'churned')
+         AS account_closed
 FROM pipecat_agents AS p
 JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
 JOIN agents AS a ON a.id = p.agent_id
+JOIN organizations AS o ON o.id = p.tenant_id
 WHERE p.engine_agent_ref = :ref AND p.tenant_id = :tid AND a.status = 'live'
 """
+
+#: A CLOSED OR ERASED ACCOUNT'S AGENTS HOLD NO CONVERSATION, and this read is where that is
+#: enforced, because it is the one door every owned-runtime call comes through: the carrier
+#: answer route reads no row (hard rule 3), and closing an account leaves its agents `live`
+#: so that an undo inside the grace window (D-538) puts them back exactly as they were.
+#: Closing also detaches the numbers at the carrier (`agents/lifecycle.release_account_numbers`);
+#: this is the backstop for a carrier that cannot detach, a detach that failed, or a number
+#: somebody re-pointed by hand. `churned` without `closed_at` is a pre-D-546 closure and is
+#: refused the same way.
 
 #: Keyed on the REF, never on the agent the ref parses to. An experiment arm is published as
 #: its own runtime row under its real agent (migration `d9a6e2c85b41`), with a ref minted from
@@ -501,7 +513,11 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
         pack_sha,
         stored_ref,
         ai_disclosure_line,
+        account_closed,
     ) = row
+    if account_closed:
+        _alarm_closed_account_call(tenant_id=tenant_id, agent_id=UUID(str(agent_id)))
+        raise _refuse_closed_account()
     if (
         not ai_disclosure_line
         or not str(ai_disclosure_line).strip()
@@ -613,6 +629,34 @@ def _refuse_undisclosed_agent() -> ProblemError:
             "truthful-answer rule, so no call may run on it."
         ),
         remediation="Republish the agent from the console; the publish recomposes the prompt.",
+    )
+
+
+def _refuse_closed_account() -> ProblemError:
+    """409 for an agent whose account is closed or erased. The worker treats it as
+    `AgentNotRunnableError` and assembles nothing, so the caller hears no greeting, no
+    disclosure and no agent claiming to serve a business that is no longer a client."""
+    return ProblemError.conflict(
+        "worker_account_closed",
+        "This agent's account is closed, so no call may run on it.",
+        remediation=(
+            "Detach or release the number at the carrier. If the closure was a mistake, "
+            "reopen the account from the admin console."
+        ),
+    )
+
+
+def _alarm_closed_account_call(*, tenant_id: UUID, agent_id: UUID) -> None:
+    """A call reached a closed account's agent, so a number is still pointed at us."""
+    alert(
+        "ROUTE_HANDLER",
+        "inbound_call_on_closed_account",
+        detail=(
+            "A call reached an agent of a closed or erased account and was refused before "
+            "anything was said. A number is still pointed at this agent at the carrier."
+        ),
+        tenant_id=str(tenant_id),
+        agent_id=str(agent_id),
     )
 
 

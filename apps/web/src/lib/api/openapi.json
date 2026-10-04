@@ -14955,6 +14955,11 @@
             "title": "Month",
             "type": "string"
           },
+          "rental_revenue_inr": {
+            "default": "0.00",
+            "title": "Rental Revenue Inr",
+            "type": "string"
+          },
           "revenue_inr": {
             "title": "Revenue Inr",
             "type": "string"
@@ -23532,6 +23537,11 @@
             "title": "Plan Tier",
             "type": "string"
           },
+          "rental_revenue_inr": {
+            "default": "0.00",
+            "title": "Rental Revenue Inr",
+            "type": "string"
+          },
           "residual_reason": {
             "anyOf": [
               {
@@ -25344,7 +25354,7 @@
       },
       "UnattributedSpendOut": {
         "additionalProperties": false,
-        "description": "Cost this month that belongs to no call.\n\n`number_rental` is the only unit that can land here and nothing writes one: under\nModel B a client rents their number from their own operator, not from us\n(`campaigns/provisioning.py`). Kept because a total that claims to be a partition\nmust not silently stop being one if a callless unit is ever metered.",
+        "description": "Cost this month that belongs to no call.\n\n`number_rental` is the only unit that lands here: our cost of a number we rent to the\nclient (D-665), whose revenue is `TenantSpendOut.rental_revenue_inr`.",
         "properties": {
           "cost_inr": {
             "title": "Cost Inr",
@@ -30380,7 +30390,7 @@
         "x-calevate-permission": "org:read"
       },
       "post": {
-        "description": "Stops the account immediately \u2014 nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed \u2014 and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. It does NOT take the client's telephone number out of service \u2014 a caller dialling it may still reach an answering agent until that is arranged with the telephony provider.",
+        "description": "Stops the account immediately \u2014 nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed \u2014 and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. The client's telephone numbers are detached from their agents at the carrier where the carrier supports it, and Calevate's own call program holds no conversation for a closed account; the numbers are NOT released, which is arranged with the telephony provider on the client's instruction. Undoing the closure re-attaches the numbers of its live answering agents.",
         "operationId": "close_v1_admin_tenants__tenant_id__closure_post",
         "parameters": [
           {

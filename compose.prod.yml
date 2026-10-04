@@ -132,6 +132,16 @@ services:
       - --timeout-graceful-shutdown=20
     environment:
       DB_POOL_SIZE: ${VOICE_RUNTIME_DB_POOL_SIZE:-12}
+      # THE KEK STAYS OUT OF THE INTERNET-FACING SERVICE. The shared `env_file` carries it,
+      # and this service never unwraps a DEK (`start_config_refresher(with_secrets=False)`
+      # in `apps/voice-runtime/main.py`), so holding it only widens what a compromise of
+      # the webhook listener reaches. `environment` outranks `env_file` (Compose's
+      # documented precedence), and an empty value is what `Settings` reads as "no usable
+      # key", so any read that did reach the envelope here refuses by name
+      # (`platform_kek_unusable`) instead of decrypting. Literals, never `${...}`: an
+      # interpolated value would be resolved from the deploy shell and `.env`.
+      PLATFORM_KEK: ""
+      PLATFORM_KEK_RETIRED: ""
     ports: ["127.0.0.1:8100:8100"]
     depends_on:
       redis: {condition: service_healthy}

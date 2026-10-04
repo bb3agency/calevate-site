@@ -29,18 +29,18 @@ of reusing it is that they need no edit. Enumerated rather than recalled (hard r
   agent back on the phone.
 * **Invitations cannot be minted or redeemed** — the same predicate at both ends.
 
-**FOUR THINGS SURVIVE A CLOSE, AND THREE OF THEM ARE INTENDED.**
+* **Inbound answering stops.** The close route detaches every number from its agent at the
+  carrier (`agents/lifecycle.release_account_numbers`) and the undo re-attaches them, and
+  `worker/service.load_session` refuses any call that still reaches a closed or erased
+  account's agent, naming it and alarming (`inbound_call_on_closed_account`). The agents
+  themselves stay `live`, so the undo needs no republish. `account_stopped_blocker` stays
+  outbound-only: SUSPENSION must not silence a client's own customers, closure must.
 
-1. **Inbound answering does not stop, and this is the one that is a GAP rather than a
-   decision.** `account_stopped_blocker` is outbound-only on purpose (a suspended client's
-   own customers must still be able to ring them), and nothing in this repository takes a
-   number out of service at the telephony provider. `compliance/tenant_erasure.py`'s
-   register already states the consequence in the client's own words — until somebody
-   releases the number, a person dialling the old number still reaches an answering
-   agent. Closing therefore stops US from calling out and stops the console; it does not
-   silence the line. Releasing the number is an act at the vendor
-   (`engine.release_number`, D-535) and it is NOT wired into this path — see the closing
-   note at the bottom of this docstring for why not, and what closes it.
+**FOUR THINGS SURVIVE A CLOSE, ALL INTENDED.**
+
+1. **The numbers are detached, not released.** Releasing or porting is the client's call
+   (FLOWS §9) and cannot be undone inside the grace window, so it stays a manual act at the
+   telephony provider.
 2. **The retention sweep keeps running**, on this account's own policies. FLOWS §9 is
    explicit about it, and it is right: a closed account's recordings and transcripts age
    out on the schedule the client agreed to, whether or not anybody presses erase.
@@ -161,13 +161,12 @@ the same read plus the erasure request's own status — see that function.
 WHAT IS NOT DONE HERE, SAID PLAINLY (CLAUDE.md: leave no half-wired feature)
 ═══════════════════════════════════════════════════════════════════════════════════════
 
-Closing does not release the client's telephone numbers or delete their agents at the
-voice platform, so inbound calls still reach a live agent after a close. D-535 landed
-`release_number` on the engine port THIS WEEK and the campaign provisioning path that owns
-number lifecycle is being changed by another lane in this same tree; wiring a release into
-the closure path across that seam would be two lanes writing one call site. It is recorded
-as the open half of D-538 with the act that closes it named, and the client's closure
-notice says it in their own words rather than letting them discover it from a caller.
+Closing does not RELEASE the client's telephone numbers (it detaches them; see above), and
+the number-handling lives in the close ROUTE rather than in `close_account`, because it
+calls the carrier and this module only writes rows. An engine whose agents run on a
+third-party voice platform (`ENGINE=cartesia`) cannot detach a number and serves no session
+through `load_session`, so on that engine a closed account's agent still answers until it
+is retired there.
 """
 
 from __future__ import annotations

@@ -471,6 +471,18 @@ def orphan_status(reported: CallStatus | None) -> CallStatus:
     return reported
 
 
+async def _account_erased(tenant_id: UUID) -> bool:
+    """Has this account been erased? An invisible row answers yes: writing a caller record
+    under a tenant we cannot see is the one outcome that must not happen here."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT deleted_at FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            )
+        ).first()
+    return row is None or row[0] is not None
+
+
 async def _record_orphan_inbound(
     target: _EventTarget, event: CarrierCallEvent, tenant_id: UUID, agent_id: UUID
 ) -> str:
@@ -482,6 +494,22 @@ async def _record_orphan_inbound(
     it. `calls.carrier_call_id` carries no unique index, which is why the lock and not an
     `ON CONFLICT` decides.
     """
+    if await _account_erased(tenant_id):
+        # An erased account acquires no caller records (D-189): no row, and no CDR read,
+        # which would write the parties' numbers onto it. The worker refused the call;
+        # what is owed is the carrier act that stops the number reaching us.
+        alert(
+            "WORKER_TERMINAL",
+            "engine_agent_route_withdrawn",
+            detail=(
+                f"carrier={target.carrier}; this account was erased and its number is "
+                "still pointed at its agent — detach or release it with the carrier"
+            ),
+            tenant_id=str(tenant_id),
+            carrier_call_id=event.carrier_call_id,
+        )
+        await _close_inbox(target.inbox_row_id)
+        return "hangup:account_erased"
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),

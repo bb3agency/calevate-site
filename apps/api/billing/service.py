@@ -3209,6 +3209,91 @@ async def voice_tier_usage(
     )
 
 
+#: A month's call splits grouped by the voice and the lot rate they were charged at — the
+#: rows `voice_tier_usage` sums by voice alone, kept apart by rate so a statement line can
+#: quote the rate its minutes were drawn at.
+_CALL_LINE_SPLIT_SQL: Final = (
+    "SELECT split->>'voice_tier' AS tier, (split->>'inr_per_min')::numeric AS rate, "
+    "COALESCE(SUM((split->>'minutes')::numeric), 0) AS minutes, "
+    "COALESCE(SUM((split->>'credits')::numeric), 0) AS charged "
+    "FROM credit_ledger e, LATERAL jsonb_array_elements(e.meta->'lots') AS split "
+    f"WHERE e.tenant_id = :tid AND e.reason = 'usage' AND {_CALL_IN_MONTH} "
+    "AND split->>'kind' = 'call' GROUP BY 1, 2 ORDER BY 1, 2"
+)
+
+
+async def prepaid_call_statement_lines(
+    session: AsyncSession, *, tenant_id: UUID, month: str
+) -> list[dict[str, Any]]:
+    """The statement lines for a prepaid month's calling, out of the wallet debits.
+
+    One line per (voice, lot rate), plus one for the model upgrade the same call rows
+    carried (D-455's `ai_assist` split on a call row, `_CALL_EXTRA_SPLIT_SQL`). The lines
+    sum to `voice_tier_usage(...).total_inr` over the same whole-month window — the credit
+    the month's calling actually drew — and that is the figure a prepaid statement must
+    reconcile to.
+
+    **THE AMOUNT IS THE DEBIT, NOT `qty x unit`.** Each call was debited
+    `round(minutes x rate)` on its own, and a lot that ran out mid-call reports its minutes
+    floored (`lots._portion_for_call`), so a month's sum can differ from the product of the
+    summed minutes and the rate by a few paise. The ledger is what the client paid and a
+    line bent to multiply out would no longer reconcile to it; the overage lines of the
+    postpaid motion can multiply out exactly because they are priced once, here, rather
+    than per call.
+
+    Whole IST month, no trial epoch: `_month_bounds`' own rule for the invoice.
+    """
+    binds = {"tid": tenant_id, **_month_bounds(month)}
+    merged: dict[tuple[VoiceTier, Decimal], tuple[Decimal, Decimal]] = {}
+    for stored, rate, row_minutes, row_charged in (
+        await session.execute(text(_CALL_LINE_SPLIT_SQL), binds)
+    ).all():
+        tier = stored_voice_tier(str(stored))
+        if tier is None:
+            # `voice_tier_usage`'s refusal, for its reason: these rupees were drawn and a
+            # statement that dropped them would disagree with the ledger.
+            raise ValueError(
+                f"{month}'s wallet debits carry call splits spelled {stored!r}, which this "
+                "build cannot place on a rung."
+            )
+        key = (tier, Decimal(str(rate)))
+        minutes, charged = merged.get(key, (Decimal("0"), Decimal("0")))
+        merged[key] = (
+            minutes + Decimal(str(row_minutes or 0)),
+            charged + Decimal(str(row_charged or 0)),
+        )
+    lines: list[dict[str, Any]] = []
+    for (tier, rate), (minutes, charged) in sorted(merged.items()):
+        amount = to_paise(charged)
+        if amount == 0:
+            continue
+        qty = to_paise(minutes)
+        unit = rate_to_display(rate)
+        lines.append(
+            {
+                "description": (
+                    f"Call minutes, {VOICE_TIER_LABELS[tier]} voice ({qty} min at ₹{unit}/min)"
+                ),
+                "qty": qty,
+                "unit_inr": unit,
+                "amount_inr": amount,
+            }
+        )
+    extra = to_paise(
+        Decimal(str((await session.execute(text(_CALL_EXTRA_SPLIT_SQL), binds)).scalar_one() or 0))
+    )
+    if extra != 0:
+        lines.append(
+            {
+                "description": "AI model upgrade on calls",
+                "qty": Decimal("1"),
+                "unit_inr": extra,
+                "amount_inr": extra,
+            }
+        )
+    return lines
+
+
 def calling_revenue_inr(
     *,
     plan_tier: str | None,
@@ -3579,6 +3664,13 @@ async def margin_for_tenant(
             llm_surcharge_inr=usage["llm_surcharge_inr"],
         ),
     )
+    # PHONE NUMBER RENTAL (D-665). Our cost of a rented number is a `number_rental` usage
+    # row and is already in `cost_inr`; without its revenue the margin was understated by
+    # the whole rental price. Imported here because `number_rental` imports this module.
+    from apps.api.billing.number_rental import rental_revenue_inr
+
+    rental = await rental_revenue_inr(session, tenant_id=tenant_id, month=str(usage["month"]))
+    revenue += rental
     margin = to_paise(revenue - cost_inr)
     pct = margin_pct(margin_inr=margin, revenue_inr=revenue)
     # THE LEGS THAT COULD NOT BE PRICED, counted over the SAME month window the cost above
@@ -3598,6 +3690,7 @@ async def margin_for_tenant(
         "minutes_used": usage["minutes_used"],
         "calls": usage["calls"],
         "revenue_inr": to_paise(revenue),
+        "rental_revenue_inr": to_paise(rental),
         "cost_inr": cost_inr,
         "margin_inr": margin,
         "margin_pct": pct,
@@ -3668,6 +3761,7 @@ __all__ = [
     "month_charges_inr",
     "overage_rungs",
     "plan_tier_of",
+    "prepaid_call_statement_lines",
     "priced_llm_surcharge",
     "rate_card_at",
     "rate_to_display",

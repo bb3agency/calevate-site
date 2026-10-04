@@ -220,7 +220,8 @@ describe("closing a client account", () => {
     expect(container.textContent).toContain("13 days");
     expect(container.textContent).toContain("Not renewing after the pilot.");
     // The disclosure the client's own notice makes, made here too.
-    expect(container.textContent).toContain("still pointed at the agent");
+    expect(container.textContent).toContain("numbers were disconnected from the agents");
+    expect(container.textContent).toContain("The numbers are not released");
     expect(
       screen.queryByRole("button", { name: /Close this account/ }),
     ).toBeNull();

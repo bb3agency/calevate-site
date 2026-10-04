@@ -1217,7 +1217,7 @@ export interface paths {
         put?: never;
         /**
          * Close this client now and schedule the erasure of their records
-         * @description Stops the account immediately — nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed — and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. It does NOT take the client's telephone number out of service — a caller dialling it may still reach an answering agent until that is arranged with the telephony provider.
+         * @description Stops the account immediately — nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed — and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. The client's telephone numbers are detached from their agents at the carrier where the carrier supports it, and Calevate's own call program holds no conversation for a closed account; the numbers are NOT released, which is arranged with the telephony provider on the client's instruction. Undoing the closure re-attaches the numbers of its live answering agents.
          */
         post: operations["close_v1_admin_tenants__tenant_id__closure_post"];
         /**
@@ -13514,6 +13514,11 @@ export interface components {
             minutes_used: string;
             /** Month */
             month: string;
+            /**
+             * Rental Revenue Inr
+             * @default 0.00
+             */
+            rental_revenue_inr: string;
             /** Revenue Inr */
             revenue_inr: string;
             tiers: components["schemas"]["TierSplitOut"];
@@ -17251,6 +17256,11 @@ export interface components {
             period_charge_inr: string;
             /** Plan Tier */
             plan_tier: string;
+            /**
+             * Rental Revenue Inr
+             * @default 0.00
+             */
+            rental_revenue_inr: string;
             /** Residual Reason */
             residual_reason: string | null;
             /** Retainer Inr */
@@ -18008,10 +18018,8 @@ export interface components {
          * UnattributedSpendOut
          * @description Cost this month that belongs to no call.
          *
-         *     `number_rental` is the only unit that can land here and nothing writes one: under
-         *     Model B a client rents their number from their own operator, not from us
-         *     (`campaigns/provisioning.py`). Kept because a total that claims to be a partition
-         *     must not silently stop being one if a callless unit is ever metered.
+         *     `number_rental` is the only unit that lands here: our cost of a number we rent to the
+         *     client (D-665), whose revenue is `TenantSpendOut.rental_revenue_inr`.
          */
         UnattributedSpendOut: {
             /** Cost Inr */

@@ -694,6 +694,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "worker_settlement_missing": "attention",
     "call_finalise_abandoned": "page",
     "carrier_binding_not_retired": "attention",
+    # A closed or erased account's number still reaches us. The call was refused before
+    # anything was said, so nobody is misled; what is outstanding is a carrier act.
+    "inbound_call_on_closed_account": "attention",
     # No credentials for the carrier the calls are on: every carrier cost is missing until
     # an operator installs them, and the sweep re-reads the owed records once they are.
     "carrier_cdr_reader_unconfigured": "attention",

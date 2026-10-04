@@ -130,6 +130,7 @@ function healthy(): Routes {
       minutes_used: "1204.5",
       calls: 412,
       revenue_inr: "1015900.00",
+      rental_revenue_inr: "0.00",
       cost_inr: "402350.50",
       margin_inr: "613549.50",
       margin_pct: "60.39",

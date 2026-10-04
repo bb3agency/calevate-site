@@ -102,11 +102,17 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import LLMService
 from pipecat.services.settings import LLMSettings
+from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.utils.text.base_text_aggregator import AggregationType
 from pipecat.workers.runner import WorkerRunner
 from voice_worker import pipeline
-from voice_worker.call_tools import HANDOFF_GUIDANCE, HANDOFF_TOOL_NAME, CallToolApi
+from voice_worker.call_tools import (
+    END_CALL_TOOL_NAME,
+    HANDOFF_GUIDANCE,
+    HANDOFF_TOOL_NAME,
+    CallToolApi,
+)
 from voice_worker.knowledge import SessionKnowledge
 
 # ======================================================================================
@@ -233,6 +239,7 @@ def compose_agent_prompt(
     client_script: str = DEFAULT_CLIENT_SCRIPT,
     call_is_recorded: bool = True,
     direction: Literal["inbound", "outbound", "both"] = "inbound",
+    languages_extra: Sequence[str] = (),
 ) -> str:
     """The system prompt a published agent actually carries, from the real composer.
 
@@ -248,6 +255,7 @@ def compose_agent_prompt(
         system_prompt=client_script,
         opening_line=compose_opening_line(posture, call_is_recorded=call_is_recorded),
         call_is_recorded=call_is_recorded,
+        languages_extra=list(languages_extra),
     )
     return compose_engine_prompt(cfg)
 
@@ -261,6 +269,7 @@ def make_session_config(
     knowledge_pack_sha256: str | None = None,
     call_id: str = "scenario-call",
     opening_line: str = "",
+    languages_extra: tuple[str, ...] = (),
 ) -> pipeline.SessionConfig:
     """A `SessionConfig` for a scenario. The models are real names; nothing dials out."""
     return pipeline.SessionConfig(
@@ -284,6 +293,7 @@ def make_session_config(
         greet_first=greet_first,
         knowledge_pack_sha256=knowledge_pack_sha256,
         opening_line=opening_line,
+        languages_extra=languages_extra,
     )
 
 
@@ -428,6 +438,7 @@ _AI_QUESTION: Final[tuple[str, ...]] = (
     "are you a human",
     "are you a person",
     "am i talking to a machine",
+    "am i talking to a robot",
     "మీరు మనిషేనా",  # "are you a person?" (te)
     "మీరు ఏఐ",  # "are you an AI?" (te)
     "क्या आप इंसान हैं",  # "are you human?" (hi)
@@ -438,6 +449,7 @@ _RECORDING_QUESTION: Final[tuple[str, ...]] = (
     "is this recorded",
     "are you recording",
     "is this call being recorded",
+    "is this call recorded",
     "కాల్ రికార్డ",  # "call record..." (te)
     "रिकॉर्ड",  # "record" (hi)
 )
@@ -477,6 +489,14 @@ _PERSON_REQUEST: Final[tuple[str, ...]] = (
     "మనిషితో మాట్లాడ",  # "talk to a person" (te)
     "किसी इंसान से बात",  # "talk to a human" (hi)
 )
+
+#: Ways a caller closes the call. Whole words, so "bye" does not fire inside another word.
+_GOODBYE: Final[re.Pattern[str]] = re.compile(
+    r"\b(good ?bye|bye|that is all|that's all)\b|ఉంటాను|अलविदा", re.IGNORECASE
+)
+
+#: What the stand-in says before it hangs up.
+GOODBYE_REPLY: Final[str] = "Thank you for calling Vaidya Clinic. Goodbye."
 
 #: The clause of the connected guidance that licenses the one claim a failed handover must
 #: never produce. DERIVED and then checked, rather than typed: if the guidance is reworded
@@ -661,6 +681,20 @@ class PromptFollowingModel(LLMService):
         telugu = self._obeys(MIRROR_LANGUAGE_RULE, prompt) and is_telugu(
             self._last_user_text(context)
         )
+
+        # FIRST among the caller's intents, because the tool-result readers below scan the
+        # whole context: a goodbye after an earlier lookup would otherwise be answered with
+        # that lookup's reply. It reads only the caller's latest words.
+        if _GOODBYE.search(heard):
+            await self._say(
+                ModelReply(
+                    english=GOODBYE_REPLY,
+                    telugu="వైద్య క్లినిక్‌కు కాల్ చేసినందుకు ధన్యవాదాలు. ఉంటాను.",
+                ).spoken_in(telugu=telugu),
+                prompt=prompt,
+            )
+            await self._maybe_end_call(context)
+            return
 
         # BEFORE the knowledge outcome, because a handover result is the more recent thing
         # to have happened whenever both are in one context.
@@ -904,6 +938,35 @@ class PromptFollowingModel(LLMService):
         )
         return True
 
+    async def _maybe_end_call(self, context: Any) -> bool:
+        """Hang up after the goodbye, if this agent advertises the tool. Returns whether it did.
+
+        Called only once the goodbye has been pushed, which is the order the tool's own
+        description asks for. A disobedient model never hangs up, so the caller is left
+        holding a line nobody is on.
+        """
+        if not self.obedient:
+            return False
+        tools = context.tools
+        names = {
+            getattr(schema, "name", None) for schema in getattr(tools, "standard_tools", []) or []
+        }
+        if END_CALL_TOOL_NAME not in names:
+            return False
+        self._call_seq += 1
+        self.tool_calls.append((END_CALL_TOOL_NAME, {}))
+        await self.run_function_calls(
+            [
+                FunctionCallFromLLM(
+                    function_name=END_CALL_TOOL_NAME,
+                    tool_call_id=f"scenario-{self._call_seq}",
+                    arguments={},
+                    context=context,
+                )
+            ]
+        )
+        return True
+
     async def _maybe_search(self, context: Any, heard: str) -> bool:
         """Call the knowledge tool if this agent advertises one. Returns whether it did.
 
@@ -1026,6 +1089,9 @@ class CallerTurn:
     read_back: str | None = None
     #: Interrupt the agent's reply to this turn once it has started speaking.
     barge_in: bool = False
+    #: The BCP-47 language the transcriber reports for this turn, as Sarvam does when it
+    #: detects one. `None` is a transcript with no reported language.
+    language: str | None = None
 
 
 async def run_scenario(
@@ -1036,9 +1102,14 @@ async def run_scenario(
     tool_api: CallToolApi | None = None,
     obedient: bool = True,
     greet: bool = True,
+    agent_ends_call: bool = False,
     timeout_s: float = 60.0,
 ) -> ScenarioRun:
     """Play `turns` against a real assembled pipeline and return what came out.
+
+    `agent_ends_call=True` means the harness never ends the call itself: after the last
+    turn it only waits for the pipeline to finish, and fails if the agent did not end it.
+    Without it the harness ends the call the way a caller hanging up would.
 
     The caller's words are injected as `UserStartedSpeakingFrame` +
     `TranscriptionFrame` + `UserStoppedSpeakingFrame`, which is what an STT service
@@ -1091,7 +1162,10 @@ async def run_scenario(
             await call.worker.queue_frame(UserStartedSpeakingFrame())
             await call.worker.queue_frame(
                 TranscriptionFrame(
-                    turn.text, user_id="caller", timestamp="2026-09-19T00:00:00.000+00:00"
+                    turn.text,
+                    user_id="caller",
+                    timestamp="2026-09-19T00:00:00.000+00:00",
+                    language=Language(turn.language) if turn.language else None,
                 )
             )
             await call.worker.queue_frame(UserStoppedSpeakingFrame())
@@ -1113,8 +1187,21 @@ async def run_scenario(
                 await _await_utterances(run, at_least=spoken_before + 1, timeout_s=timeout_s)
                 run.staged.append(turn.read_back)
 
-        await call.worker.stop_when_done()
-        await asyncio.wait_for(running, timeout=timeout_s)
+        if agent_ends_call:
+            try:
+                await asyncio.wait_for(asyncio.shield(running), timeout=timeout_s)
+            except TimeoutError:
+                # Ended gracefully before failing, so a session-scoped event loop is not
+                # left holding a cancelled pipeline's tasks.
+                await call.worker.stop_when_done()
+                await asyncio.wait_for(running, timeout=timeout_s)
+                raise AssertionError(
+                    f"the call was still up {timeout_s}s after the last turn; the agent never "
+                    f"ended it. It said: {run.agent_utterances!r}"
+                ) from None
+        else:
+            await call.worker.stop_when_done()
+            await asyncio.wait_for(running, timeout=timeout_s)
     finally:
         if not running.done():
             running.cancel()
@@ -1248,6 +1335,7 @@ __all__ = [
     "DEFAULT_CLIENT_SCRIPT",
     "DEFAULT_POSTURE",
     "DIGIT_BY_DIGIT_RULE",
+    "GOODBYE_REPLY",
     "MAY_CONNECT_CLAUSE",
     "MIRROR_LANGUAGE_RULE",
     "NO_MARKDOWN_RULE",

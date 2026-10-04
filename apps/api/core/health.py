@@ -148,8 +148,9 @@ def _image_migration_graph() -> tuple[frozenset[str], frozenset[str]] | None:
     including branch labels and `down_revision` tuples, which a filename scan does not.
 
     Imported inside the function and cached: `apps/voice-runtime` runs this router too
-    (hard rule 3's no-heavy-imports), and every container ships one image with
-    `--all-packages`, so the import is present but must not sit on the boot graph.
+    (hard rule 3's no-heavy-imports), and every server container runs one image — the api,
+    voice-runtime and workers members plus `sentry-sdk`, not `--all-packages` (D-667) — so
+    alembic, an api dependency, is present there but must not sit on the boot graph.
     """
     global _migration_graph, _migration_graph_failed
     if _migration_graph is not None or _migration_graph_failed:

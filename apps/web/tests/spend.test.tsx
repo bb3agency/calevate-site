@@ -111,6 +111,7 @@ const TENANT_SPEND: TenantSpend = {
   ...CLIENT_SPEND,
   plan_tier: "managed",
   revenue_inr: "1020899.00",
+  rental_revenue_inr: "0.00",
   cost_inr: "300000.00",
   margin_inr: "720899.00",
   margin_pct: "70.61",

@@ -71,6 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
 from apps.api.agents.service import (
+    INBOUND_SILENCE_TRUTHFUL_ANSWER,
     publish_agent,
     retire_agent_carrier_bindings,
     route_inbound_numbers,
@@ -884,9 +885,95 @@ async def _release_inbound_numbers(session: AsyncSession, *, agent_id: UUID) -> 
     return routing.released
 
 
+# --- the account closing and reopening (D-538's open half) -----------------------------
+#
+# Closing an account leaves its agents `live` and their rows untouched, so that an undo
+# inside the grace window puts the client back exactly as they were. What must stop is the
+# phone being answered, and that is a carrier fact: so the close DETACHES every number from
+# its agent and the reopen re-attaches the ones a live answering agent held. Detach, not
+# release: whether a client's number is released or ported is theirs to say (FLOWS §9), and
+# a released number cannot be taken back. `worker/service.load_session` refuses a closed
+# account's calls whatever the carrier does, which covers a carrier that cannot detach.
+
+#: Every agent of this account that has numbers attached and was ever published. Paused and
+#: archived agents are included: their numbers should already be detached, and detaching a
+#: number twice costs a round trip, while skipping one that a failed release left attached
+#: costs a caller reaching a closed business.
+_ACCOUNT_NUMBER_AGENTS_SQL = (
+    "SELECT DISTINCT a.id, a.engine_agent_ref FROM agents a "
+    "JOIN phone_numbers n ON n.agent_id = a.id "
+    "WHERE a.engine_agent_ref IS NOT NULL ORDER BY a.id"
+)
+
+#: The agents whose numbers a reopen re-attaches: live, answering, and not silenced for
+#: running without the truthful-answer rule — that silence is an unbind of its own, and a
+#: reopen must not undo it (`agents/service.reconcile_inbound_truthful_answer`).
+_ACCOUNT_ANSWERING_AGENTS_SQL = (
+    "SELECT id, engine_agent_ref FROM agents WHERE status = 'live' "
+    "AND engine_agent_ref IS NOT NULL AND direction IN ('inbound', 'both') "
+    "AND deleted_at IS NULL AND archived_at IS NULL "
+    "AND inbound_silence_reason IS DISTINCT FROM :truthful ORDER BY id"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AccountNumbers:
+    """What closing or reopening an account did to its numbers at the carrier."""
+
+    #: Numbers detached (close) or attached (reopen).
+    moved: int
+    #: Numbers the carrier could not be reached about. Each raised its own alarm.
+    failed: int
+    #: Numbers not attempted because the carrier cannot route numbers at all.
+    unsupported: int
+
+
+async def release_account_numbers(session: AsyncSession) -> AccountNumbers:
+    """Detach every number of the account `session` is scoped to from its agent.
+
+    A failure alarms per number (`engine_inbound_binding_failed`) and does NOT undo the
+    close, `route_inbound_numbers`' contract: the account is closed either way, and the
+    worker's session read refuses the call that still arrives.
+    """
+    engine = get_engine()
+    moved = failed = unsupported = 0
+    for agent_id, ref in (await session.execute(text(_ACCOUNT_NUMBER_AGENTS_SQL))).all():
+        routing = await route_inbound_numbers(
+            session, engine, agent_id=UUID(str(agent_id)), ref=str(ref), answers=False
+        )
+        moved += routing.released
+        failed += routing.failed
+        unsupported += routing.unsupported
+    return AccountNumbers(moved=moved, failed=failed, unsupported=unsupported)
+
+
+async def restore_account_numbers(session: AsyncSession) -> AccountNumbers:
+    """Re-attach the numbers of every live answering agent of the reopened account.
+
+    Not a republish: the account was closed, not the agents, and the engine still holds
+    what was last published and verified for each of them.
+    """
+    engine = get_engine()
+    moved = failed = unsupported = 0
+    rows = (
+        await session.execute(
+            text(_ACCOUNT_ANSWERING_AGENTS_SQL), {"truthful": INBOUND_SILENCE_TRUTHFUL_ANSWER}
+        )
+    ).all()
+    for agent_id, ref in rows:
+        routing = await route_inbound_numbers(
+            session, engine, agent_id=UUID(str(agent_id)), ref=str(ref), answers=True
+        )
+        moved += routing.bound
+        failed += routing.failed
+        unsupported += routing.unsupported
+    return AccountNumbers(moved=moved, failed=failed, unsupported=unsupported)
+
+
 __all__ = [
     "AGENT_TRANSITIONS",
     "ASSIGNABLE_STATUSES",
+    "AccountNumbers",
     "LifecycleResult",
     "activate_agent",
     "archive_agent",
@@ -894,6 +981,8 @@ __all__ = [
     "create_agent",
     "deactivate_agent",
     "hold_agent_for_campaign_start",
+    "release_account_numbers",
+    "restore_account_numbers",
     "restore_agent",
     "update_agent",
 ]

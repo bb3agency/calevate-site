@@ -126,11 +126,10 @@ def _retry_after(attempt: int) -> float:
 def _compose(*, event: str, business: str, erase_on: str | None, reason: str | None) -> str:
     """The message body, in the client's terms and with nothing they cannot act on.
 
-    **The erasure date is stated, and so is the thing the close does NOT do.** A client
-    whose number still rings an answering agent after we told them the account was closed
-    would discover that from a caller, and `compliance/tenant_erasure.py`'s register
-    already commits us to saying it in the certificate — saying it here too costs one
-    paragraph and is the difference between a disclosure and a surprise.
+    **The erasure date is stated, and so is what happens to the numbers.** The close
+    detaches them from the agents and does not release them (`tenancy/closure.py`), so the
+    client is told both halves and asked which they want: a number they still pay for and
+    never hear about is the surprise this paragraph exists to prevent.
 
     The operator's `reason` is quoted verbatim when there is one. It is free text an
     operator typed, so it never reaches a log line (hard rule 6) — but it is the answer to
@@ -156,7 +155,8 @@ def _compose(*, event: str, business: str, erase_on: str | None, reason: str | N
         return (
             f"The Calevate account for {business} has been reopened.\n\n"
             "Everything is back on: your team can sign in again, your agents can be "
-            "published again, and the erasure that was scheduled has been cancelled. "
+            "published again and answer your numbers again, and the erasure that was "
+            "scheduled has been cancelled. "
             "Nothing was deleted.\n\n"
             "If you did not expect this, reply to this email straight away."
         )
@@ -187,10 +187,10 @@ def _compose(*, event: str, business: str, erase_on: str | None, reason: str | N
         ]
     lines += [
         "",
-        "One thing the closure does not do: your telephone number is still pointed at "
-        "your agent by your telephony provider, so a caller dialling it may still reach "
-        "an answering agent until that number is taken out of service. Tell us if you "
-        "need that done and we will arrange it with the provider.",
+        "Your telephone numbers have been disconnected from your agents, so callers are "
+        "no longer answered by them. The numbers themselves are still held for your "
+        "account: tell us whether you want them released or moved to another provider, "
+        "and we will arrange it.",
     ]
     return "\n".join(lines)
 

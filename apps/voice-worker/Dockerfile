@@ -5,7 +5,7 @@
 # their command". This one differs in every other way: a different platform (Pipecat
 # Cloud `ap-south`, box 1 of docs/PIPECAT-MIGRATION.md §8), a different base image
 # (theirs, which supplies the entrypoint that calls `bot()`), a different dependency set
-# (`--package calevate-pipecat-worker`: 76 distributions, none of them arq, sentry-sdk or
+# (`--package calevate-pipecat-worker`: 77 distributions, none of them arq, sentry-sdk or
 # uvicorn), and a different deploy verb (`pipecat cloud deploy`, not
 # `docker compose up -d`). Adding it to the shared image would put the monolith's
 # dependency surface in a latency-critical voice container, which is the whole argument
@@ -96,11 +96,11 @@ ENV UV_COMPILE_BYTECODE=1 \
 # the voice worker's own dependency set is INSTALLED.
 #
 # `--package calevate-pipecat-worker` IS WHAT KEEPS THE MONOLITH OUT. The root Dockerfile
-# uses `--all-packages` because its image runs api, workers and voice-runtime; here that
-# flag would install arq, sentry-sdk, uvicorn, the payment and sheets clients and the rest
-# of `apps/api`'s surface into the container that answers the phone. Measured on this
-# lockfile, 15 Sep 2026: `--package calevate-pipecat-worker` resolves 76 distributions
-# (75 third-party plus `calevate-shared`), and none of the three names above is among
+# installs the root's members (api, workers, voice-runtime; D-667); here the root or
+# `--all-packages` would install arq, sentry-sdk, uvicorn, the payment and sheets clients
+# and the rest of `apps/api`'s surface into the container that answers the phone. Measured
+# on this lockfile, 4 Oct 2026: `--package calevate-pipecat-worker` resolves 77
+# distributions (`calevate-shared` among them), and none of the three names above is among
 # them.
 COPY pyproject.toml uv.lock ./
 COPY apps/api/pyproject.toml apps/api/pyproject.toml

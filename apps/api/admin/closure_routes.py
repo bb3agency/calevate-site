@@ -73,6 +73,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from apps.api.agents.lifecycle import release_account_numbers, restore_account_numbers
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -222,9 +223,12 @@ async def read_closure(tenant_id: UUID, request: Request, principal: Reader) -> 
         "closure can be undone with DELETE on this same path. Needs the header "
         "`X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an "
         "already-closed account returns its FIRST closure unchanged rather than "
-        "restarting the clock. It does NOT take the client's telephone number out of "
-        "service — a caller dialling it may still reach an answering agent until that is "
-        "arranged with the telephony provider."
+        "restarting the clock. The client's telephone numbers are detached from their "
+        "agents at the carrier where the carrier supports it, and Calevate's own call "
+        "program holds no conversation for a closed account; the numbers are NOT "
+        "released, which is arranged with the telephony provider on the client's "
+        "instruction. Undoing the closure "
+        "re-attaches the numbers of its live answering agents."
     ),
 )
 async def close(
@@ -279,6 +283,9 @@ async def close(
             erase_on=record.erase_after.date().isoformat() if record.erase_after else None,
             reason=record.reason,
         )
+        # After the CAS, so only a real transition reaches the carrier. See
+        # `agents/lifecycle.release_account_numbers` for why detach and not release.
+        numbers = await release_account_numbers(scoped)
         await write_audit(
             scoped,
             action="tenant.closed",
@@ -291,6 +298,8 @@ async def close(
                 "reason": record.reason,
                 "erase_after": record.erase_after.isoformat() if record.erase_after else None,
                 "grace_days": payload.grace_days,
+                "numbers_detached": numbers.moved,
+                "numbers_not_detached": numbers.failed + numbers.unsupported,
             },
         )
     return _out(record, now=datetime.now(UTC))
@@ -323,6 +332,7 @@ async def restore(tenant_id: UUID, request: Request, principal: Closer) -> Closu
         record = await closure.restore_account(scoped, tenant_id=tenant_id)
         if before.is_closed:
             await enqueue_closure_notice(scoped, tenant_id=tenant_id, event=NOTICE_RESTORED)
+            numbers = await restore_account_numbers(scoped)
             await write_audit(
                 scoped,
                 action="tenant.closure_reversed",
@@ -340,6 +350,8 @@ async def restore(tenant_id: UUID, request: Request, principal: Closer) -> Closu
                         before.erase_after.isoformat() if before.erase_after else None
                     ),
                     "closure_reason": before.reason,
+                    "numbers_reattached": numbers.moved,
+                    "numbers_not_reattached": numbers.failed + numbers.unsupported,
                 },
             )
     return _out(record, now=datetime.now(UTC))

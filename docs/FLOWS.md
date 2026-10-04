@@ -499,6 +499,11 @@ ported per client wish.
   dial gate refuses it as `account_closed`, and the lifecycle route's `from_statuses` has
   no exit. A soft-deleted client is a 404 on that route rather than a 409 — it is not a
   client any more, and the directory route has always said so.
+- **A closed account stops answering (D-671).** The close detaches every number from its
+  agent at the carrier and the undo re-attaches them; the numbers are not released, which
+  stays the client's choice above. The worker's session read refuses any call that still
+  reaches a closed or erased account's agent (`worker_account_closed`), and a hangup for an
+  erased account writes no call row.
 - **`organizations.deleted_at` is written by the tenant erasure, and by nothing else**
   (D-122). `POST /v1/admin/tenants/{id}/erasure` — admin realm, superadmin, step-up
   confirmed and bound to the tenant — files a `tenant_erasure_requests` row and queues

@@ -259,9 +259,10 @@ function ClosedPanel({ record }: { record: Closure }) {
         </div>
       </dl>
       <p className="mt-2 text-xs opacity-90">
-        Their telephone number is still pointed at the agent by the telephony provider, so a
-        caller dialling it may still be answered until that is arranged. The client&apos;s
-        notice says so too.
+        Their telephone numbers were disconnected from the agents at the carrier, and no
+        agent holds a conversation for a closed account. The numbers are not released:
+        release or port them with the telephony provider only on the client&apos;s
+        instruction. The client&apos;s notice says so too.
       </p>
     </NoticeBox>
   );

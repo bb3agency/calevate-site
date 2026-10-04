@@ -51,6 +51,7 @@ from apps.api.billing.attribution import (
     PeriodAttribution,
     period_attribution,
 )
+from apps.api.billing.number_rental import rental_revenue_inr
 from apps.api.billing.plans import ist_month_window, month_pricing_instant
 from apps.api.billing.service import to_paise
 from apps.api.core.auth import record_admin_tenant_read, requires
@@ -274,10 +275,8 @@ class UnitSpendOut(Strict):
 class UnattributedSpendOut(Strict):
     """Cost this month that belongs to no call.
 
-    `number_rental` is the only unit that can land here and nothing writes one: under
-    Model B a client rents their number from their own operator, not from us
-    (`campaigns/provisioning.py`). Kept because a total that claims to be a partition
-    must not silently stop being one if a callless unit is ever metered.
+    `number_rental` is the only unit that lands here: our cost of a number we rent to the
+    client (D-665), whose revenue is `TenantSpendOut.rental_revenue_inr`.
     """
 
     minutes: str
@@ -356,9 +355,14 @@ class TenantSpendOut(Strict):
     calls: int
     minutes_used: str
     retainer_inr: str | None
-    #: The retainer plus this month's calling charge — `margin_for_tenant`'s own two
-    #: halves, which is why `retainer_inr + period_charge_inr == revenue_inr` exactly.
+    #: The retainer, this month's calling charge and the phone number rental —
+    #: `margin_for_tenant`'s own three parts, so
+    #: `retainer_inr + period_charge_inr + rental_revenue_inr == revenue_inr` exactly.
     revenue_inr: str
+    #: The phone number rental charged this month (D-665). Its cost is the callless
+    #: `number_rental` row in `cost_inr` and `unattributed`. Always set by the route; the
+    #: default only keeps it optional in the generated web types.
+    rental_revenue_inr: str = "0.00"
     cost_inr: str
     margin_inr: str
     #: Null rather than "0.0" when nothing has been billed: "0% margin" and "nothing
@@ -808,12 +812,13 @@ async def tenant_spend(
         # design — see `AbsorbedAiSpendOut` — so this is where the copilot spend a client
         # generated becomes visible on the money board an operator opens.
         ai = await read_ai_quota(scoped, tenant_id=tenant_id, month=period.month)
+        rental = await rental_revenue_inr(scoped, tenant_id=tenant_id, month=period.month)
         # D-482 L-1: a direct-admin read of one client's money board joins the audit
         # trail, coalesced per (admin, tenant) per minute.
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
-    margin = _margin_of(period)
+    margin = _margin_of(period, rental_inr=rental)
     ranked = _by_cost(period)
     return TenantSpendOut(
         month=period.month,
@@ -823,6 +828,7 @@ async def tenant_spend(
         minutes_used=str(period.minutes),
         retainer_inr=_money(period.retainer_inr),
         revenue_inr=str(margin.revenue_inr),
+        rental_revenue_inr=str(to_paise(rental)),
         cost_inr=str(margin.cost_inr),
         margin_inr=str(margin.margin_inr),
         margin_pct=_money(margin.margin_pct),
@@ -874,13 +880,14 @@ class _Margin:
     margin_pct: Decimal | None
 
 
-def _margin_of(period: PeriodAttribution) -> _Margin:
+def _margin_of(period: PeriodAttribution, *, rental_inr: Decimal) -> _Margin:
     """`margin_for_tenant`'s arithmetic over the attribution's own single scan.
 
-    Revenue is the retainer plus the month's calling charge, which is exactly the pair
-    `margin_for_tenant` adds — `period_charge_inr` IS `calling_revenue_inr` for the month
-    (`billing/attribution.py`), and the retainer is `usage_summary.monthly_fee_inr`, the
-    same field. Cost is the sum of `_ROW_COST_SQL` the breakdown beneath it partitions.
+    Revenue is the retainer, the month's calling charge and the number rental, which is
+    exactly what `margin_for_tenant` adds — `period_charge_inr` IS `calling_revenue_inr`
+    for the month (`billing/attribution.py`), the retainer is `usage_summary.
+    monthly_fee_inr`, the same field, and the rental is `number_rental.rental_revenue_inr`,
+    the same call. Cost is the sum of `_ROW_COST_SQL` the breakdown beneath it partitions.
     `margin_pct` is the one shared function, never a second copy of the no-revenue rule.
 
     Both addends are already paise-exact, so `to_paise` here rounds nothing that was not
@@ -888,7 +895,7 @@ def _margin_of(period: PeriodAttribution) -> _Margin:
     in every billing response goes through it and a field that skipped it would be the one
     that renders four decimals.
     """
-    revenue = (period.retainer_inr or Decimal("0.00")) + period.period_charge_inr
+    revenue = (period.retainer_inr or Decimal("0.00")) + period.period_charge_inr + rental_inr
     margin = to_paise(revenue - period.cost_inr)
     return _Margin(
         revenue_inr=to_paise(revenue),

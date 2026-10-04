@@ -357,12 +357,12 @@ hang up together — which is the trigger below, and is a resize away.
 
    ⚠ **`DB_POOL_SIZE=6` in `.env` DOES NOTHING, and this row said to put it there.**
    `compose.prod.yml` sets `DB_POOL_SIZE` in each service's `environment:` block
-   (`:84,:134,:153`), and a compose `environment:` entry overrides `env_file:` — so the
+   (`:84,:134,:163`), and a compose `environment:` entry overrides `env_file:` — so the
    `.env` value is read and discarded. What those blocks interpolate is
    **`API_DB_POOL_SIZE`, `VOICE_RUNTIME_DB_POOL_SIZE` and `WORKERS_DB_POOL_SIZE`**, each
    defaulting to §2a's production number; compose resolves them from the project `.env`
    at parse time. Those three are the knobs. Set them, not `DB_POOL_SIZE`, and the
-   `migrate` one-shot is fixed at 5 (`:181`) and is not tunable — correctly, it runs
+   `migrate` one-shot is fixed at 5 (`:191`) and is not tunable — correctly, it runs
    alone between the build and the swap.
 
 **Better than either: stop building on the box.** Build the image in GitHub-hosted CI,
@@ -1093,6 +1093,17 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
    **Env still wins over the store, deliberately** (§4): pasting a key into this file and
    restarting is the escape hatch for the night the console itself is what is broken.
 
+   **voice-runtime does not receive `PLATFORM_KEK`.** All three services read this one
+   file through `env_file`, but voice-runtime's `environment:` block in `compose.prod.yml`
+   sets `PLATFORM_KEK` and `PLATFORM_KEK_RETIRED` to empty, and Compose ranks
+   `environment` above `env_file`. It never unwraps a DEK (its config poll runs
+   `with_secrets=False`), and it is the service the internet reaches. Nothing changes for
+   the operator: the key is still written here once and api, workers and the `migrate`
+   one-shot still read it. To check a running stack:
+   `docker compose -p calevate -f compose.prod.yml exec voice-runtime sh -c 'printenv PLATFORM_KEK | wc -c'`
+   prints `1` (the newline alone), and the same command against `api` prints more — a
+   length, so the key itself never reaches a terminal or a scrollback.
+
    Never in git, never written by scripts; `vps-deploy.sh` aborts if absent, warns if it
    is not mode 600, and never prints a value. Pydantic Settings fails fast on missing
    keys, and §4 step 7 runs that check in the new image before any container is swapped.
@@ -1704,7 +1715,7 @@ with its evidence attached, exactly as §4d asks you to read the VPS deploy.
 |---|---|
 | **Artifact** | `apps/voice-worker/Dockerfile`, built from the REPOSITORY ROOT: `docker build -f apps/voice-worker/Dockerfile .` The workspace lock spans every member and `calevate-shared` is a workspace distribution, so the context cannot be narrower. |
 | **Base image** | `dailyco/pipecat-base`, which carries the entrypoint that imports `bot.py` and calls `bot(runner_args)` per session, and `uv`. Ours supplies neither. |
-| **Dependencies** | `uv sync --frozen --no-dev --package calevate-pipecat-worker` — 76 distributions, none of them arq, sentry-sdk or uvicorn. That is measured against this lockfile (15 Sep 2026, `uv sync --dry-run`), not estimated; `--all-packages`, which the root `Dockerfile` needs, would put the monolith's dependency surface in the container that answers the phone. |
+| **Dependencies** | `uv sync --frozen --no-dev --package calevate-pipecat-worker` — 77 distributions, none of them arq, sentry-sdk or uvicorn. That is measured against this lockfile (4 Oct 2026, `uv sync --dry-run`), not estimated; the root `Dockerfile`'s server set (api, voice-runtime, workers; D-667) or `--all-packages` would put the monolith's dependency surface in the container that answers the phone. |
 | **Manifest** | `apps/voice-worker/pcc-deploy.toml` — agent name, secret set, `agent-1x` profile, `min_agents = 1`. |
 | **Deploy verb** | `pipecat cloud auth login` (a browser login, one-time, a human), then `pipecat cloud secrets set calevate-pipecat-worker-secrets --file <file>`, then `pipecat cloud deploy`. |
 | **Logs** | `pipecat cloud agent logs calevate-pipecat-worker`. |

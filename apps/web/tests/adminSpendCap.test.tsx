@@ -111,6 +111,7 @@ const SPEND: TenantSpend = {
   minutes_used: "0.00",
   retainer_inr: null,
   revenue_inr: "0.00",
+  rental_revenue_inr: "0.00",
   cost_inr: "0.00",
   margin_inr: "0.00",
   margin_pct: null,

@@ -1905,6 +1905,10 @@ class MarginOut(BaseModel):
     minutes_used: str
     calls: int
     revenue_inr: str
+    #: The phone number rental inside `revenue_inr` (D-665) — its cost is a `number_rental`
+    #: usage row inside `cost_inr`. Always set by the route; the default only keeps it
+    #: optional in the generated web types.
+    rental_revenue_inr: str = "0.00"
     cost_inr: str
     margin_inr: str
     # None rather than "0.0" when nothing has been billed: "0% margin" and "nothing

@@ -540,6 +540,14 @@ async def rental_statement_lines(
     return lines
 
 
+async def rental_revenue_inr(session: AsyncSession, *, tenant_id: UUID, month: str) -> Decimal:
+    """What this tenant-month's rental periods were charged: the statement lines' sum, so
+    the margin board books exactly what the statement bills. Our cost of the same periods
+    is the `number_rental` usage row, already in every cost total."""
+    lines = await rental_statement_lines(session, tenant_id=tenant_id, month=month)
+    return sum((line["amount_inr"] for line in lines), Decimal("0.00"))
+
+
 __all__ = [
     "INVOICED_RENTAL_KIND",
     "RENTAL_CHARGE_LABEL",
@@ -558,6 +566,7 @@ __all__ = [
     "rental_inr",
     "rental_period_start",
     "rental_ref",
+    "rental_revenue_inr",
     "rental_statement_lines",
     "today_ist",
 ]

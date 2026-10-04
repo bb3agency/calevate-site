@@ -44,10 +44,13 @@ from .gst import (
     supplier_identity,
 )
 from .number_rental import rental_statement_lines
+from .rates import PREPAID_TIERS
 from .service import (
     BASE_OVERAGE_RUNG,
     SECOND_OVERAGE_RUNG,
     overage_rungs,
+    plan_tier_of,
+    prepaid_call_statement_lines,
     to_paise,
     usage_summary,
 )
@@ -370,11 +373,13 @@ async def build_invoice(
     Line items: the plan fee whenever the tenant has a plan (with a fee), the tenant's
     one-time charges for this month (the onboarding setup fee — `billing/charges.py`), the
     phone number rental debited from the wallet this month (`billing/number_rental.py`),
-    an overage line only when overage actually cost something, and — since D-455 — an
-    AI MODEL UPGRADE line only when the client's own model choice was surcharged. A ₹0.00
-    line on an invoice invites a dispute about nothing, so zero-amount overage (under the
-    included minutes, or a zero/absent rate), a zero or absent setup fee, and a plan that
-    quotes no model surcharge simply do not appear.
+    on a prepaid account the calling the wallet was debited for, by voice and lot rate
+    (`service.prepaid_call_statement_lines`), an overage line only when overage actually
+    cost something, and — since D-455 — an AI MODEL UPGRADE line only when the client's own
+    model choice was surcharged. A ₹0.00 line on an invoice invites a dispute about
+    nothing, so zero-amount overage (under the included minutes, or a zero/absent rate), a
+    zero or absent setup fee, and a plan that quotes no model surcharge simply do not
+    appear.
 
     **This function WRITES NOTHING.** It used to append the setup charge to
     `one_time_charges` the first time the onboarding month's statement was built, which
@@ -441,6 +446,15 @@ async def build_invoice(
     # PHONE NUMBER RENTAL (D-665), read from the wallet debits dated in this month, so it
     # lands on the statement of the month it was charged rather than the month it covers.
     line_items.extend(await rental_statement_lines(session, tenant_id=tenant_id, month=period))
+
+    # PREPAID CALLING, out of the wallet debits: each call was charged at the rates of the
+    # lots it drew from, so the statement reconciles to those debits rather than re-pricing
+    # minutes. `calling_revenue_inr` takes the same figure for the same motion. A managed
+    # account's calls take no debit, so the plan-priced lines below are its calling.
+    if await plan_tier_of(session, tenant_id) in PREPAID_TIERS:
+        line_items.extend(
+            await prepaid_call_statement_lines(session, tenant_id=tenant_id, month=period)
+        )
 
     overage_minutes: Decimal = usage["overage_minutes"]
     overage_cost: Decimal = usage["overage_cost_inr"]

@@ -758,7 +758,11 @@ async def test_an_erased_tenant_records_no_further_inbound_call() -> None:
     engine_clause = next(
         line for line in proof["limitations"] if "voice platform" in line and "manual" in line
     )
-    assert "still reaches an answering agent" in engine_clause
+    # What the owned runtime does (refuses the call) and what it cannot (release the number,
+    # stop a third-party platform's agent) are both stated.
+    assert "does not reach an answering agent" in engine_clause
+    assert "numbers are not released" in engine_clause
+    assert "answers until it is retired" in engine_clause
 
 
 @pytest.mark.anyio

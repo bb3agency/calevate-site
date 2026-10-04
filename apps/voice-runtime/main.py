@@ -62,10 +62,11 @@ async def _startup() -> AsyncIterator[None]:
     poll reading `platform_secrets`. With it on — which is what this line used to be — the
     refresh imported `apps.api.ops.secret_service` (a prefix this service's own FORBIDDEN
     list bans), SELECTed every stored credential and AES-GCM-unsealed all of them into
-    THIS process's `Settings`, three seconds after boot. `compose.prod.yml` gives all
-    three services the same `env_file`, so `PLATFORM_KEK` is here and the unseal
-    succeeded: the service whose guard says "the engine holds our keys, not this service"
-    held decrypted copies of the lot. It needs none of them — the only settings read on
+    THIS process's `Settings`, three seconds after boot. `compose.prod.yml` gave all
+    three services the same `env_file`, so `PLATFORM_KEK` was here and the unseal
+    succeeded (it now blanks the key for this service, a second wall behind this one):
+    the service whose guard says "the engine holds our keys, not this service" held
+    decrypted copies of the lot. It needs none of them — the only settings read on
     this path are the engine source-IP allowlist, the selected engine and `app_env`, all
     plain configuration — and the import hid from the boot graph because `_read_secrets`
     imports lazily, which is why the guard was green while the door stood open.
