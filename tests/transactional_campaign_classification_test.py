@@ -35,6 +35,7 @@ from apps.api.campaigns.service import (
     dispatch_blockers,
     launch_blockers,
 )
+from apps.api.core.settings import get_settings
 
 _AGENT_ID = uuid4()
 
@@ -52,6 +53,9 @@ def _facts(classification: str, **overrides: object) -> _CampaignFacts:
         "number_id": uuid4(),
         "number_dlt_status": "registered",
         "number_agent_id": _AGENT_ID,
+        # Held on the configured carrier for both legs, so the carrier rule is satisfied.
+        "number_provider": get_settings().carrier,
+        "number_direction": "both",
         "agent_id": _AGENT_ID,
         "agent_status": "published",
         "disclosure": "This is an AI assistant.",

@@ -19,8 +19,12 @@ So the column now holds `calevate_shared.carrier.CarrierName` or NULL:
    an account that does not hold it.
 4. A CHECK keeps it that way.
 
-RLS is unchanged: `phone_numbers` already carries its FORCEd tenant policy. The UPDATE runs
-as the migration role, which owns the table and is not subject to row security.
+RLS is unchanged: `phone_numbers` already carries its FORCEd tenant policy. FORCE makes the
+owner subject to it too, and `tenant_isolation` is fail-closed on an unset `app.tenant_id`,
+so an unbracketed UPDATE would match zero rows and the CHECK would then refuse the first
+non-carrier spelling. The UPDATE is bracketed in `NO FORCE` ... `FORCE` (`d3b71c9a5e08`):
+that lifts row security for the owner only, and DDL is transactional, so FORCE is back
+before commit.
 
 DOWNGRADE drops the CHECK only. The normalisation is not reversed: the original spellings
 are not kept anywhere, and putting back an invented one would be worse than leaving the
@@ -55,11 +59,13 @@ _SPELLINGS: dict[str, str] = {
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '3s'")
     cases = " ".join(f"WHEN '{spelling}' THEN '{name}'" for spelling, name in _SPELLINGS.items())
+    op.execute("ALTER TABLE phone_numbers NO FORCE ROW LEVEL SECURITY")
     op.execute(
         "UPDATE phone_numbers SET provider = "
         f"CASE lower(btrim(provider)) {cases} ELSE NULL END "
         "WHERE provider IS NOT NULL"
     )
+    op.execute("ALTER TABLE phone_numbers FORCE ROW LEVEL SECURITY")
     op.execute(
         f"ALTER TABLE phone_numbers ADD CONSTRAINT {_CHECK} "
         "CHECK (provider IS NULL OR provider IN ('vobiz', 'plivo'))"

@@ -28,4 +28,4 @@ def test_the_argument_answers_the_case_that_is_actually_uncovered() -> None:
     # The two bounds the decision rests on. If either stops being the reason, the decision
     # has to be re-made rather than re-worded — so they are named here, not paraphrased.
     assert "_tick_lease" in argument
-    assert "_outbound_pool" in argument
+    assert "outbound_line_pool" in argument

@@ -113,7 +113,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import INDEX_PREDICATE
 from apps.api.billing.lots import AiAssistDemand
-from apps.api.billing.plans import IST, ist_month_window, parse_billing_month
+from apps.api.billing.plans import (
+    IST,
+    billing_month_of_ist_date,
+    ist_month_window,
+    parse_billing_month,
+)
 from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING
 from apps.api.billing.service import plan_tier_of, record_usage_from_lots, to_paise
 from apps.api.billing.trials import trial_covers
@@ -342,7 +347,7 @@ async def charge_number_rental(
         raise ValueError("a rental price must be positive; refusing to charge a number for it")
     if period_start != rental_period_start(anchor, period_start):
         raise ValueError("period_start must be a renewal date of this number")
-    ref = rental_ref(number_id, period_start.strftime("%Y-%m"))
+    ref = rental_ref(number_id, billing_month_of_ist_date(period_start))
     amount = to_paise(inr_per_month)
     meta: dict[str, Any] = {
         "kind": RENTAL_CHARGE_META_KIND,
@@ -401,7 +406,7 @@ async def invoice_number_rental(
     """
     if inr_per_month <= 0:
         raise ValueError("a rental price must be positive; refusing to invoice a number for it")
-    month = period_start.strftime("%Y-%m")
+    month = billing_month_of_ist_date(period_start)
     row = (
         await session.execute(
             text(_INSERT_INVOICED_RENTAL),

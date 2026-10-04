@@ -226,6 +226,7 @@ async def test_a_missing_public_address_is_refused_before_any_request(
 
     class _NoHooks:
         webhook_base_url = ""
+        carrier_recording_enabled = False  # D-668: read when the dial profile is chosen
 
     monkeypatch.setattr(pipecat_module, "get_settings", lambda: _NoHooks())
     stub = _Vobiz(httpx.Response(200, json={"request_uuid": "never"}))
@@ -327,6 +328,7 @@ async def test_outside_local_a_callback_base_a_carrier_cannot_reach_is_refused(
     class _Deployed:
         app_env = "production"
         webhook_base_url = base
+        carrier_recording_enabled = False
 
     monkeypatch.setattr(pipecat_module, "get_settings", lambda: _Deployed())
     stub = _Vobiz(httpx.Response(200, json={"request_uuid": "never"}))

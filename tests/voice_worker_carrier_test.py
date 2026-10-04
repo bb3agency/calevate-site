@@ -41,6 +41,7 @@ from urllib.parse import quote
 
 import bot
 import pytest
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, owned_runtime_agent_ref
 from loguru import logger
@@ -423,6 +424,26 @@ async def _settle() -> None:
 FACT = "Trouser alteration is eighty rupees."
 
 
+async def _publish_on_the_fixtures_engine(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, fact: str
+) -> None:
+    """`_publish_a_fact` on the fake engine, which is the engine the KB fixture's agent row
+    names (a `fakeagent_` ref with a `fake` route).
+
+    `pipecat_deployment` sets `ENGINE=pipecat` for the call under test, and `publish_source`
+    attaches through the configured engine, which does not hold that ref. The pack pointer
+    the call reads is written by the publish whichever engine attaches, which is what
+    `voice_worker_session_test` relies on too."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("ENGINE", "fake")
+        get_settings.cache_clear()
+        try:
+            await _publish_a_fact(tenant_id, agent_id, fact)
+        finally:
+            patch.undo()
+            get_settings.cache_clear()
+
+
 async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first(
     s3: FakeS3,
     worker_token: None,
@@ -438,7 +459,7 @@ async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first
     event.
     """
     tenant_id, agent_id = await _runtime_agent()
-    await _publish_a_fact(tenant_id, agent_id, FACT)
+    await _publish_on_the_fixtures_engine(tenant_id, agent_id, FACT)
     await _number_for(tenant_id, agent_id)
     transport = ConnectableFakeTransport()
     observed: dict[str, Any] = {}
@@ -677,7 +698,7 @@ async def test_the_carrier_path_logs_no_phone_number_and_no_transcript_text(
     a knowledge-shaped log line would be tempted to print.
     """
     tenant_id, agent_id = await _runtime_agent()
-    await _publish_a_fact(tenant_id, agent_id, FACT)
+    await _publish_on_the_fixtures_engine(tenant_id, agent_id, FACT)
     e164 = await _number_for(tenant_id, agent_id)
     transport = ConnectableFakeTransport()
 
@@ -781,14 +802,13 @@ async def test_the_entrypoint_routes_a_call_by_the_ref_in_the_sockets_url() -> N
     ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
     args = _RunnerArgsWithPath(websocket=_SocketAt(f"/ws/{quote(ref, safe='')}"))
 
-    call_id, routed_tenant, routed_agent, direction = await bot.resolve_call_identity(
-        cast(Any, args)
-    )
+    identity = await bot.resolve_call_identity(cast(Any, args))
 
-    assert (routed_tenant, routed_agent) == (tenant_id, agent_id)
-    assert direction == "inbound"
+    assert (identity.tenant_id, identity.agent_id) == (tenant_id, agent_id)
+    assert identity.direction == "inbound"
+    assert identity.unverified_claim is None
     # OURS, not the carrier's (§1.2): a uuid this process minted, not an id off the wire.
-    assert uuid.UUID(call_id).version == 7
+    assert uuid.UUID(identity.call_id).version == 7
 
 
 @pytest.mark.parametrize(

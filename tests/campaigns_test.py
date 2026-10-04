@@ -63,9 +63,9 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
 
     `_quiesce` settles the calls and campaigns this module created; it cannot settle
     the ones a SECOND pytest process is creating right now against the same Postgres,
-    and the outbound pool is deliberately platform-wide. At the pilot default of 10
-    lines (6 after the inbound reserve), five in-flight calls belonging to somebody
-    else's run leave a budget of ONE — the tick then claims one contact instead of two,
+    and the outbound pool is deliberately platform-wide. At the default of three carrier
+    lines (two outbound after the inbound reserve, D-663), one in-flight call belonging
+    to somebody else's run leaves a budget of ONE — the tick then claims one contact instead of two,
     and the DNC-after-launch test below fails on the contact it never reached. That is
     the dispatcher obeying rule 1 correctly; the test was the thing assuming it had the
     platform to itself.
@@ -74,7 +74,7 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     ceilings these tests DO measure — the per-tenant `concurrency_ceiling` (rule 3) and
     the per-campaign slider (rule 4) — are per tenant and untouched by the pool size.
     """
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10_000)
 
 
 # Tenants this module created, and whether the one-time sweep of earlier runs has run.

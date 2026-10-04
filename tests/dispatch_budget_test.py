@@ -287,9 +287,9 @@ async def test_a_reserve_that_swallows_the_pool_stops_every_dial_and_says_so(
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="Squeezed", phones=("9876610001",)
     )
-    # Fewer total lines than the minimum inbound reserve: reserve >= total, pool = 0.
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 3)
-    assert campaign_dispatch.MIN_INBOUND_RESERVE == 4, "the fixture depends on this floor"
+    # A carrier account too small to spare an outbound line after the inbound reserve
+    # (D-663; `carrier_line_cap_test` proves one line gives a pool of 0).
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 0)
     fired = _capture_alerts(monkeypatch)
 
     outcome = await campaign_dispatch._run_tick()
@@ -332,8 +332,8 @@ async def test_the_shared_pool_is_spent_once_and_the_second_campaign_waits(
         phones=("9876620003", "9876620004"),
     )
 
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
-    # pool = 10 - max(4, 10*0.3) = 6, and five of those lines are already busy
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 6)
+    # pool = 6, and five of those lines are already busy
     # platform-wide, so exactly one dial may be placed this tick.
     _pin_scan(monkeypatch, [TenantWork(tenant_id, 5, True, False, False)])
 
@@ -392,7 +392,7 @@ async def test_a_tenant_that_gets_no_line_before_the_budget_runs_out_is_reported
         phones=("9876640002",),
     )
 
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 6)
     # pool = 6, five lines already busy platform-wide: exactly one dial this tick, and
     # the tenant holding those five is ahead in the spend order.
     _pin_scan(
@@ -424,21 +424,12 @@ async def test_a_tenant_that_gets_no_line_before_the_budget_runs_out_is_reported
 
 
 async def test_a_tenant_ceiling_can_never_exceed_the_pool_that_exists() -> None:
-    """The relationship between the two constants is ASSERTED here, not coincidental.
+    """A per-tenant ceiling larger than the outbound pool is not a ceiling.
 
-    This shipped as `PLATFORM_LINES_TOTAL = 10`, `MIN_INBOUND_RESERVE = 4` (outbound pool
-    = 6) and `DEFAULT_CONCURRENCY_CEILING = 10` — a per-tenant ceiling half again larger
-    than the entire platform, which is not a ceiling at all. It was only ever safe
-    because a SECOND check downstream (`global_budget`) happened to catch it.
-
-    Two things are asserted, because two different edits break this:
-
-    1. the default ceiling is DERIVED from the line total, so raising one without the
-       other is not something a person can do by typing;
-    2. `_tenant_ceiling` clamps, so a `plans` row selling 50 lines on a 6-line platform
-       narrows to 6 rather than granting a tenant the switchboard.
+    The default ceiling IS the pool (a tenant with no `plans` row gets the pool, D-663),
+    and `_tenant_ceiling` clamps, so a `plans` row selling 50 lines on a 2-line account
+    narrows to the pool rather than granting a tenant the switchboard.
     """
-    assert campaign_dispatch.DEFAULT_CONCURRENCY_CEILING <= campaign_dispatch.PLATFORM_LINES_TOTAL
     pool = campaign_dispatch._outbound_pool()
     assert pool > 0, "the fixture depends on a non-empty pool"
     for configured in (None, 0, 1, pool, pool + 1, 50, 10_000):
@@ -477,7 +468,7 @@ async def test_a_ceiling_above_the_pool_does_not_let_one_tenant_claim_lines_that
             name=f"{name} of three",
             phones=(f"98766{abs(hash(name)) % 100000:05d}",),
         )
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 6)
     pool = campaign_dispatch._outbound_pool()
     assert pool == 6, pool
     _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False, False)])
@@ -541,11 +532,10 @@ class _RefusingEngine(FakeEngine):
     """The engine raising out of the vendor call ITSELF — a 5xx, a reset, a proxy that
     gave up after the request had already gone.
 
-    Not a rate limit, which this used to name and which now belongs to
-    `_ThrottledEngine` below. D-181 turns on exactly that distinction: a failure raised
-    from inside the call cannot rule out a ringing phone, so `dispatch_call` answers
-    `DialUnconfirmedError`; one refused before the request left the process can, so the
-    original `ProblemError` propagates and the retry ladder still means something.
+    Not a refusal of the request (`_VendorRefusingEngine` below). D-181 turns on exactly
+    that distinction: a failure raised from inside the call cannot rule out a ringing
+    phone, so `dispatch_call` answers `DialUnconfirmedError`; one refused before anything
+    rang propagates as itself and the retry ladder still means something.
     """
 
     async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
@@ -620,37 +610,21 @@ async def test_a_dial_the_vendor_may_have_started_ends_the_contact_rather_than_r
     assert int(escalations or 0) == 1, "the exhausted contact is escalated exactly once"
 
 
-class _ThrottledEngine(FakeEngine):
-    """The engine refusing the dial with a code that PROVES no line was seized.
-
-    `engine_rate_limited` is the adapter's own 429-with-the-ladder-exhausted, and the
-    adapter raises it instead of sending the request. That is the difference this class
-    exists to express: `_RefusingEngine` above raises out of the vendor call and cannot
-    rule out a ringing phone, so `dispatch_call` answers `DialUnconfirmedError`; this one
-    is refused BEFORE the request leaves the process, so the original `ProblemError`
-    propagates and the contact keeps its retry ladder.
-    """
-
-    async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
-        raise ProblemError(
-            kind="dependency",
-            code="engine_rate_limited",
-            title="Voice engine is throttling us",
-            detail="The voice platform refused the request without placing a call.",
-        )
-
-
 async def test_a_refusal_that_proves_no_line_was_seized_spends_the_ladder_and_counts_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The OTHER end of the ladder, and the one D-181 left untested.
 
-    `DIAL_NOT_PLACED_CODES` is the whole reason the ladder still exists after D-181: a
-    vendor refusal that happened before any request went out is the only kind that can
-    honestly be retried, so it is the only kind routed to `_record_failure` rather than
-    to the terminal unconfirmed path. When that refusal lands on the LAST rung the
-    contact is finished with, and the tick must count it — `exhausted` is what turns
-    "this lead was never reached" into an escalation somebody acts on.
+    A vendor refusal of the REQUEST proves nothing rang, so it can honestly be retried and
+    is routed to `_record_failure` rather than to the terminal unconfirmed path. When that
+    refusal lands on the LAST rung the contact is finished with, and the tick must count
+    it — `exhausted` is what turns "this lead was never reached" into an escalation
+    somebody acts on.
+
+    Driven with a `400` (`_VendorRefusingEngine`), the one not-placed refusal that can be
+    about the contact's own number. Since D-663 the refusals about OUR side (pacing, line
+    limits, `engine_rate_limited`) refund the attempt instead of spending it
+    (`campaign_dispatch._refused_on_our_side`), so they never reach the last rung.
 
     The call row is where the two outcomes are told apart, and it is asserted here for
     that reason: `failed`, because the vendor proved nothing rang, rather than the
@@ -667,7 +641,7 @@ async def test_a_refusal_that_proves_no_line_was_seized_spends_the_ladder_and_co
             {"c": campaign_id},
         )
 
-    monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: _ThrottledEngine())
+    monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: _VendorRefusingEngine())
 
     result = await campaign_dispatch._dispatch_for_campaign(
         tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
@@ -1020,7 +994,7 @@ async def test_a_campaign_that_raises_does_not_stop_the_tenants_after_it(
     tenant after it on every tick, with no alarm. Now it is skipped, named, and the next
     tenant still dials."""
     first_id, second_id, second_campaign = await _two_launched_tenants()
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 6)
     _pin_scan(
         monkeypatch,
         [TenantWork(first_id, 0, True, False, False), TenantWork(second_id, 0, True, False, False)],
@@ -1053,7 +1027,7 @@ async def test_a_plan_or_callback_step_that_raises_is_isolated_too(
     """The other two per-tenant steps: firing schedules / reading the budget, and the
     call-back loop that runs before any campaign."""
     first_id, second_id, _second_campaign = await _two_launched_tenants()
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 6)
     _pin_scan(
         monkeypatch,
         [TenantWork(first_id, 0, True, False, True), TenantWork(second_id, 0, True, False, False)],

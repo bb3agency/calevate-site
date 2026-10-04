@@ -366,7 +366,8 @@ async def test_an_erased_tenant_is_skipped() -> None:
     number_id, _ = await _priced_number(tenant_id, bought_days_ago=40)
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE organizations SET deleted_at = now() WHERE id = :tid"),
+            # `ck_organizations_deleted_implies_churned` (D-122) moves `status` with it.
+            text("UPDATE organizations SET status = 'churned', deleted_at = now() WHERE id = :tid"),
             {"tid": tenant_id},
         )
     await renew_number_rentals({})

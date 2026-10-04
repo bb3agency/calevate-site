@@ -74,7 +74,7 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     fixture, same reason, as `campaigns_test`: a second pytest process holding lines
     would starve the tick and this suite would fail on the contact it never reached,
     which is the dispatcher obeying FLOWS §5 rule 1 rather than a DNC defect."""
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10_000)
 
 
 class _Turn:

@@ -222,6 +222,8 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/numbers": {
         "e164": f"+9198{uuid.uuid4().int % 100000000:08d}",
         "series": "160",
+        # Required since D-663: the dial gate presents a number only on its own carrier.
+        "provider": "vobiz",
     },
     "POST /v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status": {
         "dlt_status": "registered"

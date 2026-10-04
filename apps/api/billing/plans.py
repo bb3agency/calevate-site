@@ -82,7 +82,7 @@ thing an end date must prevent.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -192,6 +192,18 @@ def ist_billing_month(moment: datetime) -> str:
     if moment.tzinfo is None:
         raise ValueError("a billing month needs an aware instant (timestamptz or UTC-aware)")
     return moment.astimezone(IST).strftime("%Y-%m")
+
+
+def billing_month_of_ist_date(day: date) -> str:
+    """The billing month an IST calendar date is in — `"2026-08"`.
+
+    For a value that is already a day on the IST calendar (a number's rental period
+    start), so there is no instant to convert. A `datetime` is refused because it IS a
+    `date` to the type system and would skip the conversion `ist_billing_month` does.
+    """
+    if isinstance(day, datetime):
+        raise TypeError("an instant's billing month is ist_billing_month(); this takes a date")
+    return day.strftime("%Y-%m")
 
 
 def parse_billing_month(month: str) -> tuple[int, int]:

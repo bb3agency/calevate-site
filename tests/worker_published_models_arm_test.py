@@ -28,17 +28,33 @@ pytestmark = [pytest.mark.rls]
 
 async def _give_the_arm_another_voice(tenant_id: uuid.UUID, arm_ref: str) -> None:
     """The fixture publishes both rows with Cartesia; the arm is moved to Gnani so a reader
-    that picked it would answer differently."""
+    that picked it would answer differently.
+
+    `agent_config_versions` is append-only (hard rule 4), so the arm gets a NEW version row
+    carrying the Gnani voice and its `pipecat_agents` row is re-pointed at it, which is what
+    a republish of the arm does."""
+    new_version = uuid.uuid4()
     async with tenant_session(tenant_id) as session:
-        result = await session.execute(
+        inserted = await session.execute(
             text(
-                "UPDATE agent_config_versions SET model_config = jsonb_set(model_config, "
-                "'{tts_provider}', '\"gnani\"') WHERE id = (SELECT agent_config_version_id "
-                "FROM pipecat_agents WHERE engine_agent_ref = :ref)"
+                "INSERT INTO agent_config_versions (id, tenant_id, agent_id, prompt_sha256, "
+                "model_config_sha256, composed_prompt, opening_line, model_config) "
+                "SELECT :nv, v.tenant_id, v.agent_id, v.prompt_sha256, "
+                "encode(sha256(convert_to(CAST(:nv AS text), 'UTF8')), 'hex'), v.composed_prompt, "
+                "v.opening_line, jsonb_set(v.model_config, '{tts_provider}', '\"gnani\"') "
+                "FROM agent_config_versions AS v JOIN pipecat_agents AS p "
+                "ON p.agent_config_version_id = v.id WHERE p.engine_agent_ref = :ref"
             ),
-            {"ref": arm_ref},
+            {"nv": new_version, "ref": arm_ref},
         )
-        assert result.rowcount == 1, "the arm must have its own version row"
+        assert inserted.rowcount == 1, "the arm must have its own published row"
+        await session.execute(
+            text(
+                "UPDATE pipecat_agents SET agent_config_version_id = :nv "
+                "WHERE engine_agent_ref = :ref"
+            ),
+            {"nv": new_version, "ref": arm_ref},
+        )
 
 
 async def test_a_settlement_naming_no_version_is_priced_from_the_agents_own_row() -> None:

@@ -102,7 +102,7 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     this file is about rule 1 — see `compliance_audit_test` for the same fixture and the
     same reasoning.
     """
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10_000)
 
 
 # Every tenant this module made, so the teardown below can settle exactly those and
@@ -1477,10 +1477,11 @@ async def test_a_dial_the_vendor_refused_outright_keeps_its_place_on_the_ladder(
     """The other side of the same branch, and the reason it is a branch at all.
 
     A 429 with the throttle ladder exhausted says nothing about the request and seizes no
-    line, so the contact goes back on the ladder like any other failed attempt — treating
-    it as "may have rung" would burn a reachable lead for a reason that was ours. The
-    call row is closed as `failed` rather than left `queued`: nothing rang, so it must
-    not sit in the in-flight bucket forever.
+    line — treating it as "may have rung" would burn a reachable lead for a reason that
+    was ours. Since D-663 it is a refusal on OUR side (`_refused_on_our_side`): counted as
+    blocked, the attempt refunded and the contact back to `pending`, so not even one rung
+    is spent. The call row is closed as `failed` rather than left `queued`: nothing rang,
+    so it must not sit in the in-flight bucket forever.
     """
     tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876820001",), slider=1)
 
@@ -1494,9 +1495,9 @@ async def test_a_dial_the_vendor_refused_outright_keeps_its_place_on_the_ladder(
 
     monkeypatch.setattr(FakeEngine, "start_outbound_call", rate_limited)
     outcome = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
-    assert outcome == {"dialled": 0, "blocked": 0, "exhausted": 0}, outcome
-    assert await _contacts(tenant_id, campaign_id) == [("pending", 1)], (
-        "a refusal that reached no line leaves the contact on the ladder"
+    assert outcome == {"dialled": 0, "blocked": 1, "exhausted": 0}, outcome
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0)], (
+        "a refusal about our own account leaves the contact on the ladder, attempt refunded"
     )
     async with tenant_session(tenant_id) as session:
         statuses = (

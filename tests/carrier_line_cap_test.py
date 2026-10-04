@@ -271,7 +271,7 @@ async def test_a_full_pool_refuses_the_dial_before_its_row_exists(
     async def _full(*_: Any, **__: Any) -> int:
         return 2
 
-    monkeypatch.setattr(agents_service, "carrier_lines_in_use", _full)
+    monkeypatch.setattr(agents_service, "_count_carrier_lines", _full)
     async with untenanted_session() as session:
         with pytest.raises(ProblemError) as raised:
             await agents_service._hold_carrier_line(session, carrier="vobiz")
@@ -280,7 +280,7 @@ async def test_a_full_pool_refuses_the_dial_before_its_row_exists(
     async def _one_free(*_: Any, **__: Any) -> int:
         return 1
 
-    monkeypatch.setattr(agents_service, "carrier_lines_in_use", _one_free)
+    monkeypatch.setattr(agents_service, "_count_carrier_lines", _one_free)
     async with untenanted_session() as session:
         await agents_service._hold_carrier_line(session, carrier="vobiz")
 

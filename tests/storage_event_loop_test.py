@@ -173,7 +173,7 @@ async def test_a_recording_upload_does_not_freeze_the_loop(
     """`copy_recording`'s fetch was already async and its UPLOAD was not, so the cheap
     half yielded and the expensive half — a whole recording — did not."""
 
-    async def _fake_fetch(source_url: str) -> bytes:
+    async def _fake_fetch(source_url: str, **_auth: object) -> bytes:
         return b"RIFF-audio"
 
     monkeypatch.setattr(storage, "_fetch_recording", _fake_fetch)

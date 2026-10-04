@@ -77,7 +77,7 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
 def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     """The outbound pool is platform-wide and this suite is not alone on the database;
     FLOWS §5 rule 1 is asserted in `dispatch_scale_test.py`, not here."""
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10_000)
 
 
 _TENANTS: list[uuid.UUID] = []

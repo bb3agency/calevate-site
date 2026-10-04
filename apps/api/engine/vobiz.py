@@ -523,7 +523,7 @@ class VobizCarrier:
                 kind="dependency",
                 code="carrier_recording_call_mismatch",
                 title="The recording belongs to a different call",
-                detail="The telephony carrier attributes this recording to another call.",
+                detail="The telephony carrier says this recording belongs to another call.",
                 failure_stage="CORE_LOGIC",
             )
         url = found.get("recording_url")

@@ -84,7 +84,7 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     on the database. Pinning it above anything here dials keeps FLOWS §5 rule 1 from
     deciding the outcome of a test about scheduling. Rule 1 is asserted in
     `dispatch_scale_test.py`, not here."""
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10_000)
 
 
 # --------------------------------------------------------------------------- fixtures

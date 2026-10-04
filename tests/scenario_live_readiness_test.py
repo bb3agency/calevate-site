@@ -289,7 +289,8 @@ async def test_a_caller_who_says_goodbye_is_hung_up_on_after_the_agent_says_good
 
     # ORDER AT THE SPEECH LEG: the goodbye and the end of its response, then the request
     # to end. Downstream and ordered, so the goodbye is flushed before the pipeline ends.
-    seen = run.tts.seen
+    # Read downstream only: the worker's upstream echo of the same request is not a second one.
+    seen = run.tts.downstream
     goodbye_at = max(
         i for i, f in enumerate(seen) if isinstance(f, LLMTextFrame) and f.text == GOODBYE_REPLY
     )

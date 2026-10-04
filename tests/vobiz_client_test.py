@@ -16,6 +16,7 @@ import httpx
 import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.engine import vendor_http
+from apps.api.engine.carrier import RING_TIMEOUT_S
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.engine.vobiz import VobizCarrier, application_name, parse_cdr, parse_event
 
@@ -66,6 +67,7 @@ async def _dial(carrier: VobizCarrier) -> str:
         hangup_url="https://hooks.example/carrier/v1/vobiz/events/r/outbound/c",
         ring_url="https://hooks.example/carrier/v1/vobiz/events/r/outbound/c",
         time_limit_s=660,
+        ring_timeout_s=RING_TIMEOUT_S,
     )
     return placed.carrier_call_id
 
@@ -91,6 +93,7 @@ async def test_call_create_sends_the_documented_request() -> None:
         "ring_url": "https://hooks.example/carrier/v1/vobiz/events/r/outbound/c",
         "ring_method": "POST",
         "time_limit": 660,
+        "ring_timeout": RING_TIMEOUT_S,
     }
 
 

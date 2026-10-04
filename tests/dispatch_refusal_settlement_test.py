@@ -136,6 +136,9 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "tm_link_not_active": "the client re-authorises Calevate as its telemarketer",
     "number_not_bound_to_agent": "the registered number is bound to this campaign's agent",
     "number_not_registered": "the registrar approves the number's DLT header",
+    # D-663: facts about how the client's number is recorded, lifted by an operator act.
+    "number_not_on_carrier": "the number is recorded on the carrier calls now go out on",
+    "number_inbound_only": "the number is recorded as able to place outbound calls",
     # TRANSIENT, and it is the one entry here whose lifting fact is a MEASUREMENT rather
     # than something somebody sets (D-562/D-564). Two doors open it and both are real: the
     # client republishes the agent, whose read-back refuses unless the truthful-answer
@@ -291,15 +294,29 @@ def _blocker_rules(name: str, *, seen: frozenset[str] = frozenset()) -> set[str]
     if not any(pair in str(annotations.get("return", "")) for pair in _PAIR_RETURNS):
         return set()
     body = ast.parse(textwrap.dedent(inspect.getsource(func)))
+    tested = _membership_tuples(body)
     rules: set[str] = set()
     for node in ast.walk(body):
-        if isinstance(node, ast.Tuple) and node.elts:
+        if isinstance(node, ast.Tuple) and node.elts and id(node) not in tested:
             rules |= _literal_or_module_constant(node.elts[0], module)
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             inner = getattr(module, node.func.id, None)
             if inner is not None and inner is not func:
                 rules |= _blocker_rules_of(inner, seen=seen | {name})
     return rules
+
+
+def _membership_tuples(body: ast.AST) -> set[int]:
+    """Ids of tuples on the right of a comparison: values being tested, not a returned pair.
+
+    Without this `direction in ("outbound", "both")` reads as a rule named "outbound".
+    """
+    return {
+        id(comparator)
+        for node in ast.walk(body)
+        if isinstance(node, ast.Compare)
+        for comparator in node.comparators
+    }
 
 
 def _blocker_rules_of(func: Any, *, seen: frozenset[str]) -> set[str]:
@@ -311,9 +328,10 @@ def _blocker_rules_of(func: Any, *, seen: frozenset[str]) -> set[str]:
     if not any(pair in str(annotations.get("return", "")) for pair in _PAIR_RETURNS):
         return set()
     body = ast.parse(textwrap.dedent(inspect.getsource(func)))
+    tested = _membership_tuples(body)
     rules: set[str] = set()
     for node in ast.walk(body):
-        if isinstance(node, ast.Tuple) and node.elts:
+        if isinstance(node, ast.Tuple) and node.elts and id(node) not in tested:
             rules |= _literal_or_module_constant(node.elts[0], module)
     return rules
 

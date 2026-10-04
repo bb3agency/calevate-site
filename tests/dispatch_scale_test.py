@@ -199,7 +199,7 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the platform line pool (FLOWS §5 rule 1) above anything anyone else is
     dialling: the pool is deliberately platform-wide, and another suite's in-flight
     calls would otherwise decide how many contacts this one gets."""
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10_000)
 
 
 class Visits:

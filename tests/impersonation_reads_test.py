@@ -212,6 +212,12 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "client. What a client sees of this number is the rupee amount on their own "
         "invoice, which is already fully reachable through impersonation"
     ),
+    "/v1/ops/tts-prices/plan-fees": (
+        "the monthly voice-vendor plan fee the operator attested (PLAN-CREDIT-LOTS §12, "
+        "Phase D.3) — gated on platform:config for /v1/ops/model-prices' reason. It is OUR "
+        "supplier cost and has no client-realm counterpart: a client dashboard never shows "
+        "what Calevate pays a vendor, so a view-as session loses nothing by not reaching it"
+    ),
 }
 
 

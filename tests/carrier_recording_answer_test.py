@@ -130,8 +130,14 @@ def test_without_a_callback_base_the_call_is_still_recorded_and_alarmed(
     env: Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The agent has already told the caller it is recorded; dropping the recording would
-    make that false. The sweep finds it by call id instead."""
-    env(WEBHOOK_BASE_URL=None)
+    make that false. The sweep finds it by call id instead.
+
+    `webhook_base_url` has a non-empty default and a scheme pattern, so unsetting the
+    variable cannot produce an empty base; the settings object is copied without
+    validation to put the route in the state this arm defends against."""
+    env()
+    blank = get_settings().model_copy(update={"webhook_base_url": ""})
+    monkeypatch.setattr(carrier_routes, "get_settings", lambda: blank)
     raised: list[str] = []
     monkeypatch.setattr(carrier_routes, "alert", lambda _stage, code, **_kw: raised.append(code))
     contract = carrier_routes.CARRIER_ANSWER_CONTRACT["vobiz"]

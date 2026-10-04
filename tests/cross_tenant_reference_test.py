@@ -410,7 +410,12 @@ async def test_a_provisioned_number_cannot_name_a_neighbours_agent(
         response = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
             headers={"Authorization": f"Bearer {token}"},
-            json={"e164": _spare_number("160"), "series": "160", "agent_id": str(agent_a)},
+            json={
+                "e164": _spare_number("160"),
+                "series": "160",
+                "agent_id": str(agent_a),
+                "provider": "vobiz",
+            },
         )
 
     assert response.status_code == 404, response.text
@@ -443,14 +448,19 @@ async def test_provisioning_a_number_against_this_tenants_own_agent_still_works(
         attached = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
             headers={"Authorization": f"Bearer {token}"},
-            json={"e164": _spare_number("160"), "series": "160", "agent_id": str(agent_b)},
+            json={
+                "e164": _spare_number("160"),
+                "series": "160",
+                "agent_id": str(agent_b),
+                "provider": "vobiz",
+            },
         )
         # `agent_id` is nullable and a number provisioned before its agent exists is the
         # ordinary onboarding order — the guard must no-op on None, not refuse it.
         unattached = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
             headers={"Authorization": f"Bearer {token}"},
-            json={"e164": _spare_number(), "series": "standard"},
+            json={"e164": _spare_number(), "series": "standard", "provider": "vobiz"},
         )
 
     assert attached.status_code == 201, attached.text

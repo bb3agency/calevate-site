@@ -32,10 +32,11 @@ text, so this file's own prose cannot trip it.
 from __future__ import annotations
 
 import ast
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
-from apps.api.billing.plans import IST, ist_billing_month
+import pytest
+from apps.api.billing.plans import IST, billing_month_of_ist_date, ist_billing_month
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -122,3 +123,12 @@ def test_the_05_30_boundary_is_where_a_utc_month_would_have_been_wrong() -> None
     just_after_midnight_ist = datetime(2026, 9, 1, 0, 30, tzinfo=IST)
     assert just_after_midnight_ist.astimezone(UTC).strftime("%Y-%m") == "2026-08"
     assert ist_billing_month(just_after_midnight_ist) == "2026-09"
+
+
+def test_a_rental_period_date_has_its_own_door_and_an_instant_is_refused_at_it() -> None:
+    """A number's rental period starts on an IST calendar DATE, so there is nothing to
+    convert and the month is read straight off it. A `datetime` is a `date` subclass, so
+    without the refusal an instant could walk in here and skip the +05:30 conversion."""
+    assert billing_month_of_ist_date(date(2026, 8, 31)) == "2026-08"
+    with pytest.raises(TypeError):
+        billing_month_of_ist_date(datetime(2026, 8, 31, 23, 0, tzinfo=IST))

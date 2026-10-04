@@ -53,7 +53,17 @@ def _answering(monkeypatch: pytest.MonkeyPatch, status: int) -> list[httpx.Reque
             auth_id=cfg.vobiz_auth_id,
             auth_token=cfg.vobiz_auth_token,
             base_url=BASE,
-            client=httpx.AsyncClient(base_url=BASE, transport=httpx.MockTransport(handler)),
+            # An injected client carries its own auth headers (`VobizCarrier._new_client`
+            # adds them only to the client it opens itself), so they come from `cfg` here:
+            # the header assertion then proves the probe was handed the configured pair.
+            client=httpx.AsyncClient(
+                base_url=BASE,
+                headers={
+                    "X-Auth-ID": cfg.vobiz_auth_id or "",
+                    "X-Auth-Token": cfg.vobiz_auth_token or "",
+                },
+                transport=httpx.MockTransport(handler),
+            ),
         )
 
     monkeypatch.setattr(secret_probes, "build_carrier", build)

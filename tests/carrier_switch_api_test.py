@@ -98,6 +98,7 @@ async def test_every_plivo_operation_refuses_with_the_unread_evidence() -> None:
             hangup_url="h",
             ring_url="r",
             time_limit_s=60,
+            ring_timeout_s=30,
         ),
         carrier.hang_up("c"),
         carrier.transfer("c", redirect_url="u"),

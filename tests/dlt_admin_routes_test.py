@@ -169,7 +169,7 @@ async def test_a_client_owner_cannot_record_any_of_these_telecom_facts() -> None
             "numbers": await http.post(
                 NUMBERS.format(tenant_id=tenant_id),
                 headers=headers,
-                json={"e164": _e164("160"), "series": "160"},
+                json={"e164": _e164("160"), "series": "160", "provider": "vobiz"},
             ),
             "number_status": await http.post(
                 NUMBER_DLT.format(tenant_id=tenant_id, number_id=uuid.uuid4()),
@@ -234,7 +234,7 @@ async def test_provisioning_a_number_returns_it_pending_and_audits_the_series_on
             response = await http.post(
                 NUMBERS.format(tenant_id=tenant_id),
                 headers=_auth(token),
-                json={"e164": e164, "series": "160", "provider": "exotel", "purpose": "reception"},
+                json={"e164": e164, "series": "160", "provider": "vobiz", "purpose": "reception"},
             )
     assert response.status_code == 201, response.text
     body = response.json()
@@ -253,7 +253,7 @@ async def test_provisioning_a_number_returns_it_pending_and_audits_the_series_on
                 {"i": number_id},
             )
         ).one()
-    assert tuple(stored) == (e164, "160", "pending", "exotel", "reception")
+    assert tuple(stored) == (e164, "160", "pending", "vobiz", "reception")
 
     assert await _audit(tenant_id, "number.provisioned") == [
         ("phone_number", str(number_id), "127.0.0.1")
@@ -272,7 +272,7 @@ async def test_recording_the_registrars_verdict_moves_the_number_and_audits_it(
         created = await http.post(
             NUMBERS.format(tenant_id=tenant_id),
             headers=_auth(token),
-            json={"e164": _e164("140"), "series": "140"},
+            json={"e164": _e164("140"), "series": "140", "provider": "vobiz"},
         )
         number_id = created.json()["id"]
         with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
@@ -309,7 +309,7 @@ async def test_another_tenants_number_is_a_404_and_is_not_moved() -> None:
         created = await http.post(
             NUMBERS.format(tenant_id=other_id),
             headers=_auth(token),
-            json={"e164": _e164("160"), "series": "160"},
+            json={"e164": _e164("160"), "series": "160", "provider": "vobiz"},
         )
         stranger = created.json()["id"]
         crossed = await http.post(
@@ -577,7 +577,7 @@ async def test_a_mistyped_tenant_id_is_a_404_on_every_one_of_these_routes() -> N
             "numbers": await http.post(
                 NUMBERS.format(tenant_id=absent),
                 headers=_auth(token),
-                json={"e164": _e164("160"), "series": "160"},
+                json={"e164": _e164("160"), "series": "160", "provider": "vobiz"},
             ),
             "number_status": await http.post(
                 NUMBER_DLT.format(tenant_id=absent, number_id=uuid.uuid4()),
@@ -634,12 +634,12 @@ async def test_a_genuinely_taken_number_still_says_so() -> None:
         first = await http.post(
             NUMBERS.format(tenant_id=tenant_id),
             headers=_auth(token),
-            json={"e164": e164, "series": "160"},
+            json={"e164": e164, "series": "160", "provider": "vobiz"},
         )
         second = await http.post(
             NUMBERS.format(tenant_id=other_id),
             headers=_auth(token),
-            json={"e164": e164, "series": "160"},
+            json={"e164": e164, "series": "160", "provider": "vobiz"},
         )
     assert first.status_code == 201, first.text
     assert second.status_code == 409, second.text

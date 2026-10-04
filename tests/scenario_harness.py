@@ -312,10 +312,17 @@ class SpyProcessor(FrameProcessor):
     def __init__(self, name: str) -> None:
         super().__init__(name=name)
         self.seen: list[Frame] = []
+        #: Only what travelled downstream. `seen` also holds upstream frames, among them
+        #: the `EndWorkerFrame` that `PipelineWorker` re-queues UPSTREAM when a downstream
+        #: one reaches the sink (`pipecat/pipeline/worker.py:1564-1566`), so one hang-up
+        #: shows twice there.
+        self.downstream: list[Frame] = []
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
         self.seen.append(frame)
+        if direction == FrameDirection.DOWNSTREAM:
+            self.downstream.append(frame)
         await self.push_frame(frame, direction)
 
     def texts(self) -> list[str]:
@@ -400,6 +407,7 @@ class InterruptibleTTS(SpyProcessor):
         """
         await FrameProcessor.process_frame(self, frame, FrameDirection.DOWNSTREAM)
         self.seen.append(frame)
+        self.downstream.append(frame)
         self.spoken.append(frame.text)
         await self.push_frame(TTSStartedFrame(append_to_context=frame.append_to_context))
         text = TTSTextFrame(frame.text, aggregated_by=AggregationType.SENTENCE)

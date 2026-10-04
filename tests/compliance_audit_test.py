@@ -73,7 +73,7 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     doing. The rules this file actually measures — the per-tenant ceiling and the
     per-campaign slider — are per tenant and untouched by this.
     """
-    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 10_000)
 
 
 # ------------------------------------------------------------------ fixtures (rows)
